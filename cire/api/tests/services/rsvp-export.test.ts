@@ -220,7 +220,7 @@ describe("rsvpExportService.build", () => {
   );
 
   it(
-    "keeps a DIFFERENT dietary note per event instead of picking one (field report)",
+    "keeps a DIFFERENT dietary note per event instead of picking one",
     withDb(
       Effect.gen(function* () {
         // The bug as reported from a live wedding: a guest marked "fish only"
@@ -394,9 +394,9 @@ describe("rsvp-export CSV serialisation", () => {
           "Guest First Name",
           "Guest Last Name",
         ]);
-        // Two trailing columns: writer provenance (0037), then the plus-one's
+        // Two trailing columns: writer provenance, then the plus-one's
         // inviter, appended last so a saved spreadsheet's column letters hold.
-        // The aggregate "Dietary Requirements" column is gone — it could only
+        // There is no aggregate "Dietary Requirements" column — it could only
         // show one of a guest's per-event answers.
         expect(header.slice(-2)).toEqual(["Recorded By", "Plus-one Of"]);
         expect(header).not.toContain("Dietary Requirements");
@@ -422,7 +422,7 @@ describe("rsvp-export CSV serialisation", () => {
   );
 
   it(
-    "labels an organiser-attested reply 'Organiser' in the Recorded By column (0037)",
+    "labels an organiser-attested reply 'Organiser' in the Recorded By column",
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
@@ -680,7 +680,7 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
   );
 
   it(
-    "lists invited-but-unresponded guests, dropping them once they reply (0037)",
+    "lists invited-but-unresponded guests, dropping them once they reply",
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;

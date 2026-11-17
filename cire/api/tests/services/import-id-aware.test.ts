@@ -117,8 +117,8 @@ describe("ID-aware diff — rename by id ⇒ update, not remove+create", () => {
     expect(plan.guestRemoves).toHaveLength(0);
     expect(plan.guestCreates).toHaveLength(0);
     // …and the rename is an UPDATE that actually carries the new name. Survival
-    // alone is not the fix: the original bug was a match that consumed the row
-    // and then wrote nothing, so the rename silently vanished.
+    // alone is not enough: a match that consumes the row and then writes nothing
+    // loses the rename silently.
     expect(plan.familyUpdates).toEqual([{ id: testfam.id!, familyName: "Testfamily-Jones" }]);
 
     await Effect.runPromise(

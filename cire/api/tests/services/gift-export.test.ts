@@ -82,7 +82,7 @@ const silent = Logger.layer([]);
 
 /** Rows per insert statement, to stay well under SQLite's bound-variable cap. */
 const CHUNK = 100;
-// The kinds of the two tied gifts, in the order the promise path returns them today.
+// The kinds of the two tied gifts, in the order every read returns them.
 const TIE_ORDER = ["Gift list", "Cash gift"];
 
 /**
@@ -338,8 +338,8 @@ function asExportLine(e: GiftLogEntryDto): string {
 }
 
 describe("giftExportService.giftsCsv", () => {
-  // Tie order, pinned against the promise path before any change: a claim and a
-  // cash gift with the same created_at keep this order on every read.
+  // Tie order: a claim and a cash gift with the same created_at keep this order
+  // on every read.
   it(
     "orders a claim and a cash gift with the same created_at in a fixed order",
     withDb(

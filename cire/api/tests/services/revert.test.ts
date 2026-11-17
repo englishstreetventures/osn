@@ -1193,8 +1193,8 @@ describe("revertImport — scoped edge cases", () => {
   it("an events revert restores a zone the upload parser refuses, with the instant it had", async () => {
     const { db, layer } = scopedLayer();
     await applyChange(layer, "c0", SEED, 1_000);
-    // A value a stored row can hold but an upload may not carry, as a row saved
-    // before the editor door checked zones can (englishstreetventures/osn#1220).
+    // A zone a stored row can hold but an upload may not carry: the revert
+    // restores it as stored rather than through the upload parser.
     db.update(events).set({ timezone: "UTC+10" }).where(eq(events.name, "Mehndi")).run();
     const before = db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!;
     await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);

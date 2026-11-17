@@ -245,10 +245,9 @@ let db: Db;
 // The same 5_000ms default applies per TEST, and the bodies here are not cheap:
 // every statement is a real round-trip over workerd's loopback socket, so a test
 // that seeds 51 events one at a time takes ~6-9s on a CI box against ~0.4s
-// locally. That is the same flake wearing a different hat, and it tears the
-// suite down the same way — the run that prompted this saw the 51-pair test time
-// out at 5_000ms and the next test fail 16ms later on the poisoned stub. So the
-// budget covers hooks and tests alike: nothing Miniflare-backed races the
+// locally. A test that times out tears the suite down the same way: the 51-pair
+// test timing out at 5_000ms leaves the next test to fail on the poisoned stub.
+// So the budget covers hooks and tests alike: nothing Miniflare-backed races the
 // default.
 const MF_TIMEOUT_MS = 30_000;
 
@@ -1285,7 +1284,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // commitGroupedBatches rather than sent as one over-ceiling db.batch() call
       // (which D1 rejects outright). bun:sqlite cannot exercise this: commitBatch
       // feature-detects `.batch()` and falls back to a sequential loop there, so
-      // only the real (Miniflare-backed) D1 driver proves the fix.
+      // only the real (Miniflare-backed) D1 driver proves the chunking.
       const eventIds = Array.from({ length: 51 }, (_, i) => `evt_bulk_${i}`);
       // One insert per event, not a single 51-row bulk insert — the bulk form
       // trips D1's own bound-parameter ceiling on a single statement, a
@@ -1577,10 +1576,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "tasks.reorder commits its per-row updates over the D1 batch path",
     async () => {
-      // Regression guard: reorder used to run through db.transaction(), which the
-      // D1 driver implements as literal BEGIN/COMMIT (rejected by D1) with
-      // fire-and-forget .run() calls that the async driver never awaited. It now
-      // goes through commitBatch — this is the only D1 coverage of a reorder.
+      // reorder must go through commitBatch, not db.transaction(): the D1 driver
+      // implements a transaction as literal BEGIN/COMMIT (rejected by D1) with
+      // fire-and-forget .run() calls the async driver never awaits. This is the
+      // only D1 coverage of a reorder.
       const created: string[] = [];
       for (const title of ["first", "second", "third"]) {
         const dto = await run(

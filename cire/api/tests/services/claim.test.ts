@@ -146,7 +146,7 @@ describe("claimService.lookup", () => {
     withDb(
       Effect.gen(function* () {
         // This is the second, independent computation of the same rule — the
-        // RSVP service has its own — and neither was asserted anywhere. The
+        // RSVP service has its own — so each needs its own assertion. The
         // sheet re-lights its picker from `dietaryPresets` and decides whether
         // the consent box may open ticked from this boolean, so a row consented
         // against superseded wording has to come back `false`.

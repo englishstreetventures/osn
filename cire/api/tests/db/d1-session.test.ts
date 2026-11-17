@@ -391,8 +391,8 @@ describe("against a real D1", () => {
     "still works with no session in scope",
     async () => {
       // The degraded path: if the async context is ever lost, every query goes
-      // straight to the binding — which is exactly the behaviour before this
-      // change, so losing the context costs latency, never correctness.
+      // straight to the binding with no session, so losing the context costs
+      // latency, never correctness.
       const db: Db = createD1Db(createSessionRoutedClient(d1, "fetch"));
 
       let rows: { label: string }[] = [];

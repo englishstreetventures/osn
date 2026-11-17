@@ -142,11 +142,11 @@ describe("weddingRunSheet — the stored scope", () => {
 });
 
 describe("a helper scoped own receives no other person's assignments", () => {
-  // The condition the epic sets, asserted on a real HTTP response body rather
-  // than on what a page would render. The run-sheet route itself does not exist
-  // yet; this mounts the real gate over a route that returns the real filter's
-  // output, so the two halves that sub-issue 3 has to compose are proven to
-  // compose here.
+  // Asserted on a real HTTP response body rather than on what a page would
+  // render. The real run-sheet route lives in `src/routes/run-sheet.ts`; this
+  // mounts the real `weddingRunSheet` gate over a stand-in route that returns
+  // the scope filter `runSheetVisibleTo`'s output, so it checks that the gate's
+  // scope and the filter compose to hide every other person's assignment.
   const RUN_SHEET = [
     { id: "task_mine", title: "Carry the cake", assigneeHostIds: [HELPER_SEAT] },
     { id: "task_theirs", title: "Mind the rings", assigneeHostIds: [OTHER_SEAT] },

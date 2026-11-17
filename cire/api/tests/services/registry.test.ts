@@ -84,7 +84,7 @@ const newItem = (over: Partial<{ title: string; quantityWanted: number }> = {}) 
   category: null,
 });
 
-/** A succeeded contribution, written directly (Stripe lands in PR 5). */
+/** A succeeded contribution, written directly rather than through Stripe. */
 function seedContribution(
   db: Db0,
   over: Partial<{

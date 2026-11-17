@@ -936,7 +936,7 @@ describe("CSV input caps", () => {
   });
 
   it("rejects an unterminated quoted cell at EOF", async () => {
-    // Open quote that never closes — historically this would silently consume
+    // Open quote that never closes — a lenient parser would silently consume
     // the rest of the file as one giant cell.
     const csv = [
       EV_HEADER,

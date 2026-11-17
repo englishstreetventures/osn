@@ -373,8 +373,8 @@ describe("upgradeConflictReason", () => {
    *
    * SQLite names the COLUMNS a conflict was on and never the index that
    * enforced it, so a classifier matching on the index name reads correctly and
-   * can never fire. A literal-string test passes either way — which is how that
-   * mismatch survives review. This one asks the driver, with two DIFFERENT
+   * can never fire. A literal-string test passes either way, so it cannot catch
+   * that mismatch. This one asks the driver, with two DIFFERENT
    * products pending on one wedding, which the index refuses since it is on the
    * wedding alone.
    */
@@ -391,7 +391,7 @@ describe("upgradeConflictReason", () => {
 
     expect(message).toContain("UNIQUE constraint failed");
     expect(message).toContain("wedding_upgrade_purchases.wedding_id");
-    // The assertion that would have caught the original bug.
+    // The message names the columns, never the index.
     expect(message).not.toContain("one_pending");
     expect(upgradeConflictReason(message)).toBe("processing");
   });

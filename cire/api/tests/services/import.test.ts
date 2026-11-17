@@ -32,19 +32,6 @@ import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { beforeStatement, setTier } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
-/** Build a fresh in-memory DB layer for each test. */
-function freshDbLayer(seed: boolean) {
-  return Layer.effect(
-    DbService,
-    Effect.sync(() => {
-      const db = createDb(":memory:");
-      if (seed) seedDb(db);
-      else seedBootstrapWedding(db);
-      return db;
-    }),
-  );
-}
-
 const FOUR_EVENTS_CSV = [
   "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
   "Catholic Ceremony,2026-10-31T10:00:00+11:00,2026-10-31T13:00:00+11:00,Australia/Sydney,Example Parish,123 Example St,Semiformal,Blush:oklch(86% 0.05 12),,",
@@ -145,16 +132,7 @@ function seedOtherWedding(
 describe("applyImport + re-diff (idempotent)", () => {
   it("applying twice yields a no-op second plan", async () => {
     const { ev, fam } = await parsedFromCsv();
-    const layer = freshDbLayer(false);
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const plan1 = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
-        yield* applyImport("import-1", plan1, BOOTSTRAP_WEDDING_ID);
-      }).pipe(Effect.provide(layer)),
-    );
-
-    // Second run uses the SAME layer instance? Layer.effect recreates per use.
-    // Use a layer that returns the same db across two runs:
+    // One database under the apply and both diffs.
     const sharedDb = createDb(":memory:");
     seedBootstrapWedding(sharedDb);
     const sharedLayer = Layer.succeed(DbService, sharedDb);
@@ -515,9 +493,9 @@ describe("diff: wedding scoping (multi-tenant isolation)", () => {
     seedBootstrapWedding(db); // empty target wedding (the bootstrap scope)
 
     // A second, fully-populated wedding whose rows must stay invisible to a
-    // bootstrap-scoped diff. Before join-based scoping the unscoped reads would
-    // flag every one of these for removal (none appear in the bootstrap sheet)
-    // and applyImport would wipe the other tenant.
+    // bootstrap-scoped diff. A read not scoped by the join would flag every one
+    // of these for removal (none appear in the bootstrap sheet) and applyImport
+    // would wipe the other tenant.
     const other = seedOtherWedding(db);
 
     const layer = Layer.succeed(DbService, db);
@@ -1492,7 +1470,7 @@ describe("applyImport — the guest cap holds inside the write", () => {
   });
 });
 
-describe("event slugs: tenant-scoped uniqueness (migration 0051)", () => {
+describe("event slugs: tenant-scoped uniqueness", () => {
   it("mintEventSlug never mints an empty slug", () => {
     expect(mintEventSlug("Reception")).toBe("reception");
     expect(mintEventSlug("  Grand   Fête!  ")).toBe("grand-f-te");
@@ -1507,8 +1485,8 @@ describe("event slugs: tenant-scoped uniqueness (migration 0051)", () => {
   });
 
   it("two weddings can each import an event with the same name", async () => {
-    // Regression: events_slug_unique was GLOBAL pre-0051, so the second
-    // wedding's apply failed on UNIQUE(events.slug) for the same event name.
+    // Event slugs are unique per wedding: a global UNIQUE(events.slug) would
+    // fail the second wedding's apply for the same event name.
     const sharedDb = createDb(":memory:");
     seedBootstrapWedding(sharedDb);
     const other = seedOtherWedding(sharedDb);
@@ -1728,7 +1706,7 @@ describe("applyImport: finalize statements commit with the write set or not at a
   });
 });
 
-describe("applyImport: event timestamps (migration 0054)", () => {
+describe("applyImport: event timestamps", () => {
   it("stamps created_at + updated_at on create, bumps only updated_at on update", async () => {
     const { ev, fam } = await parsedFromCsv();
     const sharedDb = createDb(":memory:");

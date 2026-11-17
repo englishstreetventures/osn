@@ -7,11 +7,11 @@ import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 
 // `guests_plus_one_of_uniq` is PARTIAL (`WHERE plus_one_of_guest_id IS NOT
-// NULL`). As a full unique index over a column that is NULL on almost every
-// row, the planner costed `plus_one_of_guest_id IS NULL` as a near-unique probe
-// and drove the round-trip export's reads from it — walking every wedding's
-// guests to return one wedding's. These pin both halves of the fix: an
-// `IS NULL` filter no longer reaches the index, and an equality probe still does.
+// NULL`). A full unique index over a column that is NULL on almost every row
+// lets the planner cost `plus_one_of_guest_id IS NULL` as a near-unique probe
+// and drive the round-trip export's reads from it — walking every wedding's
+// guests to return one wedding's. These check both halves: an `IS NULL` filter
+// does not reach the index, and an equality probe still does.
 
 /** The plan SQLite chooses for a Drizzle query, one detail line per step. */
 function planOf(db: TestDb, query: { toSQL(): { sql: string; params: unknown[] } }): string[] {
@@ -26,7 +26,7 @@ function seeded(): TestDb {
   const db = createDb(":memory:");
   seedDb(db);
   // No ANALYZE: without statistics the planner costs indexes by their shape,
-  // which is where a full unique index made `IS NULL` look like a single row.
+  // which is where a full unique index makes `IS NULL` look like a single row.
   return db;
 }
 

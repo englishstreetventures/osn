@@ -115,7 +115,7 @@ describe("buildTransformCacheKey", () => {
     expect(new URL(v2.url).searchParams.get("v")).toBe("1718999999999");
   });
 
-  it("folds the per-wedding blur into the key so two blurs are cached apart (0018)", () => {
+  it("folds the per-wedding blur into the key so two blurs are cached apart", () => {
     const base = { slug: "s", slot: "hero", variant: "hero-bg", format: "image/webp" } as const;
     const b28 = buildTransformCacheKey({ ...base, blur: 28 });
     const b5 = buildTransformCacheKey({ ...base, blur: 5 });
@@ -194,7 +194,7 @@ describe("transformAsset", () => {
     expect(images.calls[0]!.blur).toBeGreaterThan(0);
   });
 
-  it("honours the per-wedding blur override on the hero-bg variant, incl. an explicit 0 (0018)", async () => {
+  it("honours the per-wedding blur override on the hero-bg variant, incl. an explicit 0", async () => {
     const override = createImagesStub();
     await Effect.runPromise(transformAsset(override, ORIGINAL, "hero-bg", "image/webp", 7));
     // The override (7) wins over the VARIANT_BLUR default.

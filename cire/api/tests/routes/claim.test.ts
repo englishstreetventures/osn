@@ -259,11 +259,11 @@ describe("POST /api/claim rate limiting", () => {
   });
 });
 
-// migration 0019: each EventSummary carries imageUrl — the first-party path to
-// the event's optional image (or null when none). The path's ?v= is the server-
-// derived FNV digest of the R2 key, never the timestamp the wedding-slot images
+// Each EventSummary carries imageUrl — the first-party path to the event's
+// optional image (or null when none). The path's ?v= is the server-derived
+// FNV digest of the R2 key, never the timestamp the wedding-slot images
 // use (events have no updated_at).
-describe("POST /api/claim event imageUrl (migration 0019)", () => {
+describe("POST /api/claim event imageUrl", () => {
   it("populates imageUrl for an event with a key, null for the rest", async () => {
     // Point one seeded event at an R2 key directly (no upload needed — the public
     // claim payload only needs the column populated).
@@ -354,7 +354,7 @@ describe("POST /api/claim event imageUrl (migration 0019)", () => {
 
 // The FAQ is written for the invited household, like the events: it rides the
 // claim response and never the public invite read.
-describe("POST /api/claim FAQ (migration 0064)", () => {
+describe("POST /api/claim FAQ", () => {
   const seedFaq = (id: string, question: string, sortOrder: number) =>
     db
       .insert(weddingFaqs)
@@ -790,7 +790,7 @@ describe("POST /api/claim/signout", () => {
     // …and the token is dead SERVER-side, which is the half that matters. A
     // cleared cookie alone would leave a live credential for anyone who
     // captured the token; this is what makes the control a real sign-out
-    // rather than the local-state reset it started as.
+    // rather than a local-state reset.
     expect((await getSession(cookie)).status).toBe(401);
   });
 

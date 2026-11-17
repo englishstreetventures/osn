@@ -13,9 +13,8 @@ import { InviteThemeBody, THEME_SECTIONS } from "../../src/schemas/invite";
  * interface. A renamed or added seed compiles fine on every side and silently
  * drops in transit: the guest ignores the unknown key and renders the default
  * preset, which looks like "the organiser didn't set anything" rather than a
- * bug. The deleted `invite-theme-preview.test.ts` used to catch exactly this
- * class of drift; sharing `derivePalette` removed the need for a MATHS mirror
- * but not for a NAME one.
+ * bug. Every side shares `derivePalette`, so no side mirrors the palette maths,
+ * but each still spells the names, and this test holds them together.
  *
  * Same spirit as `db/ddl-lockstep.test.ts`: fail in CI, not in a preview deploy.
  */
