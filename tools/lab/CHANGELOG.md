@@ -1,5 +1,14 @@
 # @tools/lab
 
+## 0.3.77
+
+### Patch Changes
+
+- 0789495: The cire button story's `bar` icon specimen is named "Add household", a
+  control that still draws that look, rather than the RSVP download, which is
+  now a labelled pill.
+- b49154c: The `SegmentedTabs` story sets the portals' new `--glass-ring`, so its light panel shows the chosen glass's readable-gold ring at 80% as the portals draw it.
+
 ## 0.3.76
 
 ### Patch Changes
