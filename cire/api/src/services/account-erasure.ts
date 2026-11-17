@@ -140,8 +140,12 @@ const quoted = (name: string): string =>
 const inProfiles = (column: AnySQLiteColumn, profileIds: ReadonlyArray<string>): SQL =>
   inArray(column, jsonEachIn(profileIds));
 
-/** An owner seat on `weddingId` held by none of `profileIds`. */
-const otherOwnerOn = (weddingId: SQL | string, profileIds: ReadonlyArray<string>): SQL =>
+/**
+ * An owner seat on `weddingId` held by none of `profileIds`: the rule both the
+ * preview and a host's removal list (`services/account-removal.ts`) read sole
+ * ownership by.
+ */
+export const otherOwnerOn = (weddingId: SQL | string, profileIds: ReadonlyArray<string>): SQL =>
   sql`EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} = 'owner' AND ${weddingHosts.osnProfileId} NOT IN ${jsonEachIn(profileIds)})`;
 
 // ---------------------------------------------------------------------------

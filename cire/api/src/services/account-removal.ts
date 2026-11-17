@@ -1,10 +1,11 @@
 /**
  * What a host's removal of their Cire data would do, as the portal's
  * "Remove my Cire data" screen lists it: every wedding a profile of the
- * account holds a seat on, with the seat's role and whether the wedding is
- * already deleted. Which of them the person alone owns comes from
- * `accountErasureService.preview`, the rule the removal itself refuses on, so
- * the list and the refusal cannot disagree. The removal runs the account
+ * account holds a seat on, with the seat's role, whether the person alone
+ * owns it, and whether it is already deleted. Sole ownership is read by the
+ * same predicate the account deletion's preview reads it by (`otherOwnerOn`),
+ * so the list and the refusal cannot disagree, past the preview's hundred
+ * too. The removal runs the account
  * erasure (`services/account-erasure.ts`) with the `host` scope; the route is
  * `routes/organiser-account.ts`.
  */
@@ -13,7 +14,8 @@ import { jsonEachIn } from "@shared/db-utils";
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, dbQuery, outerColumn } from "../db";
+import { otherOwnerOn } from "./account-erasure";
 
 /** Weddings the screen lists one by one; past it, it says how many more. */
 export const MAX_LISTED_SEATS = 200;
@@ -25,6 +27,8 @@ export interface RemovalSeat {
   readonly weddingId: string;
   readonly name: string;
   readonly role: SeatRole;
+  /** A live wedding whose every owner seat is one of the account's profiles: the removal deletes it. */
+  readonly soleOwner: boolean;
   /** The wedding is soft-deleted: the removal takes the last seat, and the purge then takes it. */
   readonly deleted: boolean;
 }
@@ -55,6 +59,7 @@ function seats(
           name: weddings.displayName,
           deletedAt: weddings.deletedAt,
           rank: RANK,
+          soleOwner: sql<number>`CASE WHEN ${RANK} = 1 AND ${weddings.deletedAt} IS NULL AND NOT ${otherOwnerOn(outerColumn(weddings.id), profileIds)} THEN 1 ELSE 0 END`,
           total: sql<number>`count(*) OVER ()`,
         })
         .from(weddingHosts)
@@ -71,6 +76,7 @@ function seats(
         weddingId: row.weddingId,
         name: row.name,
         role: ROLE_OF_RANK[Number(row.rank) - 1] ?? "helper",
+        soleOwner: Number(row.soleOwner) === 1,
         deleted: row.deletedAt !== null,
       })),
       more: Math.max(0, total - rows.length),

@@ -111,12 +111,8 @@ const plan = (profileIds: ReadonlyArray<string>, organiserOrigin: string) =>
         organiserOrigin,
       }),
     ]);
-    const soleOwned = new Set(actions.map((action) => wireAction(action).weddingId));
     return {
-      weddings: listed.seats.map((seat) => ({
-        ...seat,
-        soleOwner: soleOwned.has(seat.weddingId),
-      })),
+      weddings: listed.seats,
       more: listed.more,
       openActions: actions.map(wireAction),
       actions,
