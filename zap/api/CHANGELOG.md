@@ -1,5 +1,11 @@
 # @zap/api
 
+## 0.10.7
+
+### Patch Changes
+
+- 6e266e1: Tests only: 12 cases and one assertion go, each against a remaining case seen failing with that case's behaviour broken; the non-numeric `limit` 422, the D1 non-member refusal and the erasure's parameter binding could not fail and now can, and the concurrent duplicate add reaches its unique-constraint catch on every run. The D1 tier gains a case that the consent gate fails closed and a check that a direct message lands exactly two members.
+
 ## 0.10.6
 
 ### Patch Changes
