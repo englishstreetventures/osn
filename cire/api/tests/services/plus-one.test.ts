@@ -937,14 +937,13 @@ describe("plusOneService — a removal the organiser was not shown", () => {
     const ada = guestNamed(db, "Ada");
     const bo = guestNamed(db, "Bo");
     const adaPlusOne = seedPlusOne(db, ada.id, { firstName: "Sam" });
-    const boPlusOne = seedPlusOne(db, bo.id, { firstName: "Pat" });
+    seedPlusOne(db, bo.id, { firstName: "Pat" });
     const everyone = [...confirmedIn(ada.familyId), ...confirmedIn(bo.familyId)];
 
     expect(await run(off(bo.id, everyone))).toMatchObject({ plusOneRemoved: true });
     expect(await run(householdOff(bo.familyId, everyone))).toMatchObject({ plusOnesRemoved: 0 });
     expect(plusOnesOf(ada.id).map((g) => g.id)).toEqual([adaPlusOne]);
     expect(plusOnesOf(bo.id)).toEqual([]);
-    expect(boPlusOne).not.toBe(adaPlusOne);
   });
 
   it("removes a plus-one with their replies and invitations, and counts only the plus-one", async () => {

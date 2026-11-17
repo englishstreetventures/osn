@@ -34,6 +34,25 @@ function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
 }
 
+/**
+ * A migration as wrangler sends it, one statement at a time, so a statement
+ * SQLite refuses throws here: `exec` over the whole file can stop at a failed
+ * statement without throwing.
+ */
+function applyByStatement(db: Database, file: string): void {
+  const statements = readFileSync(join(MIGRATIONS_DIR, file), "utf8")
+    .split("--> statement-breakpoint")
+    .map((chunk) =>
+      chunk
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("--"))
+        .join("\n")
+        .trim(),
+    )
+    .filter(Boolean);
+  for (const statement of statements) db.run(statement);
+}
+
 // Each wedding's legacy entitlement rows, and the tier 0073 must give it.
 const FIXTURES: Record<string, { keys: string[]; tier: "ivory" | "gold" | "crimson" }> = {
   wed_none: { keys: [], tier: "ivory" },
@@ -109,7 +128,7 @@ describe("migration 0073", () => {
   it("runs on a wedding holding two pending per-module purchases", () => {
     expect(chain(73, 74)).toEqual([MIG_0073]);
     const db = beforeMigration();
-    expect(() => apply(db, MIG_0073)).not.toThrow();
+    expect(() => applyByStatement(db, MIG_0073)).not.toThrow();
     db.close();
   });
 

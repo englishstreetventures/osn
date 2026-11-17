@@ -177,9 +177,11 @@ describe("sessionService.revoke", () => {
     "is a no-op for an unknown token",
     withDb(
       Effect.gen(function* () {
+        const familyId = yield* pickFamilyId();
+        yield* sessionService.create(familyId);
         yield* sessionService.revoke("does-not-exist");
-        // No throw — success.
-        expect(true).toBe(true);
+        const db = yield* DbService;
+        expect(db.select().from(sessions).all()).toHaveLength(1);
       }),
     ),
   );

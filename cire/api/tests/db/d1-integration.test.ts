@@ -691,7 +691,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "claim.lookup fails for an unknown code",
     async () => {
-      await expect(run(claimService.lookup("NOPE-0000"))).rejects.toThrow();
+      const error = await run(Effect.flip(claimService.lookup("NOPE-0000")));
+      expect(error._tag).toBe("InvalidCredentials");
     },
     MF_TIMEOUT_MS,
   );

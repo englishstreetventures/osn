@@ -72,6 +72,7 @@ describe("formatMinor", () => {
 
   it("returns the same answer on the memoised second call", () => {
     const first = formatMinor(1000, "JPY");
+    expect(first).toBe(intl(1000, "JPY"));
     expect(formatMinor(1000, "JPY")).toBe(first);
     formatMinor(12_500, "XX");
     expect(formatMinor(12_500, "XX")).toBe("125.00 XX");

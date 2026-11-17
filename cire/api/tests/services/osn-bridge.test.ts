@@ -333,15 +333,7 @@ describe("createAccountResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    let resolve: unknown;
-    expect(async () => {
-      resolve = await createAccountResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
-    resolve = await createAccountResolverFromEnv({
+    const resolve = await createAccountResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
       arcKeyId: "kid-env",
@@ -642,13 +634,6 @@ describe("createHandleResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    expect(async () => {
-      await createHandleResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
     const resolve = await createHandleResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
@@ -818,13 +803,6 @@ describe("createHandleSearchResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    expect(async () => {
-      await createHandleSearchResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
     const resolve = await createHandleSearchResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
@@ -1022,13 +1000,6 @@ describe("createConnectionSearchResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    expect(async () => {
-      await createConnectionSearchResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
     const resolve = await createConnectionSearchResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,

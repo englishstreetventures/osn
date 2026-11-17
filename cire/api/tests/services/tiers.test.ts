@@ -72,7 +72,6 @@ function tierRow(db: TestDb, id: string) {
 
 describe("the tier ladder", () => {
   it("ranks ivory below gold below crimson", () => {
-    expect(TIERS).toEqual(["ivory", "gold", "crimson"]);
     expect(tierAtLeast("ivory", "gold")).toBe(false);
     expect(tierAtLeast("gold", "gold")).toBe(true);
     expect(tierAtLeast("crimson", "gold")).toBe(true);

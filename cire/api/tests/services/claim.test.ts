@@ -411,9 +411,14 @@ describe("claimService.getAllGuests", () => {
     withDb(
       Effect.gen(function* () {
         const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        const db = yield* DbService;
+        expect(rows.length).toBeGreaterThan(0);
         for (const row of rows) {
-          expect(typeof row.guestId).toBe("string");
-          expect(row.guestId.length).toBeGreaterThan(0);
+          // The id of a guest row in this household, not some other id.
+          const guest = yield* Effect.promise(() =>
+            Promise.resolve(db.select().from(guests).where(eq(guests.id, row.guestId)).get()),
+          );
+          expect(guest?.familyId).toBe(row.familyId);
         }
       }),
     ),
@@ -423,11 +428,21 @@ describe("claimService.getAllGuests", () => {
     "each row exposes a nickname field (null when unset) so the editor can preserve it",
     withDb(
       Effect.gen(function* () {
+        const db = yield* DbService;
+        const [named] = yield* Effect.promise(() =>
+          Promise.resolve(db.select({ id: guests.id }).from(guests).limit(1).all()),
+        );
+        yield* Effect.promise(() =>
+          Promise.resolve(
+            db.update(guests).set({ nickname: "Bea" }).where(eq(guests.id, named!.id)).run(),
+          ),
+        );
         const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        // The column is nullable; the wire shape is `string | null`, never
+        // undefined — the editor round-trips this through DesiredState.
+        expect(rows.some((row) => row.guestId === named!.id)).toBe(true);
         for (const row of rows) {
-          // The column is nullable; the wire shape must be `string | null`, never
-          // undefined — the editor round-trips this through DesiredState.
-          expect(row.nickname === null || typeof row.nickname === "string").toBe(true);
+          expect(row.nickname).toBe(row.guestId === named!.id ? "Bea" : null);
         }
       }),
     ),
@@ -438,9 +453,14 @@ describe("claimService.getAllGuests", () => {
     withDb(
       Effect.gen(function* () {
         const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        const db = yield* DbService;
+        expect(rows.length).toBeGreaterThan(0);
         for (const row of rows) {
-          expect(typeof row.familyId).toBe("string");
-          expect(row.familyId.length).toBeGreaterThan(0);
+          // A household of this wedding.
+          const family = yield* Effect.promise(() =>
+            Promise.resolve(db.select().from(families).where(eq(families.id, row.familyId)).get()),
+          );
+          expect(family?.weddingId).toBe(BOOTSTRAP_WEDDING_ID);
           // Seed never marks a family shared.
           expect(row.codeSharedAt).toBeNull();
         }
