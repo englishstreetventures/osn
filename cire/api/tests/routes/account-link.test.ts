@@ -65,9 +65,9 @@ function guestIdByName(db: TestDb, firstName: string): string {
   return row.id;
 }
 
-// `cf-connecting-ip` simulates the CF edge for the fail-closed limiter (C4) —
+// `cf-connecting-ip` simulates the CF edge for the fail-closed limiter —
 // every account-link route is rate-limited, so requests need a resolvable IP.
-// `Origin` satisfies the CSRF origin guard (C5) on the state-changing methods.
+// `Origin` satisfies the CSRF origin guard on the state-changing methods.
 const TEST_CF_IP = "203.0.113.7";
 const TEST_ORIGIN = "http://localhost:4321";
 

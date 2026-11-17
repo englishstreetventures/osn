@@ -40,8 +40,7 @@ import { readZip, zipTexts } from "../test-helpers/zip";
 
 /**
  * The whole-wedding archive: who may download it, and what it holds when R2
- * or a limit gets in the way. Each test names its failure mode in
- * `NEW-FEAT.md` (A1–A9, B1–B9). The owner's ordinary download, end to end, is
+ * or a limit gets in the way. The owner's ordinary download, end to end, is
  * the `cire-seating` E2E flow.
  */
 
@@ -156,12 +155,12 @@ async function archiveOf(
 }
 
 describe("who may download a wedding (refusals)", () => {
-  it("A1: no session is refused", async () => {
+  it("no session is refused", async () => {
     const { app } = buildApp();
     expect((await post(app)).status).toBe(401);
   });
 
-  it("A1: a cookie naming no session, or a token signed by another key, is refused before any read", async () => {
+  it("a cookie naming no session, or a token signed by another key, is refused before any read", async () => {
     const { db, app } = buildApp();
     const stranger = await makeOsnTestAuth();
     const statements = recordStatements(db);
@@ -177,7 +176,7 @@ describe("who may download a wedding (refusals)", () => {
     expect(statements.some((s) => s.sql.includes('"budget_items"'))).toBe(false);
   });
 
-  it("A2–A5: an editor, a viewer, a helper and another wedding's owner are refused", async () => {
+  it("an editor, a viewer, a helper and another wedding's owner are refused", async () => {
     const { app } = buildApp();
     for (const who of [EDITOR, VIEWER, HELPER, OTHER_OWNER]) {
       const res = await post(app, who);
@@ -193,12 +192,12 @@ describe("who may download a wedding (refusals)", () => {
     }
   });
 
-  it("A6: a deleted wedding answers as an unknown one, to its owner too", async () => {
+  it("a deleted wedding answers as an unknown one, to its owner too", async () => {
     const { app } = buildApp({ deletedAt: new Date() });
     expect((await post(app, OWNER)).status).toBe(404);
   });
 
-  it("A7: the archive's own limit refuses before any read, and an archive spends the shared one", async () => {
+  it("the archive's own limit refuses before any read, and an archive spends the shared one", async () => {
     const limited = buildApp({
       archiveLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
@@ -238,7 +237,7 @@ describe("who may download a wedding (refusals)", () => {
     expect(get.status).toBe(404);
   });
 
-  it("A7: with no limiter given, an owner's eleventh archive in a day is refused", async () => {
+  it("with no limiter given, an owner's eleventh archive in a day is refused", async () => {
     const db = createDb(":memory:");
     // An owner of their own, so no other test's archive shares the default limiter's bucket.
     const owner = "usr_daily_owner";
@@ -259,7 +258,7 @@ describe("who may download a wedding (refusals)", () => {
     expect(statuses).toEqual([...Array.from({ length: 10 }, () => 200), 429]);
   });
 
-  it("A10: no plan tier locks the archive, and it holds the modules the tier shuts", async () => {
+  it("no plan tier locks the archive, and it holds the modules the tier shuts", async () => {
     const { db, app } = buildApp();
     setTier(db, W, "ivory");
     const res = await post(app, OWNER);
@@ -271,7 +270,7 @@ describe("who may download a wedding (refusals)", () => {
     expect(texts.get(`${FOLDER}registry.csv`)).toContain("Vase");
   });
 
-  it("A9: the archive is never stored by anything on the way", async () => {
+  it("the archive is never stored by anything on the way", async () => {
     const { app } = buildApp();
     const ok = await counterValue(CIRE_METRICS.weddingArchiveDownloads, { result: "ok" });
     const res = await post(app, OWNER);
@@ -285,7 +284,7 @@ describe("who may download a wedding (refusals)", () => {
     expect(await counterValue(CIRE_METRICS.weddingArchiveDownloads, { result: "ok" })).toBe(ok + 1);
   });
 
-  it("B15: the sheets for setting the wedding up again carry no ids and no live household code", async () => {
+  it("the sheets for setting the wedding up again carry no ids and no live household code", async () => {
     const { db, assets, sheets } = seedWedding();
     const { texts } = await archiveOf(db, { assets, sheets });
     expect(texts.get(`${FOLDER}guests.csv`)).toContain(fullWeddingCode(W));
@@ -295,7 +294,7 @@ describe("who may download a wedding (refusals)", () => {
 });
 
 describe("what an archive holds when R2 or a limit gets in the way", () => {
-  it("B1: a file that would pass the byte limit is left out; a smaller one after it fits, to the byte", async () => {
+  it("a file that would pass the byte limit is left out; a smaller one after it fits, to the byte", async () => {
     const { db } = seedWedding();
     const assets = createAssetsStub();
     const [hero, story, footer, event, registry] = fullWeddingKeys(W).assets;
@@ -316,7 +315,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect([...texts.keys()].some((name) => name.includes("files/invite/story"))).toBe(false);
   });
 
-  it("B2: past the file-count limit, the rest are never read", async () => {
+  it("past the file-count limit, the rest are never read", async () => {
     const { db, assets, sheets } = seedWedding();
     const reads: string[] = [];
     const counted: AssetsBucket = {
@@ -334,7 +333,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     );
   });
 
-  it("B3: a missing object, a failed read and an absent bucket are named, and the archive still holds", async () => {
+  it("a missing object, a failed read and an absent bucket are named, and the archive still holds", async () => {
     const { db } = seedWedding();
     const assets = createAssetsStub();
     const [hero, story] = fullWeddingKeys(W).assets;
@@ -365,7 +364,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect(noBucket.manifest.files.every((f) => f.status === "unavailable")).toBe(true);
   });
 
-  it("B4: every data file cut at its ceiling says so, with both counts", async () => {
+  it("every data file cut at its ceiling says so, with both counts", async () => {
     const { db, assets, sheets } = seedWedding();
     const bulk = (sql: string) => db.$client.run(sql);
     const n = (count: number) =>
@@ -429,7 +428,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     ]);
   });
 
-  it("B4: a file exactly at its ceiling is whole, and the host's preview household is not counted", async () => {
+  it("a file exactly at its ceiling is whole, and the host's preview household is not counted", async () => {
     const { db, assets, sheets } = seedWedding();
     const n = (count: number) =>
       `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${count}) SELECT i FROM n`;
@@ -446,7 +445,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect(manifest.data.every((d) => d.complete)).toBe(true);
   });
 
-  it("B5: a name from the wedding can never leave its folder or take another's place", async () => {
+  it("a name from the wedding can never leave its folder or take another's place", async () => {
     const { db, assets, sheets } = seedWedding();
     const hostile = [
       "../../x",
@@ -517,7 +516,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     );
   });
 
-  it("B5: a picture stored with no type is named by its bytes, and one it cannot tell as .bin", async () => {
+  it("a picture stored with no type is named by its bytes, and one it cannot tell as .bin", async () => {
     const { db, sheets } = seedWedding();
     const assets = createAssetsStub();
     const [hero, story, footer, event] = fullWeddingKeys(W).assets;
@@ -537,7 +536,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     ]);
   });
 
-  it("B6: one whole download stays within D1's 50 statements a request, sign-in included", async () => {
+  it("one whole download stays within D1's 50 statements a request, sign-in included", async () => {
     const { db, assets, sheets } = seedWedding();
     const app = createApp(db, {
       effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
@@ -558,7 +557,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect(statements.length).toBeLessThanOrEqual(50);
   });
 
-  it("B7: a failed read answers 500 before any archive byte, and logs the wedding only", async () => {
+  it("a failed read answers 500 before any archive byte, and logs the wedding only", async () => {
     const { db, app } = buildApp();
     const before = await counterValue(CIRE_METRICS.weddingArchiveDownloads, { result: "error" });
     const failing = failStatements(db, (sql) => sql.includes('"budget_items"'));
@@ -578,7 +577,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     );
   });
 
-  it("B7: an app built without the D1 Effect handle refuses with 500 rather than a partial archive", async () => {
+  it("an app built without the D1 Effect handle refuses with 500 rather than a partial archive", async () => {
     const { db, assets, sheets } = seedWedding();
     const app = createApp(db, {
       osnTestKey: auth.key,
@@ -592,7 +591,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect(await res.json()).toEqual({ error: "Internal error" });
   });
 
-  it("B9: the couple's applied and reverted uploads go in, newest first; a preview and cire's own snapshots do not", async () => {
+  it("the couple's applied and reverted uploads go in, newest first; a preview and cire's own snapshots do not", async () => {
     const { db, assets, sheets } = seedWedding();
     const at = Date.parse("2026-10-02T00:00:00Z");
     for (const [id, status, kind] of [
@@ -629,7 +628,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     ]);
   });
 
-  it("B16: another wedding's rows never reach an archive", async () => {
+  it("another wedding's rows never reach an archive", async () => {
     const { db, assets, sheets } = seedWedding();
     const before = await archiveOf(db, { assets, sheets });
     const now = new Date("2026-10-01T00:00:00Z");
@@ -655,7 +654,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect([...after.texts.values()].join("")).not.toContain(fullWeddingCode("w2"));
   });
 
-  it("B17: an uploaded sheet comes out through the formula guard", async () => {
+  it("an uploaded sheet comes out through the formula guard", async () => {
     const { db, assets } = seedWedding();
     const sheets = createR2Stub();
     const [eventsKey, guestsKey] = fullWeddingKeys(W).sheets;
@@ -679,7 +678,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     ]);
   });
 
-  it("B18: a picture whose key names another wedding is never fetched", async () => {
+  it("a picture whose key names another wedding is never fetched", async () => {
     const { db, sheets } = seedWedding();
     const assets = createAssetsStub();
     const foreign = "assets/w2/registry-elsewhere";
@@ -698,7 +697,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect(reads).not.toContain(foreign);
   });
 
-  it("B1: a picture R2 says would pass the byte limit is let go without reading its body", async () => {
+  it("a picture R2 says would pass the byte limit is let go without reading its body", async () => {
     const { db, sheets } = seedWedding();
     const [hero] = fullWeddingKeys(W).assets;
     let bodyRead = false;
@@ -728,7 +727,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect({ bodyRead, cancelled }).toEqual({ bodyRead: false, cancelled: true });
   });
 
-  it("B1: a picture R2 says fits, to the byte, is read and included; one with no body to let go is still left out", async () => {
+  it("a picture R2 says fits, to the byte, is read and included; one with no body to let go is still left out", async () => {
     const { db, sheets } = seedWedding();
     const [hero, story, footer] = fullWeddingKeys(W).assets;
     const object = (bytes: Uint8Array, withBody = true) => ({
@@ -754,7 +753,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect(status.get("Invite image: footer")).toBe("over_limit");
   });
 
-  it("B11: a new wedding with nothing in it, and pictures nowhere, still downloads whole", async () => {
+  it("a new wedding with nothing in it, and pictures nowhere, still downloads whole", async () => {
     const db = createDb(":memory:");
     insertWedding(db, { id: W, slug: `slug-${W}`, displayName: "New", owners: [OWNER] });
     db.insert(events)
@@ -780,7 +779,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect(entries.map((e) => e.name)).toContain(`${FOLDER}manifest.json`);
   });
 
-  it("B13: a reader that stops reading stops the R2 reads", async () => {
+  it("a reader that stops reading stops the R2 reads", async () => {
     const { db, assets, sheets } = seedWedding();
     const reads: string[] = [];
     const counted: AssetsBucket = {
@@ -798,7 +797,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect(reads).toEqual([]);
   });
 
-  it("B14: a fault while writing ends the stream with no end record, and logs the wedding only", async () => {
+  it("a fault while writing ends the stream with no end record, and logs the wedding only", async () => {
     const { db, assets, sheets } = seedWedding();
     const plan = await readPlan(db);
     const faulty = {

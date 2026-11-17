@@ -8,11 +8,11 @@ import type { TestDb } from "../src/db/setup";
 import type { Tier } from "../src/services/tiers";
 
 /** Default `cf-connecting-ip` injected for tests — simulates the Cloudflare edge
- *  so the fail-closed rate limiter (C4) resolves a real IP instead of denying. */
+ *  so the fail-closed rate limiter resolves a real IP instead of denying. */
 export const TEST_CF_IP = "203.0.113.7";
 
 /** Default `Origin` injected for tests — matches `createApp`'s default
- *  `webOrigin` allowlist so the CSRF origin guard (C5) lets state-changing
+ *  `webOrigin` allowlist so the CSRF origin guard lets state-changing
  *  requests through unless a test deliberately overrides it. */
 export const TEST_ORIGIN = "http://localhost:4321";
 
@@ -21,9 +21,9 @@ export const TEST_ORIGIN = "http://localhost:4321";
  * Elysia's fetch wants an absolute URL).
  *
  * Injects, unless the caller already set them:
- *  - `cf-connecting-ip` — the fail-closed limiter (C4) denies requests with no
+ *  - `cf-connecting-ip` — the fail-closed limiter denies requests with no
  *    resolvable Cloudflare IP, so tests must present one.
- *  - `Origin` — the CSRF origin guard (C5) 403s state-changing requests whose
+ *  - `Origin` — the CSRF origin guard 403s state-changing requests whose
  *    Origin isn't allowlisted; the default matches `createApp`'s default origin.
  * Centralising both here keeps individual tests clean.
  */

@@ -4,7 +4,7 @@ import { isUnresolvedIp } from "@shared/rate-limit";
 
 import { getClientIp } from "../../src/lib/client-ip";
 
-describe("getClientIp (Cloudflare-only, C4)", () => {
+describe("getClientIp (Cloudflare-only)", () => {
   it("returns the validated cf-connecting-ip", () => {
     const headers = new Headers({
       "cf-connecting-ip": "1.2.3.4",

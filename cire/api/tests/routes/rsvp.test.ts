@@ -64,7 +64,7 @@ beforeAll(() => {
 
 const post = (body: unknown, cookie: string | null) =>
   Effect.promise(() => {
-    // rsvp POST is state-changing → the origin guard (C5) requires an allowlisted
+    // rsvp POST is state-changing → the origin guard requires an allowlisted
     // Origin, and its per-IP limiter a resolvable `cf-connecting-ip`.
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -89,8 +89,8 @@ const claim = (publicId: string) =>
       app.fetch(
         new Request("http://localhost/api/claim", {
           method: "POST",
-          // `cf-connecting-ip` simulates the CF edge for the fail-closed limiter
-          // (C4); `Origin` satisfies the CSRF origin guard (C5).
+          // `cf-connecting-ip` simulates the CF edge for the fail-closed limiter;
+          // `Origin` satisfies the CSRF origin guard.
           headers: {
             "Content-Type": "application/json",
             "cf-connecting-ip": "203.0.113.7",

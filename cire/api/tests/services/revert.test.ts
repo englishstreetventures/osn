@@ -129,7 +129,7 @@ async function applyWithBeforeImage(
   );
 }
 
-describe("revertImport — before-image path (E3)", () => {
+describe("revertImport — before-image path", () => {
   it("restores the exact pre-change state after an interleaved change", async () => {
     const db = createDb(":memory:");
     seedBootstrapWedding(db);

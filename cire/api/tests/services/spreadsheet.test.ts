@@ -525,7 +525,7 @@ describe("parseGuestsCsv", () => {
   });
 });
 
-describe("fidelity columns (E2 — honoured, not just ignored)", () => {
+describe("fidelity columns (honoured, not just ignored)", () => {
   const events = [
     {
       name: "Mehndi",

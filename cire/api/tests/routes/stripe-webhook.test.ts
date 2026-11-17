@@ -1269,7 +1269,7 @@ describe("a Standard account's own business on the gift endpoint", () => {
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
 
-  it("settles no gift that stored no session, whatever id the session names (20)", async () => {
+  it("settles no gift that stored no session, whatever id the session names", async () => {
     const { app, db, familyId } = buildApp();
     standard(db);
     seedPending(db, familyId, { sessionId: null });
@@ -1304,7 +1304,7 @@ describe("a Standard account's own business on the gift endpoint", () => {
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "failed" });
   });
 
-  it("still settles a Standard gift whose session it stored (20)", async () => {
+  it("still settles a Standard gift whose session it stored", async () => {
     const { app, db, familyId } = buildApp();
     standard(db);
     seedPending(db, familyId);
@@ -1317,7 +1317,7 @@ describe("a Standard account's own business on the gift endpoint", () => {
   it.each([
     ["refund", () => chargeRefunded()],
     ["dispute", () => dispute("charge.dispute.created")],
-  ] as const)("counts a %s on its own charge without raising it (21)", async (event, payload) => {
+  ] as const)("counts a %s on its own charge without raising it", async (event, payload) => {
     const { app, db } = buildApp();
     standard(db);
     const attrs = { event, account: "standard" };
@@ -1346,7 +1346,7 @@ describe("a Standard account's own business on the gift endpoint", () => {
     expect(statements).toEqual([]);
   });
 
-  it("acknowledges a session naming no gift of cire's before any read (21)", async () => {
+  it("acknowledges a session naming no gift of cire's before any read", async () => {
     const { app, db } = buildApp();
     const statements = recordStatements(db);
     const res = await deliver(

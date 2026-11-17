@@ -556,7 +556,7 @@ describe("defensive normalisation", () => {
             .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
             .all(),
         );
-        // Hostile values a future writer (the E5 editor) could store — the
+        // Hostile values a future writer could store — the
         // import parser could never have produced these.
         db.update(events)
           .set({

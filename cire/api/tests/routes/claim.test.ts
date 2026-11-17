@@ -64,7 +64,7 @@ beforeAll(() => {
 });
 
 // Tests simulate the Cloudflare edge by setting `cf-connecting-ip` — the
-// fail-closed limiter (C4) denies requests without a resolvable IP, so every
+// fail-closed limiter denies requests without a resolvable IP, so every
 // rate-limited route needs one in tests.
 const post = (body: unknown) =>
   Effect.promise(() =>

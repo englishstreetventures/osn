@@ -414,7 +414,7 @@ describe("maintenanceSweeps.purgeDeletedWeddings — failures", () => {
  * keeps no access to an account it no longer uses. An Express account cire
  * created stays, as it always has.
  */
-describe("handing a purged wedding's Standard account back (23)", () => {
+describe("handing a purged wedding's Standard account back", () => {
   const nameAccount = (
     db: TestDb,
     weddingId: string,
@@ -495,7 +495,7 @@ describe("handing a purged wedding's Standard account back (23)", () => {
  * deletes a wedding its only owner's account held. Only an owner can restore a
  * deleted wedding, so one with none waits for nothing.
  */
-describe("maintenanceSweeps.purgeDeletedWeddings — a deleted wedding with no owner (F31)", () => {
+describe("maintenanceSweeps.purgeDeletedWeddings — a deleted wedding with no owner", () => {
   const ownerless = (db: TestDb, id: string) =>
     db.run(sql.raw(`DELETE FROM wedding_hosts WHERE wedding_id = '${id}' AND role = 'owner'`));
 
