@@ -57,6 +57,7 @@ describe("PrivacyPage.tsx", () => {
     expect(text).toMatch(/usually within a day of the date we show you/);
     expect(text).toMatch(/no one can take your handles for 30 days/);
     expect(text).toMatch(/not the handle itself/);
+    expect(text).toMatch(/erased once any payment or gift for it has settled/);
     expect(text).not.toMatch(/tombstone/i);
   });
 
@@ -72,6 +73,6 @@ describe("TermsPage.tsx", () => {
   it("says a deletion waits 7 days and can be undone until then", () => {
     const text = source.replace(/\s+/g, " ");
     expect(text).toMatch(/We delete it once 7 days have passed/);
-    expect(text).toMatch(/you can keep it by signing in/);
+    expect(text).toMatch(/until then you can keep it: sign in and choose Keep my account/);
   });
 });

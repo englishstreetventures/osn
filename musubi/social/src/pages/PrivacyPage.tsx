@@ -134,9 +134,10 @@ export function PrivacyPage(): JSX.Element {
         <em>hash</em> of each handle, keyed with a secret, not the handle itself. Each app deletes
         what it holds about you at the same time, except what other people still rely on — an
         upcoming event you host in Pulse can stay 14 days for its guests, and an encrypted message
-        you sent to a chat others are still in stays there without your name. Sessions: 30 days from
-        last use. Security events: 12 months, and email-change records: 90 days, including after the
-        account is deleted.
+        you sent to a chat others are still in stays there without your name. A Cire wedding deleted
+        with your account is hidden at once and erased once any payment or gift for it has settled.
+        Sessions: 30 days from last use. Security events: 12 months, and email-change records: 90
+        days, including after the account is deleted.
       </p>
 
       <h2>Your rights</h2>

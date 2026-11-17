@@ -1,22 +1,23 @@
 // @vitest-environment happy-dom
 import { AuthContext } from "@osn/client/solid";
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The privacy notice tells a person what they can do for themselves "in
- * Settings". Each of those actions must be a control Settings has, or the
- * notice sends them to a page that cannot do it.
+ * The privacy notice and the terms tell a person what they can do for
+ * themselves in Settings. Each of those actions must be a control Settings
+ * has, or the page sends them somewhere that cannot do it.
  *
- * The notice is read as a reader sees it, from its rendered text, so a new
- * "in Settings" sentence, or a new item in the list of things a person can do
- * there, fails here until it is matched to a control. Download and delete are
- * driven end to end by `tools/e2e/tests/flows/musubi-account-deletion.flow.ts`;
- * this file holds that the notice and the controls name the same things.
+ * Both pages are read as a reader sees them, from their rendered text, so a
+ * new sentence that names Settings, or a new item in the notice's list of
+ * things a person can do there, fails here until it is matched to a control.
+ * The controls working is the E2E flows' to show
+ * (`musubi-account-deletion.flow.ts` for download and delete,
+ * `musubi-passkey.flow.ts` for Revoke); this file holds that the pages and the
+ * controls name the same things.
  */
-
-const apps = vi.hoisted(() => ({ revoke: vi.fn() }));
 
 vi.mock("@osn/auth-ui/ProfileOnboarding", () => ({ ProfileOnboarding: () => null }));
 vi.mock("../../src/components/SecuritySection", () => ({ default: () => null }));
@@ -29,10 +30,7 @@ vi.mock("../../src/lib/authClients", () => ({
           { clientId: "client_1", clientName: "Pulse", logoUrl: null, scope: "openid" },
         ],
       }),
-    revoke: (...args: unknown[]) => {
-      apps.revoke(...args);
-      return Promise.resolve();
-    },
+    revoke: () => Promise.resolve(),
   },
   accountClient: {},
   stepUpClient: {},
@@ -41,10 +39,11 @@ vi.mock("../../src/lib/authClients", () => ({
 
 import { PrivacyPage } from "../../src/pages/PrivacyPage";
 import { SettingsPage } from "../../src/pages/SettingsPage";
+import { TermsPage } from "../../src/pages/TermsPage";
 
 type Tab = "account" | "apps";
 
-/** How to find, on its Settings tab, the control behind each thing the notice offers. */
+/** How to find, on its Settings tab, the control behind each thing the pages offer. */
 const CONTROLS: Record<string, { tab: Tab; find: () => Promise<HTMLElement> }> = {
   "download a copy of your data": {
     tab: "account",
@@ -60,25 +59,32 @@ const CONTROLS: Record<string, { tab: Tab; find: () => Promise<HTMLElement> }> =
   },
 };
 
-/** The "in Settings" sentences this file checks, each by the words that place it. */
-const KNOWN_SENTENCES = [
-  // "Apps you have connected": withdrawing consent is the Revoke under Connected apps.
-  /withdrawing it in Settings under Connected apps/,
-  // "Your rights": the list of things a person can do for themselves.
-  /you can do yourself in Settings — /,
+/** Each sentence the pages send a reader to Settings in, by the words that place it, and the action it names. */
+const KNOWN_SENTENCES: { words: RegExp; action: string }[] = [
+  // Privacy notice, "Apps you have connected".
+  { words: /withdrawing it in Settings under Connected apps/, action: "disconnect an app" },
+  // Privacy notice, "Your rights": checked item by item below.
+  { words: /you can do yourself in Settings — /, action: "the list" },
+  // Terms, "Connecting other apps".
+  {
+    words: /withdraw it at any time in Settings under Connected apps/,
+    action: "disconnect an app",
+  },
+  // Terms, "Ending it".
+  { words: /You can delete your account at any time from Settings/, action: "delete your account" },
 ];
 
-/** The notice's text as rendered, whitespace collapsed. */
-function noticeText(): string {
-  const { container, unmount } = render(() => <PrivacyPage />);
+/** A page's text as rendered, whitespace collapsed. */
+function pageText(Page: () => JSX.Element): string {
+  const { container, unmount } = render(() => <Page />);
   const text = (container.textContent ?? "").replace(/\s+/g, " ");
   unmount();
   return text;
 }
 
-/** Every sentence of the notice that sends the reader to Settings. */
+/** Every sentence of `text` that names Settings. */
 function settingsSentences(text: string): string[] {
-  return text.split(/(?<=\.)\s+/).filter((sentence) => sentence.includes("in Settings"));
+  return text.split(/(?<=\.)\s+/).filter((sentence) => /\bSettings\b/.test(sentence));
 }
 
 /** The items of the "you can do yourself in Settings — a, b, c." list. */
@@ -119,21 +125,28 @@ function renderSettings(tab: Tab) {
   ));
 }
 
-afterEach(() => {
-  cleanup();
-  apps.revoke.mockClear();
-});
+afterEach(() => cleanup());
 
-describe("what the privacy notice says can be done in Settings", () => {
-  it("sends the reader to Settings only in sentences this file checks", () => {
-    const unknown = settingsSentences(noticeText()).filter(
-      (sentence) => !KNOWN_SENTENCES.some((known) => known.test(sentence)),
+describe("what the privacy notice and the terms say can be done in Settings", () => {
+  it.each([
+    ["the privacy notice", PrivacyPage],
+    ["the terms", TermsPage],
+  ])("%s names Settings only in sentences this file checks", (_name, Page) => {
+    const unknown = settingsSentences(pageText(Page)).filter(
+      (sentence) => !KNOWN_SENTENCES.some((known) => known.words.test(sentence)),
     );
     expect(unknown).toEqual([]);
   });
 
-  it("names only actions that have a control in Settings", () => {
-    const items = selfServiceItems(noticeText());
+  it("matches each of those sentences to an action with a control", () => {
+    const unmatched = KNOWN_SENTENCES.filter(
+      (known) => known.action !== "the list" && !(known.action in CONTROLS),
+    );
+    expect(unmatched).toEqual([]);
+  });
+
+  it("the privacy notice lists only actions that have a control in Settings", () => {
+    const items = selfServiceItems(pageText(PrivacyPage));
     expect(items.length).toBeGreaterThan(0);
     expect(items.filter((item) => !(item in CONTROLS))).toEqual([]);
   });
@@ -143,17 +156,5 @@ describe("what the privacy notice says can be done in Settings", () => {
     renderSettings(control.tab);
     const element = await control.find();
     expect(element.hasAttribute("disabled")).toBe(false);
-  });
-
-  it("opens the delete flow from “Delete account…”", async () => {
-    renderSettings("account");
-    const link = await screen.findByRole("link", { name: "Delete account…" });
-    expect(link.getAttribute("href")).toBe("/settings/delete-account");
-  });
-
-  it("disconnects an app from Revoke under Connected apps", async () => {
-    renderSettings("apps");
-    fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
-    await waitFor(() => expect(apps.revoke).toHaveBeenCalledWith({ clientId: "client_1" }));
   });
 });

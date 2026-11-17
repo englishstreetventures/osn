@@ -71,11 +71,12 @@ export function TermsPage(): JSX.Element {
       <h2>Ending it</h2>
       <p>
         You can delete your account at any time from Settings. We delete it once 7 days have passed,
-        and until then you can keep it by signing in. When it goes, each organisation you own passes
-        to another of its members or is deleted, and each app deletes what it holds about you,
-        except what other people still rely on. We may suspend or close an account that seriously or
-        repeatedly breaks these terms, and we will tell you why unless the law stops us. If we
-        discontinue the service we will give reasonable notice and a way to take your data with you.
+        and until then you can keep it: sign in and choose Keep my account. When it goes, each
+        organisation you own passes to another of its members or is deleted, and each app deletes
+        what it holds about you, except what other people still rely on. We may suspend or close an
+        account that seriously or repeatedly breaks these terms, and we will tell you why unless the
+        law stops us. If we discontinue the service we will give reasonable notice and a way to take
+        your data with you.
       </p>
 
       <h2>Your rights as a consumer</h2>

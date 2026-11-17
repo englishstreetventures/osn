@@ -134,8 +134,8 @@ export default function PrivacyRoute(): JSX.Element {
       <p>
         If you delete your Musubi account, Pulse deletes your RSVPs, close friends, the messages you
         sent and your Pulse profile when the account goes, 7 days after you ask. Each upcoming event
-        you host is cancelled and kept 14 days for its guests, or deleted at once if you choose that
-        when you delete; past events you hosted are deleted.
+        you host is cancelled and kept 14 days for its guests, or, if you chose that when you asked,
+        deleted then; past events you hosted are deleted.
       </p>
 
       <h2>Your rights</h2>

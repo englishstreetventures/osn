@@ -176,7 +176,7 @@ describe("legal pages", () => {
    */
   it("the hosts' notice says what deleting the Musubi account does to a wedding", () => {
     const text = hosts.replace(/\s+/g, " ");
-    expect(text).toMatch(/when you delete your Musubi account, 7 days after you ask/);
+    expect(text).toMatch(/or 7 days after you ask to delete your Musubi account/);
     expect(text).toMatch(/we remove your place on each wedding/);
     expect(text).toMatch(/A wedding with another owner stays with them/);
     expect(text).toMatch(
