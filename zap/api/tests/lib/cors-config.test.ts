@@ -7,7 +7,7 @@ import {
   resolveCorsOrigins,
 } from "../../src/lib/cors-config";
 
-describe("cors-config (S-M2 zap)", () => {
+describe("cors-config", () => {
   it("uses the explicit ZAP_CORS_ORIGIN list when set", () => {
     const origins = resolveCorsOrigins({
       ZAP_CORS_ORIGIN: "https://app.example.com, https://admin.example.com/",

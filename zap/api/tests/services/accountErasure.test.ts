@@ -242,19 +242,30 @@ describe("zap account erasure", () => {
     );
   });
 
-  it.effect("binds each list once per statement, whatever its length", () =>
-    Effect.gen(function* () {
+  // D1 refuses a statement over 100 bound parameters and bun:sqlite does not,
+  // so the case reads what each statement bound: the profile list and the chat
+  // list each go in as one parameter, never one per id, so no single id is
+  // ever bound on its own.
+  it.effect("binds each list once per statement, whatever its length", () => {
+    const { layer, captured } = createCapturingTestLayer();
+    return Effect.gen(function* () {
       const { db } = yield* Db;
       const ids = Array.from({ length: 100 }, (_, i) => `usr_p${i}`);
       const chat = yield* seedChat({ type: "group", createdByProfileId: THEM });
       yield* seedMember(chat.id, THEM);
       for (const id of ids.slice(0, 3)) yield* seedMember(chat.id, id);
+      captured.length = 0;
+
       yield* purgeAccount("acc_many", ids);
+
+      const bound = new Set(captured.flatMap((statement) => statement.params));
+      expect([...ids, chat.id].filter((id) => bound.has(id))).toEqual([]);
+      for (const statement of captured) expect(statement.params.length).toBeLessThan(100);
       expect(
         yield* Effect.promise(() =>
           db.select().from(chatMembers).where(eq(chatMembers.chatId, chat.id)),
         ),
       ).toHaveLength(1);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 });

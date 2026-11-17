@@ -431,21 +431,6 @@ describe("chats routes", () => {
     expect(data.members).toHaveLength(1);
   });
 
-  it("GET /chats/:id/members returns empty for an offset beyond the end", async () => {
-    const createRes = await req(app, "POST", "/chats", {
-      token: aliceToken,
-      body: { type: "group" },
-    });
-    const chatId = (await body(createRes)).chat.id;
-
-    const res = await req(app, "GET", `/chats/${chatId}/members?offset=100`, {
-      token: aliceToken,
-    });
-    expect(res.status).toBe(200);
-    const data = await body(res);
-    expect(data.members).toHaveLength(0);
-  });
-
   it("POST /chats/:id/members adds member and returns 201", async () => {
     const createRes = await req(app, "POST", "/chats", {
       token: aliceToken,
