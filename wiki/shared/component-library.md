@@ -1292,7 +1292,10 @@ ramp: it is whole from the first pixel scrolled. Kobalte's focus-trap `span`s,
 one at each end of the panel, are pinned to its top, since the last would
 otherwise hang a pixel under the footer and let a body that fits scroll by
 it. A call site sets no `position`, `overflow` or `max-height` on the panel
-or the header. The CSS is in [[design-tokens#Motion]];
+or the header. No cire page draws `Dialog` (cire's dialogs are `Modal`), so
+the four cire stylesheets leave `dialog.tsx` out of their Tailwind scan
+(`@source not`); a cire page that draws it needs that line gone. The CSS is
+in [[design-tokens#Motion]];
 `shared/ui/tests/dialog-scroll-edge.browser.test.tsx` holds it, and the
 lab's `DialogScrollEdge` story shows it.
 
