@@ -177,15 +177,13 @@ async function setup(
       answered: true,
       emails: new Map(ids.flatMap((id) => (ADDRESSES[id] ? [[id, ADDRESSES[id]] as const] : []))),
     }),
-    resolveOsnProfileDisplays: async (ids) =>
-      new Map(
-        (
-          [
-            [P, { handle: "person", displayName: "Pat Person", avatarUrl: null }],
-            [P2, { handle: "second", displayName: "Sam Second", avatarUrl: null }],
-          ] as const
-        ).filter(([id]) => ids.includes(id)),
-      ),
+    resolveOsnProfileDisplays: async (ids) => {
+      const known = new Map<string, { handle: string; displayName: string; avatarUrl: null }>([
+        [P, { handle: "person", displayName: "Pat Person", avatarUrl: null }],
+        [P2, { handle: "second", displayName: "Sam Second", avatarUrl: null }],
+      ]);
+      return new Map([...known].filter(([id]) => ids.includes(id)));
+    },
     ...appOverrides,
   });
   return { db, app, sessions, log, mail, signalled };
