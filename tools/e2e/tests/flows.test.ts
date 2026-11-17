@@ -39,11 +39,15 @@ describe("flow sources", () => {
   // A flow that calls `claimFromOrganiserAddress` sends its claims from the
   // organiser's own address and counts in that window instead. It may claim
   // only through a link: a press in a second, unrouted context would spend the
-  // guests' window while being counted in the organiser's.
+  // guests' window while being counted in the organiser's. A flow that calls
+  // `throughKeyOnlyCireApi` sends every cire-api request to the stack's second
+  // cire-api, whose windows are its own, and counts there, presses and links
+  // alike. The two routes do not chain, so no source calls both.
   //
   // The press is counted in any letter case: Playwright matches a role's name
   // without regard to case, so `name: "Open Invitation"` presses the same
-  // button and spends the same claim.
+  // button and spends the same claim. A link is counted only as the literal
+  // text, so a flow writes it out rather than building it with `searchParams`.
   test("the flows claim no more invitation codes than cire-api allows in a minute, per address", () => {
     // The support modules too: a flow's checks there run in its session.
     const sources = dirs.flatMap((dir) =>
@@ -54,18 +58,26 @@ describe("flow sources", () => {
     const count = (source: string, pattern: RegExp) => source.match(pattern)?.length ?? 0;
     const press = /name: "Open invitation" \}\)\.click\(/gi;
     const link = /[?&]code=/g;
-    const fromOrganiser = (source: string) => source.includes("claimFromOrganiserAddress(");
+    // A call, not the helper's own definition in the fixtures.
+    const calls = (source: string, helper: string) =>
+      new RegExp(`(?<!function )${helper}\\(`).test(source);
+    const fromOrganiser = (source: string) => calls(source, "claimFromOrganiserAddress");
+    const toKeyOnly = (source: string) => calls(source, "throughKeyOnlyCireApi");
 
-    const guests = sources
-      .filter((source) => !fromOrganiser(source))
-      .reduce((sum, source) => sum + count(source, press) + count(source, link), 0);
+    for (const source of sources) expect(fromOrganiser(source) && toKeyOnly(source)).toBe(false);
+    const claims = (group: string[]) =>
+      group.reduce((sum, source) => sum + count(source, press) + count(source, link), 0);
+
+    const guests = claims(sources.filter((source) => !fromOrganiser(source) && !toKeyOnly(source)));
     const organiser = sources.filter(fromOrganiser);
     for (const source of organiser) expect(count(source, press)).toBe(0);
-    const organiserClaims = organiser.reduce((sum, source) => sum + count(source, link), 0);
+    const keyOnly = claims(sources.filter(toKeyOnly));
 
     expect(guests).toBeGreaterThan(0);
     expect(guests).toBeLessThanOrEqual(5);
-    expect(organiserClaims).toBeLessThanOrEqual(5);
+    expect(claims(organiser)).toBeLessThanOrEqual(5);
+    expect(keyOnly).toBeGreaterThan(0);
+    expect(keyOnly).toBeLessThanOrEqual(5);
   });
 
   // An organiser flow signs in with `signInToCireHost`, or itself through
