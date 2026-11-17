@@ -189,6 +189,17 @@ export async function giveToANewFund(flow: Flow, owner: Page, browser: Browser):
       body: "<!doctype html><title>Stripe Checkout stand-in</title><h1>Checkout</h1>",
     });
   });
+  // The gift page leaves for Checkout the moment cire-api answers, and a
+  // response the page has navigated away from has no body left to read. So
+  // the answer is read on its way to the page, and handed on unchanged.
+  let contributeAnswer: { status: number; url: string } | null = null;
+  await guest.route(CONTRIBUTE_URL, async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const response = await route.fetch();
+    const body = (await response.json()) as { url?: string };
+    contributeAnswer = { status: response.status(), url: body.url ?? "" };
+    await route.fulfill({ response });
+  });
   context.on("requestfinished", (request) => {
     const url = new URL(request.url());
     if (url.protocol !== "http:" && url.protocol !== "https:") return;
@@ -287,10 +298,10 @@ export async function giveToANewFund(flow: Flow, owner: Page, browser: Browser):
         await panel.getByRole("button", { name: "Continue to payment" }).click();
         const response = await contributed;
         const sent = response.request().postDataJSON() as Record<string, unknown>;
-        const body = (await response.json()) as { url?: string };
         const at = await reached;
         await expect(guest.getByRole("heading", { name: "Checkout" })).toBeVisible();
-        return { status: response.status(), sent, url: body.url ?? "", at };
+        const answer = contributeAnswer ?? { status: -1, url: "" };
+        return { status: answer.status, sent, url: answer.url, at };
       },
     );
     const sessionId = new URL(handedOff.url || "about:blank").pathname.split("/").pop() ?? "";
