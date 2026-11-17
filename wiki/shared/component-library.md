@@ -1279,6 +1279,7 @@ it, and the lab's `DialogSheetSlide` story shows it ([[component-lab]]).
 | What | The rule |
 |---|---|
 | Control | The drawn box and circle 16px, the switch's track 20×36, the native box and radio 13px. None shrinks beside long words |
+| Resting edge | An unchosen control's edge is `--ui-choice-edge`, at 3:1 or more on every ground and surface, light and dark, in every app that draws one: Musubi and pulse map it to their `--subtle`, cire's apps draw their `--ui-hairline-strong` ([[design-tokens]]). Each app's contract test holds it |
 | Dot | A chosen drawn radio's dot is 8px, the one cell of the circle's grid, so layout centres it: 3px of ground between it and the 1px edge. A chosen box's edge takes the accent, as a chosen circle's does |
 | Alignment | The control sits on the words' first line, whatever their length: a slot one line tall (`FIRST_LINE`, `h-lh`) centres it, and the row aligns to the start. Words are set at prose leading (`leading-ui-normal`), drawn and native alike. A box with no words, as in a table cell, is the row on its own |
 | Gap to the words | 8px, all three, both boxes |

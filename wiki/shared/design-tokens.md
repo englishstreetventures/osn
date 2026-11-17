@@ -499,10 +499,15 @@ scan cire's components on every build.
 `choice-edge` is the edge of a drawn choice at rest, unchosen: `@shared/ui`'s
 radio circle, checkbox box, switch track and unticked native box. It owes
 3:1, as `hairline-strong` does, and falls back to it, so an app that maps only
-the boundary draws its choices as it draws its fields. Musubi maps it apart
-(`--subtle`), since its field edge is lighter than a choice's may be: a field
-has a label above it and words inside it, while an unchosen circle has only
-its edge (`musubi/social/DESIGN.md` §Choices).
+the boundary draws its choices as it draws its fields. Musubi and pulse map it
+apart (each to its own `--subtle`), since their field edge is lighter than a
+choice's may be: a field has a label above it and words inside it, while an
+unchosen circle has only its edge (`musubi/social/DESIGN.md` §Choices,
+`pulse/DESIGN.md` §Choice controls). Both apps waive `hairline-strong`, so
+each contract test holds `choice-edge` at 3:1 on every ground in a case of its
+own, with no waiver. Cire's apps map neither and need not: their
+`hairline-strong` clears 3:1 unwaived, and the guest site's is walked to 3:1
+on every surface of every palette (`@cire/theme`'s `derivePalette`).
 
 ## The conformance harness
 
