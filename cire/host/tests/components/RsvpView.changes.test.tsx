@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/te
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ensureRsvpsLoaded, type RsvpEvent } from "../../src/lib/rsvps-store";
+
 /**
  * The RSVP table's "New" badges: rows a guest changed since this organiser last
  * opened the table carry one, and opening the table marks those changes seen
@@ -159,6 +161,32 @@ describe("RsvpView — New badges", () => {
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(seenCalls()).toHaveLength(1));
     expect(seenCalls()[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ seq: 9 }) });
+  });
+
+  it("reads and marks nothing again when the table reopens on its own fresh read", async () => {
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 9));
+    const first = render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+    first.unmount();
+    const reads = authFetchMock.mock.calls.length;
+    render(() => <RsvpView weddingId="wed_a" />);
+    await screen.findByRole("tab", { name: /^Reception/ });
+    expect(authFetchMock.mock.calls.length).toBe(reads);
+    expect(screen.queryByText("New")).toBeNull();
+  });
+
+  it("reads the badges and marks them seen when the cached replies came without them", async () => {
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 9));
+    // The Overview's read: replies with no badge rows beside them.
+    await ensureRsvpsLoaded("wed_a", async () => ({
+      events: VIEW.events as unknown as RsvpEvent[],
+      withBadges: false,
+    }));
+    render(() => <RsvpView weddingId="wed_a" />);
+    // Drawn from the cache at once, then read again with the badges.
+    expect(screen.getByRole("tab", { name: /^Reception/ })).toBeVisible();
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+    await waitFor(() => expect(within(rowOf("Ceremony", "Ada")).getByText("New")).toBeVisible());
   });
 
   it("marks nothing when nothing is new", async () => {

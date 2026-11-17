@@ -206,3 +206,6 @@ export const setFreshHostsPanel = (weddingId: string, read: HostsPanelRead) =>
 
 /** The panel changed a seat: its next opening reads again. */
 export const invalidateHostsPanel = (weddingId: string) => panel.invalidate(weddingId);
+
+/** Test-only: forget the panel's reads, leaving the seats. */
+export const __resetHostsPanelCache = () => panel.reset();

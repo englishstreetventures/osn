@@ -41,7 +41,7 @@ export interface RsvpChanges {
 }
 
 /** The RSVP table's badges. */
-interface RsvpChangeRows {
+export interface RsvpChangeRows {
   /** Sent back to mark seen: covers exactly `rows`. 0 when none. */
   markSeq: number;
   /** Changed RSVP-table rows; `eventId: null` means every row of that guest. */

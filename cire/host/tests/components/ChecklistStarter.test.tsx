@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/te
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { __resetStarterPreview } from "../../src/lib/starter-store";
+
 vi.mock("@shared/rp-auth/solid", async () => {
   const { rpAuthSolidMock } = await import("../test-support/mocks");
   return rpAuthSolidMock();
@@ -101,6 +103,7 @@ const sentItems = () => (JSON.parse(String(postCall()![1].body)) as { items: str
 
 beforeEach(() => {
   __resetTasksCache();
+  __resetStarterPreview();
 });
 
 afterEach(() => {
@@ -409,9 +412,28 @@ describe("the starter with a wedding date", () => {
     fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(dialogNamed()).toBeNull());
 
+    // The tasks changed, so the cached preview is stale and is read again.
+    setCachedTasks("wed_1", []);
     authFetchMock.mockReturnValueOnce(new Promise(() => {}));
     dialog = await openPreview();
     expect(dialog.getByRole("button", { name: "Add 0 tasks" })).toBeDisabled();
+  });
+
+  it("reopens a cached preview at once, without the pick from before", async () => {
+    setCachedTasks("wed_1", []);
+    authFetchMock.mockResolvedValueOnce(preview("2027-06-05", ITEMS));
+    renderChecklist();
+    let dialog = await openPreview();
+    const pick = await dialog.findByRole("checkbox", { name: /plan what you will wear/i });
+    fireEvent.click(pick);
+    expect(pick).toBeChecked();
+    fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(dialogNamed()).toBeNull());
+
+    const reads = authFetchMock.mock.calls.length;
+    dialog = await openPreview();
+    expect(dialog.getByRole("checkbox", { name: /plan what you will wear/i })).not.toBeChecked();
+    expect(authFetchMock.mock.calls.length).toBe(reads);
   });
 
   it("closes on Escape mid-apply, reports a failure there as a toast, and opens again", async () => {

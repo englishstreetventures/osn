@@ -2,10 +2,14 @@ import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
+import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
+import { ensureInviteLoaded, inviteAccessor } from "../lib/invite-store";
+import type { InviteCustomisation } from "./invite/model";
 
 const GUIDE_CLASS = `${cardClass({ tone: "accent", padding: "lg" })} relative gap-5`;
 
@@ -54,20 +58,6 @@ function writeDismissed(weddingId: string, dismissed: boolean): void {
  * it back. The data-derived done-state logic is unchanged by dismissal.
  */
 
-interface EventRow {
-  id: string;
-}
-
-interface GuestRow {
-  familyId: string;
-  codeSharedAt: number | null;
-}
-
-interface InviteCustomisation {
-  hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
-  story: { heading: string | null; body: string | null; imageUrl: string | null };
-}
-
 interface Snapshot {
   eventCount: number;
   familyCount: number;
@@ -108,51 +98,58 @@ export default function GettingStarted(props: {
     writeDismissed(props.weddingId, false);
   }
 
-  // Nullable on purpose: a failed fetch resolves to null and the panel hides
-  // itself (the `<Show when={snapshot()}>` below), rather than pretending to a
-  // snapshot it never got.
-  const [snapshot] = createResource<Snapshot | null>(async () => {
-    try {
-      const base = weddingPath(props.weddingId);
-      const [eventsRes, guestsRes, inviteRes] = await Promise.all([
-        authFetch(apiUrl(`${base}/events`)),
-        authFetch(apiUrl(`${base}/guests`)),
-        authFetch(apiUrl(`${base}/invite`)),
-      ]);
-      if (eventsRes.status === 401 || guestsRes.status === 401 || inviteRes.status === 401) {
-        redirectToLogin();
-        return { eventCount: 0, familyCount: 0, sharedFamilyCount: 0, inviteCustomised: false };
-      }
-      const events = eventsRes.ok ? ((await eventsRes.json()) as EventRow[]) : [];
-      const guests = guestsRes.ok ? ((await guestsRes.json()) as GuestRow[]) : [];
-      const invite = inviteRes.ok ? ((await inviteRes.json()) as InviteCustomisation) : null;
-
-      // Guest rows repeat per family member — dedupe to families, and a family
-      // counts as "sent" if any of its rows carries a codeSharedAt.
-      const sharedByFamily = new Map<string, boolean>();
-      for (const g of guests) {
-        sharedByFamily.set(g.familyId, sharedByFamily.get(g.familyId) || g.codeSharedAt !== null);
-      }
-
-      // The invite counts as "customised" once the hero or Our Story has content.
-      // A section switched off still counts: this step asks whether the
-      // organiser has made the invite their own, not what a guest sees now.
-      const inviteCustomised = invite
-        ? !isHeroEmpty(invite.hero) || !isStoryEmpty(invite.story)
-        : false;
-
-      return {
-        eventCount: events.length,
-        familyCount: sharedByFamily.size,
-        sharedFamilyCount: Array.from(sharedByFamily.values()).filter(Boolean).length,
-        inviteCustomised,
-      };
-    } catch (err) {
-      if (isAuthExpired(err)) redirectToLogin();
-      // Fail soft: a failed snapshot just hides the guide rather than blocking
-      // the dashboard. The tabs below are still fully usable.
-      return null;
+  // Each read through its cache: the Overview has usually read the events and
+  // the guests already, and a fresh value sends nothing. A failed read leaves
+  // its value null; nothing shows until all three have settled, and then a
+  // missing one counts as empty.
+  const read = async <T,>(path: string): Promise<T> => {
+    const res = await authFetch(apiUrl(weddingPath(props.weddingId, path)));
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("unauthenticated");
     }
+    if (!res.ok) throw new Error(`${path} ${res.status}`);
+    return (await res.json()) as T;
+  };
+  const events = eventsAccessor(props.weddingId);
+  const guests = guestsAccessor(props.weddingId);
+  const invite = inviteAccessor(props.weddingId);
+  const [settled, setSettled] = createSignal(
+    untrack(() => events() !== null && guests() !== null && invite() !== null),
+  );
+  void Promise.allSettled([
+    ensureEventsLoaded(props.weddingId, () => read<EventRow[]>("/events")),
+    ensureGuestsLoaded(props.weddingId, () => read<OrganiserGuestRow[]>("/guests")),
+    ensureInviteLoaded(props.weddingId, () => read<InviteCustomisation>("/invite")),
+  ]).then((results) => {
+    for (const result of results) {
+      if (result.status === "rejected" && isAuthExpired(result.reason)) redirectToLogin();
+    }
+    setSettled(true);
+  });
+
+  // Nullable on purpose: the panel hides itself until the reads settle (the
+  // `<Show when={snapshot()}>` below), rather than pretending to a snapshot
+  // it does not have yet.
+  const snapshot = createMemo<Snapshot | null>(() => {
+    if (!settled()) return null;
+    // Guest rows repeat per family member — dedupe to families, and a family
+    // counts as "sent" if any of its rows carries a codeSharedAt.
+    const sharedByFamily = new Map<string, boolean>();
+    for (const g of guests() ?? []) {
+      sharedByFamily.set(g.familyId, sharedByFamily.get(g.familyId) || g.codeSharedAt !== null);
+    }
+    // The invite counts as "customised" once the hero or Our Story has content.
+    // A section switched off still counts: this step asks whether the
+    // organiser has made the invite their own, not what a guest sees now.
+    const body = invite();
+    const inviteCustomised = body ? !isHeroEmpty(body.hero) || !isStoryEmpty(body.story) : false;
+    return {
+      eventCount: (events() ?? []).length,
+      familyCount: sharedByFamily.size,
+      sharedFamilyCount: Array.from(sharedByFamily.values()).filter(Boolean).length,
+      inviteCustomised,
+    };
   });
 
   const steps = createMemo<Step[]>(() => {

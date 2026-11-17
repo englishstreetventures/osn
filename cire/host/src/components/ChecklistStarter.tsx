@@ -11,26 +11,17 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
 import { toLocalDateKey } from "../lib/overview-agenda";
+import {
+  ensureStarterPreviewLoaded,
+  hasStarterPreview,
+  type StarterPreview as Preview,
+  type StarterPreviewItem as PreviewItem,
+  starterPreviewAccessor,
+} from "../lib/starter-store";
 import { readTaskRow, setFreshTasks, type TaskWire } from "../lib/tasks-store";
 import { haptic } from "../lib/touch-feedback";
 
 const STARTER_CLASS = `${cardClass({ padding: "sm" })} items-start`;
-
-/** One template item as `GET …/tasks/templates/:id` previews it. */
-interface PreviewItem {
-  key: string;
-  title: string;
-  timeframeBucket: string;
-  /** `YYYY-MM-DD`, or null when the wedding has no date. */
-  dueAt: string | null;
-  /** `added`: on the checklist already. `removed`: the couple deleted it. */
-  state: "new" | "added" | "removed";
-}
-
-interface Preview {
-  weddingDate: string | null;
-  items: PreviewItem[];
-}
 
 interface ChecklistStarterProps {
   weddingId: string;
@@ -69,23 +60,39 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
   const isPast = (item: PreviewItem) =>
     item.dueAt !== null && item.dueAt < toLocalDateKey(Date.now())!;
 
+  /** Show a preview, ticking every item still to add whose date is ahead. */
+  function choose(loaded: Preview) {
+    setPicked(
+      new Set(
+        loaded.items.filter((item) => item.state === "new" && !isPast(item)).map((i) => i.key),
+      ),
+    );
+    setPreview(loaded);
+  }
+
+  /** The preview, read unless the cache holds a fresh one (`starter-store.ts`):
+   *  a dialog opened again shows it at once. */
   async function show() {
     setOpen(true);
     setPreview(null);
     setPicked(new Set<string>());
     setLoadError(null);
     setApplyError(null);
+    const cached = starterPreviewAccessor(props.weddingId);
+    const fresh = hasStarterPreview(props.weddingId) ? cached() : null;
+    if (fresh) return choose(fresh);
     try {
-      const res = await authFetch(path());
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`preview ${res.status}`);
-      const { preview: loaded } = (await res.json()) as { preview: Preview };
-      setPicked(
-        new Set(
-          loaded.items.filter((item) => item.state === "new" && !isPast(item)).map((i) => i.key),
-        ),
-      );
-      setPreview(loaded);
+      const loaded = await ensureStarterPreviewLoaded(props.weddingId, async () => {
+        const res = await authFetch(path());
+        if (res.status === 401) {
+          redirectToLogin();
+          throw new Error("unauthenticated");
+        }
+        if (!res.ok) throw new Error(`preview ${res.status}`);
+        return ((await res.json()) as { preview: Preview }).preview;
+      });
+      const value = cached();
+      if (loaded && value && open()) choose(value);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setLoadError("Couldn't load the starter checklist. Try again in a moment.");

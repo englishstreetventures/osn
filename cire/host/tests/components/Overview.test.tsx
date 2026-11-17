@@ -194,6 +194,38 @@ describe("Overview", () => {
     expect(guestsCard.textContent).toContain("2");
   });
 
+  it("draws a revisit at once from the caches, sending nothing", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string) =>
+      url.endsWith("/rsvp-changes")
+        ? Promise.resolve(
+            json({
+              households: 0,
+              truncated: false,
+              items: [],
+              digest: { available: false, enabled: true },
+            }),
+          )
+        : routed(url),
+    );
+    const first = render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    first.unmount();
+    const reads = authFetchMock.mock.calls.length;
+
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    // Drawn in the mount itself: no placeholder, no request.
+    expect(document.querySelector("[data-skeleton-outline]")).toBeNull();
+    expect(screen.getByText(/attending across 2 events/i)).toBeTruthy();
+    expect(authFetchMock.mock.calls.length).toBe(reads);
+  });
+
   it("starts the RSVP-changes read with its own and shows the card once the page loads", async () => {
     let feedStartedBeforePageLoaded = false;
     let settingsRequested = false;

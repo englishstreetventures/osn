@@ -24,6 +24,8 @@ vi.mock("../../src/lib/api", async () => {
 import { buttonClass } from "@cire/ui/button";
 
 import GettingStarted from "../../src/components/GettingStarted";
+import { __resetEventsCache } from "../../src/lib/events-store";
+import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
 function json(body: unknown, status = 200) {
@@ -58,6 +60,8 @@ describe("GettingStarted", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
+    __resetEventsCache();
+    __resetGuestsCache();
     // Dismissal persists to localStorage per wedding — reset between tests so
     // one test's dismiss doesn't hide the checklist in the next.
     localStorage.clear();

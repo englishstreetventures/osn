@@ -44,11 +44,16 @@ import {
   untrack,
   type JSX,
 } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore, reconcile, unwrap } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { CIRE_MARKETING_URL } from "../lib/osn";
-import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
+import {
+  fetchRsvpChangeRows,
+  markRsvpChangesSeen,
+  newRowCheck,
+  type RsvpChangeRows,
+} from "../lib/rsvp-changes";
 import {
   filterRows,
   mergeRows,
@@ -56,7 +61,6 @@ import {
   plusOneMarker,
   plusOneShort,
   RSVP_FILTERS,
-  type RsvpFilterEvent,
   type RsvpFilterKey,
   type RsvpRow,
   type RsvpRowStatus,
@@ -67,6 +71,15 @@ import {
   statusCounts,
 } from "../lib/rsvp-filter";
 import { applySavedReply, isSavedReply } from "../lib/rsvp-save";
+import {
+  ensureRsvpsLoaded,
+  hasTableRsvps,
+  invalidateRsvpChanges,
+  invalidateRsvps,
+  peekCachedRsvps,
+  type RsvpEvent,
+  setCachedRsvpEvents,
+} from "../lib/rsvps-store";
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
 import { haptic } from "../lib/touch-feedback";
 import { CsvExportButton } from "./CsvExportButton";
@@ -98,16 +111,7 @@ interface RsvpViewProps {
  *  Dietary: an editor's five columns, a viewer's four. Narrower, the rows stack. */
 const TABLE_MIN_REM = { editor: 45, viewer: 37 } as const;
 
-interface RsvpViewEvent extends RsvpFilterEvent {
-  id: string;
-  name: string;
-  invited: number;
-  attending: number;
-  declined: number;
-  maybe: number;
-  responded: number;
-  noResponse: number;
-}
+type RsvpViewEvent = RsvpEvent;
 
 /**
  * What the replies draw hollow from while they load (`SkeletonOutline`): an
@@ -335,8 +339,13 @@ function attestationFor(target: EditTarget) {
  */
 export default function RsvpView(props: RsvpViewProps) {
   const { authFetch } = useAuth();
-  const [state, setState] = createStore<{ events: RsvpViewEvent[] }>({ events: [] });
-  const [loading, setLoading] = createSignal(true);
+  // Drawn at once from the replies cache when it holds any (`rsvps-store.ts`),
+  // from a copy: the store changes the objects it is given in place.
+  const cached = untrack(() => peekCachedRsvps(props.weddingId));
+  const [state, setState] = createStore<{ events: RsvpViewEvent[] }>({
+    events: cached ? structuredClone(cached.events) : [],
+  });
+  const [loading, setLoading] = createSignal(cached === null);
   const [error, setError] = createSignal<string | null>(null);
 
   // The control bar: a search box and one reply filter, applied to every event:
@@ -369,18 +378,35 @@ export default function RsvpView(props: RsvpViewProps) {
       setConsentRefused(consent);
     });
 
-  /** Loads the RSVPs; true when the table has something real to show. */
-  const load = async (): Promise<boolean> => {
+  /**
+   * Reads the RSVPs and, beside them, the rows a guest changed since this
+   * organiser last looked, and caches the RSVPs as read with their badges.
+   * Resolves to the badge rows when the table has something real to show
+   * (`null` when they could not be read), or `false` when it has not.
+   */
+  const load = async (): Promise<RsvpChangeRows | null | false> => {
+    let feed: RsvpChangeRows | null = null;
     try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/rsvps")));
-      if (res.status === 401) {
-        redirectToLogin();
-        return false;
-      }
-      if (!res.ok) throw new Error(`Failed to load (${res.status})`);
-      const body = (await res.json()) as { events: RsvpViewEvent[] };
-      setState("events", reconcile(body.events, { key: "id" }));
-      return true;
+      // Whatever the cache holds is shown meanwhile; the read replaces it.
+      invalidateRsvps(props.weddingId);
+      const loaded = await ensureRsvpsLoaded(props.weddingId, async () => {
+        const [res, rows] = await Promise.all([
+          authFetch(apiUrl(weddingPath(props.weddingId, "/rsvps"))),
+          fetchRsvpChangeRows(authFetch, props.weddingId),
+        ]);
+        if (res.status === 401) {
+          redirectToLogin();
+          throw new Error("unauthenticated");
+        }
+        if (!res.ok) throw new Error(`Failed to load (${res.status})`);
+        const body = (await res.json()) as { events: RsvpViewEvent[] };
+        feed = rows;
+        return { events: body.events, withBadges: rows !== null };
+      });
+      const read = peekCachedRsvps(props.weddingId);
+      if (!loaded || !read) return false;
+      setState("events", reconcile(structuredClone(read.events), { key: "id" }));
+      return feed;
     } catch (err) {
       if (isAuthExpired(err)) {
         redirectToLogin();
@@ -393,10 +419,12 @@ export default function RsvpView(props: RsvpViewProps) {
     }
   };
 
-  // Rows a guest changed since this organiser last opened the table. Read once
-  // per visit beside the RSVPs, so the badges stay put while the organiser
-  // records replies; once the table has loaded, those changes are marked seen
-  // for this organiser, and the next visit starts clean.
+  // Rows a guest changed since this organiser last opened the table. Read with
+  // each read of the RSVPs, so the badges stay put while the organiser records
+  // replies; once the table has loaded, those changes are marked seen for this
+  // organiser, and the next read starts clean. A visit that finds the RSVPs
+  // fresh in the cache, as the table last read them, reads neither: what they
+  // held was marked seen then.
   const [isNewRow, setIsNewRow] = createSignal<(guestId: string, eventId: string) => boolean>(
     () => false,
   );
@@ -414,14 +442,19 @@ export default function RsvpView(props: RsvpViewProps) {
   const ready = holdUntilReady();
 
   onMount(() => {
-    const changes = fetchRsvpChangeRows(authFetch, props.weddingId);
+    if (hasTableRsvps(props.weddingId)) {
+      ready();
+      return;
+    }
     const first = load();
     void first.finally(ready);
-    void Promise.all([first, changes]).then(async ([loaded, feed]) => {
+    void first.then(async (feed) => {
       if (!feed) return false;
       setIsNewRow(() => newRowCheck(feed.rows));
-      if (!loaded || feed.markSeq === 0) return false;
+      if (feed.markSeq === 0) return false;
       await markRsvpChangesSeen(authFetch, props.weddingId, feed.markSeq);
+      // The Overview's card counts what this organiser has not seen.
+      invalidateRsvpChanges(props.weddingId);
       return true;
     });
   });
@@ -716,8 +749,11 @@ export default function RsvpView(props: RsvpViewProps) {
       const at = state.events.findIndex((event) => event.id === target.eventId);
       const event = at >= 0 ? state.events[at] : undefined;
       const next = event && isSavedReply(body?.rsvp) ? applySavedReply(event, body.rsvp) : null;
-      if (next) setState("events", at, reconcile(next, { key: "guestId" }));
-      else await load();
+      if (next) {
+        setState("events", at, reconcile(next, { key: "guestId" }));
+        // The Overview's tallies and the next visit read the reply from here.
+        setCachedRsvpEvents(props.weddingId, structuredClone(unwrap(state.events)));
+      } else await load();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
