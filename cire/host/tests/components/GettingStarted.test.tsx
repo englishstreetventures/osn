@@ -26,7 +26,8 @@ import { buttonClass } from "@cire/ui/button";
 import GettingStarted from "../../src/components/GettingStarted";
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache } from "../../src/lib/guests-store";
-import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
+import { inviteAccessor } from "../../src/lib/invite-store";
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -119,6 +120,36 @@ describe("GettingStarted", () => {
     // Every read has settled, failed, before the panel decides.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(container.textContent).toBe("");
+  });
+
+  /** The snapshot's reads, with the invite answered by `status`. */
+  function refuseInvite(status: number) {
+    mockSnapshot({ events: [{ id: "e1" }], guests: [], invite: EMPTY_INVITE });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string) =>
+      url.endsWith("/invite") ? Promise.resolve(json({ error: "refused" }, status)) : routed(url),
+    );
+  }
+
+  it("sends a signed-out organiser to sign in, and caches no invite", async () => {
+    refuseInvite(401);
+    const { container } = render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
+
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inviteAccessor("wed_1")()).toBeNull();
+    expect(container.textContent).toBe("");
+  });
+
+  it("caches no invite from a read the API refused, and hides the guide", async () => {
+    refuseInvite(403);
+    const { container } = render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inviteAccessor("wed_1")()).toBeNull();
+    expect(container.textContent).toBe("");
+    expect(redirectSpy).not.toHaveBeenCalled();
   });
 
   it("jumps to the matching tab when a step is clicked", async () => {

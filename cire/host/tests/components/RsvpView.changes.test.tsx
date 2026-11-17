@@ -3,7 +3,12 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/te
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ensureRsvpsLoaded, type RsvpEvent } from "../../src/lib/rsvps-store";
+import {
+  ensureRsvpsLoaded,
+  hasTableRsvps,
+  peekCachedRsvps,
+  type RsvpEvent,
+} from "../../src/lib/rsvps-store";
 
 /**
  * The RSVP table's "New" badges: rows a guest changed since this organiser last
@@ -231,6 +236,9 @@ describe("RsvpView — New badges", () => {
     await screen.findByRole("tab", { name: /^Reception/ });
     expect(screen.queryByText("New")).toBeNull();
     expect(seenCalls()).toEqual([]);
+    // Cached as read without its badges, so the next visit reads both again.
+    expect(peekCachedRsvps("wed_a")?.withBadges).toBe(false);
+    expect(hasTableRsvps("wed_a")).toBe(false);
   });
 
   it("marks nothing seen when the RSVPs themselves fail to load", async () => {

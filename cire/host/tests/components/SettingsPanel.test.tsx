@@ -39,9 +39,11 @@ import {
   type RegistrySnapshot,
   setCachedRegistry,
 } from "../../src/lib/registry-store";
+import { hasCachedSettings, peekCachedSettings } from "../../src/lib/settings-store";
 import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib/tasks-store";
 import {
   authFetchMock,
+  redirectSpy,
   resetOrganiserMocks,
   toastError,
   toastSuccess,
@@ -140,6 +142,56 @@ describe("SettingsPanel", () => {
     expect(onWeddingUpdated).toHaveBeenCalledWith({
       displayName: "Aisha & Benjamin",
       slug: "aisha-and-ben",
+    });
+  });
+
+  it("writes the save's answer into the profile cache the Overview reads", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    fireEvent.input(screen.getByDisplayValue("Aisha & Ben"), {
+      target: { value: "Aisha & Benjamin" },
+    });
+    authFetchMock.mockResolvedValueOnce(
+      json({ wedding: { ...PROFILE, displayName: "Aisha & Benjamin" } }),
+    );
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Settings saved"));
+    expect(peekCachedSettings("wed_1")?.displayName).toBe("Aisha & Benjamin");
+    expect(hasCachedSettings("wed_1")).toBe(true);
+  });
+
+  describe("a refused profile read", () => {
+    it("sends a signed-out organiser to sign in, and caches nothing", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ error: "unauthorised" }, 401));
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+      ));
+      await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+      expect(peekCachedSettings("wed_1")).toBeNull();
+    });
+
+    it("names the refusal's status, and caches nothing", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ error: "Forbidden" }, 403));
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+      ));
+      expect(await screen.findByText("Could not load the wedding profile (403).")).toBeTruthy();
+      expect(peekCachedSettings("wed_1")).toBeNull();
+    });
+
+    it("blames the API being out of reach when the read never answers", async () => {
+      authFetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+      ));
+      expect(
+        await screen.findByText("Could not load the wedding profile. Is the API running?"),
+      ).toBeTruthy();
     });
   });
 
