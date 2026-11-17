@@ -1722,7 +1722,11 @@ export const runFanOutRetrySweep = (opts: {
                 purgeStartedAt: deletionJobs.purgeStartedAt,
                 choices: deletionJobs.choices,
                 deleteEverything: deletionJobs.deleteEverything,
-                profileIds: sql<string>`(SELECT json_group_array(p.id) FROM users p WHERE p.account_id = ${deletionJobs.accountId})`,
+                // The job's own account, qualified: a select that reads one
+                // table writes a column in a `sql` field bare, and a bare
+                // `"account_id"` inside this subquery would bind to `p`'s own,
+                // naming every profile in the database.
+                profileIds: sql<string>`(SELECT json_group_array(p.id) FROM users p WHERE p.account_id = ${sql`${deletionJobs.accountId}`})`,
               })
               .from(deletionJobs)
               .where(and(lte(deletionJobs.hardDeleteAt, nowSec), someAppPending()))
