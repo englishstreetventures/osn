@@ -116,7 +116,7 @@ describe("ExplorePage", () => {
     expect(JSON.stringify(args.query ?? {})).not.toContain("tok");
   });
 
-  it("does NOT call geolocation on chip switches (P-W2)", async () => {
+  it("does NOT call geolocation on chip switches", async () => {
     const geolocationSpy = vi.fn();
     Object.defineProperty(globalThis.navigator ?? {}, "geolocation", {
       value: { getCurrentPosition: geolocationSpy },
@@ -145,7 +145,7 @@ describe("ExplorePage", () => {
     expect(container.textContent).toContain("Run Club");
   });
 
-  it("wires fetched venues into the map as venue pin links (T-S2)", async () => {
+  it("wires fetched venues into the map as venue pin links", async () => {
     mockGet.mockResolvedValue({
       data: { events: [], nextCursor: null, series: {} },
       error: null,

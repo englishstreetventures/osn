@@ -9,7 +9,7 @@ import { onCleanup, onMount, Show } from "solid-js";
  *
  * Falls back to a text "location" card when coordinates are missing.
  *
- * P-W3: Leaflet (~150KB + CSS) is loaded via a dynamic `await import`
+ * Leaflet (~150KB + CSS) is loaded via a dynamic `await import`
  * inside `onMount` rather than a top-level import, so events without
  * coordinates never pay for the chunk and the home feed never fetches
  * it at all (route-level splitting in `App.tsx` handles the home case).

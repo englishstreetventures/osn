@@ -203,7 +203,7 @@ describe("venue fetchers", () => {
       expect(await fetchVenue("org", "venue")).toBeNull();
     });
 
-    it("URL-encodes path segments (S-L2)", async () => {
+    it("URL-encodes path segments", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
       await fetchVenue("org/with?chars", "venue#frag");
       const url = fetchMock.mock.calls[0]![0] as string;
@@ -252,7 +252,7 @@ describe("venue fetchers", () => {
       expect(await fetchEventLineup("org", "venue", "evt")).toEqual([]);
     });
 
-    it("URL-encodes the eventId segment (S-L2)", async () => {
+    it("URL-encodes the eventId segment", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
       await fetchEventLineup("org", "venue", "evt/../../sneaky");
       const url = fetchMock.mock.calls[0]![0] as string;
