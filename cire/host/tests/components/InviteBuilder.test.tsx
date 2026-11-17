@@ -198,6 +198,26 @@ describe("InviteBuilder theme", () => {
     expect(body.value).toBe("system-sans");
   });
 
+  it("reopens on its last read without asking again", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        faqs: [],
+        theme: { ...EMPTY_CUSTOMISATION.theme, headingFont: "georgia" },
+      }),
+    );
+    const first = render(() => <InviteBuilder {...WEDDING} />);
+    await waitFor(() =>
+      expect((screen.getByLabelText("Heading font") as HTMLSelectElement).value).toBe("georgia"),
+    );
+    first.unmount();
+    authFetchMock.mockClear();
+
+    render(() => <InviteBuilder {...WEDDING} />);
+    expect((screen.getByLabelText("Heading font") as HTMLSelectElement).value).toBe("georgia");
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
   it("seeds the typography selects from the loaded theme (0048)", async () => {
     authFetchMock.mockResolvedValueOnce(
       json({

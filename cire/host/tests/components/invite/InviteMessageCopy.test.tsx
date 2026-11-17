@@ -32,6 +32,7 @@ vi.mock("../../../src/lib/osn", () => ({ CIRE_WEB_URL: "https://guests.test" }))
 
 import InviteMessageCopy from "../../../src/components/invite/InviteMessageCopy";
 import type { OrganiserHouseholdRow } from "../../../src/lib/households-store";
+import { __resetHouseholdsCache } from "../../../src/lib/households-store";
 import {
   authFetchMock,
   redirectSpy,
@@ -126,6 +127,7 @@ describe("InviteMessageCopy", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
+    __resetHouseholdsCache();
     writeText.mockReset();
   });
 
@@ -208,6 +210,7 @@ describe("InviteMessageCopy", () => {
       expect(toastError).not.toHaveBeenCalled();
       cleanup();
       resetOrganiserMocks();
+      __resetHouseholdsCache();
     }
   });
 

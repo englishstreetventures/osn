@@ -11,6 +11,7 @@ vi.mock("../../src/lib/vendors-store", () => ({
 }));
 
 import DirectoryBrowseView from "../../src/components/DirectoryBrowseView";
+import { __resetDirectoryCache } from "../../src/lib/directory-store";
 import { invalidateVendors, upsertCachedVendor } from "../../src/lib/vendors-store";
 import { chipLook } from "../test-support/chip-look";
 
@@ -35,11 +36,24 @@ const json = (body: unknown, status = 200) =>
 
 afterEach(() => {
   cleanup();
+  __resetDirectoryCache();
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
 describe("DirectoryBrowseView", () => {
+  it("reopens on the unfiltered first page without asking again", async () => {
+    authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
+    const first = render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(await screen.findByText("Acme Venue")).toBeInTheDocument();
+    first.unmount();
+    authFetch.mockClear();
+
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(screen.getByText("Acme Venue")).toBeInTheDocument();
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
   it("renders live listings from the browse endpoint", async () => {
     authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
     render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);

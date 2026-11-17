@@ -27,3 +27,17 @@ export const invalidateInvite = (weddingId: string) => cache.invalidate(weddingI
 export const dropInvite = (weddingId: string) => cache.drop(weddingId);
 /** Test-only. */
 export const __resetInviteCache = () => cache.reset();
+
+/** The FAQ list the builder now holds, onto a loaded invite. */
+export function patchInviteFaqs(
+  weddingId: string,
+  faqs: InviteCustomisation["faqs"] | undefined,
+): void {
+  const invite = cache.peek(weddingId);
+  if (invite && faqs) cache.setCached(weddingId, { ...invite, faqs });
+}
+
+/** The invite, when still fresh. */
+export function freshInvite(weddingId: string): InviteCustomisation | null {
+  return cache.has(weddingId) ? cache.peek(weddingId) : null;
+}
