@@ -101,7 +101,7 @@ async function organiserFaqs(app: App, profileId = OWNER): Promise<Faq[] | undef
   return ((await res.json()) as { faqs?: Faq[] }).faqs;
 }
 
-describe("invite FAQ routes (migration 0064)", () => {
+describe("invite FAQ routes", () => {
   describe("auth and roles", () => {
     it("401s without a token", async () => {
       const { app } = buildApp();

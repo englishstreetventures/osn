@@ -252,8 +252,8 @@ describe("GET /api/organiser/weddings", () => {
     expect((await listed(app)).entitlements).toEqual(["premium_templates"]);
   });
 
-  // A legacy row is what migration 0073 read to set the tier; after it, the
-  // tier alone says what the wedding has.
+  // The tier alone says what the wedding has; a legacy entitlement row other
+  // than premium_templates grants nothing.
   it("ignores every legacy entitlement row other than premium_templates", async () => {
     const { db, app } = buildApp();
     grant(db, "vendors");

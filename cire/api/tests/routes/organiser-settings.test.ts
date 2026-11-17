@@ -334,7 +334,7 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     });
   });
 
-  it("records who made the write (migration 0056)", async () => {
+  it("records who made the write", async () => {
     // Two principal classes can now move a guest-facing control, so an owner
     // who finds RSVPs closed must be able to establish who did it.
     const { app, db } = buildApp();
@@ -596,7 +596,7 @@ describe("the wedding's currency while money gifts are on", () => {
   });
 });
 
-describe("event location config is gone (dropped by migration 0036)", () => {
+describe("event location config is not accepted", () => {
   const EVENTS_PATH = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events`;
   const POINT = { locationLat: -33.8688, locationLng: 151.2093, pricingRegion: "au-nsw" };
 

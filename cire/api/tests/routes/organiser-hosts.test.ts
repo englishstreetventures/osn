@@ -1814,8 +1814,8 @@ describe("co-host dashboard access (weddingMember)", () => {
       }[];
     };
     expect(body.weddings).toEqual([
-      // The seed omits `role`, landing on the legacy DDL default 'host'
-      // (pre-0031 shape) — readers normalise it to 'editor'.
+      // The seed omits `role`, landing on the DDL default 'host', which
+      // readers normalise to 'editor'.
       {
         id: WEDDING_ID,
         slug: "hosts-wedding",

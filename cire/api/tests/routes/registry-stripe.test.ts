@@ -759,12 +759,8 @@ describe("refreshing what Stripe says", () => {
   });
 
   it("answers 502 when Stripe cannot be reached", async () => {
-    const stripe = stripeStub();
-    const { app } = buildApp({ stripe: stripe.client });
-    await req(app, `${base}/session`, OWNER);
-
     const failing = buildApp({ stripe: stripeStub({ failRetrieve: true }).client });
-    // Give the second app an account to refresh.
+    // Give the app an account to refresh.
     await req(failing.app, `${base}/session`, OWNER);
     const res = await req(failing.app, `${base}/refresh`, OWNER);
     expect(res.status).toBe(502);

@@ -1147,10 +1147,8 @@ describe("POST /changes/preview + /apply — single-sheet uploads", () => {
 
 /**
  * A 422 has to locate the problem: which sheet, which row, which column, and the
- * specific reason. Preview used to omit `column`, and apply used to return only
- * the top-level `error` — so the same bad file produced two different, equally
- * unactionable bodies and the portal had nothing to render but "Malformed
- * spreadsheet".
+ * specific reason. Preview and apply answer the same located body for the same
+ * bad file, so the portal has more to render than "Malformed spreadsheet".
  */
 describe("POST /changes/preview — parse errors locate the problem", () => {
   it("422s formula injection with cell coords and no cell contents", async () => {
@@ -1253,8 +1251,8 @@ describe("POST /changes/preview — parse errors locate the problem", () => {
     const { app, db, r2 } = buildApp();
 
     // Get a valid change row, then corrupt the stored sheet so the apply-time
-    // re-parse (not the preview) is what fails — the path that used to return
-    // `{error: "Malformed spreadsheet"}` and nothing else.
+    // re-parse (not the preview) is what fails; it must locate the problem too,
+    // not answer `{error: "Malformed spreadsheet"}` alone.
     const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, { eventsCsv: EVENTS_CSV });
     const { changeId } = (await previewRes.json()) as { changeId: string };
     const [row] = db.select().from(imports).where(eq(imports.id, changeId)).all();
@@ -1363,9 +1361,9 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 
   it("rejects a blank household name at the schema boundary (400)", async () => {
     // The editor client validates non-blank names, but the client is not a
-    // security boundary — the DesiredState JSON front door used to accept a
-    // blank (or unbounded) familyName straight through to rows the guest
-    // invite renders. The schema refinement now 400s it before any diff runs.
+    // security boundary: a blank (or unbounded) familyName sent to the
+    // DesiredState JSON front door would reach rows the guest invite renders.
+    // The schema refinement 400s it before any diff runs.
     const { app } = buildApp();
     const blankName = {
       ...desiredState,
@@ -1910,8 +1908,8 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     const guestBefore = db.select().from(guests).all()[0]!;
 
     // The draft the editor posts after typing a new household name: same ids,
-    // new familyName. This used to preview as an all-zero plan and apply as a
-    // no-op — the "household name won't save" bug.
+    // new familyName. It must not preview as an all-zero plan or apply as a
+    // no-op, which leaves the household name unsaved.
     const renamedState = {
       ...desiredState,
       families: [
@@ -2092,7 +2090,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 
   /**
    * The editor expresses a deletion by ABSENCE — it posts the whole draft and
-   * the dropped row simply isn't in it. These walk the two shapes that used to
+   * the dropped row simply isn't in it. These walk two shapes that could
    * swallow that: a guest whose first name collides with a sibling's (invisible
    * to the removal scan) and a replacement guest reusing a deleted guest's name
    * (which adopted the deleted row instead of replacing it). Both ended the same
@@ -3601,7 +3599,7 @@ describe("POST /changes/preview — provenance default + removeManual toggle", (
    * Apply re-reads `removeManual` off the persisted summary, the same way it
    * re-reads `scope` and `matchByName` above. `??` only guards null/undefined,
    * so a stored value that is present but not a real boolean — a truncated
-   * write, a hand-edited row — used to sail through unchanged and reach
+   * write, a hand-edited row — would sail through unchanged and reach
    * `diffAgainstDb`'s removal loop as a truthy non-boolean, widening the diff
    * exactly as `removeManual: true` would. The decode-and-fall-back-to-false
    * this branch adds only differs from the old `?? false` on this one input,
@@ -4430,7 +4428,7 @@ describe("POST /changes/apply — change-row guards", () => {
     expect(res.status).toBe(409);
   });
 
-  it("400s the alias-era `importId` body", async () => {
+  it("400s an apply body that names `importId` rather than `changeId`", async () => {
     const { app } = buildApp();
     const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
       eventsCsv: EVENTS_CSV,

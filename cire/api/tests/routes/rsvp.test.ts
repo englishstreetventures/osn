@@ -283,10 +283,10 @@ describe("POST /api/rsvp", () => {
     "returns 403 (not-invited, not not-owned) for a guest with zero guest_events rows (LEFT JOIN null case)",
     eff(
       Effect.gen(function* () {
-        // Ownership and invitation used to come off two separate queries;
-        // folding them into one LEFT JOIN must not drop a guest who has no
-        // guest_events rows at all. Insert a guest into Ada's family with no
-        // invitations, then confirm the ownership gate still passes for them
+        // Ownership and invitation come off one LEFT JOIN, which must not drop
+        // a guest who has no guest_events rows at all. Insert a guest into
+        // Ada's family with no invitations, then confirm the ownership gate
+        // still passes for them
         // — the request must fail on the INVITATION gate (403 "not invited"),
         // not the OWNERSHIP gate (403 "do not belong to this family").
         const noInviteGuestId = yield* Effect.sync(() => crypto.randomUUID());
@@ -1214,11 +1214,6 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
     ).toBe(upserted);
   };
 
-  /**
-   * The check above reads the name before the write. A rename from another
-   * device that commits between that read and the save must still refuse the
-   * save, rather than store the old person's answers under the new name.
-   */
   it("refuses a save whose plus-one is renamed between the read and the write", async () => {
     await raceWrite("rename");
   });

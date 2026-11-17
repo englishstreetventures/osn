@@ -542,7 +542,7 @@ describe("checkout.session.completed — settling the row, never inventing one",
   });
 
   /**
-   * The window migration 0060 opened: the Worker wrote the gift, asked Stripe
+   * The gift written before its session: the Worker wrote the gift, asked Stripe
    * for a page, and was evicted before it heard back. The completed event is
    * the first thing that ever names the session — the gift settles anyway, and
    * takes the session id with it.
@@ -646,9 +646,9 @@ async function seedSettled(app: App, db: ReturnType<typeof buildApp>["db"], fami
 
 describe("checkout.session.async_payment_succeeded — the debit that landed days later", () => {
   /**
-   * The money bug this closes: a BECS or SEPA debit completes the session in
-   * seconds and settles days later. Without this event the gift sat `pending`
-   * forever and the couple were never told the money had arrived.
+   * A BECS or SEPA debit completes the session in seconds and settles days
+   * later. Without this event the gift would sit `pending` forever and the
+   * couple would never be told the money had arrived.
    */
   it("settles a gift whose bank debit finally cleared", async () => {
     const { app, db, familyId } = buildApp();
@@ -717,7 +717,7 @@ describe("the endings where no money moves", () => {
   }
 
   /**
-   * The other side of migration 0060: an attempt that never had its session
+   * The other side: an attempt that never had its session
    * attached still has to be closable, or it sits `pending` forever and the
    * couple's gift log carries a gift nobody ever gave. The expiring session's
    * id goes on the row on the way out, so a redelivery is a no-op.
@@ -870,10 +870,10 @@ const dispute = (
 /**
  * The couple revoking cire from their own Stripe dashboard.
  *
- * The money bug this closes: nothing here noticed. The cached
- * `stripe_charges_enabled` stayed true, so the couple's contribute button stayed
- * armed against an account that would refuse every charge — a guest pressing it
- * got as far as a Stripe error, and the couple got nothing.
+ * Unnoticed, the cached `stripe_charges_enabled` would stay true, so the
+ * couple's contribute button would stay armed against an account that refuses
+ * every charge — a guest pressing it would get as far as a Stripe error, and
+ * the couple nothing.
  */
 describe("account.application.deauthorized — the couple revoked our access", () => {
   it("clears the account and disarms the guest surface", async () => {

@@ -553,7 +553,7 @@ describe("what reaches Stripe, and what does not", () => {
     await contribute(app, cookie, { amountMinor: 5000, message: "x", displayName: "Y" });
 
     // Mid-flight: the gift exists, and has no session because there is not one
-    // yet — that NULL is the whole point of migration 0060.
+    // yet: the column takes NULL so the gift can be written before its session.
     expect(duringCreate).toHaveLength(1);
     expect(duringCreate[0]?.status).toBe("pending");
     expect(duringCreate[0]?.sessionId).toBeNull();

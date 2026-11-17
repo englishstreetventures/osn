@@ -393,8 +393,8 @@ describe("PUT /invite/text (organiser)", () => {
   });
 
   /**
-   * The 0057 registry copy columns. Written straight to the row because no write
-   * path exists yet — `InviteTextBody` / `InviteThemeBody` have no field for
+   * The registry copy columns. Written straight to the row because no write
+   * path reaches them — `InviteTextBody` / `InviteThemeBody` have no field for
    * them, and adding one would change what the host portal PUTs. This pins the
    * READ half: the columns reach the guest payload, shaped like the other
    * section copy, and are NOT redacted (the section header is invite furniture,
@@ -764,9 +764,8 @@ describe("invite image upload + serve + remove", () => {
     expect(((await after.json()) as { hero: { imageUrl: null } }).hero.imageUrl).toBeNull();
   });
 
-  // Slot isolation. Until 0049 there were exactly two slots and the service
-  // branched `slot === "hero" ? … : …` everywhere, so a third slot would have
-  // been written into the story's columns. These pin each slot to its own.
+  // Slot isolation: a service that branched `slot === "hero" ? … : …` would
+  // write a third slot into the story's columns. These pin each slot to its own.
   it("uploads a footer image, serves it, and surfaces it on the organiser read", async () => {
     const { app } = buildApp();
 
@@ -1003,8 +1002,7 @@ describe("invite image upload + serve + remove", () => {
     expect(res.status).toBe(415);
   });
 
-  // Was `footer` until that became a real slot (0049) — any name outside
-  // INVITE_IMAGE_SLOTS must still be rejected rather than silently mapped.
+  // Any name outside INVITE_IMAGE_SLOTS is rejected rather than silently mapped.
   it("400s for an unknown slot", async () => {
     const { app } = buildApp();
     const res = await appRequest(app, `${orgBase}/image/banner`, {
@@ -1405,7 +1403,7 @@ describe("organiser read of invite images", () => {
   });
 });
 
-describe("event image upload + serve + remove (migration 0019)", () => {
+describe("event image upload + serve + remove", () => {
   // A seeded event id under the bootstrap wedding — every seeded event is scoped
   // to BOOTSTRAP_WEDDING_ID / SLUG, so this id is owned by that wedding.
   const EVENT_ID = eventsData.catholic.id;
@@ -1990,9 +1988,9 @@ describe("PUT /invite/theme (organiser)", () => {
       story: "card",
       details: null,
       welcome: "raised",
-      // Not writable through `PUT /invite/theme` yet (0057's column has no
-      // field on the total `InviteThemeBody`), so it reads back null even
-      // after a full theme save.
+      // Not writable through `PUT /invite/theme` (the column has no field on
+      // the total `InviteThemeBody`), so it reads back null even after a full
+      // theme save.
       registry: null,
     });
     // Typography option keys (0048) round-trip as keys — the guest site
@@ -2157,7 +2155,7 @@ describe("PUT /invite/theme (organiser)", () => {
   });
 });
 
-describe("hero display sliders (migration 0018)", () => {
+describe("hero display sliders", () => {
   const validTheme = {
     headingFont: "default",
     bodyFont: "default",
@@ -2511,7 +2509,7 @@ describe("hero display sliders (migration 0018)", () => {
   });
 });
 
-describe("image crop (migration 0021)", () => {
+describe("image crop", () => {
   const EVENT_ID = eventsData.catholic.id;
   const orgEventImagePath = (eventId: string) =>
     `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events/${encodeURIComponent(eventId)}/image`;
@@ -2610,7 +2608,7 @@ describe("image crop (migration 0021)", () => {
     });
   });
 
-  describe("hero phone crop (migration 0046)", () => {
+  describe("hero phone crop", () => {
     const MOBILE_CROP = { x: 0.55, y: 0, w: 0.3, h: 0.9, natW: 4000, natH: 3000 };
     type HeroCrops = { hero: { imageCrop: unknown; imageCropMobile: unknown } };
 
@@ -2630,7 +2628,7 @@ describe("image crop (migration 0021)", () => {
       const { app } = buildApp();
       await uploadHero(app);
 
-      // Desktop rectangle via the pre-0046 body (no `screen`), phone via
+      // Desktop rectangle via a body with no `screen`, phone via
       // `screen: "mobile"` — the two must not clobber each other.
       expect((await putCrop(app, { crop: VALID_CROP })).status).toBe(200);
       expect((await putCrop(app, { crop: MOBILE_CROP, screen: "mobile" })).status).toBe(200);

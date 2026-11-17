@@ -326,8 +326,8 @@ describe("createAccountResolverFromEnv", () => {
 
   // A PRESENT-but-INVALID ARC key must be treated EXACTLY like an absent one:
   // the builder returns null (⇒ feature disabled, POST answers 503) and NEVER
-  // throws. A throw here propagated out of the Worker setup path and 500'd every
-  // authenticated request (the production dashboard login-loop incident).
+  // throws. A throw here would propagate out of the Worker setup path and
+  // answer 500 to every authenticated request.
   it.each([
     ["non-JSON garbage", "{not-json"],
     ["plain string", "garbage"],

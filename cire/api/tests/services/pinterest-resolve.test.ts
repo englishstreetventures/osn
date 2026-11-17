@@ -119,8 +119,7 @@ describe("resolvePinUrl", () => {
   });
 
   it("follows the real pin.it → api.pinterest.com url_shortener → board chain", async () => {
-    // Reproduces the live redirect shape that broke resolution: pin.it now
-    // 308s through Pinterest's first-party url_shortener (api.pinterest.com)
+    // The live redirect shape: pin.it 308s through Pinterest's first-party url_shortener (api.pinterest.com)
     // before landing on the regional board host. The middle hop must be
     // followed, not abandoned.
     const fetched: string[] = [];

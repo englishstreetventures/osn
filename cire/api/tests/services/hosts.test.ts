@@ -749,8 +749,7 @@ describe("hostsService.list", () => {
   });
 
   it("caps the seats a wedding can hold, so every seat stays listable", async () => {
-    // The property the cap defends, driven the way the security review drove
-    // the bug: seats past the list ceiling are invisible to the owners, and
+    // The property the cap defends: seats past the list ceiling are invisible to the owners, and
     // DELETE needs a profile id they can only get from that list — so an
     // uncapped add lets one owner create seats the others cannot remove.
     // "Any owner can take a seat back" only holds while every seat is listed,
