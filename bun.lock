@@ -901,7 +901,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.76",
+      "version": "0.3.77",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@osn/auth-ui": "workspace:*",
