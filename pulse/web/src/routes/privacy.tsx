@@ -24,7 +24,7 @@ export default function PrivacyRoute(): JSX.Element {
         </p>
       )}
       <h1 class="mb-1 text-2xl font-semibold">Privacy Notice</h1>
-      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-10-26</p>
+      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-11-17</p>
 
       <p>
         This notice covers Pulse — events, RSVPs and venues. The account you sign in with belongs to
@@ -130,6 +130,12 @@ export default function PrivacyRoute(): JSX.Element {
         for 90 days after it ends, then removed; hosts can delete sooner. Host-to-attendee messages
         are logged for 90 days. If you are in the EEA or the UK, your information is transferred
         outside that area to Australia — ask us and we will tell you what protections apply.
+      </p>
+      <p>
+        If you delete your Musubi account, Pulse deletes your RSVPs, close friends, the messages you
+        sent and your Pulse profile when the account goes, 7 days after you ask. Each upcoming event
+        you host is cancelled and kept 14 days for its guests, or deleted at once if you choose that
+        when you delete; past events you hosted are deleted.
       </p>
 
       <h2>Your rights</h2>

@@ -163,6 +163,33 @@ describe("legal pages", () => {
     expect(flat(hosts)).not.toMatch(/removed when you ask us to\./);
   });
 
+  /**
+   * An OSN account deletion reaches cire at the end of its 7 days
+   * (`cire/api/src/services/account-erasure.ts`): the person's seats go and
+   * their profile ids are cleared; a wedding with another owner stays; one
+   * they alone own is an open action Musubi's flow will not pass until they
+   * add an owner or answer delete, and one left with no owner is deleted. The
+   * purge that erases it waits on money still moving
+   * (`maintenance-sweeps.ts`, `purgeHeld`), so the notice promises no time
+   * and never says cire keeps nothing. Cire refuses the account during the 7
+   * days, so the wedding download is offered before the person asks.
+   */
+  it("the hosts' notice says what deleting the Musubi account does to a wedding", () => {
+    const text = hosts.replace(/\s+/g, " ");
+    expect(text).toMatch(/when you delete your Musubi account, 7 days after you ask/);
+    expect(text).toMatch(/we remove your place on each wedding/);
+    expect(text).toMatch(/A wedding with another owner stays with them/);
+    expect(text).toMatch(
+      /A wedding you are the only owner of when the deletion happens is deleted, with its guest information/,
+    );
+    expect(text).toMatch(
+      /add another owner to each wedding you are the only owner of, or to agree to its deletion/,
+    );
+    expect(text).toMatch(/download a wedding you want to keep from its settings/i);
+    expect(text).toMatch(/waits while a payment or gift for it is still being settled/);
+    expect(text).not.toMatch(/keeps? nothing/);
+  });
+
   it("footer links every legal page", () => {
     // The footer hands its links to `@cire/ui`'s footer as data, in either
     // quote: the formatter does not reach `.astro` files. Each by the address

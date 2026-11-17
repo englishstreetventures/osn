@@ -42,4 +42,36 @@ describe("PrivacyPage.tsx", () => {
   it("does not claim a withdrawn OIDC grant is deleted", () => {
     expect(source).not.toMatch(/deletes the grant/i);
   });
+
+  /**
+   * An account is deleted once its 7 days have passed
+   * (`ACCOUNT_DELETION_GRACE_SECONDS`, `osn/api/src/services/account-erasure.ts`),
+   * by a cron that runs every 6 hours and waits for every app to finish, so it
+   * lands hours after the date shown: the notice says "usually within a day",
+   * never a tighter time. What outlives it is a keyed hash of each handle for
+   * 30 days (`lib/handle-hold.ts`), not the account.
+   */
+  it("says when a deleted account goes and what holds its handles", () => {
+    const text = source.replace(/\s+/g, " ");
+    expect(text).toMatch(/we keep it for 7 days in case you change your mind/);
+    expect(text).toMatch(/usually within a day of the date we show you/);
+    expect(text).toMatch(/no one can take your handles for 30 days/);
+    expect(text).toMatch(/not the handle itself/);
+    expect(text).not.toMatch(/tombstone/i);
+  });
+
+  /** Settings mounts no list of sessions or devices (`SettingsPage.tsx`). */
+  it("rests nothing on a device list Settings does not show", () => {
+    expect(source).not.toMatch(/device list/i);
+  });
+});
+
+describe("TermsPage.tsx", () => {
+  const source = readFileSync(join(dir, "TermsPage.tsx"), "utf8");
+
+  it("says a deletion waits 7 days and can be undone until then", () => {
+    const text = source.replace(/\s+/g, " ");
+    expect(text).toMatch(/We delete it once 7 days have passed/);
+    expect(text).toMatch(/you can keep it by signing in/);
+  });
 });

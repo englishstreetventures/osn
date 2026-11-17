@@ -540,8 +540,9 @@ final sign-off now turns only on the residual retention gaps below.
   that also fires on import revert does not. See [[retention]].
 - **Cross-database deletion.** Done: the account deletion's fan-out reaches cire
   over ARC, and an account that alone owns a live wedding must settle it first.
-  The hosts' privacy notice says so once the owner approves its wording. See
-  [[dsar#Cire (wedding-invite) data]].
+  The hosts' privacy notice
+  ([`hosts.astro`](../../../cire/landing/src/pages/privacy/hosts.astro), "How long
+  we keep it") says so. See [[dsar#Cire (wedding-invite) data]].
 - **Log redaction.** Cire PII field names + `cire_session` added to the log-redaction
   deny-list now (interim guard); adopt `@shared/observability` in
   `@cire/api` to gain a redacted logger + RED metrics + `/health`. See
