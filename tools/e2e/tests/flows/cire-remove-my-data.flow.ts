@@ -18,7 +18,8 @@
  *
  * Then cire's "Remove my Cire data": the screen lists the wedding to be
  * deleted and the one they leave; they answer, go to Musubi in the same tab,
- * confirm with the passkey and come back. A second browser holding a second
+ * confirm with the passkey and come back; Musubi's confirm page, opened
+ * again, says the request has ended. A second browser holding a second
  * session of theirs and the code, but not the cookie that binds the
  * confirmation to the first browser, is refused. They remove their data: the
  * wedding they owned alone is deleted, their seat on the shared one goes and
@@ -231,20 +232,44 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
     await page.getByText(P.keeper.theirs.name).count(),
   );
 
-  const code = await flow.step("answer, and confirm it's them on Musubi", async () => {
-    await answer.check();
-    await page.getByRole("button", { name: "Confirm on Musubi" }).click();
-    await page.waitForURL(`${ORIGINS.musubi}/confirm/**`);
-    await expect(page.getByRole("heading", { name: "Remove your Cire data" })).toBeVisible();
-    await page.getByRole("button", { name: "Confirm it's you" }).click();
-    await page.getByRole("button", { name: "Use passkey" }).click();
-    await page.waitForURL(`${ORIGINS.cireHost}/**`);
-    await expect(page.getByText("Confirmed on Musubi.", { exact: false })).toBeVisible();
-    return page.evaluate(() => window.sessionStorage.getItem("cire.removal.code"));
-  });
+  const { code, confirmPage } = await flow.step(
+    "answer, and confirm it's them on Musubi",
+    async () => {
+      await answer.check();
+      await page.getByRole("button", { name: "Confirm on Musubi" }).click();
+      await page.waitForURL(`${ORIGINS.musubi}/confirm/**`);
+      const confirmUrl = page.url();
+      await expect(page.getByRole("heading", { name: "Remove your Cire data" })).toBeVisible();
+      await page.getByRole("button", { name: "Confirm it's you" }).click();
+      await page.getByRole("button", { name: "Use passkey" }).click();
+      await page.waitForURL(`${ORIGINS.cireHost}/**`);
+      await expect(page.getByText("Confirmed on Musubi.", { exact: false })).toBeVisible();
+      return {
+        code: await page.evaluate(() => window.sessionStorage.getItem("cire.removal.code")),
+        confirmPage: confirmUrl,
+      };
+    },
+  );
   flow.check("the code came back to the portal", true, typeof code === "string" && code.length > 0);
   flow.check("the code is gone from the address", false, page.url().includes("code="));
   flow.check("the answer was kept across the trip", true, await answer.isChecked());
+
+  const reopened = await flow.step("open Musubi's confirm page again", async () => {
+    const again = await page.context().newPage();
+    try {
+      await again.goto(confirmPage);
+      const ended = again.getByRole("heading", { name: "This request has ended" });
+      await expect(ended).toBeVisible();
+      return {
+        ended: await ended.isVisible(),
+        confirmButtons: await again.getByRole("button", { name: "Confirm it's you" }).count(),
+      };
+    } finally {
+      await again.close();
+    }
+  });
+  flow.check("a confirmed request has ended", true, reopened.ended);
+  flow.check("it cannot be confirmed twice", 0, reopened.confirmButtons);
 
   const elsewhere = await flow.step(
     "a second browser with the code and their second session, but not the cookie, is refused",
