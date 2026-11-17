@@ -6,6 +6,7 @@ import { Db } from "@pulse/db/service";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
+import { vi } from "vitest";
 
 import { listMyCalendarEvents } from "../../src/services/events";
 import { upsertRsvp } from "../../src/services/rsvps";
@@ -160,16 +161,22 @@ it.effect("returns a single entry when the viewer hosts AND RSVP'd their own eve
 // applyTransitions preserves row order, so the parallel myStatus
 // array zips back by index. Interleave transitioning (already-started,
 // stored "upcoming") and non-transitioning (future) events with different
-// myStatus/isHost values and assert each returned entry's pairing.
+// myStatus/isHost values and assert each returned entry's pairing. The
+// calendar's window starts at local midnight, so the clock is pinned to local
+// noon: events that started minutes ago are then always on today.
 it.effect("keeps myStatus/isHost paired to the right event when transitions interleave", () =>
   Effect.gen(function* () {
-    const minutesAgo = (n: number) => new Date(now - n * 60_000).toISOString();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2030, 5, 15, 12, 0, 0));
+    const at = Date.now();
+    const minutesAgo = (n: number) => new Date(at - n * 60_000).toISOString();
+    const daysAhead = (n: number) => new Date(at + n * 86_400_000).toISOString();
 
     // Seeded out of start-time order on purpose so the merge sort + zip is
     // exercised, not just the insertion order.
     const upcomingGoing = yield* seedEvent({
       title: "Upcoming Going",
-      startTime: inDays(1),
+      startTime: daysAhead(1),
       createdByProfileId: OTHER,
     });
     const startedMaybe = yield* seedEvent({
@@ -179,7 +186,7 @@ it.effect("keeps myStatus/isHost paired to the right event when transitions inte
     });
     const upcomingHosted = yield* seedEvent({
       title: "Upcoming Hosted",
-      startTime: inDays(2),
+      startTime: daysAhead(2),
       createdByProfileId: VIEWER,
     });
     const startedHosted = yield* seedEvent({
@@ -219,7 +226,10 @@ it.effect("keeps myStatus/isHost paired to the right event when transitions inte
     expect(byId.get(startedHosted.id)!.event.status).toBe("ongoing");
     expect(byId.get(upcomingGoing.id)!.event.status).toBe("upcoming");
     expect(byId.get(upcomingHosted.id)!.event.status).toBe("upcoming");
-  }).pipe(Effect.provide(createTestLayer())),
+  }).pipe(
+    Effect.ensuring(Effect.sync(() => vi.useRealTimers())),
+    Effect.provide(createTestLayer()),
+  ),
 );
 
 it.effect("fails with DatabaseError when the underlying query errors", () =>

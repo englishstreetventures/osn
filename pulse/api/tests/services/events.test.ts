@@ -581,14 +581,19 @@ it.effect("getEvent does not transition finished events", () =>
   ),
 );
 
+// The today feed's window starts at local midnight, so the clock is pinned to
+// local noon: an event that started a minute ago is then always on today.
 it.effect("listTodayEvents returns transitioned statuses", () =>
   provide(
     Effect.gen(function* () {
-      yield* seedEvent({ title: "Today Started", startTime: STARTED });
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(2030, 5, 15, 12, 0, 0));
+      const started = new Date(Date.now() - 60_000).toISOString();
+      yield* seedEvent({ title: "Today Started", startTime: started });
       const results = yield* listTodayEvents(null);
-      const started = results.find((e) => e.title === "Today Started");
-      expect(started?.status).toBe("ongoing");
-    }),
+      const found = results.find((e) => e.title === "Today Started");
+      expect(found?.status).toBe("ongoing");
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.useRealTimers()))),
   ),
 );
 
