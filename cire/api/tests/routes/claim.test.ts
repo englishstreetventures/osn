@@ -126,6 +126,8 @@ describe("POST /api/claim", () => {
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
         expect(data.familyName).toBe("Testfamily");
+        // A guest household's claim, not the host preview.
+        expect(data.preview).toBe(false);
         expect(data.members).toHaveLength(1);
         expect(data.members[0]!.firstName).toBe("Ada");
         expect(typeof data.members[0]!.guestId).toBe("string");

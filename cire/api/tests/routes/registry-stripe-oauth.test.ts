@@ -900,7 +900,7 @@ describe("an account Stripe connected that cire then cannot store", () => {
   });
 });
 
-describe("what the state review found (G-)", () => {
+describe("the Stripe account when the wedding changes around it", () => {
   const run = <A>(db: TestDb, effect: Effect.Effect<A, never, DbService>) =>
     Effect.runPromise(effect.pipe(Effect.provideService(DbService, db)));
 

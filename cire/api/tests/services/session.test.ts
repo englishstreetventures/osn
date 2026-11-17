@@ -32,7 +32,10 @@ describe("sessionService.create", () => {
         expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
         expect(token).toHaveLength(43);
         expect(token.includes("=")).toBe(false);
-        expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
+        // The default lifetime is 30 days.
+        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+        expect(expiresAt.getTime()).toBeGreaterThan(Date.now() + thirtyDays - 60_000);
+        expect(expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + thirtyDays);
       }),
     ),
   );
@@ -53,8 +56,8 @@ describe("sessionService.create", () => {
         expect(row!.familyId).toBe(familyId);
         expect(row!.token).not.toBe(token);
         expect(row!.token).toMatch(/^[0-9a-f]{64}$/);
-        // ttl is 60s — expiresAt should land in [before, before+61s].
-        expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before);
+        // ttl is 60s — expiresAt should land in [before+60s, before+61s].
+        expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before + 60_000);
         expect(expiresAt.getTime()).toBeLessThanOrEqual(before + 61_000);
       }),
     ),

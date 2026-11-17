@@ -96,6 +96,12 @@ describe("encodeStripeForm", () => {
     expect(encodeStripeForm({ email: null, country: "AU" })).toBe("country=AU");
     expect(encodeStripeForm({ email: undefined, country: "AU" })).toBe("country=AU");
   });
+
+  it("escapes values that would otherwise change the shape of the body", () => {
+    expect(encodeStripeForm({ return_url: "https://x.test/a?b=c&d=e" })).toBe(
+      "return_url=https%3A%2F%2Fx.test%2Fa%3Fb%3Dc%26d%3De",
+    );
+  });
 });
 
 describe("createStripeClient", () => {

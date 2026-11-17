@@ -969,7 +969,7 @@ How the fast tier avoids these files differs by runner, and the difference is wo
 | Package | Fast-tier runner | Does `bun run test` load the D1/Miniflare file? |
 |---|---|---|
 | `osn/api`, `pulse/api`, `zap/api`, `shared/realtime`, `shared/coordination`, `shared/billing` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
-| `cire/api` | bare `bun test` | **No.** The `test` script passes `--path-ignore-patterns='tests/db/d1-integration.test.ts'`, which bun applies only to the files it discovers; `test:d1` and the mutation runner name the file, so they still run it. Other files in the fast tier still boot workerd: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
+| `cire/api` | bare `bun test` | **No.** The `test` script passes `--path-ignore-patterns='tests/db/d1-integration.test.ts'`, which bun applies only to the files it discovers: `test:d1` names the file, so it still runs it, and a mutation run reaches it whenever `STRYKER_TESTS` lists it. Other files in the fast tier still boot workerd: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
 
 See [[realtime]] for what `hub.test.ts` covers.
 
