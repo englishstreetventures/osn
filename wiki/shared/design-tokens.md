@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-17
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -205,12 +205,13 @@ and raised cards, and the accent menu where the app sets no `--elev-2`.
 and pulse's dialogs cast the fallback, `0 8px 24px rgb(0 0 0 / 0.12)`.
 
 `@cire/ui` also reads a few of cire's own app tokens, outside the contract,
-with a fallback at each use: the glass's `--glass-edge`, `--inner-lip` and
-`--elev-1`, the motion ladder's `--dur-*` and `--ease-*`, and the portals' two
-pill tokens, `--pill-ground` and `--pill-sm-height`, which only the host and
-vendor portals set, so one `Button` draws grounded 28px pills there and clear
-31px ones on the guest site ([[component-library]], §cire's `Button`).
-They are not contract tokens because nothing outside cire reads them.
+with a fallback at each use: the glass's `--glass-edge`, `--glass-ring`,
+`--inner-lip` and `--elev-1`, the motion ladder's `--dur-*` and `--ease-*`, and
+the portals' two pill tokens, `--pill-ground` and `--pill-sm-height`, which
+only the host and vendor portals set, so one `Button` draws grounded 28px pills
+there and clear 31px ones on the guest site ([[component-library]], §cire's
+`Button`). They are not contract tokens because nothing outside cire reads
+them.
 
 Two names are worth reading twice. **`ground-deep` is not "darker"** — it is
 what the page recedes _to_, behind a sticky bar or under a scrim, and on a dark
