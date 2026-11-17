@@ -28,6 +28,16 @@ const frames = () =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
   );
 
+/** A colour as this browser writes it once computed, read from a probe that paints it. */
+function resolved(colour: string): string {
+  const probe = document.createElement("div");
+  probe.style.backgroundColor = colour;
+  document.body.append(probe);
+  const value = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  return value;
+}
+
 /** Open the share sheet at `width` × `height`, its rise finished. */
 async function open(width: number, height: number) {
   await page.viewport(width, height);
@@ -66,7 +76,11 @@ it("keeps the title row and its × in place on a short phone, the fade in pulse'
   expect(close.top).toBeGreaterThanOrEqual(top);
   expect(close.bottom).toBeLessThanOrEqual(header.getBoundingClientRect().bottom);
   expect(Number(band().opacity)).toBe(1);
-  const card = getComputedStyle(sheet).backgroundColor;
+  // pulse's `--card`, `oklch(1 0 0)` in `app.css`, written out here so that
+  // losing or moving pulse's `--ui-surface` mapping fails this case, as the
+  // contract's fallback grey would otherwise paint both the sheet and the fade.
+  const card = resolved("oklch(1 0 0)");
+  expect(getComputedStyle(sheet).backgroundColor).toBe(card);
   expect(band().backgroundImage).toBe(`linear-gradient(${card}, rgba(0, 0, 0, 0))`);
   await page.screenshot({ path: shot("390-short-end") });
 });

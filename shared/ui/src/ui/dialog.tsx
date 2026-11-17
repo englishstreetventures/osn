@@ -155,12 +155,15 @@ const DIALOG_MOTION = {
 /**
  * How far focus scrolling keeps a control below the top of the panel: the
  * header's height, which `DialogHeader` measures and writes on the panel, the
- * 16px fade under it, and 4px for the widest focus mark above a control: a
- * field's `ring-2 ring-offset-2` and Musubi's outline are 2px wide and 2px
- * off; `Button`'s ring reaches 2px. A fixed length in place of the header's
- * height would match only a one-line title.
+ * fade under it (`--ui-scroll-edge-size`, 16px), and 1.5rem more for the
+ * label above a field and the gap to it, which also holds the widest focus
+ * mark (a field's `ring-2 ring-offset-2`, Musubi's 2px outline 2px off). So a
+ * field reached with Shift+Tab arrives with its label clear of the fade. A
+ * fixed length in place of the header's height would match only a one-line
+ * title.
  */
-const DIALOG_SCROLL_PADDING = "base:scroll-pt-[calc(var(--ui-dialog-header-height,0px)+1rem+4px)]";
+const DIALOG_SCROLL_PADDING =
+  "base:scroll-pt-[calc(var(--ui-dialog-header-height,0px)+var(--ui-scroll-edge-size,1rem)+1.5rem)]";
 
 /**
  * Kobalte's focus trap puts a 1px visually hidden `span` at each end of the
@@ -171,6 +174,30 @@ const DIALOG_SCROLL_PADDING = "base:scroll-pt-[calc(var(--ui-dialog-header-heigh
 const DIALOG_FOCUS_TRAP = "[&>[data-focus-trap]]:base:top-0";
 
 /**
+ * Keeps a control the focus trap wraps onto in view. Kobalte moves focus from
+ * one end of the panel to the other without scrolling (Shift+Tab off the first
+ * control lands on the footer's action), so in a panel past its cap the
+ * control would hold focus out of sight. Focus that arrives from one of the
+ * trap's `span`s scrolls the panel itself, never the page behind it, until the
+ * control is inside the panel and below the header, the fade and the label
+ * allowance (`DIALOG_SCROLL_PADDING`).
+ */
+function keepWrappedFocusInView(event: FocusEvent) {
+  const panel = event.currentTarget;
+  const control = event.target;
+  const from = event.relatedTarget;
+  if (!(panel instanceof HTMLElement) || !(control instanceof HTMLElement)) return;
+  if (!(from instanceof HTMLElement) || !from.hasAttribute("data-focus-trap")) return;
+  const box = panel.getBoundingClientRect();
+  const top = box.top + panel.clientTop;
+  const clear = top + (Number.parseFloat(getComputedStyle(panel).scrollPaddingTop) || 0);
+  const bottom = top + panel.clientHeight;
+  const rect = control.getBoundingClientRect();
+  if (rect.bottom > bottom) panel.scrollTop += rect.bottom - bottom;
+  else if (rect.top < clear) panel.scrollTop -= clear - rect.top;
+}
+
+/**
  * The panel. Its plane is `--ui-surface`, its shadow the contract's raised
  * elevation, `--ui-elev-2` — the one `Modal`, the raised `Card` and the accent
  * menu cast — so an app that maps it once themes every raised panel.
@@ -178,13 +205,19 @@ const DIALOG_FOCUS_TRAP = "[&>[data-focus-trap]]:base:top-0";
  * At every width, sheet or card, it is at most 85% of the window tall and
  * scrolls past that, as one box, header and footer included. It names its
  * scroll position (`scroll-edge-timeline`) for the fade under `DialogHeader`,
- * and keeps focus clear of that header as it scrolls (`DIALOG_SCROLL_PADDING`).
+ * keeps focus clear of that header as it scrolls (`DIALOG_SCROLL_PADDING`),
+ * and keeps a control the focus trap wraps onto in view
+ * (`keepWrappedFocusInView`).
  */
 const DialogContent: ParentComponent<
   ComponentProps<"div"> & { presentation?: keyof typeof DIALOG_PRESENTATION }
 > = (props) => {
-  const [local, others] = splitProps(props, ["class", "children", "presentation"]);
+  const [local, others] = splitProps(props, ["class", "children", "presentation", "onFocusIn"]);
   const presentation = () => local.presentation ?? "centred";
+  const onFocusIn = (event: FocusEvent & { currentTarget: HTMLDivElement; target: Element }) => {
+    keepWrappedFocusInView(event);
+    if (typeof local.onFocusIn === "function") local.onFocusIn(event);
+  };
   return (
     <DialogPortal>
       <DialogOverlay presentation={presentation()} />
@@ -198,6 +231,7 @@ const DialogContent: ParentComponent<
           DIALOG_MOTION[presentation()],
           local.class,
         )}
+        onFocusIn={onFocusIn}
         {...others}
       >
         {local.children}
@@ -226,20 +260,28 @@ const SCROLL_EDGE =
  *
  * It writes its height on the panel as `--ui-dialog-header-height`, which the
  * panel's scroll padding reads, so focus never parks a control under it. A
- * title can wrap, so the height is measured, not assumed: a `ResizeObserver`
- * reads the header's layout box, which the card's entry scale does not shrink.
+ * title can wrap, so the height is measured, not assumed, by a
+ * `ResizeObserver` on the header and the panel. Past a third of the panel's
+ * height the row is no longer stuck.
  */
 const DialogHeader: Component<ComponentProps<"div">> = (props) => {
   const [local, others] = splitProps(props, ["class", "ref"]);
   let header: HTMLDivElement | undefined;
   onMount(() => {
-    const panel = header?.closest<HTMLElement>('[role="dialog"]');
-    if (!header || !panel || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      const height = entry?.borderBoxSize[0]?.blockSize;
-      if (height !== undefined) panel.style.setProperty("--ui-dialog-header-height", `${height}px`);
+    const row = header;
+    const panel = row?.closest<HTMLElement>('[role="dialog"]');
+    if (!row || !panel || typeof ResizeObserver === "undefined") return;
+    // Layout sizes, which the card's entry scale does not shrink. A row taller
+    // than a third of the panel — a title of a thousand characters someone
+    // else chose — stops sticking and scrolls away with the body, so it can
+    // never cover the dialog's own words and buttons.
+    const observer = new ResizeObserver(() => {
+      const tall = row.offsetHeight > panel.clientHeight / 3;
+      row.style.position = tall ? "static" : "";
+      panel.style.setProperty("--ui-dialog-header-height", `${tall ? 0 : row.offsetHeight}px`);
     });
-    observer.observe(header);
+    observer.observe(row);
+    observer.observe(panel);
     onCleanup(() => {
       observer.disconnect();
       panel.style.removeProperty("--ui-dialog-header-height");

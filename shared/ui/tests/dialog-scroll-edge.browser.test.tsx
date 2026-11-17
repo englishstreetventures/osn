@@ -40,8 +40,8 @@ const shot = (name: string) => `__screenshots__/dialog-scroll-edge.browser.test.
 
 /** The fade's height, and the scroll over which it comes in. */
 const FADE = 16;
-/** What the shared focus ring adds above a control: `--ui-focus-width` plus `--ui-focus-offset`. */
-const RING = 4;
+/** What the panel's scroll padding allows above a control for its label and a focus mark (`DIALOG_SCROLL_PADDING`). */
+const LABEL = 24;
 
 interface Opened {
   panel: HTMLElement;
@@ -88,6 +88,23 @@ async function open(options: {
   await frames(2);
   const header = screen.getByRole("heading").closest<HTMLElement>("div")!;
   return { panel, header };
+}
+
+/**
+ * How far the focus mark of `element` reaches above its box: its outline's
+ * width and offset, or the widest spread among its box shadows, a ring and its
+ * offset drawn as two.
+ */
+function focusReach(element: Element): number {
+  const style = getComputedStyle(element);
+  const outline =
+    style.outlineStyle === "none"
+      ? 0
+      : Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset);
+  const spreads = [
+    ...style.boxShadow.matchAll(/(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px/g),
+  ].map((m) => Number.parseFloat(m[4]!));
+  return Math.max(outline, 0, ...spreads);
 }
 
 /** The fade's opacity, as the `::after` under the header computes it now. */
@@ -161,7 +178,9 @@ describe("a sheet taller than 85% of a 390px phone", () => {
     expect(style.borderBottomColor).toBe("rgba(0, 0, 0, 0)");
   });
 
-  it("paints the fade from the panel's own surface to clear, in light and dark", async () => {
+  // The second pass maps only `--ui-surface` to a dark grey: a stand-in for a
+  // dark theme's sheet colour, not a dark theme (its labels stay dark).
+  it("paints the fade from the panel's own surface to clear, under the test palette and a dark surface", async () => {
     await page.viewport(390, 844);
     for (const surface of [undefined, "#242424"]) {
       if (surface) document.documentElement.style.setProperty("--ui-surface", surface);
@@ -171,7 +190,9 @@ describe("a sheet taller than 85% of a 390px phone", () => {
       const background = getComputedStyle(panel).backgroundColor;
       expect(image).toBe(`linear-gradient(${background}, rgba(0, 0, 0, 0))`);
       expect(getComputedStyle(header).backgroundColor).toBe(background);
-      await page.screenshot({ path: shot(`sheet-390-middle-${surface ? "dark" : "light"}`) });
+      await page.screenshot({
+        path: shot(`sheet-390-middle-${surface ? "dark-surface" : "palette"}`),
+      });
       cleanup();
     }
   });
@@ -187,26 +208,49 @@ describe("a sheet taller than 85% of a 390px phone", () => {
     expect(panel.contains(hit)).toBe(true);
   });
 
-  it("brings a field focused backwards out from under the header and the fade", async () => {
-    await page.viewport(390, 844);
-    const { panel, header } = await open({ presentation: "sheet", fields: 24 });
-    const field = document.getElementById("field-6")!;
-    // Scroll until field 6 sits partly under the header, then Shift+Tab to it from field 7.
-    const under =
-      field.getBoundingClientRect().top -
-      header.getBoundingClientRect().bottom +
-      field.getBoundingClientRect().height / 2;
-    await scrollTo(panel, panel.scrollTop + under);
-    expect(field.getBoundingClientRect().top).toBeLessThan(header.getBoundingClientRect().bottom);
-    document.getElementById("field-7")!.focus({ preventScroll: true });
-    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(document.activeElement).toBe(field);
-    await frames(2);
-    expect(field.getBoundingClientRect().top - RING).toBeGreaterThanOrEqual(
-      header.getBoundingClientRect().bottom + FADE - 0.5,
-    );
-    await page.screenshot({ path: shot("sheet-390-focus-back") });
-  });
+  // Two places Shift+Tab can find a field: half under the header, where it
+  // would park under the header with no padding, and its top just under the
+  // fade's, where a padding with no room for the label would park the label
+  // under the fade.
+  it.each([
+    [
+      "half under the header",
+      (field: DOMRect, header: DOMRect) => field.top - header.bottom + field.height / 2,
+    ],
+    [
+      "just under the fade's top",
+      (field: DOMRect, header: DOMRect) => field.top - header.bottom - FADE / 4,
+    ],
+  ] as const)(
+    "brings a field focused backwards from %s, and its label, out from under the header and the fade",
+    async (where, offset) => {
+      await page.viewport(390, 844);
+      const { panel, header } = await open({ presentation: "sheet", fields: 24 });
+      const field = document.getElementById("field-6")!;
+      // Scroll field 6 to where it starts, then Shift+Tab to it from field 7.
+      await scrollTo(
+        panel,
+        panel.scrollTop + offset(field.getBoundingClientRect(), header.getBoundingClientRect()),
+      );
+      expect(field.getBoundingClientRect().top).toBeLessThan(
+        header.getBoundingClientRect().bottom + FADE,
+      );
+      document.getElementById("field-7")!.focus({ preventScroll: true });
+      await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+      expect(document.activeElement).toBe(field);
+      await frames(2);
+      // The field's own ring, read from the page: a wider ring than the padding
+      // allows for would park its top under the fade.
+      const reach = focusReach(field);
+      expect(reach).toBeGreaterThan(0);
+      const clear = header.getBoundingClientRect().bottom + FADE - 0.5;
+      expect(field.getBoundingClientRect().top - reach).toBeGreaterThanOrEqual(clear);
+      // And the field's label, which names it, clear of the fade too.
+      const label = document.querySelector(`label[for="${field.id}"]`)!;
+      expect(label.getBoundingClientRect().top).toBeGreaterThanOrEqual(clear);
+      await page.screenshot({ path: shot(`sheet-390-focus-back-${where.split(" ").join("-")}`) });
+    },
+  );
 
   it("follows a title that wraps with the scroll padding", async () => {
     await page.viewport(390, 844);
@@ -214,12 +258,61 @@ describe("a sheet taller than 85% of a 390px phone", () => {
     const { panel, header } = await open({ presentation: "sheet", fields: 24, title });
     const padding = () => Number.parseFloat(getComputedStyle(panel).scrollPaddingTop);
     const one = header.getBoundingClientRect().height;
-    expect(padding()).toBeCloseTo(one + FADE + RING, 0);
+    expect(padding()).toBeCloseTo(one + FADE + LABEL, 0);
     setTitle("A title long enough to wrap onto a second and a third line at 390px wide");
     await vi.waitFor(() => expect(header.getBoundingClientRect().height).toBeGreaterThan(one + 10));
     await vi.waitFor(() =>
-      expect(padding()).toBeCloseTo(header.getBoundingClientRect().height + FADE + RING, 0),
+      expect(padding()).toBeCloseTo(header.getBoundingClientRect().height + FADE + LABEL, 0),
     );
+  });
+});
+
+describe("a sheet past its cap, at the start of the focus trap", () => {
+  /** Whether `control` sits inside the panel's box, below the scroll padding's clear line. */
+  function inView(panel: HTMLElement, control: Element): boolean {
+    const box = panel.getBoundingClientRect();
+    const top = box.top + panel.clientTop;
+    const clear = top + Number.parseFloat(getComputedStyle(panel).scrollPaddingTop);
+    const rect = control.getBoundingClientRect();
+    return rect.top >= clear - 0.5 && rect.bottom <= top + panel.clientHeight + 0.5;
+  }
+
+  it("brings the footer's action into view when Shift+Tab wraps onto it", async () => {
+    await page.viewport(390, 844);
+    const { panel } = await open({ presentation: "sheet", fields: 24 });
+    const done = screen.getByRole("button", { name: "Done" });
+    expect(inView(panel, done)).toBe(false);
+    document.getElementById("field-1")!.focus();
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(document.activeElement).toBe(done);
+    await frames(2);
+    expect(inView(panel, done)).toBe(true);
+    await page.screenshot({ path: shot("sheet-390-wrap-back") });
+  });
+});
+
+describe("a title too long for the panel", () => {
+  // A name another person chose can run to a thousand characters. Stuck, a
+  // title row taller than the panel would cover the dialog's words and its
+  // buttons for good; past a third of the panel it scrolls away instead.
+  it("stops sticking, so the body and the footer can still be scrolled to", async () => {
+    await page.viewport(390, 844);
+    const long = () => `Remove ${"Someone With A Very Long Name ".repeat(40)}?`;
+    const { panel, header } = await open({ presentation: "sheet", fields: 2, title: long });
+    await vi.waitFor(() =>
+      expect(header.getBoundingClientRect().height).toBeGreaterThan(panel.clientHeight / 3),
+    );
+    await vi.waitFor(() => expect(getComputedStyle(header).position).toBe("static"));
+    expect(getComputedStyle(panel).getPropertyValue("--ui-dialog-header-height").trim()).toBe(
+      "0px",
+    );
+    await scrollTo(panel, end(panel));
+    const done = screen.getByRole("button", { name: "Done" });
+    const box = done.getBoundingClientRect();
+    expect(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)).toBe(
+      done,
+    );
+    await page.screenshot({ path: shot("sheet-390-long-title-end") });
   });
 });
 

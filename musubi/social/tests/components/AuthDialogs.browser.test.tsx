@@ -223,6 +223,23 @@ describe("the create-account dialog", () => {
 });
 
 /**
+ * How far the focus mark of `element` reaches above its box: its outline's
+ * width and offset, or the widest spread among its box shadows, a ring and its
+ * offset drawn as two.
+ */
+function focusReach(element: Element): number {
+  const style = getComputedStyle(element);
+  const outline =
+    style.outlineStyle === "none"
+      ? 0
+      : Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset);
+  const spreads = [
+    ...style.boxShadow.matchAll(/(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px/g),
+  ].map((m) => Number.parseFloat(m[4]!));
+  return Math.max(outline, 0, ...spreads);
+}
+
+/**
  * On a phone short enough that the create-account sheet is taller than its 85%
  * cap, the sheet scrolls under its title (`DESIGN.md` §Responsive layout,
  * Dialogs): the title row stays at the top with no line under it, and once the
@@ -256,7 +273,7 @@ describe("the create-account dialog on a short phone", () => {
     });
   }
 
-  it("brings a field focused backwards out from under the title and the fade", async () => {
+  it("brings a field focused backwards, and its label, out from under the title and the fade", async () => {
     const sheet = await openDialog("register", 390, "light");
     await page.viewport(390, 480);
     await settle();
@@ -279,10 +296,14 @@ describe("the create-account dialog on a short phone", () => {
     await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
     expect(document.activeElement).toBe(email);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    // Musubi's focus outline: 2px, 2px off the field.
-    expect(email.getBoundingClientRect().top - 4).toBeGreaterThanOrEqual(
-      header.getBoundingClientRect().bottom + 16 - 0.5,
-    );
+    // Musubi's own focus mark on the field, read from the page.
+    const reach = focusReach(email);
+    expect(reach).toBeGreaterThan(0);
+    const clear = header.getBoundingClientRect().bottom + 16 - 0.5;
+    expect(email.getBoundingClientRect().top - reach).toBeGreaterThanOrEqual(clear);
+    // Its label row, "Email" and the i beside it, clear of the fade too.
+    const label = within(sheet).getByText("Email", { exact: true });
+    expect(label.getBoundingClientRect().top).toBeGreaterThanOrEqual(clear);
     await page.screenshot({ path: `${SHOTS}/create-account-short-focus-back.png` });
   });
 });

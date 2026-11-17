@@ -505,14 +505,17 @@
 
 @utility scroll-edge-timeline {
   scroll-timeline: --ui-scroll-edge block;
+  /* The band's height, and the scroll it comes in over: one length, which the
+     band under the header inherits and `Dialog`'s scroll padding reads. */
+  --ui-scroll-edge-size: 1rem;
 }
 
 @utility scroll-edge-fade {
   position: absolute;
   inset-inline: 0;
   top: 100%;
-  height: 1rem;
-  background-image: linear-gradient(var(--ui-surface, #fafafa), transparent);
+  height: var(--ui-scroll-edge-size, 1rem);
+  background-image: linear-gradient(--theme(--color-ui-surface), transparent);
   pointer-events: none;
   opacity: 0;
   animation-name: ui-scroll-edge;
@@ -522,7 +525,7 @@
   animation-timing-function: linear;
   animation-fill-mode: both;
   animation-timeline: --ui-scroll-edge;
-  animation-range: 0px var(--ui-scroll-edge-range, 1rem);
+  animation-range: 0px var(--ui-scroll-edge-range, var(--ui-scroll-edge-size, 1rem));
 }
 
 /*

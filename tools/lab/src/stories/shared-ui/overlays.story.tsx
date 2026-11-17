@@ -21,6 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@shared/ui/ui/dropdown-menu";
+import { Field } from "@shared/ui/ui/field";
 import { InfoPopover } from "@shared/ui/ui/info-popover";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
@@ -204,10 +205,7 @@ export const DialogScrollEdge: Story<{ presentation: string } & StoryArgs> = {
         </DialogHeader>
         <div class="flex flex-col gap-4 p-4">
           {Array.from({ length: 16 }, (_, i) => (
-            <div class="flex flex-col gap-1">
-              <Label for={`scroll-edge-${i + 1}`}>Field {i + 1}</Label>
-              <Input id={`scroll-edge-${i + 1}`} />
-            </div>
+            <Field label={`Field ${i + 1}`}>{(field) => <Input {...field} />}</Field>
           ))}
         </div>
         <DialogFooter>

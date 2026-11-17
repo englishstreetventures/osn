@@ -771,6 +771,28 @@ export async function removalSheetSurfaces(flow: Flow, page: Page, sheet: Locato
       PHONE.height,
       Math.round((box?.y ?? 0) + (box?.height ?? 0)),
     );
+    // On a phone short enough that the sheet passes its 85% cap, the built
+    // stylesheet's scroll timeline holds: scrolled to the end, the title row
+    // is still stuck and the fade under it is whole. Read before the shot,
+    // which cancels a scroll-driven run for its frame.
+    await page.setViewportSize({
+      width: PHONE.width,
+      height: Math.floor(((box?.height ?? 0) - 48) / 0.85),
+    });
+    flow.check(
+      "removal sheet: on a short phone, scrolled to the end, the title row stays with the fade whole under it",
+      "true sticky 1",
+      await sheet.getByRole("heading", { level: 2 }).evaluate(async (title) => {
+        const panel = title.closest<HTMLElement>('[role="dialog"]')!;
+        const header = title.parentElement!;
+        panel.scrollTop = panel.scrollHeight;
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const fade = getComputedStyle(header, "::after").opacity;
+        const read = `${panel.scrollHeight > panel.clientHeight} ${getComputedStyle(header).position} ${fade}`;
+        panel.scrollTop = 0;
+        return read;
+      }),
+    );
     await flow.step("surfaces: shoot the removal sheet", () =>
       shoot(page, "totp-remove-sheet", () => expect(sheet).toBeVisible(), { widths: [PHONE] }),
     );
