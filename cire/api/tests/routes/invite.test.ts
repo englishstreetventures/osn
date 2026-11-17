@@ -2594,8 +2594,15 @@ describe("image crop (migration 0021)", () => {
     });
 
     it("does not surface a crop when the slot has no image", async () => {
-      const { app } = buildApp();
-      // No image uploaded — even a stored crop would be inert; the read is null.
+      const { app, db } = buildApp();
+      // A crop still stored for a slot with no image is inert: the read is null.
+      db.insert(weddingInviteCustomisations)
+        .values({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          heroImageCrop: JSON.stringify({ x: 0.1, y: 0.1, w: 0.5, h: 0.5 }),
+          updatedAt: new Date(),
+        })
+        .run();
       const pub = await appRequest(app, `/api/invite/${SLUG}`);
       const body = (await pub.json()) as { hero: { imageCrop: unknown; imageUrl: unknown } };
       expect(body.hero.imageUrl).toBeNull();
@@ -2728,7 +2735,15 @@ describe("image crop (migration 0021)", () => {
     });
 
     it("does not surface a phone crop when the hero has no image", async () => {
-      const { app } = buildApp();
+      const { app, db } = buildApp();
+      // A phone crop still stored for a hero with no image is inert.
+      db.insert(weddingInviteCustomisations)
+        .values({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          heroImageCropMobile: JSON.stringify(MOBILE_CROP),
+          updatedAt: new Date(),
+        })
+        .run();
       const pub = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as HeroCrops;
       expect(pub.hero.imageCropMobile).toBeNull();
     });

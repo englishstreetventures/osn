@@ -450,12 +450,16 @@ describe("checkout.session.completed — settling the row, never inventing one",
     const { app, db, familyId } = buildApp();
     seedPending(db, familyId);
 
-    const res = await deliver(
-      app,
-      checkoutCompleted({ session: { amount_total: 9_900, currency: "usd" } }),
-    );
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await deliver(
+        app,
+        checkoutCompleted({ session: { amount_total: 9_900, currency: "usd" } }),
+      );
+    });
 
-    expect(await jsonBody(res)).toEqual({ received: true, outcome: "settled" });
+    expect(await jsonBody(res!)).toEqual({ received: true, outcome: "settled" });
+    expect(logs).toContain("contribution settled at an amount it was not opened at");
     const [gift] = await gifts(db);
     expect(gift?.status).toBe("succeeded");
     expect(gift?.amountMinor).toBe(12_500);
@@ -466,8 +470,11 @@ describe("checkout.session.completed — settling the row, never inventing one",
     // Stripe writes currencies in lower case; the row holds them upper.
     const { app, db, familyId } = buildApp();
     seedPending(db, familyId);
-    await deliver(app, checkoutCompleted({ session: { amount_total: 12_500, currency: "aud" } }));
+    const logs = await captureLogs(() =>
+      deliver(app, checkoutCompleted({ session: { amount_total: 12_500, currency: "aud" } })),
+    );
     expect((await gifts(db))[0]?.status).toBe("succeeded");
+    expect(logs).not.toContain("contribution settled at an amount it was not opened at");
   });
 
   it("leaves an unpaid-but-complete session pending, not as money that arrived", async () => {

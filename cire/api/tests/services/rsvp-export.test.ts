@@ -1238,6 +1238,7 @@ describe("rsvpExportService.build — the Effect path", () => {
         .build(BOOTSTRAP_WEDDING_ID)
         .pipe(Effect.provideService(EffectDbService, effectDbFor(binding, "fetch"))),
     );
+    expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       expect(Cause.pretty(exit.cause)).not.toContain(BOOTSTRAP_WEDDING_ID);
     }

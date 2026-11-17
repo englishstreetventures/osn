@@ -735,7 +735,7 @@ describe("claim hold and hand-off (POST /api/vendor/claims/:token/consume)", () 
     const listed = (await list.json()) as { enquiries: { id: string }[] };
     expect(Array.isArray(listed.enquiries)).toBe(true);
     expect(listed.enquiries.map((e) => e.id)).not.toContain(enquiryId);
-    const thread = await req(app, "GET", `/api/vendor/enquiries/${enquiryId}`, VENDOR);
+    const thread = await req(app, "GET", `/api/vendor/enquiries/${enquiryId}/messages`, VENDOR);
     expect(thread.status).toBe(404);
 
     // The operator confirms (the same UPDATE the review script sends), and the

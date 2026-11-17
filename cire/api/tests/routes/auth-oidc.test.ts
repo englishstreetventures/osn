@@ -560,9 +560,12 @@ describe("GET /api/auth/session", () => {
   });
 
   it("ignores a guest cookie — the two session systems do not cross", async () => {
-    const app = mkApp(freshDb(), { oidc: issuer.config() });
+    const db = freshDb();
+    // A live organiser token, sent under the guest cookie's name.
+    const token = await signIn(db);
+    const app = mkApp(db, { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/session", {
-      headers: { cookie: `${GUEST_COOKIE_NAME}=somethingelse` },
+      headers: { cookie: `${GUEST_COOKIE_NAME}=${token}` },
     });
     expect(await jsonBody(res)).toEqual({ signedIn: false });
   });

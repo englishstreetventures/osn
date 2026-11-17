@@ -645,6 +645,8 @@ describe("registry items", () => {
     const b = await ok(db, registryService.createItem(newItem({ title: "B" })));
     const c = await ok(db, registryService.createItem(newItem({ title: "C" })));
     await ok(db, registryService.reorderItems(BOOTSTRAP_WEDDING_ID, [c.id, a.id, b.id]));
+    // Another wedding naming these items moves none of them.
+    await ok(db, registryService.reorderItems(OTHER, [b.id, a.id, c.id]));
     const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.items.map((i) => i.title)).toEqual(["C", "A", "B"]);
   });
