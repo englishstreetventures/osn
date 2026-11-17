@@ -21,13 +21,7 @@
  */
 import { type Mock, vi } from "vitest";
 
-import { __resetChangeBasis } from "../../src/lib/change-basis";
-import { __resetDirectoryCache } from "../../src/lib/directory-store";
-import { __resetHostsPanelCache } from "../../src/lib/hosts-store";
-import { __resetInviteCache } from "../../src/lib/invite-store";
-import { __resetRsvpsCache } from "../../src/lib/rsvps-store";
-import { __resetSettingsCache } from "../../src/lib/settings-store";
-import { __resetStarterPreview } from "../../src/lib/starter-store";
+import { resetViewCaches } from "./view-caches";
 
 /** `authFetch` from the mocked `useAuth()`. Set per test with `mockResolvedValue`. */
 export const authFetchMock: Mock = vi.fn();
@@ -103,19 +97,4 @@ export function resetOrganiserMocks(): void {
   toastSuccess.mockReset();
   toastError.mockReset();
   resetViewCaches();
-}
-
-/**
- * Forget what the portal's view caches hold (`createWeddingCache` and the
- * editors' basis), so a view a later case mounts for the same wedding reads
- * afresh rather than drawing an earlier case's rows.
- */
-export function resetViewCaches(): void {
-  __resetChangeBasis();
-  __resetDirectoryCache();
-  __resetHostsPanelCache();
-  __resetInviteCache();
-  __resetRsvpsCache();
-  __resetSettingsCache();
-  __resetStarterPreview();
 }

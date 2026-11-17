@@ -1871,6 +1871,7 @@ function seedE2eOrganiser(db: TestDb): void {
   seedE2eEnvelope(db, now);
   seedE2eLegacyEvent(db, now);
   seedE2eCreationBound(db, now);
+  seedE2eCache(db, now);
 }
 
 /**
@@ -2331,6 +2332,109 @@ function seedE2eEnvelope(db: TestDb, now: Date): void {
       envelopeId: "wax-seal" satisfies EnvelopeId,
       updatedAt: now,
       imagesUpdatedAt: now,
+    })
+    .run();
+}
+
+/**
+ * `wed_e2e_cache`, for {@link seedE2eOrganiser}: a Gold wedding the dev profile
+ * owns alone, for `cire-checklist-starter`'s steps that count what the portal
+ * reads as it moves between views, and write in one view to read in another.
+ * Two events, the Ceremony and the Reception; one household, Alpha, whose Ada
+ * and Bo are invited to both; Ada has replied to the Ceremony, and that reply
+ * is a change this organiser has not seen, so the RSVP table badges it and
+ * marks it seen. No tasks, so the checklist offers the starter. No other flow
+ * reads it.
+ */
+function seedE2eCache(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_cache";
+  const ceremony = "evt_e2e_cache_ceremony";
+  const reception = "evt_e2e_cache_reception";
+  const familyId = "fam_e2e_cache_alpha";
+  const ada = "gst_e2e_cache_ada";
+  const bo = "gst_e2e_cache_bo";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "cache-wedding",
+      displayName: "Cache Wedding",
+      tier: "gold",
+      weddingDate: "2099-06-20",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_cache_owner", now);
+  db.insert(schema.events)
+    .values([
+      {
+        id: ceremony,
+        weddingId,
+        slug: "ceremony",
+        name: "Ceremony",
+        startAt: "2099-06-20T15:00:00+00:00",
+        endAt: "2099-06-20T16:00:00+00:00",
+        timezone: "UTC",
+        sortOrder: 0,
+      },
+      {
+        id: reception,
+        weddingId,
+        slug: "reception",
+        name: "Reception",
+        startAt: "2099-06-20T18:00:00+00:00",
+        endAt: "2099-06-20T23:00:00+00:00",
+        timezone: "UTC",
+        sortOrder: 1,
+      },
+    ])
+    .run();
+  db.insert(schema.families)
+    .values({
+      id: familyId,
+      weddingId,
+      publicId: "TESTCACHE-ALP-0001",
+      familyName: "Alpha",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  [
+    { id: ada, first: "Ada" },
+    { id: bo, first: "Bo" },
+  ].forEach((person, sortOrder) => {
+    db.insert(schema.guests)
+      .values({
+        id: person.id,
+        familyId,
+        firstName: person.first,
+        lastName: "Alpha",
+        sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    for (const eventId of [ceremony, reception]) {
+      db.insert(schema.guestEvents).values({ guestId: person.id, eventId }).run();
+    }
+  });
+  db.insert(schema.rsvps)
+    .values({
+      id: "rsvp_e2e_cache_ada",
+      guestId: ada,
+      eventId: ceremony,
+      status: "attending",
+      createdAt: now,
+    })
+    .run();
+  db.insert(schema.rsvpChanges)
+    .values({
+      weddingId,
+      familyId,
+      guestId: ada,
+      eventId: ceremony,
+      kind: "reply_new",
+      createdAt: now,
     })
     .run();
 }

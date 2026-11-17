@@ -69,6 +69,7 @@ import { __resetHouseholdsCache } from "../../src/lib/households-store";
 import { EVENTS_300, GUESTS_300, HOUSEHOLDS_300, RSVPS_300 } from "../test-support/guests-300";
 import { renderOrganiserPage, routeFetch } from "../test-support/organiser-page";
 import { backdrop, over } from "../test-support/painted";
+import { resetViewCaches } from "../test-support/view-caches";
 
 const ROUTES = {
   rsvps: RSVPS_300,
@@ -86,6 +87,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  resetViewCaches();
   cleanup();
   authFetch.mockReset();
   changes.value = null;

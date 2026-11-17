@@ -50,6 +50,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { renderOrganiserPage } from "../test-support/organiser-page";
+import { resetViewCaches } from "../test-support/view-caches";
 
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -189,6 +190,7 @@ function Framed(props: { onFrame: (el: HTMLElement) => void; children: JSX.Eleme
 }
 
 afterEach(() => {
+  resetViewCaches();
   cleanup();
   __resetEventsCache();
 });

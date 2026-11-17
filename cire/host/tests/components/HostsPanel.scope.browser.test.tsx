@@ -33,6 +33,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 
 import HostsPanel from "../../src/components/HostsPanel";
 import { __resetHostsCache } from "../../src/lib/hosts-store";
+import { resetViewCaches } from "../test-support/view-caches";
 
 const HOSTS = [
   { hostId: "whost_amy", osnProfileId: "usr_amy", handle: "amy", role: "owner", createdAt: 0 },
@@ -102,6 +103,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetViewCaches();
   // A `showModal()` dialog sits in the top layer and survives a render
   // cleanup; the next test would mount behind it with its page inert.
   for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
