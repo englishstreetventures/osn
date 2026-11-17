@@ -116,6 +116,8 @@ export function countingDb(db: Db) {
 /** One SQL statement the driver prepared, and the rows it handed back. */
 export interface RecordedStatement {
   sql: string;
+  /** The values bound when it ran. */
+  params: unknown[];
   /** Rows returned by each `values()`/`all()` call on it (none for a write). */
   rowCounts: number[];
 }
@@ -166,7 +168,7 @@ export function recordStatements(db: TestDb): RecordedStatement[] {
           configurable: true,
           value: (...params: Parameters<typeof original>) => {
             const rows = original(...params);
-            recorded.push({ sql, rowCounts: [rows.length] });
+            recorded.push({ sql, params, rowCounts: [rows.length] });
             return rows;
           },
         });
@@ -176,7 +178,7 @@ export function recordStatements(db: TestDb): RecordedStatement[] {
         Object.defineProperty(statement, write, {
           configurable: true,
           value: (...params: unknown[]) => {
-            recorded.push({ sql, rowCounts: [] });
+            recorded.push({ sql, params, rowCounts: [] });
             return original(...params);
           },
         });

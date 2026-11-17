@@ -43,11 +43,13 @@ describe("markSharedService.markShared", () => {
   it("fails FamilyNotInWedding for a family under another wedding", async () => {
     const db = createDb(":memory:");
     seedDb(db);
-    const exit = await Effect.runPromiseExit(
-      markSharedService
-        .markShared("wed_nope", aFamily(db).id)
-        .pipe(Effect.provideService(DbService, db)),
+    const error = await Effect.runPromise(
+      Effect.flip(
+        markSharedService
+          .markShared("wed_nope", aFamily(db).id)
+          .pipe(Effect.provideService(DbService, db)),
+      ),
     );
-    expect(exit._tag).toBe("Failure");
+    expect(error._tag).toBe("FamilyNotInWedding");
   });
 });

@@ -129,10 +129,10 @@ describe("remintFamilyCodes", () => {
 
   it("fails with wedding_not_found for an unknown wedding", async () => {
     const db = createDb(":memory:");
-    const exit = await Effect.runPromiseExit(
-      Effect.provideService(remintFamilyCodes("wed_ghost"), DbService, db),
+    const error = await Effect.runPromise(
+      Effect.flip(Effect.provideService(remintFamilyCodes("wed_ghost"), DbService, db)),
     );
-    expect(exit._tag).toBe("Failure");
+    expect(error).toMatchObject({ reason: "wedding_not_found" });
   });
 });
 

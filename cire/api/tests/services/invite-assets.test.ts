@@ -58,10 +58,10 @@ describe("invite-assets R2 round-trip", () => {
 
   it("fails fetchAsset for a missing key", async () => {
     const stub = createAssetsStub();
-    const exit = await Effect.runPromiseExit(
-      fetchAsset("assets/missing").pipe(Effect.provideService(AssetsR2Service, stub)),
+    const error = await Effect.runPromise(
+      Effect.flip(fetchAsset("assets/missing").pipe(Effect.provideService(AssetsR2Service, stub))),
     );
-    expect(exit._tag).toBe("Failure");
+    expect(error).toMatchObject({ _tag: "AssetR2Error", reason: "key not found" });
   });
 
   it("fails deleteAsset with AssetR2Error when the delete rejects", async () => {
@@ -121,9 +121,11 @@ describe("fetchAssetStream (IB-P-I2 — original-serve streaming)", () => {
 
   it("fails fetchAssetStream for a missing key", async () => {
     const stub = createAssetsStub();
-    const exit = await Effect.runPromiseExit(
-      fetchAssetStream("assets/missing").pipe(Effect.provideService(AssetsR2Service, stub)),
+    const error = await Effect.runPromise(
+      Effect.flip(
+        fetchAssetStream("assets/missing").pipe(Effect.provideService(AssetsR2Service, stub)),
+      ),
     );
-    expect(exit._tag).toBe("Failure");
+    expect(error).toMatchObject({ _tag: "AssetR2Error", reason: "key not found" });
   });
 });
