@@ -145,6 +145,7 @@ import {
   CurrencyLockedByCashGifts,
   weddingSettingsService,
 } from "../../src/services/wedding-settings";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { ddlStatements } from "../test-helpers/ddl-statements";
 import {
   fullWeddingKeys,
@@ -2947,8 +2948,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
     // Real D1 applies the inviter's delete cascade to the plus-one and reports
     // every row it removed. The plus-one is inserted after the inviter, so the
     // guests delete meets the inviter first and the cascade takes the plus-one.
-    // The bootstrap wedding's events carry no date, which reads as long past,
-    // and its guests would join the count; a recent date keeps it out.
+    // The bootstrap wedding holds guests; a recent date keeps them out of this
+    // run whatever the sweep makes of its blank event times.
     await db
       .update(events)
       .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
@@ -3103,8 +3104,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "the retention sweep reaches every expired wedding across runs, past its per-run cap",
     async () => {
-      // The bootstrap wedding's events carry no date, which reads as long past,
-      // and it has a household; a recent date keeps it out of this cohort.
+      // The bootstrap wedding has a household; a recent date keeps it out of
+      // this run whatever the sweep makes of its blank event times.
       await db
         .update(events)
         .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
@@ -3171,6 +3172,65 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // so they no longer fill the cap and the next run reaches the newest.
       await run(retentionService.sweepExpiredGuestData(now));
       expect(await householdsLeft()).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep keeps and counts weddings whose event Start is not a date",
+    async () => {
+      // As text, `TBD` sorts after every date and `1st Nov 2026` before every
+      // cutoff, so neither says when the wedding ends. Both are kept, and the
+      // count reaches the log on a run with nothing else due. Over D1, whose
+      // GLOB patterns are capped at 50 bytes.
+      await db
+        .update(events)
+        .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
+        .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+      const stamp = new Date("2023-01-01T00:00:00.000Z");
+      const undated = [
+        ["wed_d1_tbd", "TBD", "UNDATED01"],
+        ["wed_d1_nov", "1st Nov 2026", "UNDATED02"],
+      ] as const;
+      for (const [id, startAt, publicId] of undated) {
+        await db.insert(weddings).values({
+          id,
+          slug: `slug-${id}`,
+          displayName: `Wedding ${id}`,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+        await db.insert(events).values({
+          id: `ev_${id}`,
+          weddingId: id,
+          slug: "ceremony",
+          name: "Ceremony",
+          startAt,
+          endAt: "",
+          timezone: "UTC",
+        });
+        await db.insert(families).values({
+          id: `fam_${id}`,
+          weddingId: id,
+          publicId,
+          familyName: "Family",
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+      }
+
+      const logs = await captureLogs(() =>
+        run(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z"))),
+      );
+
+      const left = await db
+        .select({ weddingId: families.weddingId })
+        .from(families)
+        .where(inArray(families.weddingId, jsonEachIn(undated.map(([id]) => id))));
+      expect(left.map((r) => r.weddingId).toSorted()).toEqual(["wed_d1_nov", "wed_d1_tbd"]);
+      expect(
+        logs.split("\n").filter((line) => line.includes("whose event dates it cannot read")),
+      ).toEqual([expect.stringContaining('"weddings":2')]);
     },
     MF_TIMEOUT_MS,
   );

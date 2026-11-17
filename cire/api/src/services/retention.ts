@@ -136,11 +136,20 @@ export const MAX_LISTED_GIFTS_PER_SWEEP = 1_000;
 export const GIFT_SUMMARY_STORE_CHUNK_CHARS = 60_000;
 
 /**
- * `events.end_at` is an ISO-8601 string that begins with a zero-padded
- * `YYYY-MM-DD` date, so a lexical comparison of `MAX(end_at)` against a
- * `YYYY-MM-DD` cutoff is exact (the 10-char cutoff sorts strictly before any
- * same-day `YYYY-MM-DDThh:mm:ss…` instant) — no date parsing needed. Returns the
- * `YYYY-MM-DD` for `now - RETENTION_AFTER_FINAL_EVENT_MS`.
+ * The shape a stored Start or End must have for the sweep to read a date from
+ * it: a zero-padded `YYYY-MM-DD` and the `T` that follows it, as both write
+ * doors store (`lib/event-time.ts`). A GLOB pattern of 44 bytes; D1 refuses one
+ * over 50 (developers.cloudflare.com/d1/platform/limits). It checks the shape,
+ * not that the date exists.
+ */
+const DATE_FIRST = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*";
+
+/**
+ * The sweep compares only Starts and Ends of the {@link DATE_FIRST} shape, so a
+ * lexical comparison of their `MAX` against a `YYYY-MM-DD` cutoff is exact (the
+ * 10-char cutoff sorts strictly before any same-day `YYYY-MM-DDThh:mm:ss…`
+ * instant) — no date parsing needed. Returns the `YYYY-MM-DD` for
+ * `now - RETENTION_AFTER_FINAL_EVENT_MS`.
  */
 function cutoffDateString(now: Date): string {
   const cutoff = new Date(now.getTime() - RETENTION_AFTER_FINAL_EVENT_MS);
@@ -159,20 +168,28 @@ export const retentionService = {
    * wedding/events shell is intentionally **kept** — it carries no guest PII and
    * deleting it would orphan the published invite + slug.
    *
-   * Selection: `events.end_at` / `events.start_at` are ISO-8601 strings that
-   * begin with a zero-padded `YYYY-MM-DD` date, so lexical comparison against a
-   * `YYYY-MM-DD` cutoff is exact. Each event's **effective end** is `end_at`,
-   * falling back to `start_at` when `end_at` is the `""` no-stated-end sentinel
-   * (End is optional in the events sheet) — `""` sorts before every date, so
-   * the scalar `max(end_at, start_at)` picks the right one. The latest event is
-   * the aggregate MAX of that, and "final event > 1 year ago" is `< cutoff`
-   * (strict — a wedding whose final event is *exactly* at the cutoff is kept
-   * one more day; the `YYYY-MM-DD` cutoff sorts before any same-day instant). A
-   * wedding with **no events** is never selected (the group/having drops the
-   * empty group) — we cannot prove its window has lapsed, so the safe default
-   * is to keep it; this is also the in-progress-setup case. A wedding that
-   * holds no household and no import has nothing left to delete and is not
-   * selected, so weddings already swept never fill the per-run cap.
+   * Selection: the sweep reads a date from a stored Start or End only when it
+   * has the {@link DATE_FIRST} shape, so its lexical comparison against a
+   * `YYYY-MM-DD` cutoff is exact. A wedding is due only when every event's
+   * `start_at`, and every `end_at` but the `""` no-stated-end sentinel, has
+   * that shape. A wedding with any other value is never deleted on a guess —
+   * `TBD` sorts after every date, `1st Nov 2026` before every cutoff — and is
+   * kept until a host fixes the event. While it holds guest data and its dated
+   * events, if any, are all past the cutoff, every run counts it in one
+   * warning line, which carries the count and nothing else.
+   *
+   * Each event's **effective end** is `end_at`, falling back to `start_at`
+   * when `end_at` is `""` (End is optional in the events sheet) — `""` sorts
+   * before every date, so the scalar `max(end_at, start_at)` picks the right
+   * one. The latest event is the aggregate MAX of that, and "final event > 1
+   * year ago" is `< cutoff` (strict — a wedding whose final event is *exactly*
+   * at the cutoff is kept one more day; the `YYYY-MM-DD` cutoff sorts before
+   * any same-day instant). A wedding with **no events** is never selected (the
+   * group/having drops the empty group) — we cannot prove its window has
+   * lapsed, so the safe default is to keep it; this is also the
+   * in-progress-setup case. A wedding that holds no household and no import
+   * has nothing left to delete and is not selected, so weddings already swept
+   * never fill the per-run cap.
    *
    * No gift is deleted without its record, for up to 30 days. The gift
    * summaries are counted first and written in the same D1 batch as the
@@ -218,17 +235,27 @@ export const retentionService = {
       const db = yield* DbService;
       const cutoff = cutoffDateString(now);
 
-      // Weddings whose latest event date is strictly before the cutoff. The
-      // inner two-arg max() is SQLite's SCALAR max — it picks each row's
-      // effective end (end_at, or start_at when end_at is the "" no-stated-end
-      // sentinel, since "" sorts lexically before any ISO date). Without it a
-      // wedding whose events are all open-ended would aggregate to max("") = ""
-      // < cutoff and be swept immediately.
+      // An event the sweep can date: its Start, and its End unless it is the ""
+      // no-stated-end sentinel, have the DATE_FIRST shape. Only such a value
+      // compares exactly against the cutoff as text.
       //
-      // Plain `sql`, never `.as(…)`: an aliased expression renders as its bare
-      // alias inside HAVING and ORDER BY, which would move the cutoff rule onto
-      // a result-column alias.
-      const finalEventAt = sql<string>`max(max(${events.endAt}, ${events.startAt}))`;
+      // Plain `sql`, never `.as(…)`, here and below: an aliased expression
+      // renders as its bare alias inside HAVING and ORDER BY, which would move
+      // the cutoff rule onto a result-column alias.
+      const dated = sql`(${events.startAt} glob ${DATE_FIRST} and (${events.endAt} = '' or ${events.endAt} glob ${DATE_FIRST}))`;
+      // Each wedding's latest effective end over the events it can date; NULL
+      // when it can date none. The inner two-arg max() is SQLite's SCALAR max —
+      // it picks each row's effective end (end_at, or start_at when end_at is
+      // the "" sentinel, since "" sorts lexically before any ISO date). Without
+      // it a wedding whose events are all open-ended would aggregate to
+      // max("") = "" < cutoff and be swept immediately.
+      const finalEventAt = sql<
+        string | null
+      >`max(case when ${dated} then max(${events.endAt}, ${events.startAt}) end)`;
+      // 1 when the wedding has an event the sweep cannot date, else 0. A check
+      // that comes out NULL falls to the ELSE, so a value it cannot judge keeps
+      // the wedding.
+      const undated = sql<number>`(sum(case when ${dated} then 0 else 1 end) > 0)`;
       // Only weddings that still hold something this sweep deletes: every
       // guest-data table but one hangs off `families` (guests, rsvps,
       // guest_events, claims, contributions, sessions, links), the sheet keys
@@ -237,24 +264,51 @@ export const retentionService = {
       // them. A swept wedding keeps its events, so without this the oldest
       // swept weddings would fill the cap on every run and no newer wedding
       // would ever be reached. In HAVING, after the cutoff test, so the probes
-      // run once per expired wedding rather than once per event row; the
-      // wedding id is `outerColumn` so each probe correlates to its group.
+      // run once per wedding past it (or with nothing it can date) rather than
+      // once per event row; the wedding id is `outerColumn` so each probe
+      // correlates to its group.
       const holdsGuestData = sql`(exists (select 1 from ${families} where ${outerColumn(families.weddingId)} = ${outerColumn(events.weddingId)}) or exists (select 1 from ${imports} where ${outerColumn(imports.weddingId)} = ${outerColumn(events.weddingId)}) or exists (select 1 from ${emailSuppressions} where ${outerColumn(emailSuppressions.weddingId)} = ${outerColumn(events.weddingId)}))`;
-      const expired = yield* dbQuery(() =>
+      const rows = yield* dbQuery(() =>
         db
-          // Selected as well as filtered on: the gift summary email dates the
-          // retained year from it, and this is the only read of `events` the
-          // sweep makes.
-          .select({ weddingId: events.weddingId, finalEventAt })
+          // finalEventAt is selected as well as filtered on: the gift summary
+          // email dates the retained year from it, and this is the only read
+          // of `events` the sweep makes.
+          .select({
+            weddingId: events.weddingId,
+            finalEventAt,
+            undated,
+            // The weddings kept for an event the sweep cannot date, over every
+            // group HAVING passes. A window value is taken before LIMIT, so
+            // the count is whole even when due weddings fill the cap.
+            undatedWeddings: sql<number>`sum(${undated}) over ()`,
+          })
           .from(events)
           .groupBy(events.weddingId)
-          .having(and(lt(finalEventAt, cutoff), holdsGuestData))
-          // Bounded — see MAX_WEDDINGS_PER_SWEEP. Ordered so the cap takes the
-          // longest-overdue weddings first and a backlog drains oldest-first
-          // instead of leaving the same tail behind on every run.
-          .orderBy(sql`${finalEventAt} asc`)
+          // Every dated event past the cutoff, or no dated event at all. Only a
+          // wedding with no undated event is due; the rest are read so they
+          // can be counted.
+          .having(and(lt(sql`coalesce(${finalEventAt}, '')`, cutoff), holdsGuestData))
+          // Bounded — see MAX_WEDDINGS_PER_SWEEP. Due weddings first, so a
+          // kept wedding takes only a place no due wedding needs; then the
+          // longest-overdue first, so a backlog drains oldest-first instead of
+          // leaving the same tail behind on every run.
+          .orderBy(sql`${undated} asc`, sql`${finalEventAt} asc`)
           .limit(MAX_WEDDINGS_PER_SWEEP)
           .all(),
+      );
+      // A count only, never an id or a stored value: a host's free text in a
+      // Start or End is theirs, not the log's.
+      const undatedWeddings = rows[0]?.undatedWeddings ?? 0;
+      if (undatedWeddings > 0) {
+        yield* Effect.logWarning(
+          "guest-data retention sweep kept weddings whose event dates it cannot read",
+        ).pipe(Effect.annotateLogs({ weddings: undatedWeddings }));
+      }
+      // Due: every event dated, so finalEventAt is set.
+      const expired = rows.flatMap((r) =>
+        r.undated === 0 && r.finalEventAt !== null
+          ? [{ weddingId: r.weddingId, finalEventAt: r.finalEventAt }]
+          : [],
       );
       const weddingIds = expired.map((r) => r.weddingId);
       const finalEventAtById = new Map(expired.map((r) => [r.weddingId, r.finalEventAt]));
@@ -274,11 +328,14 @@ export const retentionService = {
       }
 
       // The hold-back has a ceiling. A wedding more than
-      // GIFT_SUMMARY_HOLD_BACK_MS past its retention date has been held back on
-      // every run since it fell due, so it is deleted without its record rather
-      // than kept indefinitely: the privacy notice's year outranks the
-      // keepsake. Measured from the final event, the only date the sweep has;
-      // with the cron running daily, that is the run count since it fell due.
+      // GIFT_SUMMARY_HOLD_BACK_MS past its retention date is deleted without
+      // its record rather than kept indefinitely: the privacy notice's year
+      // outranks the keepsake. Measured from the final event, the only date
+      // the sweep has; with the cron running daily, that is the run count since
+      // it fell due for a wedding that joined the cohort on time. One that
+      // joins late — kept for an event the sweep could not date until a host
+      // fixed it, or whose final event a host moved back — can be past the
+      // ceiling on its first run here, with one attempt at its record.
       const ceiling = cutoffDateString(new Date(now.getTime() - GIFT_SUMMARY_HOLD_BACK_MS));
       // Read before the count, which never defers a wedding past it.
       const pastCeiling = weddingIds.filter((id) => (finalEventAtById.get(id) ?? "") < ceiling);
