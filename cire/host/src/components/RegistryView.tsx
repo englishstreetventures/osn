@@ -13,7 +13,6 @@ import {
   SortableProvider,
   useDragDropContext,
 } from "@shared/sortable";
-import { toast } from "@shared/toast";
 import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -23,7 +22,6 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { createMemo, createSignal, createUniqueId, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { downloadBlob } from "../lib/download";
 import { FIELD_BAR_CLASS } from "../lib/form-field";
 import {
   belowSmallestUnitError,
@@ -50,6 +48,7 @@ import {
 import { sameButOrder } from "../lib/sortable-rows";
 import { haptic } from "../lib/touch-feedback";
 import { deleteWithUndo, isPendingDelete, isReturning, returned } from "../lib/undo-delete";
+import { CsvExportButton } from "./CsvExportButton";
 import { LinkPill } from "./LinkPill";
 import RegistryImageField from "./RegistryImageField";
 import ReorderControls from "./ReorderControls";
@@ -324,7 +323,6 @@ export default function RegistryView(props: RegistryViewProps) {
   const snapshot = registryAccessor(props.weddingId);
   const [error, setError] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
-  const [exporting, setExporting] = createSignal(false);
 
   // Add-item form state. `newKind` picks a gift to reserve, a group gift or a
   // cash fund; each shows only its own fields, and the body carries only those.
@@ -1023,34 +1021,6 @@ export default function RegistryView(props: RegistryViewProps) {
     }
   };
 
-  // ── Export ────────────────────────────────────────────────────────────────
-  // The couple's own copy of the gift log. The view above pages 50 at a time
-  // and the whole log is deleted a year after the wedding (the summary band
-  // says so), so a download is the only way they keep who gave what, in which
-  // currency, and what the guest wrote.
-  //
-  // Reports outcome through toasts rather than the `error()` Notice above: that
-  // Notice is for a view that failed to load and stays broken, and a download
-  // that failed is a transient thing the couple retries — the same shape the
-  // guest and RSVP exports already use in `GuestTable`.
-  const exportGifts = async () => {
-    if (exporting()) return;
-    setExporting(true);
-    try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/gifts.csv")));
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`Export failed (${res.status})`);
-      downloadBlob(`cire-gifts-${props.weddingSlug}.csv`, await res.blob());
-      toast.success("Gift log downloaded");
-    } catch (err) {
-      if (isAuthExpired(err)) return redirectToLogin();
-      haptic("reject");
-      toast.error("Gift export failed. Try again.");
-    } finally {
-      setExporting(false);
-    }
-  };
-
   return (
     <div class="flex flex-col gap-6">
       <Show when={error()}>
@@ -1688,20 +1658,18 @@ export default function RegistryView(props: RegistryViewProps) {
           </div>
         </Show>
 
-        {/* Shown only to an owner, and only when there is a log to download —
-            after the retention sweep the list is empty and an export would
-            hand back a header row. `Button` rather than the raw classes
-            `GuestTable` uses, to match the "Load more gifts" control below it. */}
+        {/* The couple's own copy of the gift log: the view pages 50 at a time
+            and the sweep deletes the whole log a year after the wedding, so a
+            download is the only way they keep who gave what. Shown only to an
+            owner, and only when there is a log to download — after the sweep
+            the list is empty and an export would hand back a header row. */}
         <Show when={props.canManage && gifts().length > 0}>
-          <Button
-            variant="quiet"
-            size="sm"
+          <CsvExportButton
+            weddingId={props.weddingId}
+            weddingSlug={props.weddingSlug}
+            kind="gifts"
             class="self-start"
-            disabled={exporting()}
-            onClick={() => void exportGifts()}
-          >
-            {exporting() ? "Exporting…" : "Download gifts (CSV)"}
-          </Button>
+          />
         </Show>
 
         <Show

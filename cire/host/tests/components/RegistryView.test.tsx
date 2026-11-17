@@ -1293,7 +1293,11 @@ describe("RegistryView — gift log export", () => {
       <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} canManage />
     ));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Download gifts/i }));
+    // The portal's download button: its word beside its icon.
+    const download = await screen.findByRole("button", { name: "Download gifts CSV" });
+    expect(download.textContent).toBe("Download gifts CSV");
+    expect(download.querySelector("svg")).not.toBeNull();
+    fireEvent.click(download);
 
     await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
     expect(String(authFetch.mock.calls[0]![0])).toContain(
