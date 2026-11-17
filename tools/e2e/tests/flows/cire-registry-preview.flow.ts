@@ -4,24 +4,31 @@
  * gift list reads as guests see it, with every Reserve control disabled and a
  * note saying why. A reservation sent anyway, from the page with the preview
  * session's cookie, is refused with 403 `preview_read_only`, and no claim row
- * exists for the host household afterwards. This stack's cire-api has a Stripe
- * key and no webhook secret, so the list offers no money, and the preview note
- * does not tell the organiser that guests give money here.
+ * exists for the host household afterwards.
  *
- * The organiser previews from their own network, so the claim goes out from
- * `ORGANISER_ADDRESS` and spends its own window of cire-api's claim limit, not
- * the one the guest flows share (`tools/e2e/tests/flows.test.ts`).
+ * The flow's browser talks to the stack's second cire-api
+ * (`throughKeyOnlyCireApi`), which has a Stripe key and no Connect webhook
+ * secret, so the list offers no money, and the preview note does not tell the
+ * organiser that guests give money here. The claim spends that server's own
+ * limiter window, not the ones the first cire-api's flows share
+ * (`tools/e2e/tests/flows.test.ts`). The guest site's server render reads the
+ * first cire-api, which seeds the same wedding; nothing it renders depends on
+ * whether a server takes money.
  */
 
 import type { Page } from "@playwright/test";
 
 import { CIRE_GIFT_LIST, DB_FILES, ORIGINS } from "../../src/config";
-import { claimFromOrganiserAddress, expect, queryOne, test } from "../support/fixtures";
+import { expect, queryOne, test, throughKeyOnlyCireApi } from "../support/fixtures";
 
-const LIST_URL = `${ORIGINS.cireApi}/api/invite/${CIRE_GIFT_LIST.slug}/registry`;
+// Where the browser's cire-api requests land, and where Playwright reports them.
+const API = ORIGINS.cireApiKeyOnly;
+const LIST_URL = `${API}/api/invite/${CIRE_GIFT_LIST.slug}/registry`;
 const MINE_URL = `${LIST_URL}/mine`;
-const CLAIM_URL = `${ORIGINS.cireApi}/api/claim`;
-const RESERVE_URL = `${LIST_URL}/items/${CIRE_GIFT_LIST.firstGiftId}/claim`;
+const CLAIM_URL = `${API}/api/claim`;
+// Sent from the page to the address the guest site knows, which the route
+// takes on to the second cire-api, as it does the page's own requests.
+const RESERVE_URL = `${ORIGINS.cireApi}/api/invite/${CIRE_GIFT_LIST.slug}/registry/items/${CIRE_GIFT_LIST.firstGiftId}/claim`;
 
 /** Resolves with the first `method` request to exactly `url`; `…/registry` is a prefix of `…/registry/mine`. */
 function responseTo(page: Page, method: string, url: string) {
@@ -29,7 +36,7 @@ function responseTo(page: Page, method: string, url: string) {
 }
 
 test("cire-registry-preview", async ({ page, context, flow }) => {
-  await claimFromOrganiserAddress(context);
+  await throughKeyOnlyCireApi(context);
 
   const claim = await flow.step("open the invitation from Preview invite", async () => {
     const response = responseTo(page, "POST", CLAIM_URL);
@@ -98,7 +105,7 @@ test("cire-registry-preview", async ({ page, context, flow }) => {
   flow.check("reserve in preview refused as", "preview_read_only", refused.error);
 
   const held = queryOne<{ n: number }>(
-    DB_FILES.cire,
+    DB_FILES.cireKeyOnly,
     `SELECT count(*) AS n FROM registry_claims c
        JOIN families f ON f.id = c.family_id
       WHERE f.public_id = ?`,

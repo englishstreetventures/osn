@@ -29,5 +29,6 @@ describe("PORTS", () => {
     expect(devPorts).not.toContain(PORTS.stripe);
     expect(devPorts).not.toContain(PORTS.issuer);
     expect(devPorts).not.toContain(PORTS.osnApiEvt);
+    expect(devPorts).not.toContain(PORTS.cireApiKeyOnly);
   });
 });

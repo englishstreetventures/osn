@@ -1025,10 +1025,11 @@ export function applyE2eRsvpDeadline(
  *
  * The couple are taking money as far as their own settings go: money gifts
  * on, a connected account that can charge and settles in the wedding's
- * currency. The stack runs cire-api with a placeholder Stripe key and no
- * Connect webhook secret, so it could open a payment page but never record the
- * gift, and the guest list must offer neither the money form nor the fund.
- * That is the deployment check the claimed flow holds.
+ * currency. The E2E stack also runs a second cire-api with this seed, a
+ * placeholder Stripe key and no Connect webhook secret, which could open a
+ * payment page but never record the gift, so its guest list must offer
+ * neither the money form nor the fund. That is the deployment check the
+ * claimed flow holds there.
  *
  * Its own wedding rather than the sample one, so the gift band that a
  * published list puts on the invite never appears in the other cire flows.
@@ -1047,6 +1048,8 @@ function seedE2eGiftList(db: TestDb): void {
       slug: "gift-wedding",
       displayName: "Gift Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -1233,11 +1236,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   a $1,200 target, has had $1,400 given by two households — past its
  *   target — beside a gift refunded in full and one not yet paid, which count
  *   for nothing; the other, a stand mixer, has had one gift of exactly its
- *   $500 target. For the portal on a site that cannot take a money
- *   gift: the stack's cire-api holds a Stripe key and no webhook secret. Its
- *   second owner, Kit (`usr_e2e_kit`), connected the account, so the dev
- *   profile is an owner who sees the account's status and cannot open its
- *   onboarding links.
+ *   $500 target. Its second owner, Kit (`usr_e2e_kit`), connected the
+ *   account, so the dev profile is an owner who sees the account's status and
+ *   cannot open its onboarding links.
  * - `wed_e2e_shared_from` and `wed_e2e_shared_to`: two weddings the dev
  *   profile owns alone. On the first it connected a Stripe account that can
  *   charge and settles in AUD; the second has no settings row. For giving the
@@ -1245,6 +1246,13 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * - `wed_e2e_oauth`: Garden Wedding, which the dev profile owns alone, with an
  *   open registry and no Stripe account, for connecting a Stripe account the
  *   owner already has through the E2E suite's Stripe stand-in.
+ * - `wed_e2e_fund`: Fund Wedding, on Gold, with a published gift list and
+ *   nothing on it, money gifts on and an Express account that can charge and
+ *   pays out in AUD, which its second owner, Kit, connected — so no other
+ *   wedding of the dev profile is offered it — and one household of one guest
+ *   invited to one event with no address. The owner adds a cash fund through
+ *   the portal and the guest gives to it through the E2E suite's Stripe
+ *   stand-in (`seedE2eFund`).
  * - `wed_e2e_upgrade` and `wed_e2e_upgrade_refund`: two Ivory weddings the
  *   dev profile owns alone, for buying Gold through the Stripe stand-in. The
  *   first is granted Gold; the second is deleted while its checkout is open,
@@ -1293,6 +1301,9 @@ function seedE2eOrganiser(db: TestDb): void {
         slug,
         displayName,
         tier,
+        // A paid tier records how it was granted, as an operator's comp does.
+        tierSource: tier === "ivory" ? null : "comp",
+        tierGrantedBy: tier === "ivory" ? null : "script:e2e-seed",
         weddingDate: weddingDate ?? null,
         createdAt: now,
         updatedAt: now,
@@ -1804,6 +1815,7 @@ function seedE2eOrganiser(db: TestDb): void {
 
   seedE2eSeating(db, now);
   seedE2eSettings(db, now);
+  seedE2eFund(db, now);
   seedE2eEnquiries(db, now);
   seedE2eEnvelope(db, now);
   seedE2eLegacyEvent(db, now);
@@ -1885,6 +1897,96 @@ function seedE2eSettings(db: TestDb, now: Date): void {
         createdAt: now,
       },
     ])
+    .run();
+}
+
+/**
+ * `wed_e2e_fund`, for {@link seedE2eOrganiser}: Fund Wedding, where
+ * `cire-registry-money` adds a cash fund through the portal's form and a guest
+ * gives to it through the Stripe stand-in.
+ *
+ * - On Gold, the tier a gift list needs, with the list published and nothing
+ *   on it: the flow adds the fund.
+ * - Money gifts on, and an Express account (no `stripe_account_type`) that can
+ *   charge and pays out in AUD, the wedding's currency. Kit, its second owner,
+ *   connected it, so the dev profile is never offered it for another wedding.
+ * - One household, Parkes, of one guest, Pia, invited to one event with no
+ *   address or venue, so the invitation embeds no map.
+ *
+ * The values a flow checks are written out again as `CIRE_ORGANISER.fund` in
+ * `tools/e2e/src/config.ts`.
+ */
+function seedE2eFund(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_fund";
+  const eventId = "evt_e2e_fund_reception";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "fund-wedding",
+      displayName: "Fund Wedding",
+      tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_fund_owner", now);
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_fund_kit",
+      weddingId,
+      osnProfileId: "usr_e2e_kit",
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "owner",
+      createdAt: now,
+    })
+    .run();
+  db.insert(schema.events)
+    .values({
+      id: eventId,
+      weddingId,
+      slug: "reception",
+      name: "Reception",
+      startAt: "2099-06-20T16:00:00+00:00",
+      endAt: "2099-06-20T22:00:00+00:00",
+      timezone: "UTC",
+    })
+    .run();
+  db.insert(schema.families)
+    .values({
+      id: "fam_e2e_fund",
+      weddingId,
+      publicId: "PARKES-E2E-FD01",
+      familyName: "Parkes",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values({
+      id: "gst_e2e_fund_pia",
+      familyId: "fam_e2e_fund",
+      firstName: "Pia",
+      lastName: "Parkes",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guestEvents).values({ guestId: "gst_e2e_fund_pia", eventId }).run();
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId,
+      published: true,
+      cashGiftsEnabled: true,
+      stripeAccountId: "acct_e2e_fund",
+      stripeConnectedByOsnProfileId: "usr_e2e_kit",
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDefaultCurrency: "AUD",
+      createdAt: now,
+      updatedAt: now,
+    })
     .run();
 }
 
@@ -2001,6 +2103,8 @@ function seedE2eLegacyEvent(db: TestDb, now: Date): void {
       slug: "legacy-event-wedding",
       displayName: "Legacy Event Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -2074,6 +2178,8 @@ function seedE2eEnvelope(db: TestDb, now: Date): void {
         slug,
         displayName: title,
         tier: envelope ? "crimson" : "gold",
+        tierSource: "comp",
+        tierGrantedBy: "script:e2e-seed",
         createdAt: now,
         updatedAt: now,
       })
@@ -2098,6 +2204,8 @@ function seedE2eEnvelope(db: TestDb, now: Date): void {
       slug: "envelope-wedding",
       displayName: "Envelope Wedding",
       tier: "crimson",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -2130,6 +2238,8 @@ function seedE2eSeating(db: TestDb, now: Date): void {
       slug: "seating-wedding",
       displayName: "Seating Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })

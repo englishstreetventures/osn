@@ -28,6 +28,8 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   CIRE_E2E_RSVP_DEADLINE:
     "read only through src/local.ts, the Bun dev server, to give the E2E suite's sample wedding its RSVP deadline",
   CIRE_LOCAL_DB_PATH: "read only by src/local.ts, the Bun dev server",
+  CIRE_LOCAL_HOSTNAME:
+    "read only by src/local.ts, the Bun dev server, which listens on the address it names; the E2E suite sets it to loopback",
   CIRE_OPS_EMAIL:
     "unset, no vendor-claim reminder is sent (lib/claim-review-email.ts); the inventory declares it on neither tier",
   GROWTHBOOK_CLIENT_KEY: "dev has no GrowthBook key; every flag serves its coded default",

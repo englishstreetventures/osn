@@ -27,6 +27,7 @@ import {
   PULSE_OIDC,
   REPO_ROOT,
   TURNSTILE_TEST_SITEKEY,
+  STRIPE_CONNECT_WEBHOOK_SECRET,
   STRIPE_PLATFORM_WEBHOOK_SECRET,
   type AppName,
 } from "./config";
@@ -123,6 +124,12 @@ export function baseEnv(
     PUBLIC_TURNSTILE_SITEKEY: "",
   };
 }
+
+/** The Stripe key both cire-apis hold. Not a real key: it only ever reaches the stand-in. */
+const CIRE_STRIPE_KEY = "e2e-placeholder-no-stripe-account";
+
+/** cire-api's three site origins, in the order `local.ts` reads them. */
+const CIRE_WEB_ORIGINS = [ORIGINS.cireInvites, ORIGINS.cireHost, VENDOR_PORTAL_ORIGIN].join(",");
 
 /**
  * Boot order matters: pulse-api registers its service key with osn-api once, at
@@ -235,6 +242,8 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
       readyUrl: `${ORIGINS.cireApi}/`,
       env: {
         PORT: String(PORTS.cireApi),
+        // Loopback only: the webhook secrets below are committed placeholders.
+        CIRE_LOCAL_HOSTNAME: "127.0.0.1",
         CIRE_LOCAL_DB_PATH: DB_FILES.cire,
         CIRE_E2E_RSVP_DEADLINE: CIRE_RSVP_DEADLINE,
         // Adds the gift-list wedding (`CIRE_GIFT_LIST`) to cire-api's seed.
@@ -247,23 +256,23 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
         // Guest site, organiser portal, vendor portal — the order `local.ts`
         // reads them in. The vendor portal is not in the stack; naming its
         // dev origin keeps cire-api from minting production vendor links.
-        WEB_ORIGIN: [ORIGINS.cireInvites, ORIGINS.cireHost, VENDOR_PORTAL_ORIGIN].join(","),
+        WEB_ORIGIN: CIRE_WEB_ORIGINS,
         // Organiser sign-in through osn-api, as a first-party client.
         OSN_ISSUER_URL: ORIGINS.osnApi,
         OSN_JWKS_URL: `${ORIGINS.osnApi}/.well-known/jwks.json`,
         CIRE_API_ORIGIN: ORIGINS.cireApi,
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
         CIRE_OIDC_CLIENT_SECRET: CIRE_OIDC.secret,
-        // A Stripe key and no Connect webhook secret: a deployment that could
-        // open a gift's payment page but never record the gift, so cire-api
-        // must offer guests no money at all. The gift-list flows check that it
-        // does not. Not a real key, and it only ever reaches the Stripe
-        // stand-in (`src/stripe.ts`), which every Stripe call goes to: the
-        // OAuth connect (`cire-registry-money`), and an upgrade's Checkout and
-        // refund (`cire-checklist-starter`).
-        STRIPE_SECRET_KEY: "e2e-placeholder-no-stripe-account",
+        // A Stripe key and the Connect webhook's secret: guests may give
+        // money, and a gift is recorded when the signed event the flow
+        // delivers arrives. The key only ever reaches the Stripe stand-in
+        // (`src/stripe.ts`), which every Stripe call goes to: the OAuth
+        // connect, a guest's gift (`cire-registry-money`), and an upgrade's
+        // Checkout and refund (`cire-checklist-starter`).
+        STRIPE_SECRET_KEY: CIRE_STRIPE_KEY,
         STRIPE_API_URL: ORIGINS.stripe,
         STRIPE_CONNECT_URL: ORIGINS.stripe,
+        STRIPE_WEBHOOK_SECRET: STRIPE_CONNECT_WEBHOOK_SECRET,
         // A client id of the right shape, which only the stand-in ever sees:
         // with it and CIRE_API_ORIGIN, the portal offers "Connect a Stripe
         // account you already have".
@@ -280,6 +289,30 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
         ...ownerAddresses,
         // What osn-api presents to end organiser sessions; the same value as its own.
         CIRE_INTERNAL_REVOKE_SECRET,
+      },
+    },
+    {
+      // A second cire-api with the Stripe key and no Connect webhook secret:
+      // a deployment that could open a gift's payment page but never record
+      // the gift, so it must offer guests no money at all. Its own database,
+      // seeded with the gift-list wedding, and its own limiter windows. The
+      // browser reaches it only in the flows that call `throughKeyOnlyCireApi`
+      // (`cire-registry-claimed`, `cire-registry-preview`), which check that
+      // it offers none. Nothing else: no organiser sign-in, owner mail or
+      // client address, which neither flow needs.
+      name: "cireApiKeyOnly",
+      dir: "cire/api",
+      command: API_COMMAND,
+      readyUrl: `${ORIGINS.cireApiKeyOnly}/`,
+      env: {
+        PORT: String(PORTS.cireApiKeyOnly),
+        CIRE_LOCAL_HOSTNAME: "127.0.0.1",
+        CIRE_LOCAL_DB_PATH: DB_FILES.cireKeyOnly,
+        CIRE_E2E_REGISTRY: "1",
+        WEB_ORIGIN: CIRE_WEB_ORIGINS,
+        STRIPE_SECRET_KEY: CIRE_STRIPE_KEY,
+        STRIPE_API_URL: ORIGINS.stripe,
+        STRIPE_CONNECT_URL: ORIGINS.stripe,
       },
     },
     {

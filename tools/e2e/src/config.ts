@@ -44,12 +44,13 @@ export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
  * fails that flow. `previewCode` is the host household's code, which "Preview
  * invite" opens the invitation with.
  *
- * `fund` is a cash fund on the same list. The couple's settings take money,
- * but the stack's cire-api has a Stripe key and no Connect webhook secret, so
- * it could never record a gift and no guest may be offered the fund or the
- * money form. The locked flow checks the fund absent without a
- * claim, and the claimed flow checks it absent with one; the claimed flow
- * reads the fund's row from the database, so a drifted value fails there.
+ * `fund` is a cash fund on the same list, and the couple's settings take
+ * money. The locked flow checks the fund absent without a claim. The claimed
+ * and preview flows run against the stack's second cire-api, which holds a
+ * Stripe key and no Connect webhook secret, so it could never record a gift
+ * and offers no guest the fund or the money form; the claimed flow checks it
+ * absent with a claim, and reads the fund's row from that server's database,
+ * so a drifted value fails there.
  */
 export const CIRE_GIFT_LIST = {
   slug: "gift-wedding",
@@ -106,7 +107,7 @@ export const PORTS = {
   cireLanding: 4323,
   /** The Resend stand-in osn-api sends OTP mail to. Not a dev app. */
   mail: 4590,
-  /** The Stripe stand-in cire-api's OAuth connect calls. Not a dev app. */
+  /** The Stripe stand-in every cire-api Stripe call goes to. Not a dev app. */
   stripe: 4591,
   /**
    * The mail provider stand-in for the browser Email Verification API: its
@@ -119,6 +120,13 @@ export const PORTS = {
    * that call `throughEmailVerificationApi`. Not a dev app.
    */
   osnApiEvt: 4593,
+  /**
+   * A second cire-api with a Stripe key and no Connect webhook secret, its own
+   * database and its own limiter windows: a deployment that must offer guests
+   * no money gift. The browser reaches it only in the flows that call
+   * `throughKeyOnlyCireApi`. Not a dev app.
+   */
+  cireApiKeyOnly: 4594,
 } as const;
 
 export type AppName = keyof typeof PORTS;
@@ -147,12 +155,20 @@ export const E2E_RESEND_KEY = "re_e2e_local";
  */
 export const STRIPE_PLATFORM_WEBHOOK_SECRET = "whsec_e2e_platform_not_a_real_secret";
 
+/**
+ * The Connect webhook's secret: cire-api checks a gift event's signature with
+ * it, and the Stripe stand-in signs a connected account's events with it. Not
+ * the platform's value, as no deployed tier may share one. Local only.
+ */
+export const STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_e2e_connect_not_a_real_secret";
+
 /** Names the request log uses for each API origin. Only these are recorded. */
 export const API_LABELS = {
   [ORIGINS.osnApi]: "osn-api",
   [ORIGINS.osnApiEvt]: "osn-api-evt",
   [ORIGINS.pulseApi]: "pulse-api",
   [ORIGINS.cireApi]: "cire-api",
+  [ORIGINS.cireApiKeyOnly]: "cire-api-key-only",
 } satisfies Record<string, string>;
 
 /**
@@ -171,6 +187,7 @@ export const DB_FILES = {
   osnEvt: resolve(STATE_DIR, "osn-evt.db"),
   pulse: resolve(STATE_DIR, "pulse.db"),
   cire: resolve(STATE_DIR, "cire.db"),
+  cireKeyOnly: resolve(STATE_DIR, "cire-key-only.db"),
 } as const;
 
 /** Shared by osn-api and pulse-api so pulse can register its ARC key. Local only. */
@@ -315,10 +332,9 @@ export const CIRE_ORGANISER = {
   },
   /**
    * Money gifts on and a Stripe account that can charge, one cash fund and
-   * nothing to reserve, unpublished — on a stack whose cire-api cannot take a
-   * money gift (a Stripe key and no webhook secret). Its other owner, Kit,
-   * connected the account, so the dev profile may read its status and not
-   * open its onboarding links.
+   * two group gifts and nothing to reserve, unpublished. Its other owner,
+   * Kit, connected the account, so the dev profile may read its status and
+   * not open its onboarding links.
    */
   money: {
     weddingId: "wed_e2e_money",
@@ -345,6 +361,21 @@ export const CIRE_ORGANISER = {
    * the owner already has, through the Stripe stand-in.
    */
   oauth: { weddingId: "wed_e2e_oauth", name: "Garden Wedding" },
+  /**
+   * A Gold wedding with a published gift list and nothing on it, money gifts
+   * on and an Express account that can charge and pays out in AUD, which Kit,
+   * its second owner, connected: so the dev profile's other weddings are not
+   * offered it. One household, Parkes, of one guest, Pia. The owner adds a cash
+   * fund through the portal's form and Pia gives to it through the Stripe
+   * stand-in (`tests/support/cire-fund-gift.ts`).
+   */
+  fund: {
+    weddingId: "wed_e2e_fund",
+    slug: "fund-wedding",
+    accountId: "acct_e2e_fund",
+    connector: { hostId: "whost_e2e_fund_kit", profileId: "usr_e2e_kit" },
+    household: { familyId: "fam_e2e_fund", code: "PARKES-E2E-FD01", guestName: "Pia" },
+  },
   /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
    *  Cy Charlie at Table 2, all three having said yes. And an after party,
    *  inviting Ada, with no plan yet. */

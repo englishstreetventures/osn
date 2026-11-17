@@ -1,12 +1,14 @@
 /**
  * Cire organiser portal: an owner whose own settings take money — money gifts
  * on, a Stripe account that can charge — opens the gift list on a site that
- * cannot take a money gift. The stack's cire-api holds a Stripe key and no
- * Connect webhook secret, so the registry read answers `takesPayments: false`,
- * its settings name `payments_unavailable` as why guests cannot give money,
- * and the portal says so: the Money gifts panel names the site, a list holding
- * one cash fund and two group gifts and nothing else cannot be published, and
- * the gift list says guests cannot see its cash funds and group gifts.
+ * takes money gifts. The stack's cire-api holds a Stripe key and the Connect
+ * webhook's secret, so the registry read answers `takesPayments: true` and
+ * names nothing that keeps guests from giving money, the Money gifts panel
+ * says nothing of the site, a list holding one cash fund and two group gifts
+ * and nothing else may be published, and the gift list hides none of them
+ * from guests. What the portal says on a site that cannot take a money gift
+ * is held by its own tests and cire-api's: a cire-api without the secret
+ * would need a sign-in of its own.
  *
  * One group gift, an espresso machine with a $1,200 target, has had $1,400
  * given by two households beside a gift refunded in full and one not yet paid.
@@ -16,9 +18,10 @@
  * adds a third group gift through the form, which the API stores as a cash
  * fund marked a group gift and whose row says what is left to raise; then
  * edits it, and the portal refuses a cleared target before sending anything
- * and stores a new one. The gifts tab lists all three together. Guests cannot
- * give on this stack, so the money a guest gives towards one is held by
- * cire-api's route tests (`tests/routes/registry-group-gifts.test.ts`).
+ * and stores a new one. The gifts tab lists all three together. The money a
+ * guest gives towards a group gift is held by cire-api's route tests
+ * (`tests/routes/registry-group-gifts.test.ts`); a guest's gift to a plain
+ * cash fund is the Fund Wedding steps below.
  *
  * The wedding is `CIRE_ORGANISER.money`, which cire-api seeds for the suite
  * (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`). The flow reads its
@@ -79,6 +82,17 @@
  * unavailable, while its quote, from the enquiry itself, goes to the budget
  * with Add to budget, and the Budget module lists it.
  *
+ * Then Fund Wedding (`CIRE_ORGANISER.fund`, `tests/support/cire-fund-gift.ts`),
+ * whose published list starts empty: the owner adds a cash fund through the
+ * gift list's form, and a guest of its one household, in a browser of their
+ * own, opens the invitation at the household's link, chooses the fund in the
+ * gift page's money panel, gives $75 and is handed to Stripe's Checkout,
+ * served by the Stripe stand-in. The flow pays there and delivers the signed
+ * `checkout.session.completed` to cire-api's Connect webhook; the gift reads
+ * `succeeded` under the fund's name, and the owner's gift log shows it
+ * received. The money panel, the fund chosen, is
+ * `screenshots/cire-registry-money/guest-money-panel.png`.
+ *
  * Then the owner signs out everywhere else on OSN, and their cire sessions end
  * too. The flow asks osn-api the way `@osn/auth-ui`'s sessions view does: an
  * access token from `POST /token` on the session cookie, then
@@ -89,7 +103,7 @@
  * the cookie the browser still holds, finds no `organiser_sessions` row left
  * for the dev profile, sees the gift list read with that cookie answer 401,
  * and sees the portal, opened again, send the owner to sign in. These steps,
- * like the budget and enquiry ones, share this flow's sign-in rather than
+ * like the budget, enquiry and fund ones, share this flow's sign-in rather than
  * spend one of their own (`tests/flows.test.ts` caps them), and come last
  * because they end it. A flow after this one signs in afresh.
  */
@@ -97,6 +111,7 @@
 import type { Page } from "@playwright/test";
 
 import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
+import { giveToANewFund } from "../support/cire-fund-gift";
 import {
   expect,
   onSuiteClock,
@@ -110,7 +125,6 @@ const { weddingId, fundTitle, groupGift, accountId, connector } = CIRE_ORGANISER
 const REGISTRY_URL = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/registry`;
 const ONBOARDING_URL = `${REGISTRY_URL}/stripe/session`;
 const SESSION_URL = `${ORIGINS.cireApi}/api/auth/session`;
-const UNAVAILABLE = /money gifts aren’t available on this site yet/i;
 
 /** How many cire organiser sessions the dev profile holds. */
 function organiserSessions(): number {
@@ -132,7 +146,7 @@ function osnSessions(): number {
   return row?.n ?? -1;
 }
 
-test("cire-registry-money", async ({ page, flow }) => {
+test("cire-registry-money", async ({ page, browser, flow }) => {
   const money = queryOne<{ ready: number }>(
     DB_FILES.cire,
     `SELECT (cash_gifts_enabled = 1 AND stripe_charges_enabled = 1
@@ -155,10 +169,10 @@ test("cire-registry-money", async ({ page, flow }) => {
       items?: Array<{ id: string; allowPartial?: boolean; raised?: unknown }>;
     };
     const group = body.items?.find((item) => item.id === groupGift.id);
-    const notice = page.getByTestId("money-gifts-unavailable");
-    await expect(notice).toBeVisible();
+    // Enabled once the settings have loaded and the funds count as something
+    // guests can see.
     const publish = page.getByRole("radio", { name: /^Published/ });
-    await expect(publish).toBeDisabled();
+    await expect(publish).toBeEnabled();
     return {
       status: response.status(),
       takesPayments: "takesPayments" in body ? String(body.takesPayments) : "absent",
@@ -166,42 +180,35 @@ test("cire-registry-money", async ({ page, flow }) => {
         body.settings && "moneyGiftsBlockedBy" in body.settings
           ? String(body.settings.moneyGiftsBlockedBy)
           : "absent",
-      notice: (await notice.textContent()) ?? "",
+      notices: await page.getByTestId("money-gifts-unavailable").count(),
       publishBlocked: await publish.isDisabled(),
-      publishNotice: (await page.locator("#registry-publish-blocked").textContent()) ?? "",
+      publishNotices: await page.locator("#registry-publish-blocked").count(),
       groupGift: group?.allowPartial === true ? "group gift" : "absent",
       raised: JSON.stringify(group?.raised ?? null),
     };
   });
   flow.check("registry read", 200, settings.status);
-  flow.check("registry read says the site takes money gifts", "false", settings.takesPayments);
+  flow.check("registry read says the site takes money gifts", "true", settings.takesPayments);
   flow.check(
-    "registry read names the site as why guests cannot give money",
-    "payments_unavailable",
+    "registry read names nothing that keeps guests from giving money",
+    "null",
     settings.blockedBy,
   );
-  flow.check("Money gifts panel names the site", true, UNAVAILABLE.test(settings.notice));
+  flow.check("no notice says money gifts are unavailable", 0, settings.notices);
   flow.check(
-    "a list of a cash fund and a group gift is blocked from publishing",
-    true,
+    "a list of a cash fund and two group gifts may be published",
+    false,
     settings.publishBlocked,
   );
-  flow.check("the publish notice names the site", true, UNAVAILABLE.test(settings.publishNotice));
+  flow.check("no notice blocks publishing", 0, settings.publishNotices);
 
   const list = await flow.step("open the gift list", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/list`);
     // The fund's name appears three times in the gift list, so take the first.
     await expect(page.getByText(fundTitle).first()).toBeVisible();
-    const notice = page.getByText(/Guests can’t see your cash funds/);
-    await expect(notice).toBeVisible();
-    return (await notice.textContent()) ?? "";
+    return page.getByTestId("funds-hidden").count();
   });
-  flow.check("the gift list says guests cannot see the fund", true, UNAVAILABLE.test(list));
-  flow.check(
-    "the gift list names both cash funds and group gifts",
-    true,
-    list.trim().startsWith("Guests can’t see your cash funds and group gifts:"),
-  );
+  flow.check("the gift list hides no cash fund or group gift from guests", 0, list);
   flow.check("registry read marks the group gift", "group gift", settings.groupGift);
   flow.check(
     "registry read counts the two received gifts towards it, and nothing else",
@@ -746,6 +753,7 @@ test("cire-registry-money", async ({ page, flow }) => {
   const planning = await flow.newPage(page.context());
   await budgetSteps(flow, planning);
   await enquirySteps(flow, planning);
+  await giveToANewFund(flow, planning, browser);
 
   const accessToken = await flow.step(
     "organiser: an access token from the OSN session",

@@ -687,6 +687,27 @@ export async function throughEmailVerificationApi(context: BrowserContext): Prom
 }
 
 /**
+ * Sends every request `context` makes to cire-api to the stack's second
+ * cire-api, `cireApiKeyOnly`, which holds a Stripe key and no Connect webhook
+ * secret: a deployment that must offer guests no money gift. The guest site
+ * names one cire-api; this is how a flow reaches the other. Playwright reports
+ * each such request, and its response, at the second server's URL, so the
+ * flow waits on `ORIGINS.cireApiKeyOnly` and its request lines read
+ * `cire-api-key-only`. The guest site's server render still reads the first
+ * cire-api. Every claim spends the second server's limiter window, which
+ * `tools/e2e/tests/flows.test.ts` counts apart for the flows that call this.
+ * The route stays for the rest of the flow, as `claimFromOrganiserAddress`
+ * explains; it does not chain with that one, so a flow calls one or the other.
+ */
+export async function throughKeyOnlyCireApi(context: BrowserContext): Promise<void> {
+  await context.route(`${ORIGINS.cireApi}/**`, (route: Route) =>
+    route.continue({
+      url: route.request().url().replace(ORIGINS.cireApi, ORIGINS.cireApiKeyOnly),
+    }),
+  );
+}
+
+/**
  * The value a browser with the Email Verification API would put in the
  * sign-up form's hidden field: a token the issuer stand-in signs for `email`,
  * bound to `nonce` and to Musubi's origin (`src/issuer.ts`).
