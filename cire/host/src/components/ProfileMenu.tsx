@@ -51,7 +51,7 @@ function buildVersion(): string {
 /**
  * The top bar's account affordance: an avatar button opening a menu with
  * everything scoped to the person rather than to a wedding — appearance,
- * haptics, security, sign out. Those used to sit in a portal-wide nav row next
+ * haptics, security, removing their Cire data, sign out. Those used to sit in a portal-wide nav row next
  * to Weddings, which put "who am I" housekeeping on the same axis as "what am I
  * working on"; an avatar menu splits the two and leaves the bar for the work.
  *
@@ -67,6 +67,8 @@ function buildVersion(): string {
 export default function ProfileMenu(props: {
   session: RpSession | null | undefined;
   onSecurity: () => void;
+  /** Opens "Remove my Cire data" (`#/remove-data`). */
+  onRemoveData: () => void;
   onSignOut: () => void;
 }) {
   const name = () =>
@@ -138,6 +140,11 @@ export default function ProfileMenu(props: {
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => props.onSecurity()}>
           Security &amp; passkeys
+        </DropdownMenuItem>
+        {/* A page that explains before it asks anything, so a row like its
+            neighbours: nothing is removed from here. */}
+        <DropdownMenuItem onSelect={() => props.onRemoveData()}>
+          Remove my Cire data
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => props.onSignOut()}>Sign out</DropdownMenuItem>
         <DropdownMenuSeparator />

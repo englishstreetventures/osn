@@ -88,7 +88,11 @@ export default function WeddingExport(props: {
   weddingSlug: string;
   /** An owner? Anyone else is told to ask one, and offered no download. */
   canManage: boolean;
-  /** Where the owners are listed, for anyone else. */
+  /**
+   * Co-hosts, where the owners are listed. An owner is offered it to add
+   * another owner, so the wedding outlives their leaving; anyone else, to find
+   * an owner to ask.
+   */
   coHosts?: InAppLink;
 }) {
   const { authFetch } = useAuth();
@@ -176,6 +180,21 @@ export default function WeddingExport(props: {
               <Notice tone="danger" size="sm" alert class="mt-3 max-w-prose">
                 {FAILURE_COPY[reason()]}
               </Notice>
+            )}
+          </Show>
+
+          {/* The other way to keep the wedding: the flows that delete an
+              account or a person's Cire data send an owner here. */}
+          <Show when={props.coHosts}>
+            {(link) => (
+              <p class={`${hintClass} mt-4 max-w-prose`}>
+                Deleting your Musubi account or removing your Cire data deletes a wedding only you
+                own. To keep this one on Cire,{" "}
+                <a href={link().href} class={proseLinkClass()} onClick={followInApp(link())}>
+                  add another owner
+                </a>{" "}
+                first.
+              </p>
             )}
           </Show>
         </div>

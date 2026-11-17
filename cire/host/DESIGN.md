@@ -1659,6 +1659,70 @@ person's Cire data), so the decisions below start from someone arriving on it:
   and failed notices arrive at once, as every `Notice` in the portal does. The
   panel is taller than `createAutoSize`'s cap, so the few pixels the state adds
   under the button move the list below at once.
+- **The other way to keep the wedding.** An owner reads, under the button, that
+  deleting their Musubi account or removing their Cire data deletes a wedding
+  only they own, with "add another owner" a prose link to Co-hosts in the
+  sentence: the two things an owner on the way out can do, on one page.
+
+### Leaving Cire: Remove my Cire data
+
+`RemoveCireData.tsx`, at `#/remove-data`, is how a host leaves Cire and keeps
+their Musubi account. The account menu opens it with "Remove my Cire data",
+between "Security & passkeys" and "Sign out": a row like its neighbours,
+because the page explains before it asks anything. The top bar names the
+section "Your Cire data". The portal cannot run a step-up, so the screen has
+two steps and a trip to Musubi between them; the decisions:
+
+- **One column at 48rem** (`max-w-3xl`), on the page's left edge as Security
+  sits, so the rows read as a list and not as bands across a 1280px page.
+- **The step is the eyebrow.** "Step 1 of 2" or "Step 2 of 2" over the display
+  heading "Remove your Cire data", then one muted line saying what to do on
+  this step (§3: an eyebrow carries what the heading does not).
+- **What happens, first and on both steps.** An `lg` card, "What happens", in
+  body ink at the prose measure: every promise the removal makes, so the person
+  reads them again on the step that removes.
+- **Weddings grouped by what happens to them**, each group under a muted
+  `Eyebrow` with its count: "Deleted with your data" (the weddings they alone
+  own), "You leave these" (another owner, or a lower seat), "Already deleted".
+  Past 100 weddings they alone own, the list cannot tell which owned weddings
+  have another owner, so owned rows sit under "You own these" and say "If no
+  one else does, it's deleted". Each wedding is an `sm` card, on `none` when
+  already deleted, as the wedding list's deleted rows are; its name in the
+  display face, breaking anywhere, since a host wrote it; one line under it.
+- **A wedding they alone own** carries, under its line, "Download wedding to
+  keep a copy. Add another owner to keep it on Cire." — two prose links to its
+  Settings views through the dashboard's own navigation — then the answer, the
+  native box "Delete this wedding" (its name adds the wedding's). A wedding
+  another profile of the account owns cannot be opened from this session, so
+  it says to sign in with that profile instead of offering the links.
+- **"Delete every wedding only you own"** is a box on an `sm` card with the
+  `accent` tone, first in its group, when there are two or more such weddings,
+  one the list leaves out, or more than 100. Ticked, it disables each box
+  below it.
+- **One line about the whole screen**, a `Notice` at `sm`, under the list and
+  over the buttons the person pressed: an answer missing (`danger`), the list
+  changed under them (`warn`), the confirmation run out (`warn`), a failure
+  (`danger`), and on step 2 with nothing else to say, "Confirmed on Musubi…"
+  (`success`). A press with answers missing also marks each unanswered box:
+  `aria-invalid`, an inline `danger` `Notice` as the box's note ("Tick this to
+  go on, or add another owner first."), and focus on the first.
+- **The buttons**, after a hairline: step 1's `primary` "Confirm on Musubi",
+  step 2's `danger` "Remove my Cire data", each with a `quiet` "Cancel" after
+  it. A pressed one keeps its place and its focus, `aria-disabled`, its words
+  "Going to Musubi…" or "Removing…", and the list above is `inert` until it
+  answers. A removal of more than three weddings the person owns takes
+  several rounds; `Loading`'s line says so under the buttons.
+- **Done** is not the dashboard: the person is signed out, so the page takes
+  the sign-in page's shape — "Cire · Host portal" over a display heading, "Your
+  Cire data is removed", and one opaque `xl` card with two lines and two
+  `outline` pills, "Sign in again" and "Go to Musubi". Focus goes to the
+  heading.
+- **No motion of its own.** Every state arrives at once, as every `Notice`
+  does; the loaders pulse as every loader does.
+
+`tests/components/RemoveCireData.browser.test.tsx` paints every state at 390
+and 1280px in both ramps and fails if anything runs past the page or the
+column, a 90-letter wedding name with no space included.
 
 ### Two rules that apply to all of them
 
