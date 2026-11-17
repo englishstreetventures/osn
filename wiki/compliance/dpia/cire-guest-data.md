@@ -12,7 +12,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # DPIA — Cire guest data (special-category dietary)
@@ -445,7 +445,10 @@ final sign-off now turns only on the residual retention gaps below.
   PR #132): `rsvps` (incl. dietary + its consent record), `guests`, `families`,
   and `imports` rows are deleted for any wedding whose final event is >365 days
   past, and the sheets their `imports` rows name are reaped from R2 in the same
-  sweep. A wedding its owners delete is purged whole 7–8 days later (later if
+  sweep. The sweep reads a final event only from Starts and Ends that begin with
+  their date: a wedding with any other value keeps its guest data past the year
+  until its host fixes the event, and each run logs how many such weddings still
+  hold guest data with every dated event a year past (a count, no id). A wedding its owners delete is purged whole 7–8 days later (later if
   the daily purge cap or a payment still settling defers it): every row by
   cascade, and its sheet and image objects ([[cire-auth#Soft-deleted weddings]]).
 - **What outlives the sweep (2026-10-15).** The sweep leaves the couple a record

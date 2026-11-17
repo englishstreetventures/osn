@@ -23,7 +23,7 @@ packages:
   - "@pulse/api"
   - "@cire/api"
   - "@zap/api"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-17
 ---
 
 # D1 Limits
@@ -41,11 +41,20 @@ files runs on — enforces none of these.
 | Bound parameters per query | 999 | **100** | [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) |
 | Terms in a compound SELECT (`UNION`, `UNION ALL`) | 500 | **5** | workerd source, `sqlite3_limit(db, SQLITE_LIMIT_COMPOUND_SELECT, 5)` |
 | Subrequests to CF services per invocation | — | 1,000 | [[free-tier-limits]] |
+| Bytes in a `LIKE` or `GLOB` pattern | 50,000 | **50** | [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) |
 
 **The compound-select limit is documented nowhere by Cloudflare.** It is
 compiled into workerd — raised from 3 to 5 in a workerd PR, still 5 at HEAD,
 asserted by workerd's own `sql-test.js`. Miniflare reproduces it exactly, so
 `bun run test:d1` can see it and nothing else can.
+
+**The pattern cap is on the pattern's value**, bound or inline, so a pattern
+built from user input can pass every `bun:sqlite` test and fail on D1 with
+`LIKE or GLOB pattern too complex`. Miniflare enforces it, so a D1-tier test
+proves a fixed pattern fits: the cire retention sweep's date-first `GLOB` is 44
+bytes, and its D1 test runs it.
+
+*Measured 2026-11-17 — a scratch script against Miniflare 4.20260730.0's D1: a 50-byte `GLOB` pattern ran, a 52-byte one failed `D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR`.*
 
 ## How the bind cap is reached, and why the second way is missed
 
