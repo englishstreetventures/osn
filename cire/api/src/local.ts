@@ -208,8 +208,14 @@ const app = createApp(db, appOptions);
 // so an organiser's claim can come from the organiser's own address.
 const keepSentClientAddress = process.env.CIRE_E2E_CLIENT_ADDRESS === "1";
 
+// Unset, the server listens on every interface, as `bun run dev` always has.
+// The E2E stack names a loopback address: its webhook secrets are committed
+// placeholders, which must sign nothing another machine sends.
+const hostname = process.env.CIRE_LOCAL_HOSTNAME || undefined;
+
 const server = Bun.serve({
   port,
+  hostname,
   // Both parameters are contextually typed by `Bun.serve`; naming `Bun.Server`
   // here would need its WebSocket type argument, which this server has not got.
   fetch(request, srv) {

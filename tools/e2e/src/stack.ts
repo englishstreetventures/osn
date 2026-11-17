@@ -234,6 +234,8 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
       readyUrl: `${ORIGINS.cireApi}/`,
       env: {
         PORT: String(PORTS.cireApi),
+        // Loopback only: the webhook secrets below are committed placeholders.
+        CIRE_LOCAL_HOSTNAME: "127.0.0.1",
         CIRE_LOCAL_DB_PATH: DB_FILES.cire,
         CIRE_E2E_RSVP_DEADLINE: CIRE_RSVP_DEADLINE,
         // Adds the gift-list wedding (`CIRE_GIFT_LIST`) to cire-api's seed.
@@ -296,6 +298,7 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
       readyUrl: `${ORIGINS.cireApiKeyOnly}/`,
       env: {
         PORT: String(PORTS.cireApiKeyOnly),
+        CIRE_LOCAL_HOSTNAME: "127.0.0.1",
         CIRE_LOCAL_DB_PATH: DB_FILES.cireKeyOnly,
         CIRE_E2E_REGISTRY: "1",
         WEB_ORIGIN: CIRE_WEB_ORIGINS,
