@@ -7,6 +7,7 @@ import { createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { BLOCK_CHOSEN, BLOCK_IDLE } from "../lib/chosen-block";
+import { guestListChanged } from "../lib/guest-list-changed";
 import { invalidateGuests } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
 import { haptic } from "../lib/touch-feedback";
@@ -105,6 +106,8 @@ export default function RemintPanel(props: RemintPanelProps) {
       // without this, Guests → Households would copy them until a reload.
       invalidateGuests(props.weddingId);
       invalidateHouseholds(props.weddingId);
+      // The RSVP replies carry each household's code too.
+      guestListChanged(props.weddingId);
       const body = (await res.json()) as { reminted: number };
       haptic("commit");
       toast.success(`Re-minted ${body.reminted} family codes`);

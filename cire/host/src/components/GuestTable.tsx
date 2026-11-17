@@ -39,6 +39,7 @@ import {
   For,
   createMemo,
   type JSX,
+  untrack,
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
@@ -48,6 +49,7 @@ import {
   type EventRow as CachedEventRow,
   eventsAccessor,
 } from "../lib/events-store";
+import { guestListChanged } from "../lib/guest-list-changed";
 import {
   ensureGuestsLoaded,
   guestsAccessor,
@@ -59,6 +61,7 @@ import {
 } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
+import { ensureInviteLoaded, inviteAccessor } from "../lib/invite-store";
 import { markHouseholdShared } from "../lib/mark-shared";
 import {
   type ConfirmedPlusOne,
@@ -76,6 +79,7 @@ import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
 import { IconButton, TipNote } from "./ActionTip";
 import { CsvExportButton } from "./CsvExportButton";
 import { FilterSearch } from "./FilterField";
+import type { InviteCustomisation } from "./invite/model";
 import SectionIntro from "./SectionIntro";
 import { StatusMark } from "./StatusMark";
 import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
@@ -358,13 +362,14 @@ export default function GuestTable(props: GuestTableProps) {
     () => new Map((eventsAccessor(props.weddingId)() ?? []).map((e) => [e.id, e.name])),
   );
   // Optional host override for the first line of the copied invite message. Read
-  // from the same invite-customisation endpoint the Invite builder writes; `null`
-  // ⇒ buildInviteMessage falls back to its default prose.
-  const [inviteMessage, setInviteMessage] = createSignal<string | null>(null);
-  // Whether that read has settled — answered, failed or thrown. Copy waits for
-  // it: on a remount the cached rows paint at once, and a copy before the read
-  // lands would send the default first line in place of the host's own.
-  const [messageSettled, setMessageSettled] = createSignal(false);
+  // through the invite cache the Invite builder writes; `null` ⇒
+  // buildInviteMessage falls back to its default prose.
+  const invite = inviteAccessor(props.weddingId);
+  const inviteMessage = () => invite()?.inviteMessage ?? null;
+  // Whether that read has settled — cached, answered, failed or thrown. Copy
+  // waits for it: on a remount the cached rows paint at once, and a copy before
+  // the read lands would send the default first line in place of the host's own.
+  const [messageSettled, setMessageSettled] = createSignal(untrack(invite) !== null);
   // Skip the skeleton on a cache hit — a remount already has rows to paint.
   const [loading, setLoading] = createSignal(!hasCachedGuests(props.weddingId));
   const [error, setError] = createSignal<string | null>(null);
@@ -479,11 +484,11 @@ export default function GuestTable(props: GuestTableProps) {
 
   onMount(async () => {
     try {
-      // Guests + events both flow through their shared caches (one fetch each per
-      // wedding, deduped across module switches). Events are needed only
-      // for the chip map; a Schedule visit may already have them. The invite
-      // message is a light per-mount read (no store — it's tiny + non-essential).
-      const [, , inviteRes] = await Promise.all([
+      // Guests, events and the invite all flow through their shared caches (one
+      // fetch each per wedding, deduped across module switches). Events are
+      // needed only for the chip map; the invite only for the message's first
+      // line, which is non-essential: a failed read leaves the default prose.
+      await Promise.all([
         ensureGuestsLoaded(props.weddingId, fetchGuests),
         ensureEventsLoaded(props.weddingId, async () => {
           const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
@@ -494,15 +499,18 @@ export default function GuestTable(props: GuestTableProps) {
           if (!res.ok) throw new Error("Failed to load");
           return (await res.json()) as CachedEventRow[];
         }),
-        authFetch(apiUrl(weddingPath(props.weddingId, "/invite"))),
+        ensureInviteLoaded(props.weddingId, async () => {
+          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/invite")));
+          if (res.status === 401) {
+            redirectToLogin();
+            throw new Error("unauthenticated");
+          }
+          if (!res.ok) throw new Error(`invite ${res.status}`);
+          return (await res.json()) as InviteCustomisation;
+        }).catch((err: unknown) => {
+          if (isAuthExpired(err)) throw err;
+        }),
       ]);
-      if (inviteRes.status === 401) return redirectToLogin();
-      // The custom invite message is non-essential to the table — if it fails to
-      // load, fall back to the default prose rather than breaking the guest list.
-      if (inviteRes.ok) {
-        const invite = (await inviteRes.json()) as { inviteMessage: string | null };
-        setInviteMessage(invite.inviteMessage);
-      }
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Could not load guest list. Is the API running?");
@@ -559,6 +567,17 @@ export default function GuestTable(props: GuestTableProps) {
         );
         return;
       }
+      // The cached rows say the same, so the next visit draws it at once; the
+      // households list (the invite message's picker) reads it again.
+      const rows = peekCachedGuests(props.weddingId);
+      if (rows) {
+        const deactivatedAt = deactivate ? Date.now() : null;
+        setCachedGuests(
+          props.weddingId,
+          rows.map((row) => (row.familyId === family.familyId ? { ...row, deactivatedAt } : row)),
+        );
+      }
+      invalidateHouseholds(props.weddingId);
       // Flip the optimistic override (mutually exclusive sets).
       if (deactivate) {
         setDeactivatedNow((prev) => new Set(prev).add(family.familyId));
@@ -699,8 +718,12 @@ export default function GuestTable(props: GuestTableProps) {
       case "saved": {
         const rows = peekCachedGuests(props.weddingId);
         if (rows) setCachedGuests(props.weddingId, withPermission(rows, scope, allowed));
-        // A removal changes the household's guest count.
-        if (answer.removed > 0) invalidateHouseholds(props.weddingId);
+        // A removal changes the household's guest count, and the RSVP replies
+        // lose the plus-ones removed.
+        if (answer.removed > 0) {
+          invalidateHouseholds(props.weddingId);
+          guestListChanged(props.weddingId);
+        }
         // Fewer than confirmed is not an error: the household took one back
         // meanwhile, and the API deletes only people on the confirmed list.
         if (answer.removed > 0) {

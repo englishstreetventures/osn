@@ -14,6 +14,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api"
 import { isChangeInProgress, isHeadMoved } from "../lib/change-revision";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
+import { guestListChanged } from "../lib/guest-list-changed";
 import { invalidateGuests } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
 import { formatImportError } from "../lib/import-errors";
@@ -310,6 +311,7 @@ export default function ImportPanel(props: {
           invalidateEvents(props.weddingId);
           invalidateGuests(props.weddingId);
           invalidateHouseholds(props.weddingId);
+          guestListChanged(props.weddingId);
         }
         throw new Error(formatImportError(res.status, body));
       }
@@ -341,6 +343,7 @@ export default function ImportPanel(props: {
       // three is what leaves a stale household in the editor draft, and a stale
       // household in an id-authoritative draft is a destructive remove+create.
       invalidateHouseholds(props.weddingId);
+      guestListChanged(props.weddingId);
       window.location.reload();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();

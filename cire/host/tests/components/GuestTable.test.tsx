@@ -38,6 +38,7 @@ vi.mock("../../src/lib/download", () => ({
 import GuestTable from "../../src/components/GuestTable";
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache, guestsAccessor } from "../../src/lib/guests-store";
+import { __resetInviteCache } from "../../src/lib/invite-store";
 import {
   authFetchMock,
   resetOrganiserMocks,
@@ -369,8 +370,10 @@ describe("GuestTable", () => {
   it("holds Copy until the custom message has loaded when the rows come from the cache", async () => {
     withClipboard();
     // A remount: the rows are already cached, so they paint at once while the
-    // invite read that carries the custom first line is still in flight.
+    // invite read that carries the custom first line is still in flight (the
+    // invite itself not cached, as when another view filled the guest list).
     await mountAndLeave();
+    __resetInviteCache();
     let answerInvite: (res: Response) => void = () => {};
     authFetchMock.mockImplementation((url: string) =>
       url.endsWith("/invite")
@@ -403,6 +406,7 @@ describe("GuestTable", () => {
   it("frees Copy with the default line when the custom message cannot be read", async () => {
     withClipboard();
     await mountAndLeave();
+    __resetInviteCache();
     authFetchMock.mockImplementation((url: string) =>
       Promise.resolve(url.endsWith("/invite") ? json({}, 500) : json({})),
     );
