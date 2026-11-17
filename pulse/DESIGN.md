@@ -404,8 +404,9 @@ These rules govern `pulse/web`. The landing site's motion is in
   body has passed under the header a 16px fade from `--card` to clear sits
   there, coming in over the first 16px scrolled and holding to the end; at
   the top, and in a dialog that fits, nothing is drawn there. It changes only
-  opacity, with the reader's own scroll, and under reduced motion it is whole
-  from the first pixel scrolled. The owner took it on #2034 (2026-11-14). A
+  opacity, with the reader's own scroll, and ramps the same way under reduced
+  motion (the owner's "Ramp, same as normal" on #2391, 2026-11-18). The
+  owner took the fade on #2034 (2026-11-14). A
   browser that cannot read a scroll timeline keeps a hairline under the
   header. The share sheet, More filters and the guest list draw it with no
   class of their own; the guest list lays its panel out as a column whose

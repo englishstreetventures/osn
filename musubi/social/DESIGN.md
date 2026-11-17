@@ -483,8 +483,9 @@ opacity and unscaled.
 taller than its 85% cap, the 16px fade (§Responsive layout, Dialogs) comes in
 with the scroll: its opacity rises from 0 at the top to whole over the first
 16px scrolled and holds to the end, so it moves only as the reader's own
-scroll does and changes nothing but opacity. Under reduced motion it does not
-ramp: it is whole from the first pixel scrolled. It is `@shared/ui`'s, on a
+scroll does and changes nothing but opacity. Under reduced motion it ramps
+the same way, since it moves nothing and runs on no clock: the owner's choice
+on #2391 (2026-11-18), "Ramp, same as normal". It is `@shared/ui`'s, on a
 scroll timeline rather than a `--ui-dur-*` token (`wiki/shared/design-tokens.md`
 §Motion).
 

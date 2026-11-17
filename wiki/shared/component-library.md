@@ -1294,8 +1294,10 @@ arrives from one of its trap `span`s scrolls the panel itself, never the page,
 to bring the control into view.
 A browser that cannot read `animation-timeline: scroll()` (below Chrome 115
 and Safari 26, under this repository's floor of Chrome 111 and Safari 16.4)
-keeps the hairline and draws no fade. Under reduced motion the fade does not
-ramp: it is whole from the first pixel scrolled. Kobalte's focus-trap `span`s,
+keeps the hairline and draws no fade. Under reduced motion the fade ramps the
+same way, since it moves nothing and follows only the reader's scroll: the
+owner's choice on #2391 (2026-11-18), "Ramp, same as normal". Kobalte's
+focus-trap `span`s,
 one at each end of the panel, are pinned to its top, since the last would
 otherwise hang a pixel under the footer and let a body that fits scroll by
 it. A call site sets no `position`, `overflow` or `max-height` on the panel

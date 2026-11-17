@@ -8,8 +8,9 @@
  * panel names. Nothing is drawn under the header at rest, or in a dialog
  * whose body fits. The fade takes no pointer, and the panel's scroll padding
  * follows the header's height, so focus never parks a field or its ring
- * under the header or the fade. Under reduced motion the fade does not ramp:
- * it is off at rest and fully on from the first pixel scrolled. A browser that
+ * under the header or the fade. Under reduced motion the fade ramps the same
+ * way, the owner's choice on #2391: it moves nothing, and its opacity follows
+ * only the reader's scroll, never time. A browser that
  * cannot read a scroll timeline keeps the hairline and draws no fade, which
  * Chromium cannot be made to show, so the stylesheet's `@supports` rules are
  * read instead.
@@ -369,14 +370,34 @@ describe("a card taller than 85% of a 1440×900 window", () => {
 });
 
 describe("under reduced motion", () => {
-  it("shows the fade whole from the first pixel scrolled, and never part-way", async () => {
+  // The owner's choice on #2391 (2026-11-18): "Ramp, same as normal". The
+  // fade's opacity follows the reader's own scroll over the same 16px, and
+  // nothing about it moves or runs on time.
+  it("ramps the fade with the scroll, as with motion on, and moves nothing by itself", async () => {
     await emulateMedia({ reducedMotion: "reduce" });
     await page.viewport(390, 844);
     const { panel, header } = await open({ presentation: "sheet", fields: 24 });
     expect(fade(header)).toBe(0);
-    for (const top of [1, FADE / 4, FADE / 2, FADE, end(panel)]) {
+    await scrollTo(panel, FADE / 4);
+    expect(fade(header)).toBeGreaterThan(0.1);
+    expect(fade(header)).toBeLessThan(0.4);
+    await scrollTo(panel, FADE / 2);
+    expect(fade(header)).toBeGreaterThan(0.35);
+    expect(fade(header)).toBeLessThan(0.65);
+    for (const top of [FADE, end(panel)]) {
       await scrollTo(panel, top);
       expect(fade(header)).toBe(1);
+    }
+    // No movement: the band has no transform, and every run on it follows the
+    // panel's scroll, none the clock.
+    expect(getComputedStyle(header, "::after").transform).toBe("none");
+    const runs = document
+      .getAnimations()
+      .filter((run) => (run.effect as KeyframeEffect | null)?.target === header);
+    expect(runs.length).toBeGreaterThan(0);
+    for (const run of runs) {
+      expect(run.timeline).toBeInstanceOf(ScrollTimeline);
+      expect((run.effect as KeyframeEffect).pseudoElement).toBe("::after");
     }
     await scrollTo(panel, 0);
     expect(fade(header)).toBe(0);

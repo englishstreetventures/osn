@@ -491,8 +491,10 @@
  * would run the keyframes once over 1ms, fill them at their end, and hold the
  * band whole at rest. Such a browser keeps the header's hairline instead.
  *
- * Under reduced motion the band does not ramp with the scroll: the block after
- * these utilities brings it in over the first pixel, so it is simply on or off.
+ * Under reduced motion the band ramps the same way, so the block after these
+ * utilities leaves it alone: it moves nothing, and its opacity follows only
+ * the reader's own scroll. The owner's choice on #2391 (2026-11-18): "Ramp,
+ * same as normal".
  */
 @keyframes ui-scroll-edge {
   from {
@@ -525,7 +527,7 @@
   animation-timing-function: linear;
   animation-fill-mode: both;
   animation-timeline: --ui-scroll-edge;
-  animation-range: 0px var(--ui-scroll-edge-range, var(--ui-scroll-edge-size, 1rem));
+  animation-range: 0px var(--ui-scroll-edge-size, 1rem);
 }
 
 /*
@@ -541,9 +543,8 @@
  * two runs read no variable, so they still run, move nothing, and keep a
  * closing sheet mounted until its fade has ended.
  *
- * A scroll edge's fade comes in over the first pixel of scroll instead of
- * the first 16px, so it is off at the top and whole once anything has passed
- * under the header, with no ramp to follow.
+ * A scroll edge's fade is not here: it moves nothing and follows the reader's
+ * own scroll, so it ramps as it does with motion on.
  *
  * On the root, so a panel portalled to `<body>` inherits it. Flat rather than
  * nested in each `@utility`: Tailwind emits a nested `@media` as CSS nesting,
@@ -556,6 +557,5 @@
     --ui-sheet-transition: opacity;
     --ui-sheet-hidden-transform: none;
     --ui-sheet-hidden-opacity: 0;
-    --ui-scroll-edge-range: 1px;
   }
 }

@@ -1305,8 +1305,9 @@ removal never cuts the slide or the fade short. `AuthHeader` adds no motion: a t
 is given arrives at once, and it shows and hides with the dialog around it.
 In a dialog its `DialogHeader` draws `@shared/ui`'s scroll edge: the fade
 under it comes in with the reader's own scroll over the first 16px and
-holds, changing only opacity, and under reduced motion it is whole from the
-first pixel scrolled (`musubi/social/DESIGN.md` §Motion). What a skeleton
+holds, changing only opacity, and it ramps the same way under reduced motion
+(`musubi/social/DESIGN.md` §Motion, the owner's "Ramp, same as normal" on
+#2391). What a skeleton
 stands for, a refused code's line and a step that replaces another arrive at
 once, with no fade (`musubi/social/DESIGN.md` §Motion), and so do a list
 that lands in place of its placeholder, `CheckEmailView`'s junk-mail line and

@@ -188,7 +188,7 @@ export const DialogSheetSlide = () => <LeaveDialog presentation="sheet" />;
  * every width. Scroll it: the title row stays at the top with no line under
  * it, and a 16px fade from the panel's surface comes in under the row over the
  * first 16px of scroll, then holds. At the top nothing is drawn under the row.
- * Under reduced motion the fade is simply on once anything has scrolled. Tab
+ * Under reduced motion the fade ramps the same way, with the scroll. Tab
  * down the fields and Shift+Tab back up: a field never stops under the row or
  * the fade. In a browser that cannot read a scroll timeline the row keeps its
  * hairline and no fade is drawn.

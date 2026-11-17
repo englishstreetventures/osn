@@ -341,9 +341,9 @@ has no scroll range, its timeline is inactive and no keyframe applies.
 other order puts the declarations inside `:where(…::after)`, which no browser
 reads. A browser below Chrome 115 or Safari 26 therefore never runs the
 keyframes, which it would fill at their end and so hold the band whole at
-rest; it keeps the header's hairline. Under reduced motion the root block
-sets `--ui-scroll-edge-range: 1px`: the band is whole from the first pixel
-scrolled, with no ramp. A test or a script that finishes every animation on
+rest; it keeps the header's hairline. The reduced-motion block leaves the
+band alone, so it ramps over the same 16px there: it moves nothing and runs
+on no clock (the owner's "Ramp, same as normal" on #2391, 2026-11-18). A test or a script that finishes every animation on
 the page holds the band whole at rest: finish only those on the
 `DocumentTimeline`, as `dialog.browser.test.tsx` and the E2E suite's
 `animationsSettled` do. Playwright's `animations: "disabled"` cancels a
