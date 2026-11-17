@@ -27,6 +27,7 @@ import {
   PORTS,
   SCREENSHOT_DIR,
   STATE_DIR,
+  STRIPE_CONNECT_WEBHOOK_SECRET,
   STRIPE_PLATFORM_WEBHOOK_SECRET,
   TRACE_DIR,
 } from "./config";
@@ -239,6 +240,7 @@ async function main(): Promise<number> {
     mail = startMailServer(PORTS.mail);
     stripe = startStripeServer(PORTS.stripe, {
       platformWebhookSecret: STRIPE_PLATFORM_WEBHOOK_SECRET,
+      connectWebhookSecret: STRIPE_CONNECT_WEBHOOK_SECRET,
       // The suite clock, which cire-api checks an event's signature against.
       now: () => CLOCK_T0 + (Date.now() - realStart),
     });

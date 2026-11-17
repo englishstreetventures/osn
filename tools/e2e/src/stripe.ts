@@ -1,6 +1,7 @@
 /**
- * A stand-in for the Stripe hosts cire-api calls, so the OAuth connect and an
- * upgrade's Checkout run end to end with no Stripe account behind them.
+ * A stand-in for the Stripe hosts cire-api calls, so the OAuth connect, an
+ * upgrade's Checkout and a guest's gift run end to end with no Stripe account
+ * behind them.
  *
  * cire-api sends Stripe calls here when `STRIPE_API_URL` and `STRIPE_CONNECT_URL`
  * are loopback origins (`cire/api/src/lib/local-stripe.ts`, read only by
@@ -16,9 +17,12 @@
  *  - `GET /v1/prices/:id` — the one Price the stack sells,
  *    {@link STRIPE_STANDIN_GOLD_PRICE};
  *  - `POST /v1/checkout/sessions` — a platform Checkout session (no
- *    `Stripe-Account`), whose `url` is on Stripe's own Checkout host, which the
- *    flow routes itself;
- *  - `POST /v1/refunds` — a full refund of a PaymentIntent, accepted at once.
+ *    `Stripe-Account`) for the Gold Price, or a guest's gift on a connected
+ *    account (`Stripe-Account`), priced inline by `price_data`. Either
+ *    session's `url` is on Stripe's own Checkout host, which the flow routes
+ *    itself;
+ *  - `POST /v1/refunds` — a full refund of a platform PaymentIntent, accepted
+ *    at once.
  *
  * It does not read a session back, expire one or list refunds: no flow takes
  * cire-api down a path that asks.
@@ -32,8 +36,11 @@
  *  - `POST /__e2e/stripe/checkout/:id/pay` — the buyer pays on the Checkout
  *    page: the session completes and gains a PaymentIntent, and the stand-in
  *    answers the page's `success_url` and the `checkout.session.completed`
- *    event Stripe would send, signed with the platform webhook secret at the
- *    suite clock's time, for the flow to deliver;
+ *    event Stripe would send, signed at the suite clock's time, for the flow
+ *    to deliver. A platform session's event carries no `account` and is
+ *    signed with the platform webhook secret; a connected account's carries
+ *    the account, as a Connect event does, and is signed with the Connect
+ *    webhook secret;
  *  - `GET /__e2e/stripe/refunds` — every refund it has made, oldest first.
  *
  * Anything else is a 404 in Stripe's error shape.
@@ -59,7 +66,10 @@ export interface StripeCalls {
   deauthorize: number;
   account: number;
   price: number;
+  /** Platform Checkout sessions created: an upgrade's. */
   checkoutCreate: number;
+  /** Checkout sessions created on a connected account: a guest's gift. */
+  giftCheckoutCreate: number;
   refund: number;
 }
 
@@ -92,16 +102,34 @@ export interface StripeServer {
 export interface StripeServerOptions {
   /** Signs the platform events the flow delivers (`STRIPE_PLATFORM_WEBHOOK_SECRET`). */
   readonly platformWebhookSecret: string;
+  /** Signs a connected account's events the flow delivers (`STRIPE_WEBHOOK_SECRET`). */
+  readonly connectWebhookSecret: string;
   /** Now on the suite's clock, in epoch ms: the time cire-api checks a signature against. */
   readonly now: () => number;
 }
 
+/** A `checkout.session.completed` event, as Stripe sends one. */
+interface CompletedEvent {
+  readonly id: string;
+  readonly object: "event";
+  readonly type: "checkout.session.completed";
+  readonly created: number;
+  /** The connected account it happened on; absent on a platform event. */
+  account?: string;
+  readonly data: { readonly object: ReturnType<typeof sessionBody> };
+}
+
+/** A session's metadata: every `metadata[key]` its create sent, as Stripe keeps it. */
+type SessionMetadata = Readonly<Record<string, string>>;
+
 interface Session {
   readonly id: string;
+  /** The connected account it was made on, or null for the platform's own. */
+  readonly account: string | null;
   status: "open" | "complete";
   readonly successUrl: string;
   readonly clientReferenceId: string | null;
-  readonly purchaseId: string | null;
+  readonly metadata: SessionMetadata;
   readonly amountMinor: number;
   readonly currency: string;
   paymentIntent: string | null;
@@ -124,12 +152,21 @@ function sessionBody(session: Session) {
     status: session.status,
     url: session.status === "open" ? `${STRIPE_CHECKOUT_HOST}/c/pay/${session.id}` : null,
     client_reference_id: session.clientReferenceId,
-    metadata: session.purchaseId === null ? {} : { purchaseId: session.purchaseId },
+    metadata: session.metadata,
     amount_total: session.amountMinor,
     currency: session.currency,
     payment_status: session.status === "complete" ? "paid" : "unpaid",
     payment_intent: session.paymentIntent,
   };
+}
+
+/** Every `metadata[key]` field of a form, as Stripe stores a session's metadata. */
+function metadataOf(form: URLSearchParams): SessionMetadata {
+  const fields = [...form].flatMap(([field, value]) => {
+    const key = /^metadata\[([^\]]+)\]$/.exec(field)?.[1];
+    return key === undefined ? [] : [[key, value] as const];
+  });
+  return Object.fromEntries(fields);
 }
 
 export function startStripeServer(port: number, options: StripeServerOptions): StripeServer {
@@ -139,6 +176,7 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
     account: 0,
     price: 0,
     checkoutCreate: 0,
+    giftCheckoutCreate: 0,
     refund: 0,
   };
   const usedCodes = new Set<string>();
@@ -163,16 +201,20 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
     const paymentIntent = `pi_e2e_${next}`;
     session.paymentIntent = paymentIntent;
     const seconds = Math.floor(options.now() / 1000);
-    const payload = JSON.stringify({
+    const event: CompletedEvent = {
       id: `evt_e2e_${next}`,
       object: "event",
       type: "checkout.session.completed",
       created: seconds,
       data: { object: sessionBody(session) },
-    });
-    const digest = createHmac("sha256", options.platformWebhookSecret)
-      .update(`${seconds}.${payload}`)
-      .digest("hex");
+    };
+    // A Connect event names the account it happened on; a platform event
+    // names none, and cire-api's platform webhook refuses one that does.
+    if (session.account !== null) event.account = session.account;
+    const payload = JSON.stringify(event);
+    const secret =
+      session.account === null ? options.platformWebhookSecret : options.connectWebhookSecret;
+    const digest = createHmac("sha256", secret).update(`${seconds}.${payload}`).digest("hex");
     return {
       successUrl: session.successUrl,
       paymentIntent,
@@ -248,9 +290,11 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
         });
       }
 
-      // The platform's own sessions and refunds only: a call made on a
-      // connected account's behalf is not one this stand-in serves.
-      const platform = request.headers.get("stripe-account") === null;
+      // A call on a connected account's behalf names it in `Stripe-Account`.
+      // Only a gift's Checkout session is served on one; refunds are the
+      // platform's alone.
+      const connected = request.headers.get("stripe-account");
+      const platform = connected === null;
       if (method === "POST" && pathname === "/v1/checkout/sessions" && platform) {
         calls.checkoutCreate += 1;
         const form = new URLSearchParams(await request.text());
@@ -261,12 +305,40 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
           next += 1;
           const session: Session = {
             id: `cs_e2e_${next}`,
+            account: null,
             status: "open",
             successUrl: form.get("success_url") ?? "",
             clientReferenceId: form.get("client_reference_id"),
-            purchaseId: form.get("metadata[purchaseId]"),
+            metadata: metadataOf(form),
             amountMinor: STRIPE_STANDIN_GOLD_PRICE.amountMinor,
             currency: STRIPE_STANDIN_GOLD_PRICE.currency,
+            paymentIntent: null,
+          };
+          sessions.set(session.id, session);
+          return sessionBody(session);
+        });
+      }
+      if (method === "POST" && pathname === "/v1/checkout/sessions" && connected !== null) {
+        calls.giftCheckoutCreate += 1;
+        const form = new URLSearchParams(await request.text());
+        // A gift is priced inline. An amount sent under any other name leaves
+        // these unset, and Stripe refuses a line item with no price.
+        const amountMinor = Number(form.get("line_items[0][price_data][unit_amount]"));
+        const currency = form.get("line_items[0][price_data][currency]") ?? "";
+        if (!Number.isInteger(amountMinor) || amountMinor <= 0 || currency === "") {
+          return stripeError(400, "invalid_request");
+        }
+        return once(request, () => {
+          next += 1;
+          const session: Session = {
+            id: `cs_e2e_${next}`,
+            account: connected,
+            status: "open",
+            successUrl: form.get("success_url") ?? "",
+            clientReferenceId: form.get("client_reference_id"),
+            metadata: metadataOf(form),
+            amountMinor,
+            currency,
             paymentIntent: null,
           };
           sessions.set(session.id, session);
@@ -277,7 +349,9 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
         calls.refund += 1;
         const form = new URLSearchParams(await request.text());
         const intent = form.get("payment_intent") ?? "";
-        const paid = [...sessions.values()].find((s) => s.paymentIntent === intent);
+        const paid = [...sessions.values()].find(
+          (s) => s.account === null && s.paymentIntent === intent,
+        );
         if (!paid) return missing();
         return once(request, () => {
           next += 1;
