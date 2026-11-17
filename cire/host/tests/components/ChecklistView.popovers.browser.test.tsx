@@ -20,7 +20,7 @@ import "../../src/styles/global.css";
  * there; keyframes would jump to their own first frame. Measured at a
  * twentieth of the speed (`--motion-scale`), frame by frame. At full speed it
  * grows without a jump or a wobble: every frame larger than the last, never
- * past full size, at most 45px a frame, its corners squaring as it grows. A
+ * past full size, at most 62px a frame, its corners squaring as it grows. A
  * popover opened from the keyboard is whole on its first frame. A task the
  * organiser adds fades in where it lands; one read from the server does not.
  *
@@ -487,14 +487,15 @@ describe("the droplet, caught mid-flight", () => {
     // Larger every frame until full size, and never past it.
     expect(growth.every((g) => g >= -0.0005)).toBe(true);
     expect(Math.max(...frames.map((f) => f.scale))).toBeLessThanOrEqual(1);
-    // At most 45px of the panel's width a frame: no frame where it leaps.
-    expect(Math.max(...growth) * dialog.offsetWidth).toBeLessThanOrEqual(45);
+    // At most 62px of the panel's width a frame: its first frame, the
+    // largest, measures about 58px at a desk. No frame where it leaps.
+    expect(Math.max(...growth) * dialog.offsetWidth).toBeLessThanOrEqual(62);
     // The corners square while it grows, not after it: from round (half the
-    // width) to 10px, as far along on every frame as the growth from 60%.
+    // width) to 10px, as far along on every frame as the growth from 40%.
     const round = 0.5 * dialog.offsetWidth;
     for (const f of frames) {
       const squared = (round - f.radius) / (round - 10);
-      const grown = (f.scale - 0.6) / 0.4;
+      const grown = (f.scale - 0.4) / 0.6;
       expect(Math.abs(squared - grown), `at ${f.scale}: corners ${f.radius}px`).toBeLessThan(0.1);
     }
   });

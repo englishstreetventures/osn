@@ -848,7 +848,7 @@ tested.
 
 **The droplet.** A checklist row's popovers — the assign popover and the
 time editor — grow out of the control that opened them (`droplet-popover`,
-`droplet-popover-body`): from 60% of the panel's size, with corners at `50%`
+`droplet-popover-body`): from 40% of the panel's size, with corners at `50%`
 so it starts round, the panel grows to full size while its corners square to
 the popover's 10px, both on `--ease-out` over `--dur-slow` (200ms at a desk,
 320ms on touch), with no overshoot. It is opaque by 30% of the run, and the
@@ -856,22 +856,24 @@ contents fade in from 20% of it, while the panel is still growing, so the
 growth, the corners and the contents arrive as one movement.
 `transform-origin` is Kobalte's `--kb-popover-content-transform-origin`, the
 panel's corner at the trigger whichever side it opened on. The exit shrinks
-back to 60% and fades, its corners going on to 10px, on `--dur-fast` and
+to 60% and fades, its corners going on to 10px, on `--dur-fast` and
 `--ease-out`. Opened from the keyboard (Enter or Space on the trigger, which
 sets `data-instant`), the popover neither grows nor fades: it is there at
 once and goes at once, as a tooltip the keyboard opens is.
 
-The owner's choice, 2026-11-17, on #2373, from a pressable prototype: "The
+The owner's choice, 2026-11-17, on #2373. From a pressable prototype: "The
 animation is a little jittery, not so smooth. It jumps from scaling up to fully
 grown. Don't like that. I do like the no bounce better in those options but
 yeah could be better I think." Measured frame by frame at a desk, a drop from
 12% on `--ease-spring` grows about 90px a frame for three frames, overshoots by
 7%, and squares its corners only once it is full size, from a pill's 999px that
 changes nothing visible until the last eighth of the run, with its contents
-fading in after that: three movements in a fifth of a second. From 60% on
-`--ease-out` the panel grows at most about 40px a frame and less each frame
-after, and corners at `50%` change visibly on every frame. Whether 60% and `--dur-slow` are the final values waits on the owner's look
-at the prototype (#2373).
+fading in after that: three movements in a fifth of a second. The owner then
+picked "Bigger drop" from a second prototype (2026-11-17, on #2373), over a
+start at 60% ("Smooth") and one at 85% ("Fuller"): from 40% on `--ease-out`
+the panel grows about 58px in its first frame at a desk and less each frame
+after, so more of its growth out of the trigger shows, and corners at `50%`
+change visibly on every frame.
 
 The panel moves on transitions from `@starting-style`, never keyframes, so it
 can be caught: closed while it is still growing it goes on from the size it
@@ -883,7 +885,8 @@ start on it, so two keyframes that change nothing, `droplet-open` and
 `prefers-reduced-motion: no-preference`: the global switch shortens a
 transition rather than removing it, and a starting style would still paint
 the drop for a frame. The starting style sits on `[data-expanded]`, so its
-round corners outrank the call site's `rounded-md`. The contents' fade is timed by keyframe percentage, never
+round corners outrank the call site's `rounded-md`. The contents' fade is
+timed by keyframe percentage, never
 by `animation-delay`: the switch zeroes durations and leaves delays alone, so
 a delay would hold the list back from a reader who asked for no motion. A true
 "goo" — an SVG filter melting the panel out of the trigger — is not done: the
@@ -891,7 +894,7 @@ panel portals to `<body>`, away from the trigger, and the filter would blur its
 border and shadow. `tests/components/ChecklistView.popovers.browser.test.tsx`
 catches the panel mid-growth and mid-close at a twentieth of the speed, reads
 the growth at full speed frame by frame (larger every frame, never past full
-size, at most 45px a frame, the corners as far along as the growth), and
+size, at most 62px a frame, the corners as far along as the growth), and
 checks a keyboard opening is whole on its first frame.
 
 **A row's popover opens with the focus on its panel.** The `role="dialog"`

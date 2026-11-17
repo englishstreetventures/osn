@@ -1082,7 +1082,7 @@
 /* ── A row's popover: a droplet ─────────────────────────────────────────────
  * The popovers on a checklist row — the one that puts people on a task and
  * the one that sets its time on the day — grow out of the control that opened
- * them: from 60% of their size, their corners round, they grow to the panel
+ * them: from 40% of their size, their corners round, they grow to the panel
  * while the corners square to 10px, all on one ease-out curve over the slow
  * rung, so the growth and the squaring are one movement, with no overshoot.
  * The panel is opaque by 30% of the run, and what is inside fades in from 20%,
@@ -1090,8 +1090,10 @@
  * works out for the side the panel opened on, so the drop leaves from the
  * trigger whether the panel opened below it or flipped above.
  *
- * Smooth by measurement: from 60% on `--ease-out` the panel grows at most
- * about 40px a frame at a desk, and less each frame after. A drop from 12% on
+ * The owner's choice ("Bigger drop", from a pressable prototype): from 40% on
+ * `--ease-out` the panel grows about 58px in its first frame at a desk and
+ * less each frame after, so enough of the growth out of the trigger shows
+ * without a leap. A drop from 12% on
  * the house spring, which peaks at 29% of the run, grows about 90px a frame
  * for three frames, overshoots by 7% and squares its corners only once it is
  * full size: three movements in a fifth of a second, which read as a jump and
@@ -1109,7 +1111,7 @@
  * their own first frame. It arrives from `@starting-style`, set on the open
  * state so the round corners outrank the call site's `rounded-md`, a single
  * class the cascade would otherwise let win the starting style too. Leaving,
- * it shrinks back to 60% and fades, ease-out on the fast rung, its corners
+ * it shrinks to 60% and fades, ease-out on the fast rung, its corners
  * going on to 10px from wherever they were.
  *
  * Opened from the keyboard (`data-instant`), it neither grows nor fades: it is
@@ -1172,7 +1174,7 @@
     @starting-style {
       &[data-expanded] {
         opacity: 0;
-        transform: scale(0.6);
+        transform: scale(0.4);
         border-radius: 50%;
       }
     }
