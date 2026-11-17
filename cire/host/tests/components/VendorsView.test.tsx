@@ -4,6 +4,11 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import VendorsView from "../../src/components/VendorsView";
+import {
+  __resetDirectoryCache,
+  freshDirectoryPage,
+  setFreshDirectoryPage,
+} from "../../src/lib/directory-store";
 import { __resetVendorsCache, setCachedVendors, type VendorRow } from "../../src/lib/vendors-store";
 import { chipLook } from "../test-support/chip-look";
 
@@ -34,6 +39,7 @@ afterEach(() => {
 
 beforeEach(() => {
   __resetVendorsCache();
+  __resetDirectoryCache();
   authFetch.mockReset();
 });
 
@@ -88,6 +94,17 @@ describe("VendorsView", () => {
     await screen.findByText("Venue Hall");
     expect(screen.getByRole("button", { name: /add vendor/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /list.*directory/i })).toBeInTheDocument();
+  });
+
+  it("drops the cached directory page once a vendor is deleted", async () => {
+    // The page may say the wedding already has this vendor.
+    setFreshDirectoryPage("wed_1", { listings: [], total: 0 });
+    setCachedVendors("wed_1", [vendor({ id: "a", name: "Band" })]);
+    authFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    render(() => <VendorsView weddingId="wed_1" canEdit={true} canManage={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Band" }));
+    await waitFor(() => expect(freshDirectoryPage("wed_1")).toBeNull());
+    expect(String(authFetch.mock.calls[0]![0])).toMatch(/\/vendors\/a$/);
   });
 
   it("adds a vendor (POST) and appends it to the cache", async () => {

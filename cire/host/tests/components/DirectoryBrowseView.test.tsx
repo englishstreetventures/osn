@@ -54,6 +54,86 @@ describe("DirectoryBrowseView", () => {
     expect(authFetch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      "a category",
+      () => fireEvent.change(screen.getByLabelText("Category"), { target: { value: "florals" } }),
+    ],
+    [
+      "a keyword",
+      () => fireEvent.input(screen.getByLabelText("Keyword"), { target: { value: "garden" } }),
+    ],
+    [
+      "a location",
+      () => fireEvent.input(screen.getByLabelText("Location"), { target: { value: "Perth" } }),
+    ],
+  ])(
+    "keeps the unfiltered first page, not one filtered by %s, for the next opening",
+    async (_l, filter) => {
+      authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
+      authFetch.mockResolvedValueOnce(
+        json({ listings: [listing({ id: "LB", name: "Bloom Florals" })], total: 1 }),
+      );
+      const first = render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+      expect(await screen.findByText("Acme Venue")).toBeInTheDocument();
+      filter();
+      expect(await screen.findByText("Bloom Florals")).toBeInTheDocument();
+      first.unmount();
+      authFetch.mockClear();
+
+      render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+      expect(screen.getByText("Acme Venue")).toBeInTheDocument();
+      expect(screen.queryByText("Bloom Florals")).toBeNull();
+      expect(authFetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reopens on a listing it added as already in the wedding", async () => {
+    authFetch.mockResolvedValueOnce(
+      json({ listings: [listing({ categories: ["venue"] })], total: 1 }),
+    );
+    authFetch.mockResolvedValueOnce(json({ vendor: { id: "v1" } }, 201));
+    const first = render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: /add to wedding/i }))[0]!);
+    await waitFor(() => expect(upsertCachedVendor).toHaveBeenCalled());
+    first.unmount();
+    authFetch.mockClear();
+
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(screen.getByLabelText("Already added to this wedding")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add to wedding/i })).toBeNull();
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("reopens with the cached page's full count, offering the rest", async () => {
+    authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 25 }));
+    const first = render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(await screen.findByText("Acme Venue")).toBeInTheDocument();
+    first.unmount();
+    authFetch.mockClear();
+
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(
+      screen.getByRole("button", { name: "Load more vendors, showing 1 of 25" }),
+    ).toBeInTheDocument();
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("reads again on the next opening once a directory read is refused", async () => {
+    authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
+    authFetch.mockResolvedValueOnce(json({ error: "Forbidden" }, 403));
+    const first = render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(await screen.findByText("Acme Venue")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Category"), { target: { value: "florals" } });
+    expect(await screen.findByText(/Couldn't load the vendor directory/)).toBeInTheDocument();
+    first.unmount();
+    authFetch.mockClear();
+
+    authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+  });
+
   it("renders live listings from the browse endpoint", async () => {
     authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
     render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);

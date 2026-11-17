@@ -47,8 +47,10 @@ import HostsPanel from "../../src/components/HostsPanel";
 import {
   __resetHostsCache,
   ensureHostsLoaded,
+  freshHostsPanel,
   hasCachedHosts,
   hostsAccessor,
+  invalidateHosts,
 } from "../../src/lib/hosts-store";
 import { MembersChangedContext } from "../../src/lib/members-changed";
 import {
@@ -988,6 +990,8 @@ describe("HostsPanel", () => {
       expect(scopeSelect("@bob").value).toBe("own");
       // Only the row it was set on.
       expect(scopeSelect("@cy").value).toBe("full");
+      // The panel's cached read holds the old scope, so the next opening reads.
+      expect(freshHostsPanel("wed_a")).toBeNull();
     });
 
     it("asks before opening the whole run sheet, and sends nothing until it is answered", async () => {
@@ -2072,6 +2076,43 @@ describe("HostsPanel", () => {
   });
 });
 
+describe("HostsPanel — reopening on its last read", () => {
+  afterEach(() => {
+    cleanup();
+    resetOrganiserMocks();
+  });
+
+  const bob = { osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 };
+
+  it("reads again once the seats are marked stale, and not before", async () => {
+    authFetchMock.mockResolvedValue(json({ hosts: [bob] }));
+    const first = render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    first.unmount();
+
+    const second = render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
+    expect(screen.getByText("@bob")).toBeTruthy();
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    second.unmount();
+
+    // A seat write elsewhere, or the socket, marks the seats stale.
+    invalidateHosts("wed_a");
+    render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("reopens on the seat count the list was cut short at", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [bob], total: 5 }));
+    const first = render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
+    await waitFor(() => expect(screen.getByText(/Showing 1 of 5 co-hosts/)).toBeTruthy());
+    first.unmount();
+
+    render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
+    expect(screen.getByText(/Showing 1 of 5 co-hosts/)).toBeTruthy();
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("HostsPanel — the open wedding's members-changed signal", () => {
   afterEach(() => {
     cleanup();
@@ -2090,6 +2131,24 @@ describe("HostsPanel — the open wedding's members-changed signal", () => {
     ));
     return () => setChanged((n) => n + 1);
   }
+
+  it("reads again on the next opening after a signal's read is refused", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json({ hosts: [bob, carol] }))
+      .mockResolvedValueOnce(json({ error: "Forbidden" }, 403));
+    const signal = renderWithSignal();
+    await waitFor(() => expect(screen.getByText("@carol")).toBeTruthy());
+    signal();
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    cleanup();
+
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [bob] }));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
+    // Not drawn from the read before the refusal: the seats are read again.
+    expect(screen.queryByText("@carol")).toBeNull();
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    expect(authFetchMock).toHaveBeenCalledTimes(3);
+  });
 
   it("reads the seats again on each signal and shows the new list", async () => {
     authFetchMock
