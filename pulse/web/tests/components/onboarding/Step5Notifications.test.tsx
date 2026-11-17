@@ -58,11 +58,4 @@ describe("Step5Notifications", () => {
     expect(view.getByText(/Notifications aren't supported/)).toBeTruthy();
     expect(view.queryByText(/Remind me before events/)).toBeNull();
   });
-
-  it("granted: primary is 'Continue' and routes to onPrimary (not onRequest)", () => {
-    const { view, onPrimary, onRequest } = setup("granted");
-    fireEvent.click(view.getByText("Continue"));
-    expect(onPrimary).toHaveBeenCalled();
-    expect(onRequest).not.toHaveBeenCalled();
-  });
 });

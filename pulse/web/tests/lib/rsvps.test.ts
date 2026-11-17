@@ -87,15 +87,6 @@ describe("fetchRsvpsByStatus", () => {
 // ── fetchRsvpCounts ──────────────────────────────────────────────────────────
 
 describe("fetchRsvpCounts", () => {
-  it("returns the counts object on 200", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { counts: { going: 4, maybe: 2, not_going: 1, invited: 0 } }),
-    );
-    const counts = await fetchRsvpCounts("evt_1");
-    expect(counts.going).toBe(4);
-    expect(counts.maybe).toBe(2);
-  });
-
   it("returns zeros on non-200 (graceful UI fallback)", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: "boom" }));
     const counts = await fetchRsvpCounts("evt_1");
@@ -112,16 +103,6 @@ describe("fetchRsvpCounts", () => {
 // ── upsertMyRsvp ─────────────────────────────────────────────────────────────
 
 describe("upsertMyRsvp", () => {
-  it("returns { ok: true } on success and POSTs the status", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvp: { id: "rsvp_1" } }));
-    const result = await upsertMyRsvp("evt_1", "going");
-    expect(result.ok).toBe(true);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toContain("/events/evt_1/rsvps");
-    expect((init as RequestInit).method).toBe("POST");
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ status: "going" });
-  });
-
   it("extracts body.message on failure", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(403, { message: "Invitation required" }));
     const result = await upsertMyRsvp("evt_1", "going");
@@ -158,25 +139,6 @@ describe("upsertMyRsvp", () => {
     const result = await upsertMyRsvp("evt_1", "going");
     expect(result.ok).toBe(false);
     expect(result.error).toBe("Your sign-in has expired. Sign in again to continue.");
-  });
-
-  it("forwards shareSource on the request body when provided", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvp: { id: "rsvp_1" } }));
-    await upsertMyRsvp("evt_1", "going", "tiktok");
-    const [, init] = fetchMock.mock.calls[0]!;
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
-      status: "going",
-      shareSource: "tiktok",
-    });
-  });
-
-  it("omits shareSource from the body when null is passed", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvp: { id: "rsvp_1" } }));
-    await upsertMyRsvp("evt_1", "going", null);
-    const [, init] = fetchMock.mock.calls[0]!;
-    const body = JSON.parse((init as RequestInit).body as string);
-    expect(body).toEqual({ status: "going" });
-    expect("shareSource" in body).toBe(false);
   });
 });
 

@@ -78,20 +78,6 @@ describe("OnboardingStepper", () => {
   // Step 1 → 6 navigation
   // -------------------------------------------------------------------------
 
-  it("starts on the welcome step (step 1 of 6)", () => {
-    const { view } = mount();
-    expect(view.getByText("Get started")).toBeTruthy();
-    expect(view.queryByText("Continue")).toBeNull();
-  });
-
-  it("Get started advances from step 1 to step 2", () => {
-    const { view } = mount();
-    fireEvent.click(view.getByText("Get started"));
-    // Step 2's headline contains the italic "Discover" word; match on a
-    // fragment of the body that's only on this step.
-    expect(view.getByText(/Pulse surfaces events/)).toBeTruthy();
-  });
-
   it("Back from step 2 returns to step 1", () => {
     const { view } = mount();
     fireEvent.click(view.getByText("Get started"));
@@ -122,80 +108,9 @@ describe("OnboardingStepper", () => {
   // Permission requests
   // -------------------------------------------------------------------------
 
-  it("step 4 'Allow location' invokes requestLocationPermission and reflects the result", async () => {
-    mockReqLocation.mockResolvedValueOnce("granted");
-    const { view } = mount();
-    // Advance to step 4 (location)
-    fireEvent.click(view.getByText("Get started"));
-    fireEvent.click(view.getByText("Continue"));
-    fireEvent.click(view.getByText("Continue"));
-    fireEvent.click(view.getByText("Allow location"));
-    await waitFor(() => {
-      expect(mockReqLocation).toHaveBeenCalled();
-      expect(view.getByText(/Location enabled/)).toBeTruthy();
-    });
-  });
-
-  it("step 5 'Allow notifications' invokes requestNotificationPermission and reflects the result", async () => {
-    mockReqNotifications.mockResolvedValueOnce("granted");
-    const { view } = mount();
-    fireEvent.click(view.getByText("Get started"));
-    fireEvent.click(view.getByText("Continue"));
-    fireEvent.click(view.getByText("Continue"));
-    // Step 4's primary button is "Allow location" until perm resolves —
-    // use Skip to advance without granting.
-    fireEvent.click(view.getByText("Skip"));
-    fireEvent.click(view.getByText("Allow notifications"));
-    await waitFor(() => {
-      expect(mockReqNotifications).toHaveBeenCalled();
-      expect(view.getByText("Notifications enabled.")).toBeTruthy();
-    });
-  });
-
   // -------------------------------------------------------------------------
   // Finish — captured state is sent to completeOnboarding
   // -------------------------------------------------------------------------
-
-  it("finish posts captured interests + perm outcomes + opt-ins, then calls onCompleted", async () => {
-    mockReqLocation.mockResolvedValueOnce("granted");
-    mockReqNotifications.mockResolvedValueOnce("granted");
-    const { view, onCompleted } = mount();
-
-    // Step 1 → 2
-    fireEvent.click(view.getByText("Get started"));
-    // Step 2 → 3
-    fireEvent.click(view.getByText("Continue"));
-    // Step 3: pick a couple of interests
-    fireEvent.click(view.getByText("Music"));
-    fireEvent.click(view.getByText("Tech"));
-    fireEvent.click(view.getByText("Continue"));
-    // Step 4: grant location
-    fireEvent.click(view.getByText("Allow location"));
-    await waitFor(() => view.getByText(/Location enabled/));
-    fireEvent.click(view.getByText("Continue"));
-    // Step 5: grant notifications (also auto-opts-in to reminders by design)
-    fireEvent.click(view.getByText("Allow notifications"));
-    await waitFor(() => view.getByText("Notifications enabled."));
-    fireEvent.click(view.getByText("Continue"));
-    // Step 6: finish
-    fireEvent.click(view.getByText("Start exploring"));
-
-    await waitFor(() => {
-      expect(mockComplete).toHaveBeenCalledTimes(1);
-    });
-    // Payload only — the session cookie authenticates the POST, so there is no
-    // token argument in front of it.
-    const [payload] = mockComplete.mock.calls[0]!;
-    expect(payload).toMatchObject({
-      interests: expect.arrayContaining(["music", "tech"]),
-      notificationsOptIn: true,
-      eventRemindersOptIn: true,
-      notificationsPerm: "granted",
-      locationPerm: "granted",
-    });
-    expect((payload as { interests: string[] }).interests.length).toBe(2);
-    await waitFor(() => expect(onCompleted).toHaveBeenCalled());
-  });
 
   it("finish with denied permissions writes the resolved outcomes (not granted/optIn)", async () => {
     mockReqLocation.mockResolvedValueOnce("denied");

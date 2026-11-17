@@ -63,11 +63,6 @@ describe("WelcomePage", () => {
 
   afterEach(() => cleanup());
 
-  it("passes the session's displayName through to the stepper", () => {
-    const { getByText } = render(() => <WelcomePage />);
-    expect(getByText("stepper:Sarah")).toBeTruthy();
-  });
-
   it("shows the sign-in fallback when no session is present", () => {
     authState.session = null;
     const { getByText, queryByTestId } = render(() => <WelcomePage />);

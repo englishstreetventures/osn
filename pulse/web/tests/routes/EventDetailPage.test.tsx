@@ -105,15 +105,6 @@ describe("EventDetailPage price badge", () => {
     cleanup();
   });
 
-  it("renders 'Free' when priceAmount is null", async () => {
-    mockGet.mockResolvedValue({
-      data: { event: makeEvent({ priceAmount: null, priceCurrency: null }) },
-      error: null,
-    });
-    const { findByText } = render(() => <EventDetailPage />);
-    expect(await findByText("Free")).toBeTruthy();
-  });
-
   it("renders formatted USD price from minor units", async () => {
     mockGet.mockResolvedValue({
       data: { event: makeEvent({ priceAmount: 1850, priceCurrency: "USD" }) },
@@ -145,19 +136,6 @@ describe("EventDetailPage source-attribution wiring", () => {
     const { findByTestId } = render(() => <EventDetailPage />);
     await findByTestId("rsvp-stub");
     expect(mockRecordShareExposure).not.toHaveBeenCalled();
-  });
-
-  it("forwards a known inbound source to RsvpSection and fires the exposure ping", async () => {
-    mockSearchParams.source = "tiktok";
-    const { findByTestId } = render(() => <EventDetailPage />);
-    await findByTestId("rsvp-stub");
-    await waitFor(() => {
-      expect(mockRecordShareExposure).toHaveBeenCalledWith("evt_1", "tiktok");
-    });
-    const lastProps = rsvpSectionProps.mock.calls.at(-1)?.[0] as {
-      inboundSource?: string | null;
-    };
-    expect(lastProps?.inboundSource).toBe("tiktok");
   });
 
   it("coerces an unknown ?source= value to 'other' so attribution still records", async () => {

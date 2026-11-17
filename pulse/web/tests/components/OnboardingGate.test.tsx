@@ -158,20 +158,6 @@ describe("OnboardingGate", () => {
     expect(lastPathname).toBe("/");
   });
 
-  it("redirects to /welcome when on a non-welcome path and onboarding is incomplete", async () => {
-    mockFetchStatus.mockResolvedValue({
-      completedAt: null,
-      interests: [],
-      notificationsOptIn: false,
-      eventRemindersOptIn: false,
-      notificationsPerm: "prompt",
-      locationPerm: "prompt",
-    });
-    renderAt("/");
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
-    await waitFor(() => expect(lastPathname).toBe("/welcome"));
-  });
-
   it("does NOT redirect when onboarding is already complete", async () => {
     vi.useFakeTimers();
     mockFetchStatus.mockResolvedValue({

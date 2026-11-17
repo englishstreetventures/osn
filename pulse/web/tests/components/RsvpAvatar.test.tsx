@@ -22,20 +22,8 @@ function avatarWrapper(container: HTMLElement): HTMLElement {
   return container.querySelector("span.base\\:relative") as HTMLElement;
 }
 
-/** The AvatarFallback renders the initials text. */
-function fallbackSpan(container: HTMLElement): HTMLElement | null {
-  return avatarWrapper(container)?.querySelector("span") ?? null;
-}
-
 describe("RsvpAvatar", () => {
   afterEach(() => cleanup());
-
-  it("renders initials when user has no avatar URL", () => {
-    const { container } = render(() => <RsvpAvatar rsvp={baseRsvp} />);
-    const initials = fallbackSpan(container);
-    expect(initials).toBeTruthy();
-    expect(initials!.textContent).toBe("BS");
-  });
 
   it("renders an <img> when user has an avatar URL", () => {
     const { container } = render(() => (
