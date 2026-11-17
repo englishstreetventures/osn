@@ -95,7 +95,8 @@ export type StepUpPurpose =
   | "totp_enroll"
   | "totp_disable"
   | "pulse_app_delete"
-  | "zap_app_delete";
+  | "zap_app_delete"
+  | "cire_app_delete";
 
 /** A step-up by emailed link this tab began: what it keeps, and the number it shows. */
 export interface StepUpEmailRequest {

@@ -19,6 +19,7 @@
  * `services/auth`; everything else is imported from its module directly.
  */
 
+import { createAppStepUpModule } from "./app-step-up";
 import type { AuthConfig } from "./config";
 import { createAuthContext } from "./context";
 import { createCrossDeviceModule } from "./cross-device";
@@ -54,6 +55,7 @@ export function createAuthService(config: AuthConfig) {
   const sessions = createSessionsModule();
   const emailLinks = createEmailLinkModule(ctx);
   const stepUp = createStepUpModule(ctx, emailLinks);
+  const appStepUp = createAppStepUpModule(ctx, stepUp);
   const securityEvents = createSecurityEventsModule(ctx, stepUp);
   const emailVerification = createEmailVerificationModule(ctx);
   const registration = createRegistrationModule(
@@ -177,6 +179,12 @@ export function createAuthService(config: AuthConfig) {
     verifyStepUpForAccountRestore: stepUp.verifyStepUpForAccountRestore,
     verifyStepUpForExternalPurpose: stepUp.verifyStepUpForExternalPurpose,
     issueStepUpToken: stepUp.issueStepUpToken,
+    // An app's step-up request: begun and verified by the app over ARC,
+    // confirmed by the person on Musubi.
+    beginAppStepUp: appStepUp.beginAppStepUp,
+    readAppStepUp: appStepUp.readAppStepUp,
+    confirmAppStepUp: appStepUp.confirmAppStepUp,
+    verifyAppStepUp: appStepUp.verifyAppStepUp,
     listAccountSessions: sessions.listAccountSessions,
     revokeAccountSession: sessions.revokeAccountSession,
     revokeAllOtherAccountSessions: sessions.revokeAllOtherAccountSessions,

@@ -21,6 +21,7 @@ import {
   importTotpEncryptionKey,
 } from "./lib/totp-secret-crypto";
 import type { AuthConfig } from "./services/auth";
+import { appStepUpReturnConfig } from "./services/auth/app-step-up";
 import {
   createIssuerNetwork,
   emulatedIssuerFetch,
@@ -99,6 +100,11 @@ export type EnvVars = {
   // cire-api's origin: where the deletion reaches cire, and where the
   // organiser-session revoke above is sent.
   readonly CIRE_API_URL?: string;
+  // cire's organiser portal origin: the one place Musubi may send a person
+  // back to after confirming a cire step-up request. Read by
+  // `appStepUpReturnConfig` (services/auth/app-step-up.ts), which refuses the
+  // boot on a value that is not https (or loopback http on a local run).
+  readonly CIRE_ORGANISER_ORIGIN?: string;
   readonly OSN_DELETION_ABSENT_APPS?: string;
 };
 
@@ -494,6 +500,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     // local dev and wrong the moment the consent screen lives anywhere else.
     authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL,
     emailVerification: emailVerificationConfig(env),
+    appStepUpReturn: appStepUpReturnConfig(env),
   };
 
   // Every failed store call, once, after any retry: the store's name, the

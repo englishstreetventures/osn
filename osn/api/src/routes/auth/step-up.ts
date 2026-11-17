@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 
 import { resolveAccountWindowPrincipal } from "../../lib/auth-derive";
 import { EMAIL_LINK_SECRET_PATTERN, emailLinkIdPattern } from "../../services/auth/email-link";
+import { isAuthError } from "../../services/auth/errors";
 import type { AuthRouteContext } from "./context";
 import {
   errorResponse,
@@ -17,6 +18,7 @@ const PURPOSE = t.Union([
   t.Literal("account_restore"),
   t.Literal("pulse_app_delete"),
   t.Literal("zap_app_delete"),
+  t.Literal("cire_app_delete"),
   t.Literal("recovery_generate"),
   t.Literal("passkey_register"),
   t.Literal("passkey_delete"),
@@ -208,6 +210,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
                 t.Literal("account_restore"),
                 t.Literal("pulse_app_delete"),
                 t.Literal("zap_app_delete"),
+                t.Literal("cire_app_delete"),
                 t.Literal("recovery_generate"),
                 t.Literal("passkey_register"),
                 t.Literal("passkey_delete"),
@@ -531,6 +534,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
                 t.Literal("account_restore"),
                 t.Literal("pulse_app_delete"),
                 t.Literal("zap_app_delete"),
+                t.Literal("cire_app_delete"),
                 t.Literal("recovery_generate"),
                 t.Literal("passkey_register"),
                 t.Literal("passkey_delete"),
@@ -551,6 +555,150 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             500: errorResponse,
           },
           detail: { operationId: "completeStepUpTotp", security: [{ bearerAuth: [] }] },
+        },
+      )
+      // -------------------------------------------------------------------------
+      // An app's step-up request (`services/auth/app-step-up.ts`): an app whose
+      // own pages cannot run a step-up (cire's organiser portal holds no OSN
+      // token) begins one over ARC and sends the person here, on Musubi, to
+      // confirm it. The read shows the page what it confirms; the confirm
+      // spends a step-up token for the request's purpose and answers where to
+      // send the person back, with a code on the address's fragment. A request
+      // of another account, and any request to a session of an account whose
+      // deletion is pending, is not found: the window allows nothing else.
+      // -------------------------------------------------------------------------
+      .get(
+        "/step-up/requests/:requestId",
+        async ({ params, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "step_up_request_read",
+            rl.stepUpRequestRead,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const caller = await callerAccount(headers.authorization);
+            if (!caller) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            if (caller.pendingDeletion) {
+              set.status = 404;
+              return { error: "not_found" };
+            }
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_request_read",
+              caller.accountId,
+              caller,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
+            const found = await run(auth.readAppStepUp(params.requestId, caller.accountId));
+            if (!found) {
+              set.status = 404;
+              return { error: "not_found" };
+            }
+            return { purpose: found.purpose, return_host: found.returnHost };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ requestId: t.String({ minLength: 1, maxLength: 64 }) }),
+          response: {
+            200: t.Object({ purpose: t.Literal("cire_app_delete"), return_host: t.String() }),
+            401: errorResponse,
+            404: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "readAppStepUpRequest", security: [{ bearerAuth: [] }] },
+        },
+      )
+      .post(
+        "/step-up/requests/:requestId/confirm",
+        async ({ params, body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "step_up_request_confirm",
+            rl.stepUpRequestConfirm,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const caller = await callerAccount(headers.authorization);
+            if (!caller) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            if (caller.pendingDeletion) {
+              set.status = 404;
+              return { error: "not_found" };
+            }
+            // The request lasts no longer than this session's family, which
+            // the confirm records.
+            const live = await ctx.liveSession(
+              "step_up_request_confirm",
+              caller.accountId,
+              caller,
+              headers.cookie,
+            );
+            if (live.sessionHash === null) {
+              set.status = 409;
+              return live.refusal;
+            }
+            const confirmed = await run(
+              auth.confirmAppStepUp(
+                params.requestId,
+                { accountId: caller.accountId, familyId: live.familyId },
+                body.step_up_token,
+              ),
+            );
+            if (!confirmed) {
+              set.status = 404;
+              return { error: "not_found" };
+            }
+            return { return_to: confirmed.returnTo };
+          } catch (e) {
+            // A step-up token this request cannot take: another purpose, spent,
+            // or not of this account.
+            if (isAuthError(e)) {
+              set.status = 403;
+              return { error: "step_up_required" };
+            }
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ requestId: t.String({ minLength: 1, maxLength: 64 }) }),
+          body: t.Object({ step_up_token: t.String({ minLength: 1 }) }),
+          response: {
+            200: t.Object({ return_to: t.String() }),
+            401: errorResponse,
+            403: errorResponse,
+            404: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "confirmAppStepUpRequest", security: [{ bearerAuth: [] }] },
         },
       )
   );

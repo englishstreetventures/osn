@@ -20,6 +20,20 @@ export function codeOf(err: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
+/** Hosts plain HTTP reaches only on this machine, where the local and E2E stacks run. */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * An app's link as the flow follows it: `https:`, or `http:` to this machine,
+ * which osn-api forwards only from a local run; null for anything else.
+ */
+export function followableLink(link: string | null): string | null {
+  if (link === null || !URL.canParse(link)) return null;
+  const { protocol, hostname } = new URL(link);
+  if (protocol === "https:") return link;
+  return protocol === "http:" && LOOPBACK_HOSTS.has(hostname) ? link : null;
+}
+
 /** The apps in the order the flow lists them: this one first. */
 const APP_ORDER = ["osn", "cire", "pulse", "zap"];
 

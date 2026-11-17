@@ -2,6 +2,7 @@ import type { JWK } from "jose";
 
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
 import type { TotpKeyRing } from "../../lib/totp-secret-crypto";
+import type { AppStepUpReturnConfig } from "./app-step-up";
 import type { IssuerNetwork } from "./email-verification-network";
 import type {
   AccountCapLimiter,
@@ -290,4 +291,11 @@ export interface AuthConfig {
    * makes: DNS-over-HTTPS and the issuer's metadata and keys.
    */
   emailVerification?: { readonly network: IssuerNetwork };
+  /**
+   * Where an app's step-up request may send the person back to, by purpose
+   * (`services/auth/app-step-up.ts`). `buildAppDeps` sets it from
+   * `CIRE_ORGANISER_ORIGIN` through `appStepUpReturnConfig`. Absent: a local
+   * run, admitting any loopback origin.
+   */
+  appStepUpReturn?: AppStepUpReturnConfig;
 }

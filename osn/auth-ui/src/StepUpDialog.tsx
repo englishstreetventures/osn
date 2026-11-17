@@ -97,6 +97,7 @@ const PURPOSE_FACTORS = {
   account_restore: { email: true, totp: true },
   pulse_app_delete: { email: true, totp: true },
   zap_app_delete: { email: true, totp: true },
+  cire_app_delete: { email: true, totp: true },
   passkey_register: { email: true, totp: true },
   totp_enroll: { email: true, totp: true },
   totp_disable: { email: true, totp: true },

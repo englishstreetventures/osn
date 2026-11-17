@@ -109,6 +109,7 @@ const STEP_UP_ACTION = {
   totp_disable: "remove the authenticator app",
   pulse_app_delete: "delete the account's Pulse data",
   zap_app_delete: "delete the account's Zap data",
+  cire_app_delete: "remove the account's Cire data",
 } as const satisfies Record<StepUpPurpose, string>;
 
 const isStepUpPurpose = (value: string): value is StepUpPurpose =>

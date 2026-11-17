@@ -126,6 +126,8 @@ describe("AuthRateLimitedEndpoint", () => {
       oidc_client_list: true,
       oidc_client_disable: true,
       step_up_totp_complete: true,
+      step_up_request_read: true,
+      step_up_request_confirm: true,
       totp_enroll_begin: true,
       totp_enroll_complete: true,
       totp_disable: true,
@@ -134,7 +136,7 @@ describe("AuthRateLimitedEndpoint", () => {
     // `satisfies` rejects a key missing from this object and a key the union
     // lacks, so the two cannot drift apart. The count catches what it cannot:
     // an endpoint removed from the union and this object together.
-    expect(Object.keys(members)).toHaveLength(62);
+    expect(Object.keys(members)).toHaveLength(64);
     // Negative: primary-login OTP/magic-link endpoints must not reappear. An
     // emailed link that verifies an address is not one: it signs nobody in.
     expect(Object.keys(members)).not.toContain("otp_begin");

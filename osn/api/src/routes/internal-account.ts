@@ -12,6 +12,7 @@ import {
 import * as accountErasure from "../services/account-erasure";
 import { joinApp } from "../services/app-enrollments";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import { APP_STEP_UP_ISSUER } from "../services/auth/app-step-up";
 import { isAuthError } from "../services/auth/errors";
 
 const AUDIENCE = "osn-api";
@@ -42,7 +43,14 @@ const EMAIL_READ_ISSUER = "cire-api";
 const PURPOSE_ISSUER = {
   pulse_app_delete: "pulse-api",
   zap_app_delete: "zap-api",
+  ...APP_STEP_UP_ISSUER,
 } as const;
+
+/** Lowercase hex SHA-256: a request's binding. */
+const HEX_SHA256 = "^[0-9a-f]{64}$";
+
+/** A random id or code as osn-api makes them: base64url, no padding. */
+const BASE64URL = "^[A-Za-z0-9_-]+$";
 
 /** The tag of a failure a route runner threw, for a log line: one of a fixed set of error classes. */
 const errorTag = (err: unknown): string => {
@@ -80,7 +88,14 @@ function wireEmail(e: ProfileEmail) {
  *   session family that minted it still has a live session. Each purpose is
  *   spendable by its own app only. Single source of truth for step-up jti
  *   consumption across the platform. No user session reaches OSN on this
- *   hop, so the token's own binding is the session check.
+ *   hop, so the token's own binding is the session check. For cire's
+ *   purpose it verifies an app step-up request instead (below), and answers
+ *   every profile of the account as well.
+ *
+ *   POST /internal/step-up/requests — begins an app step-up request
+ *   (`services/auth/app-step-up.ts`): the person confirms it on Musubi, and
+ *   the app verifies it at `/step-up/verify`. For an app whose own pages
+ *   cannot run a step-up: cire's organiser portal holds no OSN token.
  *
  *   POST /internal/app-enrollment/leave — flips `app_enrollments.left_at`
  *   to mark a user as having left an app. Idempotent.
@@ -97,7 +112,8 @@ function wireEmail(e: ProfileEmail) {
  *
  * Pulse / Zap must register their ARC public keys with osn-api in advance
  * (via /graph/internal/register-service) and request the `step-up:verify`
- * + `app-enrollment:write` scopes; cire-api requests `account:email-read`.
+ * + `app-enrollment:write` scopes; cire-api requests `account:email-read`
+ * and `step-up:verify`.
  */
 export function createInternalAccountRoutes(
   authConfig: AuthConfig,
@@ -126,6 +142,47 @@ export function createInternalAccountRoutes(
           return { ok: false as const, reason: "invalid" as const };
         }
 
+        // cire's purpose is spent through an app step-up request only, and
+        // Pulse's and Zap's through a token only: neither form reaches the
+        // other's verifier.
+        if (body.purpose === "cire_app_delete") {
+          const request = body.request;
+          if (!request || body.token !== undefined) {
+            return { ok: false as const, reason: "invalid" as const };
+          }
+          try {
+            const verified = await run(
+              auth.verifyAppStepUp({
+                requestId: request.id,
+                purpose: body.purpose,
+                profileId: body.profile_id,
+                binding: request.binding,
+                code: request.code,
+              }),
+            );
+            if (!verified.ok) return { ok: false as const, reason: "invalid" as const };
+            // The account's profile ids go only to the app the person
+            // confirmed for, so it can reach every profile they asked it to.
+            return {
+              ok: true as const,
+              account_id: verified.accountId,
+              profile_ids: verified.profileIds,
+            };
+          } catch (err) {
+            await run(
+              Effect.logError("internal step-up request verify failed").pipe(
+                Effect.annotateLogs({ tag: errorTag(err) }),
+              ),
+            );
+            set.status = 500;
+            return { error: "internal_error" };
+          }
+        }
+        if (body.token === undefined || body.request !== undefined) {
+          return { ok: false as const, reason: "invalid" as const };
+        }
+        const token = body.token;
+
         try {
           // The response returns the verified accountId derived from the token's
           // `sub` claim. Pulse / Zap use this server-to-server response
@@ -135,7 +192,7 @@ export function createInternalAccountRoutes(
           // `profile_id` is the profile the service verified its caller as;
           // the token must be of the account that owns it.
           const result = await run(
-            auth.verifyStepUpForExternalPurpose(body.token, body.purpose, body.profile_id),
+            auth.verifyStepUpForExternalPurpose(token, body.purpose, body.profile_id),
           );
           return { ok: true as const, account_id: result.accountId };
         } catch (err) {
@@ -159,12 +216,76 @@ export function createInternalAccountRoutes(
       },
       {
         body: t.Object({
-          token: t.String({ minLength: 1 }),
+          token: t.Optional(t.String({ minLength: 1 })),
+          // An app step-up request, as `/step-up/requests` began it and the
+          // person confirmed it: its id, the hash of the app's browser secret,
+          // and the code Musubi handed that browser.
+          request: t.Optional(
+            t.Object({
+              id: t.String({ minLength: 1, maxLength: 64, pattern: BASE64URL }),
+              binding: t.String({ pattern: HEX_SHA256 }),
+              code: t.String({ minLength: 1, maxLength: 64, pattern: BASE64URL }),
+            }),
+          ),
           // The downstream apps' own deletions only. Account deletion spends
           // its token at `DELETE /account`, behind the caller's live session.
-          purpose: t.Union([t.Literal("pulse_app_delete"), t.Literal("zap_app_delete")]),
+          purpose: t.Union([
+            t.Literal("pulse_app_delete"),
+            t.Literal("zap_app_delete"),
+            t.Literal("cire_app_delete"),
+          ]),
           // No real `usr_*` id is anywhere near 64 characters.
           profile_id: t.String({ minLength: 1, maxLength: 64 }),
+        }),
+      },
+    )
+    .post(
+      "/step-up/requests",
+      async ({ body, headers, set }) => {
+        const caller = await requireArc(
+          headers.authorization,
+          set,
+          run,
+          AUDIENCE,
+          SCOPE_STEP_UP_VERIFY,
+        );
+        if (!caller) return { error: "Unauthorized" };
+        // Only the app the purpose belongs to may ask for it.
+        if (caller.iss !== APP_STEP_UP_ISSUER[body.purpose]) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
+        try {
+          const begun = await run(
+            auth.beginAppStepUp({
+              profileId: body.profile_id,
+              purpose: body.purpose,
+              binding: body.binding,
+              returnTo: body.return_to,
+            }),
+          );
+          if (begun.ok) return { request_id: begun.requestId };
+          set.status =
+            begun.reason === "not_found" ? 404 : begun.reason === "unavailable" ? 503 : 400;
+          return { error: begun.reason };
+        } catch (err) {
+          await run(
+            Effect.logError("internal step-up request begin failed").pipe(
+              Effect.annotateLogs({ tag: errorTag(err) }),
+            ),
+          );
+          set.status = 500;
+          return { error: "internal_error" };
+        }
+      },
+      {
+        body: t.Object({
+          purpose: t.Literal("cire_app_delete"),
+          profile_id: t.String({ minLength: 1, maxLength: 64 }),
+          // Hex SHA-256 of a secret the app's cookie holds in the asking browser.
+          binding: t.String({ pattern: HEX_SHA256 }),
+          // Where Musubi sends the person once they confirm: the app's portal.
+          return_to: t.String({ minLength: 1, maxLength: 2048 }),
         }),
       },
     )

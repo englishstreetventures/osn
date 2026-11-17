@@ -30,7 +30,10 @@ export type CeremonyStoreName =
   | "oidc_authorize_request"
   // An emailed link's request, by request id: hashes of the link and claim
   // secrets and whether the link was confirmed. Never in D1.
-  | "email_link";
+  | "email_link"
+  // An app's step-up request, by request id: the account, the app's binding
+  // hash and, once the person confirms on Musubi, the code's hash. Never in D1.
+  | "app_step_up";
 
 /** Failed-attempt counters, one per factor, so no factor can lock out another. */
 export type LockoutStoreName =

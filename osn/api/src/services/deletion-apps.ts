@@ -258,6 +258,15 @@ const HttpsUrlOrNull = Schema.NullOr(
   Schema.String.check(Schema.isMaxLength(2048), Schema.isPattern(/^https:\/\/[^\s]+$/)),
 );
 
+/**
+ * An open action's link: `https:`, or `http:` in the shape only, which
+ * {@link checkActions} admits to a loopback host on a local run, where the
+ * local and E2E stacks serve every app over plain HTTP.
+ */
+const HttpUrlOrNull = Schema.NullOr(
+  Schema.String.check(Schema.isMaxLength(2048), Schema.isPattern(/^https?:\/\/[^\s]+$/)),
+);
+
 const AppChoice = Schema.Struct({
   choice: Text(32),
   description: Text(500),
@@ -270,7 +279,7 @@ const AppOpenActionSchema = Schema.Struct({
   label: Text(500),
   choices: Schema.Array(AppChoice).check(Schema.isMaxLength(10)),
   defaultChoice: Schema.NullOr(Text(32)),
-  link: HttpsUrlOrNull,
+  link: HttpUrlOrNull,
 });
 
 const PreviewAnswer = Schema.Struct({
@@ -301,14 +310,20 @@ class AppAnswerRefused extends Data.TaggedError("AppAnswerRefused")<{
 
 /**
  * The answer's actions, each id led by `<app>:` and named once, each default
- * one of its own choices; otherwise refused, so no app answers for another.
+ * one of its own choices, each link one the deletion may hand the person
+ * (`https:`, or `http:` to a loopback host on a local run); otherwise
+ * refused, so no app answers for another.
  */
 function checkActions(
   app: DeletionApp,
   actions: ReadonlyArray<AppOpenAction>,
+  local: boolean,
 ): Effect.Effect<ReadonlyArray<AppOpenAction>, AppAnswerRefused> {
   const seen = new Set<string>();
   for (const action of actions) {
+    if (action.link !== null && !isUsableAppUrl(action.link, local)) {
+      return Effect.fail(new AppAnswerRefused({ app, reason: "link_not_usable" }));
+    }
     if (!action.id.startsWith(`${app}:`)) {
       return Effect.fail(new AppAnswerRefused({ app, reason: "action_of_another_app" }));
     }
@@ -383,7 +398,7 @@ const previewOne = (
         Effect.mapError(() => new AppAnswerRefused({ app: entry.app, reason: "undecodable" })),
       ),
     ),
-    Effect.flatMap((answer) => checkActions(entry.app, answer.openActions)),
+    Effect.flatMap((answer) => checkActions(entry.app, answer.openActions, config.local)),
     Effect.map((actions): AppPreview => {
       metricAccountDeletionAppPreview(entry.app, "ok");
       return { app: entry.app, status: "checked", actions };

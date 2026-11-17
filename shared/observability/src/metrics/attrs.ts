@@ -185,7 +185,8 @@ export type StepUpPurpose =
   | "totp_enroll"
   | "totp_disable"
   | "pulse_app_delete"
-  | "zap_app_delete";
+  | "zap_app_delete"
+  | "cire_app_delete";
 
 /** Step-up verification outcomes on protected endpoints. */
 export type StepUpVerifyResult =
@@ -494,6 +495,8 @@ export type AuthRateLimitedEndpoint =
   | "step_up_email_status"
   | "step_up_email_resend"
   | "step_up_totp_complete"
+  | "step_up_request_read"
+  | "step_up_request_confirm"
   | "totp_enroll_begin"
   | "totp_enroll_complete"
   | "totp_disable"

@@ -313,6 +313,20 @@ const assertionFor = (credentialId: string) =>
     clientExtensionResults: {},
   }) as never;
 
+/** Begins an app step-up request for `profile`, as cire-api would over ARC; answers its id. */
+const appStepUpRequest = async (h: Harness, profile: Profile): Promise<string> => {
+  const begun = await h.svc(
+    h.auth.beginAppStepUp({
+      profileId: profile.id,
+      purpose: "cire_app_delete",
+      binding: "0".repeat(64),
+      returnTo: "http://localhost:4322/#/remove-data",
+    }),
+  );
+  if (!begun.ok) throw new Error(`the request was not begun: ${begun.reason}`);
+  return begun.requestId;
+};
+
 const recoveryStepUp = (h: Harness, profile: Profile) =>
   h.svc(mintStepUpToken(h.auth, profile.accountId, "otp", "recovery_generate"));
 
@@ -1236,6 +1250,26 @@ const GATED: readonly GatedCall[] = [
     }),
   },
   {
+    endpoint: "step_up_request_read",
+    prepare: async (h, profile) => ({
+      method: "GET",
+      path: `/step-up/requests/${await appStepUpRequest(h, profile)}`,
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "step_up_request_confirm",
+    prepare: async (h, profile) => ({
+      path: `/step-up/requests/${await appStepUpRequest(h, profile)}/confirm`,
+      body: {
+        step_up_token: await h.svc(
+          mintStepUpToken(h.auth, profile.accountId, "otp", "cire_app_delete"),
+        ),
+      },
+      ok: 200,
+    }),
+  },
+  {
     endpoint: "recovery_generate",
     prepare: async (h, profile) => ({
       path: "/recovery/generate",
@@ -1620,6 +1654,8 @@ describe("every gated route, for a logged-out session's token", () => {
       step_up_email_status: true,
       step_up_email_resend: true,
       step_up_totp_complete: true,
+      step_up_request_read: true,
+      step_up_request_confirm: true,
       recovery_generate: true,
       email_change_begin: true,
       email_change_resend: true,

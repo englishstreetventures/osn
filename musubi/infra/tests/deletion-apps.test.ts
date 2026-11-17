@@ -62,6 +62,15 @@ describe("where osn-api's account deletion reaches each app", () => {
     expect(Object.keys(DELETION_APP_HOSTS).toSorted()).toEqual(Object.keys(URL_VARS).toSorted());
   });
 
+  test.each(tiers)(
+    "on %s, Musubi may send a person back only to cire's organiser portal",
+    (_tier, hosts, vars) => {
+      // osn-api pins a cire step-up request's return to this origin; unset on a
+      // deployed tier, a person could not remove their Cire data at all.
+      expect(vars.CIRE_ORGANISER_ORIGIN).toBe(`https://${hosts.cireHost}`);
+    },
+  );
+
   test("zap-api and cire-api run on dev and production, so neither may skip them", () => {
     for (const [, , vars] of tiers) {
       expect(vars.ZAP_API_URL).toMatch(/^https:\/\//);

@@ -193,6 +193,7 @@ interface DeletionAppVars {
   readonly PULSE_API_URL?: string;
   readonly ZAP_API_URL?: string;
   readonly CIRE_API_URL?: string;
+  readonly CIRE_ORGANISER_ORIGIN?: string;
   readonly OSN_DELETION_ABSENT_APPS?: string;
 }
 
@@ -202,6 +203,9 @@ interface DeletionAppVars {
  * `OSN_DELETION_ABSENT_APPS` so osn-api skips it instead of failing closed.
  * `CIRE_API_URL` is also where osn-api ends a person's cire organiser
  * sessions (osn/api/src/services/cire-organiser-revoke.ts).
+ * `CIRE_ORGANISER_ORIGIN`, cire's organiser portal, is the one place Musubi
+ * may send a person back to after they confirm a cire step-up request
+ * (`appStepUpReturnConfig`, osn/api/src/services/auth/app-step-up.ts).
  * tests/deletion-apps.test.ts fails when an app gains an API host and this
  * does not follow.
  */
@@ -209,6 +213,7 @@ export function deletionAppVars(hosts: StageHosts): DeletionAppVars {
   return {
     ZAP_API_URL: origin(hosts[DELETION_APP_HOSTS.zap]),
     CIRE_API_URL: origin(hosts[DELETION_APP_HOSTS.cire]),
+    CIRE_ORGANISER_ORIGIN: origin(hosts.cireHost),
     OSN_DELETION_ABSENT_APPS: "pulse",
   };
 }
