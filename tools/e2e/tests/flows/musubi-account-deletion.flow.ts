@@ -27,9 +27,9 @@
  * member, who is mailed in turn. Before any of it, "Send me a link" mails
  * the download page's address.
  *
- * The wedding's own download (`<cire host>/#/w/<id>/settings/export`) is not a
- * step here: that page is not on this branch's base. cire's preview link is
- * https only, so on this http stack the action carries no "Open in Cire" link.
+ * cire's action links the wedding's download page (`<cire host>/#/w/<id>/settings/export`):
+ * on this http stack too, since a local run follows an http link to this
+ * machine. Following it to the download is `cire-remove-my-data`'s step.
  */
 
 import {
@@ -156,9 +156,9 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   );
   flow.check("the wedding's answer offers its deletion", true, await weddingAnswer.isVisible());
   flow.check(
-    "no Cire link on an http stack",
-    0,
-    await page.getByRole("link", { name: "Open in Cire" }).count(),
+    "cire's action links the wedding's download page",
+    `${ORIGINS.cireHost}/#/w/${P.wedding.id}/settings/export`,
+    (await page.getByRole("link", { name: "Open in Cire" }).getAttribute("href")) ?? "no link",
   );
 
   await flow.step("answer the wedding: delete it with the account", async () => {

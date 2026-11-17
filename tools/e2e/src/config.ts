@@ -91,6 +91,13 @@ export const ORGANISER_ADDRESS = "192.0.2.10";
 export const ACCOUNT_DELETION_ADDRESS = "192.0.2.11";
 
 /**
+ * The client address `cire-remove-my-data` reaches osn-api from (TEST-NET-1,
+ * never routed), for the same reason as {@link ACCOUNT_DELETION_ADDRESS}: its
+ * token grants, profile lists and step-ups spend their own windows.
+ */
+export const CIRE_REMOVAL_ADDRESS = "192.0.2.12";
+
+/**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because
  * Playwright loads this file under Node, which cannot run a workspace package's
  * TypeScript; `tests/config.test.ts` holds them equal to `DEV_APPS` in
@@ -637,6 +644,44 @@ export const RECOVERY_PERSON = {
   name: "Recover E2E",
   // base64url of "e2e lost phone credential".
   lostPasskey: { id: "pk_e2e_lost", credentialId: "ZTJlIGxvc3QgcGhvbmUgY3JlZGVudGlhbA" },
+} as const;
+
+/**
+ * The host `cire-remove-my-data` removes from cire while keeping the Musubi
+ * account, and the other person whose weddings must come through untouched.
+ * Rows `seedOsn` writes: each account and profile, and the remover's live
+ * Musubi session, whose raw token the flow puts in its browser, as a sign-in
+ * would. The flow writes the cire organiser sessions itself, each row holding
+ * its token's SHA-256, as cire's own sign-in leaves it: two for the remover
+ * (one for a second browser that holds a confirmation's code but not the
+ * cookie that binds it) and one for the keeper. cire's weddings
+ * (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`): `alone`, the remover's
+ * alone; `shared`, theirs and the keeper's; `theirs`, the keeper's alone.
+ * Seeded, not signed up or signed in, so the flow spends none of the run's
+ * sign-up and sign-in windows. Readable tokens on purpose: fixtures of a
+ * local stack, like `DEV_LOGIN_SECRET`.
+ */
+export const CIRE_REMOVAL_PERSON = {
+  accountId: "acc_e2e_remover",
+  profileId: "usr_e2e_remover",
+  email: "remover@e2e.test",
+  passkeyUserId: "pku_e2e_remover",
+  handle: "e2e_remover",
+  name: "Remover E2E",
+  session: { token: "e2e-removal-person-session", familyId: "sfam_e2e_remover" },
+  cireSessions: ["e2e-removal-cire-session", "e2e-removal-cire-second-session"],
+  alone: { id: "wed_e2e_rm_alone", name: "Remover Alone Wedding" },
+  shared: { id: "wed_e2e_rm_shared", name: "Remover Shared Wedding" },
+  keeper: {
+    accountId: "acc_e2e_keeper",
+    profileId: "usr_e2e_keeper",
+    email: "keeper@e2e.test",
+    passkeyUserId: "pku_e2e_keeper",
+    handle: "e2e_keeper",
+    name: "Keeper E2E",
+    cireSession: "e2e-removal-keeper-cire-session",
+    theirs: { id: "wed_e2e_rm_theirs", name: "Keeper Wedding" },
+  },
 } as const;
 
 /**

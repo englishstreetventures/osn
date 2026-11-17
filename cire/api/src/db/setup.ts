@@ -1325,6 +1325,34 @@ function seedE2eOrganiser(db: TestDb): void {
     })
     .run();
 
+  // `cire-remove-my-data` (`CIRE_REMOVAL_PERSON` in tools/e2e/src/config.ts):
+  // one wedding the remover owns alone, one they share with the keeper, and
+  // one the keeper owns alone, which the removal must not touch.
+  for (const [id, slug, name, owners] of [
+    ["wed_e2e_rm_alone", "remover-alone-wedding", "Remover Alone Wedding", ["usr_e2e_remover"]],
+    [
+      "wed_e2e_rm_shared",
+      "remover-shared-wedding",
+      "Remover Shared Wedding",
+      ["usr_e2e_remover", "usr_e2e_keeper"],
+    ],
+    ["wed_e2e_rm_theirs", "keeper-wedding", "Keeper Wedding", ["usr_e2e_keeper"]],
+  ] as const) {
+    wedding(id, slug, name);
+    db.insert(schema.weddingHosts)
+      .values(
+        owners.map((osnProfileId) => ({
+          id: `whost_${id}_${osnProfileId}`,
+          weddingId: id,
+          osnProfileId,
+          addedByOsnProfileId: owners[0],
+          role: "owner" as const,
+          createdAt: now,
+        })),
+      )
+      .run();
+  }
+
   wedding("wed_e2e_holders", "holders-wedding", "Holders Wedding");
   seatDevOwner(db, "wed_e2e_holders", "whost_e2e_holders_owner", now);
   db.insert(schema.weddingHosts)
