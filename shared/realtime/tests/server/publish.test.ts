@@ -52,6 +52,20 @@ const onTestClock = (
   );
 };
 
+/**
+ * Returns once `fiber` has finished, waiting by macrotask turns, so a join
+ * after the clock has moved fails with a message rather than hanging when the
+ * publish is still asleep.
+ */
+const finished = (fiber: Fiber.Fiber<unknown, unknown>) =>
+  Effect.promise(async () => {
+    for (let turn = 0; turn < 1_000; turn += 1) {
+      if (fiber.pollUnsafe() !== undefined) return;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    throw new Error("the publish had not finished after 1,000 turns");
+  });
+
 describe("publish", () => {
   it("hands the hub for the topic a signal and the subjects to evict and revoke", async () => {
     const { hub, publishes } = fakeHub({});
@@ -177,6 +191,7 @@ describe("publish", () => {
 
           yield* TestClock.adjust(1);
           expect(publishes).toHaveLength(2);
+          yield* finished(publishing);
           yield* Fiber.join(publishing);
           expect(publishes).toHaveLength(2);
         }),
@@ -199,7 +214,9 @@ describe("publish", () => {
 
           yield* TestClock.adjust(1);
           expect(publishes).toHaveLength(2);
+          yield* finished(publishing);
           yield* Fiber.join(publishing);
+          expect(publishes).toHaveLength(2);
           expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "ok");
         }),
       );
