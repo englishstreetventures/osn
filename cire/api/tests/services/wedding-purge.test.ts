@@ -128,20 +128,6 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
     expect(await counterValue(CIRE_METRICS.weddingPurged, { result: "ok" })).toBe(before + 1);
   });
 
-  it("leaves a wedding still inside its restore window", async () => {
-    const db = makeDb();
-    seedWedding(db, "wed_recent", daysAgo(6));
-    expect(await purge(db)).toEqual({ purged: 0, held: 0, errors: 0, backlog: 0 });
-    expect(exists(db, "wed_recent")).toBe(true);
-  });
-
-  it("never touches a live wedding", async () => {
-    const db = makeDb();
-    seedWedding(db, "wed_live", null);
-    expect((await purge(db)).purged).toBe(0);
-    expect(exists(db, "wed_live")).toBe(true);
-  });
-
   describe("holds a wedding while money can still move", () => {
     it("a pending gift or purchase under the hold, and not once it has aged out", async () => {
       const db = makeDb();

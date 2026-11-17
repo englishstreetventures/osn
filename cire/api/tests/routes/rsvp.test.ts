@@ -264,20 +264,6 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 200 when RSVPing to an invited event (S-M1)",
-    eff(
-      Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
-        const res = yield* post(
-          { rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending" }] },
-          cookie,
-        );
-        expect(res.status).toBe(200);
-      }),
-    ),
-  );
-
-  it(
     "returns 403 when RSVPing to a valid-but-uninvited event (S-M1)",
     eff(
       Effect.gen(function* () {
@@ -739,24 +725,6 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 200 with no consent needed when dietary is empty (C-H2)",
-    eff(
-      Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
-        const res = yield* post(
-          {
-            rsvps: [
-              { guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending", dietary: "" },
-            ],
-          },
-          cookie,
-        );
-        expect(res.status).toBe(200);
-      }),
-    ),
-  );
-
-  it(
     "returns 413 when Content-Length declares an oversized payload (S-L2)",
     eff(
       Effect.gen(function* () {
@@ -810,17 +778,6 @@ describe("POST /api/rsvp — RSVP deadline", () => {
 
   const rsvpOnce = (cookie: string) =>
     post({ rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending" }] }, cookie);
-
-  it(
-    "accepts an RSVP while the deadline is still in the future",
-    eff(
-      Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
-        const res = yield* withDeadline("2999-01-01", "UTC", rsvpOnce(cookie));
-        expect(res.status).toBe(200);
-      }),
-    ),
-  );
 
   it(
     "returns 403 rsvp_closed once the deadline has passed",

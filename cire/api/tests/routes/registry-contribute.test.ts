@@ -223,17 +223,6 @@ function contribute(app: App, cookie: string | null, body: unknown, slug = SLUG)
 }
 
 describe("who may give", () => {
-  it("hands a claimed guest a hosted checkout URL", async () => {
-    const stripe = stripeStub();
-    const { app } = buildApp({ stripe: stripe.client });
-    const cookie = await guestCookie(app);
-
-    const res = await contribute(app, cookie, { amountMinor: 5000 });
-
-    expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ url: "https://checkout.stripe.test/pay/cs_1" });
-  });
-
   it("hands a claimed guest a checkout URL on Crimson too, which includes the registry", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });

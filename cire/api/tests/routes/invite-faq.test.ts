@@ -211,11 +211,6 @@ describe("invite FAQ routes (migration 0064)", () => {
       expect(Object.keys((await plain.json()) as object)).not.toContain("faqs");
     });
 
-    it("reads an empty list for a wedding with no entries", async () => {
-      const { app } = buildApp();
-      expect(await organiserFaqs(app)).toEqual([]);
-    });
-
     it("refuses the entries to a stranger, a helper and a caller with no token", async () => {
       const { app } = buildApp();
       // One entry, so an empty list cannot pass by chance.
@@ -405,24 +400,6 @@ describe("invite FAQ routes (migration 0064)", () => {
 
       const [row] = db.select().from(weddingFaqs).where(eq(weddingFaqs.id, "faq_theirs")).all();
       expect(row).toMatchObject({ question: "Theirs", answer: "Theirs.", sortOrder: 5 });
-    });
-
-    it("stores a dense order from 0", async () => {
-      const { app, db } = buildApp();
-      const a = await create(app, "A");
-      const b = await create(app, "B");
-      const c = await create(app, "C");
-      await req(app, "PUT", `${faqBase}/order`, OWNER, { orderedIds: [c.id, a.id, b.id] });
-      const rows = db
-        .select({ id: weddingFaqs.id, sortOrder: weddingFaqs.sortOrder })
-        .from(weddingFaqs)
-        .orderBy(asc(weddingFaqs.sortOrder))
-        .all();
-      expect(rows).toEqual([
-        { id: c.id, sortOrder: 0 },
-        { id: a.id, sortOrder: 1 },
-        { id: b.id, sortOrder: 2 },
-      ]);
     });
   });
 

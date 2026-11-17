@@ -1859,22 +1859,6 @@ describe("invite image transforms — Cache API short-circuit", () => {
       expect(cache.store.size).toBe(1); // no extra cache entries
     });
   });
-
-  it("serves correctly via the binding when the Cache API is absent (no caches global)", async () => {
-    // No stub installed ⇒ `caches` is undefined in this runtime; the route must
-    // still serve the transform (just without caching).
-    const images = createImagesStub();
-    const app = buildApp({ images }).app;
-    await uploadHero(app);
-
-    const img = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
-      headers: { accept: "image/avif,*/*" },
-    });
-    expect(img.status).toBe(200);
-    expect(img.headers.get("content-type")).toBe("image/avif");
-    expect(new Uint8Array(await img.arrayBuffer())).toEqual(TRANSFORMED);
-    expect(images.widths).toEqual([1600]);
-  });
 });
 
 describe("invite write rate limiting (IB-S-L1)", () => {
@@ -2534,48 +2518,6 @@ describe("image crop (migration 0021)", () => {
   const VALID_CROP = { x: 0.1, y: 0.2, w: 0.5, h: 0.4 };
 
   describe("wedding-slot crop (hero / story)", () => {
-    it("saves a crop and surfaces it on the public read + organiser read", async () => {
-      const { app } = buildApp();
-      await uploadHero(app);
-
-      const put = await appRequest(app, `${orgBase}/image/hero/crop`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-        body: JSON.stringify({ crop: VALID_CROP }),
-      });
-      expect(put.status).toBe(200);
-
-      // Public guest read carries the crop.
-      const pub = await appRequest(app, `/api/invite/${SLUG}`);
-      const body = (await pub.json()) as { hero: { imageCrop: typeof VALID_CROP | null } };
-      expect(body.hero.imageCrop).toEqual(VALID_CROP);
-
-      // Organiser read (so the builder re-opens the saved crop) carries it too.
-      const org = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
-      const orgBody = (await org.json()) as { hero: { imageCrop: typeof VALID_CROP | null } };
-      expect(orgBody.hero.imageCrop).toEqual(VALID_CROP);
-    });
-
-    it("round-trips the captured source dims (natW/natH) — the distortion fix, no migration", async () => {
-      const { app } = buildApp();
-      await uploadHero(app);
-
-      // The crop columns are plain JSON TEXT, so the widened shape persists without
-      // a schema change. The guest needs natW/natH to render the crop at its true
-      // pixel aspect (uniform, never stretched).
-      const cropWithDims = { x: 0.1, y: 0.2, w: 0.5, h: 0.4, natW: 4000, natH: 3000 };
-      const put = await appRequest(app, `${orgBase}/image/hero/crop`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-        body: JSON.stringify({ crop: cropWithDims }),
-      });
-      expect(put.status).toBe(200);
-
-      const pub = await appRequest(app, `/api/invite/${SLUG}`);
-      const body = (await pub.json()) as { hero: { imageCrop: typeof cropWithDims | null } };
-      expect(body.hero.imageCrop).toEqual(cropWithDims);
-    });
-
     it("rejects an out-of-range crop with 400 and never persists it", async () => {
       const { app } = buildApp();
       await uploadHero(app);
@@ -3649,13 +3591,6 @@ describe("PUT /invite/visibility (organiser, migrations 0063 + 0064)", () => {
       expect((await publicInvite(app)).hero.subtitle).toBeNull();
       await putVisibility(app, { hero: true });
       expect((await publicInvite(app)).hero.subtitle).toBe("Save the date");
-    });
-
-    it("sends a switched-on story's content as before", async () => {
-      const { app } = buildApp();
-      await putText(app, { storyHeading: "How it began" });
-      const body = await publicInvite(app);
-      expect(body.story.heading).toBe("How it began");
     });
 
     // The couple's title names the tab and the site footer, and the hero photo

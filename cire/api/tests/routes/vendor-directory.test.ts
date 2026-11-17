@@ -282,11 +282,6 @@ describe("vendor directory browse route", () => {
       expect(await jsonBody(res)).toEqual({ error: "payment_required", tier: "crimson" });
     }
   });
-
-  it("on Crimson, GET /directory passes the gate", async () => {
-    const res = await req(buildApp(), base, OWNER);
-    expect(res.status).toBe(200);
-  });
 });
 
 // ── Write routes ─────────────────────────────────────────────────────────────

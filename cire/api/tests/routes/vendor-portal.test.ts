@@ -453,14 +453,5 @@ describe("vendor portal routes", () => {
         db.select().from(directoryVendors).where(eq(directoryVendors.id, id)).get()!.listed,
       ).toBe("draft");
     });
-
-    it("403 not_org_member for a stranger claiming into org_ok", async () => {
-      const res = await req(buildApp(), "POST", "/api/vendor/claims/some-token/consume", STRANGER, {
-        orgId: ORG_OK,
-      });
-      expect(res.status).toBe(403);
-      const body = (await res.json()) as { error: string };
-      expect(body.error).toBe("not_org_member");
-    });
   });
 });

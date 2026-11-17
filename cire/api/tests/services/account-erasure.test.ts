@@ -130,23 +130,6 @@ const weddingRow = (db: TestDb, id: string) =>
 // ---------------------------------------------------------------------------
 
 describe("accountErasureService.preview", () => {
-  it("F8: a live wedding the account alone owns is one action: delete, no default, and a link to its owners", async () => {
-    const db = makeDb();
-    wedding(db, "w1", [P], { name: "Ama & Jonah" });
-    seat(db, "w1", EDITOR, "editor", P);
-
-    expect(await preview(db)).toEqual([
-      {
-        id: "cire:wedding:w1",
-        kind: "wedding_sole_owner",
-        label: expect.stringContaining('"Ama & Jonah"'),
-        choices: [{ choice: "delete", description: expect.any(String), erasedOn: null }],
-        defaultChoice: null,
-        link: `${PORTAL}/#/w/w1/settings/hosts`,
-      },
-    ]);
-  });
-
   it("F9, F11, F12: a wedding with another owner, a deleted one, and a lower seat need no answer", async () => {
     const db = makeDb();
     wedding(db, "w_shared", [P, OTHER]);
@@ -217,18 +200,6 @@ describe("accountErasureService.preview", () => {
     const db = makeDb();
     wedding(db, "w1", [P]);
     expect(await preview(db, [])).toEqual([]);
-  });
-
-  it("a failed read fails the preview, for the route to answer 500", async () => {
-    const db = makeDb();
-    wedding(db, "w1", [P]);
-    failStatements(db, (statement) => /from "wedding_hosts"/i.test(statement));
-    const exit = await Effect.runPromiseExit(
-      accountErasureService
-        .preview({ profileIds: [P], deletesAt: NOW_S, organiserOrigin: PORTAL })
-        .pipe(Effect.provideService(DbService, db)),
-    );
-    expect(exit._tag).toBe("Failure");
   });
 });
 

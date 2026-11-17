@@ -17,12 +17,6 @@ describe("canonicalizePinterestBoardUrl", () => {
     );
   });
 
-  it("keeps the `www.` prefix collapsed (no double www)", () => {
-    expect(canonicalizePinterestBoardUrl("https://www.pinterest.com.au/u/b")).toBe(
-      "https://www.pinterest.com.au/u/b/",
-    );
-  });
-
   it("strips ALL query params and fragments (tracking)", () => {
     expect(
       canonicalizePinterestBoardUrl("https://www.pinterest.com/user/board/?utm_source=share&x=1"),

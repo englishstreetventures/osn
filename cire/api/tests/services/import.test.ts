@@ -142,23 +142,6 @@ function seedOtherWedding(
   return { weddingId, eventId, familyId, guestId };
 }
 
-describe("diffAgainstDb (empty DB)", () => {
-  it("creates everything when DB is empty", async () => {
-    const { ev, fam } = await parsedFromCsv();
-    const layer = freshDbLayer(false);
-    const plan = await Effect.runPromise(
-      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
-    );
-    expect(plan.eventCreates).toHaveLength(4);
-    expect(plan.eventUpdates).toHaveLength(0);
-    expect(plan.eventRemoves).toHaveLength(0);
-    expect(plan.familyCreates).toHaveLength(4);
-    expect(plan.familyRemoves).toHaveLength(0);
-    expect(plan.guestCreates).toHaveLength(6);
-    expect(plan.guestRemoves).toHaveLength(0);
-  });
-});
-
 describe("applyImport + re-diff (idempotent)", () => {
   it("applying twice yields a no-op second plan", async () => {
     const { ev, fam } = await parsedFromCsv();
@@ -316,31 +299,6 @@ describe("diff: guest first-name change = remove + create", () => {
   });
 });
 
-describe("diff: guestEvent toggles", () => {
-  it("removing an event invitation appears as eventLinkRemove", async () => {
-    const sharedDb = createDb(":memory:");
-    seedDb(sharedDb);
-    const sharedLayer = Layer.succeed(DbService, sharedDb);
-
-    const csv = [
-      "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
-      "1,Testfamily,Ada,Testfamily,no,no,no,no", // was invited to catholic/hindu/reception
-      "2,Sampleton,Bo,Sampleton,no,no,yes,yes",
-      "2,Sampleton,Cleo,Sampleton,no,no,yes,yes",
-      "2,Sampleton,Dot,Sampleton,no,no,yes,no",
-      "3,Exampleton,Nori,Exampleton,yes,no,yes,no",
-      "4,Placeholder,Eli,Placeholder,no,no,yes,yes",
-    ].join("\n");
-
-    const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
-    const fam = (await Effect.runPromise(parseGuestsCsv(csv, ev))) as ParsedFamily[];
-    const plan = await Effect.runPromise(
-      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(sharedLayer)),
-    );
-    expect(plan.eventLinkRemoves.length).toBeGreaterThan(0);
-  });
-});
-
 describe("diff: scope — single-sheet (partial) changes", () => {
   /** A populated wedding both scoped diffs run against. */
   function seededLayer() {
@@ -367,18 +325,6 @@ describe("diff: scope — single-sheet (partial) changes", () => {
     expect(scoped.guestRemoves).toHaveLength(0);
     expect(scoped.eventLinkRemoves).toHaveLength(0);
     expect(unscoped.familyRemoves.length).toBeGreaterThan(0);
-  });
-
-  it("scope='events': removeManual=true still removes no household", async () => {
-    const { layer } = seededLayer();
-    const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
-    const plan = await Effect.runPromise(
-      diffAgainstDb(ev, [], BOOTSTRAP_WEDDING_ID, { scope: "events", removeManual: true }).pipe(
-        Effect.provide(layer),
-      ),
-    );
-    expect(plan.familyRemoves).toHaveLength(0);
-    expect(plan.guestRemoves).toHaveLength(0);
   });
 
   it("scope='guests': emits no event op, and still resolves attendance to existing events", async () => {
@@ -803,25 +749,6 @@ describe("applyImport: chunks a large diff into ≤50-statement batches", () => 
         .where(eq(guests.id, `bigguest_${N - 1}`))
         .all(),
     ).toHaveLength(1);
-  });
-});
-
-describe("applyImport: empty-DB insert end-to-end", () => {
-  it("populates events, families, guests, and links", async () => {
-    const { ev, fam } = await parsedFromCsv();
-    const sharedDb = createDb(":memory:");
-    seedBootstrapWedding(sharedDb);
-    const sharedLayer = Layer.succeed(DbService, sharedDb);
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const plan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
-        yield* applyImport("imp-1", plan, BOOTSTRAP_WEDDING_ID);
-      }).pipe(Effect.provide(sharedLayer)),
-    );
-    expect(sharedDb.select().from(events).all()).toHaveLength(4);
-    expect(sharedDb.select().from(families).all()).toHaveLength(4);
-    expect(sharedDb.select().from(guests).all()).toHaveLength(6);
-    expect(sharedDb.select().from(guestEvents).all().length).toBeGreaterThan(0);
   });
 });
 

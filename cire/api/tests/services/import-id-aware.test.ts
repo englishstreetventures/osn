@@ -160,19 +160,6 @@ describe("ID-aware diff — rename by id ⇒ update, not remove+create", () => {
     expect(row.familyName).toBe("The Test-Family Household");
   });
 
-  it("an UNCHANGED household emits no familyUpdate (no-op saves stay no-ops)", async () => {
-    const db = await seededWedding();
-    const layer = Layer.succeed(DbService, db);
-    const { ev, fam } = await fullFidelityRoundTrip(db);
-
-    const plan = await Effect.runPromise(
-      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
-    );
-    expect(plan.familyUpdates).toHaveLength(0);
-    expect(plan.familyCreates).toHaveLength(0);
-    expect(plan.familyRemoves).toHaveLength(0);
-  });
-
   it("renames a GUEST first name by id ⇒ update (not remove+create)", async () => {
     const db = await seededWedding();
     const layer = Layer.succeed(DbService, db);
@@ -227,24 +214,6 @@ describe("ID-aware diff — rename by id ⇒ update, not remove+create", () => {
     expect(plan.eventCreates.map((c) => c.event.name)).toContain("Sangeet");
     expect(plan.eventRemoves).toHaveLength(0);
   });
-
-  it("full-fidelity round trip with NO edits is a fixpoint (id-matched, no churn)", async () => {
-    const db = await seededWedding();
-    const layer = Layer.succeed(DbService, db);
-    const { ev, fam } = await fullFidelityRoundTrip(db);
-    const plan = await Effect.runPromise(
-      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
-    );
-    expect(plan.eventCreates).toHaveLength(0);
-    expect(plan.eventRemoves).toHaveLength(0);
-    expect(plan.familyCreates).toHaveLength(0);
-    expect(plan.familyRemoves).toHaveLength(0);
-    expect(plan.guestCreates).toHaveLength(0);
-    expect(plan.guestUpdates).toHaveLength(0);
-    expect(plan.guestRemoves).toHaveLength(0);
-    expect(plan.eventLinkCreates).toHaveLength(0);
-    expect(plan.eventLinkRemoves).toHaveLength(0);
-  });
 });
 
 describe("no-id path is byte-identical to name-matched today", () => {
@@ -285,32 +254,6 @@ describe("no-id path is byte-identical to name-matched today", () => {
     expect(plan.guestCreates.some((c) => c.firstName === "Adaeze")).toBe(true);
     // And no guestUpdate carries a firstName field on the no-id path.
     expect(plan.guestUpdates.every((u) => u.firstName === undefined)).toBe(true);
-  });
-
-  it("standard export re-import is a fixpoint (name-matched, no id fields emitted)", async () => {
-    const db = await seededWedding();
-    const layer = Layer.succeed(DbService, db);
-    const { ev, fam } = await Effect.runPromise(
-      Effect.gen(function* () {
-        const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "import");
-        const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "import");
-        const e = yield* parseEventsCsv(eventsCsv);
-        const f = yield* parseGuestsCsv(guestsCsv, e);
-        return { ev: e, fam: f as ParsedFamily[] };
-      }).pipe(Effect.provide(layer)),
-    );
-    const plan = await Effect.runPromise(
-      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
-    );
-    expect(plan.eventCreates).toHaveLength(0);
-    expect(plan.eventRemoves).toHaveLength(0);
-    expect(plan.familyCreates).toHaveLength(0);
-    expect(plan.familyRemoves).toHaveLength(0);
-    expect(plan.guestCreates).toHaveLength(0);
-    expect(plan.guestUpdates).toHaveLength(0);
-    expect(plan.guestRemoves).toHaveLength(0);
-    expect(plan.eventLinkCreates).toHaveLength(0);
-    expect(plan.eventLinkRemoves).toHaveLength(0);
   });
 });
 

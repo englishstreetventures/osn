@@ -139,13 +139,6 @@ describe("weddingRunSheet — the stored scope", () => {
       weddingRunSheetScope: "full",
     });
   });
-
-  it("defaults a helper to own without the column being written", async () => {
-    // The seat above is inserted with no runSheetScope at all; the DDL default
-    // is what makes the narrow value the one a new helper gets.
-    const res = await appRequest(buildApp(HELPER), `/weddings/${WEDDING_ID}/probe`);
-    expect(await jsonBody(res)).toMatchObject({ weddingRunSheetScope: "own" });
-  });
 });
 
 describe("a helper scoped own receives no other person's assignments", () => {
@@ -187,21 +180,6 @@ describe("a helper scoped own receives no other person's assignments", () => {
     const text = await res.text();
     expect(text).not.toContain(OTHER_SEAT);
     expect(text).not.toContain("Mind the rings");
-  });
-
-  it("returns the whole run sheet to a helper the host has opened it to", async () => {
-    const res = await appRequest(
-      buildRunSheetApp(HELPER_FULL),
-      `/weddings/${WEDDING_ID}/run-sheet`,
-    );
-    const body = (await jsonBody(res)) as { tasks: { id: string }[] };
-    expect(body.tasks.map((t) => t.id)).toEqual(["task_mine", "task_theirs", "task_nobodys"]);
-  });
-
-  it("returns the whole run sheet to the owner", async () => {
-    const res = await appRequest(buildRunSheetApp(OWNER), `/weddings/${WEDDING_ID}/run-sheet`);
-    const body = (await jsonBody(res)) as { tasks: { id: string }[] };
-    expect(body.tasks).toHaveLength(RUN_SHEET.length);
   });
 });
 

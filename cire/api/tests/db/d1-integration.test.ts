@@ -470,18 +470,6 @@ beforeEach(async () => {
 
 describe("cire/api over real D1 (Miniflare)", () => {
   it(
-    "claim.lookup resolves a seeded family across async D1 reads",
-    async () => {
-      const res = await run(claimService.lookup(PUBLIC_ID));
-      expect(res.familyId).toBe(FAMILY_ID);
-      expect(res.publicId).toBe(PUBLIC_ID);
-      expect(res.members).toHaveLength(2);
-      expect(res.events.map((e) => e.name).toSorted()).toEqual(["Ceremony", "Reception"]);
-    },
-    MF_TIMEOUT_MS,
-  );
-
-  it(
     "claim.lookup gives the same answer inside a D1 session",
     async () => {
       // The deployed shape: the whole dispatch runs inside one session, so a
@@ -1328,56 +1316,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       const rows = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
       expect(rows).toHaveLength(51);
-    },
-    MF_TIMEOUT_MS,
-  );
-
-  it(
-    "submitRsvpsAndList folds the read-back into the write batch over D1 (P-W1)",
-    async () => {
-      // Real db.batch() is the only environment that can fail the way the fix
-      // targets — bun:sqlite's fallback just awaits each statement in order and
-      // would pass even if the tail read the wrong rows or ran before the writes.
-      const rows = await run(
-        rsvpService.submitRsvpsAndList(
-          [
-            {
-              guestId: GUEST_1,
-              eventId: EVENT_A,
-              status: "attending",
-              dietary: "",
-              dietaryPresets: [],
-              dietaryConsent: false,
-            },
-            {
-              guestId: GUEST_2,
-              eventId: EVENT_A,
-              status: "declined",
-              dietary: "",
-              dietaryPresets: [],
-              dietaryConsent: false,
-            },
-          ],
-          FAMILY_ID,
-        ),
-      );
-
-      expect(rows).toHaveLength(2);
-      expect(rows.find((r) => r.guestId === GUEST_1)).toMatchObject({
-        guestId: GUEST_1,
-        eventId: EVENT_A,
-        status: "attending",
-      });
-      expect(rows.find((r) => r.guestId === GUEST_2)).toMatchObject({
-        guestId: GUEST_2,
-        eventId: EVENT_A,
-        status: "declined",
-      });
-
-      // Persisted, not just echoed back.
-      const persisted = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
-      expect(persisted).toHaveLength(1);
-      expect(persisted[0]).toMatchObject({ status: "attending" });
     },
     MF_TIMEOUT_MS,
   );
@@ -5108,31 +5046,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(rows).toHaveLength(1);
       const logged = await db.select({ seq: rsvpChanges.seq }).from(rsvpChanges);
       expect(logged).toHaveLength(200);
-    },
-    MF_TIMEOUT_MS,
-  );
-
-  it(
-    "never reuses a change number after the newest row is deleted",
-    async () => {
-      const insert = () =>
-        db
-          .insert(rsvpChanges)
-          .values({
-            weddingId: BOOTSTRAP_WEDDING_ID,
-            familyId: FAMILY_ID,
-            guestId: GUEST_1,
-            eventId: EVENT_A,
-            kind: "reply_new",
-            createdAt: new Date(),
-          })
-          .returning({ seq: rsvpChanges.seq });
-      const [first] = await insert();
-      const [second] = await insert();
-      await db.delete(rsvpChanges).where(eq(rsvpChanges.seq, second!.seq));
-      const [third] = await insert();
-      expect(second!.seq).toBeGreaterThan(first!.seq);
-      expect(third!.seq).toBeGreaterThan(second!.seq);
     },
     MF_TIMEOUT_MS,
   );

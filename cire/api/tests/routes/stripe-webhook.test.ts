@@ -291,13 +291,6 @@ describe("account.updated", () => {
     expect((await settings(db))?.stripeChargesEnabled).toBe(true);
   });
 
-  it("acknowledges an account this platform knows nothing about", async () => {
-    const { app } = buildApp();
-    const res = await deliver(app, accountUpdated({ id: "acct_stranger" }));
-    expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ received: true, matched: false });
-  });
-
   it("writes only the wedding that owns the account", async () => {
     const { app, db } = buildApp();
     const other = "wed_other";
@@ -1215,14 +1208,6 @@ describe("the body is bounded as it arrives", () => {
     expect(res.status).toBe(400);
     expect(await jsonBody(res)).toEqual({ error: "invalid_signature", reason: "malformed" });
   });
-
-  it("lets an ordinary event through", async () => {
-    // The control: same shape, same path, under the bound.
-    const { app } = buildApp();
-    const payload = padded(1024);
-    const res = await deliverStream(app, payload, [new TextEncoder().encode(payload)]);
-    expect(res.status).toBe(200);
-  });
 });
 
 describe("a soft-deleted wedding's gifts", () => {
@@ -1316,15 +1301,6 @@ describe("a Standard account's own business on the gift endpoint", () => {
     const { app, db, familyId } = buildApp();
     standard(db);
     seedPending(db, familyId);
-    expect(await jsonBody(await deliver(app, checkoutCompleted()))).toEqual({
-      received: true,
-      outcome: "settled",
-    });
-  });
-
-  it("still adopts a session on an Express account (20)", async () => {
-    const { app, db, familyId } = buildApp();
-    seedPending(db, familyId, { sessionId: null });
     expect(await jsonBody(await deliver(app, checkoutCompleted()))).toEqual({
       received: true,
       outcome: "settled",

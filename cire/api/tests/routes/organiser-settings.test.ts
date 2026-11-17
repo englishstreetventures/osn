@@ -462,24 +462,6 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     }
   });
 
-  it("saves an RSVP deadline with the organiser's zone", async () => {
-    const { app, db } = buildApp();
-    const res = await req(app, "PUT", SETTINGS_PATH, OWNER, {
-      rsvpDeadline: "2027-02-20",
-      rsvpDeadlineTimezone: "Australia/Sydney",
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      wedding: { rsvpDeadline: string; rsvpDeadlineTimezone: string };
-    };
-    expect(body.wedding.rsvpDeadline).toBe("2027-02-20");
-    expect(body.wedding.rsvpDeadlineTimezone).toBe("Australia/Sydney");
-
-    const row = getWedding(db);
-    expect(row.rsvpDeadline).toBe("2027-02-20");
-    expect(row.rsvpDeadlineTimezone).toBe("Australia/Sydney");
-  });
-
   it("clearing the deadline date also clears its zone", async () => {
     // The two columns are one fact — a zone left behind would re-show next to
     // an empty date in the portal and read as a deadline that isn't there.

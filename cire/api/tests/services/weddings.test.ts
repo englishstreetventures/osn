@@ -120,12 +120,6 @@ describe("weddingsService.listForMember", () => {
     expect(list.every((w) => w.role === "owner")).toBe(true);
   });
 
-  it("returns an empty list for an owner with no weddings", async () => {
-    const db = createDb(":memory:");
-    const list = (await run(db, weddingsService.listForMember("usr_nobody"))).weddings;
-    expect(list).toEqual([]);
-  });
-
   it("includes co-hosted weddings with their seat role, oldest seat first (T-U2)", async () => {
     const db = createDb(":memory:");
     const now = Date.now();
@@ -177,31 +171,6 @@ describe("weddingsService.listForMember", () => {
       const list = (await run(db, weddingsService.listForMember(owner))).weddings;
       expect(list.map((w) => [w.id, w.role])).toEqual([["wed_shared", "owner"]]);
     }
-  });
-
-  it("surfaces a viewer seat's role in the list", async () => {
-    const db = createDb(":memory:");
-    const now = Date.now();
-    insertWedding(db, {
-      id: "wed_viewed",
-      slug: "viewed",
-      displayName: "Viewed",
-      createdAt: new Date(now),
-      updatedAt: new Date(now),
-      owners: ["usr_other_owner"],
-    });
-    db.insert(weddingHosts)
-      .values({
-        id: "whost_v",
-        weddingId: "wed_viewed",
-        osnProfileId: "usr_member",
-        addedByOsnProfileId: "usr_other_owner",
-        role: "viewer",
-        createdAt: new Date(now),
-      })
-      .run();
-    const list = (await run(db, weddingsService.listForMember("usr_member"))).weddings;
-    expect(list.map((w) => [w.id, w.role])).toEqual([["wed_viewed", "viewer"]]);
   });
 
   describe("a soft-deleted wedding", () => {

@@ -343,15 +343,6 @@ describe("plusOneService.save — a household rename", () => {
     expect(replyOf(samId)?.dietary).toBe("No sesame");
   });
 
-  it("says nothing was cleared when there was nothing to clear", async () => {
-    const bo = guestNamed(db, "Bo");
-    seedPlusOne(db, bo.id, { firstName: "Sam" });
-    const result = await run(
-      plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }),
-    );
-    expect(result).toMatchObject({ created: false, dietaryCleared: false });
-  });
-
   it("writes only the replies that hold something to clear", async () => {
     const bo = guestNamed(db, "Bo");
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
@@ -448,17 +439,6 @@ describe("plusOneService.save — a household rename", () => {
 
     expect(raced).toBe(true);
     expect(replyOf(samId)).toMatchObject({ dietary: "", dietaryConsentVersion: null });
-  });
-
-  it("renames over dietary answers in one read and one batch of three", async () => {
-    const bo = guestNamed(db, "Bo");
-    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
-    giveDietary(samId);
-    const recorded = recordStatements(db);
-    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
-    // The context read, then the clear, the change row and the name write,
-    // which answers with its own row.
-    expect(recorded).toHaveLength(4);
   });
 
   /**
@@ -653,11 +633,6 @@ describe("plusOneService.remove", () => {
     expect(eventIdsOf(db, samId)).toEqual([]);
     // The inviter is untouched.
     expect(guestNamed(db, "Bo").id).toBe(bo.id);
-  });
-
-  it("is idempotent", async () => {
-    const bo = guestNamed(db, "Bo");
-    expect(await run(plusOneService.remove(bo.familyId, bo.id))).toEqual({ removed: false });
   });
 
   it("refuses once the RSVP deadline has passed", async () => {

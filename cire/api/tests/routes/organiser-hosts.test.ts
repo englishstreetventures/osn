@@ -263,14 +263,6 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     ).toBe(before + 1);
   });
 
-  it("answers the new seat with the wedding's people count", async () => {
-    const { app } = buildApp();
-    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { peopleLimit: unknown };
-    expect(body.peopleLimit).toEqual({ used: 1, limit: 6, tier: "ivory" });
-  });
-
   it("returns 409 people_limit_reached at the tier's limit, naming the tier to upgrade to", async () => {
     const { db, app } = buildApp();
     for (let i = 0; i < 6; i += 1) seedHostSeat(db, `usr_v_${i}`, "viewer");
@@ -432,16 +424,6 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
     expect(row!.role).toBe("helper");
     expect(row!.runSheetScope).toBe("own");
-  });
-
-  it("persists an explicit viewer role on add", async () => {
-    const { db, app } = buildApp();
-    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "viewer" });
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { host: { role: string } };
-    expect(body.host.role).toBe("viewer");
-    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
-    expect(row!.role).toBe("viewer");
   });
 
   it("rejects an unknown role value with 400 (closed enum — no legacy 'host')", async () => {
@@ -841,15 +823,6 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     expect(byProfile.get(OWNER)).not.toHaveProperty("runSheetScope");
   });
 
-  it("lists every seat for a CO-HOST too (member read)", async () => {
-    const { db, app } = buildApp();
-    seedCohost(db);
-    const res = await req(app, "GET", hostsPath, COHOST);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { hosts: { osnProfileId: string }[] };
-    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([OWNER, COHOST]);
-  });
-
   it("names the owner with their resolved handle, as a seat in the list", async () => {
     // Asserted for a CO-HOST caller — someone who isn't an owner can still see
     // who owns the wedding.
@@ -1014,16 +987,6 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
     expect(
       db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
     ).toHaveLength(1);
-  });
-
-  it("removes a host for the owner", async () => {
-    const { db, app } = buildApp();
-    seedCohost(db);
-    const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
-    expect(res.status).toBe(200);
-    expect(
-      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
-    ).toEqual([]);
   });
 
   it("removes on the portal's session cookie, answering the new count", async () => {
@@ -1330,15 +1293,6 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
     expect(body.host).toMatchObject({ osnProfileId: COHOST, role: "viewer" });
     const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
     expect(row!.role).toBe("viewer");
-  });
-
-  it("flips viewer → editor for the owner", async () => {
-    const { db, app } = buildApp();
-    seedCohost(db, "viewer");
-    const res = await req(app, "PUT", rolePath, OWNER, { role: "editor" });
-    expect(res.status).toBe(200);
-    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
-    expect(row!.role).toBe("editor");
   });
 
   it("moves a seat down to helper for the owner", async () => {

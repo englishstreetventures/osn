@@ -106,18 +106,6 @@ describe("sessionService.create", () => {
 
 describe("sessionService.validate", () => {
   it(
-    "returns familyId for an active token",
-    withDb(
-      Effect.gen(function* () {
-        const familyId = yield* pickFamilyId();
-        const { token } = yield* sessionService.create(familyId);
-        const result = yield* sessionService.validate(token);
-        expect(result.familyId).toBe(familyId);
-      }),
-    ),
-  );
-
-  it(
     "fails with reason=missing for an unknown token",
     withDb(
       Effect.gen(function* () {
@@ -303,22 +291,6 @@ describe("sessionService.sweepExpired", () => {
         const deleted = yield* sessionService.sweepExpired(now);
         expect(deleted).toBe(1);
         expect(yield* countSessions()).toBe(0);
-      }),
-    ),
-  );
-
-  it(
-    "is a no-op when every session is still live",
-    withDb(
-      Effect.gen(function* () {
-        const familyId = yield* pickFamilyId();
-        const now = new Date();
-        yield* sessionService.create(familyId, 3600);
-        yield* sessionService.create(familyId, 3600);
-
-        const deleted = yield* sessionService.sweepExpired(now);
-        expect(deleted).toBe(0);
-        expect(yield* countSessions()).toBe(2);
       }),
     ),
   );

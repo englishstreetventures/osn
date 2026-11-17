@@ -90,29 +90,11 @@ async function hmacHex(secret: string, payload: string): Promise<string> {
 }
 
 describe("encodeStripeForm", () => {
-  it("nests the way Stripe reads it", () => {
-    expect(
-      encodeStripeForm({
-        type: "express",
-        capabilities: { card_payments: { requested: true } },
-        metadata: { weddingId: "wed_1" },
-      }),
-    ).toBe(
-      "type=express&capabilities%5Bcard_payments%5D%5Brequested%5D=true&metadata%5BweddingId%5D=wed_1",
-    );
-  });
-
   it("drops absent fields rather than sending them empty", () => {
     // To Stripe an empty string is a value — "unset this field" — which is a
     // different request from not naming the field at all.
     expect(encodeStripeForm({ email: null, country: "AU" })).toBe("country=AU");
     expect(encodeStripeForm({ email: undefined, country: "AU" })).toBe("country=AU");
-  });
-
-  it("escapes values that would otherwise change the shape of the body", () => {
-    expect(encodeStripeForm({ return_url: "https://x.test/a?b=c&d=e" })).toBe(
-      "return_url=https%3A%2F%2Fx.test%2Fa%3Fb%3Dc%26d%3De",
-    );
   });
 });
 

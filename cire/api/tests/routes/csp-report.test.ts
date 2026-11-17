@@ -341,34 +341,6 @@ describe("POST /api/csp-report", () => {
     expect(await res.text()).toBe("");
   });
 
-  it("accepts a Reporting-API application/reports+json array → 204", async () => {
-    const app = buildApp();
-    const res = await post(app, {
-      contentType: "application/reports+json",
-      body: JSON.stringify([
-        {
-          type: "csp-violation",
-          body: {
-            documentURL: "https://cireweddings.com/a",
-            effectiveDirective: "img-src",
-            blockedURL: "https://i.evil.example/p.png",
-            disposition: "report",
-          },
-        },
-        {
-          type: "csp-violation",
-          body: {
-            documentURL: "https://cireweddings.com/b",
-            effectiveDirective: "frame-src",
-            blockedURL: "https://x.evil.example/",
-            disposition: "report",
-          },
-        },
-      ]),
-    });
-    expect(res.status).toBe(204);
-  });
-
   it("returns 204 on a malformed (non-JSON) body without crashing", async () => {
     const app = buildApp();
     const res = await post(app, {

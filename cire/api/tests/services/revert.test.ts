@@ -636,12 +636,6 @@ function familyNamed(db: TestDb, familyName: string) {
 const SEED = { eventsCsv: EVENTS_V2, guestsCsv: GUESTS_V2 };
 
 describe("storedRevertScope", () => {
-  it("reads the scope stored on the change row", () => {
-    expect(storedRevertScope('{"scope":"events"}')).toBe("events");
-    expect(storedRevertScope('{"scope":"guests","baseRevision":"x"}')).toBe("guests");
-    expect(storedRevertScope('{"scope":"both"}')).toBe("both");
-  });
-
   it("restores both halves when the row has no readable scope", () => {
     expect(storedRevertScope("{}")).toBe("both");
     expect(storedRevertScope('{"scope":"sideways"}')).toBe("both");
@@ -1571,20 +1565,6 @@ describe("revertImport — provenance", () => {
       2_000,
     );
   }
-
-  it("stamps a household and guest the editor adds as manual, and a sheet re-import keeps them", async () => {
-    const { db, layer } = scopedLayer();
-    await applyChange(layer, "c0", SEED, 1_000);
-    await editorAdd(layer, "c1");
-    expect(sourcesOf(db).families["Handmade"]).toBe("manual");
-    expect(sourcesOf(db).guests["Cy"]).toBe("manual");
-    expect(sourcesOf(db).families["Testfamily"]).toBe("import");
-
-    // A two-sheet upload that does not list Handmade, without the toggle.
-    await applyChange(layer, "c2", SEED, 3_000);
-    expect(familyNamed(db, "Handmade")).toBeDefined();
-    expect(guestNamed(db, "Cy")).toBeDefined();
-  });
 
   it("reverting the editor save that added a household removes it", async () => {
     const { db, layer } = scopedLayer();

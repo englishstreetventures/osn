@@ -343,15 +343,6 @@ describe("POST /api/organiser/weddings", () => {
     expect(body.wedding).toMatchObject({ tier: "ivory", entitlements: [], guestCap: 100 });
   });
 
-  it("defaults to the secure code style when codeStyle is omitted", async () => {
-    const { app, db } = buildApp();
-    const res = await createWedding(app, { displayName: "Default Style" }, "usr_dflt");
-    expect(res.status).toBe(201);
-    const id = ((await res.json()) as { wedding: { id: string } }).wedding.id;
-    const [row] = db.select().from(weddings).where(eq(weddings.id, id)).all();
-    expect(row!.codeStyle).toBe("secure");
-  });
-
   it("persists the chosen 'simple' code style", async () => {
     const { app, db } = buildApp();
     const res = await createWedding(

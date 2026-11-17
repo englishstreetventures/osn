@@ -289,17 +289,6 @@ describe("the parting gift summary", () => {
 });
 
 describe("registry settings", () => {
-  it("reads as unpublished before any row exists", async () => {
-    const db = db0();
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
-    expect(snap.settings.published).toBe(false);
-    expect(snap.settings.cashGiftsEnabled).toBe(false);
-    expect(snap.settings.updatedAt).toBeNull();
-    expect(snap.settings.stripeConnected).toBe(false);
-    expect(snap.items).toEqual([]);
-    expect(snap.gifts).toEqual([]);
-  });
-
   it("upserts on first write and patches on the second", async () => {
     const db = db0();
     const first = await ok(

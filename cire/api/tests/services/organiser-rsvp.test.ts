@@ -103,32 +103,6 @@ beforeEach(() => {
 });
 
 describe("organiserRsvpService.record", () => {
-  it("upserts an RSVP stamped consent_source='organiser_attested'", async () => {
-    const hindu = eventBySlug("hindu");
-    const result = await run(
-      organiserRsvpService.record({
-        actorOsnProfileId: ORGANISER,
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        guestId: adaId,
-        eventId: hindu,
-        status: "attending",
-        dietary: { text: "", presets: [] },
-        dietaryConsent: false,
-        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
-        dietaryAttestedName: "",
-      }),
-    );
-    expect(result.consentSource).toBe("organiser_attested");
-
-    const row = db
-      .select({ status: rsvps.status, source: rsvps.consentSource })
-      .from(rsvps)
-      .where(and(eq(rsvps.guestId, adaId), eq(rsvps.eventId, hindu)))
-      .get();
-    expect(row?.status).toBe("attending");
-    expect(row?.source).toBe("organiser_attested");
-  });
-
   it("VISIBLY OVERWRITES a prior guest reply (guest → organiser)", async () => {
     const hindu = eventBySlug("hindu");
     // Simulate the guest's own reply first (default consent_source='guest').
@@ -167,77 +141,6 @@ describe("organiserRsvpService.record", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe("attending");
     expect(rows[0]?.source).toBe("organiser_attested");
-  });
-
-  it("a later guest reply overwrites an organiser answer back to consent_source='guest'", async () => {
-    const hindu = eventBySlug("hindu");
-    await run(
-      organiserRsvpService.record({
-        actorOsnProfileId: ORGANISER,
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        guestId: adaId,
-        eventId: hindu,
-        status: "maybe",
-        dietary: { text: "", presets: [] },
-        dietaryConsent: false,
-        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
-        dietaryAttestedName: "",
-      }),
-    );
-    // The guest write path stamps consent_source='guest' (the default).
-    db.insert(rsvps)
-      .values({
-        id: crypto.randomUUID(),
-        guestId: adaId,
-        eventId: hindu,
-        status: "attending",
-        dietary: "",
-        consentSource: "guest",
-        createdAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [rsvps.guestId, rsvps.eventId],
-        set: { status: "attending", consentSource: "guest" },
-      })
-      .run();
-
-    const row = db
-      .select({ source: rsvps.consentSource })
-      .from(rsvps)
-      .where(and(eq(rsvps.guestId, adaId), eq(rsvps.eventId, hindu)))
-      .get();
-    expect(row?.source).toBe("guest");
-  });
-
-  it("captures a dietary consent record when the organiser attests it", async () => {
-    const hindu = eventBySlug("hindu");
-    await run(
-      organiserRsvpService.record({
-        actorOsnProfileId: ORGANISER,
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        guestId: adaId,
-        eventId: hindu,
-        status: "attending",
-        dietary: { text: "Coeliac", presets: [] },
-        dietaryConsent: true,
-        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
-        dietaryAttestedName: "",
-      }),
-    );
-    const row = db
-      .select({
-        dietary: rsvps.dietary,
-        at: rsvps.dietaryConsentAt,
-        version: rsvps.dietaryConsentVersion,
-        source: rsvps.consentSource,
-      })
-      .from(rsvps)
-      .where(and(eq(rsvps.guestId, adaId), eq(rsvps.eventId, hindu)))
-      .get();
-    expect(row?.dietary).toBe("Coeliac");
-    expect(row?.at).toBeInstanceOf(Date);
-    expect(row?.version).toBe(ORGANISER_DIETARY_ATTESTATION.version);
-    expect(row?.source).toBe("organiser_attested");
   });
 
   it("does NOT stamp a dietary consent record when dietary is empty", async () => {

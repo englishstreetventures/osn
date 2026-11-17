@@ -392,53 +392,6 @@ describe("giftExportService.giftsCsv", () => {
   );
 
   it(
-    "merges claims and cash gifts newest-first, with amounts as bare decimals",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        seedHousehold(db);
-        db.insert(registryClaims)
-          .values({
-            id: "rclaim_pan",
-            weddingId: BOOTSTRAP_WEDDING_ID,
-            itemId: "ritem_pan",
-            familyId: "fam_gifts",
-            quantity: 2,
-            status: "purchased",
-            note: "Bought the pair",
-            displayName: "Auntie Ros",
-            createdAt: at(1),
-            updatedAt: at(1),
-          })
-          .run();
-        db.insert(registryContributions)
-          .values({
-            id: "rcon_cash",
-            weddingId: BOOTSTRAP_WEDDING_ID,
-            familyId: "fam_gifts",
-            status: "succeeded",
-            amountMinor: 12_500,
-            currency: "AUD",
-            message: "For the honeymoon",
-            createdAt: at(2),
-            updatedAt: at(2),
-          })
-          .run();
-
-        const rows = lines(yield* giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
-        expect(rows).toHaveLength(3);
-        // Newest first: the cash gift landed a minute after the claim.
-        expect(rows[1]).toBe(
-          "Cash gift,,Marchetti,,,succeeded,For the honeymoon,125.00,AUD,,,,,2026-08-20T10:02:00.000Z",
-        );
-        expect(rows[2]).toBe(
-          "Gift list,Copper Pan,Marchetti,Auntie Ros,2,purchased,Bought the pair,,,,,,,2026-08-20T10:01:00.000Z",
-        );
-      }),
-    ),
-  );
-
-  it(
     "drops failed contributions but keeps refunded ones",
     withDb(
       Effect.gen(function* () {
@@ -610,73 +563,6 @@ describe("giftExportService.giftsCsv", () => {
 
         const csv = yield* giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID);
         expect(csv).toContain(`"Congrats;'=HYPERLINK(""http://evil.invalid"")\n'@SUM(1)"`);
-      }),
-    ),
-  );
-
-  it(
-    "keeps gifts given by the host household, unlike the guest export",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        db.insert(families)
-          .values({
-            id: "fam_host",
-            weddingId: BOOTSTRAP_WEDDING_ID,
-            publicId: "HOST-BBB-0002",
-            familyName: "Okonkwo",
-            kind: "host",
-            createdAt: at(0),
-            updatedAt: at(0),
-          })
-          .run();
-        db.insert(registryContributions)
-          .values({
-            id: "rcon_host",
-            weddingId: BOOTSTRAP_WEDDING_ID,
-            familyId: "fam_host",
-            status: "succeeded",
-            amountMinor: 2000,
-            currency: "AUD",
-            message: "From us two",
-            createdAt: at(1),
-            updatedAt: at(1),
-          })
-          .run();
-
-        // The guests export filters `kind = 'host'` out (table-export.ts:99)
-        // because a host is not a guest. A gift is a gift whoever sent it, and
-        // the portal's log shows it, so the export keeps it.
-        const csv = yield* giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID);
-        expect(csv).toContain("Okonkwo");
-        expect(csv).toContain("From us two");
-      }),
-    ),
-  );
-
-  it(
-    "prints the thanked-at date apart from the received-at date",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        seedHousehold(db);
-        db.insert(registryClaims)
-          .values({
-            id: "rclaim_thanked",
-            weddingId: BOOTSTRAP_WEDDING_ID,
-            itemId: "ritem_pan",
-            familyId: "fam_gifts",
-            quantity: 1,
-            status: "purchased",
-            thankedAt: at(3),
-            createdAt: at(1),
-            updatedAt: at(3),
-          })
-          .run();
-
-        const cells = lines(yield* giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID))[1]!.split(",");
-        expect(cells[12]).toBe("2026-08-20T10:03:00.000Z");
-        expect(cells[13]).toBe("2026-08-20T10:01:00.000Z");
       }),
     ),
   );

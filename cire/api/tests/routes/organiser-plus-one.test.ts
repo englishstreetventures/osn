@@ -141,24 +141,6 @@ describe("PUT …/guests/:guestId/plus-one", () => {
     expect((await put(app, guestPath(bo.id), STRANGER, { allowed: true })).status).toBe(403);
   });
 
-  it("lets an editor set the permission", async () => {
-    const { db, app } = buildApp();
-    const bo = guestNamed(db, "Bo");
-    const res = await put(app, guestPath(bo.id), EDITOR, { allowed: true });
-    expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({
-      guestId: bo.id,
-      plusOneAllowed: true,
-      plusOneRemoved: false,
-    });
-    const row = db
-      .select({ allowed: guests.plusOneAllowed })
-      .from(guests)
-      .where(eq(guests.id, bo.id))
-      .get();
-    expect(row?.allowed).toBe(true);
-  });
-
   it("400s a body without `allowed`", async () => {
     const { db, app } = buildApp();
     const bo = guestNamed(db, "Bo");

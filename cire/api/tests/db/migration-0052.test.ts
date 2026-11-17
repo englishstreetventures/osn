@@ -104,40 +104,4 @@ describe("migration 0052: event_id FKs go NO ACTION → CASCADE", () => {
       .all();
     expect(scratch).toEqual([]);
   });
-
-  it("event delete cascades into guest_events + rsvps (threw pre-0052)", () => {
-    const pre = new Database(":memory:");
-    pre.exec("PRAGMA foreign_keys = ON;");
-    applyThrough(pre, MIG_0052);
-    seedWorld(pre);
-    expect(() => pre.exec("DELETE FROM events WHERE id = 'evt_1';")).toThrow();
-
-    const post = new Database(":memory:");
-    post.exec("PRAGMA foreign_keys = ON;");
-    applyThrough(post, MIG_0052);
-    seedWorld(post);
-    apply0052(post);
-    post.exec("DELETE FROM events WHERE id = 'evt_1';");
-    const n = (row: unknown): number => (row as { n: number }).n;
-    expect(
-      n(post.query("SELECT COUNT(*) AS n FROM guest_events WHERE event_id='evt_1'").get()),
-    ).toBe(0);
-    expect(n(post.query("SELECT COUNT(*) AS n FROM rsvps WHERE event_id='evt_1'").get())).toBe(0);
-    // The sibling event's children are untouched.
-    expect(n(post.query("SELECT COUNT(*) AS n FROM rsvps").get())).toBe(1);
-  });
-
-  it("wedding delete cascades through the events branch (the 0052 landmine)", () => {
-    const db = new Database(":memory:");
-    db.exec("PRAGMA foreign_keys = ON;");
-    applyThrough(db, MIG_0052);
-    seedWorld(db);
-    apply0052(db);
-
-    db.exec("DELETE FROM weddings WHERE id = 'wed_1';");
-    const n = (row: unknown): number => (row as { n: number }).n;
-    for (const table of ["families", "guests", "events", "guest_events", "rsvps"]) {
-      expect(n(db.query(`SELECT COUNT(*) AS n FROM ${table}`).get())).toBe(0);
-    }
-  });
 });

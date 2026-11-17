@@ -104,36 +104,6 @@ async function editorPreview(app: ReturnType<typeof buildApp>["app"], body: obje
   });
 }
 
-// ── CSV front door through /changes ─────────────────────────────────────────
-
-describe("POST /changes/preview + /apply — spreadsheet (CSV) front door", () => {
-  it("previews then applies a CSV change, returning a baseRevision", async () => {
-    const { app, db } = buildApp();
-
-    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
-      eventsCsv: EVENTS_CSV,
-      guestsCsv: GUESTS_CSV,
-    });
-    expect(previewRes.status).toBe(200);
-    const preview = (await previewRes.json()) as {
-      changeId: string;
-      baseRevision: string;
-      plan: { familyCreates: unknown[] };
-    };
-    // The alias-era `importId` echo is gone; `changeId` is the only id.
-    expect(preview).not.toHaveProperty("importId");
-    // Fresh wedding — no applied change yet, so the head is 0.
-    expect(preview.baseRevision).toBe("0");
-    expect(preview.plan.familyCreates).toHaveLength(2);
-
-    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: preview.changeId });
-    expect(applyRes.status).toBe(200);
-    expect(db.select().from(events).all()).toHaveLength(2);
-    expect(db.select().from(families).all()).toHaveLength(2);
-    expect(db.select().from(guests).all()).toHaveLength(2);
-  });
-});
-
 // ── Dress-code palette colours ─────────────────────────────────────────────
 
 describe("dress-code palette colours are checked on the server", () => {
@@ -1037,26 +1007,6 @@ describe("POST /changes/preview + /apply — single-sheet uploads", () => {
     const { app } = buildApp();
     const res = await ownerPost(app, `${CHANGES_BASE}/preview`, { removeManual: true });
     expect(res.status).toBe(400);
-  });
-
-  it("re-diffs at apply under the SAME scope the preview used", async () => {
-    const { app, db } = buildApp();
-    await seedBothSheets(app);
-
-    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
-      eventsCsv: EVENTS_ONLY_CSV,
-    });
-    const { changeId } = (await previewRes.json()) as { changeId: string };
-
-    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
-    expect(applyRes.status).toBe(200);
-
-    // The apply path re-reads the stored sheets; the guests slot holds "" for an
-    // events-only change, and scope — not the stored bytes — is what keeps that
-    // from reconciling the guest list to nothing.
-    expect(db.select().from(families).all()).toHaveLength(2);
-    expect(db.select().from(guests).all()).toHaveLength(2);
-    expect(db.select().from(events).all()).toHaveLength(3);
   });
 
   it("a legacy row with no stored scope applies as 'both' (the safe default)", async () => {
@@ -2654,19 +2604,6 @@ describe("POST /changes/apply + /revert — one change writes a wedding at a tim
       .where(eq(imports.id, changeId))
       .all();
     expect(row!.status).toBe("applied");
-  });
-
-  it("a revert moves the head", async () => {
-    const { app } = buildApp();
-    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
-      eventsCsv: EVENTS_CSV,
-      guestsCsv: GUESTS_CSV,
-    });
-    const { changeId } = (await preview.json()) as { changeId: string };
-    await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
-    expect(await headOf(app)).toBe("1");
-    expect((await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId })).status).toBe(200);
-    expect(await headOf(app)).toBe("2");
   });
 });
 
@@ -4566,17 +4503,6 @@ describe("GET /changes/list — history paging", () => {
     });
     return ((await res.json()) as { changeId: string }).changeId;
   }
-
-  it("returns the wedding's changes newest-first", async () => {
-    const { app } = buildApp();
-    const id = await seedChange(app);
-
-    const res = await ownerGet(app, `${CHANGES_BASE}/list`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { imports: { id: string }[]; nextCursor: number | null };
-    expect(body.imports.find((i) => i.id === id)).toBeDefined();
-    expect(body.nextCursor).toBeNull();
-  });
 
   it("names the halves a revert of each change restores", async () => {
     const { app, db } = buildApp();

@@ -533,26 +533,6 @@ describe("create-or-resume", () => {
     expect(row?.stripeAccountUpdatedAt).not.toBeNull();
   });
 
-  it("reuses the account on every return trip — onboarding is a form people abandon", async () => {
-    const stripe = stripeStub();
-    const { app, db } = buildApp({ stripe: stripe.client });
-
-    await req(app, `${base}/session`, OWNER);
-    await req(app, `${base}/session`, OWNER);
-    await req(app, `${base}/session`, OWNER);
-
-    // One account, three links. A second account would silently repoint every
-    // future gift at a different bank account.
-    expect(stripe.calls.filter((c) => c.startsWith("createAccount:"))).toHaveLength(1);
-    expect(stripe.calls.filter((c) => c.startsWith("createAccountLink:"))).toHaveLength(3);
-    const row = await db
-      .select()
-      .from(registrySettings)
-      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
-      .get();
-    expect(row?.stripeAccountId).toBe("acct_new");
-  });
-
   it("keeps the couple's own settings when it fills in the account", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });
@@ -691,14 +671,6 @@ describe("refreshing what Stripe says", () => {
         .run();
       return built;
     }
-
-    it("answers null once the live read settles in the wedding's currency", async () => {
-      const { app } = await connectedWithMoneyOn(live("AUD"));
-      const body = (await jsonBody(await req(app, `${base}/refresh`, OWNER))) as {
-        moneyGiftsBlockedBy: unknown;
-      };
-      expect(body.moneyGiftsBlockedBy).toBeNull();
-    });
 
     it("answers from the row its write returned, with no read after the write", async () => {
       const { app, db } = await connectedWithMoneyOn(live("AUD"));

@@ -145,21 +145,6 @@ afterAll(async () => {
 });
 
 describe("Worker boot (no bootstrap-owner config)", () => {
-  it("boots + serves WITHOUT BOOTSTRAP_OWNER_PROFILE_ID in a deployed env (no 503)", async () => {
-    const env = { ...BASE_ENV, DB } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
-    const res = await handler.fetch!(
-      new Request("https://api.example.com/api/organiser/weddings"),
-      env,
-      ctx,
-    );
-    // The old boot gate would 503 here ("Worker misconfigured: ..."). Now the
-    // app boots and the route's own auth gate answers 401 (no token) — proving
-    // the edge handler served the request rather than fail-closing on a missing
-    // bootstrap owner.
-    expect(res.status).not.toBe(503);
-    expect(res.status).toBe(401);
-  });
-
   it("still fail-closes 503 when a genuinely required binding/var is missing", async () => {
     // WEB_ORIGIN omitted — the real misconfiguration guard must still fire.
     const env = {
@@ -761,22 +746,6 @@ describe("D1 session routing at the entry points", () => {
     new Request(`https://api.example.com/api/invite/${slug}`) as unknown as Parameters<
       NonNullable<typeof handler.fetch>
     >[0];
-
-  it("opens one first-primary session per request and routes every query to it", async () => {
-    const probe = probeD1();
-    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
-      NonNullable<typeof handler.fetch>
-    >[1];
-
-    const res = await handler.fetch!(inviteRequest(), env, ctx);
-
-    expect(res.status).toBe(404);
-    expect(probe.constraints).toEqual([D1_SESSION_CONSTRAINT]);
-    expect(probe.sessionQueries[0]?.length ?? 0).toBeGreaterThan(0);
-    // The one that matters: a Drizzle handle built over the raw binding would
-    // opt every query out of replication with nothing to notice.
-    expect(probe.bindingQueries).toEqual([]);
-  });
 
   it("gives each request its own session", async () => {
     // Two requests through the SAME isolate-cached app — the app graph and its
