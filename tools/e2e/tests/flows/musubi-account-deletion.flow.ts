@@ -46,7 +46,7 @@ import {
   queryOne,
   suiteNow,
   test,
-  writeOnce,
+  writeRow,
 } from "../support/fixtures";
 
 test.use({ turnstile: true });
@@ -310,16 +310,16 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   );
 
   // The suite's clock runs in real time, so the job's window is moved instead:
-  // one write, while the flow sends nothing. The sweeper finds it due.
-  const moved = await flow.step("move the job past its window", async () =>
-    writeOnce(
+  // one write, while the flow sends nothing; it throws unless the one job
+  // moved. The sweeper finds it due.
+  await flow.step("move the job past its window", async () =>
+    writeRow(
       DB_FILES.osn,
       "UPDATE deletion_jobs SET hard_delete_at = ? WHERE account_id = ?",
       Math.floor(suiteNow() / 1000) - 1,
       P.accountId,
     ),
   );
-  flow.check("one job moved", 1, moved);
 
   const deleted = await flow.step("the sweeps erase the account", async () => {
     const mail = await mailFor(

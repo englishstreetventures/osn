@@ -10,8 +10,8 @@
  * Content-Security-Policy message a page logs. Flows touch the stack only through
  * the browser, the API request context and the read-only helpers here, with two
  * exceptions: `refuseNextMailTo` writes to the mail stand-in, which is not part
- * of the stack, and `writeOnce` makes the one write a flow may make to a stack
- * database, for a state no route or clock reaches.
+ * of the stack, and `writeRow` writes one row to a stack database, for a state
+ * no route or clock reaches.
  */
 
 import { createHmac } from "node:crypto";
@@ -588,7 +588,9 @@ export function queryOne<T>(
 
 /**
  * Writes to a stack database, for a state the browser cannot reach: a race the
- * servers refuse from any page. Waits out the server's own write lock.
+ * servers refuse from any page, or a deadline the suite's real-time clock does
+ * not reach (`musubi-account-deletion` moves its deletion job past its window).
+ * Waits out the server's own write lock, and throws unless one row changed.
  */
 export function writeRow(dbPath: string, sql: string, ...params: Array<string | number>): void {
   const db = new DatabaseSync(dbPath);
@@ -596,23 +598,6 @@ export function writeRow(dbPath: string, sql: string, ...params: Array<string | 
     db.exec("PRAGMA busy_timeout = 5000");
     const changed = db.prepare(sql).run(...params).changes;
     if (changed !== 1) throw new Error(`writeRow: ${changed} rows changed by ${sql}`);
-  } finally {
-    db.close();
-  }
-}
-
-/**
- * One write to a stack database, for a state the stack has no route to reach
- * and no clock to wait for: `musubi-account-deletion` moves its deletion job
- * past its window, since the suite's clock runs in real time. The connection
- * waits up to five seconds for a lock the stack's server holds, and closes at
- * once. Answers how many rows the statement changed.
- */
-export function writeOnce(dbPath: string, sql: string, ...params: Array<string | number>): number {
-  const db = new DatabaseSync(dbPath);
-  try {
-    db.exec("PRAGMA busy_timeout = 5000");
-    return Number(db.prepare(sql).run(...params).changes);
   } finally {
     db.close();
   }
