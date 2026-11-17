@@ -354,7 +354,7 @@ export default function GuestsEditor(props: {
       if (store.dirty()) {
         setStale(true);
         setSaveError("Someone else changed the guest list since you opened the editor.");
-      } else await loadInto();
+      } else await loadInto(head);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       // Refused: this seat may no longer edit, so the rows drawn from the

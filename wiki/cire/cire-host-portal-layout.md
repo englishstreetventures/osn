@@ -503,9 +503,10 @@ patch) keeps it.
 as seen, from the badge rows it reads beside the replies
 ([[cire-rsvp-changes]]). Replies the Overview read came without them, so the
 table draws those at once and reads both again as it mounts; replies the table
-itself read, still fresh, draw with nothing read, and both are read again once
-drawn (`after-paint.ts`), which brings any change since, badged. A refused read
-empties the table. The replies hold dietary answers: like every cache here they
+itself read, still fresh, draw with nothing read, and once drawn
+(`after-paint.ts`) only the badge rows are read: that read confirms the seat may
+still see the replies, and a change since sends the table to read the replies
+too, badged. A refused read empties the table. The replies hold dietary answers: like every cache here they
 stay only while the dashboard is on screen ([[retention]]).
 
 **What a minute allows.** A seat removed or narrowed loses its cached rows at
@@ -513,8 +514,8 @@ once while the wedding's socket is up: `members-changed` re-reads the wedding
 list and the dashboard unmounts ([[#Noticing a lost wedding]]). With the socket
 down, a view drawn from a fresh cache sends no read that would be refused, so
 the rows the tab already holds can show for up to a minute after the seat
-changed. The RSVP table and the change editors still read once drawn, and drop
-their rows on a refusal; an editor told its head is refused says the seat can no
+changed. The RSVP table (its badge rows) and the change editors (their head)
+still read once drawn, and drop their rows on a refusal; an editor told its head is refused says the seat can no
 longer edit.
 
 **`guestListChanged`** (`guest-list-changed.ts`, beside `schedule-changed.ts`)

@@ -180,8 +180,27 @@ describe("RsvpView — New badges", () => {
     expect(screen.getByRole("tab", { name: /^Reception/ })).toBeVisible();
     expect(authFetchMock.mock.calls.length).toBe(reads);
     expect(screen.queryByText("New")).toBeNull();
-    // Then the replies and their badges are read again behind it.
-    await waitFor(() => expect(authFetchMock.mock.calls.length).toBe(reads + 2));
+    // Then only the badge rows are read behind it: nothing new, nothing more.
+    await waitFor(() => expect(authFetchMock.mock.calls.length).toBe(reads + 1));
+    expect(String(authFetchMock.mock.calls.at(-1)![0])).toMatch(/\/rsvp-changes\/rows$/);
+  });
+
+  it("reads the replies again, badged, when the rows read behind a cached draw hold a change", async () => {
+    routeFetch(feed([], 0));
+    const first = render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/rsvp-changes/rows")),
+      ).toBe(true),
+    );
+    first.unmount();
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 12));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(within(rowOf("Ceremony", "Ada")).getByText("New")).toBeVisible());
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+    expect(authFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/rsvps")).length).toBe(
+      2,
+    );
   });
 
   it("stops showing cached rows when the read behind them is refused", async () => {

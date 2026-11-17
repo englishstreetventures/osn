@@ -269,7 +269,7 @@ export default function EventsEditor(props: { weddingId: string }) {
       if (store.dirty()) {
         setStale(true);
         setSaveError("Someone else changed the schedule since you opened the editor.");
-      } else await loadInto();
+      } else await loadInto(head);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       // Refused: this seat may no longer edit, so the rows drawn from the

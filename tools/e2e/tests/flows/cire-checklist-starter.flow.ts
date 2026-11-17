@@ -82,6 +82,7 @@ import {
 } from "../support/fixtures";
 import {
   logApiCalls,
+  readsAfterDraw,
   readsBeforeDraw,
   type ViewContent,
   visit,
@@ -739,14 +740,21 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     expected: string,
     content: ViewContent,
     act: () => Promise<unknown>,
-    after?: () => Promise<unknown>,
+    after?: { read: string; answered: () => Promise<unknown> },
   ): Promise<VisitLog> => {
-    const log = await flow.step(`visit ${name}`, () => visit(page, name, content, act, after));
+    const log = await flow.step(`visit ${name}`, () =>
+      visit(page, name, content, act, after?.answered),
+    );
     visits.push(log);
     flow.check(
       `request log: ${name}, read before it drew`,
       expected,
       readsBeforeDraw(log, weddingApi),
+    );
+    flow.check(
+      `request log: ${name}, read after it drew`,
+      after?.read ?? "",
+      readsAfterDraw(log, weddingApi),
     );
     return log;
   };
@@ -812,45 +820,24 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     GUEST_EDITOR,
     toTab("Edit"),
   );
-  await logged(
-    "RSVPs, first visit",
-    "rsvp-changes/rows · rsvps",
-    RSVPS,
-    toTab("RSVPs"),
-    responseTo("POST", "rsvp-changes/seen"),
-  );
+  await logged("RSVPs, first visit", "rsvp-changes/rows · rsvps", RSVPS, toTab("RSVPs"), {
+    read: "",
+    answered: responseTo("POST", "rsvp-changes/seen"),
+  });
   const adaRow = page
     .getByRole("row")
     .filter({ has: page.getByRole("button", { name: `Edit reply for ${cached.ada} Alpha` }) });
   flow.check("RSVPs: Ada's reply is marked New", true, await adaRow.getByText("New").isVisible());
-  const editorAgain = await logged(
-    "guest editor, second visit",
-    "",
-    GUEST_EDITOR,
-    toTab("Edit"),
-    responseTo("GET", "changes/head"),
-  );
-  flow.check(
-    "guest editor, second visit: reads its change head after it drew",
-    true,
-    editorAgain.afterDraw.includes(`GET ${weddingApi}changes/head`),
-  );
-  const tableAgain = await logged(
-    "RSVPs, second visit",
-    "",
-    RSVPS,
-    toTab("RSVPs"),
-    responseTo("GET", "rsvp-changes/rows"),
-  );
-  flow.check(
-    "RSVPs, second visit: reads the replies and their badges after it drew",
-    "GET rsvp-changes/rows · GET rsvps",
-    tableAgain.afterDraw
-      .filter((call) => call.startsWith("GET "))
-      .map((call) => call.replace(weddingApi, ""))
-      .toSorted()
-      .join(" · "),
-  );
+  await logged("guest editor, second visit", "", GUEST_EDITOR, toTab("Edit"), {
+    read: "changes/head",
+    answered: responseTo("GET", "changes/head"),
+  });
+  // Only the badge rows behind the cached draw: nothing new since, so the
+  // replies themselves are not read again.
+  await logged("RSVPs, second visit", "", RSVPS, toTab("RSVPs"), {
+    read: "rsvp-changes/rows",
+    answered: responseTo("GET", "rsvp-changes/rows"),
+  });
   await logged("households, second visit", "", HOUSEHOLDS, toTab("Households"));
   await logged(
     "overview, after the RSVPs were seen",
@@ -885,13 +872,10 @@ test("cire-checklist-starter", async ({ page, flow }) => {
       "true",
     );
   });
-  await logged(
-    "events editor, first visit",
-    "",
-    EVENTS_EDITOR,
-    toTab("Edit"),
-    responseTo("GET", "changes/head"),
-  );
+  await logged("events editor, first visit", "", EVENTS_EDITOR, toTab("Edit"), {
+    read: "changes/head",
+    answered: responseTo("GET", "changes/head"),
+  });
   const renamed = await flow.step(
     `rename the ${cached.reception} to ${cached.renamed}`,
     async () => {

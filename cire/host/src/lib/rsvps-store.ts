@@ -57,6 +57,8 @@ export function setCachedRsvpEvents(weddingId: string, events: RsvpEvent[]): voi
 }
 
 export const invalidateRsvps = (weddingId: string) => replies.invalidate(weddingId);
+/** A read of the table's was refused: nobody draws the cached replies. */
+export const refuseRsvps = (weddingId: string) => replies.refuse(weddingId);
 
 const changes = createWeddingCache<RsvpChanges>({ maxAgeMs: CACHE_MAX_AGE_MS });
 

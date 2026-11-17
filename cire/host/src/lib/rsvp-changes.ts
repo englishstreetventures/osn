@@ -122,7 +122,7 @@ function isRsvpChanges(body: unknown): body is RsvpChanges {
 }
 
 /** The body really is the table's rows and marker. */
-function isRsvpChangeRows(body: unknown): body is RsvpChangeRows {
+export function isRsvpChangeRows(body: unknown): body is RsvpChangeRows {
   if (typeof body !== "object" || body === null) return false;
   if (!("markSeq" in body) || typeof body.markSeq !== "number") return false;
   return "rows" in body && Array.isArray(body.rows) && body.rows.every(isRow);

@@ -51,6 +51,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api"
 import { CIRE_MARKETING_URL } from "../lib/osn";
 import {
   fetchRsvpChangeRows,
+  isRsvpChangeRows,
   markRsvpChangesSeen,
   newRowCheck,
   type RsvpChangeRows,
@@ -78,6 +79,7 @@ import {
   invalidateRsvpChanges,
   invalidateRsvps,
   peekCachedRsvps,
+  refuseRsvps,
   type RsvpEvent,
   setCachedRsvpEvents,
 } from "../lib/rsvps-store";
@@ -426,8 +428,8 @@ export default function RsvpView(props: RsvpViewProps) {
   // each read of the RSVPs, so the badges stay put while the organiser records
   // replies; once the table has loaded, those changes are marked seen for this
   // organiser, and the next read starts clean. A visit that finds the RSVPs
-  // fresh in the cache, as the table last read them, reads neither: what they
-  // held was marked seen then.
+  // fresh in the cache, as the table last read them, draws no badges: what
+  // they held was marked seen then.
   const [isNewRow, setIsNewRow] = createSignal<(guestId: string, eventId: string) => boolean>(
     () => false,
   );
@@ -444,9 +446,10 @@ export default function RsvpView(props: RsvpViewProps) {
   // change made deep in another list does not clamp the page meanwhile.
   const ready = holdUntilReady();
 
-  // A fresh read of the table's own is drawn at once, then read again once
-  // drawn: the read behind it confirms this seat may still see the replies and
-  // brings any change a guest made since, badged. Otherwise it is read now.
+  // A fresh read of the table's own is drawn at once, and once drawn only the
+  // badge rows are read: that read confirms this seat may still see the
+  // replies, and a change a guest made since sends the table to read the
+  // replies too, badged. Otherwise both are read now.
   let gone = false;
   onCleanup(() => {
     gone = true;
@@ -456,12 +459,31 @@ export default function RsvpView(props: RsvpViewProps) {
     if (drawn) {
       ready();
       afterPaint(() => {
-        if (!gone) readAndMark();
+        if (!gone) void checkBadges();
       });
       return;
     }
     readAndMark();
   });
+  async function checkBadges() {
+    try {
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/rsvp-changes/rows")));
+      if (gone) return;
+      if (res.status === 403 || res.status === 404) {
+        // This seat may no longer see the replies: they stop being shown.
+        refuseRsvps(props.weddingId);
+        setState("events", []);
+        setError("Could not load RSVPs. Is the API running?");
+        return;
+      }
+      // Anything else unread leaves the rows drawn; nothing new was seen.
+      if (!res.ok) return;
+      const body: unknown = await res.json().catch(() => null);
+      if (!gone && isRsvpChangeRows(body) && body.markSeq > 0) readAndMark();
+    } catch (err) {
+      if (isAuthExpired(err)) redirectToLogin();
+    }
+  }
   function readAndMark() {
     const first = load();
     void first.finally(ready);
@@ -768,8 +790,16 @@ export default function RsvpView(props: RsvpViewProps) {
       const next = event && isSavedReply(body?.rsvp) ? applySavedReply(event, body.rsvp) : null;
       if (next) {
         setState("events", at, reconcile(next, { key: "guestId" }));
-        // The Overview's tallies and the next visit read the reply from here.
-        setCachedRsvpEvents(props.weddingId, structuredClone(unwrap(state.events)));
+        // The Overview's tallies and the next visit read the reply from here:
+        // a copy of the one event it changed, never the store's own objects.
+        const kept = peekCachedRsvps(props.weddingId);
+        if (kept) {
+          const saved = structuredClone(unwrap(state.events[at]!));
+          setCachedRsvpEvents(
+            props.weddingId,
+            kept.events.map((cachedEvent) => (cachedEvent.id === saved.id ? saved : cachedEvent)),
+          );
+        }
       } else await load();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();

@@ -346,7 +346,9 @@ export default function Overview(props: {
   );
   void loads.finally(() => setSettled(true));
 
-  const data = createMemo<OverviewData>(() => {
+  // The replies' tallies, worked out only when the replies change; the other
+  // reads each feed only what they draw.
+  const replySummary = createMemo<Pick<OverviewData, "rsvps" | "rsvpEvents">>(() => {
     const body = replies();
     const rsvpEvents = (body?.events ?? []).map((e) => ({
       id: e.id,
@@ -375,22 +377,22 @@ export default function Overview(props: {
           },
         )
       : null;
-    return {
-      profile: settings(),
-      rsvps,
-      rsvpEvents,
-      events: eventRows() ?? [],
-      guests: guestRows() ?? [],
-    };
+    return { rsvps, rsvpEvents };
+  });
+  const data = (): OverviewData => ({
+    profile: settings(),
+    ...replySummary(),
+    events: eventRows() ?? [],
+    guests: guestRows() ?? [],
   });
 
   // Households, deduped from the (repeated-per-member) guest rows.
   const householdCount = createMemo(() => {
     const ids = new Set<string>();
-    for (const g of data()?.guests ?? []) ids.add(g.familyId);
+    for (const g of guestRows() ?? []) ids.add(g.familyId);
     return ids.size;
   });
-  const eventCount = createMemo(() => data()?.events.length ?? 0);
+  const eventCount = createMemo(() => eventRows()?.length ?? 0);
 
   // The wedding is "just started" — no schedule and no guests yet — so the home
   // leads with the Getting-started checklist rather than empty stat blocks.
@@ -444,7 +446,7 @@ export default function Overview(props: {
   // the shell would send a locked one straight back here.
   const agenda = createMemo(() =>
     buildAgenda({
-      events: (data()?.events ?? []).map((e) => ({ id: e.id, name: e.name, startAt: e.startAt })),
+      events: (eventRows() ?? []).map((e) => ({ id: e.id, name: e.name, startAt: e.startAt })),
       payments: budgetLocked() ? [] : (peekCachedBudget(props.weddingId)?.payments ?? []),
       tasks: checklistLocked() ? [] : (peekCachedTasks(props.weddingId) ?? []),
       now: nowMs(),
@@ -736,7 +738,7 @@ export default function Overview(props: {
               {countdownCard(weddingDate, countdown)}
 
               {/* ── RSVP totals ───────────────────────────────────────────── */}
-              {rsvpCard(data)}
+              {rsvpCard(replySummary)}
 
               {/* ── RSVP changes since this organiser last looked ─────────── */}
               {/* Renders nothing when its read failed, so it never blanks the

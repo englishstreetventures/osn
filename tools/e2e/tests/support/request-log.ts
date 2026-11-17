@@ -159,3 +159,8 @@ export function readsBeforeDraw(log: VisitLog, prefix: string): string {
     .toSorted()
     .join(" · ");
 }
+
+/** The GETs a visit sent after its view drew, under `prefix`, as `readsBeforeDraw`. */
+export function readsAfterDraw(log: VisitLog, prefix: string): string {
+  return readsBeforeDraw({ ...log, beforeDraw: log.afterDraw }, prefix);
+}
