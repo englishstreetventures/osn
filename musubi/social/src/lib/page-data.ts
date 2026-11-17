@@ -3,10 +3,11 @@ import { connectionsClient } from "./authClients";
 import { pageQuery } from "./page-cache";
 import { PAGE_DATA } from "./page-names";
 
-// Every page read Musubi makes, on the one page cache (`page-cache.ts`). Each
-// name is the page's, so its placeholder count is that page's last row count.
-// This module holds the clients, so the entry chunk reaches it only through a
-// dynamic import (`App.tsx`'s route preloads).
+// Every page read Musubi makes, on the one page cache (`page-cache.ts`), but
+// Settings → Security's, which are in `security-data.ts` so its chunk loads
+// none of these clients. Each name is the page's, so its placeholder count is
+// that page's last row count. This module holds the clients, so the entry
+// chunk reaches it only through a dynamic import (`App.tsx`'s route preloads).
 
 /** Connections → All. */
 export const connectionsList = pageQuery(

@@ -13,4 +13,7 @@ export const PAGE_DATA = {
   organisation: "organisations.one",
   organisationMembers: "organisations.members",
   connectedApps: "settings.apps",
+  passkeys: "settings.passkeys",
+  authenticator: "settings.authenticator",
+  recoveryCodes: "settings.recovery-codes",
 } as const;

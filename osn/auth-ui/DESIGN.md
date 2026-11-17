@@ -53,9 +53,9 @@ Musubi's own dialogs take their header and footer from it (`AuthHeader`,
 | `SignIn` | `client` (`LoginClient`), `recoveryClient`, `productName`, `host`: `"dialog"` with `onCancel`, or `"page"` with an optional `onCancel` and `cancelLabel`; `registrationClient` and `runPasskeyRegistration` (both, or recovery offers the recovery code only); `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
 | `Register` | `client` (`RegistrationClient`), `productName`, `onCancel`, `host`: `"dialog"`, or `"page"` with an optional `cancelLabel`; `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
 | `RecoveryLoginForm` | `client` (`RecoveryClient`), `host`: `"dialog"` with `onDismiss` (the dialog's Cancel), or `"page"`; `registrationClient` and `runPasskeyRegistration`; `turnstileSiteKey`, `productName`; `onSuccess`, `onCancel` (back to sign-in) | `AuthProvider` |
-| `PasskeysView` | `client`, `stepUpClient`; `profileId` and `runPasskeyRegistration` (both, or "Add a passkey" is hidden); `runPasskeyCeremony`, `totpClient`, `passkeyOnly` | — |
-| `TotpView` | `client` (`TotpClient`), `stepUpClient`; `runPasskeyCeremony`, `passkeyOnly` | `Toaster` |
-| `RecoveryCodesView` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `onSaved` | — |
+| `PasskeysView` | `client`, `stepUpClient`; `profileId` and `runPasskeyRegistration` (both, or "Add a passkey" is hidden); `runPasskeyCeremony`, `totpClient`, `passkeyOnly`; `read` (a `SettingsRead` of the list, or the view reads `client.list()` itself) | — |
+| `TotpView` | `client` (`TotpClient`), `stepUpClient`; `runPasskeyCeremony`, `passkeyOnly`; `read` (of the status) | `Toaster` |
+| `RecoveryCodesView` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `onSaved`; `read` (of the count) | — |
 | `SecurityEventsBanner` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `onVisibleCountChange` | — |
 | `SessionsView` | `client` | — |
 | `ChangeEmailForm` | `accountClient`, `stepUpClient`; `runPasskeyCeremony`, `onChanged` | — |
@@ -498,27 +498,49 @@ own.
 
 **A first load.** Each Settings panel shows `@shared/ui`'s `Skeleton` in place
 of what it loads, never a "Loading…" line: one row's block for `PasskeysView`
-and `SessionsView` (every account has a passkey and a session), one for
+(one per passkey its host's read last landed, below) and `SessionsView`
+(every account has a passkey and a session), one for
 `TotpView`'s set-up row, a line's for `RecoveryCodesView`'s count. The region
 that holds the block and what replaces it carries `aria-busy` while the read
 is out: the list's place in `PasskeysView` and `SessionsView`, the count's in
 `RecoveryCodesView`, the status row's in `TotpView` (drawn only while it
-holds something, so an account with no app set up gets no empty slot). A panel reads its resource's `state` before its value
-and the value only once a read has landed, never by calling it, so it never
-joins a host's `Suspense` boundary (a loading resource read in a component
-raises its nearest boundary; Musubi's Settings would show its own fallback
-for the whole tab) and never throws a failed read. On a read again,
-`PasskeysView`, `SessionsView` and `RecoveryCodesView` keep what they showed;
-`TotpView` shows the block again, since the status it reads again is the one
-an enrolment or a removal has just changed. `PasskeysView` and `SessionsView`
-disable every row's actions, and the header's, while a list they have shown is
-read again, as `RecoveryCodesView` holds its button: a passkey just deleted or
-a session just revoked stays on screen until the read lands. `StepUpDialog`
-reads its `GET /totp/status` the same way, by `state`, so opening a step-up
-never swaps its host for the host's fallback.
+holds something, so an account with no app set up gets no empty slot).
+`PasskeysView` draws one block for each passkey the host's read last landed
+(`SettingsRead.rows`), one when none is known.
+
+`PasskeysView`, `TotpView` and `RecoveryCodesView` read through a
+`SettingsRead` (`src/settings-read.ts`): the host's, when it passes `read`
+(Musubi's page cache, which draws what it last had at once and reads it again
+behind it), or their own. It is plain signals, so a read never joins a host's
+`Suspense` boundary (a loading resource read in a component raises its
+nearest boundary; Musubi's Settings would show its own fallback for the whole
+tab) and never throws a failed read. A read behind rows already shown changes
+nothing on screen. After a write, no view shows a row the write may have
+changed: a rename or a removal writes its outcome at once (the new name, the
+row gone); a write the server refused keeps what was shown; anything else —
+an added passkey, an authenticator added or removed, a new set of recovery
+codes, a write with no answer — forgets what was shown and draws the
+first-load block until the read again lands, so the old set's count, for one,
+is never shown again. An action that acts on what a read shows — Remove and
+Save in `PasskeysView`, Add and Remove in `TotpView`, Generate in
+`RecoveryCodesView` — is busy from its press ("Checking…") while a read is
+out, every other action in the view disabled with it, as a step-up disables
+them; it then acts only on what the read answers, or does nothing when the
+row is gone. While it waits a busy Remove is named "Checking {name}", its
+visible words in its name, and a rename's field and Cancel are held with
+Save. When the read has taken away what the press was for, the panel says so
+in its error line ("That passkey is no longer on your account.", "An
+authenticator app is already set up.", "That authenticator app is no longer
+set up.") and its heading takes focus, so focus never falls to `<body>` with
+the button. `PasskeysView` keeps each row's element across a read, by id, so
+a pressed action keeps focus. `SessionsView` keeps what it showed on a read
+again and disables every row's actions, and the header's, while a list it has
+shown is read again: a session just revoked stays on screen until the read
+lands. `StepUpDialog` reads its `GET /totp/status` by `state`, so opening a
+step-up never swaps its host for the host's fallback.
 
 **`PasskeysView`** — heading "Passkeys" with "Add a passkey". States: loading
-(one row's placeholder); failed to load ("Your passkeys didn't load.", §7); the list, each row the passkey's name ("Synced passkey" or
+(a row's placeholder for each passkey last landed, one when none is known); failed to load ("Your passkeys didn't load.", §7); the list, each row the passkey's name ("Synced passkey" or
 "Device passkey" when unnamed, "(synced)" when backed up), "Added … · Last
 used …", Rename and Remove, named for a screen reader by the passkey
 ("Rename Work laptop", "Remove Work laptop"); a row being renamed (a field,
@@ -1160,9 +1182,13 @@ As built:
   fallback is the host's show their own placeholder, never the host's, while a
   read is out, and `StepUpDialog` its factors while `GET /totp/status` is out.
   `RecoveryCodesView` and `SessionsView` hold the placeholder in a busy region
-  until the first read lands, and `RecoveryCodesView` keeps its count through
-  the read after Done. `PasskeysView` and `SessionsView` disable every action
-  while the list is read again after a delete or a revoke.
+  until the first read lands, and `RecoveryCodesView` never shows the old
+  set's count after a new set. `PasskeysView` takes a deleted row off at once
+  and holds a Remove pressed while the list is read again; `SessionsView`
+  disables every action while the list is read again after a revoke.
+  Musubi's `tests/components/SecurityCache.test.tsx` holds the views through
+  its page cache, one case for each way a write could leave a row it may have
+  changed.
 - **The contract and the hosts in the package tests.**
   `token-contract.test.ts` (§2). `SignIn.test.tsx` and `Register.test.tsx`
   mount each view in a real `Dialog` with `host="dialog"`: the dialog named

@@ -25,6 +25,7 @@
     "./Register": "./src/Register.tsx",
     "./SecurityEventsBanner": "./src/SecurityEventsBanner.tsx",
     "./SessionsView": "./src/SessionsView.tsx",
+    "./settings-read": "./src/settings-read.ts",
     "./SignIn": "./src/SignIn.tsx",
     "./StepUpDialog": "./src/StepUpDialog.tsx",
     "./TotpView": "./src/TotpView.tsx",

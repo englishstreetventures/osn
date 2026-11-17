@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # Social
@@ -107,9 +107,12 @@ email is the only account-wide identifier available, and a key built from it
 would leave one person's address in storage for the next person on a shared
 device. A dismissed prompt makes no request at all.
 
-Nothing caches "this account has codes". Another device can use a code or
-replace the set at any time, and `active` drops to `0` once the last code is
-used, so one read goes stale. See [[recovery-codes]].
+The prompt caches nothing: it reads "this account has codes" afresh on each
+sign-in and profile change. Another device can use a code or replace the set
+at any time, and `active` drops to `0` once the last code is used, so one read
+goes stale. Settings' Security tab keeps its count in the page cache for the
+session and reads it again on every visit ([[#Page data]]). See
+[[recovery-codes]].
 
 `AccountBanners` wraps the pair in an `ErrorBoundary` that renders nothing. Both
 banners read endpoints limited to 30 requests a minute **per IP**, a Solid
@@ -164,7 +167,7 @@ The two delete shapes are deliberately different and must not be merged. `graph.
 
 ## Page data
 
-The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, Settings' Security views, the shell's prompts and the bare routes read on their own); how it is keyed, cleared and read is in [[frontend-patterns#Page data: one cache, keyed by the session]]. A page seen before draws its last rows at once and reads them again behind them; a first load draws as many placeholders as that page last landed, one when nothing is known (`DESIGN.md` §Empty states and failed loads). The queries are in `src/lib/page-data.ts`:
+The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, the shell's prompts and the bare routes read on their own); how it is keyed, cleared and read is in [[frontend-patterns#Page data: one cache, keyed by the session]]. A page seen before draws its last rows at once and reads them again behind them; a first load draws as many placeholders as that page last landed, one when nothing is known (`DESIGN.md` §Empty states and failed loads). The queries are in `src/lib/page-data.ts`:
 
 | Query | Page | Read |
 |---|---|---|
@@ -173,6 +176,7 @@ The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, Sett
 | `myOrganisations` | Organisations | `GET /organisations` |
 | `organisationDetail`, `organisationMembers` | An organisation, by handle | `GET /organisations/:handle`, `/organisations/:handle/members` |
 | `connectedApps` | Settings' Connected apps | `GET /oidc/connections` |
+| `passkeyList`, `authenticatorStatus`, `recoveryCodesStatus` (`src/lib/security-data.ts`) | Settings' Security, all three on the one tab | `GET /passkeys`, `/totp/status`, `/recovery/status` |
 
 The data routes' `preload`s (`App.tsx`) call a function each page module exports (`preloadConnections`, `preloadDiscover`, `preloadOrganisations`, `preloadOrganisation`), through the same `import()` as the page, so the entry chunk gains no import site. The shell names a query without loading it: search marks pages stale with `invalidatePages` and the names in `src/lib/page-names.ts`, and `PageCacheScope` mounts inside the lazy `ShellNotices`.
 
@@ -190,8 +194,13 @@ What each mutation writes, with the scope mark taken before its request:
 | An organisation | delete | its entry and roster forgotten, so a stale link is a first load that answers "not found"; its row taken off the list |
 | An organisation | remove member | the row taken off, suggestions stale |
 | Connected apps | revoke | the list read again, Revoke busy until it lands |
+| Security | rename or remove a passkey | its outcome written at once (the name sent, the row gone), then all three Security reads read again |
+| Security | add a passkey, add or remove the authenticator, generate recovery codes | that read forgotten at once (its placeholder, never the rows before), then all three read again; an authenticator's confirm, which runs no step-up of its own, reads only the authenticator |
+| Security | a write the server refused (400–499), an enrolment started, a passkey add that ends before its last call | the rows kept on the screen that wrote, all three read again: the step-up before each moved a factor's "Last used". osn-api answers 400 for an error it does not recognise, which can follow a write that landed, so the tab gone when the write ends, or left while that read is out, forgets the rows |
 
-Row actions wait for a read of their list that is out, and act only on a row still there (`src/lib/row-actions.ts`). `tests/lib/page-cache.test.tsx` holds each way the cache can fail; `tests/components/PageCacheScope.test.tsx` holds, through the real `AuthProvider` (with a fake runtime, hence `effect` among the dev dependencies), that a profile switch, a sign-out then another account, and a session end then another account each show none of the rows before; `tests/components/PlaceholderRows.browser.test.tsx` holds the placeholder count. `musubi-org-detail` hovers Discover and finds its suggestions read before the click, comes back to the organisations list with its read held and finds the renamed row drawn and no placeholder, and finds a deleted organisation's stale link drawing one.
+Row actions wait for a read of their list that is out, and act only on a row still there (`src/lib/row-actions.ts`).
+
+The Security tab's three views are `@osn/auth-ui`'s, so they take their reads as a `SettingsRead` (`osn/auth-ui/src/settings-read.ts`), which `useSettingsRead` builds from a query in `SecuritySection`. Each write tells its read how it ended (`WriteEnd`): an exact outcome, `"unchanged"`, or `"unknown"`, whose rows are forgotten; a write that settles after the session changed (a profile switch keeps the tab mounted) is always `"unknown"` and never writes its outcome into the new session's rows. Anything the views act on while a read is out — Remove, Save, the authenticator's Add and Remove, Generate — is busy from the press ("Checking…"), waits for the read, and acts only on what it answers. None of the three reads takes a step-up token, so nothing cached outlives or needs one, and the authenticator's setup key and new recovery codes are write answers that never reach the cache. `tests/components/SecurityCache.test.tsx` holds each way the tab can show a row a write may have changed; `tests/components/SecurityCacheScope.browser.test.tsx` holds, through the real `AuthProvider` with the tab mounted throughout, that no session sees the Security rows of the one before it, and that a write which settles after its account has gone writes nothing into the next. `musubi-passkey` comes back to the tab with its reads held and finds the rows in the first frame that draws it, renames the passkey and comes back with the read again held to find only the new name, and finds a first load after signing in again. `tests/lib/page-cache.test.tsx` holds each way the cache can fail; `tests/components/PageCacheScope.test.tsx` holds, through the real `AuthProvider` (with a fake runtime, hence `effect` among the dev dependencies), that a profile switch, a sign-out then another account, and a session end then another account each show none of the rows before; `tests/components/PlaceholderRows.browser.test.tsx` holds the placeholder count. `musubi-org-detail` hovers Discover and finds its suggestions read before the click, comes back to the organisations list with its read held and finds the renamed row drawn and no placeholder, and finds a deleted organisation's stale link drawing one.
 
 ## Dev
 

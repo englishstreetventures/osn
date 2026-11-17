@@ -712,21 +712,28 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   (`tests/components/LoadingShapes.browser.test.tsx`,
   `tests/components/AuthorizeLoading.browser.test.tsx`). A list a person
   acts on keeps its rows on screen while it is read again (Connected apps
-  after a revoke, the passkey list after a delete), and a row that may be gone
-  is not one anyone can act on: its action stays busy or disabled until the
-  read lands. A state whose words are the content stays
+  after a revoke), and a row that may be gone is not one anyone can act on:
+  its action stays busy or disabled until the read lands. Settings → Security
+  never shows a row a write may have changed: a passkey renamed or removed
+  shows its new name, or is gone, at once; after an add, an authenticator
+  added or removed, or a new set of recovery codes, that panel draws its
+  placeholder (the passkey list as many rows as it last held) until the read
+  lands. A state whose words are the content stays
   words: `/authorize`'s "Checking this request…" and "Taking you back…",
   search's "Searching…", and a busy button's label (§Busy buttons).
 - **A page seen before draws no placeholder.** Connections (each tab),
-  Discover, Organisations, an organisation's page and Settings' Connected
-  apps read through one page cache (`src/lib/page-cache.ts`). Shown again,
+  Discover, Organisations, an organisation's page, and Settings' Connected
+  apps and Security read through one page cache (`src/lib/page-cache.ts`). Shown again,
   a page draws the rows it last had at once and reads them again behind
   them, with no busy mark: the rows on screen are whole, and a screen reader
   may pass over a region marked `aria-busy`. Rows that come back unchanged
   keep their elements, so focus stays where it was. A row action pressed meanwhile is busy from the
   press with its own label ("Accepting…", "Declining…", "Removing…",
   "Cancelling…", "Unblocking…", "Sending…", "Revoking…"), waits for the read,
-  and acts only if its row is still there. A first load draws as many
+  and acts only if its row is still there. On Settings → Security the action
+  that waits reads "Checking…", since what it starts is the step-up sheet,
+  and the panel's other actions are disabled with it, as an open step-up
+  disables them. A first load draws as many
   placeholders as that page last landed, one when nothing is known; the
   count goes with the session that saw it
   (`tests/components/PlaceholderRows.browser.test.tsx`).
@@ -831,7 +838,9 @@ orb (§The orb).
   Create or Save runs, `@osn/auth-ui`'s sign-up Cancel while its link is
   sent or resent, and the profile switcher's Cancel while a switch runs,
   where Escape and a press outside are refused too, as on the step-up sheet.
-  A row's action leaves the other rows alone.
+  A row's action leaves the other rows alone, but on Settings → Security,
+  where a press opens the step-up sheet and the panel's other actions are
+  disabled with it, as an open sheet disables them.
 - **The other reasons stay in `disabled`, and apply only while idle**
   (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
   the page, so a reason that turns true mid-wait — the verification challenge
@@ -839,7 +848,9 @@ orb (§The orb).
 - **The handler checks too.** Each one returns early while its own wait runs,
   so no second request goes out whatever reaches it.
 - **Not for a wait the button did not start.** Settings → Security's
-  "Checking…", while the recovery-code status first loads, stays `disabled`.
+  "Checking…", while the recovery-code count is not yet known, stays
+  `disabled`. Pressed while a count already shown is read again, Generate is
+  busy with the same words: that wait it started.
 - **As it stands.** `/authorize`'s Allow and Cancel are still `disabled` for
   their wait, with no working label, until its consent screens are finished
   (#2048).
@@ -849,7 +860,9 @@ edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), Connected
 apps' Revoke ("Revoking…"), `/search`'s Connect ("Sending…") and Accept
 ("Accepting…"), Connections' Accept ("Accepting…"), Decline ("Declining…"),
 Remove ("Removing…"), Cancel ("Cancelling…") and Unblock ("Unblocking…"), a
-roster's Remove ("Removing…"), and Try again on a bare route's failed card
+roster's Remove ("Removing…"), Try again on a bare route's failed card
+("Checking…"), and Settings → Security's Remove, Save, "Add an
+authenticator app" and Generate while the read they act on is out
 ("Checking…"). The
 rail's results panel shows the same words as text, since
 a listbox option holds no button (`SearchResultRows.tsx`). The auth views' are

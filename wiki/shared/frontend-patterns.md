@@ -26,7 +26,7 @@ packages:
   - "@shared/ui"
   - "@musubi/social"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-17
 ---
 
 # Frontend Patterns
@@ -888,10 +888,10 @@ follow it.
 ## Page data: one cache, keyed by the session
 
 `@musubi/social` reads its data pages' rows — Connections' tabs, Discover,
-Organisations, an organisation and its roster, Settings' Connected apps —
-through one module-level cache (search, Settings' Security views, the
-shell's prompts and the bare routes read on their own), `src/lib/page-cache.ts`, with the queries in
-`src/lib/page-data.ts`. A page shown again draws its last rows at once and
+Organisations, an organisation and its roster, Settings' Connected apps and
+Security — through one module-level cache (search, the shell's prompts and
+the bare routes read on their own), `src/lib/page-cache.ts`, with the queries
+in `src/lib/page-data.ts` and Security's in `src/lib/security-data.ts`. A page shown again draws its last rows at once and
 reads them again behind them; a first load draws as many placeholders as that
 page last landed, one when nothing is known.
 
@@ -939,10 +939,20 @@ page last landed, one when nothing is known.
   session and sweeps entries after three minutes. The router still drives
   preloading.
 
+- **A view from another package.** `@osn/auth-ui`'s Security views take
+  their read as a `SettingsRead` (`osn/auth-ui/src/settings-read.ts`); without
+  one they read for themselves. Each write tells the read how it ended: an
+  exact outcome is written, `"unchanged"` keeps the rows on the screen that
+  wrote until they are read again (forgotten if that screen has gone),
+  `"unknown"` forgets them, so no screen shows a row a write may have changed;
+  a write that settles under a newer session is `"unknown"`. `useSettingsRead`
+  (`src/lib/security-data.ts`) builds one from a page query.
+
 `tests/lib/page-cache.test.tsx` holds each way the cache can fail, the
 scope refusals first; `tests/components/PageCacheScope.test.tsx` holds them
-through the real `AuthProvider`; [[social]] §Page data lists the queries and
-what each mutation writes.
+through the real `AuthProvider`, and `tests/components/SecurityCache.test.tsx`
+and `SecurityCacheScope.browser.test.tsx` hold them for Settings' Security;
+[[social]] §Page data lists the queries and what each mutation writes.
 
 ## Source Files
 

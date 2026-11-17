@@ -61,12 +61,23 @@ vi.mock("../../src/lib/api", () => ({
 }));
 vi.mock("../../src/lib/authClients", () => ({
   connectionsClient: { list: () => reads.hold("apps") },
+  // Settings → Security: only the passkey list is held; the other two answer.
+  passkeysClient: { list: () => reads.hold("passkeys") },
+  totpClient: {
+    status: () =>
+      Promise.resolve({ enrolled: false, label: null, lastUsedAt: null, createdAt: null }),
+  },
+  recoveryClient: {
+    getRecoveryCodesStatus: () => Promise.resolve({ active: 10, total: 10, generatedAt: null }),
+  },
+  stepUpClient: {},
 }));
 vi.mock("../../src/components/ShellDialogs", () => ({
   useShellDialogs: () => ({ ready: () => true, open: () => {} }),
 }));
 
 import { ConnectedAppsSection } from "../../src/components/ConnectedAppsSection";
+import SecuritySection from "../../src/components/SecuritySection";
 import { ConnectionsPage } from "../../src/pages/ConnectionsPage";
 import { DiscoverPage } from "../../src/pages/DiscoverPage";
 import { OrganisationsPage } from "../../src/pages/OrganisationsPage";
@@ -234,6 +245,24 @@ const DATA_PAGES: {
       })),
     },
     last: "App dan",
+  },
+  {
+    title: "Security passkeys",
+    read: "passkeys",
+    Page: () => <SecuritySection profileId="prof_1" />,
+    rows: {
+      passkeys: three.map((handle) => ({
+        id: `pk_${handle}`,
+        label: `Key ${handle}`,
+        aaguid: null,
+        transports: null,
+        backupEligible: false,
+        backupState: false,
+        createdAt: 1_700_000_000,
+        lastUsedAt: null,
+      })),
+    },
+    last: "Key dan",
   },
 ];
 

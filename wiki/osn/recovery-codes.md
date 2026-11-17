@@ -13,7 +13,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-17
 ---
 # Recovery Codes
 
@@ -261,14 +261,14 @@ await client.loginWithRecoveryCode({ identifier, code });  // resolves to { sess
 
 `RecoveryCodesView` (`@osn/auth-ui/RecoveryCodesView`) is the settings surface. It:
 
-- reads `GET /recovery/status` on mount, and again once the user dismisses a fresh set, and says outright when the account has **no** codes — the failure mode this view exists to catch is a user who never made any;
+- reads `GET /recovery/status` on mount, or through the `read` its host hands it (Musubi's page cache, which draws the last count at once and reads it again behind it), and again as soon as a new set is generated, behind the codes on screen; it says outright when the account has **no** codes — the failure mode this view exists to catch is a user who never made any. A failed read is never a count: it says so in the count's place, with Try again;
 - runs the step-up ceremony through `StepUpDialog` before generating, with `purpose="recovery_generate"`, and passes the minted token straight to generate;
 - confirms before rotating an existing set (the previous codes die immediately), and treats an **unreadable** count as "might have codes" so a failed status read never skips the warning;
-- holds the generate button until the first status read settles — before that the view cannot tell a first set from a rotation — and **says so while it waits**: `@shared/ui`'s `Skeleton` reserves the status line's height so nothing shifts when the count lands, inside a region marked `aria-busy`, and the button reads "Checking…". The view reads the status's `state` before its value, so the read never joins the host's `Suspense` boundary, and a read again after Done keeps the count on screen. Held-and-silent read as broken on a slow link, which is the opposite of what a panel about account recovery wants to convey;
+- holds the generate button until the first status read settles — before that the view cannot tell a first set from a rotation — and **says so while it waits**: `@shared/ui`'s `Skeleton` reserves the status line's height so nothing shifts when the count lands, inside a region marked `aria-busy`, and the button reads "Checking…". The read is plain signals, so it never joins the host's `Suspense` boundary. A new set forgets the old count at once, so the old set's count is never shown again; until the new count lands the line holds the same placeholder. Pressed while a remembered count is read again, Generate is busy ("Checking…") until the read lands, then warns or steps up by what it says. Held-and-silent read as broken on a slow link, which is the opposite of what a panel about account recovery wants to convey;
 - shows the codes once with copy + `.txt` download, and gates the Done button on an explicit "I've saved these" checkbox. The file is named after the product the view is rendered for (`recoveryCodesFileName`: "Musubi" → `musubi-recovery-codes.txt`), so somebody who keeps codes for several services can tell the files apart;
 - fails soft on a status read error — the count goes unknown, generation still works.
 
-Props: `client`, `stepUpClient`, `productName` (the name the download is filed under; `@osn/auth-ui` names no product of its own), plus optional `runPasskeyCeremony` (kept caller-side so `@osn/auth-ui` doesn't depend on `@simplewebauthn/browser`), `totpClient`, `passkeyOnly`, `onSaved`.
+Props: `client`, `stepUpClient`, `productName` (the name the download is filed under; `@osn/auth-ui` names no product of its own), plus optional `runPasskeyCeremony` (kept caller-side so `@osn/auth-ui` doesn't depend on `@simplewebauthn/browser`), `totpClient`, `passkeyOnly`, `onSaved`, `read` (a `SettingsRead` of the status, [[frontend-patterns#Page data: one cache, keyed by the session]]).
 
 Mounted in `musubi/social/src/components/SecuritySection.tsx` — Settings → Security, under the passkey list. cire's portal mounts none of the auth-ui views; its `SecurityPanel` links to Musubi instead.
 

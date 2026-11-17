@@ -273,11 +273,13 @@ describe("PasskeysView", () => {
     expect(pk.list).toHaveBeenCalledTimes(2);
   });
 
-  // The deleted row stays on screen until the list is read again; acting on it
-  // then would run a whole step-up for a passkey that is gone.
-  it("locks every row's actions while the list is read again after a delete", async () => {
+  // The deleted row leaves at once. The list is read again behind the rest,
+  // and a Remove pressed meanwhile is busy until that read lands: acting on a
+  // row the read takes off would run a whole step-up for a passkey that is gone.
+  it("takes a deleted row off at once, and holds a Remove pressed while the list is read again", async () => {
+    let answerReread: (value: unknown) => void = () => {};
     pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
-    pk.list.mockReturnValueOnce(new Promise(() => {}));
+    pk.list.mockReturnValueOnce(new Promise((resolve) => (answerReread = resolve)));
     pk.delete.mockResolvedValue({ success: true, remaining: 1 });
     armPasskeyStepUp(su);
 
@@ -296,13 +298,21 @@ describe("PasskeysView", () => {
     await useThePasskeyFactor();
     await waitFor(() => expect(pk.list).toHaveBeenCalledTimes(2));
 
-    const actions = [
-      ...screen.getAllByRole("button", { name: /^Rename / }),
-      ...screen.getAllByRole("button", { name: /^Remove / }),
-      screen.getByRole("button", { name: "Add a passkey" }),
-    ] as HTMLButtonElement[];
-    expect(actions).toHaveLength(5);
-    for (const b of actions) expect(b.disabled).toBe(true);
+    expect(screen.queryByText("Work laptop")).toBeNull();
+    const remove = screen.getByRole("button", { name: "Remove Synced passkey" });
+    fireEvent.click(remove);
+    expect(remove.getAttribute("aria-busy")).toBe("true");
+    expect(
+      (screen.getByRole("button", { name: "Add a passkey" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // The read again says the passkey is gone: nothing opens.
+    answerReread({ passkeys: [] });
+    await waitFor(() => expect(screen.queryByText("Synced passkey")).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // One step-up ran, for the first removal; none for the second.
+    expect(su.passkeyBegin).toHaveBeenCalledTimes(1);
   });
 
   it("asks before a removal in the step-up sheet, named and described by the removal, never window.confirm", async () => {
