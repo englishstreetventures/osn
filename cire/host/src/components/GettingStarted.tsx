@@ -117,6 +117,9 @@ export default function GettingStarted(props: {
   const [settled, setSettled] = createSignal(
     untrack(() => events() !== null && guests() !== null && invite() !== null),
   );
+  // A read that failed hides the guide, rather than counting what it never got
+  // as empty and showing a half-done checklist.
+  const [failed, setFailed] = createSignal(false);
   void (async () => {
     const results = await Promise.allSettled([
       ensureEventsLoaded(props.weddingId, () => read<EventRow[]>("/events")),
@@ -126,6 +129,7 @@ export default function GettingStarted(props: {
     for (const result of results) {
       if (result.status === "rejected" && isAuthExpired(result.reason)) redirectToLogin();
     }
+    setFailed(results.some((result) => result.status === "rejected"));
     setSettled(true);
   })();
 
@@ -133,7 +137,7 @@ export default function GettingStarted(props: {
   // `<Show when={snapshot()}>` below), rather than pretending to a snapshot
   // it does not have yet.
   const snapshot = createMemo<Snapshot | null>(() => {
-    if (!settled()) return null;
+    if (!settled() || failed()) return null;
     // Guest rows repeat per family member — dedupe to families, and a family
     // counts as "sent" if any of its rows carries a codeSharedAt.
     const sharedByFamily = new Map<string, boolean>();

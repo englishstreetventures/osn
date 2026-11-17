@@ -110,12 +110,14 @@ describe("GettingStarted", () => {
   });
 
   it("renders nothing when the snapshot fetch fails", async () => {
-    // Fail soft: the resource resolves to null and the panel hides itself, so a
-    // dead fetch never leaves a half-derived "0 / 4 done" on the dashboard.
+    // Fail soft: the panel hides itself, so a dead fetch never leaves a
+    // half-derived "0 / 4 done" on the dashboard.
     authFetchMock.mockImplementation(() => Promise.reject(new Error("network down")));
     const { container } = render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    // Every read has settled, failed, before the panel decides.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(container.textContent).toBe("");
   });
 

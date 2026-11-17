@@ -39,7 +39,6 @@ export function patchBudgetTotal(weddingId: string, budgetTotalMinor: number | n
   if (settings) cache.setCached(weddingId, { ...settings, budgetTotalMinor });
 }
 
-export const invalidateSettings = (weddingId: string) => cache.invalidate(weddingId);
 export const dropSettings = (weddingId: string) => cache.drop(weddingId);
 /** Test-only. */
 export const __resetSettingsCache = () => cache.reset();

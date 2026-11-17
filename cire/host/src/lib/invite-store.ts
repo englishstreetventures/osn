@@ -14,8 +14,6 @@ import { CACHE_MAX_AGE_MS, createWeddingCache } from "./wedding-cache";
 const cache = createWeddingCache<InviteCustomisation>({ maxAgeMs: CACHE_MAX_AGE_MS });
 
 export const inviteAccessor = (weddingId: string) => cache.accessor(weddingId);
-export const hasCachedInvite = (weddingId: string) => cache.has(weddingId);
-export const peekCachedInvite = (weddingId: string) => cache.peek(weddingId);
 export const ensureInviteLoaded = (
   weddingId: string,
   fetcher: () => Promise<InviteCustomisation>,

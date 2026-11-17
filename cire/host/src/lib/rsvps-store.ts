@@ -41,8 +41,6 @@ export interface RsvpReplies {
 const replies = createWeddingCache<RsvpReplies>({ maxAgeMs: CACHE_MAX_AGE_MS });
 
 export const rsvpsAccessor = (weddingId: string) => replies.accessor(weddingId);
-/** Fresh replies, whichever view read them. */
-export const hasCachedRsvps = (weddingId: string) => replies.has(weddingId);
 /** Fresh replies the table read with its badges: a visit to the table that
  *  finds these has nothing to mark and nothing to read. */
 export const hasTableRsvps = (weddingId: string) =>

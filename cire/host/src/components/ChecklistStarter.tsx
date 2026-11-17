@@ -72,7 +72,7 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
 
   /** The preview, read unless the cache holds a fresh one (`starter-store.ts`):
    *  a dialog opened again shows it at once. */
-  async function show() {
+  async function show(retried = false) {
     setOpen(true);
     setPreview(null);
     setPicked(new Set<string>());
@@ -93,6 +93,12 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
       });
       const value = cached();
       if (loaded && value && open()) choose(value);
+      // A change to the tasks dropped the read while it was out: read the
+      // preview again, once, rather than leave the dialog loading.
+      else if (!loaded && open() && !retried) await show(true);
+      else if (!loaded && open()) {
+        setLoadError("Couldn't load the starter checklist. Try again in a moment.");
+      }
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setLoadError("Couldn't load the starter checklist. Try again in a moment.");
