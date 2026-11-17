@@ -7,9 +7,14 @@
 // re-read, the generation guard and the rule that no read lands across one of
 // the portal's own task writes all live there, shared with the run sheet,
 // whose rows the same writes change. The writes are counted by `taskWrites`.
+//
+// Every change to the tasks this store learns of also marks the starter
+// checklist's cached preview stale (`starter-store.ts`), since the preview says
+// which of its items are already on the checklist.
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
 import { createRereadCache } from "./reread-cache";
+import { invalidateStarterPreview } from "./starter-store";
 import { taskWrites } from "./task-writes";
 import { isWeddingClosed } from "./wedding-scope";
 
@@ -126,6 +131,7 @@ export function hasCachedTasks(weddingId: string): boolean {
 
 export function setCachedTasks(weddingId: string, tasks: TaskRow[]): void {
   cache.setCached(weddingId, tasks);
+  invalidateStarterPreview(weddingId);
 }
 
 /**
@@ -136,6 +142,7 @@ export function setCachedTasks(weddingId: string, tasks: TaskRow[]): void {
  */
 export function setFreshTasks(weddingId: string, tasks: TaskRow[]): void {
   cache.setFresh(weddingId, tasks);
+  invalidateStarterPreview(weddingId);
 }
 
 /** Subscribes only when the entry already exists — a read from a cold cache
@@ -153,6 +160,7 @@ export function peekCachedTasks(weddingId: string): TaskRow[] | null {
  */
 export function markTasksStale(weddingId: string): void {
   cache.markStale(weddingId);
+  invalidateStarterPreview(weddingId);
 }
 
 /**
@@ -170,6 +178,7 @@ export function rereadTasks(
   weddingId: string,
   fetcher: () => Promise<TaskRow[]>,
 ): Promise<boolean> {
+  invalidateStarterPreview(weddingId);
   return cache.reread(weddingId, fetcher);
 }
 
@@ -181,6 +190,7 @@ export function rereadTasks(
  */
 export function invalidateTasks(weddingId: string): void {
   cache.invalidate(weddingId);
+  invalidateStarterPreview(weddingId);
 }
 
 /**

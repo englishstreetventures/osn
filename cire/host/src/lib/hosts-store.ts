@@ -6,10 +6,15 @@
 //
 // The co-host panel keeps its own list, because it writes that list a row at
 // a time. It hands this cache the list it reads on opening, and marks this one
-// stale after each seat it adds, re-roles or removes. Effect is deliberately
-// NOT imported (frontend code).
+// stale after each seat it adds, re-roles or removes. It also keeps the whole
+// read it opened on — every row's details, the total and the people limit — in
+// a second cache here (`setFreshHostsPanel`), so it reopens without a request;
+// that one goes stale with the seats, after any panel write, and once a minute
+// old. Effect is deliberately NOT imported (frontend code).
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
+import type { PeopleLimit } from "./people-limit";
+import { CACHE_MAX_AGE_MS, createWeddingCache } from "./wedding-cache";
 import type { WeddingRole } from "./wedding-roles";
 import { isWeddingClosed } from "./wedding-scope";
 
@@ -76,6 +81,7 @@ export function hasCachedHosts(weddingId: string): boolean {
 /** Mark the seats stale. They stay on screen; the next `ensureHostsLoaded`
  *  fetches, and a load already in flight discards what it gets. */
 export function invalidateHosts(weddingId: string): void {
+  panel.invalidate(weddingId);
   stale.add(weddingId);
   inflight.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
@@ -136,6 +142,7 @@ export function ensureHostsLoaded(
 /** Forget a wedding's seats. A view still holding the old accessor reads
  *  `null` from then on. */
 export function dropHosts(weddingId: string): void {
+  panel.drop(weddingId);
   cache.get(weddingId)?.setHosts(null);
   cache.delete(weddingId);
   inflight.delete(weddingId);
@@ -145,8 +152,57 @@ export function dropHosts(weddingId: string): void {
 
 /** Test-only: clear the whole cache so each test starts cold. */
 export function __resetHostsCache(): void {
+  panel.reset();
   cache.clear();
   inflight.clear();
   generation.clear();
   stale.clear();
 }
+
+/** One seat as the co-host panel reads it from `GET …/hosts`. */
+export interface HostPanelRow {
+  /** The seat id a checklist task's `assigneeHostIds` name. Absent on the add
+   *  response, which does not echo it. */
+  hostId?: string;
+  osnProfileId: string;
+  /** The person's OSN handle: echoed by the add response, and on the list when
+   *  its lookup resolved one. A row without one shows the profile id. */
+  handle?: string;
+  /** The person's OSN display name, when the list's lookup resolved one. */
+  displayName?: string;
+  /** The person's OSN photo, an https URL, when the list's lookup found one.
+   *  The panel draws none; it hands it to the checklist's holder faces. */
+  avatarUrl?: string;
+  role: WeddingRole;
+  createdAt: number;
+  /** Who created this seat. Absent on the add response (it is by definition the
+   *  caller) and on a mid-deploy payload from an older API. */
+  addedByOsnProfileId?: string;
+  /** The adder's handle when the batch lookup resolved it. */
+  addedByHandle?: string;
+  /** How far into the run sheet a helper sees, as the API sent it: on helper
+   *  rows only. Read through `scopeOf`, which takes anything else as `own`. */
+  runSheetScope?: string;
+}
+
+/** What the co-host panel opened on. */
+export interface HostsPanelRead {
+  rows: HostPanelRow[];
+  /** How many seats the wedding has; more than `rows` when the API truncated. */
+  total: number;
+  peopleLimit: PeopleLimit | null;
+}
+
+const panel = createWeddingCache<HostsPanelRead>({ maxAgeMs: CACHE_MAX_AGE_MS });
+
+/** The panel's last read, when still fresh; `null` sends the panel to read. */
+export function freshHostsPanel(weddingId: string): HostsPanelRead | null {
+  return panel.has(weddingId) ? panel.peek(weddingId) : null;
+}
+
+/** A read the panel just made. */
+export const setFreshHostsPanel = (weddingId: string, read: HostsPanelRead) =>
+  panel.setFresh(weddingId, read);
+
+/** The panel changed a seat: its next opening reads again. */
+export const invalidateHostsPanel = (weddingId: string) => panel.invalidate(weddingId);
