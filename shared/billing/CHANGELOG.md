@@ -1,5 +1,12 @@
 # @shared/billing
 
+## 0.1.20
+
+### Patch Changes
+
+- Updated dependencies [db8c428]
+  - @shared/observability@0.26.3
+
 ## 0.1.19
 
 ### Patch Changes

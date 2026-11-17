@@ -1,5 +1,12 @@
 # @shared/realtime
 
+## 0.2.27
+
+### Patch Changes
+
+- Updated dependencies [db8c428]
+  - @shared/observability@0.26.3
+
 ## 0.2.26
 
 ### Patch Changes

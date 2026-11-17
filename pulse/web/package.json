@@ -1,6 +1,6 @@
 {
   "name": "@pulse/web",
-  "version": "0.24.95",
+  "version": "0.24.96",
   "private": true,
   "description": "Pulse - Events platform for OSN",
   "type": "module",
