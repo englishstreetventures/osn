@@ -19,6 +19,7 @@ import {
   type HostSeat,
   invalidateHosts,
   invalidateHostsPanel,
+  refuseHostsPanel,
   setFreshHosts,
   setFreshHostsPanel,
 } from "../lib/hosts-store";
@@ -579,6 +580,9 @@ export default function HostsPanel(props: HostsPanelProps) {
       setError(null);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      // The read was refused or failed: the next opening does not draw the
+      // cached read either.
+      refuseHostsPanel(props.weddingId);
       if (first && seq === loadSeq) setError("Could not load hosts. Is the API running?");
     } finally {
       if (first) setLoading(false);

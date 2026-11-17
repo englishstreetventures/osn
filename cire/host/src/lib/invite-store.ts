@@ -24,6 +24,8 @@ export const ensureInviteLoaded = (
 export const setFreshInvite = (weddingId: string, invite: InviteCustomisation) =>
   cache.setFresh(weddingId, invite);
 export const invalidateInvite = (weddingId: string) => cache.invalidate(weddingId);
+/** The builder's own read was refused: nobody draws the cached invite. */
+export const refuseInvite = (weddingId: string) => cache.refuse(weddingId);
 export const dropInvite = (weddingId: string) => cache.drop(weddingId);
 /** Test-only. */
 export const __resetInviteCache = () => cache.reset();

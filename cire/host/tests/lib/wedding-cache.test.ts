@@ -158,6 +158,19 @@ describe("createWeddingCache", () => {
     expect(cache.has("wed_1")).toBe(true);
   });
 
+  it("stops showing a value whose reader's own read was refused", async () => {
+    await cache.ensureLoaded("wed_1", async () => "rows");
+    const inFlight = deferred<string>();
+    cache.invalidate("wed_1");
+    const load = cache.ensureLoaded("wed_1", () => inFlight.promise);
+    cache.refuse("wed_1");
+    expect(cache.accessor("wed_1")()).toBeNull();
+    inFlight.resolve("read before the refusal");
+    await expect(load).resolves.toBe(false);
+    expect(cache.accessor("wed_1")()).toBeNull();
+    expect(cache.has("wed_1")).toBe(false);
+  });
+
   it("keeps a stale mark through setCached", async () => {
     await cache.ensureLoaded("wed_1", async () => "rows");
     cache.invalidate("wed_1");

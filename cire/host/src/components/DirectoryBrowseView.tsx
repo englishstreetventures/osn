@@ -15,6 +15,7 @@ import {
   type BrowseListing,
   freshDirectoryPage,
   markDirectoryListingAdded,
+  refuseDirectoryPage,
   setFreshDirectoryPage,
 } from "../lib/directory-store";
 import { FIELD_BAR_CLASS } from "../lib/form-field";
@@ -127,6 +128,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
       setOffset(currentOffset);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      refuseDirectoryPage(props.weddingId);
       setError("Couldn't load the vendor directory. Refresh to try again.");
     } finally {
       setLoading(false);

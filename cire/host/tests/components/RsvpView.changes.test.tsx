@@ -163,16 +163,37 @@ describe("RsvpView — New badges", () => {
     expect(seenCalls()[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ seq: 9 }) });
   });
 
-  it("reads and marks nothing again when the table reopens on its own fresh read", async () => {
+  it("draws a reopened table from its own fresh read, and reads again only once drawn", async () => {
     routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 9));
     const first = render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(seenCalls()).toHaveLength(1));
     first.unmount();
+    routeFetch(feed([], 0));
     const reads = authFetchMock.mock.calls.length;
     render(() => <RsvpView weddingId="wed_a" />);
-    await screen.findByRole("tab", { name: /^Reception/ });
+    // Drawn in the mount itself, with nothing sent and no badges.
+    expect(screen.getByRole("tab", { name: /^Reception/ })).toBeVisible();
     expect(authFetchMock.mock.calls.length).toBe(reads);
     expect(screen.queryByText("New")).toBeNull();
+    // Then the replies and their badges are read again behind it.
+    await waitFor(() => expect(authFetchMock.mock.calls.length).toBe(reads + 2));
+  });
+
+  it("stops showing cached rows when the read behind them is refused", async () => {
+    routeFetch(feed([], 0));
+    const first = render(() => <RsvpView weddingId="wed_a" />);
+    await screen.findByRole("tab", { name: /^Reception/ });
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/rsvp-changes/rows")),
+      ).toBe(true),
+    );
+    first.unmount();
+    authFetchMock.mockImplementation(async () => json({ error: "Forbidden" }, 403));
+    render(() => <RsvpView weddingId="wed_a" />);
+    expect(screen.getByRole("tab", { name: /^Reception/ })).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole("tab", { name: /^Reception/ })).toBeNull());
+    expect(screen.getByText(/Could not load RSVPs/i)).toBeTruthy();
   });
 
   it("reads the badges and marks them seen when the cached replies came without them", async () => {

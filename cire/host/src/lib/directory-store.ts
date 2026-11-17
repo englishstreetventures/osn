@@ -55,6 +55,8 @@ export function markDirectoryListingAdded(weddingId: string, listingId: string):
 
 /** A vendor left the wedding: a listing may no longer be in it. */
 export const invalidateDirectoryPage = (weddingId: string) => cache.invalidate(weddingId);
+/** A directory read was refused: the cached page is not drawn again. */
+export const refuseDirectoryPage = (weddingId: string) => cache.refuse(weddingId);
 export const dropDirectoryPage = (weddingId: string) => cache.drop(weddingId);
 /** Test-only. */
 export const __resetDirectoryCache = () => cache.reset();

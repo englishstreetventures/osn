@@ -79,7 +79,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/a
 import { INVITE_VIEWS, type InviteView } from "../../lib/dashboard-route";
 import type { ImageCrop } from "../../lib/image-crop";
 import { faqState, footerState, heroState, storyState } from "../../lib/invite-emptiness";
-import { freshInvite, patchInviteFaqs, setFreshInvite } from "../../lib/invite-store";
+import { freshInvite, patchInviteFaqs, refuseInvite, setFreshInvite } from "../../lib/invite-store";
 import { CIRE_WEB_URL } from "../../lib/osn";
 import { CLEAR_OF_SAVE_BAR, trackSaveBarHeight } from "../../lib/save-bar";
 import { haptic } from "../../lib/touch-feedback";
@@ -264,6 +264,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           throw new Error("unauthorised");
         }
         if (!res.ok) {
+          // Nobody draws the cached invite after a refused read.
+          refuseInvite(props.weddingId);
           if (info.value) {
             setError("Could not reload the invite. Try again.");
             return info.value;

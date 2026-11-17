@@ -40,6 +40,10 @@ export interface WeddingCache<T> {
   /** The value is known out of date: keep showing it, read again on the next
    *  load, and drop any load in flight. */
   invalidate(weddingId: string): void;
+  /** A read the caller made on its own was refused or failed: the value it
+   *  had shown stops being shown, as a refused `ensureLoaded` does, and a load
+   *  in flight drops what it fetches. */
+  refuse(weddingId: string): void;
   /** Load the value unless a fresh one is cached; one load in flight per
    *  wedding. Resolves `true` once it is cached, `false` when the load was
    *  dropped or the wedding is closed, and rejects (blanking the value) when
@@ -142,6 +146,13 @@ export function createWeddingCache<T>(options: { maxAgeMs: number }): WeddingCac
       // A mounted view keeps the value it shows; the mark makes the next load
       // read again, and the bump drops a load sent before the change.
       stale.add(weddingId);
+      inflight.delete(weddingId);
+      bump(weddingId);
+    },
+    refuse(weddingId) {
+      cache.get(weddingId)?.setValue(null);
+      readAt.delete(weddingId);
+      stale.delete(weddingId);
       inflight.delete(weddingId);
       bump(weddingId);
     },

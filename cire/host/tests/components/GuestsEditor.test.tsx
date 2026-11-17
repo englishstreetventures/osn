@@ -835,6 +835,22 @@ describe("GuestsEditor", () => {
       await waitFor(() => expect(screen.getByDisplayValue("Adaeze")).toBeTruthy());
     });
 
+    it("stops showing a cached draft when the head is refused once drawn", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      // The seat lost its edit rights: the editor-only head is refused.
+      authFetchMock.mockImplementation(async (url: string) =>
+        String(url).endsWith("/changes/head") ? json({ error: "Forbidden" }, 403) : fallback(url),
+      );
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      expect(screen.getByDisplayValue("Ada")).toBeTruthy();
+      await waitFor(() => expect(screen.queryByDisplayValue("Ada")).toBeNull());
+      expect(screen.getByText(/You can no longer edit the guest list/i)).toBeTruthy();
+    });
+
     it("records no head for the rows when one slice failed to load", async () => {
       authFetchMock.mockImplementation((url: string) => {
         const u = String(url);

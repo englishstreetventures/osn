@@ -41,6 +41,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api"
 import { basisFor, recordBasis } from "../lib/change-basis";
 import {
   isHeadMoved,
+  HeadRefusedError,
   isPreviewExpired,
   loadHeadRevision,
   revisionOf,
@@ -271,7 +272,15 @@ export default function EventsEditor(props: { weddingId: string }) {
       } else await loadInto();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      // A failed check leaves the draft as drawn: a save still carries its head.
+      // Refused: this seat may no longer edit, so the rows drawn from the
+      // cache stop being shown. Any other failure leaves the draft as drawn:
+      // a save still carries its head.
+      if (err instanceof HeadRefusedError && !gone) {
+        store.reset();
+        setLoadError(
+          "You can no longer edit the schedule. Reload the page to see your current access.",
+        );
+      }
     }
   }
 

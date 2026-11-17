@@ -46,6 +46,7 @@ import {
 } from "solid-js";
 import { createStore, reconcile, unwrap } from "solid-js/store";
 
+import { afterPaint } from "../lib/after-paint";
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { CIRE_MARKETING_URL } from "../lib/osn";
 import {
@@ -412,6 +413,8 @@ export default function RsvpView(props: RsvpViewProps) {
         redirectToLogin();
         return false;
       }
+      // Rows drawn from the cache stop being shown once a read is refused.
+      setState("events", []);
       setError("Could not load RSVPs. Is the API running?");
       return false;
     } finally {
@@ -441,11 +444,25 @@ export default function RsvpView(props: RsvpViewProps) {
   // change made deep in another list does not clamp the page meanwhile.
   const ready = holdUntilReady();
 
+  // A fresh read of the table's own is drawn at once, then read again once
+  // drawn: the read behind it confirms this seat may still see the replies and
+  // brings any change a guest made since, badged. Otherwise it is read now.
+  let gone = false;
+  onCleanup(() => {
+    gone = true;
+  });
   onMount(() => {
-    if (hasTableRsvps(props.weddingId)) {
+    const drawn = hasTableRsvps(props.weddingId);
+    if (drawn) {
       ready();
+      afterPaint(() => {
+        if (!gone) readAndMark();
+      });
       return;
     }
+    readAndMark();
+  });
+  function readAndMark() {
     const first = load();
     void first.finally(ready);
     void first.then(async (feed) => {
@@ -457,7 +474,7 @@ export default function RsvpView(props: RsvpViewProps) {
       invalidateRsvpChanges(props.weddingId);
       return true;
     });
-  });
+  }
 
   const hasEvents = () => state.events.length > 0;
   /** A file with no guests in it is only its header row, so none is offered. */

@@ -34,6 +34,7 @@ import { basisFor, recordBasis } from "../lib/change-basis";
 import {
   isChangeInProgress,
   isHeadMoved,
+  HeadRefusedError,
   isPreviewExpired,
   loadHeadRevision,
   revisionOf,
@@ -356,7 +357,15 @@ export default function GuestsEditor(props: {
       } else await loadInto();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      // A failed check leaves the draft as drawn: a save still carries its head.
+      // Refused: this seat may no longer edit, so the rows drawn from the
+      // cache stop being shown. Any other failure leaves the draft as drawn:
+      // a save still carries its head.
+      if (err instanceof HeadRefusedError && !gone) {
+        store.reset();
+        setLoadError(
+          "You can no longer edit the guest list. Reload the page to see your current access.",
+        );
+      }
     }
   }
 
