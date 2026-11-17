@@ -1,5 +1,13 @@
 # @shared/realtime
 
+## 0.2.26
+
+### Patch Changes
+
+- adec70d: Tests only: cases a kept sibling already fails on are removed, each checked by breaking the source and watching both fail, and the observability Worker import walk now follows multi-line exports. Tests that could not fail now can, and realtime and email tests that waited on the real clock run on the test clock.
+- Updated dependencies [adec70d]
+  - @shared/observability@0.26.2
+
 ## 0.2.25
 
 ### Patch Changes

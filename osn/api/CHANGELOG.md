@@ -1,5 +1,17 @@
 # @osn/osn
 
+## 3.42.7
+
+### Patch Changes
+
+- Updated dependencies [adec70d]
+  - @shared/crypto@0.15.5
+  - @shared/observability@0.26.2
+  - @shared/email@0.19.1
+  - @shared/db-utils@0.9.5
+  - @shared/coordination@0.1.4
+  - @osn/db@0.28.3
+
 ## 3.42.6
 
 ### Patch Changes
