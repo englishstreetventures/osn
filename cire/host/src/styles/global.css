@@ -1079,62 +1079,74 @@
 /* ── A row's popover: a droplet ─────────────────────────────────────────────
  * The popovers on a checklist row — the one that puts people on a task and
  * the one that sets its time on the day — grow out of the control that opened
- * them: a small round drop at the trigger, springing out to the panel and
- * squaring its corners as it lands, with what is inside fading in once it has
- * room. `transform-origin` is the point Kobalte works out for the side the
- * panel opened on, so the drop leaves from the trigger whether the panel
- * opened below it or flipped above.
+ * them: from 40% of their size, their corners round, they grow to the panel
+ * while the corners square to 10px, all on one ease-out curve over the slow
+ * rung, so the growth and the squaring are one movement, with no overshoot.
+ * The panel is opaque by 30% of the run, and what is inside fades in from 20%,
+ * while the panel is still growing. `transform-origin` is the point Kobalte
+ * works out for the side the panel opened on, so the drop leaves from the
+ * trigger whether the panel opened below it or flipped above.
+ *
+ * The owner's choice ("Bigger drop", from a pressable prototype): from 40% on
+ * `--ease-out` the panel grows about 58px in its first frame at a desk and
+ * less each frame after, so enough of the growth out of the trigger shows
+ * without a leap. A drop from 12% on
+ * the house spring, which peaks at 29% of the run, grows about 90px a frame
+ * for three frames, overshoots by 7% and squares its corners only once it is
+ * full size: three movements in a fifth of a second, which read as a jump and
+ * a wobble. The corners start at `50%`, round on any panel and visibly
+ * changing on every frame; from a pill's 999px nothing visible changes until
+ * the last eighth of the run.
  *
  * A true "goo" — an SVG filter melting the panel out of the trigger — is not
  * done: the panel portals to `<body>`, away from the trigger, and the filter
  * would blur the panel's own border and shadow.
  *
- * Two animations on the panel, because each wants its own easing: the scale
- * springs; the corners only ease. The contents fade by keyframe percentage,
- * not by `animation-delay`: the reduced-motion block zeroes durations and
- * leaves delays alone, and a delayed fade would hold the list back for a
- * reader who asked for no motion at all. With it, the popover simply appears.
+ * The panel moves by transitions, not keyframes, so it can be caught: closed
+ * while it is still growing, it shrinks from the size it has reached; opened
+ * again while it is closing, it grows from there. Keyframes would jump to
+ * their own first frame. It arrives from `@starting-style`, set on the open
+ * state so the round corners outrank the call site's `rounded-md`, a single
+ * class the cascade would otherwise let win the starting style too. Leaving,
+ * it shrinks to 60% and fades, ease-out on the fast rung, its corners
+ * going on to 10px from wherever they were.
  *
- * Kobalte keeps a closing popover mounted until its *animation* ends, so the
- * exit is keyframes too.
+ * Opened from the keyboard (`data-instant`), it neither grows nor fades: it is
+ * there at once, and goes at once.
+ *
+ * Kobalte keeps a closing popover mounted only while a CSS *animation* runs,
+ * and only one whose name differs from the last that started on it, so two
+ * keyframes that change nothing carry the lifecycle: `droplet-open` as it
+ * opens, `droplet-close` for the length of the exit.
+ *
+ * The transitions are declared only under `no-preference`: the reduced-motion
+ * clamp shortens a transition rather than removing it, and a starting style
+ * would still paint its first frame small and clear. With reduced motion the
+ * popover simply appears and goes. The contents fade by keyframe percentage,
+ * not by `animation-delay`, for the same reader: the clamp zeroes durations
+ * and leaves delays alone, and a delayed fade would hold the list back.
  */
-@keyframes droplet-grow {
-  from {
-    opacity: 0;
-    transform: scale(0.12);
-  }
-  30% {
-    opacity: 1;
-  }
+@keyframes droplet-open {
+  from,
   to {
-    opacity: 1;
-    transform: scale(1);
+    visibility: visible;
   }
 }
 
-@keyframes droplet-round {
-  from {
-    border-radius: var(--radius-pill);
-  }
+@keyframes droplet-close {
+  from,
   to {
-    border-radius: var(--radius-md);
+    visibility: visible;
   }
 }
 
 @keyframes droplet-content {
   from,
-  45% {
+  20% {
     opacity: 0;
   }
   to {
     opacity: 1;
-  }
-}
-
-@keyframes droplet-out {
-  to {
-    opacity: 0;
-    transform: scale(0.6);
   }
 }
 
@@ -1142,17 +1154,47 @@
   transform-origin: var(--kb-popover-content-transform-origin);
 
   &[data-expanded] {
-    animation:
-      droplet-grow var(--dur-slow) var(--ease-spring),
-      droplet-round var(--dur-slow) var(--ease-out);
+    animation: droplet-open var(--dur-slow);
   }
   &[data-closed] {
-    animation: droplet-out var(--dur-fast) var(--ease-in-out);
+    opacity: 0;
+    transform: scale(0.6);
+    animation: droplet-close var(--dur-fast);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition:
+      transform var(--dur-slow) var(--ease-out),
+      opacity calc(var(--dur-slow) * 0.3) var(--ease-out),
+      border-radius var(--dur-slow) var(--ease-out);
+
+    @starting-style {
+      &[data-expanded] {
+        opacity: 0;
+        transform: scale(0.4);
+        border-radius: 50%;
+      }
+    }
+
+    &[data-closed] {
+      transition:
+        transform var(--dur-fast) var(--ease-out),
+        opacity var(--dur-fast) var(--ease-out),
+        border-radius var(--dur-fast) var(--ease-out);
+    }
+
+    &[data-instant] {
+      transition: none;
+    }
   }
 }
 
 @utility droplet-popover-body {
   animation: droplet-content var(--dur-slow) var(--ease-out);
+
+  [data-instant] > & {
+    animation: none;
+  }
 }
 
 /* The tick landing in a person's circle as they go on a task. */
@@ -1178,7 +1220,7 @@
  * portal menu (`@shared/ui` `menu-classes.ts`, on this file's `--dur-fast`
  * and `--ease-out`). Short and with no
  * overshoot: a menu is reached for many times a session, and the droplet's
- * spring is kept for the checklist row it belongs to.
+ * longer growth is kept for the checklist row it belongs to.
  *
  * Entry only. These are keyboard-driven, and Kobalte hands focus back to the
  * trigger as the panel goes: held mounted for an exit animation, a closing
