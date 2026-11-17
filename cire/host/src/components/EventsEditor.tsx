@@ -32,10 +32,13 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { afterPaint } from "../lib/after-paint";
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { basisFor, recordBasis } from "../lib/change-basis";
 import {
   isHeadMoved,
   isPreviewExpired,
@@ -57,6 +60,7 @@ import {
   ensureEventsLoaded,
   type EventRow,
   eventsAccessor,
+  hasCachedEvents,
   invalidateEvents,
 } from "../lib/events-store";
 import {
@@ -66,6 +70,7 @@ import {
   type FieldError,
   runOfShowItem,
 } from "../lib/guest-event-draft";
+import { guestListChanged } from "../lib/guest-list-changed";
 import { invalidateGuests } from "../lib/guests-store";
 import { CLEAR_OF_SAVE_BAR, trackSaveBarHeight } from "../lib/save-bar";
 import { scheduleChanged } from "../lib/schedule-changed";
@@ -207,7 +212,19 @@ export default function EventsEditor(props: { weddingId: string }) {
       if (!fresh || rows == null) throw new Error("event slice unavailable");
       return rows;
     });
+    recordBasis(props.weddingId, revision, { events });
     return { revision, events };
+  }
+
+  /** The events the cache holds, when they were read after a head an editor
+   *  read and have not changed since (`change-basis.ts`): a draft built from
+   *  them may carry that head, so a visit draws at once. */
+  function cachedRows() {
+    const events = eventsAccessor(props.weddingId)();
+    const revision = basisFor(props.weddingId, {
+      events: { rows: events, fresh: hasCachedEvents(props.weddingId) },
+    });
+    return revision && events ? { revision, events } : null;
   }
 
   async function loadInto(knownRevision?: string) {
@@ -235,10 +252,37 @@ export default function EventsEditor(props: { weddingId: string }) {
     }
   }
 
+  // Drawn at once from the cache when it holds events read after a head, then
+  // checked against the head once drawn: moved by someone else's change, a
+  // draft nobody has touched reloads, and one already edited says it is stale.
+  const cached = untrack(cachedRows);
+  if (cached) store.load(cached.events, [], [], cached.revision);
+  let gone = false;
+  onCleanup(() => {
+    gone = true;
+  });
+  async function checkHead(revision: string) {
+    try {
+      const head = await loadHeadRevision(authFetch, props.weddingId);
+      if (gone || head === revision) return;
+      if (store.dirty()) {
+        setStale(true);
+        setSaveError("Someone else changed the schedule since you opened the editor.");
+      } else await loadInto();
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      // A failed check leaves the draft as drawn: a save still carries its head.
+    }
+  }
+
   onMount(async () => {
     // Same two-layer guard as the guests editor + invite builder: SPA navigation
     // asks before switching away, the browser asks on close/reload.
     onCleanup(registerUnsavedGuard(() => store.dirty()));
+    if (cached) {
+      afterPaint(() => void checkHead(cached.revision));
+      return;
+    }
     try {
       await loadInto();
     } catch (err) {
@@ -396,6 +440,8 @@ export default function EventsEditor(props: { weddingId: string }) {
       // through this editor can touch a household, so invalidating that cache
       // only costs every open consumer a refetch of rows it already has.
       invalidateGuests(props.weddingId);
+      // The RSVP replies name the events and who is invited to each.
+      guestListChanged(props.weddingId);
       setPreview(null);
       setEditingKey(null);
       try {

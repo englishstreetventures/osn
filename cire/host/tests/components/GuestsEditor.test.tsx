@@ -796,6 +796,66 @@ describe("GuestsEditor", () => {
       expect(screen.queryByText("Stale Ceremony")).toBeNull();
     });
 
+    it("reopens on the rows it read after the head, sending nothing before they are drawn", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      authFetchMock.mockClear();
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      // Drawn in the mount itself, from the rows read after the recorded head.
+      expect(screen.getByDisplayValue("Ada")).toBeTruthy();
+      expect(authFetchMock).not.toHaveBeenCalled();
+      // Then, once drawn, the head is checked; it has not moved, so no row is read.
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+      expect(String(authFetchMock.mock.calls[0]![0])).toMatch(/\/changes\/head$/);
+    });
+
+    it("reads the rows again when the head moved and the draft is untouched", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) return Promise.resolve(json({ revision: "rev_moved" }));
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) {
+          return Promise.resolve(
+            json([{ ...GUESTS[0]!, firstName: "Adaeze" }, ...GUESTS.slice(1)]),
+          );
+        }
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        return Promise.resolve(fallback(url));
+      });
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      expect(screen.getByDisplayValue("Ada")).toBeTruthy();
+      await waitFor(() => expect(screen.getByDisplayValue("Adaeze")).toBeTruthy());
+    });
+
+    it("records no head for the rows when one slice failed to load", async () => {
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json({ error: "boom" }, 500));
+        return Promise.resolve(fallback(url));
+      });
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByText(/Could not load the guest list/i)).toBeTruthy());
+      first.unmount();
+      primeLoad();
+      // The households slice now loads, but the events and guests rows have no
+      // recorded head of their own: the editor reads the head and every slice.
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      const urls = authFetchMock.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => u.endsWith("/households"))).toBe(true);
+      expect(urls.some((u) => u.endsWith("/guests"))).toBe(true);
+    });
+
     it("saves again with the head read after the last save", async () => {
       // The head moves with every commit, including this editor's own; a
       // second save still sending the first head would be refused every time.

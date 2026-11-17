@@ -24,10 +24,13 @@ import {
   onMount,
   Show,
   splitProps,
+  untrack,
 } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { afterPaint } from "../lib/after-paint";
 import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { basisFor, recordBasis } from "../lib/change-basis";
 import {
   isChangeInProgress,
   isHeadMoved,
@@ -39,6 +42,7 @@ import {
   ensureEventsLoaded,
   type EventRow,
   eventsAccessor,
+  hasCachedEvents,
   invalidateEvents,
 } from "../lib/events-store";
 import {
@@ -47,14 +51,17 @@ import {
   type DraftGuest,
   EMAIL_ERROR,
 } from "../lib/guest-event-draft";
+import { guestListChanged } from "../lib/guest-list-changed";
 import {
   ensureGuestsLoaded,
   guestsAccessor,
+  hasCachedGuests,
   invalidateGuests,
   type OrganiserGuestRow,
 } from "../lib/guests-store";
 import {
   ensureHouseholdsLoaded,
+  hasCachedHouseholds,
   householdsAccessor,
   invalidateHouseholds,
   type OrganiserHouseholdRow,
@@ -285,7 +292,25 @@ export default function GuestsEditor(props: {
         return rows;
       }),
     ]);
+    recordBasis(props.weddingId, revision, { events, guests, households });
     return { revision, events, guests, households };
+  }
+
+  /** The rows the shared caches hold, when they were read after a head this
+   *  editor read and have not changed since (`change-basis.ts`): a draft built
+   *  from them may carry that head, so a visit draws at once. */
+  function cachedRows() {
+    const events = eventsAccessor(props.weddingId)();
+    const guests = guestsAccessor(props.weddingId)();
+    const households = householdsAccessor(props.weddingId)();
+    const revision = basisFor(props.weddingId, {
+      events: { rows: events, fresh: hasCachedEvents(props.weddingId) },
+      guests: { rows: guests, fresh: hasCachedGuests(props.weddingId) },
+      households: { rows: households, fresh: hasCachedHouseholds(props.weddingId) },
+    });
+    return revision && events && guests && households
+      ? { revision, events, guests, households }
+      : null;
   }
 
   async function loadInto(knownRevision?: string) {
@@ -312,6 +337,29 @@ export default function GuestsEditor(props: {
     }
   }
 
+  // Drawn at once from the caches when they hold rows read after a head, then
+  // checked against the head once drawn: moved by someone else's change, a
+  // draft nobody has touched reloads, and one already edited says it is stale.
+  const cached = untrack(cachedRows);
+  if (cached) store.load(cached.events, cached.guests, cached.households, cached.revision);
+  let gone = false;
+  onCleanup(() => {
+    gone = true;
+  });
+  async function checkHead(revision: string) {
+    try {
+      const head = await loadHeadRevision(authFetch, props.weddingId);
+      if (gone || head === revision) return;
+      if (store.dirty()) {
+        setStale(true);
+        setSaveError("Someone else changed the guest list since you opened the editor.");
+      } else await loadInto();
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      // A failed check leaves the draft as drawn: a save still carries its head.
+    }
+  }
+
   onMount(async () => {
     // A dirty draft is guarded twice: the dashboard's SPA navigation asks before
     // switching module/tab (unsaved-guard), and the browser asks on tab close /
@@ -319,6 +367,10 @@ export default function GuestsEditor(props: {
     // dropped silently by a stray sidebar click, which reads exactly like "the
     // guest I deleted came back".
     onCleanup(registerUnsavedGuard(() => store.dirty()));
+    if (cached) {
+      afterPaint(() => void checkHead(cached.revision));
+      return;
+    }
     try {
       await loadInto();
     } catch (err) {
@@ -451,6 +503,7 @@ export default function GuestsEditor(props: {
             setStale(true);
             invalidateGuests(props.weddingId);
             invalidateHouseholds(props.weddingId);
+            guestListChanged(props.weddingId);
           }
           throw new Error(capacityMessage(body, "editor"));
         }
@@ -463,6 +516,7 @@ export default function GuestsEditor(props: {
       invalidateGuests(props.weddingId);
       invalidateEvents(props.weddingId);
       invalidateHouseholds(props.weddingId);
+      guestListChanged(props.weddingId);
       setPreview(null);
       try {
         await loadInto(revisionOf(applied));

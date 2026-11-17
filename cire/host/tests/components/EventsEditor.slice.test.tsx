@@ -32,6 +32,7 @@ import {
   __resetEventsCache,
   ensureEventsLoaded,
   invalidateEvents,
+  patchCachedEvent,
 } from "../../src/lib/events-store";
 import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { __resetHouseholdsCache } from "../../src/lib/households-store";
@@ -140,4 +141,47 @@ it("loads the schedule fresh after the head, even with a warm cache", async () =
   expect(urls.findIndex((u) => u.endsWith("/changes/head"))).toBeLessThan(
     urls.findIndex((u) => u.endsWith("/events")),
   );
+});
+
+// A later visit reuses the events read after the head the editor last read,
+// drawing at once, and checks the head only once drawn.
+it("reopens on the events it read after the head, sending nothing before they are drawn", async () => {
+  authFetchMock.mockImplementation((url: string) => {
+    const u = String(url);
+    if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+    return Promise.resolve(fallback(url));
+  });
+  const first = render(() => <EventsEditor weddingId="wed_a" />);
+  await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+  first.unmount();
+  authFetchMock.mockClear();
+
+  render(() => <EventsEditor weddingId="wed_a" />);
+  expect(screen.getByText("Ceremony")).toBeTruthy();
+  expect(authFetchMock).not.toHaveBeenCalled();
+  await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+  expect(String(authFetchMock.mock.calls[0]![0])).toMatch(/\/changes\/head$/);
+});
+
+// An event image changed in the schedule table since: the cached array is not
+// the one read after the head, so nothing vouches for its age.
+it("reads the schedule again when the cached events changed since the head was read", async () => {
+  authFetchMock.mockImplementation((url: string) => {
+    const u = String(url);
+    if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+    return Promise.resolve(fallback(url));
+  });
+  const first = render(() => <EventsEditor weddingId="wed_a" />);
+  await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+  first.unmount();
+  patchCachedEvent("wed_a", EVENTS[0]!.id, { imageUrl: "/img.jpg" });
+  authFetchMock.mockClear();
+
+  render(() => <EventsEditor weddingId="wed_a" />);
+  await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+  const urls = authFetchMock.mock.calls.map((c) => String(c[0]));
+  expect(urls.findIndex((u) => u.endsWith("/changes/head"))).toBeLessThan(
+    urls.findIndex((u) => u.endsWith("/events")),
+  );
+  expect(urls.some((u) => u.endsWith("/events"))).toBe(true);
 });
