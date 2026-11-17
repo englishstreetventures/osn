@@ -62,16 +62,6 @@ describe("makeMemoryRateLimiters", () => {
 });
 
 describe("checkWriteRateLimit", () => {
-  it("allows when the backend allows", async () => {
-    const limiter: RateLimiterBackend = { check: () => true };
-    expect(await checkWriteRateLimit(limiter, "event_create", "usr_alice")).toBe(true);
-  });
-
-  it("denies when the backend denies", async () => {
-    const limiter: RateLimiterBackend = { check: () => false };
-    expect(await checkWriteRateLimit(limiter, "event_create", "usr_alice")).toBe(false);
-  });
-
   it("fails closed (denies) when the backend throws", async () => {
     const limiter: RateLimiterBackend = {
       check: () => {

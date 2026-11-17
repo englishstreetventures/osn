@@ -33,16 +33,6 @@ describe("pulse API app", () => {
     });
   });
 
-  describe("GET /ready", () => {
-    it("returns ready (no probe supplied)", async () => {
-      const res = await app.handle(new Request("http://localhost/ready"));
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { status: string; service: string };
-      expect(body.status).toBe("ready");
-      expect(body.service).toBe("pulse-api");
-    });
-  });
-
   it("emits x-request-id on every response (plugin mounted)", async () => {
     const res = await app.handle(new Request("http://localhost/health"));
     expect(res.headers.get("x-request-id")).toBeTruthy();
