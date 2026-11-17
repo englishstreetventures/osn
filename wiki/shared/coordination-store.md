@@ -20,7 +20,7 @@ related:
 packages:
   - "@shared/coordination"
   - "@osn/api"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-18
 ---
 # Coordination store
 
@@ -117,10 +117,10 @@ await client.claim(jti, ttlMs); // calls the object named "step_up_jti:<jti>"
 
 osn-api's namespaces form a closed union, `CoordinationStoreName`, in
 [`osn/api/src/lib/coordination/names.ts`](../../osn/api/src/lib/coordination/names.ts):
-ten ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
+eleven ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
 `step_up_challenge`, `pending_email_change`, `cross_device`,
 `pending_totp_enroll`, `recovery_disown`, `oidc_authorize_request`,
-`email_link`); the five lockouts (`recovery_lockout`,
+`email_link`, `app_step_up`); the five lockouts (`recovery_lockout`,
 `recovery_otp_lockout`, `totp_lockout`, `registration_link_lockout`,
 `step_up_link_lockout`); `step_up_jti`;
 `passkey_challenge_claim`; `health_probe`; and one per limiter, named in the budget table

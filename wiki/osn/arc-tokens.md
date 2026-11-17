@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-18
 ---
 # ARC Tokens (S2S Auth)
 
@@ -198,9 +198,11 @@ INTERNAL_SERVICE_SECRET=<shared-random-string>
 cire-api does not self-register. It signs with a fixed ES256 key held as two
 Worker secrets, `CIRE_API_ARC_PRIVATE_KEY` (a raw JWK string) and
 `CIRE_API_ARC_KEY_ID` (a UUID), and its public half is registered under
-`serviceId` `cire-api` with the four scopes the `ARC_*_SCOPE` constants of
+`serviceId` `cire-api` with the five scopes the `ARC_*_SCOPE` constants of
 `cire/api/src/services/osn-bridge.ts` request: `graph:read`,
-`graph:resolve-account`, `org:read` and `account:email-read`.
+`graph:resolve-account`, `org:read`, `account:email-read` and
+`step-up:verify`, the last for a host's removal of their Cire data
+([[step-up#App step-up requests]]).
 
 - **Production:** registered by hand with `POST /graph/internal/register-service`
   ([[production-deploy]] §6.2). Re-run it whenever the scope list changes: a

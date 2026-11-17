@@ -24,7 +24,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-18
 ---
 
 # Cire
@@ -64,6 +64,7 @@ Two separate systems by design — full contract in [[cire-auth]]:
 - **Google Maps Embed preview (#146)** — venue/location previews use the Maps Embed API, key-optional with a CSS-card fallback when no key is set (same graceful-degradation pattern as Turnstile and the optional email).
 - **Turnstile bot protection (#154)** — guest claim + RSVP (and the organiser-portal OSN register/login) are gated by Cloudflare Turnstile, key-optional + fail-closed; **inert until a widget is created**. See [[turnstile]].
 - **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/auth-ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The flag is still forced on, but its original reason has expired: it was set because the deployed osn-api ran with email degraded, and osn-api has delivered through Resend since 2026-06-18 ([[email]]). Whether to re-enable the OTP factor is an open decision, tracked as an issue in `englishstreetventures/osn`; the code comment in `cire/host/src/components/SecurityPanel.tsx` still cites the degraded-email reason. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
+- **Remove my Cire data** — the portal's account menu opens a screen (`#/remove-data`, `RemoveCireData`) where a host removes their Cire data and keeps their Musubi account: it lists each wedding they hold a seat on and what removal does to it, offers each wedding they alone own its download and a way to add another owner, takes an answer for each, sends them to Musubi to confirm it's them, and removes everything at once ([[cire-auth#A host removes their Cire data]], [[dsar#Cire (wedding-invite) data]]). A wedding's download page (`#/w/<id>/settings/export`) also offers an owner the way to add another owner; Musubi's account deletion links each wedding the person alone owns there.
 
 ## Data model
 

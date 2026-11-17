@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-18
 ---
 
 # Cire development guide
@@ -618,7 +618,12 @@ read from the hash, the same way, though that id only ever selects among the
 events the API returned and never reaches a request path. A tab name from an old
 `#/weddings/<id>/<tab>` link picks a module only when it is one of the legacy
 alias table's own keys (`Object.hasOwn`); any other name, one every object
-inherits included, opens the wedding's default module. Ids further along the path
+inherits included, opens the wedding's default module. A query after the path
+(`#/remove-data?code=…`, where Musubi sends a host back after they confirm
+removing their Cire data) is read before the path is split, by the
+`remove-data` view alone: a code that is not base64url is dropped, and
+`serializeRoute` leaves it out, so the canonical rewrite on load takes it out of
+the address once the screen has kept it. Ids further along the path
 (an item, a task, a payment) are encoded at the call site with
 `encodeURIComponent`. `tests/lib/wedding-path.contract.test.ts` fails on any
 hand-built `/api/organiser/weddings/${…}` outside `api.ts`.

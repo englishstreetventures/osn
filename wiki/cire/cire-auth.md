@@ -14,7 +14,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
   - "[[social-graph]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-18
 ---
 
 # Cire auth model
@@ -407,6 +407,36 @@ lists no adder in `GET /hosts`.
 Ending the person's organiser sessions at the soft delete is not an ARC call:
 osn-api uses the bearer-secret revoke below
 ([[sessions#Sign out everywhere else reaches cire]]).
+
+## A host removes their Cire data
+
+A host can remove their Cire data and keep their Musubi account: "Remove my
+Cire data" in the portal's account menu (`#/remove-data`). It needs the
+organiser session and a step-up, which the portal cannot run (it holds no
+OSN token, and passkeys are bound to Musubi's origin), so the step-up runs on
+Musubi through an app step-up request ([[step-up#App step-up requests]]).
+Three routes in
+[`cire/api/src/routes/organiser-account.ts`](../../cire/api/src/routes/organiser-account.ts),
+each behind `osnAuth` and one per-user limiter (10 a minute), the two writes
+behind the origin guard:
+
+| Route | What |
+|---|---|
+| `POST /api/organiser/account/removal/confirmation` | Asks osn-api to begin a request for the signed-in profile, returning to `<portal>/#/remove-data`, bound to the hash of a fresh secret; sets the `cire_removal` cookie (`<request id>.<secret>`, HttpOnly, `SameSite=Lax`, 10 minutes) and answers the request id. The portal then sends the person to Musubi's `/confirm/<id>` in the same tab, and Musubi sends them back with a code |
+| `POST /api/organiser/account/removal/preview` | Every wedding the person holds a seat on, with its role, whether they alone own it (the deletion preview's own rule) and whether it is already deleted, and the actions their answers must cover. With the code and the cookie, every profile of the account, from osn-api's verify; without, the signed-in profile's |
+| `DELETE /api/organiser/account` | Body `{ code, choices?, deleteEverything? }`, with the cookie. In order: osn-api verifies the request (403 `confirmation_required` when it refuses or either half is missing; 503 when it cannot be reached); its account must be the one cire's own lookup finds for the signed-in profile; each wedding the account alone owns needs `delete` or `deleteEverything` (409 `open_actions` with the fresh list). Then one call of the account erasure with the `host` scope ([[dsar#Cire (wedding-invite) data]]): every seat of every profile goes, a wedding left with no owner is deleted in the same batch, and the person's organiser sessions end, vendor portal included. Their vendor listing claims and guest account links stay. Answers 200 `done`, clearing both cookies, or 202 `not_finished` past three owned weddings, when the portal calls again with the same code |
+
+The other owners of each wedding the person leaves are emailed that they
+left (`wedding-owner-change`, as one who stepped down), spending the
+wedding's notice budget only, so no budget row names the person afterwards.
+The person can sign in to cire again later and starts with no weddings.
+
+Someone holding a stolen organiser cookie can ask for a confirmation in
+their own browser, but the code goes to whoever confirms on Musubi; the
+binding secret stays in the browser that asked. Tests:
+`cire/api/tests/routes/organiser-account.test.ts`,
+`cire/api/tests/services/account-removal.test.ts`; end to end,
+`tools/e2e/tests/flows/cire-remove-my-data.flow.ts`.
 
 ## No overlap
 
