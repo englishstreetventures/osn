@@ -1,6 +1,6 @@
 import { createMemoryHistory, MemoryRouter, Route, useLocation } from "@solidjs/router";
 // @vitest-environment happy-dom
-import { cleanup, render as _baseRender, waitFor } from "@solidjs/testing-library";
+import { cleanup, render as _baseRender } from "@solidjs/testing-library";
 import { createEffect } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ---------------------------------------------------------------------------
@@ -119,12 +119,12 @@ describe("OnboardingGate", () => {
     // The gate's fetch resource is keyed on the token, not the path, but
     // the redirect effect short-circuits because we're already at the
     // destination.
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
+    await vi.waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
     await settle(20);
     expect(lastPathname).toBe("/welcome");
   });
 
-  it("fetches at most once per session even when the user navigates between routes (P-W1)", async () => {
+  it("fetches at most once per session even when the user navigates between routes", async () => {
     vi.useFakeTimers();
     mockFetchStatus.mockResolvedValue({
       completedAt: new Date().toISOString(),
@@ -137,7 +137,7 @@ describe("OnboardingGate", () => {
     const history = createMemoryHistory();
     history.set({ value: "/", replace: true });
     mountWithHistory(history);
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mockFetchStatus).toHaveBeenCalledTimes(1));
     history.set({ value: "/welcome" });
     await settle(20);
     history.set({ value: "/" });
@@ -169,7 +169,7 @@ describe("OnboardingGate", () => {
       locationPerm: "granted",
     });
     renderAt("/");
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
+    await vi.waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
     // Give the redirect effect a chance to fire if it were going to.
     await settle(20);
     expect(lastPathname).toBe("/");
@@ -179,7 +179,7 @@ describe("OnboardingGate", () => {
     vi.useFakeTimers();
     mockFetchStatus.mockResolvedValue(null);
     renderAt("/");
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
+    await vi.waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
     await settle(20);
     expect(lastPathname).toBe("/");
   });

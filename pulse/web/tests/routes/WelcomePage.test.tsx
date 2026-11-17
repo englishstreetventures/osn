@@ -63,6 +63,12 @@ describe("WelcomePage", () => {
 
   afterEach(() => cleanup());
 
+  it("falls back to @handle when the session carries no displayName", () => {
+    authState.session = fakeSession({ displayName: null, handle: "sarah" });
+    const { getByText } = render(() => <WelcomePage />);
+    expect(getByText("stepper:@sarah")).toBeTruthy();
+  });
+
   it("shows the sign-in fallback when no session is present", () => {
     authState.session = null;
     const { getByText, queryByTestId } = render(() => <WelcomePage />);

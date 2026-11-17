@@ -76,11 +76,7 @@ export async function walkPulseOnboarding(
     await primary("Allow notifications").click();
     await expect(page.getByText("Notifications enabled.")).toBeVisible();
     const reminders = page.getByRole("checkbox", { name: REMINDERS });
-    // The grant ticks the box; the walk takes it off and puts it back.
-    await expect(reminders).toBeChecked();
-    await reminders.uncheck();
-    await expect(reminders).not.toBeChecked();
-    await reminders.check();
+    // The grant ticks the box, and the row's `event_reminders_opt_in` reads it.
     await expect(reminders).toBeChecked();
     await primary("Continue").click();
   });

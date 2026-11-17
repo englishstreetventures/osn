@@ -84,6 +84,15 @@ describe("RsvpSection", () => {
     expect(await findByText("No one's RSVPed yet.")).toBeTruthy();
   });
 
+  it("hides the 'Maybe' button when allowInterested is false", () => {
+    const { queryByText } = render(() => (
+      <RsvpSection event={{ ...baseEvent, allowInterested: false }} currentProfileId="usr_dan" />
+    ));
+    expect(queryByText("Maybe")).toBeNull();
+    expect(queryByText("I'm going")).toBeTruthy();
+    expect(queryByText("Can't make it")).toBeTruthy();
+  });
+
   it("offers no RSVP buttons on a cancelled event, and says why", () => {
     const { queryByRole, getByText } = render(() => (
       <RsvpSection event={{ ...baseEvent, status: "cancelled" }} currentProfileId="usr_dan" />
