@@ -66,7 +66,6 @@ import {
   createMemo,
   createResource,
   createSignal,
-  createUniqueId,
   For,
   type JSX,
   onCleanup,
@@ -129,7 +128,14 @@ import {
   type ThemeSection,
   visibilityPayload,
 } from "./model";
-import { createNarrowPreview, PreviewFrame, PreviewView, previewWaveFrom } from "./NarrowPreview";
+import {
+  createNarrowPreview,
+  PREVIEW_REGION,
+  PREVIEW_REGION_FOCUS,
+  PreviewFrame,
+  PreviewView,
+  previewWaveFrom,
+} from "./NarrowPreview";
 import PreviewPane, { type PreviewPaneProps } from "./PreviewPane";
 import { HeroPreview, SectionPreview } from "./previews";
 
@@ -447,7 +453,6 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     previewable,
     place: () => [activeSection(), props.view],
   });
-  const previewHeadingId = createUniqueId();
 
   /** The surface a section's tone paints, for its preview card. */
   const toneSurface = (section: ThemeSection): string => {
@@ -1605,19 +1610,24 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                           class="min-w-0 flex-1"
                           revealedContent={
                             <div onKeyDown={(e) => preview.onKeyDown(e)}>
-                              <PreviewView
-                                headingId={previewHeadingId}
-                                setHeading={preview.setHeading}
-                                tokens={previewTokens()}
-                                toneSurface={toneSurface}
-                                design={currentDesign()}
-                                hero={heroSlot()}
-                                story={storySlot()}
-                                welcome={welcomeSlot()}
-                                events={eventsSlot()}
-                                faq={faqSlot()}
-                                closing={closingSlot()}
-                              />
+                              <section
+                                ref={preview.setRegion}
+                                aria-label={PREVIEW_REGION}
+                                tabIndex={-1}
+                                class={PREVIEW_REGION_FOCUS}
+                              >
+                                <PreviewView
+                                  tokens={previewTokens()}
+                                  toneSurface={toneSurface}
+                                  design={currentDesign()}
+                                  hero={heroSlot()}
+                                  story={storySlot()}
+                                  welcome={welcomeSlot()}
+                                  events={eventsSlot()}
+                                  faq={faqSlot()}
+                                  closing={closingSlot()}
+                                />
+                              </section>
                             </div>
                           }
                         >
@@ -1659,10 +1669,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 preview below `@4xl/builder`. Portalled to <body>, so outside
                 the form; mounted only while open. ── */}
               <Show when={preview.mounted()}>
-                <PreviewFrame preview={preview} headingId={previewHeadingId}>
+                <PreviewFrame preview={preview}>
                   <PreviewView
-                    headingId={previewHeadingId}
-                    setHeading={preview.setHeading}
                     tokens={previewTokens()}
                     toneSurface={toneSurface}
                     design={currentDesign()}

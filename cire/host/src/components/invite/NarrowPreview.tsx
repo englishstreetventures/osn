@@ -24,11 +24,11 @@
  * flip) and `revealed` (the wave's target). The bar's words change at the
  * hand-over for Gilded, and at the press for Distortion, as upstream does.
  * Escape inside the preview, or on the button, goes back; focus moves to the
- * preview's heading on opening and back to the button on closing. Choosing a
- * section or a view, or the builder turning wide, closes it at once.
+ * preview, the region named "Live preview", on opening and back to the button
+ * on closing. Choosing a section or a view, or the builder turning wide,
+ * closes it at once.
  */
 
-import { eyebrowClass } from "@cire/ui/eyebrow";
 import type { DistortionWaveHandle } from "@cire/waves/distortion";
 import {
   batch,
@@ -118,7 +118,8 @@ export interface NarrowPreview {
   readonly box: Accessor<FrameBox>;
   setButton(el: HTMLButtonElement): void;
   setBuilder(el: HTMLElement): void;
-  setHeading(el: HTMLElement): void;
+  /** The preview's region, where focus lands once it has taken over. */
+  setRegion(el: HTMLElement): void;
   setDistortion(handle: DistortionWaveHandle): void;
   /** The press: open, or go back. */
   toggle(): void;
@@ -142,7 +143,7 @@ export function createNarrowPreview(options: NarrowPreviewOptions): NarrowPrevie
   const [button, setButton] = createSignal<HTMLButtonElement>();
   const [box, setBox] = createSignal<FrameBox>({ top: 0, left: 0, width: 0 });
   let builder: HTMLElement | undefined;
-  let heading: HTMLElement | undefined;
+  let region: HTMLElement | undefined;
   let handle: DistortionWaveHandle | undefined;
   /** The page's scroll before Distortion moved it, to put it back. */
   let scrolled: number | null = null;
@@ -181,7 +182,7 @@ export function createNarrowPreview(options: NarrowPreviewOptions): NarrowPrevie
     const b = button();
     if (b?.isConnected) b.focus({ preventScroll: true });
   };
-  const focusHeading = () => heading?.focus({ preventScroll: true });
+  const focusRegion = () => region?.focus({ preventScroll: true });
 
   function closeAtOnce() {
     if (!wanted() && !mounted() && !revealed() && !labelBack()) return;
@@ -246,7 +247,7 @@ export function createNarrowPreview(options: NarrowPreviewOptions): NarrowPrevie
     box,
     setButton,
     setBuilder: (el) => (builder = el),
-    setHeading: (el) => (heading = el),
+    setRegion: (el) => (region = el),
     setDistortion: (h) => (handle = h),
     toggle() {
       if (wanted()) close();
@@ -263,7 +264,7 @@ export function createNarrowPreview(options: NarrowPreviewOptions): NarrowPrevie
     onGildedHandover(shown) {
       setLabelBack(shown);
       if (shown) {
-        focusHeading();
+        focusRegion();
         return;
       }
       setAway(false);
@@ -274,7 +275,7 @@ export function createNarrowPreview(options: NarrowPreviewOptions): NarrowPrevie
     },
     onDistortionFinish(shown) {
       if (shown) {
-        focusHeading();
+        focusRegion();
         return;
       }
       viaDistortion = false;
@@ -285,21 +286,21 @@ export function createNarrowPreview(options: NarrowPreviewOptions): NarrowPrevie
   };
 }
 
-/** The composed preview under its heading, the same in the frame and in Distortion's view. */
-export function PreviewView(
-  props: PreviewPaneProps & { headingId: string; setHeading: (el: HTMLElement) => void },
-) {
+/** The region's name, the same in the frame and in Distortion's view. Not drawn:
+ *  the pane's own first line, "Live invite preview", already says it. */
+export const PREVIEW_REGION = "Live preview";
+
+/**
+ * Where focus lands once the preview has taken over, so a screen reader starts
+ * at its top. The house ring is drawn inside the region's edge: the frame
+ * spans the window, whose edges would clip a ring drawn outside it.
+ */
+export const PREVIEW_REGION_FOCUS = "focus-visible:-outline-offset-2";
+
+/** The composed preview, the same in the frame and in Distortion's view. */
+export function PreviewView(props: PreviewPaneProps) {
   return (
-    <div class="mx-auto flex w-full max-w-md flex-col gap-4">
-      {/* Focus lands here on opening, so a screen reader starts at the top. */}
-      <h2
-        ref={props.setHeading}
-        id={props.headingId}
-        tabIndex={-1}
-        class={`${eyebrowClass()} focus:outline-none`}
-      >
-        Live preview
-      </h2>
+    <div class="mx-auto w-full max-w-md">
       <PreviewPane {...props} />
     </div>
   );
@@ -311,14 +312,11 @@ export function PreviewView(
  * without (an import that failed, or Distortion's page with no Distortion) it
  * shows and hides at once.
  */
-export function PreviewFrame(props: {
-  preview: NarrowPreview;
-  headingId: string;
-  children: JSX.Element;
-}) {
+export function PreviewFrame(props: { preview: NarrowPreview; children: JSX.Element }) {
   let frame!: HTMLElement;
   const p = props.preview;
   onMount(() => {
+    p.setRegion(frame);
     // Escape anywhere inside the frame goes back, as the modal's did.
     frame.addEventListener("keydown", p.onKeyDown);
     const Wave = untrack(p.gilded)?.GildedWave;
@@ -352,8 +350,9 @@ export function PreviewFrame(props: {
         ref={frame}
         hidden
         data-preview-frame
-        aria-labelledby={props.headingId}
-        class="bg-bg fixed bottom-0 z-30 overflow-y-auto overscroll-contain px-4 pt-4 pb-8"
+        aria-label={PREVIEW_REGION}
+        tabIndex={-1}
+        class={`bg-bg fixed bottom-0 z-30 overflow-y-auto overscroll-contain px-4 pt-4 pb-8 ${PREVIEW_REGION_FOCUS}`}
         style={{
           top: `${p.box().top}px`,
           left: `${p.box().left}px`,

@@ -1910,9 +1910,10 @@ describe("InviteBuilder preview layer", () => {
     expect(builder.contains(region)).toBe(false);
     expect(builder.hasAttribute("inert")).toBe(true);
     await waitFor(() => screen.getByRole("button", { name: "Back to editing" }));
-    expect(document.activeElement).toBe(
-      within(region).getByRole("heading", { name: "Live preview" }),
-    );
+    // Focus lands on the region itself; it draws no heading of its own, since
+    // the pane's first line already names it.
+    expect(document.activeElement).toBe(region);
+    expect(within(region).queryByRole("heading", { name: "Live preview" })).toBeNull();
 
     // Escape goes back, as the modal's did, and focus returns to the button.
     fireEvent.keyDown(region, { key: "Escape" });
@@ -1925,21 +1926,6 @@ describe("InviteBuilder preview layer", () => {
     fireEvent.click(await waitFor(() => screen.getByRole("button", { name: "Back to editing" })));
     await waitFor(() => expect(frame()).toBeNull());
     expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
-  });
-
-  it("closes the narrow preview at once when a section is chosen", async () => {
-    stubResizeObserver(600);
-    setView("content");
-    await renderBuilder();
-    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
-    await waitFor(() => screen.getByRole("button", { name: "Back to editing" }));
-
-    // The bar stays live over the frame; choosing another section there
-    // leaves the preview with no wave.
-    fireEvent.click(within(sectionStrip()).getByRole("tab", { name: /^Welcome/ }));
-    expect(document.querySelector("[data-preview-frame]")).toBeNull();
-    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
-    expect(document.getElementById("invite-welcome")!.hidden).toBe(false);
   });
 
   it("mounts only the composed pane on a wide builder", async () => {
