@@ -1,5 +1,11 @@
 # @shared/email
 
+## 0.21.1
+
+### Patch Changes
+
+- 381257f: The `registry-gift-summary` template's `created` opening now reads "…, and we could not read the dates of all its events, or it has none.", true of a wedding with no events as well as one whose event dates could not be read.
+
 ## 0.21.0
 
 ### Minor Changes
