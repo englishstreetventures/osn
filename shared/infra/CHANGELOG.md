@@ -1,5 +1,11 @@
 # @shared/infra
 
+## 0.10.4
+
+### Patch Changes
+
+- 563aa4c: The test that holds the secrets Environment-bound jobs read knows Environments outside the tiers: `stripe-test-mode` may give its job `STRIPE_TEST_SECRET_KEY` and nothing else, and a read from any Environment that is neither a tier nor listed still fails.
+
 ## 0.10.3
 
 ### Patch Changes
