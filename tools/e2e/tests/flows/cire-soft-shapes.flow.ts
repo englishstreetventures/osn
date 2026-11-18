@@ -295,6 +295,9 @@ async function inviteViews(flow: Flow, guest: Page, design: "classic" | "gala"):
 }
 
 test("cire-soft-shapes", async ({ page, context, flow }) => {
+  // The preview-wave checks run both waves both ways at a phone's width, which
+  // takes the flow to about two minutes, the default limit.
+  test.slow();
   await claimFromOrganiserAddress(context);
   await loginSurfaces(flow, page);
   await signInToCireHost(flow, page);
