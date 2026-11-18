@@ -1,6 +1,6 @@
 # How a cire wedding with several owners receives its cash gifts — design
 
-Date: 2026-11-17, revised three times on 2026-11-18 with the owner's answers · Status: owner decisions recorded; awaiting the owner's re-approval and the one question at the end · Issue: englishstreetventures/osn#1950 (follows #1336; related to #1248 and #2018)
+Date: 2026-11-17, revised three times on 2026-11-18 with the owner's answers · Status: every question answered by the owner; awaiting the owner's final read · Issue: englishstreetventures/osn#1950 (follows #1336; related to #1248 and #2018)
 
 ## Goal
 
@@ -54,6 +54,10 @@ The decisions are kept in the order the owner made them. Where a later answer re
 
 25. **The tier belongs to the wedding**, as it does today: a permanent grant, with no link to the owner who paid. Tier purchases are out of this design's scope again. Every payer-following feature of the previous version — the hold, its 14 days, the keep purchase, the `lapsed` status, the lowering sweep, the banner, refund on request and its page — is gone.
 26. **The payout-account holder cannot leave, be removed or be demoted while they hold the wedding's payout account.** They must hand it over first: an owner replaces it, or the holder disconnects it and money gifts close. Erasure is the one way an owner can vanish while holding an account.
+
+### Owner, 2026-11-18 (answer to the simplified version's question)
+
+27. **Any owner may replace the payout account while its holder is still an owner**, by retiring it and connecting their own; the holder is told by the retire notice (behaviour 8). This is decision 26's "an owner replaces it" read as written. The owner chose it over letting only the holder start a hand-over, which would have left a holder who will not hand over impossible to remove or replace.
 
 **Owner action at Stripe:** keep "Issue refunds" and "Manage disputes" turned on in the Express Dashboard settings, since after a retire the old holder is the one person who can refund or answer a dispute on their gifts there.
 
@@ -140,7 +144,7 @@ Found while checking, beside the issue:
 | Check again (refresh the status) | any owner | unchanged (the #1975 default that stays) |
 | **Hand over**: retire the account and name the owner who should connect the next | the holder, while seated | new |
 | **Disconnect**: retire the account, naming no one | the holder, while seated | new |
-| **Replace**: retire the account, then connect as above | any owner — when the holder is absent (decision 5), and also while the holder is seated (decision 26's "an owner replaces it"; see §Needs the owner's approval) | new |
+| **Replace**: retire the account, then connect as above | any owner — when the holder is absent (decision 5), and while the holder is seated (decision 27) | new |
 | Leave, be removed or be demoted | refused for the holder while they hold the account (decision 26, behaviour 9) | new |
 | Anything above | editors and viewers: nothing | unchanged |
 
@@ -331,10 +335,4 @@ Each pull request updates the wiki pages it makes stale: `wiki/cire/cire-registr
 
 ## Needs the owner's approval
 
-The design as revised, recording decisions 3 to 26, and one question:
-
-1. **May any owner replace the account while its holder is still an owner?** Decision 26 says the holder must hand the account over first, "an owner replaces it, or the holder disconnects it". Two readings:
-   - (a) **As written: any owner may retire the account and connect their own at any time.** This note designs it. It keeps the owners equal, as decision 3 of the multi-owner design does, and no holder can hold the others hostage. Its cost: any owner — one a co-owner seated a minute ago, or someone in a taken-over owner session — can send future gifts to an account of their own. The holder learns of it from the retire notice, which spends a budget of its own so that other notices cannot use it up (behaviour 8), and from the panel. Before decision 26 the same move was open by removing the holder first; decision 26 closed that path, and this reading reopens it as a replace.
-   - (b) **Only the holder may start a hand-over.** No one else can move the gifts. Its cost: a holder who will not hand over can be neither removed nor replaced; the other owners can only turn money gifts off.
-
-   Recommendation: (a), with the notice as designed.
+Nothing is open. Every question the earlier versions raised has the owner's answer, recorded as decisions 3 to 27. The note awaits the owner's final read, and approving it approves the build in §Rollout.
