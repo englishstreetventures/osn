@@ -57,6 +57,12 @@
  * guest FAQ needs entries the stack's seed does not have, so the organiser adds
  * two through the API before the guest tab opens and removes them at the end.
  *
+ * And the invite builder's narrow preview (`../support/cire-preview-wave.ts`):
+ * on a phone, the Gilded wave held at three points and shot, opened, held on
+ * its way back and run both ways; Distortion's wave paused mid-run and shot,
+ * run to the preview and back; each under reduced motion. Shot into
+ * `screenshots/cire-invite-preview-wave/`.
+ *
  * And the eyebrow checks (`../support/cire-eyebrows.ts`): no small-caps line
  * repeats the heading under it on the wedding list, whose slug sits under each
  * wedding's name, the guest list, the guest editor, the
@@ -81,6 +87,7 @@ import { eyebrowOver } from "../support/cire-eyebrows";
 import { builderFeedback, landingFeedback } from "../support/cire-feedback";
 import { builderForms, claimForms, demoForms, hostForms, sheetForms } from "../support/cire-forms";
 import { navSurfaces } from "../support/cire-nav";
+import { builderPreviewWave } from "../support/cire-preview-wave";
 import {
   addGuestFaq,
   builderSurfaces,
@@ -439,6 +446,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   await builderSurfaces(flow, page, design);
   await builderForms(flow, page);
   await builderFeedback(flow, page);
+  await builderPreviewWave(flow, page, ORIGINS.cireHost, weddingId);
   await navSurfaces(flow, page, HOST);
 
   // ── The marketing site ───────────────────────────────────────────────────

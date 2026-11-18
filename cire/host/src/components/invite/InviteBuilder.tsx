@@ -1580,49 +1580,52 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 code on the very screens it was written for. */}
               <div class="flex flex-col gap-8 @4xl/builder:flex-row @4xl/builder:items-start @6xl/builder:gap-10">
                 {/* The form column, built once: on Distortion's page it moves
-                    into the wave's first view and back, never rebuilt. */}
-                <Show
-                  when={
-                    preview.kind === "distortion" && previewable() ? preview.distortion() : null
-                  }
-                  fallback={formColumn}
-                >
-                  {(mod) => {
-                    const Wave = mod().DistortionWave;
-                    return (
-                      <Wave
-                        type="center"
-                        revealed={preview.revealed()}
-                        source={{
-                          get current() {
-                            return preview.button() ?? null;
-                          },
-                        }}
-                        onFinish={preview.onDistortionFinish}
-                        handle={preview.setDistortion}
-                        class="min-w-0 flex-1"
-                        revealedContent={
-                          <div onKeyDown={(e) => preview.onKeyDown(e)}>
-                            <PreviewView
-                              headingId={previewHeadingId}
-                              setHeading={preview.setHeading}
-                              tokens={previewTokens()}
-                              toneSurface={toneSurface}
-                              design={currentDesign()}
-                              hero={heroSlot()}
-                              story={storySlot()}
-                              welcome={welcomeSlot()}
-                              events={eventsSlot()}
-                              faq={faqSlot()}
-                              closing={closingSlot()}
-                            />
-                          </div>
-                        }
-                      >
-                        {formColumn}
-                      </Wave>
-                    );
-                  }}
+                    into the wave's first view and back, never rebuilt. Out of
+                    the wave it sits in a `display: contents` box of its own, a
+                    new one each time: the swap replaces that box, never the
+                    column, which is by then inside the other branch. */}
+                <Show when={preview.kind === "distortion"} fallback={formColumn}>
+                  <Show
+                    when={previewable() ? preview.distortion() : null}
+                    fallback={<div class="contents">{formColumn}</div>}
+                  >
+                    {(mod) => {
+                      const Wave = mod().DistortionWave;
+                      return (
+                        <Wave
+                          type="center"
+                          revealed={preview.revealed()}
+                          source={{
+                            get current() {
+                              return preview.button() ?? null;
+                            },
+                          }}
+                          onFinish={preview.onDistortionFinish}
+                          handle={preview.setDistortion}
+                          class="min-w-0 flex-1"
+                          revealedContent={
+                            <div onKeyDown={(e) => preview.onKeyDown(e)}>
+                              <PreviewView
+                                headingId={previewHeadingId}
+                                setHeading={preview.setHeading}
+                                tokens={previewTokens()}
+                                toneSurface={toneSurface}
+                                design={currentDesign()}
+                                hero={heroSlot()}
+                                story={storySlot()}
+                                welcome={welcomeSlot()}
+                                events={eventsSlot()}
+                                faq={faqSlot()}
+                                closing={closingSlot()}
+                              />
+                            </div>
+                          }
+                        >
+                          {formColumn}
+                        </Wave>
+                      );
+                    }}
+                  </Show>
                 </Show>
 
                 {/* ── Persistent composed preview (wide layouts) ─────────── */}
