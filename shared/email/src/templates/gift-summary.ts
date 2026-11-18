@@ -3,7 +3,8 @@
  *
  * Sent once per wedding, by cire's retention sweep, at the moment the sweep
  * deletes that wedding's guest data — a year after the last event, or three
- * years after the wedding was created when its event dates could not be read.
+ * years after the wedding was created when its event dates could not be read
+ * or it had no events.
  * It carries the record cire keeps on `registry_settings.gift_summary_json` — the counts,
  * the totals and each money gift's amount and day — and says plainly that who
  * gave each gift, and what they wrote, is gone.
@@ -54,7 +55,7 @@ export interface RegistryGiftSummaryData {
    * The `YYYY-MM-DD` the retained period counted from, and the rule that set
    * it: `final-event`, the last event, a year before the deletion; or
    * `created`, the day the wedding was created, three years before, for a
-   * wedding whose event dates cire could not read.
+   * wedding whose event dates cire could not read, or with no events.
    */
   readonly retainedFrom: { readonly rule: "final-event" | "created"; readonly on: string };
   /** `YYYY-MM-DD` the sweep ran and the detail went. */
@@ -112,7 +113,7 @@ function whenLine(
   on: string,
 ): string {
   return rule === "created"
-    ? `Three years have passed since ${name} was created on Cire, on ${on}, and we could not read the dates of all its events.`
+    ? `Three years have passed since ${name} was created on Cire, on ${on}, and we could not read the dates of all its events, or it has none.`
     : `A year has passed since the last event of ${name}, on ${on}.`;
 }
 
