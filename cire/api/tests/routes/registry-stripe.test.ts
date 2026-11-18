@@ -397,6 +397,7 @@ describe("only the owner who connected the account may open its links", () => {
   it.each([
     ["is removed as an owner", "demoted"],
     ["has the wedding deleted", "deleted"],
+    ["has the wedding purged", "purged"],
   ] as const)(
     "records nothing for an owner who %s while Stripe makes the account",
     async (_label, change) => {
@@ -413,6 +414,8 @@ describe("only the owner who connected the account may open its links", () => {
               .set({ role: "editor" })
               .where(eq(weddingHosts.osnProfileId, OWNER))
               .run();
+          } else if (change === "purged") {
+            box.db!.delete(weddings).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
           } else {
             box
               .db!.update(weddings)
@@ -681,7 +684,46 @@ describe("an account cleared before or during a connect", () => {
     // one record for the manual fix.
     expect(logs).toContain("stripe account created but not stored");
     expect(logs).toContain("acct_cleared");
+    expect(logs).toContain("stripe onboarding refused");
     expect(logs).toContain("account_changed");
+  });
+
+  it("tells an owner removed meanwhile nothing about the account changing", async () => {
+    // Both happened while Stripe made the account: this owner was demoted,
+    // and another owner's account was connected and cleared. The refusal is
+    // the one the gate would now give, with nothing about the wedding's account.
+    const box: { db?: ReturnType<typeof buildApp>["db"] } = {};
+    const stripe = stripeStub({
+      account: { ...ACCOUNT, id: "acct_cleared" },
+      duringCreate: () => {
+        const db = box.db!;
+        const now = new Date();
+        db.update(weddingHosts)
+          .set({ role: "editor" })
+          .where(eq(weddingHosts.osnProfileId, OWNER))
+          .run();
+        db.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            stripeAccountId: "acct_cleared",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        db.update(registrySettings)
+          .set({ stripeAccountId: null })
+          .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+          .run();
+      },
+    });
+    const built = buildApp({ stripe: stripe.client });
+    box.db = built.db;
+
+    const res = await req(built.app, `${base}/session`, OWNER);
+
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+    expect(row(built.db)?.stripeAccountId).toBeNull();
   });
 });
 

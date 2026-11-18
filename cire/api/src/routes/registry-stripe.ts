@@ -291,7 +291,6 @@ export const createRegistryStripeRoutes = (
                   const refusal = yield* registryService.stripeAttachRefusal(
                     weddingId,
                     osnProfileId,
-                    generation,
                   );
                   if (refusal === "account_changed") {
                     return yield* Effect.logInfo("stripe onboarding refused").pipe(

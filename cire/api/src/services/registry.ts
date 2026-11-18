@@ -2279,32 +2279,25 @@ export const registryService = {
 
   /**
    * Why {@link registryService.attachStripeAccount} wrote nothing for a create
-   * that read `generation`, in one read and in this order: `forbidden` when
-   * the caller no longer owns the live wedding, whatever else changed, so a
-   * removed owner learns nothing more; `account_changed` when the wedding's
-   * account was cleared since that read; `forbidden` otherwise.
+   * that passed its generation, in one read. The attach refuses for one of two
+   * reasons: the caller no longer owns the live wedding, or the row has left
+   * that generation. So `forbidden` when ownership fails now, whatever else
+   * changed, and a removed owner learns nothing more; otherwise
+   * `account_changed`, which tells the owner to look again — the generation
+   * moved, or ownership came back between the write and this read, and either
+   * way a second press settles it.
    */
   stripeAttachRefusal(
     weddingId: string,
     osnProfileId: string,
-    generation: number,
   ): Effect.Effect<"forbidden" | "account_changed", never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const [found] = yield* dbQuery(() =>
-        db
-          .select({
-            owns: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
-            generation: registrySettings.stripeAccountGeneration,
-          })
-          .from(weddings)
-          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
-          .where(eq(weddings.id, weddingId))
-          .all(),
+      // A SELECT with no FROM answers exactly one row.
+      const rows = yield* dbQuery(() =>
+        db.all<{ owns: number }>(sql`SELECT ${ownsLiveWedding(weddingId, osnProfileId)} AS owns`),
       );
-      const verdict = found as { owns: number; generation: number | null } | undefined;
-      if (verdict?.owns !== 1) return "forbidden" as const;
-      return (verdict.generation ?? 0) !== generation
+      return rows.some((row) => row.owns === 1)
         ? ("account_changed" as const)
         : ("forbidden" as const);
     }).pipe(Effect.withSpan("cire.registry.stripeAttachRefusal"));

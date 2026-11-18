@@ -2812,10 +2812,7 @@ describe("attaching an account at a generation the row has left", () => {
     expect(settingsRow(db)?.stripeAccountId).toBeNull();
     expect(settingsRow(db)?.stripeConnectedByOsnProfileId).toBeNull();
     expect(
-      await ok(
-        db,
-        registryService.stripeAttachRefusal(BOOTSTRAP_WEDDING_ID, DEV_OWNER_PROFILE_ID, 0),
-      ),
+      await ok(db, registryService.stripeAttachRefusal(BOOTSTRAP_WEDDING_ID, DEV_OWNER_PROFILE_ID)),
     ).toBe("account_changed");
 
     // At the generation the row holds, the same attach writes.
