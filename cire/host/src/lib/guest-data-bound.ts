@@ -13,10 +13,9 @@ export interface GuestDataBoundWords {
 /** How the editor names an event with no name. */
 const UNTITLED = "Untitled event";
 
-/** "Ceremony, Reception and Party". Joined by hand: runtimes' list data
- *  disagree on the comma before "and" in `en-AU`. */
-const listOf = (names: string[]) =>
-  names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+/** Two or more names as "Ceremony, Reception and Party". Joined by hand:
+ *  runtimes' list data disagree on the comma before "and" in `en-AU`. */
+const listOf = (names: string[]) => `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 
 /**
  * "this event: Ceremony", "these events: Ceremony, Reception, Party and 2
