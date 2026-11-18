@@ -53,6 +53,17 @@ const { title } = Astro.props
         color: var(--pulse-accent-strong);
       }
 
+      /* A link inside the text is in the text's own ink and underlined, so it
+         never differs from the words around it by colour alone, and it keeps
+         the body text's contrast: the ember is held for date stamps and meta
+         lines (pulse/DESIGN.md), and is under 4.5:1 on this page. */
+      .legal p:not(.legal-back) a,
+      .legal li a {
+        color: var(--color-text);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
       .legal .draft-banner {
         border: 1px solid var(--color-border);
         background: var(--color-surface);

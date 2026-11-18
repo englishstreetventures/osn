@@ -80,8 +80,8 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
   </ul>
   <p>
     You can contact us about anything in this notice at
-    <a href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
-      <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span></a>, whether or not you have
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}>
+      <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a>, whether or not you have
     spoken to your hosts first.
   </p>
 
@@ -200,6 +200,25 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
       their own wedding; you can ask for it to be removed.
     </li>
     <li>
+      <strong>When your household’s replies changed</strong> — so your hosts can see which replies
+      are new since they last looked, and get a daily count of changes. Their legitimate interest
+      in keeping track of their own guest list.
+    </li>
+    <li>
+      <strong>Which of you sent each reply</strong> — so your household and your hosts can tell
+      who answered for whom when an invitation names more than one guest. Your hosts’ legitimate
+      interest in an accurate guest list, and your household’s in seeing who replied.
+    </li>
+    <li>
+      <strong>Where you sit</strong> — so your hosts can plan the seating and tell the venue. Their
+      legitimate interest in running the event they invited you to.
+    </li>
+    <li>
+      <strong>Gifts</strong> — so your hosts know what has been reserved or bought from their list,
+      and who to thank for what. Their legitimate interest in running their own registry. A money
+      gift is also a payment between you and your hosts, taken by Stripe on their account.
+    </li>
+    <li>
       <strong>Technical records</strong> — to keep your session working and the site
       secure. Our legitimate interest in a site that functions and is not abused.
     </li>
@@ -228,8 +247,8 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
   <p>
     You have the same rights as any other guest, set out below, and do not need a code to
     use them: ask your hosts, or email us at
-    <a href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
-      <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span></a>, to
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}>
+      <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a>, to
     correct your name, withdraw your agreement to your dietary requirements being kept, or
     have your details deleted. The guest who is bringing you can also change your name or
     remove you until RSVPs close.
@@ -394,8 +413,8 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
   </p>
   <p>
     Ask your hosts, who can act on most of it immediately, or email us at
-    <a href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
-      <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span></a> and we will act on it
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}>
+      <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a> and we will act on it
     ourselves and tell your hosts only what we must. We respond as soon as we
     reasonably can, and within a month at the outside.
   </p>

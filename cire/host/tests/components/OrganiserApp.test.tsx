@@ -660,11 +660,11 @@ describe("OrganiserApp Dashboard", () => {
         const [shown, options] = toastError.mock.calls[0] as [HTMLElement, unknown];
         expect(shown.textContent).toBe(
           "Your payment could not upgrade this wedding, so we are refunding it in full. " +
-            `Questions? Write to us at ${LEGAL_ENTITY.contactEmail}.`,
+            `Questions? Write to us at ${LEGAL_ENTITY.supportEmail}.`,
         );
         const link = shown.querySelector("a");
-        expect(link?.getAttribute("href")).toBe(`mailto:${LEGAL_ENTITY.contactEmail}`);
-        expect(link?.textContent).toBe(LEGAL_ENTITY.contactEmail);
+        expect(link?.getAttribute("href")).toBe(`mailto:${LEGAL_ENTITY.supportEmail}`);
+        expect(link?.textContent).toBe(LEGAL_ENTITY.supportEmail);
         // The portal's one look for a link inside a sentence.
         expect(link?.getAttribute("class")).toBe(proseLinkClass());
         expect(options).toEqual({ duration: Number.POSITIVE_INFINITY, dismissible: true });

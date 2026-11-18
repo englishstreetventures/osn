@@ -53,4 +53,30 @@ describe("the published plans", () => {
   it("list every tier cire-api has, in its order", () => {
     expect(PLANS.map((plan) => plan.id)).toEqual(readTiers(TIERS_SOURCE));
   });
+
+  /** Every envelope needs Crimson (`PUT …/invite/envelope` refuses any other
+   *  tier, `cire/api/src/routes/invite.ts`), and the terms send buyers here
+   *  for what each plan includes. */
+  /** A premium design needs Crimson too (`cire/api/src/routes/invite.ts`), so
+   *  the day one joins the catalogue, Crimson's list has to say so. Read as
+   *  text, like `tiers.ts`, and fail when the catalogue's shape is gone. */
+  it("list premium designs among what Crimson adds whenever one exists", () => {
+    const catalogue = readFileSync(
+      join(import.meta.dirname, "../../../invite-designs/src/index.ts"),
+      "utf8",
+    );
+    const tiers = [...catalogue.matchAll(/tier: "(free|premium)"/g)].map((m) => m[1]);
+    if (tiers.length === 0) throw new Error("invite-designs no longer lists `tier:` per design");
+    const crimson = PLANS.find((plan) => plan.id === "crimson");
+    const mentionsDesigns = crimson?.inclusions.some((line) => /design/i.test(line)) ?? false;
+    expect(mentionsDesigns).toBe(tiers.includes("premium"));
+  });
+
+  it("list the envelope among what Crimson adds", () => {
+    const crimson = PLANS.find((plan) => plan.id === "crimson");
+    expect(crimson?.inclusions.some((line) => /envelope/i.test(line))).toBe(true);
+    for (const other of PLANS.filter((plan) => plan.id !== "crimson")) {
+      expect(other.inclusions.some((line) => /envelope/i.test(line))).toBe(false);
+    }
+  });
 });

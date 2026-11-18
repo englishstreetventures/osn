@@ -1,0 +1,207 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/legal-pages-owner-decisions",
+    "base_sha": "d6185d29ae2e259c608356e26ea16c2f86804f69",
+    "head_sha": "89c0c91abea911f945c3687e06bf5c06bd7f3c86",
+    "generated_at": "2026-11-18T16:56:52.519Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2402,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-17T13:43:54.617Z",
+    "last_ts": "2026-11-18T16:56:49.495Z",
+    "span_seconds": 97975,
+    "active_seconds": 8198,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 101.1272736,
+    "tokens": {
+      "input": 1471,
+      "output": 467931,
+      "thinking": 153540,
+      "cache_write_5m": 1892448,
+      "cache_write_1h": 1209241,
+      "cache_read": 181566504
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1471,
+          "output": 467931,
+          "thinking": 153540,
+          "cache_write_5m": 1892448,
+          "cache_write_1h": 1209241,
+          "cache_read": 181566504
+        },
+        "usd_equivalent": 101.1272736,
+        "messages": 741
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 421,
+          "output": 174961,
+          "thinking": 30124,
+          "cache_write_5m": 0,
+          "cache_write_1h": 1209241,
+          "cache_read": 104222747
+        },
+        "usd_equivalent": 54.863930800000006,
+        "messages": 227
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1050,
+          "output": 292970,
+          "thinking": 123416,
+          "cache_write_5m": 1892448,
+          "cache_write_1h": 0,
+          "cache_read": 77343757
+        },
+        "usd_equivalent": 46.2633428,
+        "messages": 514
+      }
+    },
+    "effort": {
+      "high": 509,
+      "xhigh": 232
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 14,
+      "docs": 8,
+      "config": 0,
+      "source": 26
+    },
+    "loc": {
+      "generated": {
+        "added": 25,
+        "deleted": 0
+      },
+      "test": {
+        "added": 623,
+        "deleted": 66
+      },
+      "docs": {
+        "added": 44,
+        "deleted": 28
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 375,
+        "deleted": 230
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "cire/invites",
+      "cire/landing",
+      "cire/ui",
+      "musubi/landing",
+      "musubi/social",
+      "osn/auth-ui",
+      "pulse/landing",
+      "pulse/web",
+      "shared/legal",
+      "tools/e2e",
+      "tools/lab"
+    ],
+    "touches_migration": false,
+    "commits": 9
+  },
+  "interaction": {
+    "user_turns": 4,
+    "corrective_turns": 3,
+    "tokens_before_first_edit": 472996,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 604,
+      "Edit": 164,
+      "Read": 108,
+      "Write": 45,
+      "Skill": 17,
+      "AskUserQuestion": 9,
+      "SubagentHandback": 7,
+      "ToolSearch": 7,
+      "Agent": 6,
+      "SendMessage": 4,
+      "TaskStop": 4,
+      "WebSearch": 3,
+      "EnterWorktree": 1,
+      "mcp__claude-in-chrome__tabs_context_mcp": 1,
+      "WebFetch": 1,
+      "Monitor": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 28,
+      "max_edits_one_file": 11
+    },
+    "skills": {
+      "stress-plan": 1,
+      "design-system": 2,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "new-feat": 1,
+      "emil-design-eng": 1,
+      "apple-design": 1,
+      "find-animation-opportunities": 1,
+      "web-design-guidelines": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "review-design": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "designer": 1,
+      "reviewer": 4
+    },
+    "requests": {
+      "main": 227,
+      "subagent": 514,
+      "with_tools": 733,
+      "with_one_tool": 577,
+      "context_median": 201743,
+      "context_p90": 553001
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 4,
+    "located": 4,
+    "acted_on": 3,
+    "paired": 3,
+    "acted_on_paired": 2,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

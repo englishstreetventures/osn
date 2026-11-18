@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-19
 ---
 
 # DSAR Runbook
@@ -27,7 +27,7 @@ runbook, two regimes, because the operational steps overlap.
 | `DELETE /account` | The account holder, self-service: Musubi's Settings → Account → Danger zone ([[account-deletion#The person's side]]) | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
 | `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window | 7 d (account) / 14 d (events) |
 | `DELETE /api/organiser/account` (cire-api, Flow B) | A host removes their Cire data without losing OSN: "Remove my Cire data" in the portal's account menu | `@cire/api` — the account erasure's `host` scope, after a step-up confirmed on Musubi ([[cire-auth#A host removes their Cire data]]) | Immediate |
-| `dsar@osn.example` (planned, alias on landing) | Anyone via email | Identity team inbox | 30 d (GDPR) / 45 d (CCPA) |
+| `privacy@englishstventures.com`, named on every privacy notice (`LEGAL_ENTITY.privacyEmail`) | Anyone via email | The operator's privacy inbox, hosted by Hostinger ([[subprocessors]]) | 30 d (GDPR) / 45 d (CCPA) |
 | Postal address (planned, on landing) | Anyone via mail | Identity team inbox | Same |
 | Authorised agent | Third party with notarised authority | Same email + verification | Same; verification adds days, log it |
 
@@ -490,7 +490,7 @@ Default position: do the work. Refusals are exceptional and have to survive a DP
 Not built yet:
 
 1. `dsar_requests` table for audit log.
-2. `dsar@osn.example` email alias + automated acknowledgement.
+2. Automated acknowledgement of mail to `privacy@englishstventures.com`.
 3. Postal address published on `@musubi/landing` legal page.
 4. Internal triage doc with the team rotation.
 5. SLA monitoring (alert when a request is >25 d unresponded).

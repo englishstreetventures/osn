@@ -17,7 +17,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-upgrades]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-18
 ---
 
 # Cire Landing
@@ -76,7 +76,7 @@ node, hidden states included).
 **Brand parity is deliberate**: `src/styles/global.css` keeps
 the `@theme` token block **byte-identical** to `cire/invites/src/styles/global.css`
 (deep-green oklch palette, gold accent, Cormorant Garamond display + Lato body)
-and loads the same Google Fonts. A visitor sees on the marketing page exactly
+and self-hosts the same faces. A visitor sees on the marketing page exactly
 what their guests will see when they open the invite, so the site sells the
 product by *being* a piece of it. **If you change a brand token in one, change it
 in the other.**

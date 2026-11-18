@@ -1,5 +1,5 @@
 import guestNotice from "@cire/ui/guest-privacy-notice.astro?raw";
-import { LEGAL_ENTITY, isPlaceholder } from "@shared/legal";
+import { IDENTITY_FIELD_NAMES, LEGAL_ENTITY, isPlaceholder } from "@shared/legal";
 import { describe, expect, it } from "vitest";
 
 import footer from "../src/components/MarketingFooter.astro?raw";
@@ -30,7 +30,7 @@ const legalPages = {
 const footerPages = ["terms", "privacy", "refunds"] as const;
 
 /** The fields `draftPending` already checks on every page's behalf. */
-const IDENTITY = ["name", "postalAddress", "contactEmail"] as const;
+const IDENTITY = IDENTITY_FIELD_NAMES;
 
 /** The `LEGAL_ENTITY.x` fields named inside the page's `draftPending(...)` gate. */
 function gateFields(source: string): string[] {
@@ -47,12 +47,10 @@ function renderedFields(source: string): string[] {
 describe("legal pages", () => {
   for (const [name, source] of Object.entries(legalPages)) {
     /**
-     * The invariant the old version of this test only looked like it checked.
-     * It asserted a page may ship `{{TOKEN}}` text while a banner is present —
-     * but no page has held a token in its own source since the identity moved
-     * into `@shared/legal`, so it passed on its empty half and went on passing
-     * while all three pages published a live `{{MERCHANT_OF_RECORD}}` with the
-     * banner already gone.
+     * Every `LEGAL_ENTITY` field a page renders is covered by its banner: the
+     * identity fields by `draftPending` itself, any other by the page's own
+     * `draftPending(...)` call. A field rendered and not covered could publish
+     * a live `{{TOKEN}}` with no banner over it.
      */
     it(`${name} gates its banner on every field it publishes`, () => {
       const covered = new Set<string>([...IDENTITY, ...gateFields(source)]);
@@ -102,7 +100,6 @@ describe("legal pages", () => {
    * hold-back after both rules.
    */
   it("the hosts' notice and the overview state both retention bounds and the hold-back", () => {
-    const flat = (page: string) => page.replace(/\s+/g, " ");
     for (const page of [hosts, privacy].map(flat)) {
       expect(page).toMatch(/one year after the wedding&rsquo;s final event/);
       expect(page).toMatch(
@@ -151,7 +148,6 @@ describe("legal pages", () => {
    * there, so the vendors' notice names no file storage.
    */
   it("each organiser-facing page says where Cloudflare holds the data", () => {
-    const flat = (page: string) => page.replace(/\s+/g, " ");
     for (const page of [privacy, hosts, vendors].map(flat)) {
       expect(page).toMatch(/primary region is (<strong>)?Oceania/);
       expect(page).toMatch(/read-only copies/);
@@ -176,7 +172,6 @@ describe("legal pages", () => {
    * say removal deletes the stored file and a cached copy can outlive it.
    */
   it("the privacy pages say cached image copies can outlive removal", () => {
-    const flat = (page: string) => page.replace(/\s+/g, " ");
     expect(flat(privacy)).toMatch(
       /copies of images are cached where they are viewed, for up to a year/,
     );
@@ -233,4 +228,94 @@ describe("legal pages", () => {
       expect(footer).toMatch(new RegExp(`href: ['"]/${name}/['"]`));
     }
   });
+
+  /** Each page sends a reader to the right mailbox: privacy requests to one,
+   *  refunds and terms questions to the other. */
+  it("privacy pages name the privacy mailbox, terms and refunds the support one", () => {
+    for (const page of [privacy, hosts, vendors, guestNotice]) {
+      expect(page).toContain("LEGAL_ENTITY.privacyEmail");
+      expect(page).not.toContain("LEGAL_ENTITY.supportEmail");
+    }
+    for (const page of [terms, refunds]) {
+      expect(page).toContain("LEGAL_ENTITY.supportEmail");
+      expect(page).not.toContain("LEGAL_ENTITY.privacyEmail");
+    }
+  });
+
+  /** Cire sells its plans itself, on its own Stripe account
+   *  (`cire/api/src/services/stripe.ts`, a platform Checkout Session). */
+  it("no page says a separate merchant of record sells the plans", () => {
+    for (const page of Object.values(legalPages)) {
+      expect(flat(page)).not.toMatch(/merchant of record/i);
+    }
+    expect(flat(terms)).toMatch(/Stripe takes the payment/);
+    expect(flat(hosts)).toMatch(/<strong>Stripe<\/strong>/);
+  });
+
+  /** Cire sells two plan tiers, Gold and Crimson, and has no AI feature; the
+   *  free plan holds no budget or checklist (`cire/api/src/services/tiers.ts`). */
+  it("pages describe plans, not add-ons, and the free plan as it is", () => {
+    for (const page of [terms, refunds, privacy, hosts, vendors]) {
+      expect(flat(page)).not.toMatch(/add-on|AI features/i);
+    }
+    const free = flat(terms).match(/<li>The free plan[\s\S]*?<\/li>/)?.[0] ?? "";
+    expect(free).not.toBe("");
+    expect(free).not.toMatch(/budget|checklist/i);
+    expect(flat(terms)).toMatch(/Gold and Crimson/);
+  });
+
+  /** Every Cire site serves its own fonts, so no notice may say Google sees a
+   *  reader's address when a page loads. */
+  it("no notice says pages load fonts from Google", () => {
+    for (const page of [hosts, vendors, privacy]) {
+      expect(page).not.toMatch(/Google Fonts|fonts from Google/i);
+    }
+  });
+
+  it("the terms state the cap, the refund carve-out, the age and the courts", () => {
+    const text = flat(terms);
+    expect(text).toMatch(/limited to AUD 100/);
+    expect(text).toMatch(
+      /does not reduce a refund under our <a href="\/refunds\/">Refund Policy<\/a>/,
+    );
+    expect(text).toMatch(/18 or older/);
+    expect(text).toMatch(/the courts of that state have non-exclusive jurisdiction/);
+    expect(text).toMatch(/Prices include GST/);
+    expect(text).toMatch(/vendor\.cireweddings\.com/);
+    expect(text).not.toMatch(/re-suppl/);
+  });
+
+  /** The sale and refund records carry no name but can be matched to the
+   *  payment (`wiki/compliance/retention.md`, `platform_sales` and
+   *  `platform_refunds`), so the notice must not call them anonymous. */
+  it("the hosts' notice says what purchase records are kept, and for how long", () => {
+    const text = flat(hosts);
+    expect(text).not.toMatch(/anonymous/i);
+    expect(text).toMatch(/seven years/);
+    expect(text).toMatch(/no set end date/);
+    expect(text).toMatch(/can be matched to the payment/);
+    expect(text).toMatch(/Stripe collects your identity and business details directly/);
+    expect(text).toMatch(/which owner connected it/);
+    expect(text).toMatch(/18 or older/);
+  });
+
+  /** Every mailbox a page names is a `mailto:` link, the same way on every
+   *  page. */
+  it("names each mailbox as a link", () => {
+    for (const page of [terms, refunds, privacy, hosts, vendors]) {
+      const plain = flat(page).match(
+        /(?<!mailto:\$\{LEGAL_ENTITY\.\w+\}`\}> ?)<span class=\{ph\(LEGAL_ENTITY\.(privacy|support)Email\)\}>/g,
+      );
+      expect(plain).toBeNull();
+    }
+  });
+
+  it("the vendors' notice states the age to run a listing", () => {
+    expect(flat(vendors)).toMatch(/18 or older/);
+  });
 });
+
+/** A page's source with every run of whitespace as one space. */
+function flat(page: string): string {
+  return page.replace(/\s+/g, " ");
+}

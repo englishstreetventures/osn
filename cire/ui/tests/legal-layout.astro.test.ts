@@ -88,6 +88,14 @@ describe("LegalLayout's styles", () => {
     expect(source).toContain("<style is:global>");
   });
 
+  /** The gold and the body ink are close, so a link inside a sentence is
+   *  marked by its underline, never by colour alone (WCAG 1.4.1). */
+  it("underlines a link inside the text", () => {
+    const rule =
+      style.match(/\.legal p:not\(\.legal-back\) a,\s*\.legal li a \{([^}]*)\}/)?.[1] ?? "";
+    expect(rule).toMatch(/text-decoration: underline/);
+  });
+
   it("draws the draft banner and its readable-gold word", () => {
     expect(style).toMatch(
       /\.legal \.draft-banner \{[^}]*border: 1px solid var\(--ui-accent-soft\);/,

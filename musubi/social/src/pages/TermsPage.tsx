@@ -22,13 +22,19 @@ export function TermsPage(): JSX.Element {
   return (
     <LegalDocument
       title="Terms of Service"
-      updated="2026-11-17"
+      updated="2026-11-18"
       draft={draftPending(LEGAL_ENTITY.governingLaw)}
     >
       <p>
         These terms govern your Musubi account and the identity service run by {entity()} ("we",
         "us"). Each app you use your account with may add its own terms; those cover that app, and
-        these cover the account underneath it.
+        these cover the account underneath it. By creating an account you agree to these terms.
+      </p>
+
+      <h2>Who can have an account</h2>
+      <p>
+        You must be 13 or older to have a Musubi account, or older where the law of your country
+        sets a higher age.
       </p>
 
       <h2>Your account</h2>
@@ -89,8 +95,8 @@ export function TermsPage(): JSX.Element {
 
       <h2>Liability</h2>
       <p>
-        Subject to those guarantees and to the extent permitted by law, our liability in connection
-        with the service is limited to re-supplying it, and we are not liable for indirect or
+        Subject to those guarantees and to the extent permitted by law, our total liability in
+        connection with the service is limited to AUD 100, and we are not liable for indirect or
         consequential loss. We provide the service with due care and skill, but we do not promise it
         will be uninterrupted or error-free.
       </p>
@@ -103,18 +109,18 @@ export function TermsPage(): JSX.Element {
 
       <h2>Governing law</h2>
       <p>
-        These terms are governed by the laws of <strong>{LEGAL_ENTITY.governingLaw}</strong>. This
-        does not take away the protections you have under the consumer laws of the place where you
-        live.
+        These terms are governed by the laws of <strong>{LEGAL_ENTITY.governingLaw}</strong>, and
+        the courts of that state have non-exclusive jurisdiction. This does not take away the
+        protections you have under the consumer laws of the place where you live.
       </p>
 
       <h2>Contact</h2>
       <p>
         <a
           class={buttonVariants({ variant: "link", size: "inline" })}
-          href={`mailto:${LEGAL_ENTITY.contactEmail}`}
+          href={`mailto:${LEGAL_ENTITY.supportEmail}`}
         >
-          {LEGAL_ENTITY.contactEmail}
+          {LEGAL_ENTITY.supportEmail}
         </a>
       </p>
     </LegalDocument>

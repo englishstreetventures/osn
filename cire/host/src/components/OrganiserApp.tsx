@@ -1003,7 +1003,7 @@ function Dashboard(props: {
           // Held while a modal dialog is open: a toast raised over one is
           // inert, painted and never announced (`wiki/shared/toast.md`
           // §topLayer), and this is the only notice of the refund.
-          const contact = LEGAL_ENTITY.contactEmail;
+          const contact = LEGAL_ENTITY.supportEmail;
           whenNoModalOpen(() => {
             if (cancelled) return;
             toast.error(

@@ -892,8 +892,11 @@ apart by its underline or by standing alone at 500.
   another address is an `<A>` or `<a>` wearing
   `buttonVariants({ variant: "link", size: "inline" })`. Uses:
   `/authorize`'s "No account yet? Create one" (a button: it swaps the panel to
-  sign-up), Discover's empty note "Search for someone" (an `<A>`), and the
-  contact address on `/privacy` ("email …") and `/terms`.
+  sign-up), Discover's empty note "Search for someone" (an `<A>`), the
+  contact address on `/privacy` ("email …") and `/terms`, and sign-up's "Terms
+  of Service" and "Privacy Notice" (`@osn/auth-ui`'s `Register`, in the
+  create-account dialog and on `/authorize`: two `<a>`s to `/terms` and
+  `/privacy`, each opening a tab of its own so the form keeps what was typed).
 - **A link in a legal document's prose takes the inline treatment too**, even
   where it fills its paragraph alone, as the address under the Terms'
   "Contact" heading does. It is part of the text, not an action, and an ink

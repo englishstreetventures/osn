@@ -736,9 +736,10 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
  * The sign-in panel's place while its code loads, in the shape of the half
  * that leads: sign-in's heading, its one labelled field, Continue and "Lost
  * your passkey?", then the "Create one" line under the panel; or sign-up's
- * heading beside "Sign in instead", its four labelled fields and the button.
- * Words that wrap stay words, so they wrap where the panel's do: the heading,
- * in `AuthHeader`'s page classes, and the date of birth's hint. Labels, fields
+ * heading beside "Sign in instead", its four labelled fields, the agreement
+ * line and the button. Words that wrap stay words, so they wrap where the
+ * panel's do: the heading, in `AuthHeader`'s page classes, the date of birth's
+ * hint and the agreement line. Labels, fields
  * and buttons, which never wrap, are blocks, each the height the panel draws
  * it (a 14px label; the email's is 16px, the height of the button beside it).
  * "Sign in instead" is 40px tall below `md` and 32px from it, so it gets a
@@ -788,6 +789,14 @@ function SignInLoading(props: { mode: "register" | "signIn" }) {
             </div>
           )}
         </For>
+        <Show when={register()}>
+          {/* The agreement line in `Register`'s classes; its two links take
+              the line's size, so plain words wrap where they do. */}
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+            By creating an account you agree to the Terms of Service and acknowledge the Privacy
+            Notice.
+          </p>
+        </Show>
         <Skeleton standsFor="control" height={9} />
         <Show when={!register()}>
           <Skeleton standsFor="control" width={35} height={8} class="self-center" />

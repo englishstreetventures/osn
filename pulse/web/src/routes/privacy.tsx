@@ -4,12 +4,10 @@ import type { JSX } from "solid-js";
 /**
  * Pulse's own privacy notice, at `/privacy`.
  *
- * `@pulse/landing`'s notice says using the app "is governed by the OSN privacy
- * notice shown when you sign in" — true of your account, and not true of the
- * things Pulse holds that OSN never sees: which events you RSVP'd to, where
- * they were, and which platform you found them through. Those are described
- * here, and the account underneath is described in the OSN notice this page
- * links to.
+ * The account a reader signs in with is a Musubi account, described in
+ * Musubi's notice, which this page links to. This page describes what Pulse
+ * holds that Musubi never sees: which events you RSVP'd to, where they were,
+ * and which platform you found them through.
  *
  * Claims below come from `wiki/compliance/data-map.md` § Pulse, which lists the
  * lawful basis and retention per field.
@@ -24,11 +22,11 @@ export default function PrivacyRoute(): JSX.Element {
         </p>
       )}
       <h1 class="mb-1 text-2xl font-semibold">Privacy Notice</h1>
-      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-11-17</p>
+      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-11-18</p>
 
       <p>
-        This notice covers Pulse — events, RSVPs and venues. The account you sign in with belongs to
-        OSN, and{" "}
+        This notice covers Pulse — events, RSVPs and venues. The account you sign in with is your
+        Musubi account, and{" "}
         <a class="underline" href="https://musubi.social/privacy">
           its own notice
         </a>{" "}
@@ -68,7 +66,7 @@ export default function PrivacyRoute(): JSX.Element {
       </p>
       <h3>Close friends</h3>
       <p>
-        A Pulse-only list, separate from your OSN connections, used to scope who sees what. Only
+        A Pulse-only list, separate from your Musubi connections, used to scope who sees what. Only
         Pulse sees it.
       </p>
 
@@ -142,11 +140,17 @@ export default function PrivacyRoute(): JSX.Element {
       <p>
         Access, correction, deletion, portability, objection to the two legitimate-interest uses
         above, and withdrawal of any consent you gave. Much of it is in the app; for the rest, email{" "}
-        <a class="underline" href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
-          {LEGAL_ENTITY.contactEmail}
+        <a class="underline" href={`mailto:${LEGAL_ENTITY.privacyEmail}`}>
+          {LEGAL_ENTITY.privacyEmail}
         </a>
         . We answer within a month. Complaints go to the {LEGAL_ENTITY.regulator}, or to your local
         data protection authority if you are in the EEA or the UK.
+      </p>
+
+      <h2>Who can use Pulse</h2>
+      <p>
+        Pulse uses your Musubi account, so the same rule applies: you must be 13 or older, or older
+        where the law of your country sets a higher age.
       </p>
     </article>
   );

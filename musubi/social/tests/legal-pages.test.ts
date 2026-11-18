@@ -7,23 +7,34 @@ import { describe, expect, it } from "vitest";
  * The same hole that opened on the cire guest pages, closed where it is most
  * likely to reopen. A legal page that hardcodes a contact address drifts
  * silently, and the only symptom is a reader emailing an address nobody reads.
+ * Each page names its own mailbox: the privacy notice the privacy one, the
+ * terms the support one.
  */
-const pages = ["PrivacyPage.tsx", "TermsPage.tsx"] as const;
+const pages = {
+  "PrivacyPage.tsx": { names: "privacyEmail", not: "supportEmail" },
+  "TermsPage.tsx": { names: "supportEmail", not: "privacyEmail" },
+} as const;
 const dir = join(import.meta.dirname, "..", "src", "pages");
 
 /** Any literal address in the body. The real one arrives via LEGAL_ENTITY. */
 const LITERAL_EMAIL = /[\w.+-]+@[\w-]+\.[\w.]+/;
 
-describe.each(pages)("%s", (page) => {
+/** A page's source with every run of whitespace as one space. */
+function flat(source: string): string {
+  return source.replace(/\s+/g, " ");
+}
+
+describe.each(Object.entries(pages))("%s", (page, mailbox) => {
   const source = readFileSync(join(dir, page), "utf8");
 
   it("takes the operator's identity from the shared legal module", () => {
     expect(source).toContain("@shared/legal");
-    expect(source).toContain("LEGAL_ENTITY.contactEmail");
+    expect(source).toContain(`LEGAL_ENTITY.${mailbox.names}`);
+    expect(source).not.toContain(`LEGAL_ENTITY.${mailbox.not}`);
   });
 
   it("hardcodes no email address", () => {
-    expect(source.replaceAll("${LEGAL_ENTITY.contactEmail}", "")).not.toMatch(LITERAL_EMAIL);
+    expect(source.replaceAll(`\${LEGAL_ENTITY.${mailbox.names}}`, "")).not.toMatch(LITERAL_EMAIL);
   });
 
   it("publishes no repo path to the reader", () => {
@@ -52,7 +63,7 @@ describe("PrivacyPage.tsx", () => {
    * 30 days (`lib/handle-hold.ts`), not the account.
    */
   it("says when a deleted account goes and what holds its handles", () => {
-    const text = source.replace(/\s+/g, " ");
+    const text = flat(source);
     expect(text).toMatch(/we keep it for 7 days in case you change your mind/);
     expect(text).toMatch(/usually within a day of the date we show you/);
     expect(text).toMatch(/no one can take your handles for 30 days/);
@@ -65,14 +76,59 @@ describe("PrivacyPage.tsx", () => {
   it("rests nothing on a device list Settings does not show", () => {
     expect(source).not.toMatch(/device list/i);
   });
+
+  /**
+   * Sign-up checks a date of birth against 13 and never stores it
+   * (`osn/api/src/services/auth/registration.ts`). The notice says so, and
+   * promises no deletion of an under-age account, for which no procedure
+   * exists.
+   */
+  it("states the minimum age and what the sign-up check does with a date of birth", () => {
+    const text = flat(source);
+    expect(text).toMatch(/13 or older/);
+    expect(text).toMatch(/date of birth/);
+    expect(text).toMatch(/do not store it/);
+    expect(text).not.toMatch(/we (will )?delete (it|the account|their account)/i);
+  });
+
+  /**
+   * With the browser Email Verification API on (production), osn-api asks
+   * Cloudflare's public resolver about the sign-up address's domain and
+   * fetches the provider's public keys (`wiki/osn/email-verification-api.md`).
+   */
+  it("names the email-verification lookup and what it sends", () => {
+    const text = flat(source);
+    expect(text).toMatch(/Cloudflare&rsquo;s public DNS resolver|Cloudflare's public DNS resolver/);
+    expect(text).toMatch(/the part after the @/);
+  });
+
+  /**
+   * The browser asks the email provider for the token itself, from the
+   * person's own connection (`wiki/osn/email-verification-api.md`), so only
+   * what osn-api sends may be described as withheld.
+   */
+  it("says the browser, not Musubi, asks the email provider", () => {
+    const text = flat(source);
+    expect(text).toMatch(/your browser asks your email provider/);
+    expect(text).toMatch(/We send neither/);
+    expect(text).not.toMatch(/Neither the resolver nor the provider is sent/);
+  });
 });
 
 describe("TermsPage.tsx", () => {
   const source = readFileSync(join(dir, "TermsPage.tsx"), "utf8");
 
   it("says a deletion waits 7 days and can be undone until then", () => {
-    const text = source.replace(/\s+/g, " ");
+    const text = flat(source);
     expect(text).toMatch(/We delete it once 7 days have passed/);
     expect(text).toMatch(/until then you can keep it: sign in and choose Keep my account/);
+  });
+
+  it("states the cap, the minimum age and the courts", () => {
+    const text = flat(source);
+    expect(text).toMatch(/limited to AUD 100/);
+    expect(text).toMatch(/13 or older/);
+    expect(text).toMatch(/the courts of that state have non-exclusive jurisdiction/);
+    expect(text).not.toMatch(/re-suppl/);
   });
 });

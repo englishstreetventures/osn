@@ -21,7 +21,7 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   )}
 
   <h1>Privacy Notice</h1>
-  <p class="meta">Last updated: 2026-11-17</p>
+  <p class="meta">Last updated: 2026-11-18</p>
 
   <p>
     This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (&ldquo;Musubi&rdquo;,
@@ -46,9 +46,8 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
 
   <h2>Fonts and external resources</h2>
   <p>
-    This site loads web fonts from Google Fonts; your browser requests them directly from Google,
-    which may receive your IP address as part of that request. No other third-party content is
-    embedded.
+    This site serves its web fonts itself, and embeds no content from any other company, so your
+    browser contacts no one else when a page loads.
   </p>
 
   <h2>How long we keep it</h2>
@@ -64,7 +63,7 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   <p>
     Depending on where you live, you may have rights to access, correct, delete or port your
     information, and to object to certain uses. To exercise them, contact us at
-    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>. You may also complain to your local data
+    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>. You may also complain to your local data
     protection regulator (<span class={ph(LEGAL_ENTITY.regulator)}>{LEGAL_ENTITY.regulator}</span>).
   </p>
   <p>
@@ -76,6 +75,6 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   <p>
     <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>,
     <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
-    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
+    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>.
   </p>
 </LegalLayout>

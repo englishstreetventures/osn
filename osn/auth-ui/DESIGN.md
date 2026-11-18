@@ -51,7 +51,7 @@ Musubi's own dialogs take their header and footer from it (`AuthHeader`,
 | View | Props a host passes | Context it reads |
 | --- | --- | --- |
 | `SignIn` | `client` (`LoginClient`), `recoveryClient`, `productName`, `host`: `"dialog"` with `onCancel`, or `"page"` with an optional `onCancel` and `cancelLabel`; `registrationClient` and `runPasskeyRegistration` (both, or recovery offers the recovery code only); `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
-| `Register` | `client` (`RegistrationClient`), `productName`, `onCancel`, `host`: `"dialog"`, or `"page"` with an optional `cancelLabel`; `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
+| `Register` | `client` (`RegistrationClient`), `productName`, `legal` (`termsHref` and `privacyHref`, the host's own terms of service and privacy notice), `onCancel`, `host`: `"dialog"`, or `"page"` with an optional `cancelLabel`; `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
 | `RecoveryLoginForm` | `client` (`RecoveryClient`), `host`: `"dialog"` with `onDismiss` (the dialog's Cancel), or `"page"`; `registrationClient` and `runPasskeyRegistration`; `turnstileSiteKey`, `productName`; `onSuccess`, `onCancel` (back to sign-in) | `AuthProvider` |
 | `PasskeysView` | `client`, `stepUpClient`; `profileId` and `runPasskeyRegistration` (both, or "Add a passkey" is hidden); `runPasskeyCeremony`, `totpClient`, `passkeyOnly`; `read` (a `SettingsRead` of the list, or the view reads `client.list()` itself) | — |
 | `TotpView` | `client` (`TotpClient`), `stepUpClient`; `runPasskeyCeremony`, `passkeyOnly`; `read` (of the status) | `Toaster` |
@@ -125,7 +125,7 @@ the title weight 500):
 | Title of a sign-in or create-account view | `AuthHeader`: `DialogTitle` in a dialog, an `h2` in its classes on a page | `SignIn`, `Register` |
 | Heading of a panel | `text-ui-ink text-ui-md font-ui-title`, `DialogTitle`'s and `CardTitle`'s look | `PasskeysView`, `TotpView`, `SessionsView`, `ChangeEmailForm` |
 | Heading of a step inside a view | `text-ui-ink text-ui-base font-medium` | `RecoveryLoginForm`'s `enrol`, `enrolled` and `expired` steps; `TotpView`'s "Scan this with your authenticator app"; `CheckEmailView`, `ConfirmLinkPage` |
-| Body copy | `text-ui-sm leading-ui-snug text-ui-ink-secondary` | the views' own paragraphs and lines; a done line ("Your email is now …") in `text-ui-ink` |
+| Body copy | `text-ui-sm leading-ui-snug text-ui-ink-secondary` | the views' own paragraphs and lines, `Register`'s agreement line among them; a done line ("Your email is now …") in `text-ui-ink` |
 | Meta lines (dates, "(synced)") | `text-ui-xs text-ui-ink-secondary` | the list rows, the banner |
 | "(this device)" | `text-ui-xs text-ui-accent-ink` | `SessionsView` |
 | Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | `Register`'s date of birth |
@@ -134,6 +134,14 @@ the title weight 500):
 
 The `@shared/ui` parts inside the views (Button, Field, Input, Label,
 OtpInput, Card and Dialog titles) take the contract steps.
+
+`Register`'s agreement line ("By creating an account you agree to the Terms
+of Service and acknowledge the Privacy Notice.") is body copy, not a meta line
+or a hint. It belongs to no field, so it is not `Field`'s hint, and it is no
+date or status. It states what pressing the send agrees to, so it reads at the
+step's own size, 13px in Musubi, and not as small print: at the hint's 12px it
+reads as one more hint under the date of birth's. Its two links are inline
+(§5, Links) and take the line's size.
 
 `StepUpDialog` follows the rule. Its title is `DialogTitle` (`text-ui-md` at
 the contract's title weight), through `AuthHeader`; its one line, the warning
@@ -378,7 +386,7 @@ besides the default:
 | View | Parts | Button variants |
 | --- | --- | --- |
 | `SignIn` | Button, Field, Input, Notice; `AuthHeader`, `ViewStep` | `secondary` (a dialog's Cancel; "Use a recovery code instead" on a page), `link` |
-| `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `AuthHeader`, `ViewStep`; `CheckEmailView` for the wait | `secondary` (a dialog's Cancel) |
+| `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `AuthHeader`, `ViewStep`; `CheckEmailView` for the wait | `secondary` (a dialog's Cancel), `link` at `inline` (the agreement line's two `<a>`s, through `buttonVariants`) |
 | `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput; `ViewStep`; `CheckEmailView` for the emailed link's wait | `outline`, `secondary` (a dialog's Cancel), `link` |
 | `StepUpDialog` | Button, Dialog, Notice, OtpInput; `AuthHeader`, `ViewStep`; `CheckEmailView` for the emailed link's wait | `outline`, `secondary`, `link` |
 | `AuthHeader` | Button, Dialog (`DialogHeader`, `DialogTitle`) | `ghost` (Cancel on a page, where it switches views and dismisses nothing) |
@@ -426,8 +434,12 @@ page, centred under the step's action. They are "Lost your passkey?" (under
 on the step-up's emailed-link wait and code step, and `RecoveryLoginForm`'s
 "Back to sign in", "Back" and, after a failed enrolment, "Start again".
 `InlineAction`, above, is the
-link that ends an error line. Musubi's rules for both, and for a link inside a
-sentence, are `musubi/social/DESIGN.md` §Links.
+link that ends an error line. A link inside a sentence is an `<a>` wearing
+`buttonVariants({ variant: "link", size: "inline" })`: `Register`'s "Terms of
+Service" and "Privacy Notice", in the agreement line on its details step, each
+to the address the host passes in `legal`, each opening a tab of its own
+(`target="_blank"`, `rel="noopener noreferrer"`) so the form keeps what was
+typed. Musubi's rules for all three are `musubi/social/DESIGN.md` §Links.
 
 ## 6. States per view
 
@@ -477,7 +489,7 @@ own.
 | State | What shows |
 | --- | --- |
 | No WebAuthn | "Creating an account on {productName} needs a passkey or security key — something this browser doesn't support. …" |
-| Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, "Send verification link" ("Sending…"). When a wait ended because someone took the handle, "That handle was taken while you waited. Choose another." under the handle, which takes focus |
+| Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, the agreement line "By creating an account you agree to the Terms of Service and acknowledge the Privacy Notice." (both linked, §5; body copy, §3; the send's description, so a screen reader hears it on the button), the error line, "Send verification link" ("Sending…"). The two links stay live while the send runs: each opens its own tab, so neither leaves the view. When a wait ended because someone took the handle, "That handle was taken while you waited. Choose another." under the handle, which takes focus |
 | Verify | `CheckEmailView` for sign-up: the address, the request's number, the junk-mail line naming `productName` once Resend unlocks, Resend ("Sending…") and "Start again" (back to Details with the fields kept, from the first moment). After the link's reader declines or picks a wrong number the view keeps waiting, as for an address nobody was mailed, and the link's page sends the person back here to "Start again". Its error line is the copy map's sentence for a failed Resend, or "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again." once the request has sent every link it may; once the link expires, "Send a new link" goes back to Details with the fields kept |
 | Passkey | "Add a passkey or security key so you can sign back in. This is required to finish creating your account."; the enrolment's error line; "Add a passkey" ("Waiting for your passkey…") |
 | Done | "You're all set. Loading {productName}…" |

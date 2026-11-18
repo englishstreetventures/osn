@@ -117,6 +117,12 @@ function deferred<T>() {
 // all that matters.
 const asClient = (s: ClientStub): RegistrationClient => s as unknown as RegistrationClient;
 
+/**
+ * Where the host keeps its terms and privacy notice. Neither is a path any
+ * host uses, so a link the view wrote for itself fails the agreement test.
+ */
+const LEGAL = { termsHref: "/fixture/terms", privacyHref: "/fixture/privacy" };
+
 let stub: ClientStub;
 
 const sampleSession = {
@@ -168,7 +174,13 @@ describe("Register component", () => {
   describe("details step", () => {
     it("sanitises handle input: lowercases and strips invalid chars", () => {
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       const input = fillHandle("Alice WONDERLAND!");
       expect(input.value).toBe("alicewonderland");
@@ -176,7 +188,13 @@ describe("Register component", () => {
 
     it("flags handle as invalid format synchronously, no fetch", () => {
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       // Empty after sanitisation? No — we want a string that survives
       // sanitisation but fails HANDLE_RE. The sanitiser strips everything
@@ -190,7 +208,13 @@ describe("Register component", () => {
     it("debounces availability check and shows 'available'", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       fillHandle("alice");
       // Synchronously transitions to "checking".
@@ -208,7 +232,13 @@ describe("Register component", () => {
     it("aborts the previous in-flight check before issuing a new one (P-W10)", async () => {
       stub.checkHandle.mockImplementation(() => new Promise(() => {}));
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       fillHandle("ali");
       await vi.advanceTimersByTimeAsync(350);
@@ -226,7 +256,13 @@ describe("Register component", () => {
     it("shows 'taken' when the server reports unavailable", async () => {
       stub.checkHandle.mockResolvedValue({ available: false });
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       fillHandle("taken");
       await vi.advanceTimersByTimeAsync(350);
@@ -242,7 +278,13 @@ describe("Register component", () => {
       // separately so the user isn't told their handle is the wrong shape.
       stub.checkHandle.mockRejectedValue(new Error("network down"));
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       fillHandle("alice");
       await vi.advanceTimersByTimeAsync(350);
@@ -257,7 +299,13 @@ describe("Register component", () => {
         () => new Promise(() => {}), // never resolves
       );
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       fillEmail("alice@example.com");
       fillHandle("alice");
@@ -272,7 +320,13 @@ describe("Register component", () => {
     it("submit becomes enabled once email + handle + birthdate are all valid", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       fillEmail("alice@example.com");
       fillHandle("alice");
@@ -291,7 +345,13 @@ describe("Register component", () => {
     it("keeps submit disabled and warns for an under-13 birthdate", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       fillEmail("alice@example.com");
       fillHandle("alice");
@@ -310,6 +370,51 @@ describe("Register component", () => {
     });
   });
 
+  // Creating an account agrees to the host's terms, so the details step says
+  // so beside the send, links the host's own pages, and opens each in its own
+  // tab, so reading one keeps what was typed here.
+  describe("the agreement line", () => {
+    const SENTENCE =
+      "By creating an account you agree to the Terms of Service and acknowledge the Privacy Notice.";
+
+    it("links the host's terms and privacy notice, each in a tab of its own", () => {
+      render(() => (
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
+      ));
+      const terms = screen.getByRole("link", { name: "Terms of Service" });
+      const privacy = screen.getByRole("link", { name: "Privacy Notice" });
+      expect(terms.parentElement?.textContent).toBe(SENTENCE);
+      expect(privacy.parentElement).toBe(terms.parentElement);
+      expect(terms.getAttribute("href")).toBe(LEGAL.termsHref);
+      expect(privacy.getAttribute("href")).toBe(LEGAL.privacyHref);
+      for (const link of [terms, privacy]) {
+        expect(link.getAttribute("target")).toBe("_blank");
+        expect(link.getAttribute("rel")?.split(" ")).toContain("noopener");
+      }
+    });
+
+    it("describes the send by the sentence, so it is heard where the agreement is made", () => {
+      render(() => (
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
+      ));
+      const send = screen.getByRole("button", { name: "Send verification link" });
+      const ids = send.getAttribute("aria-describedby")?.split(" ") ?? [];
+      expect(ids.map((id) => document.getElementById(id)?.textContent)).toEqual([SENTENCE]);
+    });
+  });
+
   // The address verifies the account, is the emailed way back into an
   // account whose passkeys are gone, and receives security notices. The form
   // said none of it, and the recovery job is the one that should steer which
@@ -317,7 +422,13 @@ describe("Register component", () => {
   describe("email explainer", () => {
     it("names the trigger, since a circled glyph announces nothing", () => {
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       const trigger = screen.getByLabelText("What this address is used for");
       expect(trigger.tagName).toBe("BUTTON");
@@ -326,7 +437,13 @@ describe("Register component", () => {
 
     it("is a real button that cannot submit the form it sits in", () => {
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       const trigger = screen.getByLabelText("What this address is used for") as HTMLButtonElement;
       expect(trigger.getAttribute("type")).toBe("button");
@@ -336,7 +453,13 @@ describe("Register component", () => {
 
     it("gives all three uses of the address, naming the product it was given", async () => {
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Kumiho"
+          legal={LEGAL}
+        />
       ));
       fireEvent.click(screen.getByLabelText("What this address is used for"));
 
@@ -355,7 +478,13 @@ describe("Register component", () => {
     it("opening it does not submit the form or advance the step", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       fillEmail("alice@example.com");
       fillHandle("alice");
@@ -405,6 +534,7 @@ describe("Register component", () => {
         onCancel={extra?.onCancel ?? (() => {})}
         onSuccess={extra?.onSuccess}
         productName="Musubi"
+        legal={LEGAL}
       />
     ));
   }
@@ -1344,6 +1474,7 @@ describe("Register component", () => {
           onCancel={() => {}}
           turnstileSiteKey={siteKey}
           productName="Musubi"
+          legal={LEGAL}
         />
       ));
       fillEmail("alice@example.com");
@@ -1383,7 +1514,13 @@ describe("Register component", () => {
 
     it("ties a malformed email to its field once the field is left", async () => {
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       const field = screen.getByLabelText(/Email/) as HTMLInputElement;
       fireEvent.input(field, { target: { value: "alice@" } });
@@ -1398,7 +1535,13 @@ describe("Register component", () => {
 
     it("describes the date of birth by its hint, then by the under-13 line", async () => {
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       const field = screen.getByLabelText(/Date of birth/) as HTMLInputElement;
       const hint = screen.getByText("You must be 13 or older to create an account.");
@@ -1490,7 +1633,13 @@ describe("Register component", () => {
     it("blocks the flow at the start with an informational screen", async () => {
       hoisted.webauthnSupported = false;
       render(() => (
-        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          productName="Musubi"
+          legal={LEGAL}
+        />
       ));
       // No form fields render; only the fallback copy.
       expect(screen.queryByLabelText(/Email/)).toBeNull();
@@ -1502,7 +1651,13 @@ describe("Register component", () => {
   it("Cancel button calls onCancel", () => {
     const onCancel = vi.fn();
     render(() => (
-      <Register host="page" client={asClient(stub)} onCancel={onCancel} productName="Musubi" />
+      <Register
+        host="page"
+        client={asClient(stub)}
+        onCancel={onCancel}
+        productName="Musubi"
+        legal={LEGAL}
+      />
     ));
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
     expect(onCancel).toHaveBeenCalled();
@@ -1522,6 +1677,7 @@ describe("Register in a dialog", () => {
             client={asClient(makeClientStub())}
             onCancel={() => {}}
             productName="Musubi"
+            legal={LEGAL}
           />
         </DialogContent>
       </Dialog>
@@ -1541,6 +1697,7 @@ describe("Register in a dialog", () => {
         onCancel={onCancel}
         cancelLabel="Sign in instead"
         productName="Musubi"
+        legal={LEGAL}
       />
     ));
     fireEvent.click(screen.getByRole("button", { name: "Sign in instead" }));
@@ -1557,6 +1714,7 @@ describe("Register in a dialog", () => {
             client={asClient(makeClientStub())}
             onCancel={onCancel}
             productName="Musubi"
+            legal={LEGAL}
           />
         </DialogContent>
       </Dialog>
@@ -1588,6 +1746,7 @@ describe("Register in a dialog", () => {
             client={asClient(makeClientStub())}
             onCancel={() => {}}
             productName="Musubi"
+            legal={LEGAL}
             // @ts-expect-error A dialog's Cancel always reads "Cancel".
             cancelLabel="Sign in instead"
           />
@@ -1611,6 +1770,7 @@ describe("Register in a dialog", () => {
             client={asClient(client)}
             onCancel={onCancel}
             productName="Musubi"
+            legal={LEGAL}
           />
         </DialogContent>
       </Dialog>

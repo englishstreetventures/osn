@@ -25,6 +25,9 @@ const client: RegistrationClient = {
   passkeyRegisterComplete: () => never(),
 };
 
+/** Musubi's own pages, as both its hosts pass them. */
+const legal = { termsHref: "/terms", privacyHref: "/privacy" };
+
 /** Signed out, built inside a render so its resources go with the story. */
 function signedOut(): AuthValue {
   const [session] = createResource<Session | null>(() => null, { initialValue: null });
@@ -55,7 +58,13 @@ export const Default: Story = {
     >
       <DialogBench>
         <AuthContext.Provider value={signedOut()}>
-          <Register host="dialog" client={client} productName="Musubi" onCancel={() => {}} />
+          <Register
+            host="dialog"
+            client={client}
+            productName="Musubi"
+            legal={legal}
+            onCancel={() => {}}
+          />
         </AuthContext.Provider>
       </DialogBench>
     </Gallery>
@@ -74,6 +83,7 @@ export const OnAuthorize: Story = {
             host="page"
             client={client}
             productName="Musubi"
+            legal={legal}
             cancelLabel="Sign in instead"
             onCancel={() => {}}
           />

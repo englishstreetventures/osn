@@ -13,7 +13,7 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 // Name every field this page publishes that the shared identity check does
 // not already cover. Leave one out and the banner can go while that field
 // is still a token.
-const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDataRetention)
+const draft = draftPending()
 ---
 <LegalPage title="Privacy Notice for Hosts">
   {draft && (
@@ -37,8 +37,9 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
 
   <h2>Two kinds of people use Cire</h2>
   <ul>
-    <li><strong>Organisers</strong> (couples and their helpers) create an account with us. For your
-      account and purchase information, we decide how it is handled, as described here.</li>
+    <li><strong>Organisers</strong> (couples and their helpers), who must be 18 or older, create an
+      account with us. For your account and purchase information, we decide how it is handled, as
+      described here.</li>
     <li><strong>Guests</strong> don&rsquo;t create accounts. Your couple uploads your details to
       manage their wedding, and we process them on the couple&rsquo;s behalf and instructions.
       Three things are ours to decide rather than theirs, and we decide them the same way for
@@ -75,9 +76,9 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
     <li><strong>Vendor enquiries</strong> — the enquiry threads between a couple and the
       vendors they contact. An enquiry sends the couple&rsquo;s wedding name and message to
       the vendor they chose.</li>
-    <li><strong>Purchases</strong> — handled by our merchant of record,
-      <span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span>. We receive order confirmation
-      (what was bought, for which wedding) but never see your card details.</li>
+    <li><strong>Purchases</strong> — when you buy a plan, Stripe takes the payment for us. We
+      record what was bought, for which wedding, by which organiser, the amount and Stripe&rsquo;s
+      reference for the payment, but never see your card details.</li>
     <li><strong>Site usage</strong> — the technical logs needed to keep the service secure. We run
       no third-party analytics or advertising trackers.</li>
   </ul>
@@ -85,7 +86,7 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
   <h2>Why we collect it</h2>
   <ul>
     <li>To provide the service — hosting invitations, collecting RSVPs, powering the planning tools.</li>
-    <li>To process purchases and unlock paid add-ons.</li>
+    <li>To take payment for a plan and upgrade the wedding it was bought for.</li>
     <li>To send transactional email (sign-in codes, security notices) — never marketing without consent.</li>
     <li>To keep the service secure and improve it.</li>
     <li>To keep an accurate record of who changed a guest&rsquo;s reply when several people
@@ -103,16 +104,19 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
   <ul>
     <li><strong>Cloudflare</strong> — hosting, content delivery, databases, and infrastructure
       supporting security features such as rate limiting (global network).</li>
-    <li><span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span> — payment processing, as
-      merchant of record for purchases.</li>
+    <li><strong>Stripe</strong> — takes payment for the plans you buy from us.</li>
+    <li><strong>Stripe, for registry gifts</strong> — if you take money gifts through the registry,
+      you connect your own Stripe account, and guests pay you on it, under your own agreement with
+      Stripe. Stripe collects your identity and business details directly; we do not. We record
+      which owner connected it, and show that to the wedding&rsquo;s other owners. An owner can let
+      another of their weddings take gifts through the same account, and that wedding&rsquo;s
+      guests then see its Stripe business name when they pay.</li>
     <li><strong>Resend</strong> — transactional email delivery, including vendor claim
       invitations.</li>
     <li><strong>The vendor you enquire with</strong> — an enquiry is sent to that supplier,
       who then holds it under their own responsibility.</li>
     <li><strong>Grafana Cloud</strong> — service telemetry (metrics and traces; pseudonymised
       identifiers only, never guest content).</li>
-    <li><strong>Google Fonts</strong> — our pages currently load fonts from Google&rsquo;s CDN,
-      which sees your IP address when they load. We plan to self-host these fonts.</li>
   </ul>
   <p>
     We also disclose information where the law requires it. Our primary region is
@@ -157,9 +161,14 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
     event and gift images, and the original upload when a resize fails) can still be served for up
     to a year after they were stored, and link thumbnails for up to 30 days, until they expire. A
     cached copy can therefore be served after you remove the file or delete the wedding. The dated record of a status change naming the organiser who made it is deleted after
-    <strong>90 days</strong>; the note of who last changed a reply goes with the reply. Specific
-    periods for account data:
-    <span class={ph(LEGAL_ENTITY.accountDataRetention)}>{LEGAL_ENTITY.accountDataRetention}</span>.
+    <strong>90 days</strong>; the note of who last changed a reply goes with the reply.
+  </p>
+  <p>
+    The record of a plan you bought goes with its wedding. Two records of the money outlive it,
+    because we keep them as our financial records. Neither holds a name or which wedding it was
+    for, but each can be matched to the payment. The record of each sale (the plan, the amount and
+    the day) has no set end date today. The record of each refund (the amount, the reason and
+    Stripe&rsquo;s references for the payment and the refund) is kept for seven years.
   </p>
 
   <h2>Security</h2>
@@ -174,7 +183,7 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
     You may have rights to access, correct, delete or port your information, and to object to
     certain uses — under the Australian Privacy Act, and for people in the EEA or UK, the GDPR and
     UK GDPR. To exercise them, contact us at
-    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>. You can also complain to a regulator —
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}><span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a>. You can also complain to a regulator —
     in Australia, the Office of the Australian Information Commissioner (OAIC), or your local data
     protection authority.
   </p>
@@ -189,6 +198,6 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
   <p>
     <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (trading as Cire),
     <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
-    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}><span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a>.
   </p>
 </LegalPage>

@@ -33,7 +33,7 @@ function phrase(text: string): RegExp {
 
 /**
  * A bare `mailto:` or an address written into the prose. The operator's own
- * contact arrives through `LEGAL_ENTITY.contactEmail`, so any literal address
+ * contact arrives through `LEGAL_ENTITY.privacyEmail`, so any literal address
  * in the notice is a hardcoded one, and served to the guests of every wedding.
  */
 const LITERAL_EMAIL = /[\w.+-]+@[\w-]+\.[\w.]+/;
@@ -45,7 +45,28 @@ describe("guest privacy notice", () => {
 
   it("takes the operator's identity from the shared legal module", () => {
     expect(source).toContain("@shared/legal");
-    expect(source).toContain("LEGAL_ENTITY.contactEmail");
+    expect(source).toContain("LEGAL_ENTITY.privacyEmail");
+    expect(source).not.toContain("LEGAL_ENTITY.supportEmail");
+  });
+
+  /**
+   * Every record the notice lists as collected has a purpose and a basis in
+   * "Why it is used, and on what basis": the reply-change record, who sent
+   * each reply, seating and registry gifts among them.
+   */
+  it("gives a purpose and basis for each record it says it collects", () => {
+    const start = body.indexOf("Why it is used, and on what basis");
+    const end = body.indexOf("If a guest is bringing you");
+    const why = body.slice(start, end).replace(/\s+/g, " ");
+    expect(start).toBeGreaterThan(-1);
+    for (const record of [
+      "When your household’s replies changed",
+      "Which of you sent each reply",
+      "Where you sit",
+      "Gifts",
+    ]) {
+      expect(why).toContain(`<strong>${record}</strong>`);
+    }
   });
 
   /**

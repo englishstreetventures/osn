@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import guestNotice from "@cire/ui/guest-privacy-notice.astro?raw";
-import { LEGAL_ENTITY } from "@shared/legal";
+import { IDENTITY_FIELD_NAMES, LEGAL_ENTITY } from "@shared/legal";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -36,13 +36,19 @@ const pages = {
   "terms.astro": readPage("terms.astro"),
 } as const;
 
+/** The mailbox each page sends a reader to, and the one it must not. */
+const MAILBOX = {
+  "privacy.astro": { names: "privacyEmail", not: "supportEmail" },
+  "terms.astro": { names: "supportEmail", not: "privacyEmail" },
+} as const;
+
 function readPage(page: string): string {
   return readFileSync(join(import.meta.dirname, "../../src/pages", page), "utf8");
 }
 
 /**
  * A bare `mailto:` or an address written into the prose. The operator's own
- * contact arrives through `LEGAL_ENTITY.contactEmail`, so any literal address
+ * contact arrives through `LEGAL_ENTITY`'s mailboxes, so any literal address
  * in these files is a hardcoded one.
  */
 const LITERAL_EMAIL = /[\w.+-]+@[\w-]+\.[\w.]+/;
@@ -59,7 +65,7 @@ function template(source: string): string {
 }
 
 /** The fields `draftPending` already checks on every page's behalf. */
-const IDENTITY = ["name", "postalAddress", "contactEmail"] as const;
+const IDENTITY = IDENTITY_FIELD_NAMES;
 
 /** The `LEGAL_ENTITY.x` fields named inside the page's `draftPending(...)` gate. */
 function gateFields(source: string): string[] {
@@ -82,7 +88,8 @@ describe.each(Object.entries(pages))("%s", (page, served) => {
 
   it("takes the operator's identity from the shared legal module", () => {
     expect(served).toContain("@shared/legal");
-    expect(served).toContain("LEGAL_ENTITY.contactEmail");
+    expect(served).toContain(`LEGAL_ENTITY.${MAILBOX[page as keyof typeof MAILBOX].names}`);
+    expect(served).not.toContain(`LEGAL_ENTITY.${MAILBOX[page as keyof typeof MAILBOX].not}`);
   });
 
   // The asset layer serves a prerendered page without running the Worker, so
@@ -110,5 +117,13 @@ describe.each(Object.entries(pages))("%s", (page, served) => {
     for (const field of renderedFields(served)) {
       expect(LEGAL_ENTITY).toHaveProperty(field);
     }
+  });
+});
+
+describe("terms.astro", () => {
+  it("names the courts of the governing state", () => {
+    expect(readPage("terms.astro").replace(/\s+/g, " ")).toMatch(
+      /the courts of that state have non-exclusive jurisdiction/,
+    );
   });
 });
