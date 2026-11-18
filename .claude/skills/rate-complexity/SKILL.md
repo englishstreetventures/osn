@@ -22,7 +22,9 @@ Two other things you must not do:
 
 - **Never let the agent that did the work rate the work.** It will rate the task
   it struggled with as hard. That is motivated reasoning, and it corrupts the
-  one field the whole system rests on.
+  one field the whole system rests on. An agent about to start an issue may
+  rate it, from the body, before its branch exists; once the work has begun,
+  no one rates it without `complexity:unconfirmed`.
 - **Never rate from the diff.** The diff does not exist yet, and it is the wrong
   evidence anyway — see the rubric.
 
@@ -66,7 +68,7 @@ Rate before any work starts and before any cost is on screen, as above. A rating
 made after the work has begun is contaminated: add `complexity:unconfirmed` to it
 and say so.
 
-## Mode B — backfill (no owner)
+## Mode B — backfill
 
 Used to rate issues opened before the label existed. Rate from the body alone,
 apply both labels, and never ask:

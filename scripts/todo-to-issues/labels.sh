@@ -49,10 +49,10 @@ for repo in englishstreetventures/osn englishstreetventures/osn-tracker; do
   create "complexity:5" "d93f0b" "Several packages, or a contract others depend on"
   create "complexity:8" "b60205" "Cross-cutting, or the shape is unknown at the start"
 
-  # Not a rating — a caveat on one. An agent rated this and no human signed
-  # off, which is most of the backfill over issues that predate the label.
-  # Exclude these from any query you intend to act on.
-  create "complexity:unconfirmed" "bfbfbf" "An agent's rating that no human signed off on"
+  # Not a rating — a caveat on one. The rating was made by backfill, or after
+  # the work had begun with its cost in view, so it may have been fitted to
+  # that cost. Exclude these from any query you intend to act on.
+  create "complexity:unconfirmed" "bfbfbf" "Rated by backfill or after the work began; not a denominator"
 
   # Orthogonal to every label above: a state, not a category. An agent working
   # the backlog applies it when the next step needs a choice only the repo
