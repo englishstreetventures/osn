@@ -1888,12 +1888,14 @@ and [`scripts/production-operator.ts`](../../scripts/production-operator.ts):
 - The approved job reads them again and refuses unless cire-api's commit is still the
   one shown, so an approval given after another release sends nothing.
 - It POSTs the scopes with a key it generates, under a new `kid`, already expired, whose
-  private half is never exported, then revokes that `kid`. The scopes reach cire-api's
-  own key through `service_accounts`; the throwaway key verifies nothing. Each run leaves
-  one expired, revoked `cire-api` row in `service_account_keys`
-  ([[arc-token-debugging]]).
-- It holds `INTERNAL_SERVICE_SECRET` alone, installs nothing, and prints statuses,
-  commits and scope names, never a response body.
+  private half is never exported, then revokes that `kid` unless osn-api refused the
+  registration before writing. The scopes reach cire-api's own key through
+  `service_accounts`; the throwaway key verifies nothing. Each run leaves one expired,
+  revoked `cire-api` row in `service_account_keys` ([[arc-token-debugging]]). The
+  repository's script tests fail if osn-api moves scopes onto the key.
+- Its only secret is `INTERNAL_SERVICE_SECRET`, beside the job's read-only
+  `GITHUB_TOKEN`; it installs nothing, follows no redirect, and prints statuses, commits
+  and scope names, never a response body.
 
 A 200 shows osn-api stored the scopes. They apply only while cire-api's own key, the one
 `CIRE_API_ARC_KEY_ID` names, is registered and live, and each osn-api isolate keeps a

@@ -483,14 +483,20 @@ async function registerCireArc(deps: Deps): Promise<void> {
     allowedScopes: planned.scopes.join(","),
     expiresAt: deps.now() - EXPIRED_BY,
   });
-  // Sent whatever the registration answered: a refusal wrote nothing and
-  // answers 404, and a lost answer may have written the throwaway key.
-  const revoked = await toOsnApi(
-    deps,
-    bearer,
-    "DELETE",
-    `/graph/internal/service-keys/${encodeURIComponent(keyId)}`,
-  );
+  // The throwaway key may exist after a 200, a 5xx or a lost answer, so it is
+  // revoked then. A 3xx or 4xx is a refusal before any write, and a 409 there
+  // names a key id held by another service or already revoked, which this run
+  // must not touch.
+  const mayHaveWritten =
+    "failed" in registered || registered.status === 200 || registered.status >= 500;
+  const revoked = mayHaveWritten
+    ? await toOsnApi(
+        deps,
+        bearer,
+        "DELETE",
+        `/graph/internal/service-keys/${encodeURIComponent(keyId)}`,
+      )
+    : undefined;
 
   if ("failed" in registered) {
     throw new Refusal(
@@ -509,6 +515,7 @@ async function registerCireArc(deps: Deps): Promise<void> {
   ];
   for (const line of lines) deps.out(line);
   summary(deps, lines);
+  if (revoked === undefined) return;
   if ("failed" in revoked) {
     deps.out(
       `::warning::Revoking the throwaway key did not complete (${revoked.failed}). It was registered already expired, so it verifies nothing.`,
@@ -601,8 +608,15 @@ export async function lookupProductionCommits(
   env: Deps["env"],
 ): Promise<ReadonlyMap<string, string>> {
   const { lastDeployed, restReader } = await import("./release-plan");
+  // The reader sends GITHUB_TOKEN with every request; a redirect fails rather
+  // than carrying it to another host.
+  const noRedirect = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+      fetchImpl(input, { ...init, redirect: "error" }),
+    { preconnect: fetchImpl.preconnect },
+  );
   const reader = restReader({
-    fetch: fetchImpl,
+    fetch: noRedirect,
     token: env.GITHUB_TOKEN ?? "",
     repository: env.GITHUB_REPOSITORY ?? "",
     apiUrl: env.GITHUB_API_URL || "https://api.github.com",

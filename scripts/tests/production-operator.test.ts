@@ -579,6 +579,23 @@ describe("plan-register", () => {
     expectClean(h);
   });
 
+  test("P10: the real lookup sends GITHUB_TOKEN to GitHub's API alone, and never follows a redirect with it", async () => {
+    const { impl, sent } = fakeFetch({
+      "GET https://api.github.com/": [
+        new Response(CANARY, { status: 302, headers: { location: `https://${CANARY}.example` } }),
+      ],
+    });
+    await expect(lookupProductionCommits(impl, env)).rejects.toThrow();
+    expect(sent.length).toBeGreaterThan(0);
+    for (const s of sent) {
+      expect(s.url.startsWith("https://api.github.com/repos/englishstreetventures/osn/")).toBe(
+        true,
+      );
+      expect(s.redirect).toBe("error");
+      expect(s.headers.get("authorization")).toBe(`Bearer ${GH_TOKEN}`);
+    }
+  });
+
   test("P9: the real git lookup answers nothing for a commit it lacks and for a path that is not a file", () => {
     expect(gitShow("0".repeat(40), "cire/api/src/services/osn-bridge.ts")).toBeUndefined();
     expect(gitShow("HEAD", "cire/api/src/services/no-such-file.ts")).toBeUndefined();
@@ -647,7 +664,7 @@ describe("register-cire-arc", () => {
     expect(Math.abs(now - Date.now() / 1000)).toBeLessThan(5);
   });
 
-  test("R3: a refusal from osn-api prints its status and that status's hint, never the body, and still revokes the key", async () => {
+  test("R3: a refusal from osn-api prints its status and that status's hint, never the body; the key is revoked after a 5xx and left alone after a 3xx or 4xx, which wrote nothing", async () => {
     const hints: [number, string][] = [
       [302, "never follows with the bearer"],
       [400, "a scope it does not permit"],
@@ -674,7 +691,10 @@ describe("register-cire-arc", () => {
       expect(await run(["register-cire-arc"], h.deps)).toBe(1);
       expect(h.text()).toContain(`answered ${status}`);
       expect({ status, hinted: h.text().includes(hint) }).toEqual({ status, hinted: true });
-      expect(h.sent.map((s) => s.method)).toEqual(["POST", "DELETE"]);
+      expect({ status, sent: h.sent.map((s) => s.method) }).toEqual({
+        status,
+        sent: status >= 500 ? ["POST", "DELETE"] : ["POST"],
+      });
       expectClean(h);
     }
   });
@@ -756,6 +776,29 @@ describe("register-cire-arc", () => {
     expect(h.out).toEqual(["::error::register-cire-arc failed (RangeError)."]);
     expect(h.sent).toEqual([]);
     expectClean(h);
+  });
+
+  // register-cire-arc reaches cire-api's own key only because osn-api keeps
+  // a service's scopes on the service: the registration upserts them by
+  // serviceId alone, and verification joins every key of a service to that
+  // one row. If scopes ever move onto the key, the action changes nothing
+  // while reporting success, and this fails first.
+  test("R12: osn-api keeps a service's scopes on the service row, which the throwaway-key renewal relies on", () => {
+    const route = readRepo("osn/api/src/routes/graph-internal.ts");
+    expect(route).toMatch(
+      /\.insert\(serviceAccounts\)[\s\S]*?\.onConflictDoUpdate\(\{\s*target: serviceAccounts\.serviceId,\s*set: \{ allowedScopes: body\.allowedScopes\b/,
+    );
+    const arc = readRepo("shared/crypto/src/arc.ts");
+    expect(arc).toMatch(/allowedScopes: serviceAccounts\.allowedScopes,/);
+    expect(arc).toMatch(
+      /\.innerJoin\(serviceAccounts, eq\(serviceAccountKeys\.serviceId, serviceAccounts\.serviceId\)\)/,
+    );
+    const schema = readRepo("osn/db/src/schema/index.ts");
+    const keys = /sqliteTable\(\s*"service_account_keys",\s*\{([\s\S]*?)\n {2}\},/.exec(
+      schema,
+    )?.[1];
+    expect(keys).toContain("public_key_jwk");
+    expect(keys).not.toMatch(/scope/i);
   });
 
   test("R7: a production commit other than the one the check job read refuses before any request", async () => {
@@ -1001,15 +1044,19 @@ describe("the workflow", () => {
       WINDOW_START: "${{ inputs.window_start }}",
       WINDOW_END: "${{ inputs.window_end }}",
     });
-    // The lookup reads deployment records, and the scopes at older commits.
+    // The lookup reads deployment records, and the scopes at older commits,
+    // which only the registration needs: the count's check takes one commit.
+    // `0` is false in an expression, so the condition is on the other side.
+    const depth = (job: string) =>
+      steps(job).find((step) => step.uses?.startsWith("actions/checkout@"))?.with?.["fetch-depth"];
+    expect(depth("check")).toBe("${{ inputs.action != 'register-cire-arc' && 1 || 0 }}");
+    expect(depth("register-cire-arc")).toBe(0);
     for (const job of ["check", "register-cire-arc"]) {
       expect(workflow.jobs[job]?.permissions).toEqual({
         contents: "read",
         deployments: "read",
         actions: "read",
       });
-      const checkout = steps(job).find((step) => step.uses?.startsWith("actions/checkout@"));
-      expect(checkout?.with?.["fetch-depth"]).toBe(0);
     }
   });
 });

@@ -93,10 +93,12 @@ jobs:
           echo "::error::Dispatch this workflow from main; the production Environment admits main alone."
           exit 1
 
-      # Full history: the scopes are read at whichever commit production runs.
+      # Full history for the registration, whose scopes are read at whichever
+      # commit production runs; one commit for the count. `0` is false in an
+      # expression, so the condition names the action that needs 1.
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: ${{ inputs.action != 'register-cire-arc' && 1 || 0 }}
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
