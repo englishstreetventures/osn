@@ -26,16 +26,16 @@ export function PrivacyPage(): JSX.Element {
   const email = () => (
     <a
       class={buttonVariants({ variant: "link", size: "inline" })}
-      href={`mailto:${LEGAL_ENTITY.contactEmail}`}
+      href={`mailto:${LEGAL_ENTITY.privacyEmail}`}
     >
-      {LEGAL_ENTITY.contactEmail}
+      {LEGAL_ENTITY.privacyEmail}
     </a>
   );
 
   return (
     <LegalDocument
       title="Privacy Notice"
-      updated="2026-11-17"
+      updated="2026-11-18"
       draft={draftPending(LEGAL_ENTITY.regulator)}
     >
       <p>
@@ -51,6 +51,18 @@ export function PrivacyPage(): JSX.Element {
         One or more passkeys — we store the public key and a label you chose ("iPhone 15 Pro"),
         never a password and never anything that could be used to sign in as you elsewhere. We keep
         this because we cannot provide you an account without it.
+      </p>
+      <p>
+        When you sign up we ask for your date of birth, to check you are 13 or older. We use it for
+        that check only, and we do not store it.
+      </p>
+      <p>
+        Some browsers, including some versions of Chrome, can vouch for your email address when you
+        sign up, so you do not have to open a link we email you. When yours does, we look up your
+        address&rsquo;s domain — the part after the @ — through Cloudflare&rsquo;s public DNS
+        resolver, to find the email provider that vouches for it, and fetch that provider&rsquo;s
+        public keys. On a personal domain the domain alone can identify you. Neither the resolver
+        nor the provider is sent the rest of your address or your IP address.
       </p>
       <h3>Your profiles</h3>
       <p>
@@ -154,6 +166,13 @@ export function PrivacyPage(): JSX.Element {
         If you are unhappy with how we have handled it, you can complain to the{" "}
         {LEGAL_ENTITY.regulator}, or — in the EEA or the UK — to your local data protection
         authority.
+      </p>
+
+      <h2>Who can have an account</h2>
+      <p>
+        You must be 13 or older to have a Musubi account, or older where the law of your country
+        sets a higher age. Sign-up checks the age of 13 only. If you think a child under 13 has an
+        account, tell us at {email()}.
       </p>
 
       <h2>Changes</h2>

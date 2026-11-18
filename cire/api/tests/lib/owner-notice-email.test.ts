@@ -187,7 +187,7 @@ describe("createOwnerNotices — an upgrade refund", () => {
         weddingName: "Wedding wed_one",
         tierName: "Gold",
         amount: "A$79.00",
-        contactEmail: LEGAL_ENTITY.contactEmail,
+        contactEmail: LEGAL_ENTITY.supportEmail,
         portalUrl: "https://host.example.test",
       });
     }

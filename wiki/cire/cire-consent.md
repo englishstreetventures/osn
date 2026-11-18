@@ -7,7 +7,7 @@ related:
   - "[[cire-invite-designs]]"
   - "[[cire-landing]]"
   - "[[cire-envelope]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-18
 ---
 # Cire site-wide consent framework
 
@@ -166,12 +166,12 @@ voice.
   click-opened details sheet, so they never appear in server-rendered HTML and a
   client-side gate is sufficient. "Gated" means *withheld until the guest's
   yes*, and switchable off again after.
-- `"always"` — loads regardless. **Google Fonts only**, because the font
-  `<link>` sits in the `<head>` of the server-rendered document. The right fix
-  is to delete the vendor (self-host the two woff2 families), not to put the
-  site's typography behind a switch and swap the typeface mid-visit. Tracked as
-  an issue under `label:product:cire`. Until then the dialog and `/privacy` both say "loads on every
-  visit" rather than implying the toggle covers it.
+- `"always"` — loads regardless: the first-party storage the invite needs (the
+  session, the consent record, the opened envelope) and Cloudflare Turnstile,
+  which the code form cannot work without. The dialog and `/privacy` list them
+  as strictly necessary. A third party whose resource sits in the `<head>` of
+  the server-rendered document cannot be gated at all, so it is self-hosted
+  instead, as the site's fonts are.
 
 ### `runsInPage` — gated vendors only
 
@@ -415,4 +415,3 @@ footer drops the control.
   no third-party embeds, and its users are authenticated hosts rather than
   guests. If it ever gains one, promote `lib/consent/` to a `@cire/consent`
   package rather than copying it.
-- **Google Fonts** — see `enforcement: "always"` above.

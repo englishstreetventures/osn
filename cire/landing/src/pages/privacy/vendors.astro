@@ -26,7 +26,7 @@ const draft = draftPending()
 
   <h1>Privacy Notice for Vendors</h1>
   <PrivacyNav current="vendors" />
-  <p class="meta">Last updated: 2026-10-30</p>
+  <p class="meta">Last updated: 2026-11-18</p>
 
   <p>
     This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire
@@ -48,8 +48,8 @@ const draft = draftPending()
 
   <h2 id="your-vendor-account">Your vendor account</h2>
   <p>
-    You sign in to the vendor portal with your Musubi account, and manage your listing as a member
-    of a Musubi organisation. Musubi describes your Musubi account in
+    You must be 18 or older to run a listing. You sign in to the vendor portal with your Musubi
+    account, and manage your listing as a member of a Musubi organisation. Musubi describes your Musubi account in
     <a href="https://musubi.social/privacy">its own privacy notice</a>; this section covers what the
     vendor portal holds.
   </p>
@@ -136,8 +136,6 @@ const draft = draftPending()
       chose, who then holds it under their own responsibility.</li>
     <li><strong>Grafana Cloud</strong> — service telemetry (metrics and traces; pseudonymised
       identifiers only, never guest content).</li>
-    <li><strong>Google Fonts</strong> — our pages currently load fonts from Google&rsquo;s CDN,
-      which sees your IP address when they load. We plan to self-host these fonts.</li>
   </ul>
   <p>
     We also disclose information where the law requires it. Our primary region is
@@ -169,7 +167,7 @@ const draft = draftPending()
     You may have rights to access, correct, delete or port your information, and to object to
     certain uses — under the Australian Privacy Act, and for people in the EEA or UK, the GDPR and
     UK GDPR. To exercise them, contact us at
-    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>. You can also complain to a regulator —
+    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>. You can also complain to a regulator —
     in Australia, the Office of the Australian Information Commissioner (OAIC), or your local data
     protection authority.
   </p>
@@ -184,6 +182,6 @@ const draft = draftPending()
   <p>
     <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (trading as Cire),
     <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
-    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
+    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>.
   </p>
 </LegalPage>

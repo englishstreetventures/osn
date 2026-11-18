@@ -20,13 +20,14 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   )}
 
   <h1>Privacy Notice</h1>
-  <p class="meta">Last updated: 2026-11-17</p>
+  <p class="meta">Last updated: 2026-11-18</p>
 
   <p>
     This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (&ldquo;Pulse&rdquo;,
     &ldquo;we&rdquo;) handles personal information collected through this marketing site. It covers
-    visitors to this site only. Using the Pulse app itself is governed by the OSN privacy notice
-    shown when you sign in.
+    visitors to this site only. When the Pulse app launches, it has its own privacy notice, and
+    your account is covered by
+    <a href="https://musubi.social/privacy">Musubi&rsquo;s privacy notice</a>.
   </p>
 
   <h2>What we collect here</h2>
@@ -59,7 +60,7 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   <p>
     Depending on where you live, you may have rights to access, correct, delete or port your
     information, and to object to certain uses. To exercise them, contact us at
-    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>. You may also complain to your local data
+    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>. You may also complain to your local data
     protection regulator (<span class={ph(LEGAL_ENTITY.regulator)}>{LEGAL_ENTITY.regulator}</span>).
   </p>
   <p>
@@ -71,6 +72,6 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   <p>
     <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>,
     <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
-    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
+    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>.
   </p>
 </LegalLayout>

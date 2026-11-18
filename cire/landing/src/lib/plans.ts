@@ -57,6 +57,7 @@ export const PLANS: readonly Plan[] = [
     description: "For the whole wedding team.",
     inclusions: [
       "Everything in Gold",
+      "An envelope for your invitation",
       "Your vendors in one place",
       "Browse the vendor directory",
       "Send enquiries to vendors",

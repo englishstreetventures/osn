@@ -462,7 +462,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
               weddingName: wedding.name,
               tierName: input.tier === null ? null : TIER_NAMES[input.tier],
               amount,
-              contactEmail: LEGAL_ENTITY.contactEmail,
+              contactEmail: LEGAL_ENTITY.supportEmail,
               portalUrl: deps.portalUrl,
             },
           });

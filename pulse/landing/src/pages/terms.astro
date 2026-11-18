@@ -20,7 +20,7 @@ const draft = draftPending(LEGAL_ENTITY.governingLaw)
   )}
 
   <h1>Terms of Use</h1>
-  <p class="meta">Last updated: 2026-08-20</p>
+  <p class="meta">Last updated: 2026-11-18</p>
 
   <p>
     These terms govern your use of the Pulse marketing site, operated by
@@ -41,8 +41,9 @@ const draft = draftPending(LEGAL_ENTITY.governingLaw)
 
   <h2>The Pulse app is a separate agreement</h2>
   <p>
-    Using the Pulse app and creating or attending events is governed by the OSN terms you accept when
-    you sign in. These site terms do not grant any right to the Pulse service itself.
+    When the Pulse app launches, using it and creating or attending events is governed by its own
+    terms, and your account by the <a href="https://musubi.social/terms">Musubi terms of service</a>.
+    These site terms do not grant any right to the Pulse service itself.
   </p>
 
   <h2>No warranty &amp; liability</h2>
@@ -69,12 +70,13 @@ const draft = draftPending(LEGAL_ENTITY.governingLaw)
 
   <h2>Governing law</h2>
   <p>
-    These terms are governed by the laws of <strong>{LEGAL_ENTITY.governingLaw}</strong>. This does
-    not take away the protections you have under the consumer laws of the place where you live.
+    These terms are governed by the laws of <strong>{LEGAL_ENTITY.governingLaw}</strong>, and the
+    courts of that state have non-exclusive jurisdiction. This does not take away the protections
+    you have under the consumer laws of the place where you live.
   </p>
 
   <h2>Contact</h2>
   <p>
-    Questions about these terms: <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
+    Questions about these terms: <span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span>.
   </p>
 </LegalLayout>

@@ -2,8 +2,8 @@ import { LEGAL_ENTITY, draftPending, isPlaceholder } from "@shared/legal";
 import type { JSX } from "solid-js";
 
 /**
- * Pulse's own terms, at `/terms`. The account underneath is governed by the OSN
- * terms; these cover what you do with it here — hosting events, RSVP'ing, and
+ * Pulse's own terms, at `/terms`. The account underneath is governed by the
+ * Musubi terms; these cover what you do with it here — hosting events, RSVP'ing, and
  * what you may put in an event listing.
  */
 export default function TermsRoute(): JSX.Element {
@@ -16,7 +16,7 @@ export default function TermsRoute(): JSX.Element {
         </p>
       )}
       <h1 class="mb-1 text-2xl font-semibold">Terms of Service</h1>
-      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-08-20</p>
+      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-11-18</p>
 
       <p>
         These terms cover Pulse, operated by{" "}
@@ -25,9 +25,15 @@ export default function TermsRoute(): JSX.Element {
         </span>
         . Your account itself is governed by the{" "}
         <a class="underline" href="https://musubi.social/terms">
-          OSN terms
+          Musubi terms
         </a>
-        , which you accepted when you created it.
+        .
+      </p>
+
+      <h2>Who can use Pulse</h2>
+      <p>
+        You must be 13 or older to use Pulse, hosting events included, or older where the law of
+        your country sets a higher age.
       </p>
 
       <h2>Hosting an event</h2>
@@ -83,9 +89,9 @@ export default function TermsRoute(): JSX.Element {
 
       <h2>Liability</h2>
       <p>
-        Subject to those guarantees and to the extent permitted by law, our liability is limited to
-        re-supplying the service, and we are not liable for indirect or consequential loss —
-        including anything that happens at an event you found here.
+        Subject to those guarantees and to the extent permitted by law, our total liability is
+        limited to AUD 100, and we are not liable for indirect or consequential loss — including
+        anything that happens at an event you found here.
       </p>
 
       <h2>Changes</h2>
@@ -96,15 +102,15 @@ export default function TermsRoute(): JSX.Element {
 
       <h2>Governing law</h2>
       <p>
-        These terms are governed by the laws of <strong>{LEGAL_ENTITY.governingLaw}</strong>. This
-        does not take away the protections you have under the consumer laws of the place where you
-        live.
+        These terms are governed by the laws of <strong>{LEGAL_ENTITY.governingLaw}</strong>, and
+        the courts of that state have non-exclusive jurisdiction. This does not take away the
+        protections you have under the consumer laws of the place where you live.
       </p>
 
       <h2>Contact</h2>
       <p>
-        <a class="underline" href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
-          {LEGAL_ENTITY.contactEmail}
+        <a class="underline" href={`mailto:${LEGAL_ENTITY.supportEmail}`}>
+          {LEGAL_ENTITY.supportEmail}
         </a>
       </p>
     </article>

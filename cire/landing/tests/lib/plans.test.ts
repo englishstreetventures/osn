@@ -53,4 +53,15 @@ describe("the published plans", () => {
   it("list every tier cire-api has, in its order", () => {
     expect(PLANS.map((plan) => plan.id)).toEqual(readTiers(TIERS_SOURCE));
   });
+
+  /** Every envelope needs Crimson (`PUT …/invite/envelope` refuses any other
+   *  tier, `cire/api/src/routes/invite.ts`), and the terms send buyers here
+   *  for what each plan includes. */
+  it("list the envelope among what Crimson adds", () => {
+    const crimson = PLANS.find((plan) => plan.id === "crimson");
+    expect(crimson?.inclusions.some((line) => /envelope/i.test(line))).toBe(true);
+    for (const plan of PLANS.filter((plan) => plan.id !== "crimson")) {
+      expect(plan.inclusions.some((line) => /envelope/i.test(line))).toBe(false);
+    }
+  });
 });
