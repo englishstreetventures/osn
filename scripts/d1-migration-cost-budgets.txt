@@ -40,9 +40,12 @@
 # When the chain reaches the line, squash it into a fresh baseline again
 # (cire/db/README.md has the method) rather than raise the line.
 #
-# The chain is at the line's 192 without `platform_refunds`, and the squash's
-# first step needs production to have applied every live migration, the
-# newest of which has not yet shipped, so the line stands two writes higher,
-# at 194 (5238 rows), for that table and its index.
+# The chain is at the line's 192 without `platform_refunds` and
+# `gifts_keep_their_account`. The squash cannot run yet: its first step needs
+# production to have applied every live migration, and its method must first
+# be redesigned so that Alchemy's ledger, which records each applied file's
+# hash, accepts it. So the line stands eight writes higher, at 200 (5400
+# rows): two for `platform_refunds` (a table and its index), and six for the
+# account each gift was paid into (three columns, an index, two triggers).
 # Bounded until englishstreetventures/osn#2096 lands.
-cire/db/migrations 5238
+cire/db/migrations 5400
