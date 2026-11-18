@@ -7,7 +7,8 @@ related:
   - "[[arc-tokens]]"
   - "[[s2s-patterns]]"
   - "[[osn-core]]"
-last-reviewed: 2026-07-23
+  - "[[production-deploy]]"
+last-reviewed: 2026-11-19
 ---
 
 # ARC Token Debugging Runbook
@@ -39,6 +40,8 @@ WHERE sa.service_id = '<issuer-service-id>';
 ```
 
 If no row exists, the token fails with `unknown_issuer`.
+
+A `cire-api` key row that is both expired and revoked, beside the live one, is a throwaway from the production operator workflow's `register-cire-arc`. It renews the service's `allowed_scopes` by registering a key that is already expired and then revoking it, one row per run, and that key verifies nothing ([[production-deploy#6.2 Register cire's ARC public key with osn-api]]).
 
 The expected production path is **ephemeral key auto-rotation** through `startKeyRotation()` — the service registers itself on boot with `POST /graph/internal/register-service`. That endpoint is gated by the shared `INTERNAL_SERVICE_SECRET`: with the secret unset the receiver answers 501 (`Service registration is disabled`) and the caller skips its own registration, so both sides need it. Use manual `INSERT`s only in disaster recovery.
 

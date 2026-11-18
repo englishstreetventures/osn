@@ -1,0 +1,173 @@
+# One-shot operator actions on production, dispatched by hand, so no person or
+# agent holds a production credential on a laptop. Each action is one job bound
+# to the `production` GitHub Environment: it waits for that Environment's
+# reviewer, and the Environment admits `main` alone. The logic is in
+# scripts/production-operator.ts; its header says what each action sends.
+#
+#   | Action                 | Holds                      | Writes                                   |
+#   |------------------------|----------------------------|------------------------------------------|
+#   | count-deletion-fanouts | the production Cloudflare  | nothing; prints two counts from          |
+#   |                        | account pair               | zap-db-prod's zap_account_purges         |
+#   | register-cire-arc      | INTERNAL_SERVICE_SECRET    | cire-api's scopes at production osn-api, |
+#   |                        |                            | and one expired, revoked throwaway key   |
+#
+# Rules every action keeps:
+#   - The job that holds a secret runs under `environment: production`, after
+#     the `check` job, and only for its own action. `check` holds no secret and
+#     shows the approver what the action will do before anyone approves. It is
+#     not a gate: a dispatch from another branch runs that branch's file, and
+#     the Environment's `main`-only branch policy is what stops it.
+#   - Inputs and secrets reach a script through `env:`, never inside `run:`.
+#   - Nothing is installed: each script runs with `bun --no-install` and
+#     imports only Bun, Node built-ins and repository files, so the only code
+#     beside a production secret is this repository's.
+#   - Run logs on this repository are public. A script prints counts, HTTP
+#     statuses, commit SHAs and scope names; never a token, a bearer, an
+#     account id, a row or a response body.
+#
+# register-cire-arc reads, at the commit production cire-api runs, the scopes
+# cire-api signs with, and refuses unless production osn-api permits each.
+# The register job reads them again when it runs and refuses unless cire-api's
+# commit is still the one `check` showed, so an approval given after a release
+# sends nothing. A 200 shows osn-api stored the scopes; osn-api isolates keep a
+# key's scopes for up to five minutes. Registering a new key of cire-api's own,
+# the first time or in a rotation, needs its public half, which this workflow
+# never holds: that stays the hand POST in wiki/shared/production-deploy.md §6.2.
+#
+# count-deletion-fanouts' window defaults to the one the account-deletion
+# follow-up asked about: from the production release of 2026-11-16T02:17:49Z to
+# the one of 2026-11-17T00:59:22Z. Both ends are included.
+#
+# ADDING AN ACTION. Add an option to `action`, a job of the same id with the
+# same shape, and an action to the script with its tests in
+# scripts/tests/production-operator.test.ts, which holds the rules above. A
+# Worker secret on osn-api belongs in set-osn-api-secret.yml instead.
+name: Production operator action (one-shot)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Which action to run. Each waits for the production Environment's reviewer.
+        required: true
+        type: choice
+        options:
+          - count-deletion-fanouts
+          - register-cire-arc
+      window_start:
+        description: "count-deletion-fanouts: the window's start, YYYY-MM-DDTHH:MM:SSZ, included. The default is the 2026-11-16 release."
+        required: false
+        type: string
+        default: "2026-11-16T02:17:49Z"
+      window_end:
+        description: "count-deletion-fanouts: the window's end, YYYY-MM-DDTHH:MM:SSZ, included. The default is the 2026-11-17 release."
+        required: false
+        type: string
+        default: "2026-11-17T00:59:22Z"
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  check:
+    name: Check the inputs, and what the action will do
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # A job-level block replaces the workflow's, so `contents` is restated.
+    # `deployments` and `actions` let the release planner's lookup read which
+    # commit production cire-api and osn-api run, as the release's plan job does.
+    permissions:
+      contents: read
+      deployments: read
+      actions: read
+    outputs:
+      commit: ${{ steps.plan.outputs.commit }}
+      scopes: ${{ steps.plan.outputs.scopes }}
+    steps:
+      - name: Refuse any ref but main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Dispatch this workflow from main; the production Environment admits main alone."
+          exit 1
+
+      # Full history for the registration, whose scopes are read at whichever
+      # commit production runs; one commit for the count. `0` is false in an
+      # expression, so the condition names the action that needs 1.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.action != 'register-cire-arc' && 1 || 0 }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Check the window
+        if: inputs.action == 'count-deletion-fanouts'
+        env:
+          WINDOW_START: ${{ inputs.window_start }}
+          WINDOW_END: ${{ inputs.window_end }}
+        run: bun --no-install scripts/production-operator.ts check-window
+
+      - name: Read the scopes production cire-api signs with
+        id: plan
+        if: inputs.action == 'register-cire-arc'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun --no-install scripts/production-operator.ts plan-register
+
+  register-cire-arc:
+    name: Renew cire-api's ARC scopes at production osn-api
+    needs: check
+    if: inputs.action == 'register-cire-arc'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    permissions:
+      contents: read
+      deployments: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Renew the registration
+        env:
+          INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
+          # What the approver saw; the script refuses if production moved on.
+          EXPECTED_COMMIT: ${{ needs.check.outputs.commit }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun --no-install scripts/production-operator.ts register-cire-arc
+
+  count-deletion-fanouts:
+    name: Count Zap's recorded erasures in the window
+    needs: check
+    if: inputs.action == 'count-deletion-fanouts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Count
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WINDOW_START: ${{ inputs.window_start }}
+          WINDOW_END: ${{ inputs.window_end }}
+        run: bun --no-install scripts/production-operator.ts count-deletion-fanouts

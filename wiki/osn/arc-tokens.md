@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-19
 ---
 # ARC Tokens (S2S Auth)
 
@@ -204,9 +204,14 @@ Worker secrets, `CIRE_API_ARC_PRIVATE_KEY` (a raw JWK string) and
 `step-up:verify`, the last for a host's removal of their Cire data
 ([[step-up#App step-up requests]]).
 
-- **Production:** registered by hand with `POST /graph/internal/register-service`
-  ([[production-deploy]] §6.2). Re-run it whenever the scope list changes: a
-  registration holds exactly the scopes its last call listed.
+- **Production:** the key is registered by hand with
+  `POST /graph/internal/register-service` ([[production-deploy]] §6.2). Whenever
+  the scope list changes, the production operator workflow's `register-cire-arc`
+  sets the service's scopes to the list production cire-api signs with: a
+  registration holds exactly the scopes its last call listed, and osn-api keeps
+  them on the service (`service_accounts`), so the workflow sends them with a
+  throwaway key it registers already expired and then revokes, and never needs
+  cire-api's own.
 - **Dev:** the musubi stack writes the `service_accounts` and
   `service_account_keys` rows straight into `osn-db-dev`, from a seed file it
   imports on the first dev deploy and again whenever the file changes

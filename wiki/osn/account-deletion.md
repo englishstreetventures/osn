@@ -12,7 +12,7 @@ related:
   - "[[cire-auth]]"
   - "[[pulse]]"
   - "[[zap]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-19
 ---
 
 # Account deletion
@@ -237,12 +237,18 @@ What each tier needs before a deletion reaches every app:
 | osn-api | `CIRE_ORGANISER_ORIGIN`, cire's organiser portal, from the musubi stack | The one place Musubi sends a person back to after they confirm "Remove my Cire data" |
 | osn-api | `OSN_SESSION_IP_PEPPER`, which keys the handle-hold hashes | Required on every deployed tier ([`osn/api/src/lib/handle-hold.ts`](../../osn/api/src/lib/handle-hold.ts)) |
 | osn-api | An email transport ([[email]]) | Without one the hard delete still erases, sends no email, and logs `scheduled hard delete runs without mail: the email transport is wrong` |
-| osn-api and cire-api | `CIRE_INTERNAL_REVOKE_SECRET`, one value on both | Optional: without it the soft delete leaves cire organiser sessions to end on their own, within 7 days ([[sessions#Sign out everywhere else reaches cire]]) |
+| osn-api and cire-api | `CIRE_INTERNAL_REVOKE_SECRET`, one value on both | Optional; both production Workers hold it since 2026-11-19. Without it the soft delete leaves cire organiser sessions to end on their own, within 7 days ([[sessions#Sign out everywhere else reaches cire]]) |
 | zap-api | `INTERNAL_SERVICE_SECRET`, the same value as osn-api's, with which it checks the MAC on osn-api's key ids ([`zap/api/src/routes/internal.ts`](../../zap/api/src/routes/internal.ts)) | A different value refuses osn-api's calls; with none, the MAC is not checked and a token stands on its signature alone |
 | cire-api | `OSN_ISSUER_URL`, the issuer it already pins for organiser sign-in, where it fetches osn-api's keys | Holds no kid secret, so it never checks the kid's MAC ([`cire/api/src/lib/osn-arc.ts`](../../cire/api/src/lib/osn-arc.ts)) |
-| cire-api | Its ARC key registered on osn-api with the `step-up:verify` scope ([[production-deploy#6.2 Register cire's ARC public key with osn-api]]) | Without it "Remove my Cire data" cannot confirm the step-up |
+| cire-api | Its ARC registration on osn-api carrying the `step-up:verify` scope. On production the production operator workflow's `register-cire-arc` sets the scopes ([[production-deploy#6.2 Register cire's ARC public key with osn-api]]) | Without it "Remove my Cire data" answers 503 instead of sending the host to Musubi to confirm |
 
 [[production-deploy]] says how each secret is set, and [[dev-environment]] which ones the `dev` Environment holds.
+
+**Counting what Zap erased.** Zap writes one `zap_account_purges` row per account it erases, once, with the time in `processed_at` ([`zap/db/src/schema/accountPurges.ts`](../../zap/db/src/schema/accountPurges.ts)). To learn how many erasures reached production Zap in a window without reading a row, dispatch the production operator workflow's `count-deletion-fanouts` from `main` and approve its run: it prints the rows with `processed_at` inside the window, both ends included, and the total, and nothing else from the database ([`.github/workflows/production-operator.yml`](../../.github/workflows/production-operator.yml)).
+
+```bash
+gh workflow run production-operator.yml --repo englishstreetventures/osn --ref main -f action=count-deletion-fanouts -f window_start=2026-11-16T02:17:49Z -f window_end=2026-11-17T00:59:22Z
+```
 
 **A stuck fan-out.** An app that does not answer, answers an error (cire's `503 not_finished` included) or answers outside the contract leaves its `deletion_jobs` mark (`pulse_done_at`, `zap_done_at`, `cire_done_at`) NULL and stamps `fanout_failed_at`; the next run calls it again, and the hard delete waits. It shows in osn-api's Workers Logs as `account.deletion fan-out to an app failed` (warning, with the app), `account.deletion app has no URL on a deployed tier` (error) or `account.deletion fan-out of a job failed` (error), and, once an app's oldest unfinished job is more than a day past its date, as `account.deletion fan-out overdue` (warning, with the app and the age), every run. The same age is the metric `osn.account.deletion.fanout_oldest_age`, which reaches no exporter yet; the alert on it is englishstreetventures/osn#2303. A hard delete that fails logs `account.deletion hard delete failed` ([[#Hard-delete sweep isolation]]). No log names an account.
 
