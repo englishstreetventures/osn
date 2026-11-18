@@ -7,3 +7,4 @@
 # manifest is missing from this list.
 tools/oxlint/anti-slop
 shared/ui/vendor/thinking-orbs
+cire/waves/vendor

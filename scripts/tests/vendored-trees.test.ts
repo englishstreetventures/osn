@@ -31,9 +31,13 @@ const manifests = Bun.spawnSync(["git", "ls-files", "--", "*/SHA256SUMS"], { cwd
   .split("\n")
   .filter((line) => line !== "");
 
-test("lists the anti-slop plugin and the orb engine", () => {
+test("lists the anti-slop plugin, the orb engine and the wave core", () => {
   expect(listed).toEqual(
-    expect.arrayContaining(["tools/oxlint/anti-slop", "shared/ui/vendor/thinking-orbs"]),
+    expect.arrayContaining([
+      "tools/oxlint/anti-slop",
+      "shared/ui/vendor/thinking-orbs",
+      "cire/waves/vendor",
+    ]),
   );
 });
 
