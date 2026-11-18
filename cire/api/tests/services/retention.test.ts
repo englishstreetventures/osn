@@ -2072,13 +2072,14 @@ describe("the parting gift summary", () => {
   it("holds back the whole cohort when its gifts cannot be read", async () => {
     const db = freshDb();
     // Both inside the 30-day hold-back: due on 2026-06-01 and 2026-06-05.
-    const gifted = await runOn(db, makeGiftedWedding("2025-06-01"));
+    const gifted = await runOn(db, makeGiftedWedding("2025-06-01", { withImport: true }));
     const plain = await runOn(db, makeWedding({ eventDates: ["2025-06-05"] }));
     const before = await written("read_failed");
     const fault = failStatements(db, (sql) => sql.includes('from "registry_contributions"'));
+    const sheets = createDeleteStub();
 
     const logs = await captureLogs(() =>
-      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT, { sheets })),
     );
 
     expect(fault.failed()).toBe(1);
@@ -2088,6 +2089,8 @@ describe("the parting gift summary", () => {
     expect(await written("read_failed")).toBe(before + 2);
     expect(guestCount(db, gifted.guestId)).toBe(1);
     expect(guestCount(db, plain.guestId)).toBe(1);
+    // Nothing was deleted, so no sheet is reaped either.
+    expect(sheets.deleted.size).toBe(0);
   });
 
   it("keeps the summary and deletes on time when the owners cannot be read", async () => {
