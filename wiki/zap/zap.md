@@ -10,7 +10,8 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-11-15
+  - "[[account-deletion]]"
+last-reviewed: 2026-11-18
 ---
 
 # Zap
@@ -106,7 +107,7 @@ osn-api reaches Zap for every account deleted, verified against its published ke
 
 The list route answers `""` for a body the erasure wiped, and an export leaves wiped messages out, so the other member of a consumer-to-business chat reads the erased person's message as empty and unnamed (`zap/api/tests/routes/internal.test.ts`).
 
-Counted as `zap.account.erased` (`ok`, `repeat`, `error`). The contract all apps implement is in [[dsar#The apps' open actions and the app contract]].
+Counted as `zap.account.erased` (`ok`, `repeat`, `error`). The contract all apps implement is in [[account-deletion#The app contract]].
 
 ### CI pipeline
 

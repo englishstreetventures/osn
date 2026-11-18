@@ -16,6 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
+  - "[[account-deletion]]"
 last-reviewed: 2026-11-18
 ---
 
@@ -72,7 +73,7 @@ The mobile UX audit and the design rules the responsive work follows live in
 
 ## Deleting the account
 
-Flow A of [[dsar]], from the person's side. `@osn/client`'s `createAccountClient` is `accountClient` in `src/lib/authClients.ts`.
+The person's side of [[account-deletion]], which describes the whole flow; the legal side is [[dsar]]. `@osn/client`'s `createAccountClient` is `accountClient` in `src/lib/authClients.ts`.
 
 - **Your data** (`AccountDataActions`, on the Account tab and the flow's first step): "Download my data" asks for an `account_export` step-up (`createStepUp`, `src/lib/step-up.tsx`, which loads `StepUpSheet` — `@osn/auth-ui`'s `StepUpDialog` — on the first ask), then `exportAccount` and saves the file (`src/lib/save-file.ts`; one a day). "Send me a link" calls `sendDataLink`: an email with a link to `/settings#account`, never the data (three a day).
 - **The flow** (`DeleteAccountPage`, "Step n of 3"): what happens, and Your data again; what needs an answer, from `getAccountDeletionPreview`, grouped by app (`osn` shows as Musubi), each action an `OpenActionCard` with its choices named by the server's own descriptions, its erase date, its "Open in <app>" link (see below), and for an organisation's `successor` a "New owner" select over `candidates`; a "Delete everything" switch, which keeps the answers on screen but sends none; then the handle typed and an `account_delete` step-up. Only answered actions go in `choices`. An app that could not be checked blocks Continue and is named, with Try again. Each refusal lands where the person can act (`src/lib/account-deletion.ts` merges a fresh preview into the answers): 409 `open_actions` and 400 `invalid_choice` mark the action on step 2, 409 `stale_choices` loads the fresh preview with a notice and keeps the answers whose action still exists, 409 `could_not_check` blocks, 400 `handle_mismatch` is a field error, 403 `step_up_required` steps up again, 409 `session_stale` signs out and opens sign-in, 429 and no answer each say so. On the 202 (or `already_pending`) the page calls `useAuth().renewSession({ pending: true })` at once; a renewal that fails leaves the page pending, and the window screen's own requests renew it.

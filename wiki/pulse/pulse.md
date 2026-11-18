@@ -15,7 +15,8 @@ related:
   - "[[venues]]"
   - "[[event-access]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-17
+  - "[[account-deletion]]"
+last-reviewed: 2026-11-18
 ---
 
 # Pulse
@@ -184,7 +185,7 @@ See [[s2s-patterns]] for the full cross-service architecture.
 
 ### Account deletion
 
-pulse-api takes ARC calls from osn-api only, verified against the keys osn-api publishes ([[arc-tokens#osn-api as issuer — published outbound keys]]); it keeps no key registry and has no `register-service` route. For an OSN account deletion ([[dsar#The apps' open actions and the app contract]]):
+pulse-api takes ARC calls from osn-api only, verified against the keys osn-api publishes ([[arc-tokens#osn-api as issuer — published outbound keys]]); it keeps no key registry and has no `register-service` route. For an OSN account deletion ([[account-deletion#The app contract]]):
 
 | Route | Scope | What it does |
 |---|---|---|

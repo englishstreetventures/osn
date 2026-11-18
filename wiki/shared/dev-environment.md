@@ -146,7 +146,7 @@ The musubi stack gives `osn-api-dev` zap-api-dev's and cire-api-dev's origins
 their previews and, after the window, erases there, and skips Pulse, which has
 no dev API. `CIRE_API_URL` is also where osn-api-dev ends cire organiser
 sessions; cire-api-dev needs no new secret for the deletion's calls. `OSN_DELETION_FANOUT_MAX_JOBS` is unset, so each cron run reaches
-at most 4 jobs ([[dsar#The apps' open actions and the app contract]]).
+at most 4 jobs ([[account-deletion#The app contract]]).
 
 ---
 
