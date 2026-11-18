@@ -456,9 +456,11 @@ final sign-off now turns only on the residual retention gaps below.
   its guest data before a readable event of it, which the owner accepted. A
   wedding with no events, never given one or with every one removed, has its
   guest data deleted on the same bound, and adding an event puts it on the year
-  rule. Each run logs how many weddings with an unreadable event it keeps while
-  they hold guest data, and how many weddings it deleted by their creation
-  (counts, no id, no date). A wedding its owners delete is purged whole 7–8 days later (later if
+  rule. Each run logs how many weddings it keeps because it cannot date them
+  while they hold guest data: one with an unreadable event, or one with no
+  events whose creation time is not epoch seconds. It also logs how many it
+  deleted by their creation, weddings with an unreadable event and weddings
+  with no events on separate lines (counts, no id, no date). A wedding its owners delete is purged whole 7–8 days later (later if
   the daily purge cap or a payment still settling defers it): every row by
   cascade, and its sheet and image objects ([[cire-auth#Soft-deleted weddings]]).
 - **What outlives the sweep (2026-10-15).** The sweep leaves the couple a record

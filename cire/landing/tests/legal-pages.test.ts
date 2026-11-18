@@ -105,8 +105,10 @@ describe("legal pages", () => {
     const flat = (page: string) => page.replace(/\s+/g, " ");
     for (const page of [hosts, privacy].map(flat)) {
       expect(page).toMatch(/one year after the wedding&rsquo;s final event/);
+      // The guest information is what goes, never the wedding: the subject
+      // is named, not left to an "it" that could mean either.
       expect(page).toMatch(
-        /If the wedding has no events, or we cannot read the date of one of them/,
+        /If the wedding has no events, or we cannot read the date of one of them, guest information is deleted three years/,
       );
       expect(page).toMatch(
         /three years after the wedding was created instead, whatever the other events&rsquo; dates/,

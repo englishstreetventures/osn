@@ -77,8 +77,13 @@ describe("guest privacy notice", () => {
     // deleted three years after it was created
     // (`UNDATED_RETENTION_AFTER_CREATION_YEARS`), whatever the dates of its
     // other events.
-    expect(body).toMatch(phrase("If the wedding has no events, or we cannot read the date"));
-    expect(body).toMatch(phrase("3 years after your hosts created the wedding"));
+    // The guest information is what goes, never the wedding: the subject is
+    // named, not left to an "it" that could mean either.
+    expect(body).toMatch(
+      phrase(
+        "If the wedding has no events, or we cannot read the date of one of them, guest information is deleted 3 years after your hosts created the wedding",
+      ),
+    );
     expect(body).toMatch(phrase("whatever the other events’ dates"));
     expect(body).not.toMatch(/whichever is later/);
   });
