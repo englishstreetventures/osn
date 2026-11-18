@@ -19,9 +19,24 @@ export const TRACE_DIR = resolve(ARTIFACT_DIR, "traces");
 export const LOG_DIR = resolve(ARTIFACT_DIR, "logs");
 export const STATE_DIR = resolve(ARTIFACT_DIR, "state");
 
-/** The suite's clock starts here. */
-export const CLOCK_T0_ISO = "2026-10-01T00:00:00.000Z";
-export const CLOCK_T0 = Date.parse(CLOCK_T0_ISO);
+/**
+ * Where the suite's clock starts: a fixed instant, so seeded deadlines and
+ * "must be in the future" checks resolve the same way on every run. The run
+ * against Stripe's test mode (`src/stripe-test-mode-launcher.ts`) sets
+ * `E2E_STRIPE_CLOCK_T0` to its real start before it loads this file: Stripe
+ * refuses a Checkout session that closes before real now plus 30 minutes, and
+ * cire-api refuses an event Stripe signed more than five minutes from its own
+ * now. Read once, here; anything set later is not seen.
+ */
+function clockStart(value: string | undefined): number {
+  if (value === undefined) return Date.parse("2026-10-01T00:00:00.000Z");
+  if (!/^[0-9]+$/.test(value)) {
+    throw new Error("E2E_STRIPE_CLOCK_T0 must be a whole number of epoch milliseconds");
+  }
+  return Number(value);
+}
+export const CLOCK_T0 = clockStart(process.env["E2E_STRIPE_CLOCK_T0"]);
+export const CLOCK_T0_ISO = new Date(CLOCK_T0).toISOString();
 
 /**
  * The sample wedding's RSVP deadline on the E2E stack (`CIRE_E2E_RSVP_DEADLINE`,

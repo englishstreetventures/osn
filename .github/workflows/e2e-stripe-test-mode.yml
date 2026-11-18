@@ -1,0 +1,116 @@
+name: E2E Stripe test mode
+
+# A guest's gift to a cash fund, paid at Stripe's real test mode rather than
+# the suite's Stripe stand-in (`bun run test:e2e:stripe`,
+# tools/e2e/src/stripe-test-mode-launcher.ts). It catches what the stand-in
+# cannot: a field Stripe renames or a check it tightens in the calls cire-api
+# makes and the event it sends. The flow opens Stripe's own Checkout page,
+# pays the session with Stripe's test card, has `stripe listen` forward the
+# event Stripe signs to cire-api's Connect webhook, checks the gift settles,
+# compares the stand-in's answers with Stripe's field by field, and refunds
+# the payment.
+#
+# It runs daily and by hand, never on a pull request, a push or a merge-queue
+# group: the pull request suite stays on the stand-in and needs no Stripe
+# secret. It is not a required check.
+#
+# Its values live in the `stripe-test-mode` Environment, which only the main
+# branch may deploy from, and never at repository or organisation scope, where
+# `secrets.` would find a key of the same name for any branch's job:
+#   - secret `STRIPE_TEST_SECRET_KEY`: a Stripe sandbox's test-mode key
+#     (`sk_test_`, or `rk_test_`), a sandbox used for nothing else;
+#   - variable `STRIPE_TEST_CONNECTED_ACCOUNT`: that sandbox's Australian
+#     connected account the gift is charged on.
+# With neither value set the job skips, successfully, with a notice in its
+# summary. The account with no key (a setup half undone), a key that is not a
+# test-mode one, a key with no account, or an Environment that admits any
+# branch but main fails the preflight before anything installs. The
+# preflight cannot see a secret's scope; the owner keeps the key in the
+# Environment alone.
+on:
+  schedule:
+    # 04:41 UTC daily, off the hour that every scheduled workflow asks for.
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Reads the checkout, reads the Environment's deployment branches (the
+# preflight), and uploads an artifact; nothing else.
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  stripe:
+    name: E2E Stripe test mode
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: stripe-test-mode
+    # One at a time: two `stripe listen` sessions on one device name would
+    # share one stream of the sandbox's events.
+    concurrency:
+      group: e2e-stripe-test-mode
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # No install: the preflight imports Bun's built-ins and one file of
+      # plain functions. It reads the key only to check its shape.
+      - name: Check the Stripe test-mode values and the Environment
+        id: preflight
+        env:
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          STRIPE_TEST_CONNECTED_ACCOUNT: ${{ vars.STRIPE_TEST_CONNECTED_ACCOUNT }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun tools/e2e/src/stripe-test-mode-launcher.ts --preflight
+
+      # No cache: the run step executes this code holding the key, and any
+      # workflow on main can write the bun and Chromium caches.
+      - uses: ./.github/actions/e2e-setup
+        if: steps.preflight.outputs.run == 'true'
+        with:
+          cache: "false"
+
+      # A pinned release, checked against the digest committed here.
+      - name: Install the Stripe CLI
+        if: steps.preflight.outputs.run == 'true'
+        timeout-minutes: 3
+        env:
+          STRIPE_CLI_VERSION: 1.55.12
+          STRIPE_CLI_SHA256: 89d0bbec0970917a07fbd4d3a98afecf95b08f88f0687362c4a94447a0610245
+        run: |
+          dir="$RUNNER_TEMP/stripe-cli"
+          mkdir -p "$dir"
+          tarball="$dir/stripe.tar.gz"
+          curl -fsSL --retry 3 --connect-timeout 20 --max-time 120 -o "$tarball" \
+            "https://github.com/stripe/stripe-cli/releases/download/v${STRIPE_CLI_VERSION}/stripe_${STRIPE_CLI_VERSION}_linux_x86_64.tar.gz"
+          echo "${STRIPE_CLI_SHA256}  ${tarball}" | sha256sum --check --strict
+          tar -xzf "$tarball" -C "$dir" stripe
+          echo "STRIPE_CLI=$dir/stripe" >> "$GITHUB_ENV"
+
+      - name: The guest's gift, against Stripe's test mode
+        if: steps.preflight.outputs.run == 'true'
+        timeout-minutes: 15
+        env:
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          STRIPE_TEST_CONNECTED_ACCOUNT: ${{ vars.STRIPE_TEST_CONNECTED_ACCOUNT }}
+        run: bun run test:e2e:stripe
+
+      # results.json, stripe-fields.json, screenshots, the trace and the
+      # servers' logs, stripe listen's with its secrets redacted; on failure too.
+      - name: Upload E2E artifacts
+        if: always() && steps.preflight.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-stripe-test-mode-artifacts
+          path: e2e-artifacts/
+          if-no-files-found: warn
+          retention-days: 14

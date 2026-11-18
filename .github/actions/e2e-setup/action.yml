@@ -2,8 +2,19 @@ name: Set up the end-to-end suite
 description: >-
   Node and Bun, the dependencies except the infra packages, and the Chromium
   build tools/e2e's pinned @playwright/test wants, with its system libraries.
-  Shared by the E2E job in ci.yml and the E2E determinism job in
-  e2e-repro.yml, so the two install alike. Runs after actions/checkout.
+  Shared by the E2E job in ci.yml, the E2E determinism job in
+  e2e-repro.yml and the E2E Stripe test mode job, so they install alike.
+  Runs after actions/checkout.
+
+inputs:
+  cache:
+    description: >-
+      "false" skips restoring the bun and Chromium caches, which any workflow
+      on main can write: bun then fetches each package against the lockfile's
+      integrity hashes, and Playwright downloads its pinned Chromium. The
+      Stripe test-mode job sets it, since it runs that code holding a key.
+    required: false
+    default: "true"
 
 # A composite step takes no `timeout-minutes`, so the two installs that can
 # stall are bounded by `timeout` instead: each fails at ten minutes, as the
@@ -24,6 +35,7 @@ runs:
     # Its own key: this job installs without the infra packages, so the
     # key a full install restores is never one this job saved.
     - name: Cache bun dependencies
+      if: inputs.cache != 'false'
       uses: actions/cache@v4
       with:
         path: ~/.bun/install/cache
@@ -42,6 +54,7 @@ runs:
     # and every workspace's `playwright` stay on one version, or one job
     # downloads its own revision on every run.
     - name: Cache Chromium
+      if: inputs.cache != 'false'
       uses: actions/cache@v4
       with:
         path: ~/.cache/ms-playwright

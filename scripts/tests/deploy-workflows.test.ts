@@ -1377,6 +1377,73 @@ describe("CI's E2E job runs the suite once and retries the whole run only when i
   });
 });
 
+// The gift against Stripe's test mode reads a real test key. Only main may
+// deploy from its Environment, which the preflight checks; a pull request,
+// a push or a queue group never runs it; and the key reaches two steps, the
+// preflight that checks its shape and the run, never an install or an action.
+describe("the Stripe test-mode job runs nightly and by hand, and holds its key in two steps", () => {
+  const workflow = load(".github/workflows/e2e-stripe-test-mode.yml");
+  const jobs = Object.values(workflow.jobs);
+  const steps = jobs[0]?.steps ?? [];
+  const KEY = "secrets.STRIPE_TEST_SECRET_KEY";
+  const PREFLIGHT_SAID_RUN = "steps.preflight.outputs.run == 'true'";
+
+  test("on its schedule and by hand only, reading the checkout and the Environment's branches", () => {
+    expect(Object.keys(workflow.on).toSorted()).toEqual(["schedule", "workflow_dispatch"]);
+    expect(workflow.permissions).toEqual({ contents: "read", actions: "read" });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.environment).toBe("stripe-test-mode");
+  });
+
+  test("the key is read by the preflight and the run alone, and no secret by anything else", () => {
+    const reading = steps.filter((step) => JSON.stringify(step).includes("secrets."));
+    expect(reading.map((step) => step.id ?? step.run)).toEqual([
+      "preflight",
+      "bun run test:e2e:stripe",
+    ]);
+    for (const step of reading) {
+      expect(step.uses).toBeUndefined();
+      expect(step.run ?? "").not.toMatch(/\bbun install\b|\bbun add\b/);
+      expect(JSON.stringify(step.env)).toContain(KEY);
+    }
+    expect(JSON.stringify({ ...jobs[0], steps: [] })).not.toContain("secrets.");
+    // A workflow-level value reaches every step, the checkout and the install included.
+    expect(JSON.stringify(workflow.env ?? {})).not.toContain("secrets.");
+  });
+
+  test("every step after the preflight waits on its answer, and the upload runs on failure too", () => {
+    const at = steps.findIndex((step) => step.id === "preflight");
+    expect(at).toBeGreaterThan(0);
+    const after = steps.slice(at + 1);
+    expect(after.length).toBeGreaterThan(0);
+    for (const step of after) {
+      if (step.uses === "actions/upload-artifact@v4") {
+        expect(step.if).toBe(`always() && ${PREFLIGHT_SAID_RUN}`);
+      } else {
+        expect(step.if, step.name ?? step.uses).toBe(PREFLIGHT_SAID_RUN);
+      }
+    }
+    expect(after.filter((step) => step.uses === "actions/upload-artifact@v4")).toHaveLength(1);
+  });
+
+  // The run step executes the installed packages and Chromium holding the key,
+  // and any workflow on main can write the caches the setup would restore.
+  test("installs without the shared bun and Chromium caches, and bounds the Stripe CLI download", () => {
+    const setups = steps.filter((step) => step.uses === "./.github/actions/e2e-setup");
+    expect(setups.map((step) => step.with?.cache)).toEqual(["false"]);
+    const action = Bun.YAML.parse(
+      readFileSync(join(root, ".github/actions/e2e-setup/action.yml"), "utf8"),
+    ) as CompositeAction;
+    const restores = (action.runs.steps ?? []).filter((step) =>
+      ["~/.bun/install/cache", "~/.cache/ms-playwright"].includes(String(step.with?.path)),
+    );
+    expect(restores).toHaveLength(2);
+    for (const step of restores) expect(step.if).toBe("inputs.cache != 'false'");
+    const cli = steps.find((step) => step.name === "Install the Stripe CLI");
+    expect(cli?.["timeout-minutes"]).toBeLessThanOrEqual(5);
+  });
+});
+
 describe("ci.yml's browser legs run every package with a `test:browser` script, once", () => {
   const legs = load(".github/workflows/ci.yml").jobs.browser?.strategy?.matrix?.include ?? [];
   const named = (leg: Record<string, string | number>) =>

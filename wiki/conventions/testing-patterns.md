@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-18
 ---
 
 # Testing Patterns
@@ -60,12 +60,13 @@ A deletion is read case by case, never cut by line range: most ranges one audit 
 
 `tools/e2e` (`@tools/e2e`) is where E2E tests live. `bun run test:e2e` boots the real stack, runs every flow in Chromium, and writes the artifact. `bun run test:e2e:repro` runs it twice and fails unless both runs wrote the same `results.json` byte for byte.
 
-CI runs the suite in two jobs, each on a runner of its own:
+CI runs the suite in two jobs, each on a runner of its own, and one flow against Stripe's real test mode in a third:
 
 | Job | Runs | When | What it uploads |
 |---|---|---|---|
 | `E2E` (`ci.yml`) | `bun run test:e2e` once; a failed run is run again whole, at most two runs, each cut at 12 minutes ([`e2e-with-retry.sh`](../../scripts/e2e-with-retry.sh)) | Every pull request and every push to `main`; never in the merge queue. Not a required check | `e2e-artifacts` (the last run's), and `e2e-artifacts-attempt-1` when the first run failed |
 | `E2E determinism` ([`e2e-repro.yml`](../../.github/workflows/e2e-repro.yml)) | `bun run test:e2e:repro` | Daily at 05:17 UTC, and by hand (`workflow_dispatch`); never on a pull request, a push or a merge-queue group. Not a required check | `e2e-repro-artifacts` (the second run's) |
+| `E2E Stripe test mode` ([`e2e-stripe-test-mode.yml`](../../.github/workflows/e2e-stripe-test-mode.yml)) | `bun run test:e2e:stripe` once, after a preflight; skips, successfully, while its Environment holds neither value, and fails when it holds the account without the key ([[#A gift against Stripe's test mode]]) | Daily at 04:41 UTC, and by hand; never on a pull request, a push or a merge-queue group. Not a required check | `e2e-stripe-test-mode-artifacts`, when the preflight said run |
 
 **The retry is the whole run, never one flow.** Each run boots the stack afresh, on newly seeded databases with empty in-memory rate-limit windows. The flows spend small windows that last the whole run — five osn-api sign-up begins a minute from the suite's one address, ten link confirms, five step-up email begins, ten profile lists, three recovery links an account a day — and seeded state a flow can use once, so a flow retried inside the run it failed in can fail again for that alone. Playwright's own `retries` stay at 0 (`tools/e2e/playwright.config.ts`). A pass on the second run is still a flake: the job passes, but shows a warning annotation and a line in its summary naming the failed run, and uploads that run's traces, screenshots and logs as `e2e-artifacts-attempt-1`. Read them before calling the change done.
 
@@ -184,6 +185,28 @@ A new app in the stack goes in `appSpecs()` in `tools/e2e/src/stack.ts`, with it
 Every app is served from `localhost`. Cookies ignore the port, so the suite proves that a cross-origin `fetch` carries `credentials: "include"`: without it the browser drops `Set-Cookie` and the flow's cookie checks fail. The Musubi flow also clears the client's cached account and reloads, so the session can only come back through the cookie on `POST /token`, and then clears the cookie too and checks the reload is signed out. It cannot prove anything about how a cookie is scoped between real hosts. Locally there is no `Secure`, no `__Host-` prefix, and no `OSN_COOKIE_DOMAIN` marker. The browser tier ([[browser-tests]]) and the deploy checks own those.
 
 The Musubi flow reports conditional mediation as unavailable. The virtual authenticator answers an autofill passkey request on its own, which a person never does, so leaving it on would race the "@handle → Continue" path the flow drives.
+
+### A gift against Stripe's test mode
+
+`bun run test:e2e:stripe` ([`stripe-test-mode-launcher.ts`](../../tools/e2e/src/stripe-test-mode-launcher.ts)) runs one flow, [`tests/stripe-test-mode/cire-fund-gift-stripe.flow.ts`](../../tools/e2e/tests/stripe-test-mode/cire-fund-gift-stripe.flow.ts), against a Stripe sandbox instead of the stand-in. The nightly `E2E Stripe test mode` job runs it; the pull request suite never does, and needs no Stripe secret. It catches what the stand-in cannot: a field Stripe renames, or a check it tightens, in the calls cire-api makes and the event it sends.
+
+It reads two values, from the `stripe-test-mode` GitHub Environment in CI and from the shell locally:
+
+| Name | Kind | What it holds |
+|---|---|---|
+| `STRIPE_TEST_SECRET_KEY` | Environment secret | The sandbox's test-mode key: `sk_test_` (or `rk_test_`, untested) followed by letters and digits, nothing around it |
+| `STRIPE_TEST_CONNECTED_ACCOUNT` | Environment variable | The sandbox's Australian connected account, `acct_…`, that can take card charges and settles in AUD |
+
+The sandbox's default API version is the one cire-api pins on its requests (`STRIPE_API_VERSION`, `2025-03-31.basil`, in [`cire/api/src/services/stripe.ts`](../../cire/api/src/services/stripe.ts)): `stripe listen` delivers events in the sandbox's default version and has no flag to ask for another, and the flow's last check fails the run while the two differ.
+
+- **Refusals.** The job's first step, `--preflight`, needs no install. With neither value set it writes a notice and a line in the job summary and the job succeeds, skipping the rest. The account with no key fails it, naming the key and saying the setup is half undone, so a key deleted after the run has worked turns the job red instead of quietly skipping it. A key that is not a test-mode one, a key with a missing or malformed account id, or an Environment whose deployment branches are anything but the `main` branch alone, fails it too, all before anything installs; the run itself refuses everything but the branch rule again. No message names a value. The preflight cannot see where a secret lives, so the key is stored in the Environment alone: at repository or organisation scope, `secrets.` would hand it to any branch's job. Which secrets a job in this Environment reads is held by `shared/infra/tests/secrets/environments.test.ts`, where it is declared outside the tier model ([[infrastructure-as-code#GitHub Environment secrets]]).
+- **The clock.** The run starts the suite clock at the real now (`E2E_STRIPE_CLOCK_T0`, read once by `tools/e2e/src/config.ts`): Stripe refuses a Checkout session that closes less than 30 minutes after real now, and cire-api an event signed more than five minutes from its own now. The entry loads nothing that reaches `config.ts` before it sets the value, which a test holds, and the flow checks its organiser session row's time against the runner's real clock.
+- **The install.** The job sets up through `.github/actions/e2e-setup` with `cache: "false"`: it runs the installed packages and Chromium holding the key, so bun fetches each package against the lockfile's integrity hashes and Playwright downloads its pinned Chromium, rather than restoring caches any workflow on `main` can write. The browser is launched without the key (`tools/e2e/playwright.stripe-test-mode.config.ts`); only the worker, which calls Stripe, holds it.
+- **The stack.** osn-api, cire-api, cire host and cire invites, beside the stand-ins. cire-api holds the key and the listen secret and nothing else of Stripe's: no stand-in URL, Gold Price, Connect client id or platform webhook.
+- **The webhook.** Before the apps start, the run starts `stripe listen --events checkout.session.completed --events-from @accounts --forward-connect-to http://127.0.0.1:8787/api/stripe/webhook --format JSON` with a home of its own, and gives cire-api the signing secret it prints. The CLI holds a connection to Stripe open, so no public address is needed ([Stripe CLI `listen`](https://docs.stripe.com/cli/listen)). Its output goes to `logs/stripe-listen.log` with every secret redacted and any other account's events left out.
+- **The flow.** It points Fund Wedding's settings at the account with charges off and no currency, so the portal's settings page asks Stripe for the account through cire-api. The owner adds a fund, and Pia chooses it as in `cire-registry-money`, through the same steps (`addFund` and `chooseTheFund` in `tests/support/cire-fund-gift.ts`). cire-api opens the session at Stripe, and her browser opens Stripe's own Checkout page (`screenshots/cire-fund-gift-stripe-test-mode/stripe-checkout.png`). The flow pays with the test card `tok_visa` through the calls `stripe trigger checkout.session.completed` makes (`/v1/payment_pages/<id>/confirm`), since Stripe's pages are built to stop automated testing ([Stripe: automated testing](https://docs.stripe.com/automated-testing)). It waits for the forwarded event and cire-api's answer, and checks one row for the household, `succeeded`, under the fund's id and name. It then compares the stand-in's account, open session and paid event with Stripe's, field by field, in `stripe-fields.json` (paths and types, no values), checks the event is in cire-api's pinned API version, and refunds the payment.
+
+Run it locally with a sandbox key and account of your own and the Stripe CLI on your `PATH` (or named by `STRIPE_CLI`). Each run creates one Checkout session, one payment method and one payment on the account, and refunds the payment. Stripe asks that such checks run seldom, because its API is rate limited.
 
 ## Directory Layout
 
@@ -1228,6 +1251,7 @@ bun run --cwd shared/ui test:browser
 # The end-to-end suite (boots the stack; stop `bun run dev` first)
 bun run test:e2e
 bun run test:e2e:repro                     # twice, results.json compared byte for byte
+bun run test:e2e:stripe                    # one flow against a Stripe sandbox (needs its key)
 
 # Mutation testing, cire only, scoped to the lines this branch changed
 bun run --cwd cire/host test:mutation --changed

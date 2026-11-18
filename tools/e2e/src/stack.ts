@@ -139,11 +139,57 @@ const CIRE_STRIPE_KEY = "e2e-placeholder-no-stripe-account";
 const CIRE_WEB_ORIGINS = [ORIGINS.cireInvites, ORIGINS.cireHost, VENDOR_PORTAL_ORIGIN].join(",");
 
 /**
+ * What cire-api holds in the run against Stripe's test mode
+ * (`src/stripe-test-mode-launcher.ts`) in place of the stand-in's settings: the
+ * sandbox's test key and the signing secret `stripe listen` printed.
+ */
+export interface StripeTestModeSettings {
+  readonly secretKey: string;
+  readonly webhookSecret: string;
+}
+
+/**
+ * cire-api's Stripe settings. On the stand-in: a placeholder key, the
+ * stand-in's URLs, both webhook secrets, a Connect client id and a Gold Price.
+ * In test mode: the test key and the listen secret alone, so every call goes to
+ * Stripe and only the Connect webhook is mounted; no Gold Price or platform
+ * webhook, since the run buys no upgrade, and no Connect client id, since it
+ * connects no account.
+ */
+function cireStripeEnv(testMode: StripeTestModeSettings | undefined): AppSpec["env"] {
+  if (testMode !== undefined) {
+    return { STRIPE_SECRET_KEY: testMode.secretKey, STRIPE_WEBHOOK_SECRET: testMode.webhookSecret };
+  }
+  return {
+    // A Stripe key and the Connect webhook's secret: guests may give
+    // money, and a gift is recorded when the signed event the flow
+    // delivers arrives. The key only ever reaches the Stripe stand-in
+    // (`src/stripe.ts`), which every Stripe call goes to: the OAuth
+    // connect, a guest's gift (`cire-registry-money`), and an upgrade's
+    // Checkout and refund (`cire-checklist-starter`).
+    STRIPE_SECRET_KEY: CIRE_STRIPE_KEY,
+    STRIPE_API_URL: ORIGINS.stripe,
+    STRIPE_CONNECT_URL: ORIGINS.stripe,
+    STRIPE_WEBHOOK_SECRET: STRIPE_CONNECT_WEBHOOK_SECRET,
+    // A client id of the right shape, which only the stand-in ever sees:
+    // with it and CIRE_API_ORIGIN, the portal offers "Connect a Stripe
+    // account you already have".
+    STRIPE_CONNECT_CLIENT_ID: "ca_e2eStandIn",
+    // A Gold Price and the platform webhook's secret: the stack sells Gold,
+    // and grants it when the signed `checkout.session.completed` the flow
+    // delivers arrives. No Crimson Price, so nothing sells Crimson.
+    STRIPE_UPGRADE_PRICE_GOLD: STRIPE_STANDIN_GOLD_PRICE.id,
+    STRIPE_PLATFORM_WEBHOOK_SECRET,
+  };
+}
+
+/**
  * Boot order matters: pulse-api registers its service key with osn-api once, at
  * start. `cireArc` is cire-api's ARC key, which `seedOsn` registered with
  * osn-api; without it cire-api finds no owner's address and mails no owner.
+ * `stripeTestMode` replaces cire-api's Stripe settings (`cireStripeEnv`).
  */
-export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
+export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSettings): AppSpec[] {
   // cire-api's way to the owners' addresses: osn-api, over ARC, with the key
   // `seedOsn` registered. None without the key.
   const ownerAddresses: Record<string, string> = {};
@@ -272,25 +318,7 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
         CIRE_API_ORIGIN: ORIGINS.cireApi,
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
         CIRE_OIDC_CLIENT_SECRET: CIRE_OIDC.secret,
-        // A Stripe key and the Connect webhook's secret: guests may give
-        // money, and a gift is recorded when the signed event the flow
-        // delivers arrives. The key only ever reaches the Stripe stand-in
-        // (`src/stripe.ts`), which every Stripe call goes to: the OAuth
-        // connect, a guest's gift (`cire-registry-money`), and an upgrade's
-        // Checkout and refund (`cire-checklist-starter`).
-        STRIPE_SECRET_KEY: CIRE_STRIPE_KEY,
-        STRIPE_API_URL: ORIGINS.stripe,
-        STRIPE_CONNECT_URL: ORIGINS.stripe,
-        STRIPE_WEBHOOK_SECRET: STRIPE_CONNECT_WEBHOOK_SECRET,
-        // A client id of the right shape, which only the stand-in ever sees:
-        // with it and CIRE_API_ORIGIN, the portal offers "Connect a Stripe
-        // account you already have".
-        STRIPE_CONNECT_CLIENT_ID: "ca_e2eStandIn",
-        // A Gold Price and the platform webhook's secret: the stack sells Gold,
-        // and grants it when the signed `checkout.session.completed` the flow
-        // delivers arrives. No Crimson Price, so nothing sells Crimson.
-        STRIPE_UPGRADE_PRICE_GOLD: STRIPE_STANDIN_GOLD_PRICE.id,
-        STRIPE_PLATFORM_WEBHOOK_SECRET,
+        ...cireStripeEnv(stripeTestMode),
         // Owner notices (an automatic refund's among them): mail to the
         // stand-in, and each owner's address from osn-api over ARC.
         RESEND_API_KEY: E2E_RESEND_KEY,

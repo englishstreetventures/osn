@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-18
 ---
 
 # Stripe webhooks (cire-api)
@@ -288,6 +288,11 @@ It will not settle anything real — the handlers find no row for the session id
 Stripe invents — but a 200 in `stripe listen`'s output proves mounting and
 signature. A 400 there is a secret mismatch; a 404 means the route is not
 mounted, so the secret is unset.
+
+A nightly job does the same against a Stripe sandbox, end to end: a guest's
+gift opened by cire-api, paid with a test card, its event forwarded by
+`stripe listen` to the Connect webhook, and the gift settled
+([[testing-patterns#A gift against Stripe's test mode]]).
 
 ---
 

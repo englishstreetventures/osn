@@ -49,11 +49,31 @@ const secretsRead = (fragment: unknown): string[] => [
 
 const isTier = (value: unknown): value is Tier => value === "dev" || value === "production";
 
+/**
+ * Environments outside the tier model, each with exactly the secrets its jobs
+ * read. No Worker reads them and `secrets:check-github` does not check them,
+ * so this list is what holds them; an Environment missing from it still fails
+ * "each read resolves to one tier or to a declared Environment".
+ *
+ * - `stripe-test-mode`: the nightly gift against Stripe's test mode
+ *   (`.github/workflows/e2e-stripe-test-mode.yml`). Its key belongs to a
+ *   Stripe sandbox used for nothing else, and only `main` may deploy from it.
+ */
+const OUTSIDE_TIERS: Readonly<Record<string, readonly string[]>> = {
+  "stripe-test-mode": ["STRIPE_TEST_SECRET_KEY"],
+};
+
+const isOutsideTiers = (value: unknown): value is string =>
+  typeof value === "string" && Object.hasOwn(OUTSIDE_TIERS, value);
+
 interface Read {
   readonly where: string;
   readonly name: string;
-  /** The Environment the read resolves in, or why it cannot be placed. */
-  readonly tier: Tier | { readonly unresolved: string };
+  /**
+   * The tier the read resolves in, the declared Environment outside the tiers
+   * it is read from, or why it cannot be placed.
+   */
+  readonly tier: Tier | { readonly outside: string } | { readonly unresolved: string };
 }
 
 /**
@@ -71,6 +91,9 @@ function environmentReads(file: string, workflow: Workflow): Read[] {
     const environment = job.environment;
     if (isTier(environment)) {
       return secretsRead(job).map((name) => ({ where, name, tier: environment }));
+    }
+    if (isOutsideTiers(environment)) {
+      return secretsRead(job).map((name) => ({ where, name, tier: { outside: environment } }));
     }
     if (job.environment !== "${{ inputs.tier }}") {
       return secretsRead(job).map((name) => ({
@@ -115,10 +138,23 @@ const workerSecrets = (tier: Tier): Set<string> =>
   );
 
 describe("the secrets jobs bound to a GitHub Environment read", () => {
-  test("each read resolves to one tier", () => {
+  test("each read resolves to one tier or to a declared Environment", () => {
     expect(READS.length).toBeGreaterThan(0);
-    expect(READS.filter((read) => !isTier(read.tier))).toEqual([]);
+    expect(
+      READS.filter((read) => typeof read.tier === "object" && "unresolved" in read.tier),
+    ).toEqual([]);
   });
+
+  test.each(Object.entries(OUTSIDE_TIERS))(
+    "%s: its jobs read exactly the secrets declared for it",
+    (environment, declared) => {
+      const read = READS.filter(
+        (one) =>
+          typeof one.tier === "object" && "outside" in one.tier && one.tier.outside === environment,
+      ).map((one) => one.name);
+      expect([...new Set(read)].toSorted()).toEqual([...declared].toSorted());
+    },
+  );
 
   test.each(TIERS.map((tier) => [tier] as const))(
     "%s: every name a job reads is one secrets:check-github expects there, required or optional",
