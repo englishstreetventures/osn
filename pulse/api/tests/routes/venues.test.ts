@@ -482,6 +482,16 @@ describe("venue routes", () => {
       expect(res.status).toBe(404);
     });
 
+    // The fixtures give the private event slots and this one none, so the
+    // lineup read must filter on the event asked for.
+    it("returns 200 + [] for a public event with no programmed slots", async () => {
+      await seedLineupFixtures();
+      const res = await get(app, "/venues/org-one/the-spot/events/evt_bare/lineup");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { slots: unknown[] };
+      expect(body.slots).toEqual([]);
+    });
+
     it("returns 404 for an unknown venue handle", async () => {
       await seedLineupFixtures();
       const res = await get(app, "/venues/org-one/nope/events/evt_bare/lineup");

@@ -677,6 +677,24 @@ describe("Private event visibility gate", () => {
     expect(res.status).toBe(200);
   });
 
+  it("GET /events/:id returns 404 to a signed-in viewer when only another guest holds an RSVP row", async () => {
+    await post(app, `/events/${privateEventId}/invite`, { profileIds: ["usr_carol"] }, aliceToken);
+    const res = await get(app, `/events/${privateEventId}`, bobToken);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id returns 404 to a viewer whose RSVP row is on another event", async () => {
+    const replied = await post(
+      app,
+      `/events/${publicEventId}/rsvps`,
+      { status: "going" },
+      bobToken,
+    );
+    expect(replied.status).toBe(200);
+    const res = await get(app, `/events/${privateEventId}`, bobToken);
+    expect(res.status).toBe(404);
+  });
+
   it("GET /events/:id returns 200 for public events to anyone", async () => {
     const res = await get(app, `/events/${publicEventId}`);
     expect(res.status).toBe(200);
