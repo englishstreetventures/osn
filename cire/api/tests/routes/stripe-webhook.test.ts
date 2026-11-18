@@ -1661,6 +1661,21 @@ describe("a gift keeps the account it was paid into", () => {
     expect((await gifts(db))[0]?.status).toBe("succeeded");
   });
 
+  it.each(["checkout.session.expired", "checkout.session.async_payment_failed"])(
+    "closes a gift on the account it was paid into after the wedding moved (%s)",
+    async (type) => {
+      const { app, db, familyId } = buildApp();
+      seedPending(db, familyId);
+      recordGiftAccount(db, PAID_INTO, "express");
+      moveWeddingTo(db, NOW_NAMED);
+
+      const res = await deliver(app, sessionEvent(type, { account: PAID_INTO }));
+
+      expect(await jsonBody(res)).toEqual({ received: true, outcome: "failed" });
+      expect((await gifts(db))[0]?.status).toBe("failed");
+    },
+  );
+
   it.each([
     ["the account the wedding names now", NOW_NAMED],
     ["an unrelated account", UNRELATED],
@@ -1758,15 +1773,25 @@ describe("a gift keeps the account it was paid into", () => {
   });
 
   it("adopts no session for a Standard gift after its wedding moved to an Express account", async () => {
-    // The gift's own type decides, not the wedding's account now.
+    // The gift's own type decides, not the wedding's account now, for a
+    // settle and for an ending alike.
     const { app, db, familyId } = buildApp();
     seedPending(db, familyId, { sessionId: null });
     recordGiftAccount(db, PAID_INTO, "standard");
     moveWeddingTo(db, NOW_NAMED, "express");
 
-    const res = await deliver(app, checkoutCompleted({ session: { id: "cs_couple_made" } }));
+    const completed = checkoutCompleted({ session: { id: "cs_couple_made" } });
+    const settle = await deliver(app, completed);
+    const expired = await deliver(
+      app,
+      JSON.stringify({
+        ...(JSON.parse(completed) as Record<string, unknown>),
+        type: "checkout.session.expired",
+      }),
+    );
 
-    expect(await jsonBody(res)).toEqual({ received: true, outcome: "rejected" });
+    expect(await jsonBody(settle)).toEqual({ received: true, outcome: "rejected" });
+    expect(await jsonBody(expired)).toEqual({ received: true, outcome: "rejected" });
     const [gift] = await gifts(db);
     expect(gift?.status).toBe("pending");
     expect(gift?.stripeCheckoutSessionId ?? null).toBeNull();

@@ -2521,6 +2521,34 @@ describe("createPendingContribution", () => {
     displayName: null,
   });
 
+  it("keeps the account and type the gate approved, whatever the settings row says by then", async () => {
+    // The wedding's account can change between the gate's read and this
+    // insert; the session is made on the account the gate read, so the gift
+    // must record that one, not the one the insert trigger would copy.
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = `rct_${crypto.randomUUID()}`;
+
+    await ok(
+      db,
+      registryService.createPendingContribution({
+        ...pending(db, id),
+        stripeAccountId: "acct_gate",
+        stripeAccountType: "standard",
+      }),
+    );
+
+    const row = db
+      .select({
+        account: registryContributions.stripeAccountId,
+        type: registryContributions.stripeAccountType,
+      })
+      .from(registryContributions)
+      .where(eq(registryContributions.id, id))
+      .get();
+    expect(row).toEqual({ account: "acct_gate", type: "standard" });
+  });
+
   it("writes the gift with no session id at all", async () => {
     const db = db0();
     const id = `rct_${crypto.randomUUID()}`;
