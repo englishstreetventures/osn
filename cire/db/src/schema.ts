@@ -1077,10 +1077,12 @@ export const registrySettings = sqliteTable(
     // reconnect (`attachStripeAccount` only ever fills a NULL id).
     //
     // The two columns below are what the cleared id leaves behind: WHEN it
-    // happened, and WHICH account it was. Nothing in the product reads them —
-    // they exist because this is the money path, and "which account did this
-    // wedding's gifts settle into before the couple disconnected" is a question
-    // somebody eventually asks with no other way to answer it.
+    // happened, and WHICH account it was. No route reads them — they exist
+    // because this is the money path, and "which account did this wedding's
+    // gifts settle into before the couple disconnected" is a question somebody
+    // eventually asks. Each gift records its own account
+    // (`registry_contributions.stripe_account_id`); migration
+    // 20261118180052 read `stripe_deauthorized_at` once, to back-fill it.
     stripeDeauthorizedAt: integer("stripe_deauthorized_at", { mode: "timestamp" }),
     stripeDeauthorizedAccountId: text("stripe_deauthorized_account_id"),
     // ── What survives the guest-data sweep ──────────────────────────────────

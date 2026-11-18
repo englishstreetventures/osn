@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-19
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -254,15 +254,15 @@ the amount of data, and that number only grows. Before adding one, work out its
 cost against 100K/day. `scripts/guard-d1-migration-cost.ts` works the cire chain
 out on every pull request — replaying it offline into an in-memory SQLite and
 failing when the estimate passes the budget in
-`scripts/d1-migration-cost-budgets.txt`. The chain is **194 schema writes**,
-at its line of 194; priced at 27 rows each that is about 5,240 written and
-roughly 19 replays a day, but the price per schema write is only pinned to
+`scripts/d1-migration-cost-budgets.txt`. The chain is **200 schema writes**,
+at its line of 200; priced at 27 rows each that is about 5,400 written and
+roughly 18 replays a day, but the price per schema write is only pinned to
 about 22–27, so read the row figure as indicative and the schema-write count
 as exact. A squash brings it back to its baseline (englishstreetventures/osn#2096).
 Method, calibration and how to re-baseline: [[bundle-size-guards]], which also
 sets out why the "89% / 11%" split above cannot be read as a share of one
 rebuild.
-*Measured 2026-11-06 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+*Measured 2026-11-19 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
 
 **Seating plan copies have a daily ceiling.** One copy of a seating plan writes
 the plan, up to 100 tables and a seat for every guest seated in it, and D1
