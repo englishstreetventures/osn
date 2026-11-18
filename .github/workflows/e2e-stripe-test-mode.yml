@@ -21,9 +21,10 @@ name: E2E Stripe test mode
 #     (`sk_test_`, or `rk_test_`), a sandbox used for nothing else;
 #   - variable `STRIPE_TEST_CONNECTED_ACCOUNT`: that sandbox's Australian
 #     connected account the gift is charged on.
-# With no key the job skips, successfully, with a notice in its summary. A key
-# that is not a test-mode one, a missing account, or an Environment that
-# admits any branch but main fails the preflight before anything installs. The
+# With neither value set the job skips, successfully, with a notice in its
+# summary. The account with no key (a setup half undone), a key that is not a
+# test-mode one, a key with no account, or an Environment that admits any
+# branch but main fails the preflight before anything installs. The
 # preflight cannot see a secret's scope; the owner keeps the key in the
 # Environment alone.
 on:

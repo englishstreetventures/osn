@@ -31,13 +31,28 @@ describe("stripeTestMode: which key and account the test-mode run may use", () =
     STRIPE_TEST_CONNECTED_ACCOUNT: ACCOUNT,
   };
 
-  test("no key is no run, and not an error", () => {
+  test("neither value set is no run, and not an error", () => {
     expect(stripeTestMode({}).kind).toBe("absent");
-    expect(stripeTestMode({ STRIPE_TEST_CONNECTED_ACCOUNT: ACCOUNT }).kind).toBe("absent");
+    // Empty is what GitHub passes for a secret or a variable that is not set.
+    expect(
+      stripeTestMode({ STRIPE_TEST_SECRET_KEY: "", STRIPE_TEST_CONNECTED_ACCOUNT: "" }).kind,
+    ).toBe("absent");
   });
 
-  test("an empty key, which is what GitHub passes for a missing secret, is no run", () => {
-    expect(stripeTestMode({ ...ready, STRIPE_TEST_SECRET_KEY: "" }).kind).toBe("absent");
+  // The account without the key is a setup half undone, say a key deleted
+  // after the run has worked: it fails rather than skipping green.
+  test("the account with no key is refused, naming the key as missing", () => {
+    for (const secretKey of [undefined, ""]) {
+      const decision = stripeTestMode({
+        STRIPE_TEST_SECRET_KEY: secretKey,
+        STRIPE_TEST_CONNECTED_ACCOUNT: ACCOUNT,
+      });
+      expect(decision.kind).toBe("refused");
+      const reason = decision.kind === "refused" ? decision.reason : "";
+      expect(reason).toContain("STRIPE_TEST_SECRET_KEY is not set");
+      expect(reason).toContain("half undone");
+      expect(reason).not.toContain(ACCOUNT);
+    }
   });
 
   test.each([

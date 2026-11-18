@@ -101,6 +101,17 @@ describe("the preflight", () => {
     expect(ran.summary).toContain("stripe-test-mode");
   });
 
+  test("with the account but no key, fails, saying the setup is half undone", async () => {
+    policy = MAIN_ONLY;
+    const ran = await run(["--preflight"], { STRIPE_TEST_CONNECTED_ACCOUNT: ACCOUNT });
+    expect(ran.code).toBe(1);
+    expect(ran.output).not.toContain("run=true");
+    expect(ran.stdout).toContain("::error title=Stripe test mode refused::");
+    expect(ran.stdout).toContain("STRIPE_TEST_SECRET_KEY is not set");
+    expect(ran.summary).toContain("half undone");
+    expect(ran.stdout).not.toContain("skipped");
+  });
+
   test("with a live key, refuses and fails, and prints no part of the key", async () => {
     policy = MAIN_ONLY;
     const live = key("sk", "live");

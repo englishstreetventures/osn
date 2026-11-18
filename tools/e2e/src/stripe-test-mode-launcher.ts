@@ -5,10 +5,12 @@
  * stays on the Stripe stand-in.
  *
  * `--preflight` is the workflow's first step, run before anything installs:
- *  - no `STRIPE_TEST_SECRET_KEY`: writes `run=false`, a notice and a line in the
- *    job summary, and succeeds, so the job skips its other steps;
- *  - a key that is not a test-mode one, or no well-formed
- *    `STRIPE_TEST_CONNECTED_ACCOUNT`: fails, naming the variable;
+ *  - neither `STRIPE_TEST_SECRET_KEY` nor `STRIPE_TEST_CONNECTED_ACCOUNT`:
+ *    writes `run=false`, a notice and a line in the job summary, and
+ *    succeeds, so the job skips its other steps;
+ *  - the account with no key (a setup half undone), a key that is not a
+ *    test-mode one, or a key with no well-formed account: fails, naming the
+ *    variable;
  *  - otherwise reads the `stripe-test-mode` Environment from GitHub and fails
  *    unless only the `main` branch may deploy from it, so no other branch's
  *    job can deploy from the Environment; then writes `run=true`. It cannot

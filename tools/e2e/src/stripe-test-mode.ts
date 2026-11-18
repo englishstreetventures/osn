@@ -47,15 +47,23 @@ const TEST_KEY = /^(sk|rk)_test_[A-Za-z0-9]+$/;
 const ACCOUNT_ID = /^acct_[A-Za-z0-9]+$/;
 
 /**
- * Which key and account the run may use. No key, or an empty one (what GitHub
- * passes for a secret that is not set), is no run. A key that is not a
- * test-mode one, or a test key with no well-formed account beside it, is a
- * refusal: the owner has started setting the Environment up, and a run on half
- * of it would fail later and less clearly.
+ * Which key and account the run may use. Neither set (empty is what GitHub
+ * passes for a secret or a variable that is not set) is no run. Anything else
+ * short of a test key and a well-formed account is a refusal: the account with
+ * no key is a setup half undone, a key deleted after the run has worked, and
+ * a key that is not a test-mode one, or one with no account beside it, would
+ * fail later and less clearly.
  */
 export function stripeTestMode(env: Readonly<Record<string, string | undefined>>): StripeTestMode {
   const secretKey = env[SECRET_KEY_VAR];
-  if (secretKey === undefined || secretKey === "") return { kind: "absent" };
+  if (secretKey === undefined || secretKey === "") {
+    const account = env[ACCOUNT_VAR];
+    if (account === undefined || account === "") return { kind: "absent" };
+    return {
+      kind: "refused",
+      reason: `${SECRET_KEY_VAR} is not set but ${ACCOUNT_VAR} is: the ${STRIPE_TEST_ENVIRONMENT} setup is half undone; store the key again, or delete the variable as well to skip the run`,
+    };
+  }
   if (!TEST_KEY.test(secretKey)) {
     return {
       kind: "refused",
