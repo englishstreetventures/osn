@@ -105,6 +105,63 @@ describe("DirectoryBrowseView", () => {
     expect(authFetch).not.toHaveBeenCalled();
   });
 
+  it("caches the unfiltered page, not a category read that lands after the filters were cleared", async () => {
+    let answerFlorals!: (res: Response) => void;
+    authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
+    authFetch.mockReturnValueOnce(new Promise<Response>((resolve) => (answerFlorals = resolve)));
+    authFetch.mockResolvedValueOnce(
+      json({ listings: [listing({ id: "LC", name: "Cedar Hall" })], total: 1 }),
+    );
+    const first = render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(await screen.findByText("Acme Venue")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Category"), { target: { value: "florals" } });
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(await screen.findByText("Cedar Hall")).toBeInTheDocument();
+
+    // The category read, sent before the filters were cleared, lands last.
+    answerFlorals(json({ listings: [listing({ id: "LB", name: "Bloom Florals" })], total: 9 }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.getByText("Cedar Hall")).toBeInTheDocument();
+    expect(screen.queryByText("Bloom Florals")).toBeNull();
+    first.unmount();
+    authFetch.mockClear();
+
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(screen.getByText("Cedar Hall")).toBeInTheDocument();
+    expect(screen.queryByText("Bloom Florals")).toBeNull();
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps a vendor added while the page's read is out marked in the wedding", async () => {
+    const acme = listing({ categories: ["venue"] });
+    let answerPage!: (res: Response) => void;
+    authFetch.mockResolvedValueOnce(json({ listings: [acme], total: 1 }));
+    authFetch.mockResolvedValueOnce(json({ listings: [acme], total: 1 }));
+    authFetch.mockReturnValueOnce(new Promise<Response>((resolve) => (answerPage = resolve)));
+    authFetch.mockResolvedValueOnce(json({ vendor: { id: "v1" } }, 201));
+    const first = render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(await screen.findByText("Acme Venue")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Category"), { target: { value: "venue" } });
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /add to wedding/i })[0]!);
+    await waitFor(() => expect(upsertCachedVendor).toHaveBeenCalled());
+
+    // The unfiltered read was answered before the add committed.
+    answerPage(json({ listings: [acme], total: 1 }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Already added to this wedding")).toBeInTheDocument(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.getByLabelText("Already added to this wedding")).toBeInTheDocument();
+    first.unmount();
+    authFetch.mockClear();
+
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    expect(screen.getByLabelText("Already added to this wedding")).toBeInTheDocument();
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
   it("reopens with the cached page's full count, offering the rest", async () => {
     authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 25 }));
     const first = render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
