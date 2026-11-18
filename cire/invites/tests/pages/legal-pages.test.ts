@@ -92,13 +92,6 @@ describe.each(Object.entries(pages))("%s", (page, served) => {
     expect(served).not.toContain(`LEGAL_ENTITY.${MAILBOX[page as keyof typeof MAILBOX].not}`);
   });
 
-  it("names the courts of the governing state", () => {
-    if (page !== "terms.astro") return;
-    expect(source.replace(/\s+/g, " ")).toMatch(
-      /the courts of that state have non-exclusive jurisdiction/,
-    );
-  });
-
   // The asset layer serves a prerendered page without running the Worker, so
   // the middleware's `X-Robots-Tag: noindex` never reaches it. Turn this off
   // and the page becomes SSR, gets that header and drops out of search.
@@ -124,5 +117,13 @@ describe.each(Object.entries(pages))("%s", (page, served) => {
     for (const field of renderedFields(served)) {
       expect(LEGAL_ENTITY).toHaveProperty(field);
     }
+  });
+});
+
+describe("terms.astro", () => {
+  it("names the courts of the governing state", () => {
+    expect(readPage("terms.astro").replace(/\s+/g, " ")).toMatch(
+      /the courts of that state have non-exclusive jurisdiction/,
+    );
   });
 });

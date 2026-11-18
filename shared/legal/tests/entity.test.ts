@@ -34,11 +34,14 @@ describe("IDENTITY_FIELD_NAMES", () => {
 });
 
 describe("LEGAL_DETAILS_PENDING", () => {
-  it("agrees with the identity fields it is derived from", () => {
-    const anyUnfilled = IDENTITY_FIELD_NAMES.map((field) => LEGAL_ENTITY[field]).some(
-      isPlaceholder,
-    );
-    expect(LEGAL_DETAILS_PENDING).toBe(anyUnfilled);
+  /**
+   * The postal address is still a placeholder, so every page must be flagged
+   * a draft. When the address is filled this test fails on purpose: replace it
+   * with one asserting `false`, once every identity field is real.
+   */
+  it("is true while the postal address is still a placeholder", () => {
+    expect(LEGAL_ENTITY.postalAddress).toBe("{{POSTAL_ADDRESS}}");
+    expect(LEGAL_DETAILS_PENDING).toBe(true);
   });
 });
 

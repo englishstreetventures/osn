@@ -258,6 +258,13 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
       ada.email,
       await page.getByLabel("Email").inputValue(),
     );
+    flow.check(
+      "register: the Privacy Notice link points at /privacy",
+      "/privacy",
+      (await registerDialog
+        .getByRole("link", { name: "Privacy Notice", exact: true })
+        .getAttribute("href")) ?? "",
+    );
     await flow.step("register: details", async () => {
       await page.getByLabel("Handle").fill(ada.handle);
       await page.getByLabel("Date of birth").fill("1990-01-01");
@@ -1437,6 +1444,14 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     'authorize: Register\'s Cancel reads "Sign in instead"',
     "Sign in instead",
     (await signInInstead.textContent())?.trim() ?? "",
+  );
+  flow.check(
+    "authorize: the create-account panel links /terms and /privacy",
+    "/terms /privacy",
+    [
+      await page.getByRole("link", { name: "Terms of Service", exact: true }).getAttribute("href"),
+      await page.getByRole("link", { name: "Privacy Notice", exact: true }).getAttribute("href"),
+    ].join(" "),
   );
   await flow.step("go back to sign-in with Sign in instead", async () => {
     await signInInstead.click();
