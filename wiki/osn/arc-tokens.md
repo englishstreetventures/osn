@@ -224,7 +224,7 @@ Worker secrets, `CIRE_API_ARC_PRIVATE_KEY` (a raw JWK string) and
 osn-api calls apps as an ARC **issuer**: the account deletion's preview
 (`account:deletion-preview`), erasure (`account:erase`) and session end
 (`account:sessions-revoke`, Pulse only), and the account export
-(`account:export`) ([[dsar#The apps' open actions and the app contract]]).
+(`account:export`) ([[account-deletion#The app contract]]).
 Apps do not take a registration from osn-api. osn-api **publishes** its keys
 and each app fetches the one a token names:
 

@@ -18,8 +18,9 @@ related:
   - "[[arc-tokens]]"
   - "[[rate-limiting]]"
   - "[[auth-failure]]"
+  - "[[account-deletion]]"
 dev-host: https://id.musubi.localhost
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-18
 ---
 
 # OSN Core
@@ -73,6 +74,8 @@ Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OT
 | `POST /recovery/generate` | Mint 10 single-use recovery codes (requires step-up) |
 | `POST /account/email/{begin,complete}` | Step-up gated email change |
 | `GET /account/security-events`, `POST .../ack[-all]` | Audit banner + acknowledgement (step-up gated) |
+| `GET /account/export`, `POST /account/data-link` | The account's data download, and an email with a link to it ([[dsar#Art. 15 — Right of access]]) |
+| `GET /account/deletion-preview`, `DELETE /account`, `POST /account/restore`, `GET /account/deletion-status` | Account deletion and its seven-day window ([[account-deletion]]) |
 | `GET/PATCH/DELETE /passkeys[/:id]` | Settings-surface passkey management |
 | `POST /profiles/{list,switch}` | Multi-profile session operations |
 | `GET /handle/:handle` | Real-time handle availability |
@@ -96,7 +99,7 @@ Cross-domain consumers reach the graph through the bridge pattern in `pulse/api/
 
 ## Handle system
 
-Handles live in a single namespace shared with organisations. A handle is immutable, the schema layer validates it, and `GET /handle/:handle` reports availability in real time.
+Handles live in a single namespace shared with organisations. A handle is immutable, the schema layer validates it, and `GET /handle/:handle` reports availability in real time. A deleted account's handles stay held while its deletion is pending and for 30 days after it ([[account-deletion#Handle holds]]).
 
 ## Testing
 
@@ -115,6 +118,7 @@ Auth routes use `createAuthRoutes(authConfig, dbLayer?)` — `authConfig` is req
 - [[email-links]] — the emailed-link challenge sign-up uses
 - [[recovery-codes]] — Copenhagen Book M2 recovery flow
 - [[sessions]] — per-device session management
+- [[account-deletion]] — deleting an account, the contract every app implements, leaving one app
 - [[step-up]] — sudo token gating
 - [[social-graph]] — connection / close-friend / block semantics
 - [[arc-tokens]] — S2S token model used on internal routes

@@ -13,7 +13,7 @@ related:
   - "[[data-map]]"
   - "[[subprocessors]]"
   - "[[cire]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-18
 ---
 
 # Compliance
@@ -38,7 +38,7 @@ compliance" surface looks like.
 
 | Standard | Reason we are in scope | Status | Owner | Page |
 |---|---|---|---|---|
-| **GDPR / UK GDPR** | EU + UK end users on a social network. Lawful basis required for every processing purpose. | Plan only — DSAR + erasure routes not built | Identity team | [[gdpr]] |
+| **GDPR / UK GDPR** | EU + UK end users on a social network. Lawful basis required for every processing purpose. | Partial — self-service export and account erasure shipped ([[dsar]], [[account-deletion]]); processor agreements, international transfers and the DSAR request log open | Identity team | [[gdpr]] |
 | **CCPA / CPRA** | California end users. "Do Not Sell / Share" + "Limit Use of SPI" mandatory once revenue / record thresholds hit; build now to avoid retrofit. | Plan only | Identity team | [[ccpa]] |
 | **SOC 2 (Trust Services Criteria — Security + Confidentiality + Availability + Privacy)** | Required by enterprise Zap-org customers before they will embed the support widget on their site. Type I before first paying org; Type II within 12 months. | Plan only — controls inventoried, no auditor engaged | Platform team | [[soc2]] |
 | **EU Digital Services Act (DSA)** | Hosting service for user-generated content with EU recipients. Notice-and-action, transparency reporting, statement of reasons, trusted flaggers, ToS clarity. Independent of GDPR. | Plan only — moderation tooling not built | Pulse + Zap teams | [[dsa]] |

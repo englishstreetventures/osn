@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-18
 ---
 
 # OSN Wiki
@@ -76,6 +76,7 @@ The identity core: accounts, sessions, passkeys, step-up, OIDC, ARC tokens, the 
 - [[step-up]] — short-lived sudo tokens gating sensitive endpoints (M-PK1)
 - [[totp]] — RFC 6238 authenticator-app second factor: the encrypted secret, single use, the per-account lockout
 - [[sessions]] — session introspection, per-device revocation, "sign out everywhere else", device/passkey management UI
+- [[account-deletion]] — deleting an account: the seven-day window, the fan-out every app implements, leaving one app, what is kept, and what each tier needs
 - [[oidc-provider]] — OpenID Connect provider: how other apps recognise an OSN account without holding a passkey
 - [[social-graph]] — connections, blocks
 - [[osn-core]] — identity / auth stack (`@osn/api` + SDK + UI)

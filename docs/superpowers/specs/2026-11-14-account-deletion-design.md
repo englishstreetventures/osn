@@ -1,6 +1,6 @@
 # Account deletion: Musubi, and leaving one app (cire first) — design
 
-Date: 2026-11-14 · Status: approved by the owner 2026-11-14; amended by the owner 2026-11-16 (a wedding never exists without an owner: decision 2, §3, §5) · Issues: englishstreetventures/osn#519, #1332, #2226, #2305
+Date: 2026-11-14 · Status: built, in #2294, #2304, #2318, #2335, #2361, #2383, #2388 and #2403; described in `wiki/osn/account-deletion.md`. Approved by the owner 2026-11-14; amended by the owner 2026-11-16 (a wedding never exists without an owner: decision 2, §3, §5) · Issues: englishstreetventures/osn#519, #1332, #2226, #2305
 
 ## Goal
 

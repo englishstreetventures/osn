@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-18
 ---
 
 # Compliance Scope Matrix
@@ -89,7 +89,7 @@ Privacy because they are the criteria customers ask about.
 | CC9 — Risk Mitigation | Rate limiting, CORS, Origin guard, redaction deny-list, CSP | Vendor risk-assessment record per [[subprocessors]] |
 | C1 — Confidentiality | E2E (Signal/PQXDH), HMAC-peppered IPs, hashed tokens, redacted logs | Encryption-at-rest doc once Supabase migration lands |
 | A1 — Availability | Bun runtime, Turbo build, OTel SLOs (planned), post-deploy smoke check with automatic rollback, fail-closed rate limiter | Backup + DR plan ([[backup-dr]]); RTO/RPO declared |
-| P1–P8 — Privacy | This compliance directory, [[data-map]], [[dsar]] (planned) | Privacy notice published; consent records persisted |
+| P1–P8 — Privacy | This compliance directory, [[data-map]], [[dsar]] (self-service export and erasure shipped; the request log and the email channel planned) | Privacy notice published; consent records persisted |
 
 ### CCPA — first cut
 
