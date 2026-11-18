@@ -1075,10 +1075,11 @@ export const registrySettings = sqliteTable(
     // somebody eventually asks with no other way to answer it.
     stripeDeauthorizedAt: integer("stripe_deauthorized_at", { mode: "timestamp" }),
     stripeDeauthorizedAccountId: text("stripe_deauthorized_account_id"),
-    // ── What survives the 1-year sweep ──────────────────────────────────────
+    // ── What survives the guest-data sweep ──────────────────────────────────
     // Gifts are guest data: `registry_claims` and `registry_contributions` both
     // hang off `families`, so the retention sweep's family delete cascades them
-    // away a year after the wedding, and the couple's record of what arrived goes
+    // away a year after the wedding (three years after its creation when the
+    // sweep cannot read its event dates), and the couple's record of what arrived goes
     // with it. This row is KEPT by that sweep (it carries no guest PII and the
     // published invite depends on it), which makes it the right home for a
     // parting summary: written just before the delete — counts, totals and each

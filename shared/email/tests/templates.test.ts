@@ -239,7 +239,7 @@ describe("renderTemplate", () => {
     "email-changed": { newEmail: "alice@example.com", instanceName: "Musubi" },
     "registry-gift-summary": {
       weddingName: "Ama & Jonah",
-      finalEventOn: "2025-05-10",
+      retainedFrom: { rule: "final-event", on: "2025-05-10" },
       sweptOn: "2026-05-11",
       giftCount: 3,
       giftCurrency: "AUD",

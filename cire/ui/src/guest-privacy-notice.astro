@@ -29,7 +29,7 @@ const { level = 2 } = Astro.props
 const Section = level === 2 ? 'h2' : 'h3'
 const Sub = level === 2 ? 'h3' : 'h4'
 
-const updated = '2026-11-06'
+const updated = '2026-11-18'
 
 // The third-party lists are generated from the consent vendor registry, so the
 // notice cannot disagree with what the guest site's consent framework governs:
@@ -348,10 +348,12 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
   <p>
     Guest information — names, RSVPs, dietary needs, email addresses — is deleted
     <strong>1 year after the final wedding event</strong>, after which it is
-    permanently removed from our systems. Now and then it goes up to 30 days later,
-    while we finish the record of your hosts’ gifts. That period is set by us and applies to every
-    wedding; your hosts cannot extend it. You can ask for your own information to be
-    deleted sooner.
+    permanently removed from our systems. If we cannot read the date of one of the
+    wedding’s events, it is deleted 3 years after your hosts created the wedding on
+    Cire instead, or 1 year after the last event we can read, whichever is later.
+    Now and then it goes up to 30 days later, while we finish the record of your
+    hosts’ gifts. Those periods are set by us and apply to every wedding; your hosts
+    cannot extend them. You can ask for your own information to be deleted sooner.
   </p>
   <p>
     When that happens your hosts keep a record of their gifts with no names in it: how

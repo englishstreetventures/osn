@@ -73,6 +73,11 @@ describe("guest privacy notice", () => {
     // The sweep can hold a wedding back up to 30 days past that, on purpose
     // as well as on failure (`GIFT_SUMMARY_HOLD_BACK_MS`), and says so.
     expect(body).toMatch(/up to 30 days later/);
+    // A wedding with an event the sweep cannot date is deleted three years
+    // after it was created (`UNDATED_RETENTION_AFTER_CREATION_YEARS`), and never
+    // before a year after the last event it can date.
+    expect(body).toMatch(phrase("3 years after your hosts created the wedding"));
+    expect(body).toMatch(phrase("whichever is later"));
   });
 
   /**

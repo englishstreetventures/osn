@@ -586,7 +586,7 @@ export const createOrganiserGiftExportRoutes = (
         .use(rateLimitMiddlewareByUser(exportLimiter))
         // One row per gift, claims and cash together, newest first: the same
         // log the registry tab pages through, whole. This is the couple's copy
-        // of a record we delete a year after the wedding, so it carries the
+        // of a record the retention sweep deletes, so it carries the
         // detail the year-end summary cannot: who gave what, in which
         // currency, and what they wrote. Same owner gate +
         // attachment/no-store contract as the other exports.

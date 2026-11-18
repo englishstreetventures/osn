@@ -1534,7 +1534,7 @@ describe("D1 session routing at the entry points", () => {
       weddingName: "Notified Wedding",
       ownerOsnProfileIds: ["usr_owner"],
       currency: "AUD",
-      finalEventOn: "2025-05-10",
+      retainedFrom: { rule: "final-event", on: "2025-05-10" },
       summary: {
         sweptOn: "2026-06-17",
         firstGiftOn: "2025-05-11",
