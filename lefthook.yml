@@ -84,12 +84,28 @@ pre-push:
       # resolves it, or when @solidjs/start stops depending on micromatch.
       # DROP AFTER GHSA-vfj7-8cjw-p6xm 2027-01-07
       #
+      # GHSA-fc5q-39xc-vjpf — picomatch 4.0.7 (<= 4.0.7), ReDoS through
+      # single-branch repeated extglobs; no fixed version is published. Every
+      # path to it is tooling: vite › tinyglobby › fdir and astro ›
+      # @astrojs/internal-helpers (build and dev), vitest (tests), alchemy and
+      # @alchemy.run/cloudflare (deploy), @changesets/cli (release),
+      # @solidjs/start › micromatch and nitro › unstorage › anymatch
+      # (@pulse/web's build), @shadcn/lint (lint). The patterns they match come
+      # from repository config and file paths, never from a request. On
+      # 2026-11-18 all 19 build outputs (every Worker's dist and .wrangler,
+      # every site's dist, @pulse/web's .output) held no picomatch code: no
+      # `POSIX_REGEX_SOURCE` or `REGEX_NON_SPECIAL_CHARS`, both of which a
+      # minified bundle of picomatch keeps. Drop when picomatch > 4.0.7 ships
+      # and bun.lock resolves it.
+      # DROP AFTER GHSA-fc5q-39xc-vjpf 2027-02-15
+      #
       # Comments stay above `run:`. Inside the folded block a `#` line is part
       # of the command, and the shell would drop every flag after it.
       # The drop is tracked in englishstreetventures/osn#1381.
       run: >
         bun audit --audit-level=high
         --ignore=GHSA-vfj7-8cjw-p6xm
+        --ignore=GHSA-fc5q-39xc-vjpf
     audit-ignores:
       # Fails when an `--ignore` above has no `DROP AFTER` marker, or one whose
       # date has passed or is more than 90 days out. Also fails unless the
