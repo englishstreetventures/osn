@@ -100,6 +100,12 @@ export interface CreateAccountInput {
   email?: string | null;
   /** Written to the account's metadata so a webhook can be traced back. */
   weddingId: string;
+  /**
+   * How many times the wedding's account has been cleared
+   * (`registry_settings.stripe_account_generation`), as read before this call.
+   * Part of the idempotency key, so a create after a clear is a new account.
+   */
+  generation: number;
 }
 
 export interface CreateAccountLinkInput {
@@ -526,8 +532,11 @@ export function createStripeClient(config: StripeConfig): StripeClient {
         },
         // Keyed on the wedding: a double-submitted "connect" button cannot mint
         // two accounts for one couple, which is the failure that would need a
-        // human at Stripe to unpick.
-        `cire-account-${input.weddingId}`,
+        // human at Stripe to unpick. And on how many times its account has
+        // been cleared: Stripe replays a key's first answer for at least a
+        // day, so a key without it would hand a Connect press after a clear
+        // the cleared account back. No personal identifier, as Stripe asks.
+        `cire-account-${input.weddingId}-${input.generation}`,
       ).pipe(
         Effect.flatMap((payload) => {
           const account = toAccount(payload);

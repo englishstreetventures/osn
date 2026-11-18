@@ -1569,3 +1569,223 @@ describe("deliveries that race each other", () => {
     expect((await gifts(db))[0]?.status).toBe("disputed");
   });
 });
+
+/**
+ * A gift keeps the account it was paid into.
+ *
+ * Stripe sends a direct charge's events on the connected account it was made
+ * on, whether or not the wedding still names that account. So a gift event is
+ * matched by the account recorded on the gift, never by the account the
+ * wedding names now; only a gift with no recorded account (one from before the
+ * column that the back-fill could not place) falls back to the wedding's.
+ */
+describe("a gift keeps the account it was paid into", () => {
+  /** The account the gift was paid into; the wedding has since moved off it. */
+  const PAID_INTO = ACCOUNT;
+  /** The account the wedding names now. */
+  const NOW_NAMED = "acct_now_named";
+  /** An account that has nothing to do with the gift or the wedding. */
+  const UNRELATED = "acct_unrelated";
+
+  type Db = ReturnType<typeof buildApp>["db"];
+
+  const moveWeddingTo = (
+    db: Db,
+    account: string,
+    type: "express" | "standard" | null = null,
+  ): void => {
+    db.update(registrySettings)
+      .set({ stripeAccountId: account, stripeAccountType: type })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+  };
+
+  /** Record the gift's own account, or NULL for a gift with none recorded. */
+  const recordGiftAccount = (
+    db: Db,
+    account: string | null,
+    type: "express" | "standard" | null = null,
+  ): void => {
+    db.update(registryContributions)
+      .set({ stripeAccountId: account, stripeAccountType: type })
+      .where(eq(registryContributions.id, CONTRIBUTION_ID))
+      .run();
+  };
+
+  /** A received gift on PAID_INTO, its wedding since moved to NOW_NAMED. */
+  async function receivedThenMoved(app: App, db: Db, familyId: string) {
+    seedPending(db, familyId);
+    recordGiftAccount(db, PAID_INTO, "express");
+    expect(await jsonBody(await deliver(app, checkoutCompleted()))).toEqual({
+      received: true,
+      outcome: "settled",
+    });
+    moveWeddingTo(db, NOW_NAMED);
+  }
+
+  it("refunds a gift on the account it was paid into after the wedding moved", async () => {
+    const { app, db, familyId } = buildApp();
+    await receivedThenMoved(app, db, familyId);
+
+    const res = await deliver(app, chargeRefunded({ account: PAID_INTO }));
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "refunded" });
+    expect((await gifts(db))[0]?.status).toBe("refunded");
+  });
+
+  it("holds and then closes a dispute on the account it was paid into after the wedding moved", async () => {
+    const { app, db, familyId } = buildApp();
+    await receivedThenMoved(app, db, familyId);
+
+    const opened = await deliver(app, dispute("charge.dispute.created", { account: PAID_INTO }));
+    expect(await jsonBody(opened)).toEqual({ received: true, outcome: "disputed" });
+    expect((await gifts(db))[0]?.status).toBe("disputed");
+
+    const closed = await deliver(app, dispute("charge.dispute.closed", { account: PAID_INTO }));
+    expect(await jsonBody(closed)).toEqual({ received: true, outcome: "refunded" });
+    expect((await gifts(db))[0]?.status).toBe("refunded");
+  });
+
+  it("settles a delayed debit on the account it was paid into after the wedding moved", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId);
+    recordGiftAccount(db, PAID_INTO, "express");
+    moveWeddingTo(db, NOW_NAMED);
+
+    const res = await deliver(
+      app,
+      sessionEvent("checkout.session.async_payment_succeeded", { account: PAID_INTO }),
+    );
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "settled" });
+    expect((await gifts(db))[0]?.status).toBe("succeeded");
+  });
+
+  it.each([
+    ["the account the wedding names now", NOW_NAMED],
+    ["an unrelated account", UNRELATED],
+  ] as const)("lets no event from %s move a gift paid into another", async (_label, from) => {
+    const { app, db, familyId } = buildApp();
+    // A pending gift: what a settle or an expiry could move.
+    seedPending(db, familyId);
+    recordGiftAccount(db, PAID_INTO, "express");
+    moveWeddingTo(db, NOW_NAMED);
+    for (const payload of [
+      checkoutCompleted({ account: from }),
+      sessionEvent("checkout.session.async_payment_succeeded", { account: from }),
+      sessionEvent("checkout.session.expired", { account: from }),
+    ]) {
+      expect(await jsonBody(await deliver(app, payload))).toEqual({
+        received: true,
+        outcome: "rejected",
+      });
+    }
+    expect((await gifts(db))[0]?.status).toBe("pending");
+
+    // A received gift: what a refund or a dispute could move.
+    moveWeddingTo(db, PAID_INTO);
+    await deliver(app, checkoutCompleted());
+    moveWeddingTo(db, NOW_NAMED);
+    for (const payload of [
+      chargeRefunded({ account: from }),
+      dispute("charge.dispute.created", { account: from }),
+      dispute("charge.dispute.closed", { account: from }),
+    ]) {
+      expect(await jsonBody(await deliver(app, payload))).toEqual({
+        received: true,
+        outcome: "rejected",
+      });
+    }
+    expect((await gifts(db))[0]?.status).toBe("succeeded");
+  });
+
+  it("matches a gift with no recorded account through the account the wedding names", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId);
+    recordGiftAccount(db, null);
+
+    expect(await jsonBody(await deliver(app, checkoutCompleted()))).toEqual({
+      received: true,
+      outcome: "settled",
+    });
+    expect(await jsonBody(await deliver(app, chargeRefunded()))).toEqual({
+      received: true,
+      outcome: "refunded",
+    });
+    expect((await gifts(db))[0]?.status).toBe("refunded");
+  });
+
+  it("lets no account the wedding does not name move a gift with no recorded account", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId);
+    recordGiftAccount(db, null);
+    for (const payload of [
+      checkoutCompleted({ account: UNRELATED }),
+      sessionEvent("checkout.session.expired", { account: UNRELATED }),
+    ]) {
+      expect(await jsonBody(await deliver(app, payload))).toEqual({
+        received: true,
+        outcome: "rejected",
+      });
+    }
+    expect((await gifts(db))[0]?.status).toBe("pending");
+
+    await deliver(app, checkoutCompleted());
+    for (const payload of [
+      chargeRefunded({ account: UNRELATED }),
+      dispute("charge.dispute.created", { account: UNRELATED }),
+    ]) {
+      expect(await jsonBody(await deliver(app, payload))).toEqual({
+        received: true,
+        outcome: "rejected",
+      });
+    }
+    expect((await gifts(db))[0]?.status).toBe("succeeded");
+  });
+
+  it("adopts no session for a gift with no recorded account on a Standard wedding", async () => {
+    const { app, db, familyId } = buildApp();
+    moveWeddingTo(db, ACCOUNT, "standard");
+    seedPending(db, familyId, { sessionId: null });
+    recordGiftAccount(db, null);
+
+    const res = await deliver(app, checkoutCompleted({ session: { id: "cs_couple_made" } }));
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "rejected" });
+    const [gift] = await gifts(db);
+    expect(gift?.status).toBe("pending");
+    expect(gift?.stripeCheckoutSessionId ?? null).toBeNull();
+  });
+
+  it("adopts no session for a Standard gift after its wedding moved to an Express account", async () => {
+    // The gift's own type decides, not the wedding's account now.
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId, { sessionId: null });
+    recordGiftAccount(db, PAID_INTO, "standard");
+    moveWeddingTo(db, NOW_NAMED, "express");
+
+    const res = await deliver(app, checkoutCompleted({ session: { id: "cs_couple_made" } }));
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "rejected" });
+    const [gift] = await gifts(db);
+    expect(gift?.status).toBe("pending");
+    expect(gift?.stripeCheckoutSessionId ?? null).toBeNull();
+  });
+
+  it("reads a gift's unrecorded type as Express, whatever the wedding's account is now", async () => {
+    // An account attached before types were stored has none, and is Express.
+    // The wedding has since moved to a Standard account; the gift's session,
+    // never attached, is still adopted on the account it was paid into.
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId, { sessionId: null });
+    recordGiftAccount(db, PAID_INTO, null);
+    moveWeddingTo(db, NOW_NAMED, "standard");
+
+    const res = await deliver(app, checkoutCompleted({ account: PAID_INTO }));
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "settled" });
+    const [gift] = await gifts(db);
+    expect(gift?.status).toBe("succeeded");
+    expect(gift?.stripeCheckoutSessionId).toBe("cs_1");
+  });
+});

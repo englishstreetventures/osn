@@ -287,13 +287,16 @@ const GIFT_ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
 const GIFT_CHECKOUT_LIFETIME_SECONDS = 60 * 60;
 
 /**
- * An idempotency key over the whole request, bucketed in time.
+ * An idempotency key over the whole request, bucketed in time, and the account
+ * the page is made on: two attempts that differ only in the account are two
+ * pages, whether or not Stripe scopes a key to the account it names.
  *
  * Hashed rather than concatenated because the parts include free text: a note
  * containing the separator would otherwise collide with a different note that
  * did not.
  */
 function giftIdempotencyKey(input: {
+  stripeAccountId: string;
   familyId: string;
   slug: string;
   amountMinor: number;
@@ -305,6 +308,7 @@ function giftIdempotencyKey(input: {
   return Effect.promise(async () => {
     const bucket = Math.floor(Date.now() / GIFT_ATTEMPT_WINDOW_MS);
     const canonical = JSON.stringify([
+      input.stripeAccountId,
       input.familyId,
       input.slug,
       input.amountMinor,
@@ -394,6 +398,9 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
             // we already wrote is a row either press can find.
             const openAttempt = yield* registryService.findReusableContribution({
               weddingId: context.weddingId,
+              // Only a page on the account the gate approved just now: one
+              // made on an account the wedding has since left lives there.
+              stripeAccountId: context.stripeAccountId,
               familyId,
               itemId,
               amountMinor: body.amountMinor,
@@ -430,6 +437,10 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
             const stored = yield* registryService.createPendingContribution({
               id: contributionId,
               weddingId: context.weddingId,
+              // The account the session below is created on, kept with the
+              // gift: its events are matched by it.
+              stripeAccountId: context.stripeAccountId,
+              stripeAccountType: context.stripeAccountType,
               familyId,
               itemId,
               itemTitle,
@@ -473,6 +484,7 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
                 // coarse time bucket collapses a double-tap and separates
                 // everything else.
                 idempotencyKey: yield* giftIdempotencyKey({
+                  stripeAccountId: context.stripeAccountId,
                   familyId,
                   slug: params.slug,
                   amountMinor: body.amountMinor,

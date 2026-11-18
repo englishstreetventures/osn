@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
-import { createDb, seedDb } from "../../src/db/setup";
+import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
 import {
   CurrencyMismatch,
   FamilyNotInWedding,
@@ -100,6 +100,8 @@ function seedContribution(
     paymentIntentId: string | null;
     message: string | null;
     createdAt: Date;
+    /** The account the gift was paid into; left out, the insert trigger fills the wedding's. */
+    stripeAccountId: string | null;
   }> = {},
 ) {
   const [famA] = twoFamilies(db);
@@ -122,6 +124,7 @@ function seedContribution(
       stripeCheckoutSessionId:
         over.sessionId === undefined ? `cs_${crypto.randomUUID()}` : over.sessionId,
       stripePaymentIntentId: over.paymentIntentId ?? null,
+      ...(over.stripeAccountId === undefined ? {} : { stripeAccountId: over.stripeAccountId }),
       message: over.message ?? null,
       displayName: null,
       thankedAt: null,
@@ -1099,6 +1102,8 @@ describe("gift log", () => {
         registryService.createPendingContribution({
           id: `rct_${status}`,
           weddingId: BOOTSTRAP_WEDDING_ID,
+          stripeAccountId: "acct_connected",
+          stripeAccountType: null,
           familyId: famA,
           itemId: fund.id,
           itemTitle: fund.title,
@@ -2505,6 +2510,8 @@ describe("createPendingContribution", () => {
   const pending = (db: Db0, id: string) => ({
     id,
     weddingId: BOOTSTRAP_WEDDING_ID,
+    stripeAccountId: ACCOUNT,
+    stripeAccountType: null,
     familyId: twoFamilies(db)[0],
     itemId: null,
     itemTitle: null,
@@ -2644,6 +2651,7 @@ describe("abandonPendingContribution", () => {
 describe("findReusableContribution", () => {
   const reuse = (db: Db0) => ({
     weddingId: BOOTSTRAP_WEDDING_ID,
+    stripeAccountId: ACCOUNT,
     familyId: twoFamilies(db)[0],
     itemId: null,
     amountMinor: 10_000,
@@ -2657,7 +2665,7 @@ describe("findReusableContribution", () => {
     // The gate approves this request's currency; a page priced before a
     // currency change would charge in the old one.
     const db = db0();
-    seedContribution(db, { status: "pending", sessionId: "cs_1" });
+    seedContribution(db, { status: "pending", sessionId: "cs_1", stripeAccountId: ACCOUNT });
     expect(
       await ok(db, registryService.findReusableContribution({ ...reuse(db), currency: "NZD" })),
     ).toBeNull();
@@ -2665,7 +2673,7 @@ describe("findReusableContribution", () => {
 
   it("hands back the page an identical attempt already got", async () => {
     const db = db0();
-    seedContribution(db, { status: "pending", sessionId: "cs_1" });
+    seedContribution(db, { status: "pending", sessionId: "cs_1", stripeAccountId: ACCOUNT });
 
     expect(await ok(db, registryService.findReusableContribution(reuse(db)))).toEqual({
       sessionId: "cs_1",
@@ -2679,7 +2687,7 @@ describe("findReusableContribution", () => {
    */
   it("skips an attempt that never got a page", async () => {
     const db = db0();
-    seedContribution(db, { status: "pending", sessionId: null });
+    seedContribution(db, { status: "pending", sessionId: null, stripeAccountId: ACCOUNT });
 
     expect(await ok(db, registryService.findReusableContribution(reuse(db)))).toBeNull();
   });
@@ -2767,5 +2775,56 @@ describe("settling a gift whose session was never attached", () => {
     const row = contribution(db, id);
     expect(row.status).toBe("failed");
     expect(row.stripeCheckoutSessionId).toBe("cs_1");
+  });
+});
+
+describe("attaching an account at a generation the row has left", () => {
+  /** The bootstrap wedding's settings row, as stored. */
+  const settingsRow = (db: Db0) =>
+    db
+      .select()
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .get();
+
+  const made = { id: "acct_made", chargesEnabled: false, payoutsEnabled: false };
+
+  it("writes nothing once the account it read past has been connected and cleared", async () => {
+    // Read at generation 0; meanwhile acct_made was connected and cleared, so
+    // the row is at generation 1 with no account. Stripe replays acct_made to
+    // the slow request, which must not store it.
+    const db = db0();
+    ownAccount(db, "acct_made");
+    db.update(registrySettings)
+      .set({ stripeAccountId: null })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    expect(settingsRow(db)?.stripeAccountGeneration).toBe(1);
+
+    const stale = await ok(
+      db,
+      registryService.attachStripeAccount(BOOTSTRAP_WEDDING_ID, made, DEV_OWNER_PROFILE_ID, {
+        generation: 0,
+      }),
+    );
+
+    expect(stale).toBeNull();
+    expect(settingsRow(db)?.stripeAccountId).toBeNull();
+    expect(settingsRow(db)?.stripeConnectedByOsnProfileId).toBeNull();
+    expect(
+      await ok(
+        db,
+        registryService.stripeAttachRefusal(BOOTSTRAP_WEDDING_ID, DEV_OWNER_PROFILE_ID, 0),
+      ),
+    ).toBe("account_changed");
+
+    // At the generation the row holds, the same attach writes.
+    const current = await ok(
+      db,
+      registryService.attachStripeAccount(BOOTSTRAP_WEDDING_ID, made, DEV_OWNER_PROFILE_ID, {
+        generation: 1,
+      }),
+    );
+    expect(current?.stripeAccountId).toBe("acct_made");
   });
 });

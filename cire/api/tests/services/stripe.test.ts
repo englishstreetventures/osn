@@ -105,7 +105,7 @@ describe("encodeStripeForm", () => {
 });
 
 describe("createStripeClient", () => {
-  it("creates an express account, pinned to an API version and keyed per wedding", async () => {
+  it("creates an express account, pinned to an API version and keyed per wedding and generation", async () => {
     const { impl, calls } = stubFetch(() => json(ACCOUNT));
     const client = createStripeClient({
       secretKey: "sk_test",
@@ -114,7 +114,7 @@ describe("createStripeClient", () => {
     });
 
     const account = await Effect.runPromise(
-      client.createAccount({ country: "AU", email: "a@b.test", weddingId: "wed_1" }),
+      client.createAccount({ country: "AU", email: "a@b.test", weddingId: "wed_1", generation: 2 }),
     );
 
     expect(account).toEqual({
@@ -132,8 +132,9 @@ describe("createStripeClient", () => {
     expect(headers.get("authorization")).toBe("Bearer sk_test");
     expect(headers.get("stripe-version")).toBe(STRIPE_API_VERSION);
     // A double-submitted "connect" button must not mint two accounts for one
-    // couple — that failure needs a human at Stripe to unpick.
-    expect(headers.get("idempotency-key")).toBe("cire-account-wed_1");
+    // couple — that failure needs a human at Stripe to unpick — and a press
+    // after the account was cleared twice must not get a cleared one back.
+    expect(headers.get("idempotency-key")).toBe("cire-account-wed_1-2");
     expect(String(call?.init.body)).toContain(
       "capabilities%5Bcard_payments%5D%5Brequested%5D=true",
     );

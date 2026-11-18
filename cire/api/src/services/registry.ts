@@ -1346,9 +1346,16 @@ interface WebhookContributionRow {
    * cumulative, and two deliveries can arrive out of order.
    */
   refundedAmountMinor: number | null;
-  /** Non-null exactly when the row's wedding owns the account the event came on. */
+  /**
+   * Non-null exactly when the event came on the account the gift was paid
+   * into: the account recorded on the gift, or, for a gift with none
+   * recorded, the account its wedding names now.
+   */
   ownedAccountId: string | null;
-  /** That account's stored type, beside `ownedAccountId`. */
+  /**
+   * That account's stored type, beside `ownedAccountId`: the gift's own where
+   * it recorded an account, the wedding's where it did not.
+   */
   ownedAccountType: StripeAccountType | null;
 }
 
@@ -1359,6 +1366,11 @@ function contributionsOnAccount(
 ): Effect.Effect<WebhookContributionRow[], never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
+    // A gift that recorded its account is judged on that account alone. The
+    // settings row joins only for a gift with none, so an event on the account
+    // the wedding names now cannot move a gift paid into another, and a
+    // refund on an account the wedding no longer names still finds its gift.
+    const paidInto = sql`${registryContributions.stripeAccountId} = ${stripeAccountId}`;
     const rows = yield* dbQuery(() =>
       db
         .select({
@@ -1368,14 +1380,17 @@ function contributionsOnAccount(
           amountMinor: registryContributions.amountMinor,
           currency: registryContributions.currency,
           refundedAmountMinor: registryContributions.refundedAmountMinor,
-          ownedAccountId: registrySettings.stripeAccountId,
-          ownedAccountType: registrySettings.stripeAccountType,
+          ownedAccountId: sql<
+            string | null
+          >`CASE WHEN ${paidInto} THEN ${registryContributions.stripeAccountId} ELSE ${registrySettings.stripeAccountId} END`,
+          ownedAccountType: sql<StripeAccountType | null>`CASE WHEN ${paidInto} THEN ${registryContributions.stripeAccountType} ELSE ${registrySettings.stripeAccountType} END`,
         })
         .from(registryContributions)
         .leftJoin(
           registrySettings,
           and(
             eq(registrySettings.weddingId, registryContributions.weddingId),
+            isNull(registryContributions.stripeAccountId),
             eq(registrySettings.stripeAccountId, stripeAccountId),
           ),
         )
@@ -2066,14 +2081,23 @@ export const registryService = {
    * `get` returns the whole snapshot: every item, a page of the gift log, the
    * currency. Reading all of that to look at two Stripe booleans is the waste
    * this avoids — a caller that only needs the settings asks for the settings.
+   *
+   * With the row's account generation, which the account-create key and the
+   * attach's guard both need, read in the same statement; a wedding with no
+   * row is at generation 0, which is what its first row starts at.
    */
-  settingsOnly(weddingId: string): Effect.Effect<RegistrySettingsRecord, never, DbService> {
+  settingsOnly(
+    weddingId: string,
+  ): Effect.Effect<RegistrySettingsRecord & { stripeAccountGeneration: number }, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
         db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).all(),
       );
-      return row ? toSettingsRecord(row as SettingsRow) : defaultSettings(weddingId);
+      const found = row as (SettingsRow & { stripeAccountGeneration: number }) | undefined;
+      return found
+        ? { ...toSettingsRecord(found), stripeAccountGeneration: found.stripeAccountGeneration }
+        : { ...defaultSettings(weddingId), stripeAccountGeneration: 0 };
     }).pipe(Effect.withSpan("cire.registry.settingsOnly"));
   },
 
@@ -2131,7 +2155,9 @@ export const registryService = {
    * The write asks again that they own the wedding and that it is live
    * ({@link ownsLiveWedding}): the route's gate read that in its own query,
    * before a Stripe round trip an owner can be removed or the wedding deleted
-   * during. `null` means nothing was written, because they no longer may.
+   * during. `null` means nothing was written, because they no longer may, or,
+   * given `options.generation`, because the row has left that generation
+   * ({@link registryService.stripeAttachRefusal} tells the two apart).
    */
   attachStripeAccount(
     weddingId: string,
@@ -2151,6 +2177,16 @@ export const registryService = {
        * may already be on another wedding. A create makes a new account.
        */
       ownersMustFit?: boolean;
+      /**
+       * The account generation the caller read before asking Stripe for the
+       * account: an existing row is written only while it still holds it.
+       * The create passes it, since its idempotency key carries it: an
+       * account another owner made and cleared under the same key meanwhile
+       * comes back from Stripe, and must not be stored as this owner's. A new
+       * row needs no guard, since only a wedding with no row (generation 0)
+       * takes the insert.
+       */
+      generation?: number;
     } = {},
   ): Effect.Effect<RegistrySettingsRecord | null, never, DbService> {
     return Effect.gen(function* () {
@@ -2177,6 +2213,7 @@ export const registryService = {
         stripeConnectedByOsnProfileId: sql`${connectedByOsnProfileId}`,
         stripeAccountType: sql`${accountType}`,
         stripeConnectedAt: sql`${stamp}`,
+        stripeAccountGeneration: sql`0`,
         stripeChargesEnabled: sql`${account.chargesEnabled ? 1 : 0}`,
         stripePayoutsEnabled: sql`${account.payoutsEnabled ? 1 : 0}`,
         stripeAccountUpdatedAt: sql`${stamp}`,
@@ -2225,6 +2262,12 @@ export const registryService = {
               stripeAccountUpdatedAt: sql`case when ${registrySettings.stripeAccountId} is null then ${stamp} else ${registrySettings.stripeAccountUpdatedAt} end`,
               updatedAt: now,
             },
+            // The generation the caller read, or nothing is written: an
+            // account cleared since may be the very one Stripe just replayed.
+            setWhere:
+              options.generation === undefined
+                ? undefined
+                : eq(registrySettings.stripeAccountGeneration, options.generation),
           })
           .returning()
           .all(),
@@ -2232,6 +2275,39 @@ export const registryService = {
       const [row] = written as SettingsRow[];
       return row ? toSettingsRecord(row) : null;
     }).pipe(Effect.withSpan("cire.registry.attachStripeAccount"));
+  },
+
+  /**
+   * Why {@link registryService.attachStripeAccount} wrote nothing for a create
+   * that read `generation`, in one read and in this order: `forbidden` when
+   * the caller no longer owns the live wedding, whatever else changed, so a
+   * removed owner learns nothing more; `account_changed` when the wedding's
+   * account was cleared since that read; `forbidden` otherwise.
+   */
+  stripeAttachRefusal(
+    weddingId: string,
+    osnProfileId: string,
+    generation: number,
+  ): Effect.Effect<"forbidden" | "account_changed", never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [found] = yield* dbQuery(() =>
+        db
+          .select({
+            owns: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
+            generation: registrySettings.stripeAccountGeneration,
+          })
+          .from(weddings)
+          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+          .where(eq(weddings.id, weddingId))
+          .all(),
+      );
+      const verdict = found as { owns: number; generation: number | null } | undefined;
+      if (verdict?.owns !== 1) return "forbidden" as const;
+      return (verdict.generation ?? 0) !== generation
+        ? ("account_changed" as const)
+        : ("forbidden" as const);
+    }).pipe(Effect.withSpan("cire.registry.stripeAttachRefusal"));
   },
 
   /**
@@ -2343,6 +2419,7 @@ export const registryService = {
         stripeConnectedByOsnProfileId: sql`${osnProfileId}`,
         stripeAccountType: sql`src.stripe_account_type`,
         stripeConnectedAt: sql`src.stripe_connected_at`,
+        stripeAccountGeneration: sql`0`,
         stripeChargesEnabled: sql`src.stripe_charges_enabled`,
         stripePayoutsEnabled: sql`src.stripe_payouts_enabled`,
         stripeAccountUpdatedAt: sql`src.stripe_account_updated_at`,
@@ -2822,6 +2899,11 @@ export const registryService = {
     {
       weddingId: string;
       stripeAccountId: string;
+      /**
+       * That account's type as the settings row stores it (NULL reads as
+       * `express`), read in the same statement, to keep with the gift.
+       */
+      stripeAccountType: StripeAccountType | null;
       currency: string;
       itemId: string | null;
       /** The fund's name as it stands now, to keep with the gift. */
@@ -2852,7 +2934,14 @@ export const registryService = {
       // nothing all get this one refusal, rather than a gift quietly given to
       // the couple in general.
       if (itemId !== null && fundTitle === null) return yield* Effect.fail(new FundUnavailable());
-      return { weddingId, stripeAccountId, currency, itemId, itemTitle: fundTitle };
+      return {
+        weddingId,
+        stripeAccountId,
+        stripeAccountType: settings.stripeAccountType,
+        currency,
+        itemId,
+        itemTitle: fundTitle,
+      };
     }).pipe(Effect.withSpan("cire.registry.contributionContext"));
   },
 
@@ -2893,9 +2982,19 @@ export const registryService = {
    * ONLY `pending` ROWS, and only recent ones: a settled gift must never hand
    * back a payment page, and an abandoned attempt from last week is a new gift
    * today, not a resumed one.
+   *
+   * ONLY ON THE ACCOUNT THE GATE APPROVED. A page lives on the account it was
+   * made on; after the wedding's account changes, the route would ask the new
+   * account for the old account's session, which Stripe refuses. A gift with
+   * no recorded account is never handed back.
    */
   findReusableContribution(input: {
     weddingId: string;
+    /**
+     * The account the gate approved on this request: a page on any other is
+     * never handed back, nor asked of this one.
+     */
+    stripeAccountId: string;
     familyId: string;
     itemId: string | null;
     amountMinor: number;
@@ -2914,6 +3013,7 @@ export const registryService = {
           .where(
             and(
               eq(registryContributions.weddingId, input.weddingId),
+              eq(registryContributions.stripeAccountId, input.stripeAccountId),
               eq(registryContributions.familyId, input.familyId),
               eq(registryContributions.status, "pending"),
               eq(registryContributions.amountMinor, input.amountMinor),
@@ -2978,6 +3078,10 @@ export const registryService = {
   createPendingContribution(input: {
     id: string;
     weddingId: string;
+    /** The account the gate approved, which the session is created on. */
+    stripeAccountId: string;
+    /** Its type as the settings row stores it, NULL kept as NULL. */
+    stripeAccountType: StripeAccountType | null;
     familyId: string;
     /** The cash fund given to, or null for a gift to no fund. */
     itemId: string | null;
@@ -3006,6 +3110,10 @@ export const registryService = {
             // Nothing to write yet — Stripe has not been asked.
             stripeCheckoutSessionId: null,
             stripePaymentIntentId: null,
+            // The account the gift will be paid into, kept with it: its
+            // events are matched by this, whatever the wedding names later.
+            stripeAccountId: input.stripeAccountId,
+            stripeAccountType: input.stripeAccountType,
             message: input.message,
             displayName: input.displayName,
             createdAt: now,
@@ -3142,8 +3250,9 @@ export const registryService = {
    *    nothing);
    *  - the session id on the row is the one that just completed (so one
    *    contribution cannot be settled by another session's event);
-   *  - the row's wedding owns the connected account the event arrived on (so
-   *    an account cannot settle another couple's gift).
+   *  - the event arrived on the account the gift was paid into: the one the
+   *    row recorded, or its wedding's for a row with none (so an account
+   *    cannot settle another couple's gift, nor a gift paid into another).
    *
    * FX IS LEFT NULL. Every gift is charged in the wedding's currency, and
    * money gifts are only taken while the account settles in that same currency
@@ -3279,7 +3388,7 @@ export const registryService = {
    * thing for a hostile connected account to send, and a webhook that could
    * turn `succeeded` into `failed` on receipt of it would be a way to make a
    * couple's gift vanish. The same three checks the settle path runs — row
-   * exists, session matches, account owns the row's wedding — run here.
+   * exists, session matches, the event's account is the gift's — run here.
    *
    * The row is kept, not deleted. A delete would be the same forged-event
    * problem with no way back, and the row is also the idempotency anchor: the
@@ -3537,9 +3646,8 @@ export const registryService = {
       }
       const row = rows[0];
       if (!row) return "unknown";
-      // The join found no settings row holding this account, so the gift does
-      // not belong to the account the event came from. Same refusal a refund
-      // makes, and for the same reason.
+      // The gift was not paid into the account the event came from. Same
+      // refusal a refund makes, and for the same reason.
       if (!row.ownedAccountId) return "rejected";
 
       const next =
@@ -4438,6 +4546,7 @@ function resolveVisibleRegistry(
           shippingAddress: registrySettings.shippingAddress,
           shippingVisibleFrom: registrySettings.shippingVisibleFrom,
           stripeAccountId: registrySettings.stripeAccountId,
+          stripeAccountType: registrySettings.stripeAccountType,
           stripeChargesEnabled: registrySettings.stripeChargesEnabled,
           stripePayoutsEnabled: registrySettings.stripePayoutsEnabled,
           stripeDefaultCurrency: registrySettings.stripeDefaultCurrency,
@@ -4494,6 +4603,7 @@ interface GateRow {
   shippingAddress: string | null;
   shippingVisibleFrom: string | null;
   stripeAccountId: string | null;
+  stripeAccountType: StripeAccountType | null;
   stripeChargesEnabled: boolean | null;
   stripePayoutsEnabled: boolean | null;
   stripeDefaultCurrency: string | null;
@@ -4502,9 +4612,9 @@ interface GateRow {
 
 /**
  * The settings half of a gate row whose wedding HAS a settings row. The guest
- * gate does not read who connected the account or how it came — no guest path
- * uses either — so the record says nobody, which no authorisation check would
- * match, and no type.
+ * gate does not read who connected the account — no guest path uses it — so
+ * the record says nobody, which no authorisation check would match. It does
+ * read how the account came, as stored, since a gift keeps it.
  */
 const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   weddingId: r.id,
@@ -4516,7 +4626,7 @@ const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   shippingVisibleFrom: r.shippingVisibleFrom,
   stripeAccountId: r.stripeAccountId,
   stripeConnectedByOsnProfileId: null,
-  stripeAccountType: null,
+  stripeAccountType: r.stripeAccountType,
   stripeChargesEnabled: r.stripeChargesEnabled === true,
   stripePayoutsEnabled: r.stripePayoutsEnabled === true,
   stripeDefaultCurrency: r.stripeDefaultCurrency,
