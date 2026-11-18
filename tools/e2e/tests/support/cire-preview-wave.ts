@@ -564,10 +564,14 @@ export async function builderPreviewWave(
         await expect(back).toBeVisible();
         await choosePlace(page, /^Welcome/);
         await expect(preview).toBeVisible();
-        await page.waitForFunction(
-          () => (window as WithHooks).__cireWaves?.distortion?.()?.running === false,
-        );
       },
+    );
+    // At once: no wave runs back (that one would take about three seconds).
+    flow.check(
+      "preview wave (distortion): closed by a section, no wave runs back",
+      false,
+      (await page.evaluate(() => (window as WithHooks).__cireWaves!.distortion!()))?.running ??
+        true,
     );
     flow.check(
       "preview wave (distortion): closed by a section, the form column is live",
