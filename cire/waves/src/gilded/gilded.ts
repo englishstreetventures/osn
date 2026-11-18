@@ -459,6 +459,10 @@ export class GildedWave {
       const stops = run.to
         ? `#000 ${a.toFixed(1)}px, transparent ${b.toFixed(1)}px`
         : `transparent ${a.toFixed(1)}px, #000 ${b.toFixed(1)}px`;
+      // On `<html>`, though every element under it then sees the change: the
+      // transition's pseudo-elements inherit from the document element alone,
+      // so a value on the frame or `<body>`, or one registered with
+      // `inherits: false`, never reaches the picture it cuts.
       document.documentElement.style.setProperty(
         MASK,
         `radial-gradient(circle at ${x}px ${y}px, ${stops})`,

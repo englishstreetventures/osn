@@ -1,6 +1,6 @@
 /**
  * The Gilded wave, in Chromium: one test per way it can fail (NEW-FEAT.md,
- * isolated tests 6–12).
+ * isolated tests 6–12 and 14).
  *
  * The wave hands a fixed frame over to or from the page through a View
  * Transition whose new (or old) picture of the frame is cut by a feathered
@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commands, page } from "vitest/browser";
 
 import { GildedWave, holdGilded, releaseGilded } from "../src/gilded/gilded";
-import { maskAt, waveAt } from "../src/gilded/wave";
+import { maskAt, WAVE, waveAt } from "../src/gilded/wave";
 
 type MediaPreference = { reducedMotion?: "reduce" | "no-preference" };
 const emulateMedia = (options: MediaPreference) =>
@@ -217,11 +217,38 @@ describe("GildedWave", () => {
     const box = frame.getBoundingClientRect();
     expect(x).toBeCloseTo(from.left + from.width / 2 - box.left, 0);
     expect(y).toBeCloseTo(from.top + from.height / 2 - box.top, 0);
-    expect(cut.r).toBe(front.radius);
+    // The circle the page shows through is the overlay's front: its feather
+    // straddles the radius `waveAt` draws the crest on.
     expect(inner! * stage.dpr + cut.inner).toBeCloseTo(front.radius, 0);
     expect(outer! * stage.dpr - cut.outer).toBeCloseTo(front.radius, 0);
-    // Opaque behind the crest, clear ahead of it, and only just either side.
+    // Opaque behind the crest, clear ahead of it, and only just either side: a
+    // wider feather leaves the page trailing behind the gold.
     expect(cut.inner).toBeLessThan(0.05 * front.reach);
     expect(cut.outer).toBeLessThan(0.06 * front.reach);
+  });
+
+  it("ends a run whose frames stop, by its deadline", async () => {
+    // A tab sent to the background, or throttled, stops calling back.
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(0);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      flip(true);
+      // The transition is up and the run has asked for its first frame.
+      await vi.waitFor(() => expect(raf).toHaveBeenCalled(), { timeout: 5000 });
+      expect(wave.debug.mode).toBe("wave");
+
+      // Not before the run's own length: a slow frame is not a frozen one.
+      vi.advanceTimersByTime(WAVE.duration * 1000);
+      expect(finishes).toEqual([]);
+      expect(wave.debug.mode).toBe("wave");
+
+      vi.advanceTimersByTime(2500);
+      expect(finishes).toEqual([true]);
+      expect(wave.debug.mode).toBeNull();
+      expect(frame.hidden).toBe(false);
+      expectCleared();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
