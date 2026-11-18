@@ -1240,15 +1240,6 @@ describe("the invite builder's two tiers in the view bar", () => {
       Math.abs(rect(viewBar()).top - rect(topBar()).bottom) <= 1,
     );
     expectPass("tiers 1280: the sections are painted", onTop(sections()));
-    // With no sticky section bar over the cards, a closed dialog that lays
-    // itself out would show: the preview's dialog draws nothing while shut.
-    const preview = document.querySelector<HTMLDialogElement>(
-      'dialog[aria-label="Invite preview modal"]',
-    )!;
-    expectPass(
-      "tiers 1280: the closed preview dialog draws nothing",
-      !preview.open && getComputedStyle(preview).display === "none",
-    );
     await shoot("invite-tiers-1280");
   });
 

@@ -1706,31 +1706,6 @@ describe("InviteBuilder UX guards", () => {
     expect(tab(/^Events/).getAttribute("aria-selected")).toBe("true");
     expect(document.getElementById("invite-events")!.hidden).toBe(false);
   });
-
-  it("opens the composed preview in a modal from the mobile Preview button", async () => {
-    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder {...WEDDING} />);
-    await waitFor(() => screen.getByText("Save invite"));
-
-    // No dialog until the button is clicked — the modal is the only way to
-    // reach the composed preview below `@4xl/builder`.
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
-    const dialog = await waitFor(() =>
-      screen.getByRole("dialog", { name: "Invite preview modal" }),
-    );
-    // The SAME composed preview the sticky side pane renders — one markup
-    // source shared via `previewProps()`, not a second copy.
-    expect(within(dialog).getByLabelText("Invite preview")).toBeInTheDocument();
-
-    // Live, not a stale snapshot taken when the modal opened.
-    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
-    await waitFor(() => expect(dialog.textContent).toContain("Anita & Ben"));
-
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  });
 });
 
 /**
@@ -1912,6 +1887,60 @@ describe("InviteBuilder preview layer", () => {
     ["invite-hero", "invite-story", "invite-welcome", "invite-events", "invite-closing"]
       .map((id) => within(document.getElementById(id)!).queryAllByText("Live preview").length)
       .reduce((total, n) => total + n, 0);
+
+  it("opens the composed preview over the builder from the narrow Preview button, and goes back", async () => {
+    stubResizeObserver(600);
+    await renderBuilder();
+    const builder = screen.getByText("Customise your invite").closest("section")!;
+    const frame = () => document.querySelector<HTMLElement>("[data-preview-frame]");
+
+    // Closed, the frame is not mounted, so it takes no token writes.
+    expect(frame()).toBeNull();
+    expect(builder.hasAttribute("inert")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    // happy-dom has no View Transitions, so the frame fades in: the path a
+    // browser without them takes.
+    const region = await waitFor(() => screen.getByRole("region", { name: "Live preview" }));
+    expect(region).toBe(frame());
+    // The same composed preview the side pane renders, and the only one.
+    expect(within(region).getByLabelText("Invite preview")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Invite preview")).toHaveLength(1);
+    // Outside the builder, which goes inert under it.
+    expect(builder.contains(region)).toBe(false);
+    expect(builder.hasAttribute("inert")).toBe(true);
+    await waitFor(() => screen.getByRole("button", { name: "Back to editing" }));
+    expect(document.activeElement).toBe(
+      within(region).getByRole("heading", { name: "Live preview" }),
+    );
+
+    // Escape goes back, as the modal's did, and focus returns to the button.
+    fireEvent.keyDown(region, { key: "Escape" });
+    await waitFor(() => expect(frame()).toBeNull());
+    expect(builder.hasAttribute("inert")).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Preview" }));
+
+    // And so does the button, by its new name.
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: "Back to editing" })));
+    await waitFor(() => expect(frame()).toBeNull());
+    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
+  });
+
+  it("closes the narrow preview at once when a section is chosen", async () => {
+    stubResizeObserver(600);
+    setView("content");
+    await renderBuilder();
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => screen.getByRole("button", { name: "Back to editing" }));
+
+    // The bar stays live over the frame; choosing another section there
+    // leaves the preview with no wave.
+    fireEvent.click(within(sectionStrip()).getByRole("tab", { name: /^Welcome/ }));
+    expect(document.querySelector("[data-preview-frame]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
+    expect(document.getElementById("invite-welcome")!.hidden).toBe(false);
+  });
 
   it("mounts only the composed pane on a wide builder", async () => {
     // 1200px content box, past the 56rem (896px) `@4xl/builder` crossover.
