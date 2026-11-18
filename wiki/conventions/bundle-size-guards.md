@@ -494,13 +494,12 @@ which leaves every source the build reads as it is there.*
 ### `cire/host` re-baselined for the invite builder's preview waves
 
 Below its wide breakpoint the invite builder opens its preview with a wave,
-and two waves stand side by side until the owner picks one
-(englishstreetventures/osn#2415): Gilded, ours, and Distortion, a vendored
+with one of two waves (englishstreetventures/osn#2415): Gilded, ours, and Distortion, a vendored
 library ([[component-library]] §cire's waves). Both are dynamic imports fetched
 only when the narrow preview is wanted, so the first load grows by about
 0.5 KB; the static guard counts every chunk in `dist/_astro`, lazy ones
 included, so the total grows by the waves themselves. The owner approved the
-raise, and the follow-up that removes the wave not chosen lowers the line again.
+raise.
 
 | Build | Measured | Threshold |
 |---|---:|---:|

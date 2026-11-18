@@ -2146,7 +2146,7 @@ focus or a click, and the pulse on the pieces alone. Stories:
 ### cire's waves — the builder's narrow preview, opened by a wave
 
 `@cire/waves` holds the two waves the invite builder's narrow preview opens
-with, side by side until the owner picks one (englishstreetventures/osn#2415);
+with (englishstreetventures/osn#2415), kept for use elsewhere in cire as well;
 the builder picks by `?preview-wave=` ([[cire-invite-builder]] §Organiser UI,
 "The narrow preview"). It is not a general part: one surface uses it, so it lives under
 `cire/`, where a change redeploys the cire sites alone, not under `shared/`.

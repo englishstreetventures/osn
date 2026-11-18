@@ -1,9 +1,8 @@
 /**
  * The composed preview below the builder's wide breakpoint, where there is no
  * room for the sticky side pane: the view bar's Preview button opens it with a
- * wave, and "Back to editing" runs the wave back. Two waves live side by side
- * until the owner chooses one (englishstreetventures/osn#2415), picked by the
- * page's `?preview-wave=` parameter:
+ * wave, and "Back to editing" runs the wave back. There are two waves, picked
+ * by the page's `?preview-wave=` parameter:
  *
  * - **Gilded** (the default, `@cire/waves/gilded`): the preview is a fixed
  *   frame over the panel, from the foot of the view bar to the bottom of the

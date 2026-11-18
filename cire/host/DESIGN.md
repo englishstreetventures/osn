@@ -739,8 +739,8 @@ scroll reveal, a hero fade.
 **The invite builder's preview waves: the named exceptions** (the owner's
 choice, 2026-11-18, englishstreetventures/osn#2415). Below the composed pane's
 width the builder's Preview button opens the preview with a wave from
-`@cire/waves`, and two stand side by side until the owner picks one
-(`?preview-wave=`, §7 The invite builder's two tiers). Both break four rules
+`@cire/waves`: Gilded by default, Distortion by the page's `?preview-wave=`
+(§7 The invite builder's two tiers; the owner keeps both, 2026-11-18). Both break four rules
 above, by name: they come from an animation package (one of them vendored,
 Distortion Waves); they run far longer than `--dur-slow`; they take their
 timing from the wave, not from a `--dur-*` rung; and `--motion-scale` does not

@@ -1,10 +1,9 @@
 # @cire/waves
 
-Two waves that open the invite builder's preview below its wide breakpoint,
-built side by side so the owner can choose between them in the real builder
+Two waves that open the invite builder's preview below its wide breakpoint
 (englishstreetventures/osn#2415, part of #1956). The builder picks one by
-`?preview-wave=gilded|distortion`, Gilded by default; the one not chosen comes
-out in a follow-up.
+`?preview-wave=gilded|distortion`, Gilded by default. Both are kept for use
+elsewhere in cire as well.
 
 - **`@cire/waves/gilded`** — `GildedWave`, ours. A fixed frame handed over to
   or from the page through a same-document View Transition, its picture cut by

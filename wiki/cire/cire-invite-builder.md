@@ -1548,9 +1548,8 @@ Codes, which edits nothing on the guest page) opens the exact same
 `PreviewPane` (`invite/NarrowPreview.tsx`), so there is still only one
 composed markup source. The button and the wave share that one gate.
 
-Two waves sit side by side until the owner chooses one
-(englishstreetventures/osn#2415, part of #1956), picked by the page's
-`?preview-wave=` parameter; the other comes out in a follow-up. Both live in
+There are two waves (englishstreetventures/osn#2415, part of #1956), picked
+by the page's `?preview-wave=` parameter, Gilded by default. Both live in
 `@cire/waves` ([[component-library]] §cire's waves) and load with a dynamic import,
 warmed when the pointer or focus reaches the button; an import that fails
 opens the preview with no wave.

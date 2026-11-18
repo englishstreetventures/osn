@@ -49,8 +49,7 @@
 
 cire/invites   worker  200900   # measured 190660
 # cire/host is set for the invite builder's two preview waves (englishstreetventures/osn#2415),
-# lazy chunks fetched only when the narrow preview opens; the follow-up that removes the wave
-# the owner does not choose lowers it again. Measured 429585 in a build that could not fetch
+# lazy chunks fetched only when the narrow preview opens. Measured 429585 in a build that could not fetch
 # fonts; 430131 adds the 546 bytes of @font-face rules main's own build carries
 # (wiki/conventions/bundle-size-guards.md has both builds).
 cire/host      static  441831   # measured 430131
