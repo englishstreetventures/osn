@@ -1,0 +1,10 @@
+{
+  "extends": "@shared/typescript-config/solid.json",
+  "compilerOptions": {
+    // `import.meta.env.DEV` keeps the test hooks out of production builds.
+    "types": ["vite/client"]
+  },
+  // `vendor/` is upstream's source, checked as-is: the wrapper imports it.
+  "include": ["src/**/*", "vendor/**/*"],
+  "exclude": ["node_modules"]
+}

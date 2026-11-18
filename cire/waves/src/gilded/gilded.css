@@ -1,0 +1,62 @@
+/* The Gilded wave's hand-over (`gilded.ts`).
+ *
+ * The frame arrives (or leaves) through a View Transition. The old picture of
+ * the page is dropped and the new one shows at once, so the page under the
+ * frame is the live page throughout; only the frame's own picture is held for
+ * the run and cut by `--cire-gilded-mask`, a feathered circle the script moves
+ * on the wave's front each frame. The overlay canvas is named too, so its gold
+ * draws live above the held picture.
+ *
+ * Scoped to `:root.cire-gilded`, which the script sets only while its own
+ * transition runs, so no other View Transition on the page (the portal's
+ * theme cross-fade) meets these rules. The reduced-motion switch reaches no
+ * pseudo-element; the script starts no transition under `reduce`.
+ */
+
+:root.cire-gilded::view-transition-old(root) {
+  display: none;
+}
+
+:root.cire-gilded::view-transition-new(root) {
+  animation: none;
+}
+
+:root.cire-gilded::view-transition-group(*) {
+  animation: none;
+}
+
+:root.cire-gilded::view-transition-image-pair(cire-gilded-frame) {
+  isolation: auto;
+}
+
+/* Only one of the two exists in a run: the new picture when the frame
+   arrives, the old one when it leaves. The script inverts the mask to match. */
+:root.cire-gilded::view-transition-old(cire-gilded-frame),
+:root.cire-gilded::view-transition-new(cire-gilded-frame) {
+  /* motion-literal: an opacity hold, not a motion; it keeps the picture alive for the wave's hand-over, a duration the script writes */
+  animation: cire-gilded-hold var(--cire-gilded-dur, 1s) linear both;
+  mix-blend-mode: normal;
+  -webkit-mask-image: var(--cire-gilded-mask);
+  mask-image: var(--cire-gilded-mask);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+:root.cire-gilded::view-transition-old(cire-gilded-fx) {
+  display: none;
+}
+
+:root.cire-gilded::view-transition-new(cire-gilded-fx) {
+  /* motion-literal: an opacity hold, as above */
+  animation: cire-gilded-hold var(--cire-gilded-dur, 1s) linear both;
+  mix-blend-mode: normal;
+}
+
+@keyframes cire-gilded-hold {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+  }
+}
