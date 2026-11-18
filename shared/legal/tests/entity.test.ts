@@ -26,9 +26,10 @@ describe("IDENTITY_FIELD_NAMES", () => {
    * notice renders one and the terms the other.
    */
   it("names the operator, its address and both mailboxes", () => {
-    expect([...IDENTITY_FIELD_NAMES].sort()).toEqual(
-      ["name", "postalAddress", "privacyEmail", "supportEmail"].sort(),
+    expect(new Set(IDENTITY_FIELD_NAMES)).toEqual(
+      new Set(["name", "postalAddress", "privacyEmail", "supportEmail"]),
     );
+    expect(IDENTITY_FIELD_NAMES).toHaveLength(4);
   });
 });
 
