@@ -11,8 +11,13 @@ const FORBIDDEN = [/waitForTimeout\(/, /\bsetTimeout\(/, /networkidle/, /\.only\
 
 const dirs = [join(import.meta.dirname, "flows"), join(import.meta.dirname, "support")];
 
+// The run against Stripe's test mode runs its one flow alone, so its sign-in
+// and claim spend no window the suite's flows share and are not counted below;
+// it still waits on state.
+const testModeDir = join(import.meta.dirname, "stripe-test-mode");
+
 describe("flow sources", () => {
-  for (const dir of dirs) {
+  for (const dir of [...dirs, testModeDir]) {
     for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
       test(`${file} waits on state, not time`, () => {
         const source = readFileSync(join(dir, file), "utf8");

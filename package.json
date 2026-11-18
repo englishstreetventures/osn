@@ -44,6 +44,7 @@
     "test:browser": "turbo test:browser --continue --concurrency=1",
     "test:e2e": "bun run --cwd tools/e2e e2e",
     "test:e2e:repro": "bun run --cwd tools/e2e e2e:repro",
+    "test:e2e:stripe": "bun run --cwd tools/e2e e2e:stripe",
     "test:scripts": "bun test ./scripts/",
     "test:scripts:wrangler": "bun test ./scripts/tests/guest-route-parity-wrangler.e2e.ts",
     "test:scripts:relay-idle": "bun test ./scripts/tests/guest-route-parity-relay-idle.slow.ts",

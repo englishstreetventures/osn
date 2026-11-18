@@ -14,6 +14,10 @@
  *
  * Exits with Playwright's code, or 1 when the stack never came up or an API
  * listens beyond loopback.
+ *
+ * `launch` is also the run against Stripe's test mode
+ * (`src/stripe-test-mode-launcher.ts`), which boots fewer apps, starts
+ * `stripe listen` before them and gives cire-api its Stripe settings.
  */
 
 import { Database } from "bun:sqlite";
@@ -33,6 +37,7 @@ import {
   STRIPE_CONNECT_WEBHOOK_SECRET,
   STRIPE_PLATFORM_WEBHOOK_SECRET,
   TRACE_DIR,
+  type AppName,
 } from "./config";
 import { startIssuerServer, type IssuerServer } from "./issuer";
 import { startMailServer, type MailServer } from "./mail";
@@ -46,7 +51,7 @@ import {
   type Started,
 } from "./processes";
 import { generateCireArcKey, seedOsn, seedPulse } from "./seed";
-import { API_COMMAND, appDir, appSpecs, baseEnv } from "./stack";
+import { API_COMMAND, appDir, appSpecs, baseEnv, type StripeTestModeSettings } from "./stack";
 import { startStripeServer, type StripeServer } from "./stripe";
 
 const PACKAGE_DIR = resolve(import.meta.dirname, "..");
@@ -141,7 +146,28 @@ function pulseKeyRegistered(): boolean {
   }
 }
 
-async function bootStack(realStart: number, procs: Started[]): Promise<void> {
+/** How one run boots and what it runs. `bun run test:e2e` gives only `playwrightArgs`. */
+export interface LaunchOptions {
+  /** The real instant the suite clock reads `CLOCK_T0` at. Defaults to now. */
+  readonly realStart?: number;
+  /** Everything after `playwright test`. */
+  readonly playwrightArgs: readonly string[];
+  /** The apps to boot; every app when absent. osn-api must be among them. */
+  readonly apps?: ReadonlySet<AppName>;
+  /**
+   * Runs after the clock check and the seeds, before any app starts. Its
+   * process joins the ones the run stops, and its settings replace cire-api's
+   * Stripe ones (`appSpecs`). The run against Stripe's test mode starts
+   * `stripe listen` here.
+   */
+  readonly beforeApps?: (procs: Started[]) => Promise<StripeTestModeSettings>;
+}
+
+async function bootStack(
+  realStart: number,
+  procs: Started[],
+  options: Pick<LaunchOptions, "apps" | "beforeApps">,
+): Promise<void> {
   const env = baseEnv(process.env, realStart);
 
   const clockFailures = clockReaches(env);
@@ -152,7 +178,10 @@ async function bootStack(realStart: number, procs: Started[]): Promise<void> {
   seedOsn(DB_FILES.osnEvt);
   seedPulse(DB_FILES.pulse);
 
-  const specs = appSpecs(cireArc);
+  const stripeTestMode = options.beforeApps ? await options.beforeApps(procs) : undefined;
+  const specs = appSpecs(cireArc, stripeTestMode).filter(
+    (spec) => options.apps === undefined || options.apps.has(spec.name),
+  );
   const start = (spec: (typeof specs)[number]): Started => {
     say(`starting ${spec.name}`);
     const proc = startProcess({
@@ -189,13 +218,15 @@ async function bootStack(realStart: number, procs: Started[]): Promise<void> {
   // One ordering matters: pulse-api registers its service key with osn-api
   // once, at boot, so it starts after osn-api answers and counts as ready only
   // once its key is in osn-api's database. Everything else boots alongside.
+  // A run that boots no pulse-api waits on osn-api alone.
   const [osn, pulse] = [
     specs.find((s) => s.name === "osnApi"),
     specs.find((s) => s.name === "pulseApi"),
   ];
-  if (!osn || !pulse) throw new Error("stack: osnApi and pulseApi must both be defined");
+  if (!osn) throw new Error("stack: osnApi must be defined");
   const identityChain = async (): Promise<void> => {
     await ready(osn, start(osn));
+    if (!pulse) return;
     const pulseProc = start(pulse);
     await ready(pulse, pulseProc);
     await waitUntilReady(pulseProc, async () => pulseKeyRegistered(), READY_TIMEOUT_MS);
@@ -242,8 +273,9 @@ async function apisOnLoopbackAlone(): Promise<void> {
   say(`all ${Object.keys(apis).length} APIs refuse a connection at this machine's network address`);
 }
 
-async function main(): Promise<number> {
-  const realStart = Date.now();
+/** One run: steps 1 to 8 above. Resolves with the exit code. */
+export async function launch(options: LaunchOptions): Promise<number> {
+  const realStart = options.realStart ?? Date.now();
   const taken = await prepareRun(PORTS, ARTIFACT_DIR, [
     STATE_DIR,
     LOG_DIR,
@@ -276,13 +308,13 @@ async function main(): Promise<number> {
       now: () => CLOCK_T0 + (Date.now() - realStart),
     });
     issuer = await startIssuerServer(PORTS.issuer, () => CLOCK_T0 + (Date.now() - realStart));
-    await bootStack(realStart, procs);
+    await bootStack(realStart, procs, options);
     await apisOnLoopbackAlone();
     say("stack ready; running flows");
     // In `procs` like every server, so a signal or a failure stops it too.
     const runner = startProcess({
       name: "playwright",
-      command: ["bunx", "playwright", "test", ...process.argv.slice(2)],
+      command: ["bunx", "playwright", "test", ...options.playwrightArgs],
       cwd: PACKAGE_DIR,
       // The runner keeps the real clock (its own timeouts run on it); each
       // browser context is put on the suite's clock by the fixtures.
@@ -309,5 +341,5 @@ async function main(): Promise<number> {
 }
 
 if (import.meta.main) {
-  process.exitCode = await main();
+  process.exitCode = await launch({ playwrightArgs: process.argv.slice(2) });
 }

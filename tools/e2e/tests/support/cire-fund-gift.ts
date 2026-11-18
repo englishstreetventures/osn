@@ -20,12 +20,16 @@
  * never recorded, so `results.json` reads the same on every run. The guest's
  * browser reaches no host but localhost and the Checkout page the flow
  * answers itself, and the flow checks that it did not.
+ *
+ * The owner's fund (`addFund`) and the guest's steps up to the money panel
+ * (`chooseTheFund`) are shared with the run against Stripe's test mode
+ * (`tests/stripe-test-mode/`), which pays at Stripe instead.
  */
 
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { Browser, Page } from "@playwright/test";
+import type { Browser, Locator, Page } from "@playwright/test";
 
 import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { STRIPE_CHECKOUT_HOST, type PaidCheckout, type StripeCalls } from "../../src/stripe";
@@ -34,12 +38,12 @@ import { expect, queryOne, type Flow } from "./fixtures";
 const { weddingId, slug, accountId, connector, household } = CIRE_ORGANISER.fund;
 const ITEMS_URL = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/registry/items`;
 const LIST_URL = `${ORIGINS.cireApi}/api/invite/${slug}/registry`;
-const CONTRIBUTE_URL = `${LIST_URL}/contribute`;
+export const CONTRIBUTE_URL = `${LIST_URL}/contribute`;
 const CLAIM_URL = `${ORIGINS.cireApi}/api/claim`;
 const WEBHOOK_URL = `${ORIGINS.cireApi}/api/stripe/webhook`;
 
 /** The fund the owner adds, as typed into the portal's form. */
-const FUND = {
+export const FUND = {
   title: "Our first home",
   goal: "8000",
   goalMinor: 800_000,
@@ -47,7 +51,7 @@ const FUND = {
 } as const;
 
 /** What the guest gives, as typed into the gift page's money panel. */
-const GIFT = {
+export const GIFT = {
   amount: "75",
   amountMinor: 7_500,
   shown: "$75.00",
@@ -56,7 +60,7 @@ const GIFT = {
 } as const;
 
 /** The household's gifts, as cire-api stores them. */
-interface GiftRow {
+export interface GiftRow {
   readonly status: string;
   readonly item_id: string | null;
   readonly item_title: string | null;
@@ -68,14 +72,14 @@ interface GiftRow {
   readonly stripe_payment_intent_id: string | null;
 }
 
-const giftCount = (): number =>
+export const giftCount = (): number =>
   queryOne<{ n: number }>(
     DB_FILES.cire,
     "SELECT count(*) AS n FROM registry_contributions WHERE family_id = ?",
     household.familyId,
   )?.n ?? -1;
 
-const giftRow = (): GiftRow | undefined =>
+export const giftRow = (): GiftRow | undefined =>
   queryOne<GiftRow>(
     DB_FILES.cire,
     `SELECT status, item_id, item_title, amount_minor, currency, display_name, message,
@@ -84,21 +88,29 @@ const giftRow = (): GiftRow | undefined =>
     household.familyId,
   );
 
-const standInCalls = async (): Promise<StripeCalls> =>
+export const standInCalls = async (): Promise<StripeCalls> =>
   (await (await fetch(`${ORIGINS.stripe}/__e2e/stripe/calls`)).json()) as StripeCalls;
 
 /** Loopback hosts: everything the stack serves, the stand-ins included. */
 const LOOPBACK = new Set(["localhost", "127.0.0.1"]);
 
-const shoot = async (page: Page, name: string): Promise<void> => {
-  mkdirSync(resolve(SCREENSHOT_DIR, "cire-registry-money"), { recursive: true });
-  await page.screenshot({
-    path: resolve(SCREENSHOT_DIR, "cire-registry-money", name),
-    animations: "disabled",
-  });
+/** A view a step shoots, under `screenshots/<dir>/`. */
+export const shoot = async (page: Page, dir: string, name: string): Promise<void> => {
+  mkdirSync(resolve(SCREENSHOT_DIR, dir), { recursive: true });
+  await page.screenshot({ path: resolve(SCREENSHOT_DIR, dir, name), animations: "disabled" });
 };
 
-export async function giveToANewFund(flow: Flow, owner: Page, browser: Browser): Promise<void> {
+/** The fund the owner added, by the id cire-api gave it. */
+export interface AddedFund {
+  readonly id: string;
+}
+
+/**
+ * The owner, signed in on `owner`, adds the fund through the gift list's form
+ * on Fund Wedding, and the flow checks the request the portal built and the
+ * row cire-api stored.
+ */
+export async function addFund(flow: Flow, owner: Page): Promise<AddedFund> {
   // The wedding's other owner connected its account, so no other wedding of
   // the dev profile is offered it (`cire-registry-money`'s Party Wedding
   // steps count the accounts offered there).
@@ -168,6 +180,124 @@ export async function giveToANewFund(flow: Flow, owner: Page, browser: Browser):
     `${stored?.kind}/${stored?.group}/${stored?.target}`,
   );
   flow.check("fund: stored under its name", FUND.title, stored?.title ?? "absent");
+  return { id: added.id };
+}
+
+/**
+ * Pia, on `guest`, opens the invitation at her household's link, declines
+ * optional storage, opens the gift list and chooses the fund, an amount, a
+ * name and a note in the money panel, which she leaves shot as
+ * `screenshots/<shotDir>/guest-money-panel.png`. Resolves to the panel, its
+ * "Continue to payment" enabled.
+ */
+export async function chooseTheFund(
+  flow: Flow,
+  guest: Page,
+  added: AddedFund,
+  shotDir: string,
+): Promise<Locator> {
+  const claimed = await flow.step(
+    "guest: open the invitation at the household's link",
+    async () => {
+      const claim = guest.waitForResponse(
+        (r) => r.url() === CLAIM_URL && r.request().method() === "POST",
+      );
+      await guest.goto(`${ORIGINS.cireInvites}/cire/invite?slug=${slug}&code=${household.code}`);
+      const status = (await claim).status();
+      await expect(guest.getByText(household.guestName).first()).toBeVisible();
+      return status;
+    },
+  );
+  flow.check("guest: claim with the household's code", 200, claimed);
+
+  await flow.step("guest: decline optional storage", async () => {
+    // The consent prompt is an idle-hydrated island: wait for it rather than race it.
+    const prompt = guest.getByRole("dialog", { name: "Privacy choices" });
+    await expect(prompt).toBeVisible({ timeout: 60_000 });
+    await prompt.getByRole("button", { name: "Reject all" }).click();
+    await expect(prompt).toBeHidden();
+  });
+
+  const panel = guest.locator("[data-gift-money]");
+  const opened = await flow.step("guest: open the gift list", async () => {
+    // Off the invitation first, so none of its islands is still running.
+    await guest.goto("about:blank");
+    const read = guest.waitForResponse(
+      (r) => r.url() === LIST_URL && r.request().method() === "GET",
+    );
+    await guest.goto(`${ORIGINS.cireInvites}/cire/registry?slug=${slug}`);
+    const response = await read;
+    const body = (await response.json()) as {
+      cashGiftsEnabled?: boolean;
+      funds?: Array<{ id: string; title: string }>;
+    };
+    await expect(panel).toBeVisible();
+    return {
+      status: response.status(),
+      // Absent reads as "not offered", so a missing field fails below.
+      money: body.cashGiftsEnabled ?? false,
+      funds: (body.funds ?? []).map((fund) => fund.title).join(", "),
+      theNewFund: body.funds?.[0]?.id === added.id,
+    };
+  });
+  flow.check("guest: list read", 200, opened.status);
+  flow.check("guest: the list offers money", true, opened.money);
+  flow.check("guest: the list offers the one fund", FUND.title, opened.funds);
+  flow.check("guest: it is the fund the owner added", true, opened.theNewFund);
+
+  const chosen = await flow.step(
+    "guest: choose the fund, an amount, a name and a note",
+    async () => {
+      await panel.locator(`[data-gift-money-fund="${added.id}"]`).click();
+      const fund = panel.getByRole("radio", { name: new RegExp(`^${FUND.title}`) });
+      await expect(fund).toBeChecked();
+      await panel.locator("label", { hasText: "Another amount" }).click();
+      const amount = panel.getByLabel("Amount (AUD)", { exact: true });
+      await expect(amount).toBeVisible();
+      await amount.fill(GIFT.amount);
+      await panel.getByLabel("Your name (optional)", { exact: true }).fill(GIFT.name);
+      await panel.getByLabel("A note for them (optional)", { exact: true }).fill(GIFT.note);
+      await expect(panel.getByRole("button", { name: "Continue to payment" })).toBeEnabled();
+      await panel.scrollIntoViewIfNeeded();
+      await shoot(guest, shotDir, "guest-money-panel.png");
+      return {
+        fund: await fund.isChecked(),
+        others: await panel.getByRole("radio", { name: "Wherever they choose" }).isChecked(),
+      };
+    },
+  );
+  flow.check("guest: the fund is chosen", true, chosen.fund);
+  flow.check("guest: wherever they choose is not", false, chosen.others);
+  return panel;
+}
+
+/** What cire-api answered the gift page's contribute call. */
+export interface ContributeAnswer {
+  readonly status: number;
+  readonly url: string;
+}
+
+/**
+ * Reads cire-api's answer to `guest`'s contribute call. The gift page leaves
+ * for Checkout the moment cire-api answers, and a response the page has
+ * navigated away from has no body left to read. So the answer is read on its
+ * way to the page, and handed on unchanged. Install it before the page loads:
+ * removing a route mid-load strands the request it paused.
+ */
+export async function captureContribute(guest: Page): Promise<() => ContributeAnswer | null> {
+  let answer: ContributeAnswer | null = null;
+  await guest.route(CONTRIBUTE_URL, async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const response = await route.fetch();
+    const body = (await response.json()) as { url?: string };
+    answer = { status: response.status(), url: body.url ?? "" };
+    await route.fulfill({ response });
+  });
+  return () => answer;
+}
+
+export async function giveToANewFund(flow: Flow, owner: Page, browser: Browser): Promise<void> {
+  const added = await addFund(flow, owner);
 
   // ── The guest, in a browser of their own ────────────────────────────────
   const context = await browser.newContext();
@@ -189,17 +319,7 @@ export async function giveToANewFund(flow: Flow, owner: Page, browser: Browser):
       body: "<!doctype html><title>Stripe Checkout stand-in</title><h1>Checkout</h1>",
     });
   });
-  // The gift page leaves for Checkout the moment cire-api answers, and a
-  // response the page has navigated away from has no body left to read. So
-  // the answer is read on its way to the page, and handed on unchanged.
-  let contributeAnswer: { status: number; url: string } | null = null;
-  await guest.route(CONTRIBUTE_URL, async (route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    const response = await route.fetch();
-    const body = (await response.json()) as { url?: string };
-    contributeAnswer = { status: response.status(), url: body.url ?? "" };
-    await route.fulfill({ response });
-  });
+  const contributeAnswer = await captureContribute(guest);
   context.on("requestfinished", (request) => {
     const url = new URL(request.url());
     if (url.protocol !== "http:" && url.protocol !== "https:") return;
@@ -212,78 +332,7 @@ export async function giveToANewFund(flow: Flow, owner: Page, browser: Browser):
   });
 
   try {
-    const claimed = await flow.step(
-      "guest: open the invitation at the household's link",
-      async () => {
-        const claim = guest.waitForResponse(
-          (r) => r.url() === CLAIM_URL && r.request().method() === "POST",
-        );
-        await guest.goto(`${ORIGINS.cireInvites}/cire/invite?slug=${slug}&code=${household.code}`);
-        const status = (await claim).status();
-        await expect(guest.getByText(household.guestName).first()).toBeVisible();
-        return status;
-      },
-    );
-    flow.check("guest: claim with the household's code", 200, claimed);
-
-    await flow.step("guest: decline optional storage", async () => {
-      // The consent prompt is an idle-hydrated island: wait for it rather than race it.
-      const prompt = guest.getByRole("dialog", { name: "Privacy choices" });
-      await expect(prompt).toBeVisible({ timeout: 60_000 });
-      await prompt.getByRole("button", { name: "Reject all" }).click();
-      await expect(prompt).toBeHidden();
-    });
-
-    const panel = guest.locator("[data-gift-money]");
-    const opened = await flow.step("guest: open the gift list", async () => {
-      // Off the invitation first, so none of its islands is still running.
-      await guest.goto("about:blank");
-      const read = guest.waitForResponse(
-        (r) => r.url() === LIST_URL && r.request().method() === "GET",
-      );
-      await guest.goto(`${ORIGINS.cireInvites}/cire/registry?slug=${slug}`);
-      const response = await read;
-      const body = (await response.json()) as {
-        cashGiftsEnabled?: boolean;
-        funds?: Array<{ id: string; title: string }>;
-      };
-      await expect(panel).toBeVisible();
-      return {
-        status: response.status(),
-        // Absent reads as "not offered", so a missing field fails below.
-        money: body.cashGiftsEnabled ?? false,
-        funds: (body.funds ?? []).map((fund) => fund.title).join(", "),
-        theNewFund: body.funds?.[0]?.id === added.id,
-      };
-    });
-    flow.check("guest: list read", 200, opened.status);
-    flow.check("guest: the list offers money", true, opened.money);
-    flow.check("guest: the list offers the one fund", FUND.title, opened.funds);
-    flow.check("guest: it is the fund the owner added", true, opened.theNewFund);
-
-    const chosen = await flow.step(
-      "guest: choose the fund, an amount, a name and a note",
-      async () => {
-        await panel.locator(`[data-gift-money-fund="${added.id}"]`).click();
-        const fund = panel.getByRole("radio", { name: new RegExp(`^${FUND.title}`) });
-        await expect(fund).toBeChecked();
-        await panel.locator("label", { hasText: "Another amount" }).click();
-        const amount = panel.getByLabel("Amount (AUD)", { exact: true });
-        await expect(amount).toBeVisible();
-        await amount.fill(GIFT.amount);
-        await panel.getByLabel("Your name (optional)", { exact: true }).fill(GIFT.name);
-        await panel.getByLabel("A note for them (optional)", { exact: true }).fill(GIFT.note);
-        await expect(panel.getByRole("button", { name: "Continue to payment" })).toBeEnabled();
-        await panel.scrollIntoViewIfNeeded();
-        await shoot(guest, "guest-money-panel.png");
-        return {
-          fund: await fund.isChecked(),
-          others: await panel.getByRole("radio", { name: "Wherever they choose" }).isChecked(),
-        };
-      },
-    );
-    flow.check("guest: the fund is chosen", true, chosen.fund);
-    flow.check("guest: wherever they choose is not", false, chosen.others);
+    const panel = await chooseTheFund(flow, guest, added, "cire-registry-money");
 
     const before = await standInCalls();
     const handedOff = await flow.step(
@@ -300,7 +349,7 @@ export async function giveToANewFund(flow: Flow, owner: Page, browser: Browser):
         const sent = response.request().postDataJSON() as Record<string, unknown>;
         const at = await reached;
         await expect(guest.getByRole("heading", { name: "Checkout" })).toBeVisible();
-        const answer = contributeAnswer ?? { status: -1, url: "" };
+        const answer = contributeAnswer() ?? { status: -1, url: "" };
         return { status: answer.status, sent, url: answer.url, at };
       },
     );

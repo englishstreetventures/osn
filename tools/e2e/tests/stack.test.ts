@@ -44,6 +44,46 @@ describe("baseEnv", () => {
   });
 });
 
+// In the run against Stripe's test mode, the real test key reaches one app:
+// cire-api, which sends every call to Stripe itself. The key also sits in the
+// launcher's own environment, which a child's environment is built from, so
+// the shell filter is what keeps it out of every build and every other server.
+describe("appSpecs in Stripe test mode", () => {
+  const secretKey = ["sk", "test", "4eC39HqLyjWDarjtT1zdp7dc"].join("_");
+  const webhookSecret = ["whsec", "listenSessionValue"].join("_");
+  const specs = appSpecs(undefined, { secretKey, webhookSecret });
+  const byName = Object.fromEntries(specs.map((s) => [s.name, s.env]));
+
+  test("cire-api holds the test key and the listen secret, and sends nothing to the stand-in", () => {
+    const cire = byName["cireApi"] ?? {};
+    expect(cire["STRIPE_SECRET_KEY"]).toBe(secretKey);
+    expect(cire["STRIPE_WEBHOOK_SECRET"]).toBe(webhookSecret);
+    for (const unset of [
+      "STRIPE_API_URL",
+      "STRIPE_CONNECT_URL",
+      "STRIPE_CONNECT_CLIENT_ID",
+      "STRIPE_UPGRADE_PRICE_GOLD",
+      "STRIPE_PLATFORM_WEBHOOK_SECRET",
+    ]) {
+      expect(cire, unset).not.toHaveProperty(unset);
+    }
+  });
+
+  test("no other app is given the key or the secret", () => {
+    for (const spec of specs.filter((s) => s.name !== "cireApi")) {
+      const values = Object.values(spec.env).join("\n");
+      expect(values, spec.name).not.toContain(secretKey);
+      expect(values, spec.name).not.toContain(webhookSecret);
+    }
+    expect(byName["cireApiKeyOnly"]?.["STRIPE_API_URL"]).toBe("http://localhost:4591");
+  });
+
+  test("a child's environment drops the key from the launcher's own", () => {
+    const env = baseEnv({ PATH: "/usr/bin", STRIPE_TEST_SECRET_KEY: secretKey }, 0);
+    expect(Object.values(env).join("\n")).not.toContain(secretKey);
+  });
+});
+
 describe("appSpecs", () => {
   test("every frontend is told its API origin, so no .env file can redirect it", () => {
     const byName = Object.fromEntries(appSpecs().map((s) => [s.name, s.env]));

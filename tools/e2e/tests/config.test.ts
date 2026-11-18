@@ -1,9 +1,46 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 
 import { DEV_APPS } from "@shared/dev-urls";
 
 import { PORTS } from "../src/config";
 import { VENDOR_PORTAL_ORIGIN } from "../src/stack";
+
+// The clock's start is read once, when `config.ts` loads, so each case loads it
+// in a process of its own. The run against Stripe's test mode sets it to the
+// real now: Stripe refuses a Checkout session that closes before real now plus
+// 30 minutes, and cire-api an event signed more than five minutes from its now.
+describe("CLOCK_T0", () => {
+  const load = (start: string | undefined) => {
+    const env: Record<string, string> = { PATH: process.env["PATH"] ?? "" };
+    if (start !== undefined) env["E2E_STRIPE_CLOCK_T0"] = start;
+    const config = join(import.meta.dirname, "..", "src", "config.ts");
+    const script = `const c = await import(${JSON.stringify(config)}); process.stdout.write(JSON.stringify([c.CLOCK_T0, c.CLOCK_T0_ISO]));`;
+    return spawnSync("bun", ["-e", script], { env, encoding: "utf8" });
+  };
+
+  test("is the fixed instant when the test-mode start is not set", () => {
+    const out = load(undefined);
+    expect(JSON.parse(out.stdout)).toEqual([
+      Date.parse("2026-10-01T00:00:00.000Z"),
+      "2026-10-01T00:00:00.000Z",
+    ]);
+  });
+
+  test("is the test-mode start when one is set, and its ISO form follows", () => {
+    const out = load("1794960000000");
+    expect(JSON.parse(out.stdout)).toEqual([1794960000000, "2026-11-18T00:00:00.000Z"]);
+  });
+
+  test("refuses a start that is not a whole number of milliseconds", () => {
+    for (const bad of ["", "soon", "1.5", "-3"]) {
+      const out = load(bad);
+      expect(out.status, bad).not.toBe(0);
+      expect(out.stderr, bad).toContain("E2E_STRIPE_CLOCK_T0");
+    }
+  });
+});
 
 // The suite's ports are written out for Node; they must stay the ones the
 // devloop itself uses with `PORTLESS=0`.
