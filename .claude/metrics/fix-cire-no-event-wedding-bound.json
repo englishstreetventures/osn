@@ -1,0 +1,187 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/cire-no-event-wedding-bound",
+    "base_sha": "d6185d29ae2e259c608356e26ea16c2f86804f69",
+    "head_sha": "8de1ce8f86b43a4d0a2e31ece6a39c7561dcb365",
+    "generated_at": "2026-11-18T12:34:17.117Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2410,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "needs:decision",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-18T11:45:27.436Z",
+    "last_ts": "2026-11-18T12:34:11.133Z",
+    "span_seconds": 2924,
+    "active_seconds": 2924,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 36.142961600000014,
+    "tokens": {
+      "input": 646,
+      "output": 240579,
+      "thinking": 96093,
+      "cache_write_5m": 1386066,
+      "cache_write_1h": 0,
+      "cache_read": 60996169
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 646,
+          "output": 240579,
+          "thinking": 96093,
+          "cache_write_5m": 1386066,
+          "cache_write_1h": 0,
+          "cache_read": 60996169
+        },
+        "usd_equivalent": 36.142961600000014,
+        "messages": 310
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 646,
+          "output": 240579,
+          "thinking": 96093,
+          "cache_write_5m": 1386066,
+          "cache_write_1h": 0,
+          "cache_read": 60996169
+        },
+        "usd_equivalent": 36.142961600000014,
+        "messages": 310
+      }
+    },
+    "effort": {
+      "high": 147,
+      "xhigh": 163
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 5,
+      "docs": 6,
+      "config": 0,
+      "source": 11
+    },
+    "loc": {
+      "generated": {
+        "added": 14,
+        "deleted": 0
+      },
+      "test": {
+        "added": 336,
+        "deleted": 98
+      },
+      "docs": {
+        "added": 20,
+        "deleted": 13
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 146,
+        "deleted": 75
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "cire/landing",
+      "cire/ui",
+      "shared/email"
+    ],
+    "touches_migration": false,
+    "commits": 5
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 219,
+      "Edit": 97,
+      "Read": 75,
+      "Skill": 12,
+      "Write": 3,
+      "Agent": 2,
+      "SubagentHandback": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 10,
+      "max_edits_one_file": 22
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "write-pr": 1,
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "review-state": 1,
+      "review-design": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 1
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 310,
+      "with_tools": 308,
+      "with_one_tool": 249,
+      "context_median": 161163,
+      "context_p90": 372602
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 1,
+    "located": 1,
+    "acted_on": 1,
+    "paired": 1,
+    "acted_on_paired": 1,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}
