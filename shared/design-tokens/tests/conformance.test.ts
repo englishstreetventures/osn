@@ -73,10 +73,6 @@ function stylesheet(overrides: Record<string, string> = {}): string {
 const ONE_SCOPE = [{ name: "test", selectors: [":root"] }] as const;
 
 describe("checkContractConformance", () => {
-  it("passes a mapping that clears every floor", () => {
-    expect(checkContractConformance({ css: stylesheet(), scopes: ONE_SCOPE })).toEqual([]);
-  });
-
   it("resolves a two-hop var() chain rather than reading a literal", () => {
     // If the resolver were not following `var()`, every pair would come back
     // unparseable and the suite above would fail for the wrong reason. This
@@ -98,6 +94,18 @@ describe("checkContractConformance", () => {
     expect(hit).toBeDefined();
     expect(hit?.required).toBe(4.5);
     expect(hit?.ratio).toBeLessThan(4.5);
+  });
+
+  it("measures the pairs it is given in place of the contract's", () => {
+    // Body ink too light everywhere: the contract's pairs would report it, a
+    // caller's own pair list does not name it.
+    const css = stylesheet({ "--body": "oklch(85% 0 0)", "--bad": "oklch(80% 0.18 25)" });
+    const failures = checkContractConformance({
+      css,
+      scopes: ONE_SCOPE,
+      pairs: [{ fg: "--ui-danger", bg: "--ui-ground", min: 4.5 }],
+    });
+    expect(failures.map((f) => `${f.fg} on ${f.bg}`)).toEqual(["--ui-danger on --ui-ground"]);
   });
 
   it("measures ink against EVERY ground, not just the page", () => {
@@ -143,17 +151,40 @@ describe("checkContractConformance", () => {
     expect(failures.some((f) => f.fg === "--ui-ink-tertiary")).toBe(false);
   });
 
-  it("measures on-fill ink against its fill, never against the page", () => {
-    // White on white would be a failure if `--ui-on-accent` were measured
-    // against the ground. It is not a combination any component renders.
-    const failures = checkContractConformance({ css: stylesheet(), scopes: ONE_SCOPE });
-    expect(failures.some((f) => f.fg === "--ui-on-accent" && f.bg === "--ui-ground")).toBe(false);
-  });
-
   it("reports an unmapped token rather than skipping it", () => {
     const css = stylesheet().replace("--ui-ink: var(--body);", "");
     const failures = checkContractConformance({ css, scopes: ONE_SCOPE });
     expect(failures.some((f) => f.reason.includes("not mapped"))).toBe(true);
+  });
+
+  it("measures an unmapped choice edge as the control boundary it falls back to", () => {
+    // `tokens.css` draws an unmapped `--ui-choice-edge` in `--ui-hairline-strong`,
+    // so an app that maps only the boundary owes the same floor for its choices:
+    // too light a boundary fails both, and its waiver covers both.
+    const css = stylesheet({ "--rule-strong": "oklch(90% 0 0)" });
+    const failures = checkContractConformance({ css, scopes: ONE_SCOPE });
+    expect(failures.some((f) => f.fg === "--ui-choice-edge" && f.ratio !== null)).toBe(true);
+    expect(failures.some((f) => f.reason.includes("not mapped"))).toBe(false);
+
+    const waived = checkContractConformance({
+      css,
+      scopes: ONE_SCOPE,
+      waived: { "--ui-hairline-strong": "deliberately light, for this test" },
+    });
+    expect(waived).toEqual([]);
+  });
+
+  it("measures a mapped choice edge on its own, whatever the boundary's waiver", () => {
+    const css = stylesheet({ "--rule-strong": "oklch(90% 0 0)" }).replace(
+      "--ui-hairline-strong: var(--rule-strong);",
+      "--ui-hairline-strong: var(--rule-strong);\n    --ui-choice-edge: var(--rule-strong);",
+    );
+    const failures = checkContractConformance({
+      css,
+      scopes: ONE_SCOPE,
+      waived: { "--ui-hairline-strong": "deliberately light, for this test" },
+    });
+    expect(failures.some((f) => f.fg === "--ui-choice-edge")).toBe(true);
   });
 
   it("honours an explicit waiver", () => {

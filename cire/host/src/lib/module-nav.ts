@@ -134,7 +134,12 @@ export const MODULE_NAV: ModuleDef[] = [
     },
   },
   { id: "invite", label: "Invite", icon: MailOpen, hint: "Photos, story, colours, and codes" },
-  { id: "settings", label: "Settings", icon: Settings, hint: "Profile, budget, and co-hosts" },
+  {
+    id: "settings",
+    label: "Settings",
+    icon: Settings,
+    hint: "Profile, budget, co-hosts, and export",
+  },
 ];
 
 /** Built once. `moduleDef` is called from the shell's header, its panel keys,

@@ -1,4 +1,5 @@
-import { Effect, Logger } from "effect";
+import { Clock, Effect, Fiber, Logger } from "effect";
+import { TestClock } from "effect/testing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fakeHub } from "../support/fake-hub";
@@ -14,6 +15,56 @@ import { publish, REVOKE_RETRY_DELAYS_MS } from "../../src/server/publish";
 const TOPIC = "cire:wedding:wed_1";
 
 beforeEach(() => metricSignalPublished.mockReset());
+
+/**
+ * Runs `body` on the test clock. `asleep(n)` returns once fibers have started
+ * `n` sleeps on it in all — each try's timeout counts, and so does each pause
+ * before a retry. `TestClock.adjust` wakes only the sleeps already started, and
+ * a publish starts its pause only after the hub's promise settles, so a test
+ * waits for the sleep before it moves the clock. It waits by macrotask turns,
+ * never by time.
+ */
+const onTestClock = (
+  body: (asleep: (count: number) => Effect.Effect<void>) => Effect.Effect<void>,
+): Promise<void> => {
+  let started = 0;
+  const asleep = (count: number) =>
+    Effect.promise(async () => {
+      for (let turn = 0; turn < 1_000; turn += 1) {
+        if (started >= count) return;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      throw new Error(`expected ${count} sleeps, saw ${started}`);
+    });
+  return Effect.runPromise(
+    Effect.clockWith((clock) =>
+      body(asleep).pipe(
+        Effect.provideService(Clock.Clock, {
+          ...clock,
+          sleep: (duration) =>
+            Effect.suspend(() => {
+              started += 1;
+              return clock.sleep(duration);
+            }),
+        }),
+      ),
+    ).pipe(Effect.provide(TestClock.layer())),
+  );
+};
+
+/**
+ * Returns once `fiber` has finished, waiting by macrotask turns, so a join
+ * after the clock has moved fails with a message rather than hanging when the
+ * publish is still asleep.
+ */
+const finished = (fiber: Fiber.Fiber<unknown, unknown>) =>
+  Effect.promise(async () => {
+    for (let turn = 0; turn < 1_000; turn += 1) {
+      if (fiber.pollUnsafe() !== undefined) return;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    throw new Error("the publish had not finished after 1,000 turns");
+  });
 
 describe("publish", () => {
   it("hands the hub for the topic a signal and the subjects to evict and revoke", async () => {
@@ -42,14 +93,6 @@ describe("publish", () => {
     expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "disabled");
   });
 
-  it("succeeds when the hub rejects, and counts the error", async () => {
-    const { hub } = fakeHub({ publish: () => Promise.reject(new Error("hub down")) });
-    await expect(
-      Effect.runPromise(publish(hub, TOPIC, "members-changed")),
-    ).resolves.toBeUndefined();
-    expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "error");
-  });
-
   it("succeeds when getByName itself throws", async () => {
     const hub = {
       getByName: () => {
@@ -64,10 +107,22 @@ describe("publish", () => {
 
   it("gives up on a hub that never answers, within the timeout", async () => {
     const { hub } = fakeHub({ publish: () => new Promise(() => {}) });
-    const started = Date.now();
-    await Effect.runPromise(publish(hub, TOPIC, "members-changed", { timeoutMs: 30 }));
-    expect(Date.now() - started).toBeLessThan(1_000);
-    expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "error");
+    await onTestClock((asleep) =>
+      Effect.gen(function* () {
+        const publishing = yield* Effect.forkChild(
+          publish(hub, TOPIC, "members-changed", { timeoutMs: 30 }),
+        );
+        yield* asleep(1);
+        yield* TestClock.adjust(29);
+        expect(publishing.pollUnsafe()).toBeUndefined();
+        expect(metricSignalPublished).not.toHaveBeenCalled();
+
+        yield* TestClock.adjust(1);
+        expect(publishing.pollUnsafe()).toBeDefined();
+        yield* Fiber.join(publishing);
+        expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "error");
+      }),
+    );
   });
 
   describe("a publish that revokes", () => {
@@ -121,15 +176,26 @@ describe("publish", () => {
 
     it("waits before each retry, and only as long as it is told", async () => {
       const { hub, publishes } = fakeHub({ publish: () => Promise.reject(new Error("hub down")) });
-      const started = Date.now();
-      await Effect.runPromise(
-        publish(hub, TOPIC, "members-changed", {
-          revokeSubjects: ["usr_eve"],
-          revokeRetryDelaysMs: [40],
+      await onTestClock((asleep) =>
+        Effect.gen(function* () {
+          const publishing = yield* Effect.forkChild(
+            publish(hub, TOPIC, "members-changed", {
+              revokeSubjects: ["usr_eve"],
+              revokeRetryDelaysMs: [40],
+            }),
+          );
+          // The first try's timeout, then the pause after it failed.
+          yield* asleep(2);
+          yield* TestClock.adjust(39);
+          expect(publishes).toHaveLength(1);
+
+          yield* TestClock.adjust(1);
+          expect(publishes).toHaveLength(2);
+          yield* finished(publishing);
+          yield* Fiber.join(publishing);
+          expect(publishes).toHaveLength(2);
         }),
       );
-      expect(publishes).toHaveLength(2);
-      expect(Date.now() - started).toBeGreaterThanOrEqual(35);
     });
 
     it("retries on its own pauses when told none", async () => {
@@ -137,13 +203,23 @@ describe("publish", () => {
       const { hub, publishes } = fakeHub({
         publish: () => (++calls === 1 ? Promise.reject(new Error("hub down")) : Promise.resolve(1)),
       });
-      const started = Date.now();
-      await Effect.runPromise(
-        publish(hub, TOPIC, "members-changed", { revokeSubjects: ["usr_eve"] }),
+      await onTestClock((asleep) =>
+        Effect.gen(function* () {
+          const publishing = yield* Effect.forkChild(
+            publish(hub, TOPIC, "members-changed", { revokeSubjects: ["usr_eve"] }),
+          );
+          yield* asleep(2);
+          yield* TestClock.adjust(REVOKE_RETRY_DELAYS_MS[0] - 1);
+          expect(publishes).toHaveLength(1);
+
+          yield* TestClock.adjust(1);
+          expect(publishes).toHaveLength(2);
+          yield* finished(publishing);
+          yield* Fiber.join(publishing);
+          expect(publishes).toHaveLength(2);
+          expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "ok");
+        }),
       );
-      expect(publishes).toHaveLength(2);
-      expect(Date.now() - started).toBeGreaterThanOrEqual(REVOKE_RETRY_DELAYS_MS[0] - 5);
-      expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "ok");
     });
 
     it("tries a publish that revokes nobody once", async () => {

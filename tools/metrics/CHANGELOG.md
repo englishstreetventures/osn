@@ -1,5 +1,116 @@
 # @tools/metrics
 
+## 0.2.60
+
+### Patch Changes
+
+- 26d9daa: The dashboard's note on the complexity chart, and the comments beside it, say a `complexity:unconfirmed` rating is one made by backfill or after the work began, as the rating skills now define it.
+
+## 0.2.59
+
+### Patch Changes
+
+- Updated dependencies [db8c428]
+- Updated dependencies [db8c428]
+  - @shared/ui@0.18.0
+
+## 0.2.58
+
+### Patch Changes
+
+- Updated dependencies [7b90b0c]
+  - @shared/ui@0.17.1
+
+## 0.2.57
+
+### Patch Changes
+
+- Updated dependencies [da04fab]
+  - @shared/ui@0.17.0
+
+## 0.2.56
+
+### Patch Changes
+
+- Updated dependencies [ed7813d]
+  - @shared/ui@0.16.0
+
+## 0.2.55
+
+### Patch Changes
+
+- Updated dependencies [90c891b]
+  - @shared/ui@0.15.3
+
+## 0.2.54
+
+### Patch Changes
+
+- Updated dependencies [6dd5ff4]
+  - @shared/ui@0.15.2
+
+## 0.2.53
+
+### Patch Changes
+
+- Updated dependencies [2035748]
+  - @shared/ui@0.15.1
+
+## 0.2.52
+
+### Patch Changes
+
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @shared/ui@0.15.0
+
+## 0.2.51
+
+### Patch Changes
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/ui@0.14.0
+
+## 0.2.50
+
+### Patch Changes
+
+- Updated dependencies [2c2906f]
+- Updated dependencies [3424e05]
+- Updated dependencies [ae53236]
+  - @shared/ui@0.13.0
+
+## 0.2.49
+
+### Patch Changes
+
+- Updated dependencies [3abdb2b]
+- Updated dependencies [bceeafe]
+- Updated dependencies [4ce452e]
+  - @shared/ui@0.12.0
+
+## 0.2.48
+
+### Patch Changes
+
+- Updated dependencies [f2c7a76]
+  - @shared/ui@0.11.1
+
+## 0.2.47
+
+### Patch Changes
+
+- Updated dependencies [d3fe597]
+  - @shared/ui@0.11.0
+
+## 0.2.46
+
+### Patch Changes
+
+- Updated dependencies [6c81633]
+  - @shared/ui@0.10.3
+
 ## 0.2.45
 
 ### Patch Changes

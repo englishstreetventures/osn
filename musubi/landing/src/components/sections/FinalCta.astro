@@ -22,12 +22,14 @@ import { APP_URL, ANCHORS } from '../../lib/site'
       along for the ride.
     </p>
     <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+      {/* motion-literal: a button's hover fade; this site defines no motion tokens */}
       <a
         href={APP_URL}
         class="border-accent bg-accent text-bg hover:bg-transparent hover:text-accent font-body w-full rounded-md border px-8 py-4 text-[0.9rem] font-medium tracking-[0.02em] transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
       >
         Get started
       </a>
+      {/* motion-literal: a button's hover fade; this site defines no motion tokens */}
       <a
         href={ANCHORS.apps}
         class="border-border font-body text-text hover:border-accent hover:text-accent w-full rounded-md border bg-transparent px-8 py-4 text-[0.9rem] font-medium tracking-[0.02em] transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"

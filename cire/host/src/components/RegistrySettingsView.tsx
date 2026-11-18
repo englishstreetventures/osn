@@ -1133,7 +1133,6 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                       {(account) => (
                         <RadioGroupItem
                           value={account.fromWeddingId}
-                          align="start"
                           label={
                             <>
                               The account you use for {namesInWords(account.weddingNames)}
@@ -1147,7 +1146,6 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                     </For>
                     <RadioGroupItem
                       value={NEW_ACCOUNT}
-                      align="start"
                       label={
                         <>
                           A new account for this wedding
@@ -1160,7 +1158,6 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                     <Show when={connectsExisting()}>
                       <RadioGroupItem
                         value={EXISTING_ACCOUNT}
-                        align="start"
                         label={
                           <>
                             Connect a Stripe account you already have
@@ -1291,7 +1288,6 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
             <Checkbox
               box="native"
-              align="start"
               class="mt-1"
               checked={cashGifts()}
               disabled={cashGiftsLocked()}

@@ -10,8 +10,9 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-auth]]"
   - "[[d1-limits]]"
+  - "[[toast]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-12
 ---
 # Checklist / Tasks
 
@@ -55,8 +56,8 @@ run-time columns and `tasks_event_idx`, again in place ([[cire-run-sheet]]).
 | `run_offset_minutes` | `integer` | minutes from that event's start, negative before it, −1440..1440; every writer sets it with `event_id`. A row whose event was deleted by anything but a schedule change keeps it after the foreign key nulls `event_id`, and reads as untimed |
 | `event_removed_at` | `integer` | unix seconds; when a schedule change removed the task's event and it kept its time |
 
-The five run-time columns hold one of the states in [[cire-run-sheet#A task's
-time]] — untimed, fixed, linked, frozen with the time it kept, frozen with no
+The five run-time columns hold one of the states in
+[[cire-run-sheet#A task's time]] — untimed, fixed, linked, frozen with the time it kept, frozen with no
 time — written together by the task service and the schedule change and by
 nothing else; no CHECK holds them. A linked task's time is derived on every
 read.
@@ -354,7 +355,7 @@ The reader's seat is `viewerHostId` from `GET /tasks`; `readTaskList` in
 checklist and Overview — go through it. Every task the portal reads, from the
 list or from a write's answer, goes through `readTaskRow`, which also reads the
 API before holders: that API sends one `assignedHostId` and no
-`assigneeHostIds`, and `deploy-cire-host` does not wait for `deploy-cire-api`
+`assigneeHostIds`, and the cire stack job uploads the portal and cire-api in one run in no set order
 ([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
 so the portal shows that one seat as the task's holder, or nobody. The seats come from `lib/hosts-store.ts`,
 a cache with the contract in [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]];
@@ -576,7 +577,11 @@ function it returns, so a read that lands while one is out, or was sent before
 one ended, is dropped, and is sent again once the last write ends. The read
 that sees the write therefore always goes, whichever reaches the tab first,
 the write's answer or its signal, and no re-read undoes what the organiser did
-on screen. See [[cire-host-portal-layout]].
+on screen. See [[cire-host-portal-layout]]. A delete's write is out from its ✕
+until the delete is final: the task leaves the list at once, and the `DELETE`
+goes only once its undo toast has gone without Undo ([[toast]]), so no re-read
+in that window brings the task back. Undo puts the task back as the list held
+it and ends the write, with nothing sent.
 
 The run sheet (`run-sheet-store.ts`) follows the same writes and the same
 signals ([[cire-run-sheet#In the portal]]).
@@ -585,7 +590,8 @@ The tests are `cire/api/tests/routes/tasks.test.ts` ("task writes publish
 tasks-changed"), `organiser-settings.test.ts` ("a date move tells open
 checklists"), `organiser-changes.test.ts` ("a schedule change and the checklist
 tasks linked to its events"), `cire/host/tests/lib/tasks-store.test.ts` ("the portal's own
-writes", "a signal's re-read") and `cire/host/tests/components/ChecklistView.test.tsx`. No E2E flow
+writes", "a signal's re-read"), `cire/host/tests/components/ChecklistView.test.tsx`
+and, for the undo window, `ChecklistView.undo.browser.test.tsx` beside it. No E2E flow
 reaches the hub ([[realtime#Tests]]).
 
 ## Tasks store (organiser client)

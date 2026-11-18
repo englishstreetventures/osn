@@ -186,7 +186,7 @@ export function waste(rows: CardRow[]): Table {
 
   return {
     title: "1. Where agents cost too much for the job",
-    note: "Small, low-rated, expensive. Unconfirmed ratings excluded — acting on an agent's own guess about difficulty is what would make this circular.",
+    note: "Small, low-rated, expensive. Unconfirmed ratings excluded — a rating made after the work began, with its cost in view, is what would make this circular.",
     headers: ["PR", "declared", "source LOC", "cost", "turns", "corrections"],
     rows: candidates.map((r) => [
       `#${r.pr}`,

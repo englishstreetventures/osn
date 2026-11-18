@@ -8,8 +8,7 @@
 // cannot fixture without touching the real repo — `ASTRO_TEST_ROUTE_APPS`
 // (checked only by `import.meta.main`, so it has no effect on the
 // `findTestRoutes` import test below) overrides it with fixture roots
-// instead, the same test-injection idiom check-d1-database-id.ts uses for
-// `WRANGLER_TOML`.
+// instead.
 //
 // No `bun install`: this only imports `bun:test`, `node:fs/promises`, and the
 // script under test, matching every other file under scripts/.

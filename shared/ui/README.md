@@ -1,10 +1,10 @@
 # @shared/ui
 
 The primitives every product here renders — `Button`, `Card`, `Modal`, `Dialog`,
-`Field`, `Input`, `Select`, `Table`, `Notice`, `Chip`, `Stat`, `Meter`,
-`EmptyState`, `Avatar`, `Badge`, `Tabs`, `Popover`, `DropdownMenu`, `Checkbox`,
-`RadioGroup`, `OtpInput`, `UsernameInput`, `QrCode`, `InfoPopover`, `Tooltip` — plus
-`clsx()`. Zaidan-style: owned source on Kobalte and Tailwind v4, not a versioned
+`Field`, `Fieldset`, `Label`, `Input`, `Textarea`, `Select`, `Table`, `Notice`,
+`Chip`, `Stat`, `Meter`, `Skeleton`, `EmptyState`, `Avatar`, `Badge`, `Tabs`,
+`Popover`, `DropdownMenu`, `Checkbox`, `RadioGroup`, `Switch`, `OtpInput`,
+`UsernameInput`, `QrCode`, `InfoPopover`, `Tooltip`, `Orb` — plus `clsx()`. Zaidan-style: owned source on Kobalte and Tailwind v4, not a versioned
 dependency.
 
 ## What is not here
@@ -48,12 +48,30 @@ Components are styled entirely in `base:`-prefixed contract utilities
 a caller's **plain** utility wins by cascade — write `class="max-w-lg"`, never
 `class="base:max-w-lg"`, which only ties.
 
+## The orb's engine
+
+`Orb` (`@shared/ui/ui/orb`) draws with the engine of
+[thinking-orbs](https://libraries.dev/orbs), vendored into
+`vendor/thinking-orbs/` byte for byte at a pinned commit, with its MIT
+`LICENSE`, plus one `types.ts` of ours holding the two aliases the engine
+imports. That directory's `README.md` has the pin, the re-vendor recipe and a
+command that checks the files against upstream; `scripts/verify-vendored.sh`
+checks the manifest in CI. Nothing in the tree is edited.
+
+The engine declares a parameter it never reads, so the `./ui/orb` export points
+TypeScript at `src/ui/orb-api.ts`, a types-only module, and only the bundler
+follows `src/ui/orb.tsx` into the engine. Nothing under `src/` imports
+`orb.tsx` by a relative path (the package's own tests may): a consumer that
+sets `noUnusedParameters` would follow it and fail its type check. `Button`
+imports it through the export, dynamically, for `busy`: the orb is a chunk of
+its own, fetched only by a page holding a `Button` that carries a `busy` prop.
+
 ## Tests
 
 Two projects out of one `vitest.config.ts`, split by filename:
 
 ```bash
-bun run --cwd shared/ui test:run      # unit — tests/**/*.test.tsx, happy-dom
+bun run --cwd shared/ui test:run      # unit — tests/**/*.test.{ts,tsx}, node (happy-dom per file)
 bun run --cwd shared/ui test:browser  # browser — tests/**/*.browser.test.tsx, Chromium
 bun run --cwd shared/ui test          # unit, watch mode
 ```

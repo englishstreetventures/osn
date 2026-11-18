@@ -1,17 +1,34 @@
 import { it, expect, describe } from "@effect/vitest";
+import { organisationMembers, organisations } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Fiber, Layer, type Result } from "effect";
-import { beforeAll } from "vitest";
+import { afterEach, beforeAll, vi } from "vitest";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createAuthService } from "../../src/services/auth";
 import { createOrganisationService } from "../../src/services/organisation";
+import { createProfileService } from "../../src/services/profile";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
-const org = createOrganisationService();
+const org = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
+
+/** `declineOwnership` of the organisation `orgId` names, by its handle, as the route calls it. */
+const declineById = (orgId: string, callerId: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const [row] = yield* Effect.promise(() =>
+      db
+        .select({ handle: organisations.handle })
+        .from(organisations)
+        .where(eq(organisations.id, orgId)),
+    );
+    return yield* org.declineOwnership(row!.handle, callerId);
+  });
 
 beforeAll(async () => {
   config = await makeTestAuthConfig();
@@ -83,6 +100,20 @@ describe("createOrganisation", () => {
         expect(error._tag).toBe("OrgError");
         expect(error.message).toContain("Handle unavailable");
       }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // A soft delete renames each profile to `deleted_` and its id's suffix,
+  // and profile ids are visible to other people. Organisation handles share
+  // the profile namespace, so the form is reserved here too.
+  it.effect("fails when the handle has the form a soft delete gives a profile", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerProfile("alice@example.com", "alice");
+      const error = yield* Effect.flip(
+        org.createOrganisation(alice.id, "deleted_0123456789ab", "Squat Org"),
+      );
+      expect(error._tag).toBe("OrgError");
+      expect(error.message).toBe("Handle unavailable");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -791,6 +822,31 @@ describe("a membership write holds only while what it checked still holds", () =
     }).pipe(Effect.provide(h.layer));
   });
 
+  it.live(
+    "a role change by an owner who has since passed the organisation on changes nothing",
+    () => {
+      // The owner moves only in the hard delete of the owner's account, which
+      // hands the organisation to another member in one batch.
+      const h = held();
+      return Effect.gen(function* () {
+        const { alice, bob, carol, orgId } = yield* setupTeam;
+        const changed = yield* across(
+          h,
+          /^update "organisation_members"/,
+          org.updateMemberRole(orgId, alice.id, carol.id, "admin"),
+          Effect.gen(function* () {
+            const { db } = yield* Db;
+            yield* Effect.promise(() =>
+              db.update(organisations).set({ ownerId: bob.id }).where(eq(organisations.id, orgId)),
+            );
+          }),
+        );
+        expect(changed).toBe("Only the owner can change roles");
+        expect(yield* org.getMemberRole(orgId, carol.id)).toBe("member");
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+
   it.live("an admin demoted since its check leaves the organisation as it was", () => {
     const h = held();
     return Effect.gen(function* () {
@@ -818,5 +874,265 @@ describe("a membership write holds only while what it checked still holds", () =
       );
       expect(updated).toBe("Organisation not found");
     }).pipe(Effect.provide(h.layer));
+  });
+
+  // An owner can change between a read and a write: a member who received
+  // the organisation by succession declines it, and the next one has it.
+  // The old owner's writes in flight then change nothing.
+  it.live("an old owner's removal held across a decline removes no one", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, carol, orgId } = yield* setupTeam;
+      yield* inheritedNow(orgId);
+      const removed = yield* across(
+        h,
+        removal,
+        org.removeMember(orgId, alice.id, carol.id),
+        declineById(orgId, alice.id),
+      );
+      expect(removed).toBe("Only admins can remove members");
+      expect(yield* org.getMemberRole(orgId, carol.id)).toBe("member");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live(
+    "a profile's delete held across a decline that makes it the owner deletes nothing",
+    () => {
+      // The decline passes acme to bob's second profile while bob's account is
+      // deleting that profile: the delete, read before the decline, must not
+      // remove an owner or its membership, and refuses as it would now.
+      const h = held();
+      return Effect.gen(function* () {
+        const { alice, organisation } = yield* setupOrgWithOwner;
+        const bob = yield* registerProfile("bob@example.com", "bob");
+        const heir = yield* createProfileService(auth).createProfile(bob.accountId, "bobtwo");
+        yield* org.addMember(organisation.id, alice.id, heir.id, "admin");
+        yield* inheritedNow(organisation.id);
+        const deleted = yield* across(
+          h,
+          /^delete from "connections"/,
+          createProfileService(auth).deleteProfile(bob.accountId, heir.id),
+          declineById(organisation.id, alice.id),
+        );
+        expect(deleted).toBe("Delete the organisations this profile owns before deleting it");
+        expect((yield* org.getOrganisation(organisation.id)).ownerId).toBe(heir.id);
+        expect(yield* org.getMemberRole(organisation.id, heir.id)).toBe("admin");
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+
+  it.live("a decline held across another decline of the same organisation writes nothing", () => {
+    // Two declines at once: the second, read before the first committed, finds
+    // its caller no longer the owner and changes nothing.
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, carol, orgId } = yield* setupTeam;
+      yield* inheritedNow(orgId);
+      const second = yield* across(
+        h,
+        /^delete from "organisation_members"/,
+        declineById(orgId, alice.id).pipe(Effect.map((r) => r.outcome)),
+        declineById(orgId, alice.id),
+      );
+      expect(second).toBe("ok");
+      expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
+      expect(yield* org.getMemberRole(orgId, bob.id)).toBe("admin");
+      expect(yield* org.getMemberRole(orgId, carol.id)).toBe("member");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("an old owner's delete held across a decline leaves the new owner's organisation", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, orgId } = yield* setupTeam;
+      yield* inheritedNow(orgId);
+      const deleted = yield* across(
+        h,
+        removal,
+        org.deleteOrganisation(orgId, alice.id),
+        declineById(orgId, alice.id),
+      );
+      expect(deleted).toBe("Only the owner can delete the organisation");
+      expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
+      expect(yield* org.getMemberRole(orgId, bob.id)).toBe("admin");
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
+/** Sets when `profileId` joined `orgId`, in seconds since the epoch. */
+const joinedAt = (orgId: string, profileId: string, seconds: number) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(() =>
+      db
+        .update(organisationMembers)
+        .set({ createdAt: new Date(seconds * 1_000) })
+        .where(
+          and(
+            eq(organisationMembers.organisationId, orgId),
+            eq(organisationMembers.profileId, profileId),
+          ),
+        ),
+    );
+  });
+
+/** Marks `orgId`'s owner as having received it by succession `secondsAgo` ago. */
+const inheritedNow = (orgId: string, secondsAgo = 0) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(() =>
+      db
+        .update(organisations)
+        .set({ ownerInheritedAt: Math.floor(Date.now() / 1_000) - secondsAgo })
+        .where(eq(organisations.id, orgId)),
+    );
+  });
+
+/**
+ * A member who received an organisation by succession may hand it back for
+ * 30 days: it passes as the hard delete would pass it without them, or is
+ * deleted when no one else could take it, and they leave it either way.
+ */
+describe("declineOwnership", () => {
+  /** alice received "acme"; bob and carol are members from other accounts. */
+  const setup = (bobRole: "admin" | "member", carolRole: "admin" | "member") =>
+    Effect.gen(function* () {
+      const { alice, organisation } = yield* setupOrgWithOwner;
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      const carol = yield* registerProfile("carol@example.com", "carol");
+      yield* org.addMember(organisation.id, alice.id, bob.id, bobRole);
+      yield* org.addMember(organisation.id, alice.id, carol.id, carolRole);
+      // Bob joined first. `created_at` is in seconds, so two members added in
+      // one second would tie and the random id would choose between them.
+      yield* joinedAt(organisation.id, bob.id, 100);
+      yield* joinedAt(organisation.id, carol.id, 200);
+      yield* inheritedNow(organisation.id);
+      return { alice, bob, carol, orgId: organisation.id };
+    });
+
+  it.effect(
+    "passes to the longest-standing admin from another account, and the decliner leaves",
+    () =>
+      Effect.gen(function* () {
+        const { alice, bob, carol, orgId } = yield* setup("member", "admin");
+        const result = yield* declineById(orgId, alice.id);
+        expect(result).toMatchObject({
+          outcome: "passed",
+          handle: "acme",
+          newOwnerEmail: "carol@example.com",
+        });
+        const after = yield* org.getOrganisation(orgId);
+        expect(after.ownerId).toBe(carol.id);
+        // The new owner may decline in turn.
+        expect(after.ownerInheritedAt).not.toBeNull();
+        expect(yield* org.getMemberRole(orgId, alice.id)).toBeNull();
+        expect(yield* org.getMemberRole(orgId, bob.id)).toBe("member");
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("with no other admin, makes the longest-standing member its admin and owner", () =>
+    Effect.gen(function* () {
+      const { alice, bob, orgId } = yield* setup("member", "member");
+      expect((yield* declineById(orgId, alice.id)).outcome).toBe("passed");
+      expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
+      expect(yield* org.getMemberRole(orgId, bob.id)).toBe("admin");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect(
+    "with no member from another account, deletes it, never passing it to the decliner's own profile",
+    () =>
+      Effect.gen(function* () {
+        const { alice, organisation } = yield* setupOrgWithOwner;
+        const { db } = yield* Db;
+        // A second profile on alice's own account, an admin of the organisation.
+        const own = "usr_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+        yield* Effect.sync(() =>
+          db.run(
+            sql`INSERT INTO users (id, account_id, handle, is_default, created_at, updated_at) VALUES (${own}, ${alice.accountId}, 'alicetwo', 0, 0, 0)`,
+          ),
+        );
+        yield* org.addMember(organisation.id, alice.id, own, "admin");
+        yield* inheritedNow(organisation.id);
+
+        expect(yield* declineById(organisation.id, alice.id)).toEqual({
+          outcome: "deleted",
+        });
+        const left = yield* Effect.promise(() =>
+          db.select().from(organisations).where(eq(organisations.id, organisation.id)),
+        );
+        expect(left).toEqual([]);
+        expect(yield* org.getMemberRole(organisation.id, own)).toBeNull();
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refuses someone who does not own it, and changes nothing", () =>
+    Effect.gen(function* () {
+      const { alice, bob, orgId } = yield* setup("admin", "member");
+      expect(yield* declineById(orgId, bob.id)).toEqual({ outcome: "not_owner" });
+      expect((yield* org.getOrganisation(orgId)).ownerId).toBe(alice.id);
+      expect(yield* org.getMemberRole(orgId, bob.id)).toBe("admin");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refuses one who declined it already: no longer the owner", () =>
+    Effect.gen(function* () {
+      const { alice, bob, orgId } = yield* setup("admin", "member");
+      expect((yield* declineById(orgId, alice.id)).outcome).toBe("passed");
+      expect(yield* declineById(orgId, alice.id)).toEqual({ outcome: "not_owner" });
+      expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refuses an owner who created it", () =>
+    Effect.gen(function* () {
+      const { alice, organisation } = yield* setupOrgWithOwner;
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      yield* org.addMember(organisation.id, alice.id, bob.id, "admin");
+      expect(yield* declineById(organisation.id, alice.id)).toEqual({
+        outcome: "not_declinable",
+      });
+      expect((yield* org.getOrganisation(organisation.id)).ownerId).toBe(alice.id);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refuses an owner who received it more than 30 days ago", () =>
+    Effect.gen(function* () {
+      const { alice, orgId } = yield* setup("admin", "member");
+      yield* inheritedNow(orgId, 30 * 24 * 60 * 60 + 1);
+      expect(yield* declineById(orgId, alice.id)).toEqual({ outcome: "not_declinable" });
+      expect((yield* org.getOrganisation(orgId)).ownerId).toBe(alice.id);
+      expect(yield* org.getMemberRole(orgId, alice.id)).toBe("admin");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // The window's edge, on a clock held still so the read and the write agree.
+  describe("at the edge of the 30 days", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+    const THIRTY_DAYS = 30 * 24 * 60 * 60;
+
+    it.effect("refuses one received exactly 30 days ago", () =>
+      Effect.gen(function* () {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-11-16T12:00:00Z"));
+        const { alice, orgId } = yield* setup("admin", "member");
+        yield* inheritedNow(orgId, THIRTY_DAYS);
+        expect(yield* declineById(orgId, alice.id)).toEqual({
+          outcome: "not_declinable",
+        });
+      }).pipe(Effect.provide(createTestLayer())),
+    );
+
+    it.effect("takes one received a second inside the 30 days", () =>
+      Effect.gen(function* () {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-11-16T12:00:00Z"));
+        const { alice, orgId } = yield* setup("admin", "member");
+        yield* inheritedNow(orgId, THIRTY_DAYS - 1);
+        expect((yield* declineById(orgId, alice.id)).outcome).toBe("passed");
+      }).pipe(Effect.provide(createTestLayer())),
+    );
   });
 });

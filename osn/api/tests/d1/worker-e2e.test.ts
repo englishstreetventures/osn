@@ -22,7 +22,8 @@ import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
  * `wrangler.toml` binds them. Every other osn-api test runs the app under Bun
  * with the in-memory stores, and `tools/e2e` boots it under Bun too, so this is
  * the only place the Durable Object path runs as deployed: a step-up token
- * used once, a one-time code used once, an hour-window limiter that outlives a
+ * used once, a one-time code used once, a sign-up through an emailed link
+ * whose session is delivered once, an hour-window limiter that outlives a
  * restart, a recovery-code lockout and refresh-token reuse detection.
  *
  * It ends by writing `e2e-artifacts/osn-api-workerd/results.json`: each
@@ -62,6 +63,8 @@ const ORIGIN = wrangler.vars["OSN_CORS_ORIGIN"]!.split(",")[0]!;
 const API = wrangler.vars["OSN_ISSUER_URL"]!;
 /** A loopback Resend stand-in; the Worker's outbound fetches land in `capture`. */
 const RESEND_ORIGIN = "http://127.0.0.1:9";
+/** The deployed sign-in page URL, with a path: a mailed link uses its origin alone. */
+const AUTHORIZE_UI_URL = "https://musubi.example/authorize";
 const DEV_LOGIN_SECRET = "workerd-e2e-dev-login-secret";
 // The bearer `/health/coordination` answers, as the smoke check sends it.
 const INTERNAL_SERVICE_SECRET = "workerd-e2e-internal-service-secret";
@@ -123,6 +126,7 @@ async function boot(): Promise<Miniflare> {
       INTERNAL_SERVICE_SECRET,
       RESEND_API_KEY: "re_workerd_e2e",
       RESEND_API_URL: RESEND_ORIGIN,
+      OSN_AUTHORIZE_UI_URL: AUTHORIZE_UI_URL,
     },
     d1Databases: { DB: "osn-workerd-e2e" },
     d1Persist: join(state, "d1"),
@@ -153,6 +157,8 @@ interface CallOptions {
   /** Sent as an `application/x-www-form-urlencoded` body instead of JSON. */
   readonly form?: Readonly<Record<string, string>>;
   readonly query?: string;
+  /** The path the artifact records, where the real one holds a generated id. */
+  readonly recordedPath?: string;
 }
 
 interface Answer {
@@ -198,10 +204,11 @@ async function call(
     // Not JSON: recorded by status alone.
   }
   const error = typeof json["error"] === "string" ? json["error"] : undefined;
+  const recorded = options.recordedPath ?? path;
   steps.push(
     error === undefined
-      ? { step, method, path, status: res.status }
-      : { step, method, path, status: res.status, error },
+      ? { step, method, path: recorded, status: res.status }
+      : { step, method, path: recorded, status: res.status, error },
   );
   return { status: res.status, json, setCookies: res.headers.getSetCookie() };
 }
@@ -214,12 +221,28 @@ function sessionCookie(answer: Answer): string {
   return `osn_session=${value}`;
 }
 
-/** The six-digit code in the newest mail to `to` that arrived after `after` mails. */
-function codeMailedTo(to: string, after: number): string {
-  const sent = mail.slice(after).filter((m) => m.to.includes(to));
-  const code = sent.at(-1)?.text.match(/\b(\d{6})\b/)?.[1];
-  if (code === undefined) throw new Error(`no one-time code mailed to ${to}`);
-  return code;
+/**
+ * The newest emailed link (sign-up or step-up) mailed to `to` after `after`
+ * mails. The link goes out after the answer, through the request's
+ * `waitUntil`, so this waits for it.
+ */
+async function linkMailedTo(
+  to: string,
+  after: number,
+): Promise<{ requestId: string; linkSecret: string }> {
+  for (let i = 0; i < 200; i++) {
+    const sent = mail.slice(after).filter((m) => m.to.includes(to));
+    const text = sent.at(-1)?.text ?? "";
+    const match = text.match(/\/verify\/((?:signup|stepup)_[a-f0-9]{12})#([a-f0-9]{64})/);
+    if (match) {
+      // The origin of the configured sign-in page, and none of its path.
+      expect(text).toContain(`https://musubi.example/verify/${match[1]}#`);
+      return { requestId: match[1]!, linkSecret: match[2]! };
+    }
+    // eslint-disable-next-line no-await-in-loop -- polling for a send that runs after the answer
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`no emailed link mailed to ${to}`);
 }
 
 /** A store object, reached through the binding the Worker uses. */
@@ -271,7 +294,7 @@ afterAll(async () => {
 describe("osn-api on workerd, with the coordination store on its Durable Object", () => {
   let access = "";
   let session = "";
-  let otp = "";
+  let stepUpClaim = { requestId: "", claimSecret: "" };
   let stepUpToken = "";
   let recoveryCodes: string[] = [];
 
@@ -295,23 +318,47 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     session = sessionCookie(res);
   });
 
-  it("mints a step-up token from an emailed one-time code, once", async () => {
+  it("mints a step-up token through an emailed link", async () => {
     const before = mail.length;
-    const begin = await call("step-up code sent", "POST", "/step-up/otp/begin", {
+    const begin = await call("step-up link sent", "POST", "/step-up/email/begin", {
       ip: MAIN_IP,
       bearer: access,
+      body: { purpose: "recovery_generate" },
     });
     expect(begin.status).toBe(200);
-    otp = codeMailedTo(DEV_PRINCIPAL.email, before);
+    const requestId = begin.json["requestId"] as string;
+    const claimSecret = begin.json["claimSecret"] as string;
+    const link = await linkMailedTo(DEV_PRINCIPAL.email, before);
+    expect(link.requestId).toBe(requestId);
 
-    const complete = await call("step-up code accepted", "POST", "/step-up/otp/complete", {
-      ip: MAIN_IP,
-      bearer: access,
-      body: { code: otp, purpose: "recovery_generate" },
-    });
-    expect(complete.status).toBe(200);
-    stepUpToken = complete.json["step_up_token"] as string;
+    const confirm = await call(
+      "step-up link confirmed",
+      "POST",
+      `/email-link/${requestId}/confirm`,
+      {
+        ip: MAIN_IP,
+        body: { linkSecret: link.linkSecret, pairingPick: begin.json["pairingCode"] as string },
+        recordedPath: "/email-link/:id/confirm",
+      },
+    );
+    expect(confirm.json).toEqual({ status: "confirmed" });
+
+    const status = await call(
+      "step-up token claimed",
+      "POST",
+      `/step-up/email/${requestId}/status`,
+      {
+        ip: MAIN_IP,
+        bearer: access,
+        body: { claimSecret },
+        recordedPath: "/step-up/email/:id/status",
+      },
+    );
+    expect(status.status).toBe(200);
+    expect(status.json["status"]).toBe("complete");
+    stepUpToken = status.json["step_up_token"] as string;
     expect(stepUpToken.length).toBeGreaterThan(0);
+    stepUpClaim = { requestId, claimSecret };
   });
 
   it("accepts a step-up token once", async () => {
@@ -338,14 +385,20 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     expect(again.json["error"]).toBe("invalid_request");
   });
 
-  it("accepts a one-time code once", async () => {
-    const replay = await call("step-up code replayed", "POST", "/step-up/otp/complete", {
-      ip: MAIN_IP,
-      bearer: access,
-      body: { code: otp, purpose: "recovery_generate" },
-    });
-    expect(replay.status).toBe(400);
-    expect(replay.json["error"]).toBe("invalid_request");
+  it("hands a confirmed link's token over once", async () => {
+    const replay = await call(
+      "step-up link claimed again",
+      "POST",
+      `/step-up/email/${stepUpClaim.requestId}/status`,
+      {
+        ip: MAIN_IP,
+        bearer: access,
+        body: { claimSecret: stepUpClaim.claimSecret },
+        recordedPath: "/step-up/email/:id/status",
+      },
+    );
+    expect(replay.status).toBe(200);
+    expect(replay.json).toEqual({ status: "expired" });
   });
 
   it("refuses recovery-code generation from one IP once its hour's budget is spent", async () => {
@@ -455,6 +508,59 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     });
     expect(successor.status).toBe(400);
     expect(successor.json["error"]).toBe("invalid_grant");
+  });
+
+  it("signs up through an emailed link and delivers the session once", async () => {
+    const address = "workerd-signup@example.com";
+    const before = mail.length;
+    const begin = await call("sign-up begun", "POST", "/register/begin", {
+      ip: MAIN_IP,
+      body: { email: address, handle: "workerdsignup", birthdate: "1990-01-01" },
+    });
+    expect(begin.status).toBe(200);
+    const requestId = begin.json["requestId"] as string;
+    const claimSecret = begin.json["claimSecret"] as string;
+    const pairingCode = begin.json["pairingCode"] as string;
+    const link = await linkMailedTo(address, before);
+    expect(link.requestId).toBe(requestId);
+
+    const candidates = await call(
+      "sign-up link candidates",
+      "POST",
+      `/email-link/${requestId}/candidates`,
+      {
+        ip: MAIN_IP,
+        body: { linkSecret: link.linkSecret },
+        recordedPath: "/email-link/:id/candidates",
+      },
+    );
+    expect(candidates.json["pairingCandidates"]).toContain(pairingCode);
+
+    for (const step of ["sign-up link confirmed", "sign-up link confirmed again"]) {
+      // eslint-disable-next-line no-await-in-loop -- the second confirm must follow the first
+      const confirmed = await call(step, "POST", `/email-link/${requestId}/confirm`, {
+        ip: MAIN_IP,
+        body: { linkSecret: link.linkSecret, pairingPick: pairingCode },
+        recordedPath: "/email-link/:id/confirm",
+      });
+      expect(confirmed.json).toEqual({ status: "confirmed" });
+      expect(confirmed.setCookies).toEqual([]);
+    }
+
+    const done = await call("sign-up claimed", "POST", `/register/${requestId}/status`, {
+      ip: MAIN_IP,
+      body: { claimSecret },
+      recordedPath: "/register/:id/status",
+    });
+    expect(done.status).toBe(201);
+    expect(sessionCookie(done)).toContain("osn_session=");
+
+    const again = await call("sign-up claimed again", "POST", `/register/${requestId}/status`, {
+      ip: MAIN_IP,
+      body: { claimSecret },
+      recordedPath: "/register/:id/status",
+    });
+    expect(again.json).toEqual({ status: "expired" });
   });
 
   it("sent nothing anywhere but the Resend stand-in", () => {

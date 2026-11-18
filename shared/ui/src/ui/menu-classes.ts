@@ -10,7 +10,8 @@
  * Two variants, chosen once on the panel:
  *
  * - `default` — the shared look musubi's account menu and pulse's two menus
- *   draw. Its strings are frozen:
+ *   draw. It grows from its trigger and shrinks a little as it closes, on the
+ *   shared motion tokens (`tokens.css`). Its strings are frozen:
  *   `tests/dropdown-menu-default.browser.test.tsx` reads them back literally,
  *   because that is the only thing that keeps those apps unmoved by a change
  *   made for cire. A focused row is marked by its sunk fill; a contrast theme
@@ -19,9 +20,12 @@
  * - `accent` — cire's portal look: the raised panel at the 10px corner with
  *   the floating shadow, 6px rows in full ink, the highlighted row a 10%
  *   accent wash with readable accent ink. It opens with a short pop from the
- *   trigger's side and closes at once: a menu held mounted for an exit
+ *   trigger's side, from the shared `--ui-scale-enter`, and closes at once: a menu held mounted for an exit
  *   animation keeps focus inside it, and Kobalte's hand-back to the trigger
  *   then falls to `<body>`.
+ *
+ * In both looks the separator is a fill, so it draws a top border in a
+ * contrast theme alone.
  *
  * The accent look reads an app's own `--elev-2`, `--dur-fast` and `--ease-out`
  * first and the contract's `--ui-*` after, as `choice.ts` and `control.ts` do,
@@ -39,11 +43,11 @@ export type MenuLabelTone = "heading" | "identity" | "eyebrow";
 const PANEL = {
   default:
     "base:bg-ui-surface-raised base:text-ui-ink base:border-ui-hairline base:z-50 base:min-w-32 base:rounded-ui-md base:border base:p-1 base:shadow-md base:outline-none " +
-    "base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out-95 base:data-[expanded]:zoom-in-95",
+    "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out base:data-[expanded]:zoom-in",
   accent:
     "base:bg-ui-surface-raised base:text-ui-ink base:border-ui-hairline base:z-50 base:min-w-32 base:rounded-ui-md base:border base:p-1.5 " +
     "base:shadow-[var(--elev-2,var(--ui-elev-2))] base:outline-none " +
-    "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:fade-in-0 base:[--ui-enter-scale:0.96] " +
+    "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:fade-in-0 base:data-[expanded]:zoom-in " +
     "base:motion-safe:data-[expanded]:[animation:ui-enter_var(--dur-fast,var(--ui-dur-fast))_var(--ease-out,var(--ui-ease-out))_both]",
 } satisfies Readonly<Record<MenuVariant, string>>;
 
@@ -93,9 +97,19 @@ const EYEBROW = {
     "base:px-3 base:pt-2 base:pb-1 base:font-ui-body base:text-ui-xs base:tracking-ui-widest base:uppercase base:font-normal base:text-ui-ink-secondary",
 } satisfies Readonly<Record<MenuVariant, string>>;
 
+/**
+ * The line is the 1px hairline fill, so both looks set `border-0`: the
+ * separator is an `<hr>`, which keeps preflight's 1px top border in the
+ * panel's ink, and that border covers the fill wherever an app's base styles
+ * leave its colour alone. A contrast theme replaces the fill with the page
+ * colour, so both looks draw the top border back there for the theme to
+ * paint.
+ */
 const SEPARATOR = {
-  default: "base:bg-ui-hairline base:-mx-1 base:my-1 base:h-px",
-  accent: "base:bg-ui-hairline base:mx-1 base:my-1 base:h-px base:border-0",
+  default:
+    "base:bg-ui-hairline base:-mx-1 base:my-1 base:h-px base:border-0 base:forced-colors:border-t",
+  accent:
+    "base:bg-ui-hairline base:mx-1 base:my-1 base:h-px base:border-0 base:forced-colors:border-t",
 } satisfies Readonly<Record<MenuVariant, string>>;
 
 /** The trailing mark on a chosen radio row and a checked check row. */

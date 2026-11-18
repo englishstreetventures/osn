@@ -203,22 +203,41 @@ vi.mock("../../src/components/HostsPanel", () => ({
 vi.mock("../../src/components/SettingsPanel", () => ({
   // Surfaces canEditRsvpDeadline: it is the one line connecting the API's
   // co-host deadline write to a real co-host, and nothing else can see it.
-  // And the tier, which decides the locked modules whose downloads it lists.
   default: (p: {
     weddingId: string;
     canManage: boolean;
     canEditRsvpDeadline?: boolean;
-    tier: Tier;
-    onTierRaised?: (tier: "gold" | "crimson") => void;
+    exportPage?: { href: string; onOpen: () => void };
   }) => (
     <div
       data-testid="settings"
       data-can-manage={String(p.canManage)}
       data-can-edit-rsvp={String(p.canEditRsvpDeadline)}
-      data-tier={p.tier}
+      data-export-href={p.exportPage?.href}
     >
       {p.weddingId}
-      <button onClick={() => p.onTierRaised?.("crimson")}>settings-code-redeemed</button>
+      <button onClick={() => p.exportPage?.onOpen()}>settings-open-export</button>
+    </div>
+  ),
+}));
+// Surfaces the owner flag and the slug: the first decides whether the page
+// offers the download at all, the second names the saved file. And the way to
+// the owners, which only a non-owner is shown.
+vi.mock("../../src/components/WeddingExport", () => ({
+  default: (p: {
+    weddingId: string;
+    weddingSlug: string;
+    canManage: boolean;
+    coHosts?: { href: string; onOpen: () => void };
+  }) => (
+    <div
+      data-testid="export"
+      data-can-manage={String(p.canManage)}
+      data-slug={p.weddingSlug}
+      data-co-hosts-href={p.coHosts?.href}
+    >
+      {p.weddingId}
+      <button onClick={() => p.coHosts?.onOpen()}>export-open-co-hosts</button>
     </div>
   ),
 }));
@@ -317,7 +336,6 @@ function renderShell(opts: {
   /** The caller's role; derived from the two flags when a test names none. */
   role?: WeddingRole;
   onLeftWedding?: () => void;
-  onTierRaised?: (tier: "gold" | "crimson") => void;
   rsvpEvent?: string;
   onRsvpEvent?: (eventId: string) => void;
 }) {
@@ -363,7 +381,6 @@ function renderShell(opts: {
       entitlements={opts.entitlements ?? []}
       guestCap={opts.guestCap ?? 100}
       onLeftWedding={opts.onLeftWedding}
-      onTierRaised={opts.onTierRaised}
       rsvpEvent={opts.rsvpEvent}
       onRsvpEvent={opts.onRsvpEvent}
     />
@@ -575,21 +592,59 @@ describe("ModuleShell", () => {
       expect(panel.getAttribute("data-can-manage")).toBe("true");
       expect(panel.getAttribute("data-can-edit-rsvp")).toBe("true");
     });
+  });
 
-    // The panel lists the downloads of the modules this tier locks, so it has
-    // to be handed the wedding's tier, not a constant.
-    it.each(["ivory", "gold"] as const)("hands the panel the %s tier", (tier) => {
-      renderShell({ module: "settings", sub: "wedding", tier });
-      expect(screen.getByTestId("settings").getAttribute("data-tier")).toBe(tier);
-    });
+  /**
+   * 15. Anyone but an owner who opens the export page's address is sent to
+   *     another view and never told only an owner can download it; or the page
+   *     is handed the wrong owner flag or slug.
+   * 16. The delete dialog's pointer to the page, or a non-owner's way to the
+   *     owners, lands somewhere else.
+   */
+  describe("export — the whole wedding as one archive", () => {
+    it.each([
+      ["owner", true, true],
+      ["editor", false, true],
+      ["viewer", false, false],
+    ] as const)(
+      "15. opens the export page for an %s, handed whether they own it",
+      (role, canManage, canEdit) => {
+        renderShell({ role, canManage, canEdit, module: "settings", sub: "export" });
+        // The view's tab is there for every seat, named, and chosen.
+        expect(screen.getByRole("tab", { name: "Export" }).getAttribute("aria-selected")).toBe(
+          "true",
+        );
+        const page = screen.getByTestId("export");
+        expect(page.getAttribute("data-can-manage")).toBe(String(canManage));
+        expect(page.getAttribute("data-slug")).toBe("r-and-v");
+        expect(screen.queryByTestId("settings")).toBeNull();
+      },
+    );
 
-    // The code is redeemed in the panel; the list that unlocks the nav lives
-    // two levels up, so the tier has to travel through here.
-    it("passes a redeemed code's tier up from the panel", () => {
-      const onTierRaised = vi.fn();
-      renderShell({ module: "settings", sub: "wedding", onTierRaised });
-      fireEvent.click(screen.getByText("settings-code-redeemed"));
-      expect(onTierRaised).toHaveBeenCalledWith("crimson");
+    it("16. takes the delete dialog's pointer and a non-owner's way to the owners to their pages", () => {
+      const shell = renderShell({ module: "settings", sub: "wedding" });
+      expect(screen.queryByTestId("export")).toBeNull();
+      expect(screen.getByTestId("settings").getAttribute("data-export-href")).toBe(
+        "#/w/wed_1/settings/export",
+      );
+      fireEvent.click(screen.getByText("settings-open-export"));
+      expect(shell.onSub).toHaveBeenLastCalledWith("export");
+      expect(screen.getByTestId("export")).toBeTruthy();
+
+      cleanup();
+      const viewer = renderShell({
+        role: "viewer",
+        canManage: false,
+        canEdit: false,
+        module: "settings",
+        sub: "export",
+      });
+      expect(screen.getByTestId("export").getAttribute("data-co-hosts-href")).toBe(
+        "#/w/wed_1/settings/hosts",
+      );
+      fireEvent.click(screen.getByText("export-open-co-hosts"));
+      expect(viewer.onSub).toHaveBeenLastCalledWith("hosts");
+      expect(screen.getByTestId("hosts")).toBeTruthy();
     });
   });
 

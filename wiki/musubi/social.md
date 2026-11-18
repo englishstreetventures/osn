@@ -16,7 +16,8 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-27
+  - "[[account-deletion]]"
+last-reviewed: 2026-11-18
 ---
 
 # Social
@@ -42,8 +43,10 @@ The app ships as a web build only.
 | `/search` | `SearchPage` | People + organisations search (`GET /recommendations/search`), grouped under section headings, with real action buttons. The mobile shell's Search tab; reachable at any width |
 | `/discover` | `DiscoverPage` | Contact suggestions (`GET /recommendations/connections`) — mutual connections and shared organisations, each card saying which. See [[social-graph]] |
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
-| `/organisations/:id` | `OrgDetailPage` | Org detail + member management |
-| `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. Which tab opens comes from the URL fragment (`/settings#security`), read off the router's location — so a deep link from another origin, Back/Forward, a tab click and an in-app link to a tab all behave the same. The Security tab is lazy-loaded (`SecuritySection` chunk). `@simplewebauthn/browser` is split across two wrappers: `src/lib/webauthn-ceremony.ts` (assertion) ships with the security-events banner, and `src/lib/webauthn-registration.ts` (enrolment) only when the Security tab opens — see below. |
+| `/organisations/:handle` | `OrgDetailPage` | Org detail + member management, addressed by handle like every organisation route. Any signed-in profile sees the organisation; only members see its roster (the API answers anyone else `403`, and the page says so). A handle with no organisation shows "Organisation not found." With `?decline=1` — where the "you now own" email links — it asks the API whether this person may decline it (`orgClient.declineOwnershipStatus`), and only on a yes shows "This organisation passed to you", the last day to decline, and **Decline** (`orgClient.declineOwnership`): it passes to its next admin or member, or is deleted, and the person leaves it. A link opened by anyone else claims nothing: 403 `not_owner` and 409 `not_declinable`, from either call, say it can no longer be declined there ([[identity-model]]) |
+| `/settings/delete-account` | `DeleteAccountPage` | Deleting the account: [[#Deleting the account]]. A page at every width, lazy-loaded |
+| `/confirm/:requestId` | `ConfirmRequestPage` | An app's step-up request ([[step-up#App step-up requests]]): cire's portal sends a host here to confirm removing their Cire data. It names what the app asks and the host it sends them back to, runs the step-up for the request's purpose (`appStepUpClient`, `src/lib/authClients.ts`), and on confirm sends the same tab to the address osn-api answered, the only cire address it uses (`src/lib/return-to.ts`). Signed out, Musubi's own sign-in; a request gone, used, another account's or of an account whose deletion is pending, "start again from Cire" |
+| `/settings` | `SettingsPage` | Profile / **Account** (email and profile id; "Your data" — "Download my data" and "Send me a link"; Danger zone — "Delete account…", a link to `/settings/delete-account`) / **Security** (passkeys — add, rename, delete — then the authenticator app, then recovery codes; each change step-up gated) / Connected apps tabs. Which tab opens comes from the URL fragment (`/settings#security`), read off the router's location — so a deep link from another origin, Back/Forward, a tab click and an in-app link to a tab all behave the same. The Security tab is lazy-loaded (`SecuritySection` chunk). The WebAuthn wrappers each view uses are in [[#Where the WebAuthn runtime ships]]. |
 | `/authorize` | `AuthorizePage` | The OIDC consent screen — another app asking to sign the user in with their Musubi account. Lazy-loaded, and the one route on a **bare layout**: no sidebar, nothing to click but the decision. Full contract in [[authorize-ui]]. |
 
 `BARE_ROUTES` in `src/App.tsx` is the allow-list that strips the sidebar. Add
@@ -52,9 +55,33 @@ a route there only when leaving the flow would be a security problem.
 The app has two shells split at the `md` (768 px) breakpoint: the 240 px
 left rail on desktop, and a bottom-tab-bar + top-bar shell on mobile
 (`MobileNav` / `MobileTopBar`, nav items shared via `nav.tsx`; dialogs render
-as bottom sheets through `ResponsiveDialogContent`). The mobile UX audit and
-the design rules the responsive work follows live in [[social-mobile-ux]] and
-`DESIGN.md` §Responsive layout.
+as bottom sheets through `ResponsiveDialogContent`). Each shell is a lazy
+chunk; until it lands, `Layout` draws a frame of the same box
+(`ShellFrame.tsx`), so the page does not move. The sign-in, create-account and
+profile-switcher dialogs are mounted once above the shell switch
+(`ShellDialogs.tsx`, which loads all three as one lazy chunk,
+`ShellDialogSet.tsx`), and the shell waits for that chunk too, so no Sign in
+button shows before its dialog can open; a later load that succeeds mounts
+them. A signed-out page's own Sign in (`SignedOutNote`) reads
+`useShellDialogs().ready()` and stays `invisible` until the dialogs have
+mounted, so it holds its place and offers no dialog that cannot open. Every app dialog gives focus back to the control that opened it
+(`ResponsiveDialogContent`). Each page in the shell (every route but
+`/authorize`) names the browser tab after its `h1` through `usePageTitle`
+(`src/lib/page-title.ts`).
+The mobile UX audit and the design rules the responsive work follows live in
+[[social-mobile-ux]] and `DESIGN.md` §Responsive layout.
+
+## Deleting the account
+
+The person's side of [[account-deletion]], which describes the whole flow; the legal side is [[dsar]]. `@osn/client`'s `createAccountClient` is `accountClient` in `src/lib/authClients.ts`.
+
+- **Your data** (`AccountDataActions`, on the Account tab and the flow's first step): "Download my data" asks for an `account_export` step-up (`createStepUp`, `src/lib/step-up.tsx`, which loads `StepUpSheet` — `@osn/auth-ui`'s `StepUpDialog` — on the first ask), then `exportAccount` and saves the file (`src/lib/save-file.ts`; one a day). "Send me a link" calls `sendDataLink`: an email with a link to `/settings#account`, never the data (three a day).
+- **The flow** (`DeleteAccountPage`, "Step n of 3"): what happens, and Your data again; what needs an answer, from `getAccountDeletionPreview`, grouped by app (`osn` shows as Musubi), each action an `OpenActionCard` with its choices named by the server's own descriptions, its erase date, its "Open in <app>" link (see below), and for an organisation's `successor` a "New owner" select over `candidates`; a "Delete everything" switch, which keeps the answers on screen but sends none; then the handle typed and an `account_delete` step-up. Only answered actions go in `choices`. An app that could not be checked blocks Continue and is named, with Try again. Each refusal lands where the person can act (`src/lib/account-deletion.ts` merges a fresh preview into the answers): 409 `open_actions` and 400 `invalid_choice` mark the action on step 2, 409 `stale_choices` loads the fresh preview with a notice and keeps the answers whose action still exists, 409 `could_not_check` blocks, 400 `handle_mismatch` is a field error, 403 `step_up_required` steps up again, 409 `session_stale` signs out and opens sign-in, 429 and no answer each say so. On the 202 (or `already_pending`) the page calls `useAuth().renewSession({ pending: true })` at once; a renewal that fails leaves the page pending, and the window screen's own requests renew it.
+- **The window screen** (`DeletionWindow`, lazy): while `useAuth().pendingDeletion()` is true, `AppShell` draws it **in place of** the shell, `ShellNotices`, `AccountBanners` and the page, so nothing sends a request the pending session cannot make and the page cache is never bound. It reads `getAccountDeletionStatus` for the date ("We delete it on <date>"), and offers "Keep my account" (an `account_restore` step-up, `cancelAccountDeletion`, `renewSession()`, a "Your account is back" toast), "Download my data" and "Sign out". `cancelled: false` reads the status again: still pending, it says it is too late, with Sign out; not pending (another device kept it first), the app comes back. A 401 from the status read signs out. Bare routes keep their own layout.
+- **Connected apps** has no "Remove my data" link. Musubi keeps no address of an app's portal: cire's reaches osn-api only inside one call's answer. A host removes their Cire data from cire's own portal, which sends them to `/confirm/:requestId` and back.
+- **An app's link** in an open action is followed when it is `https:`, or `http:` to this machine, which osn-api forwards from a local run only (`followableLink`, `src/lib/account-deletion.ts`). cire's action links the wedding's download page, which also offers to add another owner.
+
+Tests: `tests/pages/DeleteAccountPage.test.tsx` (each refusal's landing, the request each answer sends), `tests/App.pending-deletion.test.tsx` (nothing of the shell mounts while pending), `tests/components/DeletionWindow.test.tsx`, `tests/components/AccountDataActions.test.tsx`, `tests/pages/OrgDetailPage.test.tsx`, and the layout in `tests/pages/DeleteAccountPage.browser.test.tsx`, `tests/components/DeletionWindow.browser.test.tsx`, `tests/pages/SettingsPage.account.browser.test.tsx`, `tests/pages/OrgDetailPage.decline.browser.test.tsx`; end to end, `tools/e2e/tests/flows/musubi-account-deletion.flow.ts`.
 
 ## Account-health banners
 
@@ -72,7 +99,7 @@ ceremony to clear, so it stays until the user deals with it; a recovery-code
 offer is housekeeping. The prompt waits for a *settled* count from the events
 banner rather than an empty one, so it never appears for an instant and then
 gives way to an event that was still in flight. Coexistence would be ordinary
-rather than rare: most of the 18 kinds in `SecurityEventKind`
+rather than rare: most of the kinds in `SecurityEventKind`
 (`shared/observability/src/metrics/attrs.ts`) — adding a passkey, enrolling an
 authenticator, signing in from a second device — sit happily on an account with
 no recovery codes.
@@ -95,38 +122,100 @@ email is the only account-wide identifier available, and a key built from it
 would leave one person's address in storage for the next person on a shared
 device. A dismissed prompt makes no request at all.
 
-Nothing caches "this account has codes". `generatedAt` looks monotonic and is
-not: scheduling an account deletion erases every recovery code, and cancelling
-inside the grace window restores the account without re-minting them, so a live
-account can go from a timestamp back to `null`. See [[recovery-codes]].
+The prompt caches nothing: it reads "this account has codes" afresh on each
+sign-in and profile change. Another device can use a code or replace the set
+at any time, and `active` drops to `0` once the last code is used, so one read
+goes stale. Settings' Security tab keeps its count in the page cache for the
+session and reads it again on every visit ([[#Page data]]). See
+[[recovery-codes]].
 
 `AccountBanners` wraps the pair in an `ErrorBoundary` that renders nothing. Both
 banners read endpoints limited to 30 requests a minute **per IP**, a Solid
 resource rethrows its fetch error on read, and shell code has no page-sized
 blast radius: one 429 on a shared address would otherwise blank every route.
 
+Each route renders inside `PageErrorBoundary` (`src/components/PageErrorBoundary.tsx`),
+below the banners, so a page that throws while it renders shows "This page
+didn't load." with Try again in the content column, and the rail, the tab bar
+and the banners stay drawn. It resets on its own when the path changes, never
+shows the error's text, and imports nothing from `@osn/client`: it is in the
+entry chunk `/authorize` downloads too.
+
+Above the banners, `ShellNotices` (`src/components/ShellNotices.tsx`, loaded
+with the shell, never on `/authorize`) says two things about the session
+itself: "You've been signed out." with Sign in when the session ends (see
+[[#Auth]]), and "Your profiles didn't load." with Try again when the account's
+profile list fails. `AuthProvider` keeps the last list it had when a list
+fails, so the shell drawn from it stays drawn, and exposes the failure as
+`profilesError` and the retry as `refetchProfiles` (`osn/client/README.md`).
+How each looks: `musubi/social/DESIGN.md` §Empty states and failed loads and
+§Auth surfaces.
+
 ## Search surfaces — two ARIA patterns, deliberately
 
 The rail (`GlobalSearch`) and the page (`SearchPage`) render the same results under different accessibility contracts, because the two patterns are mutually exclusive:
 
-- **Rail = combobox + listbox.** Activation runs through virtual focus (`aria-activedescendant` + Enter), and an ARIA listbox option may not contain operable descendants — assistive tech flattens an option to its accessible name, so a nested button or link is announced as text and cannot be triggered. So the option **is** the target (click or Enter), the Connect/Accept text is a non-interactive label, and each option carries an `aria-label` naming what activating it does ("Alice A, @alice, accept connection request").
+- **Rail = combobox + listbox.** Activation runs through virtual focus (`aria-activedescendant` + Enter), and an ARIA listbox option may not contain operable descendants — assistive tech flattens an option to its accessible name, so a nested button or link is announced as text and cannot be triggered. So the option **is** the target (click or Enter), the Connect/Accept text is a non-interactive label, and each option carries an `aria-label` naming what activating it does ("Alice A, @alice, accept connection request"). An option cannot take focus, so the results panel cancels `mousedown`: a press keeps focus in the field, the field's `focusout` does not close the panel, and the click lands on the option. A press outside the panel still blurs the field and closes it.
 - **Page = plain list.** No virtual focus, no listbox constraint, so it keeps real `<Button>`s and a real `<A>` per row.
 
 `PersonAction`'s `interactive` prop is what switches between them. Changing one surface to match the other is almost always wrong — check which pattern you're in first.
 
 ## Client surface
 
-Pages talk to `@osn/api` via three plain-fetch clients factored out of `@osn/client`:
+Pages talk to `@osn/api` via three Promise clients from `@osn/client`, built in `src/lib/api.ts` with the page runtime's `authFetch` (`src/lib/auth.ts`, `osnAuth`):
 
 - `createGraphClient` — connections, pending requests, close friends, blocks (`osn/client/src/graph.ts`)
-- `createOrgClient` — org CRUD and membership (`osn/client/src/organisations.ts`)
+- `createOrgClient` — org CRUD and membership (`osn/client/src/organisations.ts`). Every method returns its route's success body as sent, and addresses an organisation and a member by handle. `osn/client/tests/organisations-contract.test.ts` holds the client to `shared/openapi/osn.json`: each call reaches a route the spec has, with query keys and a body it accepts, and `OrgSummary` and `OrgMember` name the fields the routes answer with. It runs as the package's `test:repo` project, which turbo reruns when the spec changes
 - `createRecommendationClient` — contact suggestions + search (`osn/client/src/recommendations.ts`). `search` returns people and organisations together and takes an `AbortSignal` because it backs typeahead: the caller aborts the in-flight request when the query changes, so a slow early keystroke can't land after a fast later one.
 
-All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. The helpers now live once in `osn/client/src/auth-fetch.ts`; each module calls `createAuthFetchers(ErrorCtor)` and gets back the set bound to its own error class. The module is internal — `index.ts` does not export it, so the package's public surface is unchanged. It uses plain `fetch`, not `sessionFetch`: these clients send a bearer token in the `Authorization` header, so there is no session cookie for the native transport seam to supply.
+All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. The helpers live once in `osn/client/src/auth-fetch.ts`, which every REST client in the package builds its errors with except `authorize.ts` (the consent screen, with its own timeout and error codes); `service.ts` reads bodies through `response-body.ts`, below. Each of these three modules calls `createAuthFetchers(ErrorCtor, authFetch)` and gets back the set bound to its own error class. Every REST client's error class extends `OsnApiError` and carries the response's HTTP `status` (`0` when no response arrived) and the server's `error` `code`, and a success whose body is not JSON throws rather than resolving `null`. A rejection of `authFetch` about the session (`AuthExpiredError`, `TokenRefreshError`, `ActiveProfileResetError`, `StorageError`), or the caller's own abort, reaches the caller unchanged; any other rejection becomes the client's error at status `0`. `StepUpClient` also ends each call still waiting after `STEP_UP_DEADLINE_MS` (15 s in the foreground) as a `StepUpError` at status `0`, through `withDeadline` in `auth-fetch.ts` ([[step-up#Request deadline]]). `ProfileManagementError`, which `OsnAuthService`'s profile calls fail with, is an Effect tagged error, not an `OsnApiError`: it carries `status` and `code` as optional fields, and neither when the call failed before any request or when a success body failed to decode. `OrgDetailPage` reads `OrgClientError`'s `status` to tell a missing organisation (`404`) and a roster a non-member may not read (`403`) from any other failure. `auth-fetch.ts` and `response-body.ts` are internal: `index.ts` exports neither. Their requests say `credentials: "same-origin"`: `authFetch` defaults to `"include"`, and these routes read no cookie, so the session cookie stays off them.
 
 Each client calls `createAuthFetchers` **inside** its `create*Client` factory, not at module scope. This is load-bearing for bundle size, not style. A top-level call is a statement a bundler cannot drop, so it pinned all three modules into the entry chunk of every app importing the barrel — `musubi/social` paid about 0.9 KB gzipped on first paint. A `/* @__PURE__ */` annotation does **not** rescue it: neither esbuild nor rolldown will remove a declarator whose binding is a destructuring pattern. Keep the call inside the factory.
 
+Two more module boundaries in `@osn/client` exist for the same reason, since rolldown splits chunks by module. `OsnApiError`, the base every REST client's error extends, lives in `api-error.ts`, which imports nothing: in `errors.ts`, beside the Effect tagged errors, it would pull Effect into every client module and split a new shared chunk onto first paint (about 1.5 KB gzipped). `safeJson` and `errorCode` live in `response-body.ts`, so `service.ts`, which every app loads at start, reads a response body without pulling the rest of `auth-fetch.ts` into the entry chunk.
+
+*Measured 2026-11-07 — `bunx --bun vite build` in `musubi/social`, gzip of the entry chunk plus every chunk it imports statically: 49,903 bytes with no `OsnApiError`; 51,952 with it in `errors.ts` and `safeJson` in `auth-fetch.ts`; 50,441 with `api-error.ts` alone; 50,059 with both modules.*
+
+*Re-measured 2026-11-07 — the same build, with `main` at `98a302733`; the entry chunk imports no other chunk, and Node's `zlib.gzipSync` at its default level gives 50,405 bytes with `osn/client` and `osn/auth-ui` checked out from `98a302733` (no `OsnApiError`) and 50,589 with both modules.*
+
 The two delete shapes are deliberately different and must not be merged. `graph.ts` uses `authDelete`, which parses and returns the JSON body; `organisations.ts` uses `authDeleteVoid`, which reads the body only on the error path. Both sets of routes answer `200` with `{ ok: true }` — the difference is that `OrgClient` declares `deleteOrg` and `removeMember` as `Promise<void>`, so that client discards the body rather than there being no body to read.
+
+## Page data
+
+The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, the shell's prompts and the bare routes read on their own); how it is keyed, cleared and read is in [[frontend-patterns#Page data: one cache, keyed by the session]]. A page seen before draws its last rows at once and reads them again behind them; a first load draws as many placeholders as that page last landed, one when nothing is known (`DESIGN.md` §Empty states and failed loads). The queries are in `src/lib/page-data.ts`:
+
+| Query | Page | Read |
+|---|---|---|
+| `connectionsList`, `pendingRequests`, `sentRequests`, `blockedProfiles` | Connections, one per tab, read only while its tab is shown | `GET /graph/connections`, `/graph/connections/pending`, `/graph/connections/sent`, `/graph/blocks` |
+| `suggestions` | Discover | `GET /recommendations/connections?limit=20` |
+| `myOrganisations` | Organisations | `GET /organisations` |
+| `organisationDetail`, `organisationMembers` | An organisation, by handle | `GET /organisations/:handle`, `/organisations/:handle/members` |
+| `connectedApps` | Settings' Connected apps | `GET /oidc/connections` |
+| `passkeyList`, `authenticatorStatus`, `recoveryCodesStatus` (`src/lib/security-data.ts`) | Settings' Security, all three on the one tab | `GET /passkeys`, `/totp/status`, `/recovery/status` |
+
+The data routes' `preload`s (`App.tsx`) call a function each page module exports (`preloadConnections`, `preloadDiscover`, `preloadOrganisations`, `preloadOrganisation`), through the same `import()` as the page, so the entry chunk gains no import site. The shell names a query without loading it: search marks pages stale with `invalidatePages` and the names in `src/lib/page-names.ts`, and `PageCacheScope` mounts inside the lazy `ShellNotices`.
+
+*Measured 2026-11-14 — `bunx --bun vite build` in `musubi/social`, gzip -9 of the entry chunk and every chunk it imports statically: 56,294 bytes in one file on `main` at `90cfe9315`, 56,499 in one file with the page cache. With `page-data` imported from `App.tsx` and `PageCacheScope` mounted from it, the entry split into four files, 58,879.*
+
+What each mutation writes, with the scope mark taken before its request:
+
+| Where | Mutation | Cache |
+|---|---|---|
+| Connections | remove, accept, decline, cancel, unblock | the row taken off its tab's list, the list read again (not after unblock, whose answer leaves nothing to learn); accept also marks All stale; every one marks Discover's suggestions stale |
+| Discover | connect | the card taken off (osn-api suggests nobody with a request in flight), the suggestions read again, Sent marked stale |
+| Search (rail and `/search`) | connect, accept | Sent, or Pending and All, and the suggestions marked stale |
+| Organisations | create | the answer appended, the list read again, suggestions stale |
+| An organisation | rename | its entry and its row in the list rewritten; the list reads itself again when next shown |
+| An organisation | delete | its entry and roster forgotten, so a stale link is a first load that answers "not found"; its row taken off the list |
+| An organisation | remove member | the row taken off, suggestions stale |
+| Connected apps | revoke | the list read again, Revoke busy until it lands |
+| Security | rename or remove a passkey | its outcome written at once (the name sent, the row gone), then all three Security reads read again |
+| Security | add a passkey, add or remove the authenticator, generate recovery codes | that read forgotten at once (its placeholder, never the rows before), then all three read again; an authenticator's confirm, which runs no step-up of its own, reads only the authenticator |
+| Security | a write the server refused (400–499), an enrolment started, a passkey add that ends before its last call | the rows kept on the screen that wrote, all three read again: the step-up before each moved a factor's "Last used". osn-api answers 400 for an error it does not recognise, which can follow a write that landed, so the tab gone when the write ends, or left while that read is out, forgets the rows |
+
+Row actions wait for a read of their list that is out, and act only on a row still there (`src/lib/row-actions.ts`).
+
+The Security tab's three views are `@osn/auth-ui`'s, so they take their reads as a `SettingsRead` (`osn/auth-ui/src/settings-read.ts`), which `useSettingsRead` builds from a query in `SecuritySection`. Each write tells its read how it ended (`WriteEnd`): an exact outcome, `"unchanged"`, or `"unknown"`, whose rows are forgotten; a write that settles after the session changed (a profile switch keeps the tab mounted) is always `"unknown"` and never writes its outcome into the new session's rows. Anything the views act on while a read is out — Remove, Save, the authenticator's Add and Remove, Generate — is busy from the press ("Checking…"), waits for the read, and acts only on what it answers. None of the three reads takes a step-up token, so nothing cached outlives or needs one, and the authenticator's setup key and new recovery codes are write answers that never reach the cache. `tests/components/SecurityCache.test.tsx` holds each way the tab can show a row a write may have changed; `tests/components/SecurityCacheScope.browser.test.tsx` holds, through the real `AuthProvider` with the tab mounted throughout, that no session sees the Security rows of the one before it, and that a write which settles after its account has gone writes nothing into the next. `musubi-passkey` comes back to the tab with its reads held and finds the rows in the first frame that draws it, renames the passkey and comes back with the read again held to find only the new name, and finds a first load after signing in again. `tests/lib/page-cache.test.tsx` holds each way the cache can fail; `tests/components/PageCacheScope.test.tsx` holds, through the real `AuthProvider` (with a fake runtime, hence `effect` among the dev dependencies), that a profile switch, a sign-out then another account, and a session end then another account each show none of the rows before; `tests/components/PlaceholderRows.browser.test.tsx` holds the placeholder count. `musubi-org-detail` hovers Discover and finds its suggestions read before the click, comes back to the organisations list with its read held and finds the renamed row drawn and no placeholder, and finds a deleted organisation's stale link drawing one.
 
 ## Dev
 
@@ -142,10 +231,13 @@ Environment variables (all prefixed `VITE_`):
 
 ## Deployment
 
-Cloudflare Pages, project **`osn-social`**, served at the apex
-**`https://musubi.social`**. The `deploy-osn-social` job in
-`.github/workflows/production-release.yml` builds and publishes it in each
-production release that ships it. On dev the musubi stack serves it as the
+Served at the apex **`https://musubi.social`**. The `sites` job in
+`.github/workflows/production-release.yml` builds it, and the musubi stack deploys that
+build to the **`osn-social`** Worker, which is `worker` in
+`shared/infra/src/production-sites.ts` and serves the apex since release 42817386650
+(2026-11-10); the `osn-social` Pages project it moved from is deleted
+([[production-deploy]] §5.7). `record-osn-social` records each production
+deploy whose smoke check passed. On dev the musubi stack serves it as the
 `osn-social-dev` Worker, with static assets, on `musubi.<DEV_DOMAIN>`: `deploy.yml`'s
 musubi stack job builds and deploys it on every merge to `main` that touches it,
 and `deploy-osn-social-dev` records the deploy once its smoke check passes. The
@@ -153,12 +245,10 @@ Worker serves deep links through its single-page not-found handling, not the
 `_redirects` file Pages reads ([[infrastructure-as-code#Sites]]). See
 [[production-deploy]] and [[dev-environment]].
 
-On production the musubi stack also serves the same build as the staged `osn-social`
-Worker on `next.musubi.social`, until the apex moves to it
-([[infrastructure-as-code#Production sites]]). Sign-in does not work there, by design:
-the session cookie is host-only on `id.musubi.social`, osn-api's CORS and WebAuthn
-accept only `https://musubi.social`, so only the `osn_has_session` marker reaches the
-staged host and its `/token` call is refused. Its smoke check asks static paths alone:
+The Worker signs people in only on the apex: the session cookie is host-only on
+`id.musubi.social`, and osn-api's CORS and WebAuthn accept only `https://musubi.social`,
+an origin, not the server behind it ([[infrastructure-as-code#Production sites]]). Its
+smoke check asks static paths alone:
 `/`, a deep link, and `/.well-known/apple-app-site-association`, which must come back
 as `application/json`. That file sits in a dot-directory, so the release's build
 artifact keeps hidden files; without it iOS stops offering the app's passkeys on the
@@ -182,12 +272,13 @@ would have barred the apex from ever running one. The apex also covers every
 future `*.musubi.social` surface with a single credential.
 
 - `VITE_OSN_ISSUER_URL` is baked in **at build time** (`https://id.musubi.social`
-  in the deploy job). Unset, the bundle dials `http://localhost:4000` and the
+  in the release's `sites` job). Unset, the bundle dials `http://localhost:4000` and the
   deployed app calls the visitor's own machine.
 - `public/_redirects` rewrites every path to `index.html` (200) so client-side
-  routes deep-link; `public/_headers` ships the framing denial.
-- The custom domain is attached in the Cloudflare dashboard, not by wrangler —
-  see [[production-deploy]] §5.4.
+  routes deep-link on Pages (the Worker serves them through its single-page fallback); `public/_headers` ships the framing denial, and the build
+  adds the script and connection rules to it ([[#Response headers]]).
+- The musubi stack attached the apex to the Worker on deploy, once the owner had taken
+  it off the Pages project — see [[production-deploy]] §5.4.
 - **No feature-branch preview.** `deploy-osn-social-preview.yml` (project
   `osn-social-preview`) was removed on 2026-07-27. A `*.pages.dev` preview could
   never sign anyone in — the RP ID is `musubi.social` and the `__Host-` session
@@ -203,17 +294,22 @@ The move from `id.cireweddings.com` happened 2026-07-27 — see
 
 ## Auth
 
-Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. Access tokens live in `localStorage` (the only auth secret there after Copenhagen Book C3); the refresh token lives in an HttpOnly cookie. `OsnAuthService.authFetch` handles silent refresh on 401. A "Lost your passkey?" link routes to the recovery-code login form.
+Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. `src/lib/auth.ts` builds the page's one auth runtime, `osnAuth`; both providers (the shell's and the consent screen's sign-in island) take it, and every authenticated client in `src/lib/authClients.ts` and `src/lib/api.ts` is built with its `authFetch`, so no component holds or sends a token. Access tokens live only in the page's memory, and storage holds no token at all ([[identity-model#Client Storage Model]]); the refresh token lives in an HttpOnly cookie, and a reload gets its token from it. `authFetch` renews the token before it expires and on a 401, and a refused renewal signs the page out — see [[sessions#Renewal in the browser]]. The page says so: the runtime tells `onSessionChange` listeners the session `ended`, and `ShellNotices` shows "You've been signed out." with a Sign in button that opens the sign-in dialog — once, however many requests failed, and cleared by the next session. Another tab's sign-out, or a sign-in to another account there, ends this tab's session the same way, so every other open tab says it too. A log out from this tab, and a cold load with no session, show nothing. The notice opens the sign-in dialog through `useShellDialogs()` (`src/components/ShellDialogs.tsx`), the one the shell's own buttons open. Resources key on the `session()` object, which a renewal does not replace, so a renewal refetches nothing. A "Lost your passkey?" link routes to the recovery-code login form.
 
 ### Where the WebAuthn runtime ships
 
-`@osn/auth-ui` never imports `@simplewebauthn/browser`; each host app wires its own
-wrapper. This app has two, one per ceremony:
+`@osn/auth-ui`'s `SignIn` and `Register` import `startAuthentication` and
+`startRegistration` from `@simplewebauthn/browser` themselves, and
+`RecoveryLoginForm` imports `browserSupportsWebAuthn`. The views that run a
+ceremony for a signed-in account (`StepUpDialog` and the views that open it),
+and `RecoveryLoginForm`'s passkey enrolment, take a runner from the host
+instead. This app passes three:
 
 | Module | Ceremony | Reached from |
 |---|---|---|
-| `src/lib/webauthn-ceremony.ts` | assertion (sign-in / step-up) | `SecurityEventsBannerMount`, `SecuritySection` |
-| `src/lib/webauthn-registration.ts` | attestation (passkey enrolment) | `SecuritySection` only |
+| `src/lib/webauthn-ceremony.ts` | assertion (step-up) | `SecurityEventsBannerMount`, `SecuritySection` |
+| `src/lib/webauthn-registration.ts` | attestation (passkey enrolment) | `SecuritySection`, and the deferred wrapper below when its ceremony runs |
+| `src/lib/webauthn-registration-deferred.ts` | attestation, importing `webauthn-registration.ts` only when the ceremony runs | `AuthDialogs`, `AuthorizeSignIn` (passed to `SignIn` for recovery enrolment) |
 
 They are two modules, not one, because `SecurityEventsBannerMount` mounts on
 every route a signed-in user opens (see [[#Account-health banners]]) while
@@ -233,9 +329,35 @@ set.
 
 ## Response headers
 
-`musubi/social/public/_headers` is served by Pages on every path: `frame-ancestors 'none'`
-plus `X-Frame-Options: DENY` (a consent screen must never be framed),
+`musubi/social/public/_headers` is served on every path, by Pages and by the
+musubi stack's Worker alike: `frame-ancestors 'none'` plus
+`X-Frame-Options: DENY` (a consent screen must never be framed),
 `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin`.
+Two `Origin-Trial` lines enrol the sign-up form in Chrome's Email Verification
+Protocol trial, one token for `musubi.social` and one for the dev host `musubi.<DEV_DOMAIN>`; each tier
+sends both, and Chrome ignores the one for the other origin
+([[email-verification-api#Our origin trial]]).
+
+The build appends two directives to the Content-Security-Policy in `dist/_headers`
+(`contentSecurityPolicy` in `musubi/social/vite.config.ts`), because both depend on
+the build:
+
+| Directive | Sources |
+|---|---|
+| `script-src` | `'self'`; a `sha256-` hash of each inline script in the built `index.html` (the theme script); `https://challenges.cloudflare.com` when the build carries `VITE_TURNSTILE_SITEKEY` |
+| `connect-src` | `'self'` and the issuer origin from `VITE_OSN_ISSUER_URL` (`http://localhost:4000` when unset, as `src/lib/auth.ts` reads it) |
+
+No `'unsafe-inline'`, no `'unsafe-eval'` and no `default-src`, so styles, images,
+frames and navigation are as before: the policy limits where script comes from
+and where `fetch`, XHR, WebSocket and `sendBeacon` go, and an injected script
+can still send data off the page through an image, a frame or a navigation. An edit to either inline script changes its hash with
+it. The build fails on an issuer URL that is not http(s), whose host is not a
+plain DNS name, or that is plain http off this machine; on a bundle with no
+script that calls the issuer the policy names; and on a committed `_headers`
+that already sets `script-src` or `connect-src`. `tests/csp.test.ts` builds the
+committed files for production and checks the whole policy; the E2E stack
+serves the build with its headers, and every Musubi flow checks that no page
+logged a refusal ([[testing-patterns#What one run does]]).
 
 ## Rate limits
 
@@ -245,8 +367,81 @@ Per-user limiters on the two recommendations endpoints, both fail-closed — 20 
 
 `musubi/social/tests/` covers the sidebar mount path under `AuthContext` + `MemoryRouter` using `@solidjs/testing-library` + `happy-dom`. The tests do not assert the full open-and-click interaction for the Kobalte dropdown: Kobalte's trigger relies on pointer-capture behaviour that happy-dom does not reproduce.
 
-`tests/lib/search.test.ts` drives `createSearchController` directly, covering three properties no component test can reach: the token accessor is re-read per request (so one controller survives a silent refresh — a captured token would 401 every user after five minutes), the previous page stays on screen while the next loads, and disposal aborts the in-flight request.
+`tests/lib/search.test.ts` drives `createSearchController` directly, covering three properties no component test can reach: it searches only while enabled (signed in) and never handles a token, the previous page stays on screen while the next loads, and disposal aborts the in-flight request.
 
-`tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, queries below the two-character minimum never leave the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter and click both activate the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
+`tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, a query that normalises to nothing never leaves the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter activates the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. A pointer click is tested in Chromium instead (`tests/components/GlobalSearch.browser.test.tsx`), because happy-dom's synthetic click skips the press and the focus change that decide whether it lands: clicking an organisation opens it, clicking a person connects once and leaves focus in the field, and a click outside still closes the results.
+
+`tests/App.browser.test.tsx` renders `Layout` signed out in Chromium: the page column and the wordmark stay put while the rail's chunk and the top bar's chunk land, an open sign-in dialog survives the 768px switch with what was typed in it, the sheet is as wide as a phone and the card 384px on desktop, and focus goes back to the shell's own Sign in button when the dialog closes, on either side of a switch; at 320px the signed-out top bar fits its three 40px controls. `tests/App.signed-in.browser.test.tsx` opens the profile switcher from the rail's account menu, crosses to 390 with it open, and closes it onto the top bar's trigger. `tests/App.load-failure.browser.test.tsx`, `App.dialogs-load-failure.browser.test.tsx` and `App.phone-load-failure.browser.test.tsx` each fail one chunk at the network — the rail's, the shell dialogs', the phone shell's — and check that the frame stays with the reload line while the page still renders; the dialogs' one also checks that a page's signed-out note holds its Sign in back until the dialogs load, then shows it once, outside the note's live region. `tests/components/SecurityStepUp.browser.test.tsx` opens Settings' Security tab: the step-up sheet from "Add a passkey", the passkey rows against a nested `Card`, the recovery codes' well and the "Generate a new set?" sheet; what each case holds is its row in [[browser-tests]]. It shoots light and dark into `e2e-artifacts/musubi-settings/`. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
 
 `tests/components/AuthorizePage.test.tsx` drives the consent screen the same way, with the authorize client mocked and `location.assign` stubbed: a malformed request id never reaches the API, a 404 is terminal, the decision carries the chosen profile, `login_required` keeps the request alive, and `invalid_client` ends the flow naming the app.
+
+The shell's notices and page boundary have no component test: the end-to-end
+flow `tools/e2e/tests/flows/musubi-passkey.flow.ts` reaches each branch in
+Chromium. It fails the profile list and reloads (the shell stays, "Your
+profiles didn't load.", Try again lists once more), fails the connections list
+(the boundary's line inside the shell, the nav leaves it, Try again recovers),
+and checks the signed-out notice appears once after a refused renewal, opens
+sign-in, and stays away on a cold load with no session. Each notice's ink is
+read against its contract token at 390 and 1440 px in both schemes and shot
+into `e2e-artifacts/screenshots/musubi-surfaces/` (`musubiNotice` in
+`tests/support/musubi-surfaces.ts`).
+
+The same flow reads the shared parts the forms draw, on steps it already takes
+and with no sign-in of its own: the create-account dialog's plain `Field`
+labels and the date of birth's hint, the sign-in dialog's label and its
+standalone "Lost your passkey?" link, Continue busy while
+`/login/passkey/begin` is held (focus kept, the orb drawn, shot under reduced
+motion), `/authorize`'s "Create one" inside its sentence, Discover's "Search
+for someone" inside its empty note, the authenticator setup's span labels, and
+the contact address on `/privacy` and `/terms`, an inline link in the legal
+prose. It holds Register's three calls, the step-up's begin (left
+unanswered until the client's deadline, [[step-up#Request deadline]]), the
+authenticator's confirm and a revoke of Pulse on Connected apps (authorised
+through the API first, so no page load is added), reading
+each button busy with Cancel disabled beside it, and Revoke 40px tall at
+390px. `musubi-org-detail` reads the create-organisation dialog's plain labels
+and the handle's hint, and holds the create's `POST`, the rename's `PATCH` and
+a connection request from Discover and from `/search` long enough to read
+Create ("Creating…"), Save ("Saving…") and each Connect ("Sending…") busy, not
+disabled, with focus kept (`busyButtonHeld`), each Connect 40px tall at 390px.
+`/search`'s Accept is read only in `SearchPage.test.tsx`: no flow receives a
+request. The rules they hold are in
+[DESIGN.md](../../musubi/social/DESIGN.md) §Links, §Busy buttons and §Form
+fields.
+
+On Settings → Security it reads `@osn/auth-ui`'s panels against probes
+(`securityPanelSurfaces` in `tests/support/musubi-surfaces.ts`): each panel
+heading at the title step and weight; a passkey row as a nested `Card` (the
+8px corner, 16px inside, the card's fill) with its meta line at the meta step
+in the secondary ink; Rename and Remove 40px tall at 390 px; and the "Signing
+in somewhere new?" summary taking Button's 2px focus ring from the keyboard.
+The authenticator's removal goes through the step-up sheet, titled with the
+app's name and with no browser `confirm()`; `removalSheetSurfaces` reads it
+as a bottom sheet as wide as a 390 px screen and shoots it as
+`totp-remove-sheet`. On `/authorize`, `authorizeSignInSurfaces` reads the
+app's name at `text-display` and 500 over the sign-in panel's heading at
+14px and 500, with no frame round the panel, and the flow then presses
+"Create one" and finds Register's Cancel named "Sign in instead", which
+brings sign-in back; `authorizeThirdPartySurfaces` reads the name breaking
+anywhere, with the "Third-party app" chip and the domain on screen at 320 px.
+
+Both flows also read what Musubi's contract block maps onto the shared
+overlays and titles (§Typography, §Borders and §Motion there).
+`musubi-passkey` opens the account menu from the rail at 1440 px and from the
+top bar at 390 px and reads its separator as a 1px `--ui-hairline` fill with
+no border, in both schemes; it holds the first frame of that menu and of the
+create-account dialog's email popover, and the half-way frame of each
+closing, and finds no transform. It holds the profile switcher, a sheet at
+390 px, the same way and finds it sliding: its own height below the bottom
+edge as it opens and part-way down half-way out, at full opacity and
+unscaled. It
+reads the switcher's title and the add-a-profile card's `CardTitle` against a
+`text-title font-medium` probe, and the authenticator setup's first code box
+("Code from the app Digit 1") at the probe's size at the flow's own width and
+at 768 px, and at 16px at 390 px.
+`musubi-org-detail` holds the create-organisation dialog's first frame and
+reads the create and edit dialogs' titles the same way. Shots go to
+`e2e-artifacts/screenshots/musubi-surfaces/` as `account-menu`,
+`profile-switcher` and `profile-onboarding`, in both schemes. Pulse's menus,
+which keep the contract's scale, are held by `pulse-event-rsvp`
+(`pulse/DESIGN.md` §Motion).

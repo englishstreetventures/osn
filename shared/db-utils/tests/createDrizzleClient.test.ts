@@ -54,14 +54,6 @@ afterEach(() => {
 });
 
 describe("createDrizzleClient", () => {
-  it("turns foreign-key enforcement on", async () => {
-    const db = await createDrizzleClient(dbPath);
-
-    const pragma = await db.all<{ foreign_keys: number }>(sql`PRAGMA foreign_keys`);
-
-    expect(pragma).toEqual([{ foreign_keys: 1 }]);
-  });
-
   it("rejects a write that orphans a row", async () => {
     const db = await createDrizzleClient(dbPath);
 

@@ -1,0 +1,165 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/musubi-prod-email-verification",
+    "base_sha": "0ce0782a41d56ff6849fe74ec13a75769cac1264",
+    "head_sha": "d526906e1bc1d7e252a938b30990869b2cd4db1c",
+    "generated_at": "2026-11-16T13:53:43.987Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2364,
+    "type": null,
+    "labels": [
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed",
+      "product:musubi"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-16T13:45:49.098Z",
+    "last_ts": "2026-11-16T13:51:29.676Z",
+    "span_seconds": 341,
+    "active_seconds": 341,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 2.8840622000000007,
+    "tokens": {
+      "input": 80,
+      "output": 28553,
+      "thinking": 10908,
+      "cache_write_5m": 143769,
+      "cache_write_1h": 0,
+      "cache_read": 3984593
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 80,
+          "output": 28553,
+          "thinking": 10908,
+          "cache_write_5m": 143769,
+          "cache_write_1h": 0,
+          "cache_read": 3984593
+        },
+        "usd_equivalent": 2.8840622000000007,
+        "messages": 40
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 80,
+          "output": 28553,
+          "thinking": 10908,
+          "cache_write_5m": 143769,
+          "cache_write_1h": 0,
+          "cache_read": 3984593
+        },
+        "usd_equivalent": 2.8840622000000007,
+        "messages": 40
+      }
+    },
+    "effort": {
+      "high": 40
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 3,
+      "docs": 6,
+      "config": 1,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 6,
+        "deleted": 0
+      },
+      "test": {
+        "added": 14,
+        "deleted": 3
+      },
+      "docs": {
+        "added": 14,
+        "deleted": 23
+      },
+      "config": {
+        "added": 4,
+        "deleted": 0
+      },
+      "source": {
+        "added": 7,
+        "deleted": 6
+      }
+    },
+    "packages": [
+      "musubi/infra",
+      "musubi/social",
+      "osn/api"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 36,
+      "Write": 6,
+      "Read": 5,
+      "SubagentHandback": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {},
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 40,
+      "with_tools": 40,
+      "with_one_tool": 36,
+      "context_median": 102332,
+      "context_p90": 130955
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 5,
+    "located": 5,
+    "acted_on": 3,
+    "paired": 5,
+    "acted_on_paired": 3,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

@@ -13,8 +13,10 @@
  */
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
+import { contrastOklch, type Oklch, oklchToRgb, parseColor, rgbToOklch } from "@shared/color";
 import { checkContractConformance } from "@shared/design-tokens/conformance";
 import { describe, expect, it } from "vitest";
 
@@ -32,27 +34,61 @@ const SCOPES = [
 ] as const;
 
 /**
- * Two tokens musubi maps but cannot currently defend, both predating this
- * contract and both tracked.
+ * One token musubi maps but cannot currently defend, predating this contract.
  *
- * A waiver suppresses the assertion; it does not change what renders. Both are
- * still mapped, so components draw musubi's colours rather than falling back to
- * the package's neutral greyscale — the point of waiving is to stop a known,
- * filed defect blocking unrelated work, not to hide it.
+ * A waiver suppresses the assertion; it does not change what renders. The token
+ * is still mapped, so components draw musubi's colour rather than falling back
+ * to the package's neutral greyscale — the point of waiving is to stop a known
+ * defect blocking unrelated work, not to hide it.
  */
 const WAIVED = {
   "--ui-hairline-strong": [
     "`--input` is #e2e2e2 (1.30:1 on --background, 1.18:1 on --muted) and",
     "#3a3a3a in dark (1.50:1 / 1.24:1), against a 3:1 floor. The fix is a",
     "design decision — darken the border and lose the hairline look, or give",
-    "controls a perceivable fill and keep it. Tracked as osn-tracker#653.",
-  ].join(" "),
-  "--ui-ink-tertiary": [
-    "`--subtle` is #9e9e9e, 2.68:1 on --background and 2.44:1 on --muted in",
-    "light, against a 3:1 floor. Dark passes at 3.97 / 3.30. Tracked as",
-    "osn-tracker#653; the proposed fix is #8d8d8d.",
+    "controls a perceivable fill and keep it.",
   ].join(" "),
 } as const;
+
+/**
+ * Every custom property one theme declares, a later block winning, as the
+ * cascade has it. Musubi's theme blocks are flat and start their line, so a
+ * block body runs to its first `}`.
+ */
+function declarations(selectors: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const selector of selectors) {
+    const block = new RegExp(`^${selector.replaceAll(".", "\\.")}\\s*\\{([^}]*)\\}`, "gm");
+    for (const [, body] of CSS.matchAll(block)) {
+      for (const [, name, value] of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
+        out.set(name, value.trim());
+      }
+    }
+  }
+  return out;
+}
+
+/** A token's colour in one theme, followed through its `var()` hops. */
+function colour(name: string, decls: Map<string, string>): Oklch {
+  let value = decls.get(name);
+  for (let hop = 0; value?.startsWith("var(") && hop < 8; hop++) {
+    value = decls.get(/^var\(\s*(--[\w-]+)/.exec(value)?.[1] ?? "");
+  }
+  const parsed = value === undefined ? null : parseColor(value);
+  if (!parsed) throw new Error(`\`${name}\` does not resolve to a colour`);
+  return parsed;
+}
+
+/** `ink` at `alpha` laid over an opaque `ground`, composited in sRGB as a browser does. */
+function over(ink: Oklch, alpha: number, ground: Oklch): Oklch {
+  const i = oklchToRgb(ink);
+  const g = oklchToRgb(ground);
+  return rgbToOklch({
+    r: alpha * i.r + (1 - alpha) * g.r,
+    g: alpha * i.g + (1 - alpha) * g.g,
+    b: alpha * i.b + (1 - alpha) * g.b,
+  });
+}
 
 describe("design-token contract", () => {
   it("maps every role without breaking contrast, in both themes", () => {
@@ -62,6 +98,80 @@ describe("design-token contract", () => {
     // and the reader has to find the pair that moved inside it.
     const failures = checkContractConformance({ css: CSS, scopes: SCOPES, waived: WAIVED });
     expect(failures.map((f) => `[${f.scope}] ${f.fg} on ${f.bg} — ${f.reason}`)).toEqual([]);
+  });
+
+  it("holds an unchosen choice's edge at 3:1 on every ground, in both themes, with no waiver", () => {
+    // A radio, box or switch track at rest has only its edge to say it is
+    // there (WCAG 1.4.11). The full check above waives `--ui-hairline-strong`,
+    // and an unmapped `--ui-choice-edge` is drawn as it, so the waiver would
+    // hide an edge nobody can see. This pair has none.
+    const grounds = [
+      "--ui-ground",
+      "--ui-ground-deep",
+      "--ui-surface",
+      "--ui-surface-raised",
+      "--ui-surface-sunk",
+    ];
+    const failures = checkContractConformance({
+      css: CSS,
+      scopes: SCOPES,
+      pairs: grounds.map((bg) => ({ fg: "--ui-choice-edge", bg, min: 3 })),
+    });
+    expect(failures.map((f) => `[${f.scope}] ${f.fg} on ${f.bg} — ${f.reason}`)).toEqual([]);
+    expect(CSS).toMatch(/--ui-choice-edge:\s*var\(--subtle\)/);
+  });
+
+  it("holds danger ink to 4.5:1 on the grounds an error line sits on", () => {
+    // The contract measures `--ui-danger` only as a fill, but every error line
+    // and the shell's failed-load lines paint it as text. On the page, a card
+    // and a popover it clears the floor in both themes. On `--muted` and
+    // `--secondary` it does not in light (4.34:1), so no error line sits on
+    // them, nor on the warn wash.
+    const grounds = [
+      "--ui-ground",
+      "--ui-surface",
+      "--ui-surface-raised",
+      "--ui-ground-deep",
+      "--ui-surface-sunk",
+    ];
+    const failures = checkContractConformance({
+      css: CSS,
+      scopes: SCOPES,
+      pairs: grounds.map((bg) => ({ fg: "--ui-danger", bg, min: 4.5 })),
+    });
+    expect(failures.map((f) => `[${f.scope}] ${f.fg} on ${f.bg}`)).toEqual([
+      "[light] --ui-danger on --ui-ground-deep",
+      "[light] --ui-danger on --ui-surface-sunk",
+    ]);
+  });
+
+  it("holds warn ink to 4.5:1 on a warn `Notice`'s wash, in both themes", () => {
+    // Warn is ink in one place only: inside a `Notice` (the legal pages' draft
+    // line), whose words and mark paint `--ui-warn` over a wash of the same
+    // hue laid on the page. The contract measures warn on the bare grounds,
+    // and the wash lowers the ratio. The wash's strength and the ink are read
+    // from the part itself, so a change to either fails here rather than
+    // leaving this measuring a notice that no longer paints.
+    const notice = readFileSync(
+      createRequire(import.meta.url).resolve("@shared/ui/ui/notice"),
+      "utf8",
+    );
+    expect(notice).toMatch(/\bwarn:\s*"base:text-ui-warn"/);
+    const percent = /\bwarn:\s*"base:bg-ui-warn\/(\d+)"/.exec(notice)?.[1];
+    expect(percent, "notice.tsx's warn fill is no longer `base:bg-ui-warn/N`").toBeDefined();
+    const alpha = Number(percent) / 100;
+
+    const ratios = SCOPES.map((scope) => {
+      const decls = declarations(scope.selectors);
+      const ink = colour("--ui-warn", decls);
+      return {
+        scope: scope.name,
+        ratio: contrastOklch(ink, over(ink, alpha, colour("--ui-ground", decls))),
+      };
+    });
+    expect(
+      ratios.filter((r) => r.ratio < 4.5).map((r) => `[${r.scope}] ${r.ratio.toFixed(2)}:1`),
+    ).toEqual([]);
   });
 
   it("imports the contract stylesheet, or none of the above is loaded at all", () => {

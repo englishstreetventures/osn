@@ -33,6 +33,9 @@
    `DropdownMenu` needs these two lines gone. */
 @source not "../../../../shared/ui/src/ui/dropdown-menu.tsx";
 @source not "../../../../shared/ui/src/ui/menu-classes.ts";
+/* Nor the orb: no page here draws it. A page that draws `Orb` needs this
+   line gone. */
+@source not "../../../../shared/ui/src/ui/orb.tsx";
 /* The toast package's own styles. It reads the `--toast-*` custom properties
    the palette block below emits, so an invite's toasts are the organiser's
    colours with contrast already enforced against the surface they sit on. */
@@ -528,16 +531,20 @@
   /* The tick that confirms a recorded RSVP, drawing itself in behind the bloom
      sweep that fills the events section's Respond button (`components/EventCard`
      — see `components/rsvp-responded.ts` for the timing contract these two
-     numbers are half of; the other half is the `duration-500` on that button's
+     numbers are half of; the other half is the 500ms sweep on that button's
      fill layer). It lived on the RSVP sheet's Save button until #388, which is
      a button the sheet closes over before a guest can register it.
+
+     Choreography longer than `--dur-slow`, so its own times, each scaled like
+     every cire duration. A tick arriving, so `--ease-out`.
 
      `both` so the path holds its undrawn state through the delay and its drawn
      state afterwards; without it the tick would flash in whole, then draw.
 
      Reduced motion needs no special case here: the global block below clamps
      animation-duration and -delay, so the path simply starts drawn. */
-  --animate-tick-draw: tick-draw 340ms ease-out 180ms both;
+  --animate-tick-draw: tick-draw calc(340ms * var(--motion-scale)) var(--ease-out)
+    calc(180ms * var(--motion-scale)) both;
 
   /* The hero's scroll cue (`components/HeroScrollCue`): it fades in a beat
      after the title has landed, drifts down and back twice, then rests. The
@@ -550,18 +557,24 @@
      seconds needs a control to stop it (WCAG 2.2.2), so a longer or endless
      drift is not an option.
 
+     The hero's choreography, longer than `--dur-slow`, so its own times, each
+     scaled like every cire duration. The fade is the glyph arriving, so
+     `--ease-out`; the drift moves it between two places, so `--ease-in-out`.
+
      Reduced motion needs no special case: the global clamp plays the entry out
      at once, leaving the glyph at its own full opacity, and runs the drift out
      in 0.01ms, back to rest — so the cue is there and still. */
   --animate-scroll-cue:
-    scroll-cue-in 600ms ease-out 1s backwards, scroll-cue-drift 2s ease-in-out 1.6s 2;
+    scroll-cue-in calc(600ms * var(--motion-scale)) var(--ease-out)
+      calc(1s * var(--motion-scale)) backwards,
+    scroll-cue-drift calc(2s * var(--motion-scale)) var(--ease-in-out)
+      calc(1.6s * var(--motion-scale)) 2;
 
   /* An event sheet's panel arriving (`components/EventSheet`): it fades in
      while sliding the last 1.5rem from the side it lives on — the details from
      the start, the RSVP form from the end, the order of their buttons on the
      card. A panel swap, so `--dur-base` on the house curve. A swipe settles on a
-     spring instead, started at the finger's speed (`SETTLE_SPRING`,
-     `sheet-swipe.ts`).
+     spring instead, started at the finger's speed (`[data-settling]`, below).
 
      Reduced motion needs no special case: the global clamp plays it out in
      0.01ms. */
@@ -640,6 +653,26 @@
   }
 }
 
+/* ── A link menu opening: menu-pop ──────────────────────────────────────────
+ * The calendar and maps menus (`components/LinkMenu`) scale up a little from
+ * the corner at their trigger and fade in, as the portals' menus do
+ * (`cire/host` `menu-pop`), one rung slower: `--dur-base`, so a guest reading
+ * on a phone sees where the menu came from. `LinkMenu` sets the origin as it
+ * places the menu, under or over the trigger; it is not a Kobalte popover, so
+ * there is no origin variable to read.
+ *
+ * The pop is the shared `ui-enter` keyframe (`@shared/design-tokens`), the
+ * one the portals' menus run. `LinkMenu` sets where it starts with
+ * `fade-in-0 zoom-in` beside this class — opacity 0 at `--ui-scale-enter` —
+ * so this utility holds only the guest site's rung.
+ *
+ * Entry only. A close takes the menu out of the document at once and hands
+ * focus back to the trigger; a menu held mounted for an exit keeps focus
+ * inside it until it goes. The reduced-motion clamp below reaches this. */
+@utility menu-pop {
+  animation: ui-enter var(--dur-base) var(--ease-out);
+}
+
 /* Fades a control's colours but never its outline, so a focus ring lands at once. */
 @utility transition-ui-colors {
   transition-property: color, background-color, border-color, text-decoration-color;
@@ -649,9 +682,10 @@
 
 /* The event sheet's badge (`components/EventSheet`): its two labels moving
    through it like a ticker to the panel on screen, on the panels' own duration
-   and curve after a press. Under a finger and through a swipe's spring
-   (`data-dragging` on the badge) the sheet writes their place every frame, with
-   no easing. The reduced-motion clamp below reaches this too. */
+   and curve after a press. Under a finger (`data-dragging` on the badge) the
+   sheet writes their place every frame, with no easing; through a swipe's
+   settle (`data-settling`) they ride the settle's spring with the panels, below.
+   The reduced-motion clamp below reaches this too. */
 @utility transition-badge-settle {
   transition:
     opacity var(--dur-base) var(--ease-out),
@@ -659,6 +693,133 @@
 
   [data-dragging] & {
     transition: none;
+  }
+
+  [data-settling] & {
+    transition:
+      opacity var(--swipe-settle-time) var(--swipe-settle-ease),
+      transform var(--swipe-settle-time) var(--swipe-settle-ease);
+  }
+}
+
+/* A released swipe settling between the event sheet's panels
+   (`components/EventSheet`). Its curve is a critically damped spring started
+   at the finger's speed, which no token can hold, since it differs with every
+   release: the sheet samples it into a `linear()` easing at release
+   (`settleCurve`, `sheet-swipe.ts`; a slope-matched `cubic-bezier()` where the
+   engine has no `linear()`) and writes it, with its time stretched by
+   `--motion-scale`, on the rail and the badge while `data-settling` is on them
+   (the owner's choice, `cire/invites/DESIGN.md` §5). The reduced-motion clamp
+   below cuts it to 0.01ms, so the panels land at once. */
+[data-settling] > [data-panel] {
+  transition: transform var(--swipe-settle-time) var(--swipe-settle-ease);
+}
+
+/* ── The unlock reveal ──────────────────────────────────────────────────────
+ * What a household sees once its code is accepted (`components/unlock-reveal`):
+ * the code form closes at once, the welcome rises while its heading shimmers,
+ * and a beat later the events rise, their cards one after another. The form
+ * has no step here: it holds a live field and button, and a box with live
+ * controls closes at once rather than fading. The sequence marks each element
+ * it moves with the step (`data-unlock`) and the design pack
+ * (`data-unlock-pack`), waits for the step to end, writes the end state inline
+ * and takes both marks off.
+ *
+ * Its own times, not the ladder's, each kept for one of the reasons
+ * wiki/conventions/house-lint-rules.md §Literal motion allows:
+ * - the welcome, shimmer, section and card times (350ms to 1.2s) are
+ *   choreography slower than the ladder's longest step, `--dur-slow` (320ms on
+ *   touch, 200ms at a desk);
+ * - the cards' start and step are a stagger;
+ * - the beat before the events is a time script waits out (each pack's
+ *   `UnlockReveal.motion.ts`), so it lives there, not here.
+ * Each scales with `--motion-scale`, the beat too: the sequence reads the
+ * scale off the root. Every rise, in both packs, is something
+ * arriving, so it runs on `--ease-out`.
+ *
+ * Reduced motion: the sequence sets no mark and lands on the end state at
+ * once, and the clamp below would end any of these at once regardless. */
+[data-unlock-pack="classic"] {
+  --unlock-welcome-time: calc(500ms * var(--motion-scale));
+  --unlock-welcome-y: 16px;
+  --unlock-shimmer-time: calc(1.2s * var(--motion-scale));
+  --unlock-shimmer-from: 0.4;
+  --unlock-shimmer-dip: 0.85;
+  --unlock-section-time: calc(500ms * var(--motion-scale));
+  --unlock-section-y: 32px;
+  --unlock-card-time: calc(450ms * var(--motion-scale));
+  --unlock-card-y: 24px;
+  --unlock-card-start: calc(150ms * var(--motion-scale));
+  --unlock-card-step: calc(120ms * var(--motion-scale));
+}
+
+[data-unlock-pack="gala"] {
+  --unlock-welcome-time: calc(400ms * var(--motion-scale));
+  --unlock-welcome-y: 10px;
+  --unlock-shimmer-time: calc(1s * var(--motion-scale));
+  --unlock-shimmer-from: 0.5;
+  --unlock-shimmer-dip: 0.9;
+  --unlock-section-time: calc(400ms * var(--motion-scale));
+  --unlock-section-y: 20px;
+  --unlock-card-time: calc(350ms * var(--motion-scale));
+  --unlock-card-y: 16px;
+  --unlock-card-start: calc(100ms * var(--motion-scale));
+  --unlock-card-step: calc(80ms * var(--motion-scale));
+}
+
+[data-unlock="welcome"] {
+  --unlock-y: var(--unlock-welcome-y);
+  animation: unlock-rise var(--unlock-welcome-time) var(--ease-out) both;
+}
+
+[data-unlock="section"] {
+  --unlock-y: var(--unlock-section-y);
+  animation: unlock-rise var(--unlock-section-time) var(--ease-out) both;
+}
+
+/* `--unlock-i` is the card's place in the list, which the sequence sets. */
+[data-unlock="card"] {
+  --unlock-y: var(--unlock-card-y);
+  animation: unlock-rise var(--unlock-card-time) var(--ease-out)
+    calc(var(--unlock-card-start) + var(--unlock-i, 0) * var(--unlock-card-step)) both;
+}
+
+[data-unlock="shimmer"] {
+  animation: unlock-shimmer var(--unlock-shimmer-time) both;
+}
+
+@keyframes unlock-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--unlock-y));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* One ease-in-out over all four values, not one per gap: the keyframes sit
+   where ease-in-out reaches a third and two thirds of the way, and each gap
+   runs on its own stretch of that curve, cut out of it exactly. */
+@keyframes unlock-shimmer {
+  0% {
+    opacity: var(--unlock-shimmer-from);
+    /* motion-literal: the first third of ease-in-out */
+    animation-timing-function: cubic-bezier(0.405, 0, 0.714, 0.449);
+  }
+  40.09% {
+    opacity: 1;
+    /* motion-literal: the middle third of ease-in-out */
+    animation-timing-function: cubic-bezier(0.338, 0.322, 0.662, 0.678);
+  }
+  59.91% {
+    opacity: var(--unlock-shimmer-dip);
+    /* motion-literal: the last third of ease-in-out */
+    animation-timing-function: cubic-bezier(0.286, 0.551, 0.595, 1);
+  }
+  100% {
+    opacity: 1;
   }
 }
 
@@ -754,8 +915,11 @@
   --radius-md: 10px;
   --radius-pill: 999px;
 
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* What a transition that names no easing runs, in place of Tailwind's own
+     curve, as in the portals (cire/host/DESIGN.md §4). */
+  --default-transition-timing-function: var(--ease-out);
 }
 
 @layer base {
@@ -943,6 +1107,9 @@
 :root {
   --ui-ground: var(--color-bg);
   --ui-ground-deep: var(--color-bg);
+  /* The veil behind `Modal`: the deep ground at 72%, so the backdrop stays in
+     the family of the page it dims. Unmapped, the contract paints black at 50%. */
+  --ui-scrim: color-mix(in srgb, var(--ui-ground-deep) 72%, transparent);
   --ui-surface: var(--color-surface);
   --ui-surface-raised: var(--color-surface-raised);
   --ui-surface-sunk: var(--color-bg);
@@ -972,6 +1139,12 @@
   --ui-on-danger: var(--color-bg);
 
   --ui-focus: var(--invite-focus);
+
+  /* Something arriving, on cire's one arriving curve (cire/host/DESIGN.md §4):
+     `Modal`'s rise and every entry `animate-in` runs — `Tooltip`, `Popover`,
+     the default menu. An overlay leaving reads `--ui-ease-exit`, which stays
+     the contract's, so this moves no exit. */
+  --ui-ease-out: var(--ease-out);
 
   /* The corner each role paints, the same in every cire app: buttons are
      pills; text fields, selects and the `tile`, `field` and `swatch` buttons

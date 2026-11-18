@@ -1,6 +1,11 @@
 import { forbiddenCredentials, requiredCredentials } from "../accounts";
 import type { Tier } from "../stage";
-import { SECRET_INVENTORY, WORKFLOW_SECRETS, type WorkerKey } from "./inventory";
+import {
+  ENVIRONMENT_WORKER_SECRETS,
+  SECRET_INVENTORY,
+  WORKFLOW_SECRETS,
+  type WorkerKey,
+} from "./inventory";
 
 export interface NameDiff {
   readonly where: string;
@@ -91,13 +96,18 @@ export function liveDiff(expected: LiveExpectation, actual: readonly string[]): 
 
 /**
  * Every name the tier's GitHub Environment must hold, once: each required
- * Worker secret, the tier's required credentials and the secrets only its
- * workflows read.
+ * Worker secret the stacks upload (rows whose `source` is the Environment),
+ * the Worker secrets a workflow reads on a tier whose secrets stay on the
+ * Workers (`ENVIRONMENT_WORKER_SECRETS`), the tier's required credentials
+ * and the secrets only its workflows read.
  */
 export function githubExpectations(tier: Tier): string[] {
   return [
     ...new Set([
-      ...SECRET_INVENTORY.flatMap((entry) => entry.tiers[tier].secrets),
+      ...SECRET_INVENTORY.flatMap((entry) =>
+        entry.tiers[tier].source === "environment" ? entry.tiers[tier].secrets : [],
+      ),
+      ...ENVIRONMENT_WORKER_SECRETS[tier],
       ...requiredCredentials(tier),
       ...WORKFLOW_SECRETS[tier],
     ]),
@@ -106,14 +116,20 @@ export function githubExpectations(tier: Tier): string[] {
 
 /**
  * Missing required names and forbidden credentials (`forbiddenCredentials`)
- * fail; a Worker's optional secrets are not unexpected.
+ * fail. A Worker's optional secrets are not unexpected, nor, on a tier whose
+ * secrets stay on the Workers, are its required ones: a workflow that sets a
+ * Worker secret may keep its value in the Environment.
  */
 export function githubDiff(tier: Tier, actual: readonly string[]): NameDiff {
   return diffNames(
     `GitHub Environment ${tier}`,
     githubExpectations(tier),
     actual,
-    SECRET_INVENTORY.flatMap((entry) => entry.tiers[tier].optional),
+    SECRET_INVENTORY.flatMap((entry) =>
+      entry.tiers[tier].source === "environment"
+        ? entry.tiers[tier].optional
+        : entry.tiers[tier].secrets.concat(entry.tiers[tier].optional),
+    ),
     forbiddenCredentials(tier),
   );
 }

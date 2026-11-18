@@ -110,10 +110,11 @@ describe("O4 completePasskeyRegistration session invalidation", () => {
       );
       const claims = yield* auth.verifyAccessToken(current.accessToken);
       // Exactly what the route does on a cookieless call.
-      const callerHash = yield* auth.resolveCallerSession(dave.accountId, dave.id, {
+      const caller = yield* auth.classifyCallerSession(dave.accountId, dave.id, {
         cookieSessionHash: null,
         sessionBinding: claims.sessionBinding,
       });
+      const callerHash = caller._tag === "resolved" ? caller.sessionHash : null;
 
       yield* auth.beginPasskeyRegistration(dave.accountId);
       yield* auth.completePasskeyRegistration(dave.accountId, fakeAttestation(), callerHash);

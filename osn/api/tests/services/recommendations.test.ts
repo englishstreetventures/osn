@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { beforeAll } from "vitest";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
@@ -15,7 +16,7 @@ import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
 const graph = createGraphService();
-const orgs = createOrganisationService();
+const orgs = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 const recs = createRecommendationService();
 
 beforeAll(async () => {

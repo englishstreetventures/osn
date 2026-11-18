@@ -19,11 +19,14 @@ related:
   - "[[browser-tests]]"
   - "[[cire-development]]"
   - "[[cire-invite-designs]]"
+  - "[[house-lint-rules]]"
 packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-04
+  - "@musubi/social"
+  - "@osn/auth-ui"
+last-reviewed: 2026-11-17
 ---
 
 # Frontend Patterns
@@ -69,19 +72,33 @@ The `RsvpAvatar` test asserts that the constant reaches the DOM, so you can chec
 
 Sign-in and registration UI lives in `@osn/auth-ui/*` (not in individual apps). These components use Zaidan primitives (Button, Input, Label) internally and receive an injected client prop to stay app-agnostic:
 
-- `<Register />` — multi-step registration flow (email + handle + display name, OTP verification, **mandatory** passkey enrollment)
+- `<Register />` — registration: email, handle and display name, an emailed link confirmed on the address's device, then a **mandatory** passkey
 - `<SignIn />` — passkey-only login (identifier-bound or discoverable). Routes to `<RecoveryLoginForm>` via the "Lost your passkey?" link
-- `<RecoveryLoginForm />` — recovery-code login (lost-device escape hatch)
+- `<RecoveryLoginForm />` — the lost-passkey chooser: a recovery code, an emailed link or an authenticator code ([[passkey-primary]])
 - `<StepUpDialog />` — sudo ceremony for sensitive actions (recovery generate, email change, passkey delete)
 - `<SessionsView />` — per-device session list + "sign out everywhere else"
-- `<PasskeysView />` — passkey rename / delete (step-up gated)
-- `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<ProfileSwitcher />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
+- `<PasskeysView />` — passkey rename / remove (step-up gated; a removal asks in the step-up sheet)
+- `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
+- `<CheckEmailView />` — the "Check your email" wait after a flow emails a link: the address, the number the page the link opens asks for (when the host passes one), a Resend that unlocks after a wait, "Use a different email". Presentational; the parent sends and polls ([[component-library]])
+- `<ConfirmLinkPage />` — the page an emailed link opens: "Confirm this email", the numbers to pick from (the person taps the one the waiting screen shows, which is the confirm), or, for recovery, one field to type it in, and "I didn't ask for this"; then confirmed, cancelled, expired, or an error with Try again. Presentational; the host route reads the link and the numbers and makes the call ([[component-library]])
 
-Any OSN app (Pulse, Zap, Social, future apps) imports these from `@osn/auth-ui/*` and injects a client from `@osn/client`.
+An app imports these from `@osn/auth-ui/*` and injects clients from `@osn/client`. `@musubi/social` is the one app that does today; its `DESIGN.md` §Auth surfaces lists where each view mounts, and `osn/auth-ui/DESIGN.md` holds the views' design rules.
 
 ## Lazy Loading
 
 Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded in `App.tsx` to reduce the initial bundle. Components with heavy dependencies (like `MapPreview` with Leaflet at ~150KB) dynamic-import their dependencies inside `onMount` so pages that don't need them never load the chunk.
+
+**A lazy shell needs a frame, and the frame is not a `Suspense` fallback.** A lazy component with no `Suspense` above it renders nothing until its chunk lands, so a page beside a lazy rail paints first and then jumps sideways. `@musubi/social` draws a frame of the shell's box instead (`Reserved` in its `App.tsx`): it calls the lazy component's `preload()` and the shell dialogs' `load()`, shows the frame until both resolve (so no Sign in shows before its dialog can open), and only then renders the component, which by then holds the module and renders at once. A `Suspense` fallback would work on the cold load and then come back on every refetch: the shell reads `createResource` values, and a resource read in flight outside a transition raises the nearest `Suspense` count. A rejection from either is handled in the same place — the frame stays and says to reload — so a missing chunk never reaches an error boundary or blanks the app. `lazy` keeps no failed load, so the next `preload()` (the other shell's, after a crossing) fetches the chunk again. `musubi/social/DESIGN.md` §Layout has the frame's look.
+
+On a cold desktop load of `/discover` with the rail's chunk held back 400ms, the page's layout shift goes from 0.167 to 0 (phone: 0.058 to 0).
+
+*Measured 2026-11-09 — `vite build` and `vite preview` of `@musubi/social`, Playwright Chromium at 1440×900 and 390×844, the shell chunk's request delayed 400ms by `page.route`, summing buffered `layout-shift` entries.*
+
+**A view that may sit under someone else's `Suspense` reads its resource's `state` first.** A component that calls `resource()` while the read is out, inside a render-phase tracking scope (a `Show`'s `when`, a memo, JSX; not a `createEffect`), raises the nearest `Suspense` above it, which may be the host page's: Musubi's Settings wraps its lazy Security section in one, so a list read in `@osn/auth-ui`'s `PasskeysView` swapped the whole tab for Settings' fallback, and the view's own placeholder never showed. `resource.latest` is no way out before the first read lands: until then it is the same read (solid-js 1.9, `dist/solid.js`, the `latest` getter). So such a view reads `resource.state` (and `.loading`, `.error`, which never suspend) and touches the value only once a read has landed, through `.latest`: `state === "ready" || state === "refreshing" ? resource.latest : undefined` keeps a landed list on screen through a refetch, `state === "ready"` hides it. That also never throws a failed read. `@osn/auth-ui`'s settings panels read this way (`osn/auth-ui/DESIGN.md` §6); Musubi's page reads hold their rows in signals, which never suspend ([[#Page data: one cache, keyed by the session]]).
+
+**Group dialogs that load together into one dynamic import.** In `@musubi/social`, two `lazy()` dialogs imported from two modules made the bundler split the entry chunk in two and keep client code it otherwise drops. With the shell frames and the dialogs' provider added, the entry closure grew 2.0 KB gzipped that way, and 1.0 KB with both dialogs behind one module (`ShellDialogSet.tsx`).
+
+*Measured 2026-11-09 — `vite build` of `@musubi/social` with and without the split, gzip -9 of every chunk the entry imports statically.*
 
 ## Supported browsers
 
@@ -144,9 +161,9 @@ a trusted workspace. TypeScript 7 ships no `tsserver`, so editors and the agents
 
 ## Rendering and animation gotchas
 
-Every one of these cost a real bug. They were all found in cire, but none of them
+Every one of these cost a real bug. Most were found in cire, but none of them
 is cire-specific — they are properties of Tailwind's scanner, Solid's reactivity,
-Motion One's finish behaviour and the CSS spec, so they apply to `@pulse/web` and
+how an animation ends and the CSS spec, so they apply to `@pulse/web` and
 `@musubi/social` the same way. What unites them is that **the fast test tier cannot
 fully see any of them**: jsdom and happy-dom compute no styles and no layout, so a
 green unit suite proves nothing here. Pin the class contract in the fast tier and
@@ -189,9 +206,10 @@ read, which is where you would look for it.
 ### A `transform` on any ancestor breaks `position: fixed`
 
 It makes `fixed` resolve against that ancestor rather than the viewport, **and**
-makes the ancestor a stacking context that no `z-index` can escape. Motion One
-leaves its final inline `transform` on the elements it animates, so anything
-`fixed` mounted inside an animated section is doubly trapped: mispositioned
+makes the ancestor a stacking context that no `z-index` can escape. An animated
+`transform` does the same while it runs, and a library that commits its last
+keyframe inline (`motion` does) keeps doing it after, so anything `fixed`
+mounted inside an animated section is doubly trapped: mispositioned
 (measured 723–814px down the page instead of at the viewport edge — off-screen on
 a phone) and painted below page-level overlays. This is what left cire's RSVP save
 toast behind the `z-100` sheet it fires underneath.
@@ -205,10 +223,10 @@ even when painted perfectly. Assert the mechanism instead — no fixed-position
 containing block between the element and `<body>`, and a computed `z-index` above
 `Z_LAYER.MODAL`.
 
-### Motion One leaves its final keyframe as inline style, and Solid will not clean it up
+### A reveal's inline end state outlives it, and Solid will not clean it up
 
-A fade-out ending at `opacity: 0` leaves `opacity: 0` on the element forever.
-Harmless while the element never returns — and a blank-screen bug the moment
+A fade-out that settles on an inline `opacity: 0` leaves it on the element
+forever. Harmless while the element never returns — and a blank-screen bug the moment
 something brings it back, because Solid's style binding on that node typically
 owns only `display`. It happily restores `display` onto a fully transparent box.
 
@@ -225,20 +243,26 @@ claim form sat at `opacity: 0` in both design packs, with 800 unit tests green.)
 
 ### Write an animation's inline end state when it finishes, never before it starts
 
-Motion reverts to base styles on finish, which is why a reveal keeps an inline end
-state. Writing that `opacity: 1` up front instead paints one full-brightness frame
-that the animation's first keyframe drops back to zero — the viewer sees content
-blink in, vanish, and fade in again.
+A CSS animation holds its last frame only while its rule still matches, so a
+reveal that takes its marks off afterwards keeps an inline end state; cire's
+unlock reveal (`components/unlock-reveal.ts`) does. Write it once the step has
+ended. A script animation that starts a frame after it is called, as `motion`'s
+does, paints whatever is inline in between: an `opacity: 1` written up front is
+one full-brightness frame that the first keyframe then drops back to zero — the
+viewer sees content blink in, vanish, and fade in again.
 
 A staggered child is worse: nothing hides it (only its container carries
-`opacity-0`), so a `startDelay` leaves every child at full opacity from the moment
-the container appears until Motion commits its first frame. Hide the children
-inline first, run the animations, and settle the inline end state in a `finally`,
-so a stalled or throwing step can never leave them invisible.
+`opacity-0`), so a delay that does not hold the first keyframe — a script's, or
+a CSS animation without a `backwards` or `both` fill — leaves it at full opacity
+from the moment the container appears until its own first frame. Hide the
+children inline first,
+run the animations, and settle the inline end state in a `finally`, so a
+stalled or throwing step can never leave them invisible.
 
 One frame is invisible to jsdom **and** to the browser tier's assertions-after-the-
 fact — catch it by sampling `getComputedStyle` per `requestAnimationFrame` in a
-real browser (`UnlockReveal.motion.ts`, both packs).
+real browser, as `cire/invites` `tests/designs/UnlockReveal.browser.test.ts`
+does for both packs' reveal.
 
 ### Anything a choreography animates must be in the DOM before it runs
 
@@ -247,9 +271,9 @@ flight when the claim resolves, `<Suspense fallback={null}>` renders no cards, a
 the reveal animates an empty section with nothing to stagger. The cards then slam
 into the layout at full opacity when the chunk lands. `awaitEventCards`
 (`cire/invites` `components/await-event-cards.ts`) is the fix: the sequence awaits
-it through the `waitForEvents` hook, **under** the fade-out of the step before it
-rather than on top of it, and both halves of the wait are capped so a chunk that
-never arrives still reveals the page.
+it through the `waitForEvents` hook, **alongside** the welcome's rise and the
+layout beat rather than after them, and both halves of the wait are capped so a
+chunk that never arrives still reveals the page.
 
 ### A closed dialog with a display class is still drawn
 
@@ -494,6 +518,19 @@ Animate a menu's opening only (`menu-pop`). The checklist row's
 the rule is to run a panel's keyboard test in the browser tier before giving it
 an exit, not to forbid one.
 
+### A listbox option that cannot take focus loses its click to the field's blur
+
+In a combobox the field keeps focus and an option is only marked active
+(`aria-activedescendant`), so the option has no `tabindex`. A pointer press on
+it blurs the field with `relatedTarget` null; a `focusout` handler that closes
+the panel when focus leaves the combobox then unmounts the option, and the
+`click` that follows lands on nothing. Cancel `mousedown` on the results panel
+(`event.preventDefault()`): focus stays in the field, the panel stays, the
+click lands, and a press outside the panel still closes it. happy-dom's
+`fireEvent.click` sends no press and moves no focus, so a unit test of the
+click passes on the broken code; test it in the browser tier with
+`userEvent.click` (`@musubi/social`'s `GlobalSearch.browser.test.tsx`).
+
 ### A reveal needs a wrapper that outlives the content it reveals
 
 Animating a box open needs two states on **one** element, and an element that
@@ -517,6 +554,40 @@ measured and no JavaScript runs; `interpolate-size: allow-keywords` with
 `height: auto` says the same thing more directly but is not yet in every engine
 these apps are opened in.
 
+Two things about the box that clips:
+
+- **The wrapper clips, not the row.** Partway through, Chromium sizes the row
+  against the wrapper's own height, which has already grown by the same
+  fraction, so the row is the square of it: at 40% of the way the wrapper is
+  137px of a 340px block and the row 55px. A clip on the row shows the content
+  lagging the box, over an empty band.
+- **It keeps 4px of room.** The wrapper carries `p-1` inside a matching `-m-1`,
+  so a focus outline 2px wide and 2px out at the content's edge is not cut and
+  nothing moves. The row's box takes `min-w-0` as well as `min-h-0`, or a
+  scrolling track inside widens the column instead of scrolling. The room
+  overlaps 4px of each neighbour, and while the wrapper is shut or fading in it
+  paints above them, so the wrapper never takes pointer events and the row
+  takes them back (`pointer-events-auto`): a tap on the bottom of the control
+  above lands on that control.
+
+*Measured 2026-11-11 — Chromium, `cire/invites`' RSVP sheet at 1280px, the
+dietary section's transitions paused at a tenth of their duration*
+
+The room reaches 4px past the content sideways as well, shut or open. A
+`Reveal` flush with the inline end of a scroll box that has no inline padding
+makes that box scroll 4px sideways: a "me" message's "Sent" line in a
+`MessageThread` placed straight in such a box does. Put at least 4px of inline
+padding between them. Every thread today has more: the portal's `page-frame`
+gives 20px or more, and the vendor's `Card` 20px.
+
+*Measured 2026-11-11 — Chromium, a `MessageThread` of two messages in a 360px
+`overflow-y: auto` box with no padding: `scrollWidth` 364 against `clientWidth`
+360, the "me" row's shut `Reveal` wrapper ending at 364. Open, the wrapper
+keeps the same `-m-1 p-1`, so its edges do not move*
+
+`Reveal` opens on the app's `--dur-base` unless the caller passes
+`pace="slow"`, which the guest site does ([[cire-invite-designs#Corners, labels and motion]]).
+
 ### A computed timing function is a list, and `cubic-bezier()` has commas of its own
 
 Reading an animation's timing back from `getComputedStyle` — to run a Web
@@ -536,6 +607,26 @@ script animation with no CSS twin — a spring — has nothing to read back: che
 The fast tier cannot see either: jsdom computes no animation, so the value is
 empty and no tween runs.
 
+### An `<hr>` keeps preflight's border, which paints over its fill
+
+Tailwind's preflight gives every `<hr>` `height: 0`, `color: inherit` and
+`border-top-width: 1px`, and its `*` rule sets `border: 0 solid`, so the
+border's colour is `currentColor`. With `box-sizing: border-box`, an `<hr>`
+drawn as a 1px fill (`h-px` and a background) is all border. In an app whose
+base styles leave `border-color` alone, as pulse's do, the line paints in its
+parent's full ink, not the fill's colour. An app whose base layer sets
+`border-color` on `*`, as Musubi's `App.css` does, hides the fault, because the
+border then paints the hairline too.
+
+Put `border-0` on any `<hr>` drawn as a fill. A contrast theme (forced
+colours) replaces a fill with the page colour, so a fill-only line does not
+show there; add `forced-colors:border-t` where the line must stay, as both
+of the menu's separators do ([[component-library]] §`DropdownMenu`).
+
+The fast tier cannot see it: read `getComputedStyle(hr).borderTopWidth` in the
+browser tier, with and without `emulateMedia({ forcedColors: "active" })`
+(`shared/ui/tests/dropdown-menu-default.browser.test.tsx`).
+
 ## Motion follows the input
 
 How long a motion takes depends on what the reader is holding, not on how wide
@@ -550,10 +641,22 @@ the screen is.
 trackpad gets the desk pace. Switch the duration tokens under the query rather
 than writing a second set of utilities: every motion that already reads a
 `--dur-*` token follows the input for free, and one written as a literal or as
-Tailwind's bare `transition` (150ms) does not. All four cire apps — the two
+Tailwind's bare `transition` (150ms) does not. A written literal fails
+`house/no-literal-motion` in `bun run lint`, and
+`scripts/check-motion-literals.ts` in CI for stylesheets and Astro files; the
+bare `transition` passes both ([[house-lint-rules]] §Literal motion). All four cire apps — the two
 portals, the guest site and the marketing site — carry the same ladder and the
 same `pointer: fine` block, and `cire/vendor/tests/styles/tokens.test.ts` fails
 if any copy differs.
+
+`Modal`'s exit runs the same on both. Cire sets `--ui-modal-exit` to its desk
+`--dur-base` (150ms) under the query, and on touch `Modal` falls back to its
+own 150ms, so a dialog closes alike at a desk and in the hand
+([[component-library]] §Overlays: `Modal`). `Dialog`, `Popover`, `Tooltip` and
+the default `DropdownMenu` read `--ui-dur-*` ([[design-tokens]] §Motion), not
+cire's ladder, so they keep one pace on every input. The accent
+`DropdownMenu`, cire's own menus, pops on the app's `--dur-fast` and so follows
+it ([[component-library]] §DropdownMenu).
 
 ### A gesture follows the finger, and the finger's speed outlives it
 
@@ -572,23 +675,44 @@ hand-built gesture here copies:
   stops it where it is and hands it back to the finger; an ease restarted from
   zero speed stalls for a frame instead.
 
-CSS cannot carry a velocity, so a spring that must is script — `motion`'s
-`animate(from, to, { type: "spring", velocity })`, with `velocity` in units per
-second. The reduced-motion clamp in a stylesheet does not reach it: check
-`matchMedia("(prefers-reduced-motion: reduce)")` and land at once.
+A CSS transition takes no velocity, but its easing can carry one: at release,
+sample the spring from the release speed into a `linear()` easing and set it,
+with the spring's settle time, as the transition. Put a stop a millisecond in
+on the spring's tangent, so the first frame moves at the finger's speed
+exactly, and end the curve where a fast release would pass its target. The
+cire guest site's event sheet does this (`settleCurve` in
+[`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts),
+[[cire-invite-designs#The event sheet]]). Because it is a transition, the
+stylesheet's reduced-motion clamp reaches it with no `matchMedia` check, and a
+catch reads the moving thing's place off its computed `transform`. `linear()`
+needs Chrome 113, Firefox 112 or Safari 17.2; below that, a `cubic-bezier()`
+whose first handle has the same slope (`y1 / x1`) leaves at the same speed.
+A release moving away from the target makes that slope negative, and the
+fitted handle can then dip further the wrong way than the spring does; shorten
+`x1` until the curve's lowest point is the spring's.
+
+Check each stretch between two stops at more than its midpoint. A stretch
+over a dip, or over the bend where the spring stops speeding up, can sit on
+its chord at the midpoint while straying tens of pixels elsewhere, and a
+check that only halves on a miss must also stop at some shortest gap: near
+the start of a very fast release the tangent stop alone strays past the
+tolerance, and halving forever overflows the stack.
 
 ### A toggled box can fade out of `display: none` in CSS alone — outside the top layer
 
 `display` is discrete, so a transition on a box that goes to `display: none`
 normally has nothing left to paint. `transition-behavior: allow-discrete` on
 `display` holds the old value until the other transitions have run, and
-`@starting-style` gives the opening a from-state:
+`@starting-style` gives the opening a from-state. The times come from a motion
+token ([[design-tokens]] §Motion; cire's `--dur-*` in a cire app):
 
 ```css
 .menu {
   display: none;
   opacity: 0;
-  transition: opacity 150ms, display 150ms allow-discrete;
+  transition:
+    opacity var(--ui-dur-fast),
+    display var(--ui-dur-fast) allow-discrete;
 }
 .menu[data-open] {
   display: grid;
@@ -597,7 +721,7 @@ normally has nothing left to paint. `transition-behavior: allow-discrete` on
 }
 ```
 
-Chrome 117, Safari 17.4 and Firefox 129 run it; an older engine drops the
+Chrome 117, Safari 17.5 and Firefox 129 run it; an older engine drops the
 `transition` declaration and toggles at once, which degrades rather than
 breaks. Give the closed state `pointer-events: none`, or the fading box still
 takes a tap.
@@ -610,10 +734,85 @@ which is why `Modal` defers `close()` in script (its overlays section in
 ### A pseudo-element escapes a `*` reduced-motion clamp
 
 Each app's reduced-motion block selects `*, *::before, *::after`, and no other
-pseudo-element matches it. An animation on `::details-content`, `::backdrop` or
-`::marker` keeps running for a reader who asked for none. Declare such an
-animation inside `@media (prefers-reduced-motion: no-preference)` instead of
-relying on the clamp to undo it.
+pseudo-element matches it. An animation on `::details-content`, `::backdrop`,
+`::marker` or a `::view-transition-*` keeps running for a reader who asked for
+none. Declare such an animation inside
+`@media (prefers-reduced-motion: no-preference)` instead of relying on the clamp
+to undo it. A view transition needs the script to check too: outside that block
+its pseudo-elements fall back to the browser's own 0.25s fade, so the script
+that would start one checks `matchMedia("(prefers-reduced-motion: reduce)")`
+and applies the change at once instead (`@cire/ui`'s `lib/theme`).
+
+### A view transition takes every press until it ends
+
+While `document.startViewTransition` runs, the browser draws the page as
+snapshots and hit-tests those, not the page: every press lands on `<html>`,
+whatever is under it, and `elementFromPoint` returns `<html>`. A menu or popover
+left open under the transition reads that press as one outside it and closes.
+`pointer-events: none` on `::view-transition` does not help when the root is
+captured, as it is by default: the live page under the overlay takes no press
+either.
+
+So keep the transition short, end every animation in it on the same token —
+time `::view-transition-group(root)` with the snapshots, or it runs the
+browser's 0.25s and holds the pointer that long — and drop a press on `<html>`
+while it runs: a capturing `pointerdown` listener on `window` that calls
+`preventDefault()` and `stopImmediatePropagation()`, removed when `finished`
+settles. The press is not replayed; the person makes it again after the fade.
+No `pointerdown` listener after that one sees it, so a dismiss handler that
+listens for `pointerdown`, as Kobalte's does, does not fire, and focus stays
+where it was. The `click` that follows still reaches `<html>`, so a popover
+that closes on a `click` outside it still closes.
+
+A second `startViewTransition`, or a change of viewport size, skips a running
+transition. The skipped one still runs its update, and its `ready` rejects
+(`AbortError` or `InvalidStateError`). Give `ready` a handler
+(`transition.ready.catch(() => {})`), or each skip surfaces as an unhandled
+rejection, which fails a Vitest run.
+
+`@cire/ui`'s `lib/theme` does all of this for the portals' theme cross-fade
+(`cire/host/DESIGN.md` §4). In `cire/host`,
+`tests/components/ProfileMenu.crossfade.browser.test.tsx` checks that the press
+lands on `<html>` with `pointer-events: none` on `::view-transition`, that the
+open menu survives a press mid-fade and the `click` still reaches `<html>`, that
+the listener goes when the fade ends, and that two quick choices or a resize
+mid-fade raise no rejection.
+
+### A box grown to `auto` holds its clip only while it grows
+
+`interpolate-size: allow-keywords` lets `height` transition from `0` to
+`auto`, so a `<details>` body can grow open with no measuring. Three things go
+wrong if it is written the obvious way:
+
+- **The clip stays.** The growing box needs `overflow: clip`, or its content
+  spills past it until the height catches up. Left on at rest, it cuts a focus
+  ring at the box's edge and a row lifted by a drag. Let it go when the growth
+  ends: list `overflow` in the transition with a duration of `0s`, a delay
+  equal to the growth, and `transition-behavior: allow-discrete`, so the
+  closed state's `clip` holds through the delay and steps to `visible` at its
+  end.
+- **The fallback steps.** Only Chrome and Edge have `interpolate-size`. With
+  `allow-discrete` on the transition, an engine without it treats `0` to `auto`
+  as a discrete change and swaps it partway through. Put the height, the clip
+  and `interpolate-size` itself inside `@supports (interpolate-size:
+  allow-keywords)`, so elsewhere the height never changes and the box opens at
+  once.
+- **A frame round it chases it.** A box that animates its own height to its
+  content, such as `createAutoSize()`'s frame, sees each frame of the growth
+  as a change of content and starts a fresh transition from the last height:
+  it trails the growth, its clip cuts the content's foot, by 50px on one
+  short panel, and it catches up a transition later. `createAutoSize()`
+  follows with no transition of its own while a `<details>` inside it grows
+  (its `::details-content` is shorter than the body it holds) and for the
+  change straight after. A disclosure that opens at once is an ordinary
+  change to it.
+
+*Measured 2026-11-11 — a throwaway browser-tier probe in `cire/host`: a `createAutoSize()` frame round "Arrange tables" with a line above and below, 360px wide, motion scale 1, before the follow. The committed `tests/components/ModuleShell.disclosure.browser.test.tsx` runs at 3× and cut 24px before the follow.*
+
+Chromium does not list a transition on `::details-content` in
+`getAnimations()`, so a test reads the opening frame by frame from layout and
+`getComputedStyle(el, "::details-content")` instead. `@cire/ui`'s `Disclosure`
+is the reference (`cire/host/DESIGN.md` §4); [[browser-tests]] lists its tests.
 
 ## Server-rendered islands
 
@@ -681,9 +880,79 @@ into them. A merge keeps every held row the server has stopped returning, and
 those are exactly the rows the caller has lost access to: an organisation left,
 a wedding deleted. Keep the place by re-reading as many pages as are held, not
 by keeping old ones, and clear the rows on a failed read rather than leaving
-them behind an error. `cire/vendor/src/lib/enquiry-inbox.ts` and the organiser
+them behind an error. `cire/vendor/src/lib/enquiry-inbox.ts`, the organiser
 caches ([[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]])
+and Musubi's page cache ([[#Page data: one cache, keyed by the session]])
 follow it.
+
+## Page data: one cache, keyed by the session
+
+`@musubi/social` reads its data pages' rows — Connections' tabs, Discover,
+Organisations, an organisation and its roster, Settings' Connected apps and
+Security — through one module-level cache (search, the shell's prompts and
+the bare routes read on their own), `src/lib/page-cache.ts`, with the queries
+in `src/lib/page-data.ts` and Security's in `src/lib/security-data.ts`. A page shown again draws its last rows at once and
+reads them again behind them; a first load draws as many placeholders as that
+page last landed, one when nothing is known.
+
+- **Scope.** Entries belong to the session object `AuthProvider` holds. One
+  session object stands for one account and one active profile: signing in,
+  switching profile, a profile reset, signing out and the session ending each
+  replace it or take it away, and a silent token renewal does neither. Any
+  change clears every entry, every row count and every read still out, and
+  keys carry the scope too. A mutation takes `scopeMark()` before its request
+  and passes it to `update`, which writes nothing once the scope has moved.
+  The shell mounts `PageCacheScope` (inside `ShellNotices`, which it keeps
+  across navigation and the breakpoint switch), so the cache follows the
+  session with no page mounted and is cleared when the shell goes (a bare
+  route). Not
+  `activeProfileId`: it lags the session it belongs to and is `null` for a
+  moment after every sign-in.
+- **Plain signals, not a resource.** A read never raises a `Suspense`
+  boundary (see [[#Lazy Loading]] on resources under `Suspense`), so a cached
+  page paints with the navigation's own commit. An answer that repeats rows
+  already held keeps those row objects (`keepSame`), so `<For>` keeps their
+  elements and focus. A read behind rows on screen sets no `aria-busy`; a
+  first load and a `refresh` do.
+- **When it reads.** A show — the page mounts, its arguments change, or the
+  scope changes — joins a read already out, or sends one: a first read with a
+  placeholder when nothing has landed, a read behind the rows otherwise. A
+  change of the entry's state is never a show, so a failed read is not sent
+  again by itself. Each visit costs one read, as a mount-time resource did.
+  A route's `preload` (hover at rest 20 ms, focus or touch of a link, and
+  navigation, through `@solidjs/router`'s anchor listeners) sends a read only
+  for rows never read: landed rows are read again when shown, and a failed
+  read is tried again when shown, not on every hover. The preload lives in
+  the page's own module and `App.tsx` imports it through the same
+  `import()` as the page: a new dynamic-import site from the entry splits the
+  entry chunk, as [[#Lazy Loading]] records for the dialogs.
+- **After a mutation.** `update` writes the known outcome (a row gone, a
+  rename) and drops any read that may predate it; `invalidate` reads again
+  now for a page on screen, `refresh` does so with the rows marked
+  `refreshing`, and `drop` forgets a deleted organisation so its stale link is
+  a first load. A row action (`src/lib/row-actions.ts`) is busy from its
+  press, waits for a read in flight (`settled()`) and acts only on a row still
+  there.
+- **Why not the router's `query()`.** `@solidjs/router` 1.0's `query()`
+  reuses an entry for five seconds outside back and forward, then waits on
+  the network again through `createAsync`, a resource; it has no notion of a
+  session and sweeps entries after three minutes. The router still drives
+  preloading.
+
+- **A view from another package.** `@osn/auth-ui`'s Security views take
+  their read as a `SettingsRead` (`osn/auth-ui/src/settings-read.ts`); without
+  one they read for themselves. Each write tells the read how it ended: an
+  exact outcome is written, `"unchanged"` keeps the rows on the screen that
+  wrote until they are read again (forgotten if that screen has gone),
+  `"unknown"` forgets them, so no screen shows a row a write may have changed;
+  a write that settles under a newer session is `"unknown"`. `useSettingsRead`
+  (`src/lib/security-data.ts`) builds one from a page query.
+
+`tests/lib/page-cache.test.tsx` holds each way the cache can fail, the
+scope refusals first; `tests/components/PageCacheScope.test.tsx` holds them
+through the real `AuthProvider`, and `tests/components/SecurityCache.test.tsx`
+and `SecurityCacheScope.browser.test.tsx` hold them for Settings' Security;
+[[social]] §Page data lists the queries and what each mutation writes.
 
 ## Source Files
 

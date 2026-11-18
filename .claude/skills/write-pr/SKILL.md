@@ -10,7 +10,7 @@ A pull request has three readers. The owner reads it today to decide whether to 
 This skill owns the **title and the body**. `prep-pr` owns the gates that feed them — base branch, changeset, builds, reviews, findings filed — and hands over at its Step 8. Two things this skill does not own:
 
 - **An issue**, including a finding filed during the work: `write-issue`.
-- **The session-metrics block.** `retro` appends its `<details>` block after the pull request opens. Leave no placeholder for it, and put nothing after it.
+- **The session-metrics block.** `retro` renders its `<details>` block, and `prep-pr` Step 9 appends it to the body file before the pull request opens. Leave no placeholder for it, and put nothing after it.
 
 A worked body, before and after, is in `references/examples.md`.
 
@@ -47,7 +47,7 @@ None
 Those six `##` headings are the whole permitted set, in that order. From then on the file is **edited, never rewritten**: replace a `None` as the work establishes what belongs there, and leave it where the answer really is nothing. A body composed in your head and written out whole at the end is how a section goes missing.
 
 - Never add a seventh `##`. A change-specific heading belongs in the title; a gate that could not run gets a `## Test plan` row.
-- A decision is a `###` inside `## Decisions`, never a `##`. The deep dive, when there is one, is a `### Deep dive` at the end of `## Summary`; a component pull request's `### Lab stories` follows it (Step 4).
+- A decision is a `###` inside `## Decisions`, never a `##`. The deep dive, when there is one, is a `### Deep dive` at the end of `## Summary`; the `### Lab stories` of a pull request that adds or changes a UI-package component follows it (Step 4).
 - Unlike an issue, where an empty section is left out, a section here with nothing to say keeps `None`: an absent one reads as forgotten. `## Impact` is the exception: every change has one, so it is never `None` when the body is sent.
 - Owner actions (Step 4) go at the end of `## Impact`, after its text and before `## Summary`.
 
@@ -116,9 +116,11 @@ The line never names, points at or describes a tracker issue or a security, perf
 
 What changed, now that Impact has said why it matters: two or three sentences, then bullets for what the prose cannot carry. Do not repeat the impact. Describe the change, not the session: "I explored", "after three attempts", "Phase 2 complete" and a list of every file touched belong in your report to whoever dispatched you. The commits carry the steps; the diff carries the files.
 
+**Where to look, when the diff is more than a few files.** End the Summary's bullets with one line naming the file or function where the risk sits, and one naming what is mechanical and safe to skim: `Read first: cire/api/src/routes/invites.ts — the resend guard. Mechanical: changeset, wiki page, regenerated D1 types.` Name files, never list them all: this points a reviewer at the diff; it is not a file list (see the File-list summary fault). A tracker fix leaves it out, since naming the risky line points at the finding.
+
 **Deep dive, only when the change needs one.** A `### Deep dive` at the end of `## Summary` explains how it works — the mechanism, the data flow, a diagram, the trade-off a reviewer must understand to judge the diff. A rename, a bump or a copy change has none; leave the heading out rather than writing `None`. A tracker fix never has one: how the fix works points at what it fixed.
 
-**Lab stories, on a component pull request.** A pull request that adds or changes a component in `@shared/ui`, `@cire/ui` or `@osn/auth-ui` ends `## Summary` with a `### Lab stories` section, after any `### Deep dive`. It is how the owner looks at the component without the feature around it (`wiki/conventions/stacked-prs.md` §Frontend: one component per pull request). The section gives the command, then each story's sidebar id and the state it shows:
+**Lab stories, whenever a component is added or changed.** A pull request that adds or changes a component in `@shared/ui`, `@cire/ui` or `@osn/auth-ui` ends `## Summary` with a `### Lab stories` section, after any `### Deep dive`: the component's own pull request, or the feature pull request a component only that feature uses is folded into (`wiki/conventions/stacked-prs.md` §Frontend: when a component gets its own pull request). It is how the owner looks at the component without the feature around it. The section gives the command, then each story's sidebar id and the state it shows:
 
 ```markdown
 ### Lab stories
@@ -129,7 +131,7 @@ What changed, now that Impact has said why it matters: two or three sentences, t
 - `cire/ui/DateChip/OtherYear` — a date in another year, with the year shown
 ```
 
-The id is the story file's `meta.title`, then the export name. Such a pull request carries `Part of #N` and the feature pull request carries `Closes #N`. Every pull request in the stack opens as a draft, with the `**Do not merge until**` line `prep-pr` Step 9 gives it.
+The id is the story file's `meta.title`, then the export name. A component with a pull request of its own carries `Part of #N` and the feature pull request carries `Closes #N`; every pull request in that stack opens as a draft, with the `**Do not merge until**` line `prep-pr` Step 9 gives it. A folded component adds no issue line: the feature pull request's `Closes #N` covers it.
 
 **For a tracker fix, say what the code now does and stop**, as the diff and the changeset already do: "Guest sessions now last 14 days." Never what was wrong with the old behaviour, how it could be abused, or which finding the change answers. Those stay in the tracker issue.
 
@@ -234,7 +236,7 @@ Each of these has shipped in this repository's pull requests.
 | Next steps with no issue | "Note for whoever lands second: rebase that paragraph and recount"; a `## Follow-ups` list | An issue number; a check nobody has made yet is an unverified line under the test plan |
 | File-list summary | A Summary built from function and file names | What changes, for whom, and why |
 | Personal detail | The owner's email address in a public body | Leave it out |
-| Component with no way to see it | A `@shared/ui` component's pull request that names no story, so the owner reads the diff to picture it | `### Lab stories` at the end of `## Summary` |
+| Component with no way to see it | A pull request that adds or changes a `@shared/ui` component and names no story, so the owner reads the diff to picture it | `### Lab stories` at the end of `## Summary` |
 
 ## Step 6 — Open it, or edit it
 

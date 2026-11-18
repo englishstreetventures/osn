@@ -9,7 +9,7 @@ import { listMigrations, migrationStatements } from "../../../scripts/migration-
 import { createSchemaSql } from "../src/testing";
 
 // Mechanical enforcement of the OSN DDL lockstep contract, ported from
-// cire/api's ddl-lockstep.test.ts (T-S1).
+// cire/api's ddl-lockstep.test.ts.
 //
 // Two surfaces must describe the same database shape:
 //   1. osn/db/drizzle/*.sql — what production D1 actually is,
@@ -107,6 +107,29 @@ function normaliseDefault(value: string | null): string | null {
 /** Strips quoting and case so two spellings of the same SQL expression compare equal. */
 const normaliseExpr = (raw: string): string =>
   raw.replaceAll(/[`"]/g, "").replaceAll(/\s+/g, " ").trim().replace(/;$/, "").toLowerCase();
+
+/**
+ * Each CHECK in a CREATE TABLE as `<constraint name> check(<expression>)`,
+ * normalised: the expression is read to its closing parenthesis, so one that
+ * holds parentheses of its own is taken whole.
+ */
+function checkClauses(tableSql: string): string[] {
+  const out: string[] = [];
+  const start = /(?:CONSTRAINT\s+([`"]?)(\w+)\1\s+)?CHECK\s*\(/gi;
+  for (let match = start.exec(tableSql); match; match = start.exec(tableSql)) {
+    let depth = 1;
+    let end = start.lastIndex;
+    while (end < tableSql.length && depth > 0) {
+      if (tableSql[end] === "(") depth += 1;
+      else if (tableSql[end] === ")") depth -= 1;
+      end += 1;
+    }
+    const expr = tableSql.slice(start.lastIndex, end - 1);
+    out.push(normaliseExpr(`${match[2] ?? ""} check(${expr})`));
+    start.lastIndex = end;
+  }
+  return out;
+}
 
 /** Order the LIST of indexes/FKs (arbitrary) without reordering anything inside one. */
 const sortByJson = <T>(items: T[]): T[] =>
@@ -220,10 +243,6 @@ describe("OSN DDL lockstep", () => {
   const migrated = snapshot(migratedDb());
   const emitted = snapshot(emittedDb());
 
-  it("the migration chain applies cleanly and creates tables", () => {
-    expect(Object.keys(migrated).length).toBeGreaterThan(0);
-  });
-
   it("covers the same set of tables", () => {
     expect(Object.keys(emitted).toSorted()).toEqual(Object.keys(migrated).toSorted());
   });
@@ -243,9 +262,14 @@ describe("OSN DDL lockstep", () => {
     expect(emitted[table]?.foreignKeys).toEqual(migrated[table].foreignKeys);
   });
 
-  // osn has no CHECK constraints, triggers or views today. Pinned as empty so
-  // the migration that introduces the first one can't skip the emitter.
-  it("has no CHECK constraints, triggers or views on either surface", () => {
+  // Drizzle cannot declare a trigger, so the emitter's triggers are a
+  // hand-written copy (src/triggers.ts); this holds that copy to the
+  // migrations, and a trigger, view or CHECK added by a migration alone fails
+  // here. Compared without case, string literals included, so the exact text
+  // of a trigger is not held here: osn/api's D1 tests
+  // organisation-member-role.test.ts and account-email-lower-case.test.ts run
+  // each migration itself.
+  it("has the same CHECK constraints, triggers and views on both surfaces", () => {
     const nonTableObjects = (db: Database): string[] =>
       (
         db
@@ -256,14 +280,16 @@ describe("OSN DDL lockstep", () => {
       )
         .map((r) => normaliseExpr(r.sql))
         .toSorted();
+    // Each CHECK by its table, taken out of the table's SQL: the two surfaces
+    // spell the rest of a CREATE TABLE differently (quoting, `PRIMARY KEY NOT
+    // NULL`, named foreign keys).
     const checks = (db: Database): string[] =>
       (
         db
-          .query("SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL")
-          .all() as Array<{ sql: string }>
+          .query("SELECT name, sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL")
+          .all() as Array<{ name: string; sql: string }>
       )
-        .filter((r) => /\bCHECK\s*\(/i.test(r.sql))
-        .map((r) => normaliseExpr(r.sql))
+        .flatMap((r) => checkClauses(r.sql).map((clause) => `${r.name}: ${clause}`))
         .toSorted();
 
     expect(nonTableObjects(emittedDb())).toEqual(nonTableObjects(migratedDb()));

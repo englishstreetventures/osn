@@ -1,6 +1,6 @@
 import { it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 import { OsnAuth, createOsnAuthLive } from "../src/service";
 import { createEphemeralStorage } from "../src/storage";
@@ -28,6 +28,8 @@ function seedSession(profileId = "usr_aaaaaaaaaaaa") {
     }),
   );
 }
+
+afterEach(() => vi.unstubAllGlobals());
 
 // ---------------------------------------------------------------------------
 // getActiveProfile
@@ -78,15 +80,10 @@ it.effect("listProfiles calls GET /profiles/list with Bearer auth and returns th
     const result = yield* auth.listProfiles();
 
     expect(result).toEqual(profiles);
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      "https://osn.example.com/profiles/list",
-      expect.objectContaining({
-        method: "GET",
-        headers: expect.objectContaining({ Authorization: expect.stringMatching(/^Bearer /) }),
-      }),
-    );
-
-    vi.unstubAllGlobals();
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe("https://osn.example.com/profiles/list");
+    expect(init).toEqual(expect.objectContaining({ method: "GET", credentials: "include" }));
+    expect(new Headers(init!.headers).get("authorization")).toMatch(/^Bearer /);
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -142,8 +139,6 @@ it.effect("switchProfile updates the active profile and caches the new access to
     // getSession should return the switched profile's session
     const currentSession = yield* auth.getSession();
     expect(currentSession?.accessToken).toBe(newAccessToken);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -176,14 +171,11 @@ it.effect("createProfile calls POST /profiles/create and returns the new profile
     expect(result).toEqual(newProfile);
 
     const call = vi.mocked(fetch).mock.calls[0]!;
-    const headers = call[1]!.headers as Record<string, string>;
-    expect(headers.Authorization).toMatch(/^Bearer /);
+    expect(new Headers(call[1]!.headers).get("authorization")).toMatch(/^Bearer /);
     const body = JSON.parse(call[1]!.body as string);
     expect(body.handle).toBe("charlie");
     expect(body.display_name).toBe("Charlie");
     expect(body.refresh_token).toBeUndefined();
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -212,8 +204,6 @@ it.effect("createProfile omits display_name when not provided", () =>
 
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string);
     expect(body.display_name).toBeUndefined();
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -264,7 +254,7 @@ it.effect("deleteProfile removes the profile token from storage", () =>
     // Third mock: deleteProfile
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ deleted: true }),
+      json: () => Promise.resolve({ deleted: true, default_profile_id: "usr_aaaaaaaaaaaa" }),
     } as Response);
 
     const auth = yield* OsnAuth;
@@ -281,8 +271,6 @@ it.effect("deleteProfile removes the profile token from storage", () =>
     // Active profile should still be the original
     const active = yield* auth.getActiveProfile();
     expect(active).toBe("usr_aaaaaaaaaaaa");
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -307,10 +295,11 @@ it.effect("deleteProfile switches active profile when deleting the current one",
         }),
     } as Response);
 
-    // Mock: deleteProfile
+    // Mock: deleteProfile. The account's default is a third profile this
+    // page holds no token for.
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ deleted: true }),
+      json: () => Promise.resolve({ deleted: true, default_profile_id: "usr_cccccccccccc" }),
     } as Response);
 
     const auth = yield* OsnAuth;
@@ -323,11 +312,10 @@ it.effect("deleteProfile switches active profile when deleting the current one",
     // Delete the active (second) profile
     yield* auth.deleteProfile("usr_bbbbbbbbbbbb");
 
-    // Should have fallen back to the original profile
+    // Falls back to the profile it holds a token for, not the default: no
+    // grant is needed to go on
     const active = yield* auth.getActiveProfile();
     expect(active).toBe("usr_aaaaaaaaaaaa");
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -344,5 +332,196 @@ it.effect("logout clears both account session and legacy keys", () =>
 
     expect(yield* auth.getSession()).toBeNull();
     expect(yield* auth.getActiveProfile()).toBeNull();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// The public error on a failed profile call
+// ---------------------------------------------------------------------------
+
+it.effect("P4: a refused createProfile carries the response's status and the server's code", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "rate_limited" }), {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    const error = yield* Effect.flip(auth.createProfile("charlie"));
+    expect(error._tag).toBe("ProfileManagementError");
+    expect(error).toMatchObject({ status: 429, code: "rate_limited" });
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("P4: a profile call that reaches no server carries status 0", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    for (const run of [
+      auth.listProfiles(),
+      auth.switchProfile("usr_bbbbbbbbbbbb"),
+      auth.createProfile("charlie"),
+      auth.deleteProfile("usr_bbbbbbbbbbbb"),
+    ]) {
+      const error = yield* Effect.flip(run);
+      expect(error._tag).toBe("ProfileManagementError");
+      expect(error).toMatchObject({ status: 0 });
+      expect((error as { code?: string }).code).toBeUndefined();
+    }
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("P4: a non-JSON error page on a profile call keeps its status", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>Bad gateway</html>", { status: 502 })),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    for (const run of [
+      auth.listProfiles(),
+      auth.switchProfile("usr_bbbbbbbbbbbb"),
+      auth.createProfile("charlie"),
+      auth.deleteProfile("usr_bbbbbbbbbbbb"),
+    ]) {
+      const error = yield* Effect.flip(run);
+      expect(error).toMatchObject({ _tag: "ProfileManagementError", status: 502 });
+      expect((error as { code?: string }).code).toBeUndefined();
+    }
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("P4: a 2xx whose body is not JSON keeps its status, with no code", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>Sign in to the Wi-Fi</html>", { status: 200 })),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    for (const run of [
+      auth.listProfiles(),
+      auth.switchProfile("usr_bbbbbbbbbbbb"),
+      auth.createProfile("charlie"),
+      auth.deleteProfile("usr_bbbbbbbbbbbb"),
+    ]) {
+      const error = yield* Effect.flip(run);
+      expect(error).toMatchObject({ _tag: "ProfileManagementError", status: 200 });
+      expect((error as { code?: string }).code).toBeUndefined();
+    }
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("P4: a success body of the wrong shape fails its schema, with no status or code", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ profiles: "not-an-array" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    for (const run of [
+      auth.listProfiles().pipe(Effect.asVoid),
+      auth.switchProfile("usr_bbbbbbbbbbbb").pipe(Effect.asVoid),
+      auth.createProfile("charlie").pipe(Effect.asVoid),
+    ]) {
+      const error = yield* Effect.flip(run);
+      expect(error._tag).toBe("ProfileManagementError");
+      expect((error as { status?: number }).status).toBeUndefined();
+      expect((error as { code?: string }).code).toBeUndefined();
+    }
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// Profile methods send through authFetch (F34)
+// ---------------------------------------------------------------------------
+
+function seedExpiredSession(profileId = "usr_aaaaaaaaaaaa") {
+  return Effect.flatMap(OsnAuth, (auth) =>
+    auth.setSession({
+      accessToken: fakeJwt(profileId),
+      idToken: null,
+      expiresAt: Date.now() - 1_000,
+      scopes: ["openid", "profile"],
+    }),
+  );
+}
+
+it.effect("F34: listProfiles renews an expired token before it sends", () =>
+  Effect.gen(function* () {
+    const renewed = fakeJwt("usr_aaaaaaaaaaaa") + "renewed";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/token")) {
+        return new Response(
+          JSON.stringify({
+            access_token: renewed,
+            token_type: "Bearer",
+            expires_in: 300,
+            scope: "openid profile",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ profiles: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+    yield* seedExpiredSession();
+    yield* auth.listProfiles();
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls).toEqual([
+      "https://osn.example.com/token",
+      "https://osn.example.com/profiles/list",
+    ]);
+    const listInit = (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1];
+    expect(new Headers(listInit.headers).get("authorization")).toBe(`Bearer ${renewed}`);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("F34: a profile call whose renewal is refused fails with AuthExpiredError", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "invalid_grant", message: "AuthError: gone" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+
+    const auth = yield* OsnAuth;
+    yield* seedExpiredSession();
+    const err = yield* Effect.flip(auth.listProfiles());
+
+    expect(err._tag).toBe("AuthExpiredError");
+
+    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );

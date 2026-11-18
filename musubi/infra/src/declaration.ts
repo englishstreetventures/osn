@@ -1,15 +1,24 @@
 import { join } from "node:path";
 
 import {
+  adoptedWorkerOf,
+  declaredDomains,
   origin,
   physicalName,
+  PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
+  PRODUCTION_STAGE_HOSTS,
   productionSiteKinds,
   refuseProductionTier,
   siteDomain,
+  type AdoptedResources,
+  type ApiSurface,
   type ApiWorkerInput,
+  type DeclaredDomains,
+  type HostHold,
+  type MigrationSources,
   type PrebuiltSite,
-  type ResourceKind,
+  type ResourceKinds,
   type RetainedD1Input,
   type SiteMode,
   type SiteSurface,
@@ -34,14 +43,18 @@ interface OsnApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets">
   readonly bindings: Readonly<Record<string, BindingDescription>>;
 }
 
-/** osn-api's database, migrated by Alchemy from the flattened chain. */
-interface OsnDbDeclaration extends RetainedD1Input {
-  readonly migrations: string;
-}
+/** osn/db's migrations on every stage but production: the chain alone. */
+export const OSN_DB_MIGRATIONS: MigrationSources = { source: "../../osn/db/drizzle" };
+
+/** osn/db's migrations on production: the chain, and the freeze that stops Wrangler writing the ledger Alchemy took over. */
+export const OSN_DB_PRODUCTION_MIGRATIONS: MigrationSources = {
+  source: "../../osn/db/drizzle",
+  freeze: true,
+};
 
 interface MusubiDeclaration {
   readonly osnApi: OsnApiDeclaration;
-  readonly osnDb: OsnDbDeclaration;
+  readonly osnDb: RetainedD1Input;
   readonly musubiSocial: SiteWorkerInput;
   readonly musubiLanding: SiteWorkerInput;
   /** Where the stack writes each generated seed file. */
@@ -163,9 +176,161 @@ const SITES = {
   },
 } satisfies Readonly<Record<MusubiSite, MusubiSiteSpec>>;
 
+/**
+ * The apps osn-api's account deletion reaches, each by the `StageHosts` key of
+ * its API Worker, or null for an app with no API Worker on any tier. Read by
+ * `deletionAppsConfig` (osn/api/src/services/deletion-apps.ts).
+ */
+export const DELETION_APP_HOSTS = {
+  // pulse-api has no deployed tier (wiki/shared/dev-environment.md §1).
+  pulse: null,
+  zap: "zapApi",
+  cire: "cireApi",
+} as const satisfies Readonly<Record<"pulse" | "zap" | "cire", keyof StageHosts | null>>;
+
+/** osn-api's deletion vars: each app's address, or its declaration as absent. */
+interface DeletionAppVars {
+  readonly PULSE_API_URL?: string;
+  readonly ZAP_API_URL?: string;
+  readonly CIRE_API_URL?: string;
+  readonly CIRE_ORGANISER_ORIGIN?: string;
+  readonly OSN_DELETION_ABSENT_APPS?: string;
+}
+
+/**
+ * osn-api's deletion vars on a tier with `hosts`: Zap's and cire's API
+ * origins, and Pulse, which has no API Worker, named in
+ * `OSN_DELETION_ABSENT_APPS` so osn-api skips it instead of failing closed.
+ * `CIRE_API_URL` is also where osn-api ends a person's cire organiser
+ * sessions (osn/api/src/services/cire-organiser-revoke.ts).
+ * `CIRE_ORGANISER_ORIGIN`, cire's organiser portal, is the one place Musubi
+ * may send a person back to after they confirm a cire step-up request
+ * (`appStepUpReturnConfig`, osn/api/src/services/auth/app-step-up.ts).
+ * tests/deletion-apps.test.ts fails when an app gains an API host and this
+ * does not follow.
+ */
+export function deletionAppVars(hosts: StageHosts): DeletionAppVars {
+  return {
+    ZAP_API_URL: origin(hosts[DELETION_APP_HOSTS.zap]),
+    CIRE_API_URL: origin(hosts[DELETION_APP_HOSTS.cire]),
+    CIRE_ORGANISER_ORIGIN: origin(hosts.cireHost),
+    OSN_DELETION_ABSENT_APPS: "pulse",
+  };
+}
+
+/** osn-api's logical id, the dev one, which keys its state row on every stage. */
+export const API_LOGICAL_IDS = { osn_api: "OsnApi" } as const satisfies Readonly<
+  Partial<Record<ApiSurface, string>>
+>;
+
+/** Every resource the musubi stack declares on production at `modes`, by logical id, with its kind for the plan guard. */
+export const productionResourceKinds = (
+  modes: Readonly<Record<SiteSurface, SiteMode>>,
+): ResourceKinds => ({
+  OsnApi: "api-worker",
+  OsnDb: "d1",
+  ...productionSiteKinds(SITE_LOGICAL_IDS, modes),
+});
+
 /** Every resource the musubi stack declares on production, by logical id, with its kind for the plan guard. */
-export const PRODUCTION_RESOURCE_KINDS: Readonly<Record<string, ResourceKind>> =
-  productionSiteKinds(SITE_LOGICAL_IDS, PRODUCTION_SITE_MODES);
+export const PRODUCTION_RESOURCE_KINDS: ResourceKinds =
+  productionResourceKinds(PRODUCTION_SITE_MODES);
+
+/** osn-api's production limiters: the namespace ids `[env.production]` in `osn/api/wrangler.toml` declares. */
+const PRODUCTION_RATE_LIMITS: typeof RATE_LIMITS = RATE_LIMITS.map((limit) => ({
+  ...limit,
+  namespaceId: limit.namespaceId - 100,
+}));
+
+/** osn-api and its database on production. */
+interface MusubiProductionApis {
+  readonly osnApi: OsnApiDeclaration;
+  readonly osnDb: RetainedD1Input;
+}
+
+/**
+ * What the musubi stack declares on production beside its sites: osn-api and
+ * its database, each under today's name and adopted in place. Every var,
+ * binding, domain, cron and setting is `[env.production]`'s in
+ * `osn/api/wrangler.toml` (tests/parity.test.ts holds them equal), plus
+ * `legacy_module_registry` for the bundled Worker. No secret: production's
+ * stay on the Worker. The database imports nothing; Alchemy migrates it from
+ * `OSN_DB_PRODUCTION_MIGRATIONS`, flattened into `generatedDir`, in the stack
+ * job's migrate step before the deploy. Pure; every host comes from `hosts`.
+ */
+export function musubiProductionApis(input: {
+  readonly hosts: StageHosts;
+  readonly generatedDir: string;
+}): MusubiProductionApis {
+  const { hosts } = input;
+  const app = origin(hosts.musubiSocial);
+  return {
+    osnApi: {
+      worker: "osn-api",
+      name: "osn-api-production",
+      stage: "production",
+      main: "../../osn/api/src/entry.ts",
+      bundle: true,
+      assets: null,
+      compatibility: {
+        date: "2025-03-01",
+        flags: ["nodejs_compat", "nodejs_compat_populate_process_env", "legacy_module_registry"],
+      },
+      domain: hosts.osnApi,
+      crons: ["0 */6 * * *"],
+      workersDev: false,
+      previewUrls: false,
+      vars: {
+        OSN_ENV: "production",
+        OSN_RP_ID: hosts.musubiSocial,
+        OSN_RP_NAME: "Musubi",
+        OSN_ORIGIN: app,
+        OSN_ISSUER_URL: origin(hosts.osnApi),
+        OSN_CORS_ORIGIN: app,
+        OSN_COOKIE_DOMAIN: hosts.musubiSocial,
+        OSN_EMAIL_FROM: "hello@cireweddings.com", // not a host: the sender
+        OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
+        OSN_EMAIL_VERIFICATION_API: "true",
+        OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS: "100",
+        CIRE_OIDC_CLIENT_ID: "cid_cire",
+        ...deletionAppVars(hosts),
+        OSN_DELETION_FANOUT_MAX_JOBS: "50",
+      },
+      bindings: {
+        DB: { kind: "d1" },
+        // The class Wrangler made under migration tag v1; the first Alchemy
+        // upload reuses it because the binding keeps its name.
+        COORDINATION: { kind: "durable-object", className: "CoordinationStore" },
+        ...Object.fromEntries(
+          PRODUCTION_RATE_LIMITS.map((limit): [string, BindingDescription] => [
+            limit.name,
+            { kind: "ratelimit", namespaceId: limit.namespaceId, limit: limit.limit, period: 60 },
+          ]),
+        ),
+      },
+      // `[env.production.observability]`: logs on, every request sampled,
+      // query strings redacted, native traces off; it sets no invocation
+      // logs, which Cloudflare then keeps on.
+      observability: {
+        logs: true,
+        headSamplingRate: 1,
+        redactQueryString: true,
+        traces: { enabled: false },
+        invocationLogs: true,
+        issues: true,
+      },
+    },
+    osnDb: {
+      name: "osn-db-prod",
+      stage: "production",
+      readReplication: "disabled",
+      jurisdiction: "default",
+      locationHint: null,
+      migrations: join(input.generatedDir, "migrations", "osn-db"),
+      importFiles: [],
+    },
+  };
+}
 
 /** The musubi stack on production: its sites, by logical id, and the build each uploads. */
 interface MusubiProductionSites {
@@ -175,14 +340,14 @@ interface MusubiProductionSites {
 
 /**
  * What the musubi stack declares on production: each site `modes` does not
- * turn off, under today's production name, serving its spare host while
- * staged and its production host as a worker. Every build is the
- * production build and bakes in `hosts`, today's production hosts. No
- * osn-api or database: those join the stack in a later step of phase P3.
- * Pure.
+ * turn off, under today's production name, serving its production host,
+ * or no host while `holds` holds it. Every build is the production build
+ * and bakes in `hosts`, today's production hosts, held or not. osn-api and
+ * its database are `musubiProductionApis`. Pure.
  */
 export function musubiProductionSites(input: {
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds: readonly HostHold[];
   readonly hosts: StageHosts;
 }): MusubiProductionSites {
   const shipped = MUSUBI_SITES.filter((key) => input.modes[key] !== "off");
@@ -190,11 +355,59 @@ export function musubiProductionSites(input: {
     sites: Object.fromEntries(
       shipped.map((key) => [
         SITE_LOGICAL_IDS[key],
-        SITES[key].declare("production", siteDomain(key, input.modes[key])),
+        SITES[key].declare("production", siteDomain(key, input.modes[key], input.holds)),
       ]),
     ),
     prebuilt: shipped.map((key) => SITES[key].prebuilt(input.hosts)),
   };
+}
+
+/** The host each musubi Worker, site or API, is declared with on production, which the plan guard reads. */
+export const PRODUCTION_DOMAINS: DeclaredDomains = declaredDomains(
+  { ...SITE_LOGICAL_IDS, ...API_LOGICAL_IDS },
+  {
+    ...musubiProductionSites({
+      modes: PRODUCTION_SITE_MODES,
+      holds: PRODUCTION_HOST_HOLDS,
+      hosts: PRODUCTION_STAGE_HOSTS,
+    }).sites,
+    [API_LOGICAL_IDS.osn_api]: musubiProductionApis({
+      hosts: PRODUCTION_STAGE_HOSTS,
+      generatedDir: ".generated",
+    }).osnApi,
+  },
+);
+
+/** The musubi stack's adopted resources on production, by logical id, as the live read and the plan guard compare them. */
+export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
+  const apis = musubiProductionApis({ hosts: PRODUCTION_STAGE_HOSTS, generatedDir: ".generated" });
+  return {
+    workers: { [API_LOGICAL_IDS.osn_api]: adoptedWorkerOf(apis.osnApi) },
+    databases: {
+      OsnDb: {
+        name: apis.osnDb.name,
+        readReplication: apis.osnDb.readReplication,
+        migrations: OSN_DB_PRODUCTION_MIGRATIONS,
+      },
+    },
+    buckets: {},
+  };
+})();
+
+/**
+ * osn-api's vars for sign-up's browser Email Verification API trial: on for
+ * stage `dev`, and for no investigation stage. Production sets it in
+ * `musubiProductionApis`. The verifier wants the token bound to the origin of
+ * OSN_AUTHORIZE_UI_URL, the app the sign-up page runs on, and
+ * musubi/social/public/_headers serves the dev host's origin-trial token there.
+ */
+function emailVerificationTrialVars(stage: string): EmailVerificationTrialVars {
+  if (stage !== "dev") return {};
+  return { OSN_EMAIL_VERIFICATION_API: "true" };
+}
+
+interface EmailVerificationTrialVars {
+  readonly OSN_EMAIL_VERIFICATION_API?: "true";
 }
 
 /**
@@ -256,17 +469,21 @@ export function musubiDeclaration(input: {
           .map(origin)
           .join(","),
         OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
+        // Sign-up accepts a browser Email Verification API token on dev; no investigation stage does.
+        ...emailVerificationTrialVars(stage),
         // The session marker cookie's domain: the app's host, never a parent shared with production.
         OSN_COOKIE_DOMAIN: hosts.musubiSocial,
         // Resend refuses a sender on a domain it has not verified, so musubi.social must be
         // verified before a deploy (englishstreetventures/osn#1548). Dev shares the address
         // production moves to, by the owner's choice on that issue.
         OSN_EMAIL_FROM: "Musubi <hello@musubi.social>", // not a host: the sender
-        // Sign out everywhere else, and revoking cire's connection, end the account's
-        // cire organiser sessions through cire-api. Both equal cire-api's own
+        // Sign out everywhere else, revoking cire's connection and an account's
+        // deletion end its cire organiser sessions through cire-api, at
+        // CIRE_API_URL (deletionAppVars). Both equal cire-api's own
         // CIRE_API_ORIGIN and CIRE_OIDC_CLIENT_ID (cire/infra/tests/cross-stack.test.ts).
-        CIRE_INTERNAL_REVOKE_URL: origin(hosts.cireApi),
         CIRE_OIDC_CLIENT_ID: "cid_cire",
+        // Where the account deletion reaches each app on this tier.
+        ...deletionAppVars(hosts),
       },
       bindings: {
         DB: { kind: "d1" },
@@ -285,6 +502,7 @@ export function musubiDeclaration(input: {
       // Invocation logs on, as osn-api's Wrangler config leaves them when
       // unset. Query strings are redacted: dev sign-in takes its secret in one.
       observability: {
+        logs: true,
         headSamplingRate: 1,
         redactQueryString: true,
         traces: { enabled: true, headSamplingRate: 1 },

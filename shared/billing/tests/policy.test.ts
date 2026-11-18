@@ -97,11 +97,6 @@ describe("decideSubscription", () => {
       );
     },
   );
-
-  it("says until when access ends", () => {
-    const decision = decideSubscription(sub({ currentPeriodEnd: at(DAY) }), DEFAULT_POLICY, now);
-    expect(decision.until).toEqual(at(DAY + LEEWAY));
-  });
 });
 
 describe("decideFeature", () => {

@@ -13,7 +13,7 @@ import { BG, BORDER, type ColorToken, TEXT } from "./utilities.ts";
 export const meta = { title: "design-system/colour", layout: "padded" as const };
 
 /**
- * The seven roles `tokens.css` groups the colours into, each with the rule its
+ * The eight roles `tokens.css` groups the colours into, each with the rule its
  * comment states. Membership is decided by an ordered predicate list over the
  * contract's own token list rather than typed out, so a token added to the
  * contract lands in a group — or, if none claims it, in a visible `unsorted`
@@ -52,6 +52,35 @@ const ROLES: readonly Role[] = [
         <div class="bg-ui-ground flex flex-col gap-2 p-4">
           <p class="text-ui-base text-ui-ink">The page beneath it.</p>
           <Mono muted>bg-ui-ground</Mono>
+        </div>
+      </div>
+    ),
+  },
+  {
+    name: "Scrim",
+    claims: (t) => t === "--ui-scrim",
+    kind: "fill",
+    rule: () => (
+      <>
+        The veil a modal lays over the page. <Mono>Dialog</Mono>'s overlay and <Mono>Modal</Mono>'s
+        backdrop both paint it, so an app has one backdrop for one kind of interruption. It is
+        translucent and measured against nothing, so it carries no contrast floor. Unmapped it is
+        black at 50%; cire maps its deep ground at 72%.
+      </>
+    ),
+    inUse: () => (
+      <div class="rounded-ui-lg border-ui-hairline bg-ui-ground relative h-40 w-80 overflow-hidden border">
+        <div class="flex flex-col gap-2 p-4">
+          <p class="text-ui-base text-ui-ink">The page beneath it.</p>
+          <p class="text-ui-sm text-ui-ink-secondary">Still there, held back.</p>
+        </div>
+        <div class="bg-ui-scrim absolute inset-0 flex items-end">
+          <div
+            class="rounded-t-ui-sheet border-ui-hairline bg-ui-surface w-full border-t px-4 py-3"
+            style={{ "box-shadow": "var(--ui-elev-2)" }}
+          >
+            <Mono muted>bg-ui-scrim</Mono>
+          </div>
         </div>
       </div>
     ),
@@ -323,8 +352,8 @@ export const Roles = () => {
       title="Colour roles"
       intro={
         <>
-          Twenty tokens, seven roles. A swatch says what a colour <em>is</em>; the panel beside it
-          says what it is <em>for</em>. Each caption is read back from the painted element with{" "}
+          Twenty-one tokens, eight roles. A swatch says what a colour <em>is</em>; the panel beside
+          it says what it is <em>for</em>. Each caption is read back from the painted element with{" "}
           <Mono>getComputedStyle</Mono>, so it shows the lab's own mapping (musubi's) in whichever
           theme is on, not the stylesheet's fallback.
         </>
@@ -381,6 +410,8 @@ const OBLIGATION = {
   ui: "Non-text UI that must be perceivable: control boundaries, the focus ring. Clears 3:1.",
   decorative:
     "Decoration with no contrast floor. A card is told apart by its surface, not its edge.",
+  scrim:
+    "The veil a modal lays over the page. Measured against nothing, so no floor, and no app has to map it.",
   fills: "Fills. What sits on them is asserted, not they themselves.",
   onFill: "Ink that sits on a fill. Asserted against the fill it names, never against the page.",
   chromaticInk: "Accent and status colours used as ink on a ground. Clears 4.5:1.",
@@ -393,13 +424,14 @@ const OBLIGATION_KIND = {
   inkLarge: "ink",
   ui: "edge",
   decorative: "fill",
+  scrim: "fill",
   fills: "fill",
   onFill: "ink",
   chromaticInk: "ink",
 } as const satisfies Record<keyof typeof CONTRACT_COLOR_TOKENS, SwatchKind>;
 
 /**
- * The same twenty tokens, grouped the way `CONTRACT_COLOR_TOKENS` groups them
+ * The same twenty-one tokens, grouped the way `CONTRACT_COLOR_TOKENS` groups them
  * — by the contrast obligation each carries, which is what the conformance
  * harness reads. Iterated straight off the export.
  */

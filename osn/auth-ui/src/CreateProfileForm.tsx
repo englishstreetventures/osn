@@ -1,10 +1,15 @@
+import { describeAuthError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
+import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { UsernameInput } from "@shared/ui/ui/username-input";
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal, createUniqueId, onCleanup, Show } from "solid-js";
+
+import { describedBy, fieldError, type FieldError } from "./error-lines";
+import { stepAction, ViewStep } from "./ViewParts";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 
@@ -27,6 +32,9 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
   const [handle, setHandle] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [busy, setBusy] = createSignal(false);
+  // Above the submit, tied to the handle: the only field the server judges.
+  const [error, setError] = createSignal<FieldError | null>(null);
+  const errorId = createUniqueId();
   const [handleStatus, setHandleStatus] = createSignal<
     "idle" | "checking" | "available" | "taken" | "invalid" | "error"
   >("idle");
@@ -74,58 +82,80 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
     }, 300);
   }
 
-  const canSubmit = () => handleStatus() === "available" && !busy();
+  const canSubmit = () => handleStatus() === "available";
 
   async function submit(e: Event) {
     e.preventDefault();
-    if (!canSubmit()) return;
+    if (busy() || !canSubmit()) return;
     setBusy(true);
+    setError(null);
     try {
       const profile = await createProfile(handle(), displayName().trim() || undefined);
       toast.success(`Profile @${profile.handle} created`);
       props.onSuccess?.(profile);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create profile");
+      setError(fieldError(describeAuthError(err, "details"), err));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <form onSubmit={submit} class="flex flex-col gap-4">
-      <div class="flex flex-col gap-1">
-        <Label for="cpf-handle">Handle</Label>
-        <UsernameInput
-          id="cpf-handle"
-          required
-          value={handle()}
-          onInput={onHandleInput}
-          status={handleStatus()}
-          placeholder="lowercase, numbers, _"
-          invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
-        />
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <Label for="cpf-display-name">Display name (optional)</Label>
-        <Input
-          id="cpf-display-name"
-          type="text"
-          value={displayName()}
-          onInput={(e) => setDisplayName(e.currentTarget.value)}
-        />
-      </div>
-
-      <div class="flex gap-2">
-        <Button type="submit" disabled={!canSubmit()} class="flex-1">
-          {busy() ? "Creating..." : "Create profile"}
-        </Button>
-        {props.onCancel && (
-          <Button type="button" variant="ghost" onClick={props.onCancel}>
-            Cancel
+    // Its one host, `ProfileOnboarding`, draws it in a dialog: the body, then
+    // the footer's Cancel and Create profile. The step sits inside the form,
+    // footer and all, so Enter in a field submits.
+    <form onSubmit={submit} class="flex flex-col">
+      <ViewStep
+        host="dialog"
+        onCancel={props.onCancel}
+        cancelDisabled={busy()}
+        action={
+          <Button
+            type="submit"
+            {...stepAction("dialog")}
+            busy={busy()}
+            disabled={!busy() && !canSubmit()}
+          >
+            {busy() ? "Creating…" : "Create profile"}
           </Button>
-        )}
-      </div>
+        }
+      >
+        <Field labelTreatment="plain" label="Handle">
+          {(field) => (
+            <UsernameInput
+              id={field.id}
+              required
+              spellcheck={false}
+              value={handle()}
+              onInput={onHandleInput}
+              status={handleStatus()}
+              placeholder="lowercase, numbers, _"
+              invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
+              aria-describedby={describedBy(field["aria-describedby"], error() && errorId)}
+              aria-invalid={error()?.invalid || undefined}
+            />
+          )}
+        </Field>
+
+        <Field labelTreatment="plain" label="Display name (optional)">
+          {(field) => (
+            <Input
+              {...field}
+              type="text"
+              value={displayName()}
+              onInput={(e) => setDisplayName(e.currentTarget.value)}
+            />
+          )}
+        </Field>
+
+        <Show when={error()}>
+          {(line) => (
+            <Notice tone="danger" size="inline" alert id={errorId}>
+              {line().text}
+            </Notice>
+          )}
+        </Show>
+      </ViewStep>
     </form>
   );
 }

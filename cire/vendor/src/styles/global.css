@@ -14,6 +14,9 @@
 /* No vendor view draws the hollow loading rows yet. A page that draws
    `SkeletonOutline` needs this line gone. */
 @source not "../../../ui/src/skeleton-outline.tsx";
+/* Nor the orb: no page here draws it. A page that draws `Orb` needs this
+   line gone. */
+@source not "../../../../shared/ui/src/ui/orb.tsx";
 
 /* ── The two ramps ──────────────────────────────────────────────────────────
  * Lifted wholesale from `cire/host`, deliberately value-for-value. The
@@ -120,6 +123,15 @@
   /* The glass strip's light inner edge (`@cire/ui` SegmentedTabs): faint on
      the dark ramp, bright on the light one, as a lit edge reads on each. */
   --glass-edge: oklch(100% 0 0 / 0.1);
+  /* The chosen glass's outer ring. On the light ramp glass and track are
+     both pale, and the gold word needs a pale glass to read at 4.5:1, so the
+     ring carries the 3:1 a chosen state owes its track (WCAG 1.4.11):
+     readable gold at 80% and 1px, the owner's choice, about 3.6:1; 1px since
+     a thinner ring paints at part coverage on a 1x screen. The dark ramp keeps the hairline at 0.5px, the owner's choice:
+     there the gold-tinted glass stands about 1.4:1 off its track and the
+     hairline 1.25:1, both short of 3:1, and the chosen word's medium weight
+     carries the choice (DESIGN.md §7, SegmentedTabs). */
+  --glass-ring: 0 0 0 0.5px var(--border);
   --elev-2: var(--inner-lip), 0 12px 32px -8px oklch(0% 0 0 / 0.55);
 }
 
@@ -169,6 +181,7 @@
     --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
     --elev-1: 0 1px 2px oklch(30% 0.02 340 / 0.12);
     --glass-edge: oklch(100% 0 0 / 0.7);
+    --glass-ring: 0 0 0 1px color-mix(in srgb, var(--gold-ink) 80%, transparent);
     --elev-2: var(--inner-lip), 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
   }
 }
@@ -215,6 +228,7 @@
   --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
   --elev-1: 0 1px 2px oklch(30% 0.02 340 / 0.12);
   --glass-edge: oklch(100% 0 0 / 0.7);
+  --glass-ring: 0 0 0 1px color-mix(in srgb, var(--gold-ink) 80%, transparent);
   --elev-2: var(--inner-lip), 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
 }
 
@@ -241,6 +255,21 @@
     --dur-fast: calc(90ms * var(--motion-scale));
     --dur-base: calc(150ms * var(--motion-scale));
     --dur-slow: calc(200ms * var(--motion-scale));
+  }
+}
+
+/* ── A theme change: one cross-fade ─────────────────────────────────────────
+ * `cire/host`'s, rule for rule: `@cire/ui/lib/theme` applies a theme chosen in
+ * the account menu inside a view transition, and this times its fade (host
+ * DESIGN.md §4, "A theme change cross-fades"). `tests/styles/tokens.test.ts`
+ * fails if the two copies differ.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-group(root),
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--dur-base);
+    animation-timing-function: var(--ease-in-out);
   }
 }
 
@@ -305,13 +334,21 @@
   --radius-md: 10px;
   --radius-pill: 999px;
 
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* What a transition that names no easing runs, in place of Tailwind's own
+     curve, as in the host (cire/host/DESIGN.md §4). */
+  --default-transition-timing-function: var(--ease-out);
   /* Something landing with a little give: an overshoot of about 8% and one
      settle. A one-overshoot curve here, for the engines on the floor that have
-     no `linear()`; the real spring is the `@supports` block below. The glass
-     strips (`@cire/ui` SegmentedTabs) slide on it, as host's do. */
+     no `linear()`; the real spring is the `@supports` block below. The
+     enquiry thread's send button (`@cire/ui` MessageComposer) grows on it, as
+     host's does. */
   --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
+  /* Something travelling between two places it belongs, landing with barely
+     any give: an overshoot of about 3%. The glass strips (`@cire/ui`
+     SegmentedTabs) glide on it, as host's do. */
+  --ease-glide: cubic-bezier(0.36, 1.3, 0.3, 1);
 
   /* Focus — one ring everywhere, never animated, always visible. */
   --focus-ring-width: 2px;
@@ -389,6 +426,9 @@
 :root {
   --ui-ground: var(--bg);
   --ui-ground-deep: var(--bg-deep);
+  /* The veil behind `Modal`: the deep ground at 72%, so the backdrop stays in
+     the family of the page it dims. Unmapped, the contract paints black at 50%. */
+  --ui-scrim: color-mix(in srgb, var(--ui-ground-deep) 72%, transparent);
   --ui-surface: var(--surface);
   --ui-surface-raised: var(--surface-raised);
   --ui-surface-sunk: var(--surface-sunk);
@@ -412,6 +452,13 @@
   --ui-on-danger: var(--bg);
 
   --ui-focus: var(--focus);
+
+  /* Something arriving, on cire's one arriving curve (cire/host/DESIGN.md §4):
+   * every entry `animate-in` runs — `Tooltip`, `Popover`, the default menu —
+   * and `Modal`'s rise, though this portal renders no `Modal`. An overlay
+   * leaving reads `--ui-ease-exit`, which stays the contract's, so this moves
+   * no exit. */
+  --ui-ease-out: var(--ease-out);
 
   /* The portals' pill, which `@cire/ui`'s `Button` reads (DESIGN.md §4, One
    * pill language): every non-primary pill sits on the glass track's ground,
@@ -702,9 +749,44 @@
  * does not, and an easing it cannot parse would void the whole `animation`
  * declaration — so the token holds a cubic-bezier until this block replaces
  * it. Unlayered, so it beats the theme layer that declared the fallback.
+ *
+ * `--ease-glide` is the same spring damped harder (ratio 0.75): 3% past at
+ * about half the run. Each runs 29 samples of one spring, with the same
+ * natural frequency per run, so the two differ only in their give.
  */
 @supports (animation-timing-function: linear(0, 1)) {
   :root {
+    --ease-glide: linear(
+      0,
+      0.053,
+      0.177,
+      0.33,
+      0.485,
+      0.626,
+      0.745,
+      0.839,
+      0.91,
+      0.961,
+      0.994,
+      1.014,
+      1.025,
+      1.028,
+      1.028,
+      1.025,
+      1.02,
+      1.016,
+      1.012,
+      1.008,
+      1.005,
+      1.003,
+      1.001,
+      1,
+      1,
+      0.999,
+      0.999,
+      0.999,
+      1
+    );
     --ease-spring: linear(
       0,
       0.055,

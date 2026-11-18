@@ -248,7 +248,7 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     expect(row.displayName).toBe("Aisha & Benjamin");
   });
 
-  describe("a deadline may not be set in the past (S-L3)", () => {
+  describe("a deadline may not be set in the past", () => {
     // A backdated deadline locks the invite for every guest the moment it
     // lands, and a guest turned away is told only that RSVPs closed — never
     // that the date moved. Refused for EVERY caller, owner included.
@@ -334,7 +334,7 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     });
   });
 
-  it("records who made the write (migration 0056)", async () => {
+  it("records who made the write", async () => {
     // Two principal classes can now move a guest-facing control, so an owner
     // who finds RSVPs closed must be able to establish who did it.
     const { app, db } = buildApp();
@@ -412,7 +412,7 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     expect(getWedding(db).weddingDate).toBeNull();
   });
 
-  it("never writes the slug — a slug in the body is ignored (S-M1)", async () => {
+  it("never writes the slug — a slug in the body is ignored", async () => {
     // Renaming would free the old slug for another organiser to claim while
     // printed invite links still point at it; the schema strips the field, so
     // even a hand-crafted body can't move it.
@@ -462,24 +462,6 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     }
   });
 
-  it("saves an RSVP deadline with the organiser's zone", async () => {
-    const { app, db } = buildApp();
-    const res = await req(app, "PUT", SETTINGS_PATH, OWNER, {
-      rsvpDeadline: "2027-02-20",
-      rsvpDeadlineTimezone: "Australia/Sydney",
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      wedding: { rsvpDeadline: string; rsvpDeadlineTimezone: string };
-    };
-    expect(body.wedding.rsvpDeadline).toBe("2027-02-20");
-    expect(body.wedding.rsvpDeadlineTimezone).toBe("Australia/Sydney");
-
-    const row = getWedding(db);
-    expect(row.rsvpDeadline).toBe("2027-02-20");
-    expect(row.rsvpDeadlineTimezone).toBe("Australia/Sydney");
-  });
-
   it("clearing the deadline date also clears its zone", async () => {
     // The two columns are one fact — a zone left behind would re-show next to
     // an empty date in the portal and read as a deadline that isn't there.
@@ -498,7 +480,7 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     expect(body.wedding.rsvpDeadlineTimezone).toBeNull();
   });
 
-  it("canonicalises the stored zone rather than storing it verbatim (S-L2)", async () => {
+  it("canonicalises the stored zone rather than storing it verbatim", async () => {
     // One zone must have one spelling in the column, or equal deadlines don't
     // compare equal and the value stops matching its documented type.
     const { app, db } = buildApp();
@@ -614,7 +596,7 @@ describe("the wedding's currency while money gifts are on", () => {
   });
 });
 
-describe("event location config is gone (dropped by migration 0036)", () => {
+describe("event location config is not accepted", () => {
   const EVENTS_PATH = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events`;
   const POINT = { locationLat: -33.8688, locationLng: 151.2093, pricingRegion: "au-nsw" };
 

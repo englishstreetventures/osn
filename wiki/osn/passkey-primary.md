@@ -3,34 +3,38 @@ title: Passkey-Primary Login (M-PK)
 tags: [auth, passkey, webauthn, security-key, login]
 related:
   - "[[identity-model]]"
+  - "[[email-links]]"
   - "[[sessions]]"
   - "[[recovery-codes]]"
   - "[[step-up]]"
   - "[[dev-environment]]"
+  - "[[email-verification-api]]"
 packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-18
 ---
 
 # Passkey-Primary Login
 
 OSN accepts exactly one primary login factor: a WebAuthn credential — either a
 platform passkey (Face ID / Touch ID / Windows Hello / Android screen lock)
-or a roaming security key (FIDO2 Yubikey etc.). We removed OTP and magic-link
-primary login; OTP survives as the step-up and email-change verification
-factor.
+or a roaming security key (FIDO2 Yubikey etc.). There is no OTP or
+magic-link primary login. Sign-up proves the address with an emailed link
+([[email-links]]) that confirms the address and signs nobody in; OTP survives
+as the step-up and email-change verification factor.
 
 ## Account-level invariant
 
 **Every live account has ≥1 WebAuthn credential at all times.** The invariant
 holds from registration to deletion:
 
-- **Registration.** `/register/complete` returns a session, but the UI
-  refuses to dismiss the registration flow until `/passkey/register/complete`
-  succeeds. There is no "skip for now" button. **`Register.tsx` holds that
+- **Registration.** The completing sign-up status poll
+  (`POST /register/:requestId/status`, from the tab holding the claim secret)
+  returns a session, but the UI refuses to dismiss the registration flow until
+  `/passkey/register/complete` succeeds. There is no "skip for now" button. **`Register.tsx` holds that
   session without adopting it** — enrolment authenticates with the returned
   access token, passed explicitly as a bearer token, so nothing before the
   ceremony needs a published session. It adopts only once the credential
@@ -45,7 +49,7 @@ holds from registration to deletion:
   codes are NOT a substitute credential — they are the "my device is gone"
   escape hatch only.
 - **Rotation.** Users who want to remove a compromised passkey enrol the
-  replacement first via Settings → Security → "Add passkey", then delete
+  replacement first via Settings → Security → "Add a passkey", then remove
   the old one. The add-passkey flow is step-up gated (passkey or OTP AMR)
   so a stolen access token can't silently bind a new authenticator — see
   "Step-up gating on register" below.
@@ -72,14 +76,15 @@ UI surface (`@osn/auth-ui`):
   false, shows a "passkey or security key required" screen that still lets
   the user enter a recovery code.
 - `<RecoveryLoginForm>` — the factor chooser behind that link: a recovery code,
-  an emailed code, or an authenticator code. Only the first mints an ordinary
+  an emailed link, or an authenticator code. Only the first mints an ordinary
   session; see [[#What the recovery screen does with a restricted session]].
 - `<Register>` — WebAuthn-gated. The flow stops at the start if the
   environment lacks WebAuthn support, and completion stays blocked until
   first-credential enrolment succeeds.
 - `<PasskeysView>` (`@osn/auth-ui/PasskeysView`) — Settings → Security
   surface. Lists the account's credentials; supports rename (step-up
-  gated), delete (last-passkey guarded), and **Add passkey** (step-up
+  gated), remove (last-passkey guarded; the step-up sheet asks first,
+  titled "Remove {name}?"), and **Add a passkey** (step-up
   gated via the same `/passkey/register/*` endpoints the registration
   flow uses). `@musubi/social` mounts it behind a lazy-loaded
   `SecuritySection` so `@simplewebauthn/browser` only ships when the tab
@@ -109,7 +114,10 @@ UI surface (`@osn/auth-ui`):
 factor and nothing else: the passkey factor is unaffected, and the
 authenticator-app factor stays on offer wherever the ceremony and the account
 allow it. With it set the dialog also auto-starts the passkey ceremony on
-mount, since there is no factor picker to show first.
+mount, since there is no factor picker to show first — except when the host
+gives a `warning` (a removal): then the sheet shows its factors and waits for
+a press, because the warning is the only confirmation before the removal and
+the browser's prompt would cover it.
 
 The reason is the whole reason the prop exists. It is there so an OTP step-up
 cannot dead-end on a code that never arrives — and a TOTP code has no delivery
@@ -118,10 +126,9 @@ factor for no benefit, on exactly the hosts with fewest factors left.
 
 > [!note] Why it was not renamed to something like `noEmailFactor`
 > That name is more accurate and the rename was considered. Against it: the
-> prop has no callers, so a breaking change across a package three workspaces
-> consume would benefit nobody; and where no authenticator is enrolled — every
-> account until the TOTP surfaces shipped — the dialog really is passkey-only,
-> which is the state the name was written for. The ambiguity is closed by
+> prop has no callers and the package has one consumer, so renaming it would
+> gain nothing; and where no authenticator is enrolled, the dialog really is
+> passkey-only, which is the state the name was written for. The ambiguity is closed by
 > writing the meaning down here and in the prop's own TSDoc rather than by
 > moving it. Do not re-litigate without a caller to point at.
 
@@ -132,10 +139,10 @@ factor everywhere, because a factor the gated endpoint refuses is not a shorter
 menu — it is a dead end. The ceremony succeeds, a token is minted, and the call
 it was minted for fails.
 
-| Ceremony | Passkey | Emailed code | Authenticator |
+| Ceremony | Passkey | Emailed link | Authenticator |
 |---|---|---|---|
 | `passkey_register`, `totp_enroll`, `totp_disable` | yes | yes | yes |
-| `recovery_generate`, `security_event_ack`, `account_delete`, `account_export`, `pulse_app_delete`, `zap_app_delete` | yes | yes | yes |
+| `recovery_generate`, `security_event_ack`, `account_delete`, `account_export`, `account_restore`, `pulse_app_delete`, `zap_app_delete`, `cire_app_delete` | yes | yes | yes |
 | `passkey_delete` (gates rename too) | yes | **no** | **no** |
 | `email_change` | yes | yes | **no** |
 
@@ -143,9 +150,10 @@ That table mirrors the **defaults** in `osn/api/src/services/auth/context.ts`;
 three of the four allow-lists are `AuthConfig` fields, so a deployment that
 narrows one reintroduces a dead end the UI cannot see. No deployment sets them.
 
-Fixing this removed a dead end that had been live: the dialog previously
-offered "Email me a code" for passkey rename and delete, whose gate is
-`["webauthn"]`, so the code arrived and the action still failed. The
+The dialog offers "Email me a link" only where the purpose admits it, and
+never for passkey rename and delete, whose gate is `["webauthn"]`: there the
+link would arrive and the action would still fail. The emailed link needs a
+`purpose`, which it fixes when it is sent ([[email-links#Step-up]]). The
 authenticator factor additionally requires a confirmed credential — the dialog
 asks `GET /totp/status` itself rather than taking a flag from its host, so the
 two cannot be wired inconsistently.
@@ -191,17 +199,26 @@ with a second factor (UV = PIN, biometric, or device unlock).
 ## Step-up gating on register
 
 `/passkey/register/begin` requires a fresh step-up token (`X-Step-Up-Token`
-header or `step_up_token` body field; webauthn or otp AMR) when the account
-already has ≥1 passkey. First-passkey enrolment (bootstrap) bypasses the
-gate because no step-up ceremony is reachable before the account has any
+header or `step_up_token` body field; webauthn, otp or totp AMR) when the
+account already has ≥1 passkey. First-passkey enrolment (bootstrap) bypasses
+the gate because no step-up ceremony is reachable before the account has any
 credentials. This closes the "stolen access token → silent authenticator
 binding" vector that the enrollmentToken deletion otherwise opened.
+
+An ordinary caller of `/passkey/register/begin` must also hold a live session
+of the account, named by its session cookie or its token's `osn_sid`, or the
+answer is `409 session_stale` before the account's one parked registration
+challenge is touched ([[sessions#Access-token session binding (`osn_sid`)]]).
+A restricted recovery session is checked by `classifyCallerSession` instead,
+on both routes, since the live-session check refuses restricted sessions; on
+begin, one that lookup does not resolve is refused `409 session_stale` before
+its step-up token is read.
 
 Since the credential-provenance work, `/passkey/register/begin` also decides
 what the credential it is about to create will be **stamped** with — the
 effective strength of the ceremony chain behind it — and parks that on the
 registration challenge for `complete` to write. A credential registered under an
-emailed code or an authenticator code cannot delete an older passkey, or change
+emailed link or an authenticator code cannot delete an older passkey, or change
 the account email, for 72 hours; one registered by asserting a passkey the user
 already held inherits that credential's standing and is refused nothing. This is
 what closes the register-then-assert pivot that made `passkeyDeleteAllowedAmr`'s
@@ -256,8 +273,10 @@ the recovery would technically hold an account backed by recovery codes
 alone. Because `deletePasskey` refuses
 to leave 0 passkeys, that state is unreachable in normal operation.
 
-`POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete`
-mint a **restricted** recovery session instead.
+The email recovery status poll (`POST /login/recovery/email/:requestId/status`,
+by the tab holding the claim secret, once the emailed link is confirmed) and
+`POST /login/recovery/totp/complete` mint a **restricted** recovery session
+instead.
 See [[recovery-codes#The three ways back in]] and [[account-recovery-factors]] §B.
 
 All three stamp `accounts.last_recovered_at`, which opens a 72-hour window in
@@ -301,8 +320,8 @@ paths behave differently in four ways, each forced by the restriction:
   `POST /passkey/register/complete` returns no new token set — it clears
   `restrictedUntil` on the row but cannot rewrite a JWT already in the browser.
   Publishing it would announce a signed-in user whose token every ordinary route
-  rejects, and `listProfiles` uses a plain `fetch` with no silent refresh to
-  repair it. So a successful recovery ends by sending the user back to sign in
+  rejects, and renewing it through `authFetch` only re-mints the same
+  `osn-recovery` audience, so nothing would repair it. So a successful recovery ends by sending the user back to sign in
   with the passkey they now hold — which also proves the new credential works
   while they can still recover again if it does not.
 - **Expiry is its own screen**, not a 401 toast. Somebody who has just proved
@@ -326,10 +345,12 @@ paths behave differently in four ways, each forced by the restriction:
 > token arrives with less than the refresh lead on it, the screen stops
 > granting and waits it out — the timed-out screen and the row's death coincide.
 
-> [!important] An emailed code that yields a session is not the OTP login this page removed
+> [!important] An emailed link that leads to a session is not the OTP login this page removed
 > The resemblance is real and worth stating plainly, because "we deleted OTP
-> login" and "we added an emailed six-digit code that signs you in" sound like a
-> contradiction. What separates them is not the ceremony but what it buys.
+> login" and "we added an emailed link that gets you back in" sound like a
+> contradiction. What separates them is not the ceremony but what it buys. The
+> link only verifies the mailbox — the device that opens it gets nothing — and
+> the session it leads to goes to the tab that began, and is restricted.
 >
 > OTP **primary login** minted an `osn-access` session: every route in osn-api
 > and every downstream service that verifies over JWKS. Its removal is why the
@@ -342,10 +363,19 @@ paths behave differently in four ways, each forced by the restriction:
 > passkey and nothing else, and enrolling one is what lifts the restriction.
 >
 > So the sign-in path's phishing resistance is unchanged: there is still no
-> ceremony that turns an emailed code into an ordinary session. The bounded
+> ceremony that turns an emailed link or code into an ordinary session. The bounded
 > union `AuthMethod` in `@shared/observability` is pinned by a test that exists
 > to keep it that way, and the pin now carries this argument rather than a bare
 > list of members.
+>
+> Sign-up's emailed link is not a login either. Its confirm route marks an
+> address as proved and never sets a cookie or returns a token; only the
+> sign-up's status poll, from the tab that began and holds the claim secret,
+> receives a session, and only for the account it has just created. A test in
+> `osn/api/tests/routes/auth.test.ts` keeps `/login/otp*` and `/login/magic*`
+> answering 404 and the confirm mintless, and the `AuthRateLimitedEndpoint`
+> pin in `shared/observability/tests/attrs.test.ts` holds that no OTP or
+> magic-link login endpoint comes back.
 
 ## The one bypass, and where it can exist
 
@@ -359,8 +389,8 @@ identifier parameter, nothing to enumerate.
 It exists only where both gates pass, and both fail closed: the tier is `local`
 or `dev`, and `DEV_LOGIN_SECRET` is set. Otherwise the routes are never mounted
 and the path is a 404. `staging` and `production` can never mount it whatever
-their secrets hold, and the production deploy job now **fails** while
-`DEV_LOGIN_SECRET` is set on `osn-api-production`, so the secret cannot sit there
+their secrets hold, and the production release's plan guard **refuses** to deploy
+osn-api while `DEV_LOGIN_SECRET` is set on `osn-api-production`, so the secret cannot sit there
 one edit away from a bypass. Both principal handles — `dev_bootstrap` and the
 organisation's `dev_bootstrap_org` — are in `RESERVED_HANDLES`, which
 organisation creation now consults as well, so no real registration can occupy
@@ -396,7 +426,10 @@ userVerification, … } }` in all three branches:
 - Known account with 0 passkeys (unreachable in practice — the ≥1 invariant
   holds — legacy/corrupt data only): same synthetic shape, same probe-key park.
 - Known account with ≥1 passkey: real `allowCredentials` from the DB, and the
-  challenge parked at the normalised identifier.
+  challenge parked at the normalised identifier (trimmed, leading `@`
+  stripped, lower-cased), which `complete` normalises the same way, so a
+  sign-in begun as `Alice@X.com` and finished as `alice@x.com` meets its
+  challenge ([[identity-model#Accounts]]).
 
 An anonymous caller cannot probe the handle/email namespace through this
 endpoint. A DB SELECT runs on both branches (real query for known; a
@@ -407,11 +440,23 @@ is the same, and while the store is failing every branch answers the same 503
 identifier over 255 characters, longer than any account holds, is refused with
 400 before any of it.
 
+`/login/passkey/complete` with an identifier costs the same either way too. It
+takes the challenge at the normalised identifier, then looks up the presented
+credential: on a known identifier because the challenge is there, on an unknown
+one because a miss runs the same lookup before it refuses. So `begin` then
+`complete` with a credential the caller does not hold makes one store call and
+one D1 statement whether or not the identifier names an account
+(`osn/api/tests/services/begin-op-sequence.test.ts`).
+
 ## Access-token audience
 
 Access tokens carry `aud: "osn-access"`; `verifyAccessToken` asserts it.
 This prevents any future token type minted with the same ES256 key from
 authenticating access-token routes by accident.
+
+## Related
+
+[[email-verification-api]] tracks the browser API that may one day verify an email address at sign-up.
 
 ## What was removed
 
@@ -422,7 +467,7 @@ authenticating access-token routes by accident.
 - **Config fields**: `magicLinkBaseUrl`, `magicTtl`.
 - **Client SDK methods**: `LoginClient.otpBegin/otpComplete/magicBegin/magicVerify`;
   `CompleteRegistrationResult.enrollmentToken`; `passkeyRegisterBegin/Complete`
-  now take `accessToken` instead of `enrollmentToken`.
+  take `accessToken` instead of `enrollmentToken`.
 - **UI components**: `@osn/auth-ui/MagicLinkHandler` (deleted).
 - **Rate-limiter slots**: `otpBegin`, `otpComplete`, `magicBegin`.
 - **Metrics**: `osn.auth.magic_link.sent`; `AuthMethod` union narrowed to

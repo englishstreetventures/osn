@@ -33,8 +33,8 @@ import { insertWedding } from "../test-helpers/wedding";
  * Group gifts: one item several households give money towards.
  *
  * A group gift is a cash fund with `allow_partial` set, so it rides the money
- * path a fund does and is never reserved. The target is SOFT (owner,
- * 2026-11-04): nothing caps it, and money that passes it is the couple's. Each
+ * path a fund does and is never reserved. The target is SOFT, by the owner's
+ * choice: nothing caps it, and money that passes it is the couple's. Each
  * test below is one way that can go wrong:
  *
  *   - concurrent checkouts past the target, both kept;
@@ -69,6 +69,8 @@ function stripeStub() {
     createPlatformCheckoutSession: unused,
     retrievePlatformCheckoutSession: unused,
     expirePlatformCheckoutSession: unused,
+    createPlatformRefund: unused,
+    findPlatformRefund: unused,
     retrievePrice: unused,
     createCheckoutSession() {
       minted += 1;

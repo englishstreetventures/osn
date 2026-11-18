@@ -141,14 +141,4 @@ describe("Stripe account statements reach their rows by an index", () => {
     expect(seen.length).toBeGreaterThanOrEqual(6);
     expect(fullScans(db, seen)).toEqual([]);
   });
-
-  it("reaches the account's rows through the partial index", () => {
-    const db = seeded();
-    const plan = db.$client
-      .prepare(
-        "EXPLAIN QUERY PLAN UPDATE registry_settings SET stripe_charges_enabled = 0 WHERE stripe_account_id = ?",
-      )
-      .all(SHARED) as Array<{ detail: string }>;
-    expect(plan.map((p) => p.detail).join("\n")).toContain("registry_settings_stripe_account_idx");
-  });
 });

@@ -9,6 +9,7 @@
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "exports": {
+    "./origin-trial": "./src/origin-trial.ts",
     "./tier-headers": "./src/tier-headers.ts"
   },
   "scripts": {
@@ -19,7 +20,7 @@
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
-    "astro": "7.4.4",
+    "astro": "7.4.11",
     "vitest": "5.0.5"
   }
 }

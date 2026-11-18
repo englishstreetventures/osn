@@ -1,15 +1,22 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 import { main } from "../../scripts/sync-plans";
 import { createFakeStripe } from "../support/fake-stripe";
 
+const dirs: string[] = [];
+
+afterAll(() => {
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+});
+
 /** A plans module on disk, the way a consumer's script would name one. */
 function plansModule(): string {
   const dir = mkdtempSync(join(tmpdir(), "billing-plans-"));
+  dirs.push(dir);
   const file = join(dir, "plans.ts");
   const src = join(import.meta.dirname, "../../src/index.ts");
   writeFileSync(

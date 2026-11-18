@@ -30,10 +30,19 @@ export const CONTRACT_COLOR_TOKENS = {
   ink: ["--ui-ink", "--ui-ink-secondary"],
   /** Large-text, ornament and disabled ink. Clears {@link WCAG_UI} only — never body copy. */
   inkLarge: ["--ui-ink-tertiary"],
-  /** Non-text UI that must be perceivable: control boundaries, the focus ring. Clears {@link WCAG_UI}. */
-  ui: ["--ui-hairline-strong", "--ui-focus"],
+  /**
+   * Non-text UI that must be perceivable: control boundaries, a drawn
+   * choice's edge, the focus ring. Clears {@link WCAG_UI}.
+   */
+  ui: ["--ui-hairline-strong", "--ui-choice-edge", "--ui-focus"],
   /** Decoration with no contrast floor. A card is told apart by its surface, not its edge. */
   decorative: ["--ui-hairline", "--ui-accent-soft"],
+  /**
+   * The veil a modal lays over the page, translucent and measured against
+   * nothing, so no floor. In no contrast pair, so no app has to map it: one
+   * that does not gets black at 50%.
+   */
+  scrim: ["--ui-scrim"],
   /** Fills. What sits *on* them is asserted, not they themselves. */
   fills: ["--ui-accent", "--ui-accent-strong", "--ui-danger"],
   /** Ink that sits on a fill. Asserted against the fill it names, not against the page. */
@@ -45,7 +54,23 @@ export const CONTRACT_COLOR_TOKENS = {
 /** Every colour token in the contract, flattened. */
 export const ALL_COLOR_TOKENS: readonly string[] = Object.values(CONTRACT_COLOR_TOKENS).flat();
 
-/** Radius, type-family and motion tokens. No contrast obligation, so they are listed separately. */
+/**
+ * Colour tokens an app need not map: unmapped, each reads the token named
+ * here, as its alias in `tokens.css` falls back to it. The conformance check
+ * measures it as that token then, under that token's waiver.
+ */
+export const COLOR_FALLBACKS = {
+  "--ui-choice-edge": "--ui-hairline-strong",
+} as const satisfies Readonly<Record<string, string>>;
+
+/** The token an unmapped `token` is drawn in, if it falls back to one. */
+export function colorFallback(token: string): string | undefined {
+  return Object.hasOwn(COLOR_FALLBACKS, token)
+    ? COLOR_FALLBACKS[token as keyof typeof COLOR_FALLBACKS]
+    : undefined;
+}
+
+/** Radius, type-family, weight and motion tokens. No contrast obligation, so they are listed separately. */
 export const CONTRACT_SCALAR_TOKENS = {
   radius: [
     "--ui-radius-hair",
@@ -72,8 +97,25 @@ export const CONTRACT_SCALAR_TOKENS = {
     "--ui-radius-sheet",
   ],
   fontFamily: ["--ui-font-body", "--ui-font-display", "--ui-font-mono"],
+  // A role, not a step: the weight a shared part sets a short title or a tag
+  // in — `Badge`'s label, `DialogTitle` — one step over body text. It falls
+  // back to 600, Tailwind's `font-semibold`.
+  fontWeight: ["--ui-weight-title"],
   focus: ["--ui-focus-width", "--ui-focus-offset"],
-  motion: ["--ui-dur-fast", "--ui-dur-base", "--ui-dur-slow", "--ui-ease-out", "--ui-ease-in-out"],
+  motion: [
+    "--ui-dur-fast",
+    "--ui-dur-base",
+    "--ui-dur-slow",
+    "--ui-dur-exit",
+    "--ui-ease-out",
+    "--ui-ease-in-out",
+    "--ui-ease-exit",
+    "--ui-ease-sheet",
+    "--ui-scale-enter",
+    "--ui-scale-exit",
+    "--ui-distance-enter",
+    "--ui-distance-exit",
+  ],
   elevation: ["--ui-elev-1", "--ui-elev-2"],
 } as const satisfies Readonly<Record<string, readonly string[]>>;
 

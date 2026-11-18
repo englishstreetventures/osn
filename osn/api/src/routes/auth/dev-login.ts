@@ -25,10 +25,10 @@ import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch } from "@shared/db-utils";
 import { createRateLimiter, isUnresolvedIp } from "@shared/rate-limit";
+import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { Elysia, t } from "elysia";
 
-import { buildSessionCookies } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, publicProfile, tokenResponse } from "./response-schemas";
@@ -99,7 +99,9 @@ const provision = Effect.gen(function* () {
           accountId: DEV_PRINCIPAL.accountId,
           handle: DEV_PRINCIPAL.handle,
           displayName: DEV_PRINCIPAL.displayName,
-          isDefault: true,
+          // The account's default unless it already has one: an account holds
+          // one default profile, and a second is refused by its index.
+          isDefault: sql<boolean>`(NOT EXISTS (SELECT 1 FROM ${users} WHERE ${users.accountId} = ${DEV_PRINCIPAL.accountId} AND ${users.isDefault} = 1))`,
           createdAt: now,
           updatedAt: now,
         })
@@ -157,7 +159,7 @@ function devLoginPage(returnTo: string): string {
 }
 
 export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConfig) {
-  const { auth, run, handleError, resolveIp, socketIpOf, sessionMetaFrom, cookieConfig } = ctx;
+  const { auth, run, handleError, resolveIp, socketIpOf, sessionMetaFrom, replaceSession } = ctx;
 
   /**
    * Own limiter rather than `ctx.rateLimit`: that one denies outright on an
@@ -208,6 +210,7 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
       }
       if (!profile) return null;
 
+      // `findProfileById` finds no account whose deletion is pending.
       const session = yield* auth.issueTokens(
         profile.id,
         profile.accountId,
@@ -216,6 +219,7 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
         profile.displayName,
         undefined,
         sessionMetaFrom(headers, socketIp),
+        null,
       );
       return { profile, session };
     });
@@ -246,7 +250,7 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
 
     return {
       ok: true,
-      cookies: buildSessionCookies(session.refreshToken, cookieConfig),
+      cookies: await replaceSession(headers.cookie, session.refreshToken),
       body: { session: toTokenResponseCookieOnly(session), profile: publicProfileOf(profile) },
     } as const;
   }

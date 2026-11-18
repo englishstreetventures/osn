@@ -1,5 +1,5 @@
-# Security headers for the static marketing site (Cloudflare Pages honours this
-# file for every response). The landing page is fully static and talks to no
+# Security headers for the static marketing site (the static-asset layer honours
+# this file for every response). The landing page is fully static and talks to no
 # first-party API, so unlike the organiser portal it CAN carry a tight CSP:
 #   - script-src: own bundles ('self') + the small inline reveal/hydration
 #     scripts ('unsafe-inline' — Astro's island bootstrap + our is:inline IO).
@@ -11,8 +11,8 @@
 #   - img-src 'self' data:: the one photograph is SELF-HOSTED too, under
 #     /images/ (src/lib/site.ts `IMAGES`), so no image host sees a visitor
 #     either. tests/self-hosted-images.test.ts holds this line to it.
-# Production serves this file through Cloudflare Pages, and the staged Worker
-# on next.cireweddings.com honours it as well; `astro dev` does not apply it.
+# Production serves this file through the cire-landing Worker's static assets,
+# or its Pages project until the apex moves; `astro dev` does not apply it.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff

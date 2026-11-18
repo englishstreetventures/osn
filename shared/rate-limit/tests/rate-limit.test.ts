@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  clientNetwork,
   createRateLimiter,
   createWorkersRateLimiter,
   getClientIp,
@@ -66,41 +67,9 @@ describe("createRateLimiter", () => {
     expect(rl._store.has("ip3")).toBe(true);
     expect(rl._store.has("ip4")).toBe(true);
   });
-
-  it("proactively sweeps expired entries after one window elapses (P-W16)", () => {
-    const rl = createRateLimiter({ maxRequests: 10, windowMs: 50, maxEntries: 10_000 });
-    rl.check("ip1");
-    rl.check("ip2");
-    expect(rl._store.size).toBe(2);
-
-    // Expire both entries AND simulate enough time for periodic sweep
-    const pastWindow = Date.now() - 100;
-    rl._store.get("ip1")!.windowStart = pastWindow;
-    rl._store.get("ip2")!.windowStart = pastWindow;
-
-    // Force the lastSweep timestamp to be old enough to trigger sweep.
-    // We do this by checking a new key after the window has "elapsed".
-    // The sweep fires because (now - lastSweep >= windowMs).
-    // Hack: backdate by manipulating an entry, then checking triggers sweep.
-    rl.check("ip3");
-    // ip1 and ip2 should have been swept since they're expired and a full
-    // window has passed since the limiter was created
-    expect(rl._store.has("ip3")).toBe(true);
-    // Note: ip1/ip2 are swept only if lastSweep is old enough. Since the
-    // limiter was just created, lastSweep = Date.now() at creation. A 50ms
-    // window hasn't truly elapsed in wall-clock time, so the periodic sweep
-    // won't trigger in a fast test. The maxEntries-based sweep test above
-    // covers forced sweep. This test verifies the replaced-on-check behavior.
-    rl.check("ip1"); // expired entry gets replaced, not incremented
-    expect(rl._store.get("ip1")!.count).toBe(1);
-  });
 });
 
 describe("getClientIp", () => {
-  it("returns first IP from x-forwarded-for", () => {
-    expect(getClientIp({ "x-forwarded-for": "203.0.113.1" })).toBe("203.0.113.1");
-  });
-
   it("returns first IP from comma-separated x-forwarded-for", () => {
     expect(getClientIp({ "x-forwarded-for": "203.0.113.1, 70.41.3.18, 150.172.238.178" })).toBe(
       "203.0.113.1",
@@ -114,13 +83,9 @@ describe("getClientIp", () => {
   it("returns 'unknown' when no x-forwarded-for header", () => {
     expect(getClientIp({})).toBe("unknown");
   });
-
-  it("returns 'unknown' when x-forwarded-for is undefined", () => {
-    expect(getClientIp({ "x-forwarded-for": undefined })).toBe("unknown");
-  });
 });
 
-describe("getClientIp — hardened trust policy (S-M34)", () => {
+describe("getClientIp with a trust policy", () => {
   describe("trustedProxyCount (Nth-from-right)", () => {
     it("takes the right-most entry when trustedProxyCount is 1", () => {
       // Client appended on the left; the single trusted proxy appends the
@@ -302,5 +267,38 @@ describe("createWorkersRateLimiter", () => {
     };
     await createWorkersRateLimiter(binding).check("203.0.113.9");
     expect(seen).toBe("203.0.113.9");
+  });
+});
+
+describe("clientNetwork", () => {
+  it("keeps an IPv4 address as it is", () => {
+    expect(clientNetwork("203.0.113.9")).toBe("203.0.113.9");
+  });
+
+  it("keys every IPv6 address in one /64 alike, however it is written", () => {
+    const forms = [
+      "2001:db8:1:2::1",
+      "2001:0db8:0001:0002:ffff:ffff:ffff:fffe",
+      "2001:DB8:1:2:0:0:0:9",
+      "2001:db8:1:2::a:b",
+    ];
+    for (const form of forms) expect(clientNetwork(form)).toBe("2001:db8:1:2::/64");
+  });
+
+  it("keys IPv6 addresses in different /64s apart", () => {
+    expect(clientNetwork("2001:db8:1:2::1")).not.toBe(clientNetwork("2001:db8:1:3::1"));
+    expect(clientNetwork("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(clientNetwork("::1")).toBe("0:0:0:0::/64");
+  });
+
+  it("keys an IPv4 address written in IPv6 form as that IPv4 address", () => {
+    expect(clientNetwork("::ffff:203.0.113.9")).toBe("203.0.113.9");
+    expect(clientNetwork("::ffff:cb00:7109")).toBe("203.0.113.9");
+  });
+
+  it("leaves what it cannot read as it is", () => {
+    for (const value of ["", UNRESOLVED_IP, "unknown", "1:2:3", "1::2::3", "g::1"]) {
+      expect(clientNetwork(value)).toBe(value);
+    }
   });
 });

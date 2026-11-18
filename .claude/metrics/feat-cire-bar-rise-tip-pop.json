@@ -1,0 +1,194 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/cire-bar-rise-tip-pop",
+    "base_sha": "149af94cf18d7207d0657ed586e117b1affa7f0f",
+    "head_sha": "a6be01e0851ec130f5c3e646ef1fdd63e4206f4e",
+    "generated_at": "2026-11-11T06:58:01.745Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2173,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-10T13:44:50.939Z",
+    "last_ts": "2026-11-11T06:57:53.052Z",
+    "span_seconds": 61982,
+    "active_seconds": 4364,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 26.857780799999997,
+    "tokens": {
+      "input": 650,
+      "output": 241872,
+      "thinking": 109909,
+      "cache_write_5m": 808360,
+      "cache_write_1h": 0,
+      "cache_read": 44939852
+    },
+    "by_model": {
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 3
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 650,
+          "output": 241872,
+          "thinking": 109909,
+          "cache_write_5m": 808360,
+          "cache_write_1h": 0,
+          "cache_read": 44939852
+        },
+        "usd_equivalent": 26.857780799999997,
+        "messages": 305
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 650,
+          "output": 241872,
+          "thinking": 109909,
+          "cache_write_5m": 808360,
+          "cache_write_1h": 0,
+          "cache_read": 44939852
+        },
+        "usd_equivalent": 26.857780799999997,
+        "messages": 308
+      }
+    },
+    "effort": {
+      "high": 51,
+      "xhigh": 254
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 2,
+      "docs": 3,
+      "config": 0,
+      "source": 6
+    },
+    "loc": {
+      "generated": {
+        "added": 18,
+        "deleted": 0
+      },
+      "test": {
+        "added": 405,
+        "deleted": 4
+      },
+      "docs": {
+        "added": 63,
+        "deleted": 8
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 108,
+        "deleted": 45
+      }
+    },
+    "packages": [
+      "cire/host"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 242,
+      "Read": 41,
+      "Edit": 34,
+      "Skill": 22,
+      "Write": 6,
+      "ToolSearch": 3,
+      "StructuredOutput": 3,
+      "WebFetch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 6,
+      "max_edits_one_file": 8
+    },
+    "skills": {
+      "design-system": 2,
+      "new-feat": 2,
+      "emil-design-eng": 2,
+      "apple-design": 2,
+      "find-animation-opportunities": 2,
+      "animation-vocabulary": 1,
+      "animate": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "web-design-guidelines": 1,
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "review-design": 1,
+      "prep-pr": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 305,
+      "with_tools": 305,
+      "with_one_tool": 267,
+      "context_median": 146979,
+      "context_p90": 250143
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 4,
+    "located": 4,
+    "acted_on": 4,
+    "paired": 4,
+    "acted_on_paired": 4,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

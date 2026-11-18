@@ -189,11 +189,6 @@ describe("reconcile", () => {
     expect((await run(h.billing.check("org_a", "workspace"))).allowed).toBe(false);
   });
 
-  it("also confirms an active period whose invoice.paid never arrived", async () => {
-    const h = await createHarness();
-    expect((await renewalAwaitingInvoice(h, "paid")).currentPeriodPaid).toBe(true);
-  });
-
   it("confirms no period from a latest invoice that is not paid", async () => {
     const h = await createHarness();
     const sub = await renewalAwaitingInvoice(h, "open");

@@ -1,6 +1,6 @@
 ---
 title: Production Deploy Runbook (osn + cire)
-description: End-to-end runbook for the first production deploy of osn-api and the cire stack (api worker + guest SSR Worker + organiser Pages). Enumerates every required secret/var by source line.
+description: End-to-end runbook for the first production deploy of osn-api and the cire stack (api worker + guest SSR Worker + static portal and marketing sites). Enumerates every required secret/var by source line.
 tags: [runbook, deploy, production, osn, cire, secrets, cloudflare]
 severity: high
 related:
@@ -15,7 +15,8 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-11-06
+  - "[[zap]]"
+last-reviewed: 2026-11-18
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -25,7 +26,7 @@ last-reviewed: 2026-11-06
 > `osn/api/src/index.ts`, served through `osn/api/src/entry.ts`, which also
 > exports the `CoordinationStore` Durable Object class) and the **cire** wedding-invite
 > stack (**cire-api** Worker + **cire/invites** guest **SSR Worker** + **cire/host**
-> Pages portal). _(cire/invites was a static Pages site; it is now an SSR Worker — see §3.3.)_
+> organiser portal, a static site). _(cire/invites was a static Pages site; it is now an SSR Worker — see §3.3.)_
 >
 > **osn-api is a Worker now (was a long-running Bun process).** All its secrets
 > are set with `wrangler secret put … --env <env>` and surfaced **only on the
@@ -37,16 +38,19 @@ last-reviewed: 2026-11-06
 > entry rewrite and are approximate.
 >
 > **CI pipeline:** `.github/workflows/production-release.yml` ships every surface to
-> production in releases — once a day and by hand, one approval each (§5.5).
+> production in releases — once a day and by hand, behind two approvals (§5.5). Every
+> production Worker, the API Workers included, deploys through its product's Alchemy
+> stack (musubi, cire, zap); nothing deploys a production Worker by hand.
 > `.github/workflows/deploy.yml` deploys the dev tier, in its own Cloudflare account
-> and through Alchemy, on every push ([[dev-environment]]). The manual `wrangler`
-> commands in section 5 remain the reference for what the production pipeline runs.
+> and through the same stacks, on every push ([[dev-environment]]). Section 5 describes
+> what the stack jobs run.
 >
 > Read alongside [[observability-setup]] (Workers traces and logs) and
 > [[cire-auth]] (the two-auth model + the cire→osn ARC bridge).
 
-⚠️ **Never put real secret values in this file or any committed file.** Set every secret
-below out-of-band with `wrangler secret put` (osn-api **and** cire-api are both Workers).
+⚠️ **Never put real secret values in this file or any committed file.** Set every
+production secret below on the Worker itself, with `wrangler secret put` (osn-api,
+cire-api and zap-api are all Workers). No stack uploads a production secret (§5.9).
 
 > **🔀 Domain reshuffle (2026-07-16) — end-state supersedes older `app.`/apex
 > framing below.** Apex `cireweddings.com` → marketing **landing** site;
@@ -80,18 +84,18 @@ marked **TBD** blocks the deploy.
 |---|---|---|
 | `OSN_JWT_PRIVATE_KEY` / `OSN_JWT_PUBLIC_KEY` (ES256 JWK, base64) | osn-api | **generate** (section 1) |
 | `OSN_SESSION_IP_PEPPER` (≥32 bytes) | osn-api | **generate** (section 1) |
-| `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes, base64) | osn-api | **DONE — set on dev and on production 2026-09-13** (`set-osn-api-secret` run 34760078500). Production ran without it from the 2026-07-27 cutover until then and answered 503 `Worker misconfigured` on **every** route, not just the TOTP ones — see §7 check 1 for why `wrangler deploy` succeeds with the key missing, and how the smoke check now fails and rolls back such a deploy. To set it on a new tier: `openssl rand -base64 32`, **keep your copy** (see below), add it as that tier's GitHub Environment secret, then run the `set-osn-api-secret` workflow. It must exist BEFORE the first deploy of the tier. Rotatable, in the fixed order in §10. See [[totp]]. |
+| `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes, base64) | osn-api | **DONE — set on dev and on production 2026-09-13** (`set-osn-api-secret` run 34760078500). Production ran without it from the 2026-07-27 cutover until then and answered 503 `Worker misconfigured` on **every** route, not just the TOTP ones — see §7 check 1 for why a deploy succeeds with the key missing. The release's plan guard refuses to deploy osn-api while its Worker lacks the key (§5.9), and the smoke check fails and rolls back a deploy that answers 503. To set it: `openssl rand -base64 32`, **keep your copy** (see below), add it as the `production` Environment secret, then run the `set-osn-api-secret` workflow, which reads it from there. Rotatable, in the fixed order in §10. See [[totp]]. |
 | `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` (exactly 32 bytes, base64) | osn-api | **optional** — set only while a rotation drains (§10), and deleted afterwards. Present-but-malformed fails the boot exactly as the current key does. |
 | `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `musubi.social`** (identity's own registrable apex, as of the 2026-07-27 move — §5.4, [[musubi-identity-migration]]). It covers the apex itself plus every future `*.musubi.social` surface. **This invalidated every passkey enrolled under `cireweddings.com`** — the private half is bound to the RP ID inside the authenticator, so nothing in D1 re-points it. |
-| `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. Picked up by the next release — **osn-api deploys via CI** (`deploy-osn-api` in `production-release.yml`); no manual `wrangler deploy` needed. |
+| `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. A change ships with the next release that ships osn-api, through the musubi stack job (§5.1). |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.musubi.social`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`; moved off `id.cireweddings.com` 2026-07-27) |
-| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://musubi.social,https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com`**. The cire origins stay here even though they left `OSN_ORIGIN` — these are two different lists: CORS governs browser calls, `OSN_ORIGIN` governs WebAuthn ceremonies. Since the 2026-07-27 OIDC swap the cire entries are **vestigial**: no cire browser calls osn-api any more (the exchange is server-side on cire-api, and the `/authorize` hop is a top-level navigation, not a CORS request). Pruning them is a tidy-up, not a fix — do it in its own change so a missed caller shows up alone. |
+| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://musubi.social`** alone (`osn/api/wrangler.toml`, `[env.production.vars]`). No cire origin is on it: no cire page calls osn-api from the browser (the code exchange is server-side on cire-api, and the `/authorize` hop is a top-level navigation, not a CORS request), and the list also feeds the CSRF origin guard, so a cire entry would give any XSS on a cireweddings.com site credentialed access. Add an origin only when it fetches osn-api from a browser. |
 | `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Not moved to musubi.social yet**: dev sends from `Musubi <hello@musubi.social>` first, and production moves only once dev mail from it is seen to arrive (englishstreetventures/osn#1548). Resend fails closed on a domain it has not verified — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
 | **The production account's plan: Workers Paid** | osn-api's coordination store (and every Worker, Durable Object and D1 database on the account) | **The owner switches it in the Cloudflare dashboard before the first release that ships the coordination store** — the deploy token has no billing scope. §1.4 |
-| `INTERNAL_SERVICE_SECRET` (bearer for the coordination probe and register-service) | osn-api + its smoke-check step | **required** — the post-deploy smoke check sends it to `GET /health/coordination`; a Worker without it answers 501 there, which fails the check and rolls the deploy back. It also guards `POST /graph/internal/register-service`, which registers cire's ARC key (§6.2). The `production` Environment secret of that name holds the Worker's value, for the smoke-check step |
-| `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional, not set yet** — until both Workers hold it, sign out everywhere else and revoking cire's connection leave cire organiser sessions alone ([[sessions#Sign out everywhere else reaches cire]]). To turn it on: `openssl rand -base64 32`; store it as the `production` Environment secret of the same name; `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`. On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
+| `INTERNAL_SERVICE_SECRET` (bearer for the coordination probe and register-service) | osn-api + its smoke-check step | **required** — the release refuses to deploy osn-api while its Worker lacks it (§5.9), and the post-deploy smoke check sends it to `GET /health/coordination`. It also guards `POST /graph/internal/register-service`, which registers cire's ARC key (§6.2). The `production` Environment secret of that name holds the Worker's value, for the smoke-check step: it is the one Worker secret value that Environment keeps for a release |
+| `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional, not set yet** — until both Workers hold it, sign out everywhere else, revoking cire's connection and an account deletion's soft delete leave cire organiser sessions alone, to end within their 7 days ([[sessions#Sign out everywhere else reaches cire]]). To turn it on: `openssl rand -base64 32`, keep your copy, then `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`; no Environment copy (§5.9). On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
 | osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5`, staging `eb71428e-8540-4a30-815f-fb9cd4ae97ea`, prod `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
 | cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `6e835474-e0a7-4db9-8883-3247c3c891cd` |
@@ -100,12 +104,12 @@ marked **TBD** blocks the deploy.
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.musubi.social/.well-known/jwks.json` / `https://id.musubi.social`** (must equal osn-api's own `OSN_ISSUER_URL`, so these flip in the **same** deploy as osn-api's) |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
 | cire/invites `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/invites **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://invite.cireweddings.com`** (set in `production-release.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. `invite.` is served by the `cire-invites` Worker (custom-domain route), not a Pages project — see §3.3. The apex serves the marketing landing site. |
-| cire/host `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL`, `PUBLIC_MARKETING_URL` (build-time) | cire/host Pages | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com` / `https://cireweddings.com`** (set in `production-release.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
+| cire/host `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL`, `PUBLIC_MARKETING_URL` (build-time) | cire/host static build (§5.3) | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com` / `https://cireweddings.com`** (set in `production-release.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
 | `CIRE_OIDC_CLIENT_SECRET` + the `oauth_clients` row for cire | cire-api (secret) + osn D1 | **DONE 2026-07-27** — client `cid_cire` seeded in prod D1, secret set on the production cire-api Worker (§3.2, §6.3). The row's `redirect_uris` still lists the dead `api-preview` callback; pruning it is an open prod-D1 write |
-| musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `deploy-osn-social`) |
-| musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in `deploy-osn-social`. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
-| `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex attached to the `osn-social` Pages project (§5.4) to resolve |
-| **musubi.social zone: apex → `osn-social` Pages, `id.` → osn-api Worker** | Cloudflare dashboard | **Apex attached 2026-07-27.** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health`, its JWKS and `/health/coordination` after every release that deploys it (§7). §5.4. |
+| musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social static build (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `sites`) |
+| musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social static build (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in the `sites` job. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
+| `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex to serve `@musubi/social`, which the `osn-social` Worker does (§5.3) |
+| **musubi.social zone: the apex on the `osn-social` Worker, `id.` on the osn-api Worker** | The musubi stack's deploy | **DONE — the apex moved from its Pages project to the Worker on 2026-11-10 (release 42817386650).** The musubi stack declares `id.musubi.social` as osn-api's custom domain (zone in-account), and the musubi stack job's smoke check asks `https://id.musubi.social/health`, its JWKS and `/health/coordination` after every release that deploys it (§7). §5.4. |
 | **musubi.social on the Turnstile widget** | Cloudflare dashboard | **DONE 2026-07-27.** `id.musubi.social` is not needed — only form-rendering hostnames are. [[turnstile]] |
 
 ---
@@ -135,8 +139,8 @@ the box below).
 > real provider — Resend, or the legacy Cloudflare creds — **overrides the opt-in**.
 > While the opt-in is active AND no provider is set, osn-api boots with a
 > **no-op email transport** that **DISCARDS** every transactional email (loud redacted
-> startup warning); **OTP step-up, email-change OTPs, and security-notice emails (passkey
-> added/removed, recovery-code generate/consume, cross-device login) are NOT delivered**.
+> startup warning); **OTP step-up, email-change OTPs, and every security-notice email
+> (the template table in [[email]]) are NOT delivered**.
 > **Passkey login is primary and unaffected.** **Do NOT remove `OSN_EMAIL_OPTIONAL` in the
 > same change that adds Resend** — set the secret, confirm delivery, *then* drop the opt-in
 > (step 7) so there is never a window where the Worker fails closed before the secret lands.
@@ -285,15 +289,16 @@ endpoint. `bunx wrangler secret delete <name> --env production` removes it. No m
 > latency (the project is AU-centric). The WEUR databases were deleted and recreated in `oc`; the ids above
 > and in §2.3 are the new Oceania ones.
 
-The id is already substituted into `cire/api/wrangler.toml` (top-level binding and
-`[env.production]`):
+The id is in `cire/api/wrangler.toml`'s `[env.production]` block alone, with no
+`migrations_dir`: the cire stack migrates the database (§4). The top-level block, the
+local devloop's, names a local-only id, `local:cire-db`, so a command that forgets
+`--env production` reaches no deployed database:
 
 ```toml
-[[d1_databases]]
+[[env.production.d1_databases]]
 binding = "DB"
 database_name = "cire-db"
 database_id = "6e835474-e0a7-4db9-8883-3247c3c891cd"
-migrations_dir = "../db/migrations"
 ```
 
 ### 2.2 cire R2 buckets — ALREADY CREATED ✅
@@ -334,9 +339,8 @@ The dev tier's `osn-db-dev` is in the dev account, created and migrated by the
 musubi stack ([[dev-environment]]); `osn-db` is what plain `wrangler dev` uses.
 
 All are in **`oc` (Sydney)** (co-located with cire-db).
-They are **freshly created and unmigrated** — apply the migrations per §4.3
-before first use. (The `0002_add_user_handle` data-copy bug that blocked a clean
-apply was fixed in-place; all `0000`→latest migrations apply ✅ to a fresh local D1.)
+The musubi stack migrates `osn-db-prod` (§4.1); staging is migrated by hand (§4.3).
+All `0000`→latest migrations apply ✅ to a fresh local D1.
 
 osn-api secrets are set with `wrangler secret put … --env <env>` (§3.1), surfaced
 **only on `env`** on workerd — never `process.env`, which is why `src/index.ts` threads
@@ -346,21 +350,28 @@ osn-api secrets are set with `wrangler secret put … --env <env>` (§3.1), surf
 
 ## 3. Secret / variable checklist
 
-> "How to set": **osn-api** and **cire-api** are both Workers — secrets use
-> `wrangler secret put <NAME> --env <env>` (from the package dir, against
-> `wrangler.toml`); non-secret vars live in each `wrangler.toml` (`[vars]` /
-> `[env.<env>.vars]`). cire Pages `PUBLIC_*` are **build-time** env vars.
+> "How to set": **osn-api**, **cire-api** and **zap-api** are Workers — a production
+> secret is set on the Worker with `wrangler secret put <NAME> --env production`, from
+> the package dir, which names the Worker through `wrangler.toml`'s `[env.production]`
+> (§5.9). A production var is declared in its product's stack
+> (`musubiProductionApis()`, `cireProductionApis()`, `zapProductionApis()` in
+> `<product>/infra/src/declaration.ts`), and the `[env.production.vars]` block in the
+> Worker's `wrangler.toml` mirrors it: each stack's `tests/parity.test.ts` fails unless
+> the two are equal, so a change goes in both. The site `PUBLIC_*` values are
+> **build-time** env vars.
 
-> [!important] The secret inventory decides which secrets a Worker keeps
+> [!important] The secret inventory says which secrets a production Worker must hold
 > `SECRET_INVENTORY` (`shared/infra/src/secrets/inventory.ts`) lists every
-> secret osn-api, cire-api, zap-api and cire-invites may hold. Once a Worker
-> deploys through Alchemy, its deploy uploads exactly those names and deletes
-> every other secret the Worker holds, so a name this section sets that the
-> inventory lacks needs an inventory change first. A production value set by
-> hand with `wrangler secret put` is set in the `production` GitHub
-> Environment too, or the next Alchemy deploy writes the old value back.
-> `bun run --cwd shared/infra secrets:check-live -- --tier production` shows
-> any drift. See [[infrastructure-as-code#Secrets]].
+> secret osn-api, cire-api, zap-api and cire-invites may hold. On production
+> the stacks upload none: each value lives on the Worker, and every upload keeps
+> the secrets it does not name. Before each deploy the release reads the
+> Worker's live secret names and refuses while one the inventory requires is
+> missing or one it forbids is present; a live name the inventory does not
+> list is shown, not refused. So a secret this section adds goes into the
+> inventory's production row in the pull request that first reads it, and onto
+> the Worker before the release that ships that pull request. §5.9 has the
+> steps; `bun run --cwd shared/infra secrets:check-live -- --tier production`
+> shows any drift. See [[infrastructure-as-code#Secrets]].
 
 ### 3.1 osn-api (Cloudflare Worker)
 
@@ -387,9 +398,10 @@ bunx wrangler secret put RESEND_API_KEY             --env <staging|production>
 # not used now Resend is live). Only set if falling back off Resend:
 bunx wrangler secret put CLOUDFLARE_ACCOUNT_ID      --env <staging|production>
 bunx wrangler secret put CLOUDFLARE_EMAIL_API_TOKEN --env <staging|production>
-# OPTIONAL — only for the cire→osn account-linking ARC bridge (§6.2):
+# REQUIRED on production — the coordination probe and the cire-to-osn ARC bridge (§6.2):
 bunx wrangler secret put INTERNAL_SERVICE_SECRET    --env <staging|production>
-# Turnstile bot protection (OPTIONAL — only after the widget exists, §3.4):
+# Turnstile bot protection (optional in code, §3.4; the production inventory
+# requires it on osn-api):
 bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 ```
 
@@ -402,25 +414,32 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `OSN_PAIRWISE_SALT` | **Preferred: the `Set an osn-api Worker secret` GitHub workflow** (`.github/workflows/set-osn-api-secret.yml`, `workflow_dispatch`, `secret: OSN_PAIRWISE_SALT`, production environment) — idempotent, refuses to rotate, never prints the value. Manual `wrangler secret put` remains for non-prod envs. | **Yes** | ≥32 bytes or throws (`build-deps.ts`). HMAC key behind every OIDC pairwise `sub`. **Never rotate it** once clients hold tokens — every subject changes and every client sees its users as strangers. The workflow enforces this: it exits without touching an existing secret. [[oidc-provider]] |
 | `OSN_TOTP_ENCRYPTION_KEY` | **Preferred: the `Set an osn-api Worker secret` GitHub workflow** (`.github/workflows/set-osn-api-secret.yml`, `secret: OSN_TOTP_ENCRYPTION_KEY`) — it validates the decoded length and will not overwrite an existing key unless `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` is already staged. Manual `wrangler secret put` checks nothing. | **Yes** | Exactly 32 base64-encoded random bytes (`openssl rand -base64 32`) or the boot throws (`build-deps.ts`). AES-256-GCM key for every stored TOTP secret. **Keep your copy** — Cloudflare never hands it back, and a key nobody escrowed cannot be rotated, only replaced, which makes every enrolled user re-enrol. Missing ⇒ 503 on **every** route, not just TOTP. Rotate in the fixed order in §10. [[totp]] |
 | `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` | Same workflow, `secret: OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` | Only while a rotation drains | The outgoing key, held in the second slot of the key ring so old ciphertext still decrypts. Set in §10.1, deleted in §10.4. Present-but-malformed fails the boot exactly as the current key does. [[totp]] |
-| `OSN_AUTHORIZE_UI_URL` | `[env.<env>.vars]` | Optional, but **set it** | Absolute URL of the OIDC consent screen. Prod = **`https://musubi.social/authorize`** (`@musubi/social` on the `osn-social` Pages project, serving the musubi.social apex). Unset ⇒ `/authorize` on the **first** `OSN_ORIGIN` — which happens to be right under the current config, and would silently break the moment that list is reordered. Keep it explicit. [[oidc-provider]], [[authorize-ui]] |
+| `OSN_AUTHORIZE_UI_URL` | `[env.<env>.vars]` | Optional, but **set it** | Absolute URL of the OIDC consent screen. Prod = **`https://musubi.social/authorize`** (`@musubi/social` on the `osn-social` Worker, serving the musubi.social apex). Unset ⇒ `/authorize` on the **first** `OSN_ORIGIN` — which happens to be right under the current config, and would silently break the moment that list is reordered. Keep it explicit. [[oidc-provider]], [[authorize-ui]] |
 | `OSN_RP_ID` | `[env.<env>.vars]` | **Yes** | WebAuthn RP ID — must be a **registrable domain**. Prod = **`musubi.social`** since 2026-07-27 (was `cireweddings.com`). The apex, not `id.musubi.social`, so a ceremony is legal on the apex identity app *and* on any future `*.musubi.social` surface. **The change invalidated every passkey enrolled under `cireweddings.com`** — a private key is bound to its RP ID inside the authenticator, so recovery-code login is the only way back in. [[musubi-identity-migration]] |
 | `OSN_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep accepted WebAuthn origins; prod **https** origins. Prod = **`https://musubi.social`** — the identity app, and the only origin same-site with the RP ID. The cire origins were **removed** on 2026-07-27; a ceremony from `host.`/`vendor.`/`invite.cireweddings.com` is now illegal no matter what this list says, so listing them would only mislead. |
 | `OSN_ISSUER_URL` | `[env.<env>.vars]` | **Yes** | Public https base URL of osn-api → JWT `iss`; must match what cire verifies. Prod = **`https://id.musubi.social`** (custom-domain route in `wrangler.toml` `[env.production]`). |
-| `OSN_CORS_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep prod app origins. In a secure env an empty list **throws** at `assertCorsOriginsConfigured` (`lib/cors-config.ts`) — Origin/CSRF guard is mandatory. Prod = **`https://musubi.social,https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com`**. **These are two different lists.** CORS governs **bearer-token** calls, which still work cross-site, so the cire origins stay. `OSN_ORIGIN` governs WebAuthn ceremonies, which do not. |
+| `OSN_CORS_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep prod app origins. In a secure env an empty list **throws** at `assertCorsOriginsConfigured` (`lib/cors-config.ts`) — Origin/CSRF guard is mandatory. Prod = **`https://musubi.social`**: no cire page calls osn-api from the browser, and the list also feeds the CSRF origin guard. `OSN_ORIGIN`, a different list, governs WebAuthn ceremonies. |
 | `RESEND_API_KEY` | `wrangler secret put` | **Yes\* (live transport)** | Resend API key (bearer). **Set on production.** When set in non-local → `ResendEmailLive` (POST `https://api.resend.com/emails`); **wins over the Cloudflare creds and the opt-in**. Fail-closed at startup if no provider is set in non-local — **unless `OSN_EMAIL_OPTIONAL` is set** (then degraded no-op). §1.1 |
 | `CLOUDFLARE_ACCOUNT_ID` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback transport (paid Workers plan). Used only if `RESEND_API_KEY` is absent. §1.1 |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback bearer token. Same role as `CLOUDFLARE_ACCOUNT_ID`. §1.1 |
 | `OSN_EMAIL_OPTIONAL` | `[env.<env>.vars]` | No (default off) | **Explicit degraded-email opt-in.** Truthy (`true`/`1`/`yes`/`on`) → boot with a **no-op email transport** (transactional mail DISCARDED, loud startup warning) when **no real provider** (`RESEND_API_KEY` / `CLOUDFLARE_*`) is set in a non-local env, instead of failing closed. **Set in no env today** — removed from prod `[vars]` in #160 once Resend delivery was confirmed, so production fails closed again. A real provider wins — the opt-in is ignored when `RESEND_API_KEY` (or the Cloudflare creds) is present. §1.1 |
 | `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`hello@cireweddings.com`** (set in `wrangler.toml`). Resend-verified domain from §1.1. |
-| `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the production deploy job refuses to run while it exists as a secret. |
-| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, and for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key (§6.2). Both answer 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. The `production` GitHub Environment holds the same value for the smoke-check step. |
+| `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
+| `OSN_EMAIL_VERIFICATION_API` | `[env.production.vars]` and `musubiProductionApis` (`musubi/infra/src/declaration.ts`), which PA1 holds equal | No (default off) | Truthy (`true`/`1`/`yes`/`on`) lets sign-up accept a browser Email Verification API token, which proves the address with no emailed link. **`true` on production**, and on dev, set in `musubiDeclaration` ([[email-verification-api#Our code]]). Read once, in `build-deps.ts`. |
+| `OSN_EMAIL_VERIFICATION_EMULATOR_URL` | **Never set** | **Must be absent** | Local E2E only: points the token verifier at a stand-in issuer. osn-api refuses to boot with it unless `OSN_ENV` is exactly `local`, and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
+| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, and for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key (§6.2). Both answer 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. A key derived from it also MACs osn-api's outbound ARC key ids, which zap-api checks with its own copy, so the two must hold one value, generated (`openssl rand -base64 32`), never chosen ([[arc-tokens#osn-api as issuer — published outbound keys]]); a deployed osn-api without it answers 503. The `production` GitHub Environment holds the same value for the smoke-check step. |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, `/register/begin` + `/login/passkey/begin` **require** a valid Turnstile token and **fail-closed** (reject on missing/invalid/duplicate; single-use enforced by Cloudflare). When unset, those gates are skipped and the flows behave as before — safe to leave unset until the widget exists. **Currently SET** on `osn-api-production` (#160), so the gates bite. Server half of the sitekey baked into the **musubi/social** build as `VITE_TURNSTILE_SITEKEY` (§3.3) — it was the organiser-portal build until the 2026-07-27 OIDC swap moved the ceremonies. Create the widget in §3.4. (`build-deps.ts` → `createTurnstileVerifier`). |
 | `TRUSTED_PROXY_COUNT` | `[env.<env>.vars]` | Optional | On Workers, Cloudflare sets `cf-connecting-ip`, so this is usually unneeded. Set only if a proxy sits in front and XFF must be trusted N hops. |
 | `OSN_RP_NAME` | `[env.<env>.vars]` | Optional | Display name in passkey prompts and the issuer label in authenticator apps (default: the instance name, `Musubi`). Display only: changing it leaves existing passkeys and authenticator codes working, since sign-in checks `OSN_RP_ID` and the TOTP secret, never the name. |
 | `OSN_ACCESS_TOKEN_TTL` / `OSN_REFRESH_TOKEN_TTL` | `[env.<env>.vars]` | Optional | Defaults 300s / 2592000s. A set `OSN_REFRESH_TOKEN_TTL` that is not a whole number of seconds above 0 fails the boot: it sets every session's expiry and how long a rotation record proves reuse (`build-deps.ts`). |
-| `PULSE_API_URL` / `ZAP_API_URL` | `[env.<env>.vars]` | Optional | Outbound ARC key registration for account-erasure fan-out. |
-| `CIRE_INTERNAL_REVOKE_URL` / `CIRE_OIDC_CLIENT_ID` | `[env.production.vars]` | Set: `https://api.cireweddings.com` / `cid_cire` | cire-api's origin and cire's OIDC client id, for ending an account's cire organiser sessions. Each must equal cire-api's own `CIRE_API_ORIGIN` / `CIRE_OIDC_CLIENT_ID`; `cire/infra/tests/cross-stack.test.ts` holds them equal. Nothing is sent while `CIRE_INTERNAL_REVOKE_SECRET` is unset or shorter than 32 characters: each sign out everywhere else, and each revoke of cire's connection, logs `cire organiser sessions not revoked: back-channel unconfigured` instead. |
+| `PULSE_API_URL` / `ZAP_API_URL` / `CIRE_API_URL` | `[env.production.vars]` (dev: the musubi stack) | `ZAP_API_URL` set: `https://zap.cireweddings.com`; `CIRE_API_URL` set: `https://api.cireweddings.com`; `PULSE_API_URL` unset | Where the account deletion's preview, fan-out and session end, and the account export, reach each app (`services/deletion-apps.ts`). No fallback: a deployed tier with neither an app's URL nor its name in `OSN_DELETION_ABSENT_APPS` holds every deletion (409 `could_not_check`), and a URL that is not `https:` fails the Worker's boot (503). [[account-deletion#The app contract]] |
+| `OSN_DELETION_ABSENT_APPS` | `[env.production.vars]` (dev: the musubi stack) | Set: `pulse` | Apps this tier does not run, comma-separated: the deletion skips them. A name that is no app fails the boot (503), and so does an app both given a URL and listed. pulse-api has no Worker on any tier. `musubi/infra/tests/deletion-apps.test.ts` holds the stack's values to the tier's hosts. |
+| `OSN_DELETION_FANOUT_MAX_JOBS` | `[env.production.vars]` | Set: `50` | Deletion jobs one fan-out pass reaches, and accounts one hard-delete pass erases, from 1 to 200 (`index.ts` `scheduled`). Unset, as on dev, it is 4, inside Workers Free's 50 D1 queries a cron run ([[free-tier-limits]]). |
+| `CIRE_OIDC_CLIENT_ID` | `[env.production.vars]` | Set: `cid_cire` | cire's OIDC client id, which every cire organiser-session revoke needs: it finds the account's profiles that signed in to cire by their consent to this client. Ending them goes to `CIRE_API_URL` (row above), which with this must equal cire-api's own `CIRE_API_ORIGIN` / `CIRE_OIDC_CLIENT_ID`; `cire/infra/tests/cross-stack.test.ts` holds them equal. Nothing is sent while `CIRE_INTERNAL_REVOKE_SECRET` is unset or shorter than 32 characters: each sign out everywhere else, each revoke of cire's connection and each soft delete of an account logs `cire organiser sessions not revoked: back-channel unconfigured` instead. |
 | `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put` | Optional | The bearer cire-api's organiser-session revoke checks, at least 32 characters (osn-api treats a shorter one as unset). Same value on cire-api; how to set it is in the pre-deploy table at the top of this page. |
+
+> [!important] zap-api and cire-api answer the account deletion before osn-api asks
+> osn-api asks every app it reaches (`ZAP_API_URL`, `CIRE_API_URL`) before it schedules a deletion, and holds the deletion with 409 `could_not_check` while an app answers 404 or an error. A release that ships a new deletion route on zap-api or cire-api ships that stack before or with the musubi stack; while osn-api is ahead of an app, deletions wait, and nothing is lost.
 
 ### 3.1b Access-token issuer pinning (all downstream Workers)
 
@@ -440,7 +459,7 @@ wrong.
 | osn-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` — the value every row below must match |
 | cire-api | `OSN_ISSUER_URL` | **Yes — 503 without it** | `https://id.musubi.social` |
 | pulse-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` (no deploy job yet) |
-| zap-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` (prod D1 unprovisioned; deploy job skips) |
+| zap-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` (declared by the zap stack, `zapProductionApis()`) |
 
 A trailing slash on either side is tolerated — the comparison normalises both
 — but nothing else is. An **empty** value is rejected outright rather than
@@ -451,7 +470,7 @@ quietly accepting tokens from anywhere.
 
 | Name | How to set | Required? | Notes |
 |---|---|---|---|
-| D1 `database_id` | `wrangler.toml` (top-level + `[env.production]`) | **Yes** | §2.1 — `6e835474-e0a7-4db9-8883-3247c3c891cd`, already set. |
+| D1 `database_id` | `wrangler.toml` `[env.production]` | **Yes** | §2.1 — `6e835474-e0a7-4db9-8883-3247c3c891cd`, already set. The top-level block names a local-only id. |
 | `WEB_ORIGIN` | `wrangler.toml` `[env.production.vars]` | **Yes** | Comma-sep allowlist; must include the guest, organiser **and** vendor origins. Each entry must be an exact origin (`new URL(o).origin === o`: no path, trailing slash or userinfo) over `https://`, or the Worker fails closed at the edge with a 503; `http://localhost` is accepted only when `OSN_ENV` is `local` (`cire/api/src/lib/web-origin.ts`). Prod = **`https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com`**. |
 | `OSN_JWKS_URL` | `wrangler.toml` `[env.production.vars]` | **Yes** | Deployed osn-api JWKS URL (`<OSN_ISSUER_URL>/.well-known/jwks.json`). Prod = **`https://id.musubi.social/.well-known/jwks.json`**. |
 | `OSN_ISSUER_URL` | `wrangler.toml` `[env.production.vars]` | **Yes — Worker answers 503 without it** | Deployed osn-api origin; must equal osn-api's own `OSN_ISSUER_URL`, since it is the `iss` claim cire checks. Since 2026-08-30 it is on the edge required-vars list (`cire/api/src/index.ts`), so an unset value takes the Worker down rather than falling back to the localhost default and 401ing every request with nothing to say why. Prod = **`https://id.musubi.social`**. |
@@ -462,37 +481,37 @@ quietly accepting tokens from anywhere.
 | `CIRE_API_ORIGIN` | `wrangler.toml` `[env.production.vars]` | **Yes** | This Worker's own public origin. It builds the OIDC redirect URI (`<origin>/api/auth/oidc/callback`), which must match one of the client's registered `redirect_uris` **byte for byte**. Prod = **`https://api.cireweddings.com`**. |
 | `CIRE_OIDC_CLIENT_ID` | `wrangler.toml` `[env.production.vars]` | **Yes** | **`cid_cire`** — the registered client. Not a secret. |
 | `CIRE_OIDC_CLIENT_SECRET` | `wrangler secret put CIRE_OIDC_CLIENT_SECRET --env production` | **Yes** | The client secret, presented as `client_secret_post` at the token endpoint. Must be the pre-image of `oauth_clients.client_secret_hash` in osn's D1 — **rotate both together or organiser sign-in dies at the exchange** (§3.5). Any of the five OIDC values (these three, `OSN_ISSUER_URL` and `OSN_JWKS_URL`) absent ⇒ `/api/auth/oidc/*` sends the browser to the organiser `/login` with `?auth_error=sign_in_unavailable`, logs `OIDC client config incomplete`, and nothing else changes (`oidcConfigFromEnv` in `src/lib/oidc.ts`). |
-| `CIRE_OPS_EMAIL` | In the order the inventory note at the top of §3 sets: first a row in cire-api's production inventory in `shared/infra/src/secrets/inventory.ts`, which englishstreetventures/osn#1572 adds and which the inventory does not hold yet; then `printf '%s' "$VALUE" \| gh secret set CIRE_OPS_EMAIL --env production`; then `wrangler secret put CIRE_OPS_EMAIL --env production` and a redeploy | **Optional** | The operator address for the daily "vendor claims are waiting for review" email and the R2 orphan reconcilers' alerts ([[backup-dr]]). A secret because the repo is public. Needs `RESEND_API_KEY` on this Worker too; with either unset no email is sent and the cron's log line is the only signal (`src/index.ts` `scheduled`). [[cire-vendors]] |
-| `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` | `wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production` | **Optional** | Comma-separated wedding ids whose households get the household member step ("Who are you?", reply attribution, `member_required`, "Answered by") only while `cire.account-linking` is on for them (and the ARC bridge is configured); every other guest household always gets it. A secret because the repo is public and a wedding id is the couple's; never a `[vars]` entry, since a declared var's name cannot also be a secret. Unset or empty ⇒ no wedding excluded. The owner finds an id by hand, never an agent and never in a pull request, issue or changeset: `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT id FROM weddings WHERE slug = '<slug>'"`. Set it **before** approving the release that first deploys the code reading it, or that wedding's households are asked "Who are you?" and their replies stamped until it lands; rows stamped by then keep their stamp. An isolate reads it once when it builds the app and logs `member step exclusion loaded` with the count (a warning when an entry is not a `wed_…` id), never the ids; a later change needs a forced `production-release.yml` run (`force`, surface `cire_api`). [[cire-auth]] |
+| `CIRE_OPS_EMAIL` | `printf '%s' "$VALUE" \| bunx wrangler secret put CIRE_OPS_EMAIL --env production` from `cire/api` (§5.9). cire-api's production row in `shared/infra/src/secrets/inventory.ts` lists it as optional; no Environment copy | **Optional** | The operator address for the daily "vendor claims are waiting for review" email and the R2 orphan reconcilers' alerts ([[backup-dr]]). A secret because the repo is public. Needs `RESEND_API_KEY` on this Worker too; with either unset no email is sent and the cron's log line is the only signal (`src/index.ts` `scheduled`). [[cire-vendors]] |
+| `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` | `wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production` | **Optional** | Comma-separated wedding ids whose households get the household member step ("Who are you?", reply attribution, `member_required`, "Answered by") only while `cire.account-linking` is on for them (and the ARC bridge is configured); every other guest household always gets it. A secret because the repo is public and a wedding id is the couple's; never a `[vars]` entry, since a declared var's name cannot also be a secret. Unset or empty ⇒ no wedding excluded. The owner finds an id by hand, never an agent and never in a pull request, issue or changeset: `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT id FROM weddings WHERE slug = '<slug>'"`. Set it **before** approving the release that first deploys the code reading it, or that wedding's households are asked "Who are you?" and their replies stamped until it lands; rows stamped by then keep their stamp. An isolate reads it once when it builds the app and logs `member step exclusion loaded` with the count (a warning when an entry is not a `wed_…` id), never the ids; a later change reaches a warm isolate only once cire-api deploys again, and a release deploys it only when its code or declaration changed (§5.9). [[cire-auth]] |
 | `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` | **Optional** | What osn-api presents to `POST /internal/revoke-organiser-sessions`. Unset or shorter than 32 characters ⇒ the route answers 503, and osn-api's sign out everywhere else and cire connection revoke leave organiser sessions alone. The same value osn-api holds; how to set it is in the pre-deploy table at the top of this page. [[cire-auth]] |
 | `CIRE_R2_RECONCILE_DISABLED` | `wrangler.toml` `[env.production.vars]` (and every other tier's vars block) | **Yes — `"false"` or `"true"`** | Tier-wide switch for the cron's two R2 orphan reconcilers. `"true"` (any value but `"false"`) leaves both out of `scheduled`, logs `r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED` and emails `CIRE_OPS_EMAIL` each run; every other cron job still runs. It changes only with a deploy; to stop the reconcilers at once, around a `cire-db` restore, put `reconcile/stop` in each bucket instead ([[backup-dr]]). A dashboard edit is written back by the next deploy. Never a secret: it is a declared var. `tests/services/r2-reconcile.test.ts` fails unless every tier holds `"false"` or `"true"`. |
-| `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). In a deployed tier cire-api refuses it: no mail is sent, and `email disabled: Resend misconfigured` is logged. The production deploy job refuses to run while it exists as a secret. |
+| `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). In a deployed tier cire-api refuses it: no mail is sent, and `email disabled: Resend misconfigured` is logged. The release refuses to deploy cire-api while its Worker holds it as a secret (§5.9). |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put TURNSTILE_SECRET_KEY` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, the guest **`/api/claim`** + **`/api/rsvp`** endpoints require a valid Turnstile token and **fail-closed** (403 on missing/invalid/duplicate). Unset ⇒ those gates are skipped (guest flow unchanged). Same widget/secret as osn-api — the widget's domains must cover every gated origin. **Currently unset** on `cire-api-production`: a mismatched secret rejected every guest claim on 2026-07-20 and was deleted, which reverts the gate to a no-op. Create the widget in §3.4. (`src/index.ts` → `createTurnstileVerifier`). |
 | `GOOGLE_GEOCODING_API_KEY` | `wrangler secret put GOOGLE_GEOCODING_API_KEY` | **Optional (key-optional, fail-soft)** | Google Geocoding API key for the organiser per-event venue lookup (`POST /api/organiser/weddings/:id/settings/geocode`, driven from the Events tab's location editor). Unset ⇒ the endpoint answers `unavailable` and the editor falls back to manual lat/lng entry — nothing is ever sent to Google. **Before setting in prod: sign the Google Cloud DPA + confirm the EU→US transfer basis** (see `[[compliance/subprocessors]]`), restrict the key to the Geocoding API, **and set a daily quota cap** in the Google console — the per-IP edge limiter bounds each caller, but only a Google-side cap bounds aggregate spend across many IPs/accounts. (`src/index.ts` → `createGoogleGeocoder`.) |
 
-> ⚠️ **cire `wrangler.toml` env nuance:** always pass `--env production`. A bare
-> `wrangler deploy` targets the **top-level** config — the local devloop's — not
-> production.
+> ⚠️ **cire `wrangler.toml` env nuance:** pass `--env production` to every
+> `wrangler` command run against production (`secret put`, `secret list`,
+> `d1 time-travel`). Without it Wrangler reads the **top-level** config — the local
+> devloop's, whose database id is local-only — not production. The cire stack, not
+> Wrangler, deploys the production Worker (§5.2) and migrates its database (§4).
 >
-> This was more dangerous before 2026-08-13, when `[env.production]` declared no
-> D1 or R2 of its own and silently *looked* correct because the top-level bindings
-> happened to name the prod resources. Named envs inherit **nothing**, so
-> `[env.production]` now declares its own `d1_databases`, `r2_buckets`, `images`,
-> `routes` and `triggers`. Same rule caught the missing prod
-> cron: `[triggers]` at the top level had never applied to the deployed Worker.
+> Named envs inherit **nothing**, so `[env.production]` declares its own
+> `d1_databases`, `r2_buckets`, `images`, `routes` and `triggers`, and
+> `cire/infra/tests/parity.test.ts` holds each equal to what `cireProductionApis()`
+> declares.
 
-### 3.3 cire/invites (Worker SSR) + cire/host, cire/vendor (Pages — build-time `PUBLIC_*`)
+### 3.3 cire/invites (Worker SSR) + cire/host, cire/vendor (static sites — build-time `PUBLIC_*`)
 
 > [!important] cire/invites is now an **SSR Cloudflare Worker**, not Pages
-> `cire/invites` switched to `output: "server"` (the `@astrojs/cloudflare` adapter)
-> and is deployed as a **Cloudflare Worker with Static Assets** via
-> `wrangler deploy --config dist/server/wrangler.json` (the `deploy-cire-invites` job
-> in `production-release.yml`). The committed `cire/invites/wrangler.jsonc` carries the worker
-> name (`cire-invites`) + the **`invite.cireweddings.com` custom-domain route**, and the
-> adapter merges in `main`/the ASSETS binding. The old
-> `wrangler pages deploy dist --project-name cire` is gone — **the Cloudflare
-> Pages project `cire` serves nothing; the apex belongs to the `cire-landing` Pages
-> project since the 2026-07-16 reshuffle.** The invite route resolves the
+> `cire/invites` builds with `output: "server"` (the `@astrojs/cloudflare` adapter)
+> and is deployed as a **Cloudflare Worker with Static Assets**: the release's `sites`
+> job builds it with the production values, and the cire stack uploads the staged
+> `dist/server` modules as the `cire-invites` Worker, with `dist/client` as its assets,
+> on **`invite.cireweddings.com`** (`cireProductionApis()` in
+> `cire/infra/src/declaration.ts`; [[infrastructure-as-code#Bundling and the module registry]]).
+> The committed `cire/invites/wrangler.jsonc` mirrors the Worker name, flags, route and
+> observability, and `cire/infra/tests/parity.test.ts` holds the stack to it; no
+> `wrangler deploy` reads it. **The apex belongs to the `cire-landing` Worker.** The invite route resolves the
 > wedding **from the path** (`/<slug>`) at request time and the bare domain (`/`)
 > 302-redirects **off-origin to the marketing site** (`PUBLIC_MARKETING_URL`,
 > default + prod value `https://cireweddings.com`), so there is **no
@@ -501,44 +520,31 @@ quietly accepting tokens from anywhere.
 > — a single-tenant leftover that served one arbitrary couple's invite to every
 > bare-domain visitor.) No KV/Images binding is required on this Worker (Astro
 > sessions pinned to an in-memory driver; image transforms stay in cire-api).
-> **One-time Cloudflare setup (DONE):** the apex first moved from the Pages project to
-> the `cire-invites` Worker (2026-06-19), then the reshuffle (2026-07-16) moved the Worker
-> onto `invite.cireweddings.com` and handed the apex to `cire-landing`.
-> `custom_domain: true` auto-provisions a route on `wrangler deploy`; a Pages→Worker move
-> needs the hostname detached from the old Pages project first (Pages → project → Custom
-> domains) or moved on the Worker side (Worker → Domains & Routes → Add → confirm move).
-> No KV namespace or Images binding to create.
->
-> **`legacy_env` strip (deploy foot-gun, fixed 2026-07-16):** the adapter writes a
-> top-level `"legacy_env": true` into the generated `dist/server/wrangler.json`.
-> Wrangler **4.111.0 removed** that field and hard-errors on it; since `cire/invites`
-> pins no wrangler, `bunx wrangler` pulls the latest, so the `deploy-cire-invites` job
-> failed on every merge from the moment 4.111 shipped (the guest site stayed up on the
-> last-good build — deploys stopped landing). The job now deletes `legacy_env`
-> from the generated config between build and deploy (behaviour-neutral: `true` was
-> already the default). If a guest-site deploy fails on a config field again, check
-> the generated `dist/server/wrangler.json` against the installed wrangler's schema.
+> **One-time Cloudflare setup (DONE):** the `cire-invites` Worker holds
+> `invite.cireweddings.com`, and the apex belongs to `cire-landing`. No KV namespace or
+> Images binding to create.
 
-`cire/host` and `cire/vendor` are **static** Pages builds (`output: "static"`); cire/invites's
+`cire/host`, `cire/vendor` and `cire/landing` are **static** builds (`output: "static"`),
+each served by its site Worker (§5.3); cire/invites's
 `PUBLIC_*` are read both **server-side per request** and by the client islands but
 still bake in **at build time**. The prod values are wired in
-`.github/workflows/production-release.yml` (the `deploy-cire-invites` / `deploy-cire-host` jobs set
-them on the build step; the dev values are in `deploy.yml`); a localhost fallback stays in the source for local dev. If you
+`.github/workflows/production-release.yml` (the `sites` job sets them on each site's build
+step; the dev values are in `deploy.yml`); a localhost fallback stays in the source for local dev. If you
 build outside CI, export these before `bun run --cwd <site> build`.
 
 | Name | Site | Required? | Prod value | Notes |
 |---|---|---|---|---|
 | `PUBLIC_API_URL` | cire/invites | **Yes** | `https://api.cireweddings.com` | cire-api prod origin, read server-side (`[slug].astro` / `index.astro` via `src/lib/invite.ts`) **and** by the islands (dev default `http://localhost:8787`). |
 | `PUBLIC_SITE_URL` | cire/invites | Recommended | `https://invite.cireweddings.com` | Guest site canonical URL. The apex serves the marketing landing site since the 2026-07-16 reshuffle. |
-| `PUBLIC_BUILD_SHA` | cire/invites, cire/landing, cire/host, cire/vendor | Optional | `${{ github.sha }}` | The commit the build is made from; each site's footer, and each portal's account menu, prints its first seven characters as "Version …", or "Version local" when unset ([[cire-invite-builder#The footer's version]]). Set on the guest site's build step in `deploy-cire-invites` and on the marketing site's and both portals' in `sites` (`production-release.yml`), and on all four in `stack-cire-dev` (`deploy.yml`); nothing to configure. |
+| `PUBLIC_BUILD_SHA` | cire/invites, cire/landing, cire/host, cire/vendor | Optional | `${{ github.sha }}` | The commit the build is made from; each site's footer, and each portal's account menu, prints its first seven characters as "Version …", or "Version local" when unset ([[cire-invite-builder#The footer's version]]). Set on all four build steps in `sites` (`production-release.yml`) and in `stack-cire-dev` (`deploy.yml`); nothing to configure. |
 | `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/invites | Optional | _(unset)_ | Google Maps Platform key with the **Maps Embed API** enabled. When set, the venue row of the event details renders a real Maps Embed iframe once the guest allows Google Maps (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/invites/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
 | `PUBLIC_CIRE_API_URL` | cire/host | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/host/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |
 | `PUBLIC_OSN_ACCOUNT_URL` | cire/host **and** cire/vendor | Recommended | `https://musubi.social` | Where "Manage your account" links point — passkeys, recovery codes and connected apps all live on musubi's own origin now. **Replaced `PUBLIC_OSN_ISSUER_URL` on 2026-07-27**: the frontends no longer talk to the issuer at all. Sign-in is a top-level redirect to cire-api (`/api/auth/oidc/start`), which runs the code exchange server-side. [[cire-auth]], [[oidc-provider]] |
 | `PUBLIC_CIRE_WEB_URL` | cire/host | Recommended | `https://invite.cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
 | `PUBLIC_MARKETING_URL` | cire/host **and** cire/invites | Recommended | `https://cireweddings.com` | The marketing site's origin. The guest site sends its bare `/` there; the organiser portal's RSVP editor links its `/privacy` (`osn.ts`). |
-| `VITE_OSN_ISSUER_URL` | musubi/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`musubi/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `production-release.yml` (`deploy-osn-social`). The musubi stack job in `deploy.yml` builds the same app for dev with the dev osn-api origin from its `dev-hosts` step, so dev never dials production identity. [[dev-environment]] |
-| `PUBLIC_TURNSTILE_SITEKEY` | cire/invites | Optional (key-optional) | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim form (cire/invites) renders the Turnstile challenge and gates submit on it; when unset/blank no widget renders and no token is sent. Wired in the `deploy-cire-invites` build step (and the cire stack job's build of the guest site on dev), and the repo **Variable** is set (#160). Genuinely optional **here**, because the matching `TURNSTILE_SECRET_KEY` is **unset on cire-api** today (§3.2). The organiser and vendor builds do not read it: since the 2026-07-27 OIDC swap they render no OSN ceremony form. |
-| `VITE_TURNSTILE_SITEKEY` | musubi/social | **Yes — see note** | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Same widget, same repo Variable; the name differs only because Vite exposes `VITE_*` where Astro exposes `PUBLIC_*`. Feeds `turnstileSiteKey` into `SignIn` + `Register` (`@shared/ui`) at all three call sites — the sidebar dialogs and the `/authorize` sign-in island — via `musubi/social/src/lib/auth.ts`, which normalises blank to `undefined`. **Key-optional in code but required in production:** osn-api's `TURNSTILE_SECRET_KEY` is set, so a blank sitekey fails every gated call closed with `400 turnstile_failed`. Set in `production-release.yml` (`deploy-osn-social`), and again in `deploy.yml`'s musubi stack job — so the dev domain needs its own widget **Domains** entry alongside `musubi.social`, or the dev widget never renders and the gated forms never enable. [[turnstile]] [[dev-environment]] |
+| `VITE_OSN_ISSUER_URL` | musubi/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`musubi/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `production-release.yml` (its `sites` job). The musubi stack job in `deploy.yml` builds the same app for dev with the dev osn-api origin from its `dev-hosts` step, so dev never dials production identity. [[dev-environment]] |
+| `PUBLIC_TURNSTILE_SITEKEY` | cire/invites | Optional (key-optional) | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim form (cire/invites) renders the Turnstile challenge and gates submit on it; when unset/blank no widget renders and no token is sent. Wired in the `sites` job's guest-site build step (and the cire stack job's build of the guest site on dev), and the repo **Variable** is set (#160). Genuinely optional **here**, because the matching `TURNSTILE_SECRET_KEY` is **unset on cire-api** today (§3.2). The organiser and vendor builds do not read it: since the 2026-07-27 OIDC swap they render no OSN ceremony form. |
+| `VITE_TURNSTILE_SITEKEY` | musubi/social | **Yes — see note** | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Same widget, same repo Variable; the name differs only because Vite exposes `VITE_*` where Astro exposes `PUBLIC_*`. Feeds `turnstileSiteKey` into `SignIn` + `Register` (`@shared/ui`) at all three call sites — the sidebar dialogs and the `/authorize` sign-in island — via `musubi/social/src/lib/auth.ts`, which normalises blank to `undefined`. **Key-optional in code but required in production:** osn-api's `TURNSTILE_SECRET_KEY` is set, so a blank sitekey fails every gated call closed with `400 turnstile_failed`. Set in `production-release.yml` (its `sites` job), and again in `deploy.yml`'s musubi stack job — so the dev domain needs its own widget **Domains** entry alongside `musubi.social`, or the dev widget never renders and the gated forms never enable. [[turnstile]] [[dev-environment]] |
 
 ### 3.4 Create the Cloudflare Turnstile widget (one-time, gates Turnstile on) 🔑
 
@@ -569,8 +575,9 @@ create it in the dashboard (or with a custom API token that has the scope).
    - **Widget mode:** **Managed** (no pre-clearance — siteverify is the gate).
 2. Copy the **Sitekey** (public, `0x…`) and the **Secret key** (private).
 3. **Sitekey** → set as the repo **Variable** `PUBLIC_TURNSTILE_SITEKEY`. Two build
-   steps read it, and the dev stack jobs' builds of the same sites: `deploy-cire-invites` (as
-   `PUBLIC_TURNSTILE_SITEKEY`) and `deploy-osn-social` (as `VITE_TURNSTILE_SITEKEY`). Both
+   steps of the `sites` job read it, and the dev stack jobs' builds of the same sites:
+   the cire/invites build (as `PUBLIC_TURNSTILE_SITEKEY`) and the musubi/social build (as
+   `VITE_TURNSTILE_SITEKEY`). Both
    bake the sitekey in at build time, so **rebuild and redeploy both** to activate a new
    widget. A Variable change matches no path, so dispatch a release with
    `surfaces: cire_invites osn_social` and `force` (§5.5) — leave `osn_social` out and
@@ -584,8 +591,8 @@ create it in the dashboard (or with a custom API token that has the scope).
    # from cire/api (gates /api/claim + /api/rsvp)
    cd cire/api && echo "<secret>" | bunx wrangler secret put TURNSTILE_SECRET_KEY --env production
    ```
-   Then `wrangler deploy` both Workers so the new isolate picks up the secret, and run
-   the smoke check after each (§5.1).
+   Each Worker then holds the secret; a release deploys each again only when its code or
+   declaration changed (§5.9).
    **Confirm the secret and the shipped sitekey are the two halves of the same widget**
    and run one real end-to-end claim — a mismatch rejects every guest claim (2026-07-20
    incident, see [[free-tier-limits]]). To back it out:
@@ -633,7 +640,7 @@ The row's shape — the columns that carry a trust decision are listed in
 > `CIRE_OIDC_CLIENT_SECRET` without updating `oauth_clients.client_secret_hash` (or the
 > reverse) makes every token exchange fail `invalid_client`, and organiser sign-in stops
 > dead — existing sessions survive their 7 days, so the break shows up gradually. Rotate
-> both, then redeploy cire-api to cycle the warm isolates. A rotation also voids the
+> both, then read §5.9 on reaching cire-api's warm isolates. A rotation also voids the
 > one-click stop links in RSVP digest emails already sent ([[cire-rsvp-changes]]);
 > the Overview switch keeps working.
 
@@ -664,9 +671,13 @@ bunx wrangler secret put STRIPE_SECRET_KEY --env production      # shared with �
 bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production  # THIS endpoint's
 ```
 
+cire-api's production row in `shared/infra/src/secrets/inventory.ts` lists none of the
+Stripe names yet: add each to it first, in a pull request, or the release lists it as a
+secret the inventory does not know and `secrets:check-live` fails on it (§5.9).
+
 `STRIPE_ACCOUNT_COUNTRY` is an ordinary var (default `AU` in code), in `wrangler.toml` under each tier's own `[env.<env>.vars]`. Stripe fixes an account's country at creation, so it is a per-deployment default rather than something a couple can change later.
 
-**Optional — a Stripe account the couple already have (Connect OAuth).** In the dashboard, Settings › Connect › Onboarding options › OAuth: turn it on, copy the live `ca_…` client id, and register the redirect URI `https://api.cireweddings.com/api/organiser/stripe/oauth/callback` (built on `CIRE_API_ORIGIN`). Then add `STRIPE_CONNECT_CLIENT_ID` to cire-api's production row in `shared/infra/src/secrets/inventory.ts`, set it in the `production` Environment and `bunx wrangler secret put STRIPE_CONNECT_CLIENT_ID --env production`. Unset ⇒ the portal offers no such choice; set but not a `ca_` id ⇒ the same, and the Worker logs `stripe connect oauth disabled: STRIPE_CONNECT_CLIENT_ID is not a ca_ id`. See [[stripe-webhooks#Turn on Connect OAuth]].
+**Optional — a Stripe account the couple already have (Connect OAuth).** In the dashboard, Settings › Connect › Onboarding options › OAuth: turn it on, copy the live `ca_…` client id, and register the redirect URI `https://api.cireweddings.com/api/organiser/stripe/oauth/callback` (built on `CIRE_API_ORIGIN`). Then add `STRIPE_CONNECT_CLIENT_ID` to cire-api's production row in `shared/infra/src/secrets/inventory.ts` and `bunx wrangler secret put STRIPE_CONNECT_CLIENT_ID --env production`. Unset ⇒ the portal offers no such choice; set but not a `ca_` id ⇒ the same, and the Worker logs `stripe connect oauth disabled: STRIPE_CONNECT_CLIENT_ID is not a ca_ id`. See [[stripe-webhooks#Turn on Connect OAuth]].
 
 **Fail-closed.** `STRIPE_SECRET_KEY` unset ⇒ neither the Connect routes nor the upgrade routes are mounted, so a deployment with no Stripe account has no payment surface rather than one that 500s. `STRIPE_WEBHOOK_SECRET` unset ⇒ `/api/stripe/webhook` does not exist and guests are offered no money gift at all, because nothing would record one; the Worker logs `money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET` when it builds the app. Set both, then deploy. Upgrades need a third value, `STRIPE_PLATFORM_WEBHOOK_SECRET`, with its own warning (§3.9).
 
@@ -708,74 +719,72 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 ## 4. Database migrations
 
 > [!important] A migration must work with the Worker version before it
-> Every deploy job applies its migrations **before** the new Worker serves, and a
-> failed smoke check rolls the Worker back without undoing them (§7). So each
-> migration has to work with the version it replaces as well as the one it ships
-> with: add a column or table in one release and use it in a later one; stop reading
-> a column in one release and drop or rename it in a later one. A migration that
-> drops or renames something the previous version still reads takes the surface
-> down the moment its deploy rolls back. A migration that moves data between
-> stores makes a rollback lossy for writes made in that window: the old Worker
-> writes the old store, and the new one does not read it when it returns.
+> Alchemy is each production database's one migrator. A stack job applies its
+> database's pending migrations in its `migrate` step, after the plan guard and
+> **before** the deploy, on every release that ships the stack; a failed smoke check
+> rolls the Worker back without undoing them (§7). So each migration has to work with
+> the version it replaces as well as the one it ships with: add a column or table in
+> one release and use it in a later one; stop reading a column in one release and drop
+> or rename it in a later one. A migration that drops or renames something the
+> previous version still reads takes the surface down the moment its deploy rolls
+> back. A migration that moves data between stores makes a rollback lossy for writes
+> made in that window: the old Worker writes the old store, and the new one does not
+> read it when it returns.
 
-### 4.1 Apply cire D1 migrations (remote)
+### 4.1 How a production database is migrated
 
-Migrations live in `cire/db/migrations/`: one baseline file,
-`0001_initial.sql`, holding the whole schema, then the numbered files `0082` to
-`0090` and the timestamped files (`<YYYYMMDDHHMMSS>_<name>.sql`) after them. The baseline builds exactly what migrations `0001`–`0081` in
-`cire/db/migrations-archive/` build; nothing applies the archive. Production
-applied that chain file by file, so its `d1_migrations` ledger holds every
-archived name, `0001_initial.sql` among them, and wrangler skips the baseline
-there.
+**CI applies every migration; nothing is run by hand.** Each stack job's `migrate` step
+deploys its database alone with Alchemy (`bun run migrate:production` in
+`<stack>/infra`: `alchemy deploy --stage production --yes --force --include <Db>`), so:
 
-That skip is only right once production has applied **every** archived
-migration. `bun run --cwd cire/db db:migrate:prod` runs
-`scripts/cire-db-migrate.ts`, which reads production's ledger first and refuses
-— before any migration runs or the Worker deploys — when an archived migration
-of the chain it started is missing, or when it names a migration from outside
-that chain. The refusal names the files. The script runs the wrangler
-`cire/api` installs from the lockfile and gives up on a ledger read after two
-minutes, so a stalled call fails the job instead of holding the production
-concurrency group.
+- the migrations land before any Worker or site of the stack uploads, and one that fails
+  stops the job before the deploy, which then uploads nothing;
+- `--force` makes Alchemy read the database's own ledger, `__alchemy_migrations`, on every
+  release and apply exactly the files it lacks, in name order, each with its ledger row in
+  one query that D1 rolls back if any statement fails;
+- the deploy step that follows finds the database unchanged, and each API Worker binds its
+  database, so even a deploy on its own would reconcile the database first
+  ([[infrastructure-as-code#Migrations]]).
 
-> [!warning] Bring production level with a deploy run, never by hand
-> Re-run only the "Deploy cire/api — production" job (**Re-run this job**, never
-> **Re-run all jobs**) of an earlier run whose commit is from before those files were
-> archived — a `Production release` run, or a `Deploy` run from before production moved
-> to `production-release.yml`; GitHub re-runs a run for 30 days — and let it finish: it
-> applies them and deploys the Worker that matches. This is the one deliberate re-run of
-> an old run; the cutover note in §5.5 forbids re-running one in full. Then dispatch a release: production now runs the older
-> commit, so the planner ships cire-api from main again. Do not run
-> `db:migrate:prod` from an old checkout instead — that applies the migrations
-> under the Worker already serving, and a migration such as `0076` drops a
-> column that Worker still reads. Let the old job finish before the release
-> reaches cire-api: both take the `deploy-production-cire-api` concurrency
-> group, and a newer pending job cancels an older pending one.
+| Stack job | Database | Migrations | Logical id |
+|---|---|---|---|
+| `stack-musubi-production` | `osn-db-prod` | `osn/db/drizzle/` | `OsnDb` |
+| `stack-cire-production` | `cire-db` | `cire/db/migrations/`, plus a refusing placeholder for each name in `cire/db/migrations-archive/` | `CireDb` |
+| `stack-zap-production` | `zap-db-prod` | `zap/db/drizzle/` | `ZapDb` |
 
-The `database_id` is already wired
-(`6e835474-e0a7-4db9-8883-3247c3c891cd`, §2.1). **CI applies them** — the
-`deploy-cire-api` job in `production-release.yml` runs `bun run --cwd cire/db db:migrate:prod` before the
-new Worker serves, so the command below is the manual equivalent.
+**What the approver reads.** Before each approval the stack's live read counts the
+database's ledger against those files and prints the counts in the plan guard's run
+summary under **Live, listed**, never a row:
+`cire-db migration ledger (__alchemy_migrations): R rows, M match a migration file, U
+match none; P to apply, L of them older than the newest applied; Wrangler's ledger frozen`.
+"To apply" is what the migrate step will run; "older than the newest applied" is a
+migration merged after a newer one shipped, which CI refuses and the guard refuses too.
+The guard refuses the release, before anything writes, on any count §4.2 lists.
+
+cire's live chain begins with one baseline, `0001_initial.sql`, holding the whole schema,
+then the numbered files `0082` to `0091` and the timestamped files
+(`<YYYYMMDDHHMMSS>_<name>.sql`). The baseline builds exactly what migrations `0001`–`0081`
+in `cire/db/migrations-archive/` build. Production applied that chain file by file, so its
+ledger holds every archived name, `0001_initial.sql` among them. The cire stack therefore
+hands Alchemy a placeholder under each archived name (80 of them): production's ledger
+already names each one, so none ever runs, and a database whose ledger lacked one would
+fail on it rather than replay archived SQL (`0015` deletes rows, `0076` drops a column).
 
 > Production holds no `wed_bootstrap` demo wedding: archived migration
 > `0015_drop_bootstrap_wedding.sql` deleted it and its children, and the
 > baseline never creates it.
 
-```bash
-# from the repo root
-bun run --cwd cire/db db:migrate:prod
-```
-
-> Never apply cire migrations with a bare `wrangler d1 migrations apply`. It
-> skips the ledger check, so on a production database that is behind it reports
-> "No migrations to apply!" and leaves the missing schema missing.
-
-> `--env production` is not optional. Without it wrangler resolves `cire-db`
-> against the top-level config, which is the local devloop's binding set. The
-> `db:migrate:local|prod` scripts each name their database **and** their env,
-> and the wrapper refuses a call that names neither `--local` nor `--remote`.
-> The dev database is migrated by the cire stack, not by these scripts. See
-> `cire/db/README.md`.
+> [!warning] Never run Wrangler's migrator against a production database
+> `d1_migrations`, Wrangler's ledger, stopped at the release that moved each database to
+> Alchemy; every migration since is recorded only in `__alchemy_migrations`. A
+> `wrangler d1 migrations apply` would apply each of them again. So nothing reaches one:
+> the `[env.production]` D1 blocks name no `migrations_dir` (Wrangler stops at "No
+> migrations present"), cire's top-level block names a local-only id, there is no
+> `db:migrate:prod` script, `scripts/cire-db-migrate.ts` refuses `--remote`, the agent
+> guard refuses the command, and a trigger on each production `d1_migrations`
+> (`d1_migrations_frozen`) refuses Wrangler's ledger row, which rolls back the migration
+> with it. Never approve a re-run of a `production-release.yml` run that started before
+> the release in §4.4: its `migrate` step is the old Wrangler one.
 
 > ✅ **No bootstrap-owner step.** cire-api needs **no** `BOOTSTRAP_OWNER_PROFILE_ID`
 > and no seeded owner. **Every authenticated OSN user is a first-class
@@ -785,61 +794,120 @@ bun run --cwd cire/db db:migrate:prod
 > `weddingOwner()` / `weddingMember()` on the `/api/organiser/weddings/:weddingId/*`
 > routes; there is no global boot gate. (Removed in `feat/cire-organiser-open-access`.)
 
-### 4.3 Apply osn-api D1 migrations (remote)
+### 4.2 Recovering a refused migration ledger 🔑
 
-osn-api's migrations live in `osn/db/drizzle/` (`0000_optimal_thunderbolt.sql` and
-`0001_exotic_lady_vermin.sql` at the time of writing) and are wired into every
-`[[env.<env>.d1_databases]]` via `migrations_dir = "../db/drizzle"`. Apply per env
-(against the binding name in `osn/api/wrangler.toml`).
+The plan guard refuses a release, before anything writes, when a production database's
+ledger is one the migrate step could not convert or would replay a migration from
+(`judgeLedger()` in `shared/infra/src/production-live.ts`). The refusal prints counts,
+never names; a recovery that needs the names is an owner's read, under the owner's own
+Cloudflare login, of migration names only (an agent never reads a production database).
+Every write below is the owner's, on the database the refusal names. After §4.4, write a
+missing or extra name to `__alchemy_migrations`, never to `d1_migrations`, whose trigger
+refuses an insert. A `d1_migrations` repair takes `DROP TRIGGER "d1_migrations_frozen"`
+first and puts the trigger back after, with the freeze file's own statement
+(`FREEZE_MIGRATION.sql` in `shared/infra/src/migrations.ts`, run with `wrangler d1 execute
+<database> --env production --remote --command`): no release puts it back, since
+Alchemy's ledger records the freeze as applied. Never drop an `__alchemy_migrations` that
+names `1000_freeze_wrangler_ledger.sql`: every migration since the move is recorded only
+there.
 
-> ✅ **Prod migrations are automatic.** The `deploy-osn-api` job in
-> `production-release.yml` applies them (`bun run --cwd osn/db db:migrate:prod`)
-> before it deploys the Worker, so `0001_exotic_lady_vermin.sql` (the `users_handle_idx`
-> B-tree index on `users.handle` behind co-host handle prefix search) and everything after
-> it land with the next release that ships osn-api. Dev migrations are automatic too:
-> the musubi stack applies them to `osn-db-dev`, in the dev account, on every dev
-> deploy ([[infrastructure-as-code#Migrations]]). The commands below stay the manual
-> reference for production, and the only route for **staging**, which no CI job touches.
+| Refusal | What it means | Recovery |
+|---|---|---|
+| The ledger was not read | The live read failed | Re-run the release once Cloudflare answers |
+| No migration ledger, or an empty one | A wrong database, or a first conversion that could not read `d1_migrations` and left an empty `__alchemy_migrations` (its first migration then failed on a table that exists, writing nothing else) | When `__alchemy_migrations` holds no row and `d1_migrations` does: `DROP TABLE "__alchemy_migrations"`, then dispatch the release again |
+| A row names no migration file | A migration ran there that this checkout lacks, or a file was renamed or deleted after it applied | Read the names; restore the file under its name, or, for a file the chain never needed, a pull request that names it as archived |
+| Timestamped files that sort before one the ledger records | A migration merged after a newer one shipped, past CI's check that new files sort last | A pull request that renames each to the current UTC time, keeping the rest of its name, then a new release. Never a write on the database |
+| Files missing behind ones applied after them, or archived files missing | The chain was applied without them: Alchemy would run them (an archived one fails on its placeholder) | Read the names; a pull request that brings the database level forward, never the archived SQL applied by hand under the Worker serving |
+| Wrangler names missing from `__alchemy_migrations` | A conversion that copied part of Wrangler's ledger | Insert the missing names with their files' hashes (`migrationHash()` in `shared/infra/src/migrations.ts`). `DROP TABLE "__alchemy_migrations"` instead only while it names nothing but Wrangler's names: not the freeze file, nor any later one |
+| `d1_migrations` frozen, `__alchemy_migrations` gone | Alchemy's ledger was dropped after the move: only the conversion release creates the trigger. Wrangler's ledger stops at the move, so a new conversion would apply every migration since again | Put `__alchemy_migrations` back: restore a D1 Time Travel bookmark from before the drop, or rebuild it by hand with every applied migration's name and its file's hash, the freeze file and each later one included |
+| The trigger is gone and Alchemy's ledger records the freeze | A `d1_migrations` repair dropped the trigger and did not put it back | Run the freeze file's statement (`FREEZE_MIGRATION.sql`), then dispatch the release again |
+| A file changed after it applied | A rewrite or a squash changed the bytes Alchemy recorded | Restore the applied bytes; ship the change as a new migration (englishstreetventures/osn#2096 holds the squash) |
+| Another migration ledger (drizzle-kit, Prisma) | Alchemy would read it before Wrangler's | Find what wrote it before anything else |
+| Read replication differs | The migrate step would change it | Set it in the dashboard to the declared value, or change the declaration |
+
+A restore from a D1 Time Travel bookmark needs none of this: the next release's forced
+migrate step reads the restored ledger and applies what it lacks, re-converting and
+re-freezing a database restored to before §4.4.
+
+### 4.3 The staging and local databases
+
+`osn-db-staging` and `zap-db-staging` (`[env.staging]` in each API's `wrangler.toml`) and
+the local devloop's databases stay on Wrangler's migrator, with each directory's files.
+No CI job touches staging:
 
 ```bash
-# from osn/api (wrangler.toml + the migrations_dir live relative to it)
-cd osn/api
-bunx wrangler d1 migrations apply osn-db-staging  --env staging    --remote
-bunx wrangler d1 migrations apply osn-db-prod     --env production  --remote
-
-# or via the @osn/db scripts from repo root:
-# bun run --cwd osn/db db:migrate:staging  # remote staging D1
-# bun run --cwd osn/db db:migrate:prod     # remote prod D1
+# from the repo root
+bun run --cwd osn/db db:migrate:staging    # remote staging D1
+bun run --cwd zap/db db:migrate:staging
+bun run --cwd osn/db db:migrate:local      # miniflare
+bun run --cwd cire/db db:migrate:local     # checks the ledger first (scripts/cire-db-migrate.ts)
 ```
 
-The local equivalent (`bun run --cwd osn/db db:migrate:local`, miniflare) applies all
-`0000`→latest cleanly after the `0002_add_user_handle` data-copy fix.
+The dev tier's databases are migrated by their stacks on every dev deploy
+([[infrastructure-as-code#Migrations]]), and the local equivalent of osn's
+(`bun run --cwd osn/db db:migrate:local`, miniflare) applies all `0000`→latest cleanly.
+
+### 4.4 The release that moves production to Alchemy's migrator 🔑
+
+The first release after the change that moved the three production databases to
+Alchemy (englishstreetventures/osn#2237) ships every production stack, since the change
+touches `shared/infra/`. In it, each stack's migrate step converts the database's ledger:
+Alchemy copies every row of `d1_migrations` into a new `__alchemy_migrations`, writes
+nothing else of the database, never writes or drops `d1_migrations`, then applies the
+freeze and any migration merged since the release before. The D1 tier
+(`bun run --cwd shared/infra test:d1`) proves this on local copies.
+
+Owner steps, in order:
+
+1. **At approval 1**, read each stack's ledger counts in the plan guard's run summary.
+   Expect `(d1_migrations)`, every row matching a file, none matching none, and "1 to
+   apply" (the freeze) plus one per migration merged since the last release. Any refusal:
+   §4.2.
+2. **Before approval 2**, take a D1 Time Travel bookmark of each database, the restore
+   point for this release, from a checkout of `main` with your own Cloudflare login (it
+   reads the database's metadata, no row):
+
+   ```bash
+   cd cire/api && bunx wrangler d1 time-travel info cire-db --env production
+   cd ../../osn/api && bunx wrangler d1 time-travel info osn-db-prod --env production
+   cd ../../zap/api && bunx wrangler d1 time-travel info zap-db-prod --env production
+   ```
+
+   Keep the three bookmarks with the release run's link. A restore
+   (`bunx wrangler d1 time-travel restore <db> --env production --bookmark=<bookmark>`)
+   loses every write since, so it is the last resort; a failed release is fixed forward
+   (§4.2).
+3. **After the release**, the next release's counts read `(__alchemy_migrations)` and
+   "Wrangler's ledger frozen". Do not approve a re-run of any release run that started
+   before this one.
 
 ---
 
-## 5. Deploy steps (CI + manual reference)
+## 5. Deploy steps (CI reference)
 
 > Production deploys from `.github/workflows/production-release.yml` and the dev tier
-> from `.github/workflows/deploy.yml`. The commands below are the manual equivalents —
-> they document what the production jobs run.
+> from `.github/workflows/deploy.yml`, both through the Alchemy stacks
+> ([[infrastructure-as-code]]). No production Worker is deployed by hand: a
+> `wrangler deploy` would upload code the stack's state does not name, which no
+> release then replaces until the Worker's code or declaration changes (§5.1).
 
 > **How a change reaches production.** A merge to `main` deploys the **dev** tier
 > unattended: `deploy.yml` runs one Alchemy job per stack the push changed, then one
 > record job per surface that passed its check. Production waits
 > for a **release** (§5.5): `production-release.yml`, once a day and by hand, works out
-> which surfaces production is behind on and deploys them after one approval. §5.1–§5.3
-> describe what the production jobs do; the dev tier, its hosts and its one-time setup
-> live in [[dev-environment]].
+> which surfaces production is behind on and deploys their stacks after two approvals.
+> §5.1–§5.3 describe what the stack jobs do for each surface; the dev tier, its hosts and
+> its one-time setup live in [[dev-environment]].
 
 ### 5.0 Reading a release run (triage before you conclude anything is stale)
 
 A **Production release** run starts with `plan`, whose summary on the run page lists
 every surface: the commit production runs, whether this release ships it, and why. Read
-it first. What production runs is the newest successful Deployment record for the
-surface's production job, or for a site whose Worker serves its host its record job's in
-`production-records` — the record the planner reads — not the last green run. A record
+it first. What production runs is the newest successful Deployment record of the
+surface's record job, in `production-records` — the record the planner reads — not the
+last green run. A record
 counts only when the job it links succeeded on the record's commit, in a run of
-`production-release.yml` (or, in `production`, `deploy.yml`) on `main` in this
+`production-release.yml` on `main` in this
 repository; anyone with write access can create a record, so the planner checks each one
 against its run. The summary also lists each production stack: whether it ships, and
 what holds it.
@@ -850,14 +918,28 @@ what holds it.
    release, or — in the newest release only — re-run its failed job (see **Re-running**
    in §5.5).
 2. **`unchanged` is not a failure.** Nothing the surface builds from differs from the
-   commit production runs. Confirm with `git diff --name-only <production-sha> <sha>`
-   against the surface's paths in `scripts/deploy-surfaces.ts` — a cire surface also
+   commit production runs. Confirm with `bun scripts/version-bump.ts <production-sha> <sha>`,
+   which lists the changed files the planner judges and the ones it sets aside, against
+   the surface's paths in `scripts/deploy-surfaces.ts` — a cire surface also
    redeploys when a `@cire/*` package it bundles changes (`cire/host` on `cire/ui` or
    `cire/dietary`, for instance), and every surface redeploys on `shared/`, the lockfile
-   or the root build config.
+   or the root build config. The planner sets aside what a release's version bump
+   writes: a workspace's `CHANGELOG.md`, and a `package.json` or the root `bun.lock`
+   whose only change is `version` values (`scripts/version-bump.ts`). Any other change
+   to either — a dependency, a script, an export, an integrity hash, a file that does
+   not parse — counts. No surface reads a package's version or changelog today.
+   `scripts/tests/version-bump.test.ts` fails when code a surface or stack builds from
+   names a `package.json`, an `npm_package_` variable or a `CHANGELOG`, or globs
+   Markdown; a path built from parts gets past it. A surface that reads either needs
+   that rule changed first, since every later version bump would be set aside too.
 3. **`held back` is the dev gate.** The surface changed, but no recent successful dev
    deploy of it was built from the release commit's content: dev's deploy of the change
-   failed, its smoke check failed, or it has not finished. "Recent" means within the
+   failed, its smoke check failed, or it has not finished. The gate compares content the
+   way item 2 does, so the two `chore: version packages` commits the Release workflow
+   pushes after a merge never hold a surface: dev's deploy of the merge counts for them,
+   and a release dispatched while dev is still deploying them ships. A `held back` row
+   whose reason names `bun.lock` or a `package.json` means that file changed in more than
+   its versions. "Recent" means within the
    newest 300 Deployment records of the `dev` Environment, across every job that runs
    in it: each dev run leaves one per stack job and one per record job, and the
    free-tier alert's dev job, the latency probe and the state-store workflow leave
@@ -869,28 +951,46 @@ what holds it.
    one its stack already passed on dev succeeds without deploying
    ([[dev-environment#Concurrency]]). And a dev record counts only at a commit on
    `origin/main`, since GitHub reports a run from a tag as on a branch of the tag's name.
+   A `held back` row whose reason names `zap_api` is not the dev gate: the musubi and
+   cire stacks wait whole until `zap_api` has a production record (§5.10). A held
+   surface holds its whole stack, so its stack's other surfaces wait with it.
 4. **`production is newer`** means production already runs a commit that contains the
    release commit: an older release was re-run in full. A release never ships an older
    commit; only a `force` dispatch does. The one automatic step back is a failed smoke
    check (item 7).
 5. **A production job stuck on `Waiting` is the approval gate**, not a hang. See §5.5.
-   When a stack ships there are two: `alchemy-plan` first, then every other job. A
-   flip release has four, one per job (§5.7).
-   - **A red `alchemy-plan`** holds every deploy job. Its failing step says why: a
-     worker site whose domain is still on Pages (the step names the dispatch that moves
-     it), the token or the state store (bootstrap it after an Alchemy bump that
+   Every release that ships anything ships a stack, so there are two: `alchemy-plan`
+   first, then the stack jobs.
+   - **A red `alchemy-plan`** holds every deploy job. Its failing step says why: the
+     token or the state store (bootstrap it after an Alchemy bump that
      changes the store's version; an error from loading Alchemy itself is a broken
-     install, which no bootstrap fixes), a plan step (the next step prints its log),
-     or the guard (its summary names each refused resource and action).
+     install, which no bootstrap fixes), a live read (`Read the <stack> stack's adopted
+     resources live`, which fails on a Cloudflare read and names no account), a plan
+     step (the next step prints its log), or the guard (its summary names each refused
+     resource and action, and each refusal of what the live read found:
+     [[infrastructure-as-code#The plan guard]]). A refusal that a Worker lacks a secret,
+     or holds a forbidden one, is fixed on the Worker (§5.9), then dispatch again.
    - **A red stack job's guard step** with "not the one approved" means the plan
      changed between the two approvals; nothing deployed. Dispatch a new release.
+   - **A red stack job's `migrate` step** stops the job before its deploy: nothing
+     in that stack deployed, and the migration that failed was rolled back. The step
+     after it prints Alchemy's log (§4). Fix forward: a new migration, or a write
+     that brings the data level.
+   - **A guard refusal about a migration ledger** (§4.2) stops the release before
+     anything writes.
+   - **A red `Check every secret live before the deploy is live after it` step**
+     means a secret the Worker held before the deploy is gone after it. The step
+     names each; Cloudflare returns no value, so set each again from your copy
+     (§5.9). The stack's record jobs do not run, so the next release offers its
+     surfaces again.
 6. **`Set up job` failing with `Failed to resolve action download info` is GitHub
    infrastructure**, not this repo — the runner could not download the actions at all,
    so nothing in the job ever ran. Re-run the failed jobs; there is nothing to fix
    here. (Seen 2026-08-06, taking out four jobs across two consecutive runs.)
-7. **A red `Smoke check, rolling back on failure` step** means the Worker deployed but
-   did not answer as a working one does for a minute, or for the longer budget a stack
-   job gives a site its release attaches a new host to (§7). Its annotations name each
+7. **A red `Smoke check <surface>, rolling back on failure` step** means the Worker deployed but
+   did not answer as a working one does for a minute (§7), or, for a site
+   `PRODUCTION_HOST_HOLDS` holds off (§5.8), that its Worker still serves the held host
+   or its custom domains could not be read. Its annotations name each
    probe and what it got, and their titles say which of four things happened:
    - **The Worker answered wrongly and was rolled back** (`Smoke check failed: … rolling
      the Worker back`, then no `Rollback refused` or `Rollback failed`). The step
@@ -901,13 +1001,13 @@ what holds it.
      - **`wrangler secret put` refuses until the Worker is deployed again** — so does
        the `set-osn-api-secret` workflow (#1531). The newest uploaded version is the
        one rolled back from, and wrangler will not edit secrets while it is not the one
-       serving. To add a missing secret, run `bunx wrangler versions secret put <NAME>`
-       from the Worker's directory with its own selector — `--env production` for
-       cire-api, osn-api and zap-api, `--config dist/server/wrangler.json` for
-       cire-invites (the `wrangler` field of its entry in `scripts/smoke-check.ts`).
+       serving. To add a missing secret, run
+       `bunx wrangler versions secret put <NAME> --env production` from the Worker's
+       directory (`osn/api`, `cire/api` or `zap/api`; cire-invites holds no secret).
        That adds the secret to a new version without deploying it; then re-run the
        failed job (newest release only) or dispatch a release with `force` for that
-       surface.
+       surface. The stack job's snapshot sees the rollback and deploys with `--force`,
+       which uploads the commit's code again.
      - **Only that surface went back.** The rest of the release stayed forward. If it
        is `cire_api` and `cire_host` shipped in the same release, read §5.6.
    - **The Worker answered wrongly and the rollback was refused** (`Rollback refused`).
@@ -918,15 +1018,17 @@ what holds it.
      during the check. Check what the Worker serves in its Deployments tab before
      acting, then decide by hand: fix forward, or roll back knowing which secret values
      come back. The annotation names the version that served before this deploy;
-     `bunx wrangler rollback <that version>` with the Worker's selector, run in a
-     terminal, asks before crossing a secret change. Without a version, wrangler picks
+     `bunx wrangler rollback <that version>` with the Worker's selector
+     (`--env production` from `osn/api`, `cire/api` or `zap/api`; none from
+     `cire/invites`), run in a terminal, asks before crossing a secret change. Without a version, wrangler picks
      the deployment before the newest, which here may be the one that failed.
    - **The Worker answered wrongly and the rollback failed** (`Rollback failed`). A
      request that timed out may still have landed, so check what the Worker serves in
      its Deployments tab first. If it is still this release's version, roll it back by
      hand: `bunx wrangler rollback <version>` with the version the annotation names and
      the Worker's selector, from its directory, or the Deployments tab. A hand rollback
-     leaves no Deployment record (§5.1). A Worker's first deploy always lands here:
+     leaves no Deployment record and no rollback message, so no release uploads that
+     Worker again until its code or declaration changes (§5.1). A Worker's first deploy always lands here:
      there is no earlier version to go back to. So does a release that creates a
      Durable Object class, as osn-api's first release with the coordination store
      does: Cloudflare blocks a rollback across a class lifecycle change, by hand too,
@@ -942,7 +1044,8 @@ what holds it.
    remember the failure.** Until the cause is fixed — the secret or binding set, or a
    fix on `main` that dev has deployed — every release offers the same content again,
    and approving it ships the version that failed. Until then, approve only a release
-   dispatched with `surfaces` listing every other surface. **The D1 migrations stay
+   dispatched with `surfaces` that name no surface of that stack: naming one surface of
+   a stack asks for all of them. **The D1 migrations stay
    applied** whichever it was: a rollback restores code only (§4).
 
 A red **Deploy** run concerns dev only ([[dev-environment]] §2). Nothing alerts on a
@@ -952,62 +1055,72 @@ until dev deploys it. Read the plan summary for `held back` rows.
 
 Which job owns which surface:
 
-| Surface key | Production job (`production-release.yml`) | Dev job (`deploy.yml`) | Live at |
+| Surface key | Production record job (`production-release.yml`) | Dev job (`deploy.yml`) | Live at |
 |---|---|---|---|
-| `cire_invites` | `Deploy cire/invites — production` | `— dev` | `invite.cireweddings.com` |
-| `cire_host` | `Deploy cire/host — production` | `— dev` | `host.cireweddings.com` |
-| `cire_vendor` | `Deploy cire/vendor — production` | `— dev` | `vendor.cireweddings.com` |
-| `cire_landing` | `Deploy cire/landing — production (apex)` | `— dev` | `cireweddings.com` |
-| `cire_api` | `Deploy cire/api — production` | `— dev` | `api.cireweddings.com` |
-| `osn_api` | `Deploy osn/api — production` | `— dev` | `id.musubi.social` |
-| `osn_social` | `Deploy musubi/social — production` | `— dev` | `musubi.social` |
-| `zap_api` | `Deploy zap/api — production` | `— dev` | `zap.cireweddings.com` |
-| `musubi_landing` | **none** | `— dev` | dev only |
+| `cire_invites` | `Record cire/invites — production`, after the cire stack job | `— dev` | `invite.cireweddings.com` |
+| `cire_host` | `Record cire/host — production`, after the cire stack job | `— dev` | `host.cireweddings.com` |
+| `cire_vendor` | `Record cire/vendor — production`, after the cire stack job | `— dev` | `vendor.cireweddings.com` |
+| `cire_landing` | `Record cire/landing — production`, after the cire stack job | `— dev` | `cireweddings.com` |
+| `cire_api` | `Record cire/api — production`, after the cire stack job | `— dev` | `api.cireweddings.com` |
+| `osn_api` | `Record osn/api — production`, after the musubi stack job | `— dev` | `id.musubi.social` |
+| `osn_social` | `Record musubi/social — production`, after the musubi stack job | `— dev` | `musubi.social` |
+| `zap_api` | `Record zap/api — production`, after the zap stack job | `— dev` | `zap.cireweddings.com` |
+| `musubi_landing` | `Record musubi/landing — production`, after the musubi stack job | `— dev` | `www.musubi.social` |
 | `pulse_landing` | **none** | `— dev` | dev only |
 
-The job names are how the planner ties a Deployment record to a surface; rename a job
-only together with its entry in `scripts/deploy-surfaces.ts`. A dev job here is the
+The three stack jobs are `Alchemy musubi stack — production`, `Alchemy cire stack —
+production` and `Alchemy zap stack — production`. The job names are how the planner ties
+a Deployment record to a surface; rename a job only together with its entry in
+`scripts/deploy-surfaces.ts`. Every production surface has a record job in
+`production-records`, after its stack job, which runs only when the stack job
+deployed, kept every secret and the surface's smoke check passed
+([[infrastructure-as-code#Production sites]]). A dev job here is the
 surface's record job, which runs only when its stack job deployed, its compare step
 read every Worker, and its smoke check passed ([[infrastructure-as-code#The dev deploy]]). Every production surface has one,
-so the dev gate applies to all eight, zap-api included. Musubi landing and pulse
-landing deploy to dev only; the planner never offers them to production.
+so the dev gate applies to all nine, zap-api included. Pulse landing deploys to dev
+only; the planner never offers it to production.
 
 ### 5.1 osn-api (Worker)
 
-> **CI (prod):** the `deploy-osn-api` job in `.github/workflows/production-release.yml`
-> deploys prod osn-api in every release that ships it — migrate
-> (`bun run --cwd osn/db db:migrate:prod`) then `wrangler deploy --env production`,
-> mirroring cire-api. The manual commands below stay the reference for dev/staging and
-> for what the pipeline runs. A hand-run prod deploy or rollback leaves no Deployment
-> record, so the planner still believes production runs the last released commit; when
-> production should run main again, dispatch a release with `force` for `osn_api`
-> (§5.5).
+> **CI (prod):** the musubi stack job (`stack-musubi-production` in
+> `.github/workflows/production-release.yml`) deploys `osn-api-production` with its
+> database `osn-db-prod`, musubi social and musubi landing, in every release that ships
+> the musubi stack. In order, after the second approval: the token and state-store
+> checks, a snapshot of each Worker's newest deployment, the Workers' custom domains, a
+> live read of the adopted resources, a fresh plan, the plan guard against the plan
+> approved at `alchemy-plan`, the `migrate` step
+> (`bun run migrate:production` in `musubi/infra`: Alchemy applies `osn-db-prod`'s
+> pending migrations by deploying the database alone, §4), the deploy
+> (`bun run deploy:production` in `musubi/infra`), a compare that names the deployment
+> each Worker got, the check that every secret live before the deploy is live after it,
+> and one smoke check per surface. A last step fails the job when any check failed.
 
-osn-api is a Cloudflare Worker (§2.3). With the §3.1 vars in `wrangler.toml` and the
-§3.1 secrets set (`wrangler secret put … --env <env>`), and the D1 migrations applied
-(§4.3):
+osn-api is declared by `musubiProductionApis()` in `musubi/infra/src/declaration.ts`,
+under its live name and adopted in place: the stack bundles `osn/api/src/entry.ts`,
+declares the vars, bindings, custom domain, crons and observability that
+`[env.production]` in `osn/api/wrangler.toml` mirrors, and uploads no secret
+([[infrastructure-as-code#Production API Workers and storage]]). A change to a var or
+binding goes in both, or `musubi/infra/tests/parity.test.ts` fails. `bunx wrangler
+types` from `osn/api` still regenerates the binding types from `wrangler.toml`.
 
-```bash
-cd osn/api
-bunx wrangler types                          # regenerate binding types if bindings changed
-bunx wrangler deploy --dry-run --outdir ./dist   # optional: build-only sanity check
-bunx wrangler deploy --env production        # or --env staging; dev deploys only through its stack
-```
+**No hand deploy.** Nothing deploys osn-api to production outside a release. Alchemy
+plans against its own state, not the live Worker, so a version uploaded or rolled
+back by hand stays live until a release that changes osn-api's code or declaration,
+or a release dispatched with `force` and `surfaces: osn_api`, which passes `--force`
+to Alchemy and uploads the commit's osn-api again. A smoke check's own rollback
+needs neither: the next stack job's snapshot sees it and deploys with `--force` (§7).
 
-A hand-run deploy gets no smoke check unless you run it. From the repository root,
-`bun run scripts/smoke-check.ts osn_api production` asks the same probes CI
-does (§7). With `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` exported it also
-rolls the Worker back if it answers wrongly; without them it says what it found and
-rolls nothing back. Export the same `WRANGLER_OUTPUT_FILE_PATH` for the deploy and the
-check, as CI does, and the rollback is pinned to your deploy; without it, the newest
-deployment when the check starts is taken to be yours.
+To re-ask the production probes by hand, from the repository root:
+`SMOKE_ORIGIN=https://id.musubi.social SMOKE_DEPLOYMENT=unknown bun run scripts/smoke-check.ts osn_api production`,
+with `INTERNAL_SERVICE_SECRET` set to the Worker's value. `unknown` makes it probe
+and never roll back (§7).
 
 **Prod URL (custom domain):** the production Worker is served at
-**`https://id.musubi.social`** via the custom-domain route in `osn/api/wrangler.toml`
-`[env.production]` (`routes = [{ pattern = "id.musubi.social", custom_domain = true }]`).
-`custom_domain = true` auto-provisions the DNS record + edge cert on first
-`wrangler deploy --env production` because the `musubi.social` zone is in-account — confirm it
-went green afterwards (§5.4). The zone carries a **proxied wildcard record**, which does
+**`https://id.musubi.social`**, the custom domain `musubiProductionApis()` declares and
+`osn/api/wrangler.toml` `[env.production]` mirrors
+(`routes = [{ pattern = "id.musubi.social", custom_domain = true }]`). The
+`musubi.social` zone is in-account, so Cloudflare keeps the DNS record and edge cert
+(§5.4). The zone carries a **proxied wildcard record**, which does
 not get in the way: a wildcard only answers names with no record of their own, so the
 explicit `id` record wins. Prod `OSN_ISSUER_URL` is set to that URL. (dev / staging stay on
 their current `workers.dev` config; if/when they get hostnames, set their `OSN_ISSUER_URL`
@@ -1079,19 +1192,32 @@ included:
    Worker lost them at its first Alchemy deploy without them in the inventory.
 3. Cancel the Upstash plan and delete both of its databases.
 
+> [!warning]
+> **Rolling osn-api back past `sessions.replaced_at` lifts the limit on a replaced
+> cancel handle.** A sign-in on the browser holding the cancel handle of a deletion
+> job that predates the restore record keeps that family live and marks it
+> `replaced_at`; every other family a sign-in replaces ends. A marked family renews
+> only for its own account's profiles and `/authorize` reads it as no session. A
+> Worker built before the column ignores it, so a marked row renews as any session
+> does again. The risk is accepted. Before
+> a hand rollback past that release, the owner counts the marked rows (`bunx wrangler
+> d1 execute osn-db-prod --env production --remote --command "SELECT count(*) FROM
+> sessions WHERE replaced_at IS NOT NULL"`, counts only) and, when any is left,
+> rolls forward instead unless the rollback cannot wait. See [[sessions#Endpoints]].
+
 ### 5.2 cire-api (Worker)
 
-Set any conditional secrets first (`wrangler secret put …`, §6.2). Then deploy:
-
-```bash
-cd cire/api
-bunx wrangler types          # regenerate binding types if bindings changed
-bunx wrangler deploy --env production
-cd ../.. && bun run scripts/smoke-check.ts cire_api production   # the check CI runs (§7)
-```
-
-Confirm the deploy picked up the prod vars from `[env.production.vars]` and the
-top-level D1/R2 bindings (§3.2 nuance).
+The cire stack job (`stack-cire-production`) deploys `cire-api-production` with its
+database `cire-db`, its buckets `cire-assets` and `cire-sheets`, the guest site and the
+three cire sites, in the order §5.1 gives for the musubi stack. Its `migrate` step runs
+`bun run migrate:production` in `cire/infra`, which applies `cire-db`'s pending
+migrations with Alchemy (§4.1).
+`cireProductionApis()` in `cire/infra/src/declaration.ts` declares cire-api, the
+database and the buckets under their live names, adopted in place, with the vars,
+bindings, custom domain, cron and observability `[env.production]` in
+`cire/api/wrangler.toml` mirrors (`cire/infra/tests/parity.test.ts` holds them equal);
+it uploads no secret. Set a conditional secret on the Worker before the release that
+needs it (§5.9, §6.2). As for osn-api, nothing deploys cire-api by hand (§5.1).
 
 > [!warning]
 > **Rolling cire-api back past soft delete un-deletes weddings.** Migration
@@ -1103,119 +1229,98 @@ top-level D1/R2 bindings (§3.2 nuance).
 > "SELECT id, deleted_at FROM weddings WHERE deleted_at IS NOT NULL"`, which lists
 > them), or do not roll back. See [[cire-auth#Soft-deleted weddings]].
 
-### 5.3 cire/invites (guest SSR Worker) + cire/host, cire/vendor, cire/landing (Pages)
+> [!warning]
+> **Rolling cire-api back past automatic upgrade refunds can grant a refunded payment.**
+> A Worker built before them refuses to grant only a `refunded` purchase, so a
+> redelivered payment for a `refunding`, `auto_refunded` or `refund_failed` one
+> would raise the tier after the money went back. Before rolling back past that
+> release, the owner lists them (`bunx wrangler d1 execute cire-db --env production
+> --remote --command "SELECT id, status FROM wedding_upgrade_purchases WHERE status
+> IN ('refunding', 'auto_refunded', 'refund_failed')"`) and marks each `refunded`,
+> or does not roll back. See [[cire-upgrades#Retention and compliance]].
 
-CI builds each site with the prod `PUBLIC_*` vars (§3.3) baked in, then publishes. The
-guest site is a **Worker**, not Pages — `deploy-cire-invites` builds and deploys `cire-invites`
-from the adapter-generated config. The other three are Pages projects (`cire-host`,
-`cire-vendor`, `cire-landing` — create each once before its first run) until each site's
-domain moves to a Worker: the `sites` job builds each once, its Pages job deploys that build,
-and the cire stack deploys the same build to a staged Worker on a spare host
-([[infrastructure-as-code#Production sites]]). `deploy-cire-host` deploys to the Pages project
-`cire-host`, the project that holds `host.cireweddings.com` (*measured 2026-10-28 —
-dashboard, Workers & Pages → `cire-host` → Custom domains*). Manual equivalents:
+### 5.3 cire/invites (guest SSR Worker) + cire/host, cire/vendor, cire/landing (sites)
+
+The `sites` job builds each of the four once, with the prod `PUBLIC_*` vars (§3.3)
+baked in, and the cire stack deploys each build to its Worker
+([[infrastructure-as-code#Production sites]]). The guest site is a **Worker** with code,
+`cire-invites`, which the stack declares beside cire-api in `cireProductionApis()` and
+uploads from the staged server output, adopted in place; it holds no secret:
+
+- `cire/host`, `cire/vendor` and `cire/landing` are `worker` in
+  `shared/infra/src/production-sites.ts`. The `cire-host`, `cire-vendor` and
+  `cire-landing` Workers hold `host.cireweddings.com`, `vendor.cireweddings.com` and the
+  apex `cireweddings.com`; the `osn-social` Worker holds the apex `musubi.social`.
+- No production site has a Pages project: the owner deleted them after the soak that
+  followed the last move (englishstreetventures/osn#1787).
+
+To make the same builds by hand, for a look at what a release would upload (no hand
+deploy: a release ships them, §5.5):
 
 ```bash
-# guest site (Worker: cire-invites, custom domain invite.cireweddings.com)
+# guest site: the build the cire stack uploads to the cire-invites Worker
 PUBLIC_API_URL=https://api.cireweddings.com \
 PUBLIC_SITE_URL=https://invite.cireweddings.com \
+PUBLIC_MARKETING_URL=https://cireweddings.com \
 OSN_DEPLOY_TIER=production \
   bun run --cwd cire/invites build
-# delete the adapter's `legacy_env` key first — see the §3.3 foot-gun note
-bunx wrangler deploy --config cire/invites/dist/server/wrangler.json
-bun run scripts/smoke-check.ts cire_invites production   # the check CI runs (§7)
 
-# organiser portal (Pages project: cire-host, host.cireweddings.com)
+# organiser portal: the build the cire stack deploys to the cire-host Worker
 PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
 PUBLIC_OSN_ACCOUNT_URL=https://musubi.social \
 PUBLIC_CIRE_WEB_URL=https://invite.cireweddings.com \
 PUBLIC_MARKETING_URL=https://cireweddings.com \
 OSN_DEPLOY_TIER=production \
   bun run --cwd cire/host build
-bunx wrangler pages deploy cire/host/dist --project-name cire-host
 ```
 
 `OSN_DEPLOY_TIER=production` marks each as a production deploy build, which fails
 unless its cire-api URL is `https://api.cireweddings.com`
 ([[cire-development#Portal security headers]]).
 
-`cire/vendor` (→ `cire-vendor`, `vendor.cireweddings.com`) and `cire/landing`
-(→ `cire-landing`, the apex) follow the same Pages pattern; their build env lives in the
-`sites` job.
+The vendor portal's and the marketing site's build env lives in the `sites` job too.
 
 Make sure the published guest, organiser and vendor origins are exactly the ones listed in
-cire-api's `WEB_ORIGIN` allowlist (§3.2) and in osn-api's `OSN_CORS_ORIGIN` /
-`OSN_ORIGIN` (organiser and vendor passkey sign-in talk to osn-api).
+cire-api's `WEB_ORIGIN` allowlist (§3.2). osn-api's `OSN_CORS_ORIGIN` and `OSN_ORIGIN` each
+hold `https://musubi.social` alone (§3.1): no cire page calls osn-api from the browser or
+runs a passkey ceremony.
 
 ### 5.4 Attach custom domains (human / dashboard steps) 🌐
 
-The Worker custom domains auto-provision from `wrangler.toml`. You attach the Pages custom
-domains in the dashboard. Both zones — `cireweddings.com` and, since 2026-07-27,
-`musubi.social` — are in-account, so Cloudflare issues the DNS records and certs
-automatically once you attach them.
+The production stacks declare every Worker's custom domain, the API Workers' and the
+sites'. Both zones — `cireweddings.com` and, since 2026-07-27, `musubi.social` — are
+in-account, so Cloudflare issues the DNS records and certs automatically once a domain
+is attached.
 
-1. **Worker custom domains (auto, verify only).** After `wrangler deploy --env production`:
-   - osn-api → **`id.musubi.social`** (route in `osn/api/wrangler.toml`).
-   - cire-api → **`api.cireweddings.com`** (route in `cire/api/wrangler.toml`).
-   - cire/invites → **`invite.cireweddings.com`** (route in `cire/invites/wrangler.jsonc`).
-   Confirm each shows as an active custom domain for its Worker (dashboard → Workers →
-   *worker* → Settings → Domains & Routes). Each Worker job's smoke check asks these
-   hosts straight after the deploy (§7), so a green job already shows the domain
-   answers. `custom_domain = true` provisions the DNS
-   record + cert; no manual DNS entry needed. The **proxied wildcard record on
+1. **API Worker custom domains (Alchemy, verify only).** Each stack declares its API
+   Workers' hosts, which each Wrangler config mirrors as a `custom_domain` route:
+   - osn-api: **`id.musubi.social`** (`musubiProductionApis()`; `osn/api/wrangler.toml`).
+   - cire-api: **`api.cireweddings.com`** (`cireProductionApis()`; `cire/api/wrangler.toml`).
+   - cire/invites: **`invite.cireweddings.com`** (`cireProductionApis()`; `cire/invites/wrangler.jsonc`).
+   - zap-api: **`zap.cireweddings.com`** (`zapProductionApis()`; `zap/api/wrangler.toml`).
+   Confirm each shows as an active custom domain for its Worker (in the dashboard:
+   Workers, the Worker, Settings, then Domains & Routes). The plan guard refuses a plan in which any
+   of them would give up its host, and each stack job's smoke check asks these hosts
+   straight after the deploy (§7), so a green job already shows the domain answers. No
+   manual DNS entry is needed. The **proxied wildcard record on
    `musubi.social`** does not block this — a wildcard only answers names that have no record
    of their own, so the explicit `id` record takes precedence.
-2. **Pages custom domains (dashboard, one-time).** In each Pages project → Custom domains:
-   - `cire-landing` (marketing site) → add the apex **`cireweddings.com`**.
-   - `cire-host` (organiser portal) → add **`host.cireweddings.com`**.
-   - `cire-vendor` (vendor portal) → add **`vendor.cireweddings.com`** (§8.2).
-   - `osn-social` (identity app + OIDC consent screen) → add the apex **`musubi.social`**.
-     **Done 2026-07-27.** Not optional: `OSN_AUTHORIZE_UI_URL` points at
-     `https://musubi.social/authorize`, and on `osn-social.pages.dev` the `__Host-` session
-     and binding cookies would not reach the app and a passkey ceremony would be illegal
-     (RP ID `musubi.social`). There is no longer a companion preview project — the
-     `osn-social-preview` workflow was removed on 2026-07-27 ([[social]]); if the
-     stale project is still in the account it is orphaned and can be deleted.
-   Cloudflare adds the CNAME/records in the in-account zone and issues the cert. After the
-   `cireweddings.com` apex is attached to Pages, confirm it does not collide with the
-   email/DNS records from §1.1 (SPF/DKIM/DMARC are TXT records, the apex Pages target is a
-   separate record type — they coexist).
-   A site whose domain has moved to its Worker (`worker` in
-   `shared/infra/src/production-sites.ts`) loses its Pages custom domain: the release that
-   moves it takes the domain off the Pages project, and Alchemy attaches it to the Worker
-   ([[infrastructure-as-code#Production sites]]).
-3. **Site Worker custom domains (Alchemy, verify only).** The production stacks attach
-   each site Worker's domain on deploy: `www.musubi.social` for musubi landing, and while a
-   site is staged its spare host (`next.host.cireweddings.com`,
-   `next.vendor.cireweddings.com`, `next.cireweddings.com`, `next.musubi.social`). No
-   dashboard step. Before a release first attaches one, confirm nothing holds it: for
-   `www.musubi.social` run `bun run scripts/pages-domain.ts check musubi_landing` with
-   `CLOUDFLARE_PAGES_DNS_TOKEN`; that command reads production hosts only, so for each
-   spare host check that `dig +short <host> A`, `AAAA` and `CNAME` answer nothing and
-   that no Pages project lists it. The token must reach the production account and
-   exactly `cireweddings.com` and `musubi.social`, and be able to list its account:
-   `pages-domain.ts` refuses it otherwise, before any other request, and
-   `alchemy-plan`'s precheck then fails every release that ships the musubi stack. A
-   site turned on in another zone (pulse landing on `pulse.events`) needs the token
-   minted again with that zone, the same day.
-   A spare host two labels below its zone gets its own certificate about two minutes
-   after the deploy that attaches it ([[dev-environment#1. Tier map]]), longer than the
-   smoke check's usual minute. So the stack job gives a site whose approved plan
-   attaches a host other than a production host up to 240 s
-   ([[#The automatic check]]), and the release that moves a staged site to a new spare
-   host, or first attaches one, goes green in one run. A certificate slower than that
-   fails the check without rolling back ("did not answer as a working Worker does
-   within 240 s, but the Worker never answered wrongly — not rolling back"). Then check
-   that each new host answers 200 with HTML (`curl -sI https://<host>/`), and once it
-   does, dispatch **Production release** again: the stack job left no successful
-   record, so that release ships the stack again, with no domain change, and its smoke
-   check passes.
-4. **Re-check the allowlists** once the domains resolve: the live guest, organiser,
-   vendor and identity origins must exactly match cire-api `WEB_ORIGIN` and osn-api
-   `OSN_CORS_ORIGIN`. `OSN_ORIGIN` is a shorter list on purpose — only `https://musubi.social`,
-   the one origin that may run a WebAuthn ceremony under the `musubi.social` RP ID (§3.1).
-   A trailing-slash or scheme mismatch fails the Origin guard.
-5. **Turnstile widget domains (dashboard).** `musubi.social` was added on 2026-07-27
+2. **Site Worker custom domains (Alchemy, verify only).** The production stacks attach
+   each site Worker's domain on deploy: `www.musubi.social` for musubi landing,
+   `vendor.cireweddings.com` for cire vendor, `host.cireweddings.com` for cire host, the
+   apex `cireweddings.com` for cire landing and the apex `musubi.social` for musubi social,
+   each unless `PRODUCTION_HOST_HOLDS` holds it off (§5.8). No dashboard step. Only a
+   release dispatched by hand attaches a host: the plan guard refuses a scheduled
+   release whose plan adds one (`--scheduled`). Before a release first attaches one, or
+   attaches a held host again, confirm nothing holds it: `dig +short <host> A`, `AAAA`
+   and `CNAME` answer nothing. Each is its zone's apex or one label below it, so the
+   zone's own certificate covers it and the smoke check's minute is enough.
+3. **Re-check the allowlists** once the domains resolve: the live guest, organiser and
+   vendor origins must exactly match cire-api `WEB_ORIGIN`. osn-api's `OSN_CORS_ORIGIN`
+   and `OSN_ORIGIN` each hold `https://musubi.social` alone: no cire page calls osn-api
+   from the browser, and it is the one origin that may run a WebAuthn ceremony under the
+   `musubi.social` RP ID (§3.1). A trailing-slash or scheme mismatch fails the Origin guard.
+4. **Turnstile widget domains (dashboard).** `musubi.social` was added on 2026-07-27
    (§3.4). Only hostnames that render a form need listing, so `id.musubi.social` does not —
    osn-api serves JSON and siteverifies server-side. The wrangler API token has no
    `challenge-widgets.write` scope, so this cannot be scripted. Only bites once Turnstile
@@ -1230,23 +1335,25 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   someone runs it from **Actions → Production release → Run workflow** on `main`.
 - **What.** The `plan` job runs `scripts/release-plan.ts`. For each surface it reads the
   commit production last deployed — the newest successful GitHub Deployment record in
-  the `production` Environment made by that surface's production job, or for a site
-  whose Worker serves its host, in the `production-records` Environment made by its
-  record job — and diffs it against the release commit using the paths in
-  `scripts/deploy-surfaces.ts`. A surface ships when anything it builds from differs;
-  for a site whose Worker serves its host, that includes its stack's `infra/` directory
-  and `shared/infra/`. A staged site's Pages job never ships for those: its build does
-  not depend on them. A stack ships when one of its sites does, or when its own paths
-  differ from the commit its stack job last deployed (its newest successful record in
-  `production`) and a dev run of its stack job deployed the same paths; and only when
-  none of its sites, nor that change, is held back or newer on production. Only a stack
-  one of whose sites the release asks for is considered, so `surfaces` that leave a
-  stack's sites out never ship it; naming one of its sites names them all. Because the
-  baseline is what production runs, a release that was skipped, cancelled or rejected
-  leaves nothing behind: the next one finds the same gap.
+  the `production-records` Environment made by that surface's record job — and diffs it
+  against the release commit using the paths in `scripts/deploy-surfaces.ts`, after
+  setting aside the files a release's version bump alone changed (§5.0 item 2). A surface
+  ships when anything it builds from differs, its stack's `infra/` directory and
+  `shared/infra/` included. A stack ships when one of its surfaces does, or when its own
+  paths differ from the commit its stack job last deployed (its newest successful record
+  in `production`) and a dev run of its stack job deployed the same paths; and only when
+  none of its surfaces, nor that change, is held back or newer on production. A stack
+  deploys every surface it declares at once, API Workers and sites alike, so only a
+  stack one of whose surfaces the release asks for is considered: `surfaces` that leave
+  a stack's surfaces out never ship it, and naming one of them names them all.
+  The musubi and cire stacks, which deploy osn-api and cire-api, also wait whole until
+  `zap_api` has a production record (§5.10).
+  Because the baseline is what production runs, a release that was skipped, cancelled
+  or rejected leaves nothing behind: the next one finds the same gap.
 - **Dev first.** A changed surface ships only when a recent successful dev record of it
-  was built from the same content — its own paths and the shared ones. A dev record
-  exists only when the surface's stack deployed and its smoke check passed.
+  was built from the same content — its own paths and the shared ones, version bumps set
+  aside as above. A dev record exists only when the surface's stack deployed and its
+  smoke check passed.
   Otherwise the plan holds it back and says why (§5.0). The check does not cover what no
   path rule sees: a `.bun-version`, `bunfig.toml` or deploy-script change can reach
   production in a build dev never ran.
@@ -1254,31 +1361,28 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   contains the release commit is left alone, so re-running an old release in full
   cannot roll production back. A `force` dispatch can, and so can a failed smoke check
   (§5.0 item 7).
-- **One approval, or two.** `build` runs the install, build, tests and D1 tests on the
+- **Two approvals.** `build` runs the install, build, tests and D1 tests on the
   release commit, and beside it `sites` builds each production site a shipping stack
-  deploys or whose Pages job ships. Each job that fetches those builds and holds a
+  deploys, and the guest site's Worker. Each job that fetches those builds and holds a
   credential downloads them outside its checkout, and a step holding no secret
   (`scripts/production-sites-artifact.ts`) lets in only the site build directories,
-  refusing the whole artifact for any other entry or a link. When a stack ships,
-  `alchemy-plan` reaches the `production` gate first (approval 1): it checks each worker
-  site's domain, the token and the state store, reads each site Worker's live custom
-  domains, plans each shipping stack and runs the plan guard, writing names, kinds,
-  actions, counts and each site's added and removed hosts to its summary
-  ([[infrastructure-as-code#The plan guard]]). Then
-  every other shipping job — the Wrangler API jobs, the Pages jobs and the stack jobs —
-  reaches the gate at the same moment, and one review releases them all (approval 2).
-  When no stack ships, `alchemy-plan` is skipped and that one review is all. A release
-  that moves a site's domain asks four, one per job; one that puts it back on Pages
-  (`attach`) asks one; one that takes it off its Worker (`unflip`) asks the usual two
-  and one more for the attach job after it (§5.7). A release with nothing to ship skips
-  `build` and asks for nothing.
-- **A failure before the gate stops everything.** Every deploy job needs `alchemy-plan`
-  to have passed or been skipped. A guard refusal, a failed site build, a state store
-  left out of date by an Alchemy bump that changes its version (run the **Alchemy
-  state store** workflow, tier `production`, bootstrap then check), or a site whose
-  mode says `worker` while its domain is still on Pages holds every release, the daily
-  one included, until fixed —
-  or until a dispatch whose `surfaces` leave the stacks' sites out.
+  refusing the whole artifact for any other entry or a link. Then `alchemy-plan`
+  reaches the `production` gate (approval 1). For each shipping stack it checks the
+  token and the state store, reads its Workers' live custom domains and what its
+  adopted API Workers, databases and buckets hold live (`bun run read:live`: names and
+  settings, never a secret's value), plans the stack and runs the plan guard over the
+  plan, the domains and the live read, writing names, kinds, actions, counts, each
+  Worker's added and removed hosts and what the live read lists to its summary
+  ([[infrastructure-as-code#The plan guard]]). Then every stack job reaches the gate at
+  the same moment, and one review releases them all (approval 2). Every surface
+  deploys through a stack, so every release that ships anything takes both approvals;
+  a release with nothing to ship skips `build` and asks for nothing.
+- **A failure before the gate stops everything.** Every stack job needs `alchemy-plan`
+  to have passed. A guard refusal, a live read that fails, a failed site build, a state
+  store left out of date by an Alchemy bump that changes its version (run the **Alchemy
+  state store** workflow, tier `production`, bootstrap then check) holds every
+  release, the daily one included, until fixed —
+  or until a dispatch whose `surfaces` leave the failing stack out.
 - **One at a time.** The workflow's concurrency group holds one release in progress —
   waiting for approval counts — and one queued behind it. A newer trigger replaces the
   queued one, never the one in progress.
@@ -1295,22 +1399,24 @@ To release:
    Then confirm the production account is still on **Workers Paid** (§1.4):
    osn-api's coordination store fails closed, and on Free its daily allowance is
    a cap anyone can spend.
-3. When a stack ships, `alchemy-plan` waits first. Approve it, then read its summary:
-   each stack's resources, their kinds and actions, and each site's custom domains added
-   and removed. Expect site Workers only; the guard has already refused anything else,
-   and any production host leaving its Worker in a release not dispatched with `unflip`
-   naming that site.
-4. Wait until every other job the plan ships shows **Waiting**, then click **Review
+3. `alchemy-plan` waits first. Approve it, then read its summary: each stack's
+   resources, their kinds and actions, each Worker's custom domains added and removed,
+   and under **Live, listed** what the live read found without refusing (a live secret
+   the inventory does not list, an observability change, a cron schedule the deploy
+   replaces). The guard has already refused
+   any production host leaving its Worker, a database or bucket to be created, an API
+   Worker to be created that does not exist live, and an adoption of any other kind.
+   After a release has adopted a resource, expect `update` or nothing for it; `create`
+   and `adopted` belong to the first release on the stacks (§5.10).
+4. Wait until every stack job the plan ships shows **Waiting**, then click **Review
    deployments**, tick `production` and approve. The review releases the jobs that were
    waiting when the dialog opened; a job that arrives later needs a review of its own. A
    stack job plans again before it deploys, and refuses a plan that differs from the one
    you approved in step 3; dispatch a new release when it does.
 5. The approvals, the approver and the timestamps are recorded on the run — that record
-   is the deploy audit trail (SOC 2 CC8, [[compliance/soc2]]). Each stack site whose
-   Worker serves its host is recorded by its record job in `production-records`, which
-   has no reviewer and allows `main` alone; after the stack jobs, `site-parity` keeps a
-   report comparing each staged site with its Pages project, which the owner reads before
-   that site's domain moves.
+   is the deploy audit trail (SOC 2 CC8, [[compliance/soc2]]). Each surface is recorded
+   by its record job in `production-records`, which has no reviewer and allows `main`
+   alone.
 
 Rejecting a release leaves production where it was, and the next release offers the
 same surfaces again with whatever merged since.
@@ -1319,11 +1425,8 @@ same surfaces again with whatever merged since.
 
 | Input | Effect |
 |---|---|
-| `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. The rest stay where they are until a later release. |
-| `flip` | A site whose domain this release moves from its Pages project to its Worker, with `surfaces` naming that site alone (§5.7). |
-| `unflip` | A site set back to `staged` whose Worker this release lets give up its production host, with `surfaces` naming that site alone; the attach job then puts the host back on its Pages project (§5.7). |
-| `attach` | A site whose domain goes back on its Pages project, with every other input empty: the release runs that one job (§5.7). |
-| `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy`, `wrangler rollback` or Pages dashboard rollback — none of which leaves a Deployment record. |
+| `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. Naming one surface of a stack asks for every surface that stack deploys. The rest stay where they are until a later release. |
+| `force` | Ship those surfaces' stacks even if production already runs this commit's content, and skip the dev check; the `zap_api`-first rule (§5.10) still holds. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), or a `.bun-version` or `bunfig.toml` change. It also passes `--force` to Alchemy in `alchemy-plan` and in each shipping stack job, so the stack uploads every Worker it declares again: the way to redeploy an unchanged API Worker, or to undo a rollback made by hand or in the dashboard. |
 
 Approve or reject the waiting release **before** you dispatch one with inputs. A
 dispatch made while another release is in progress queues behind it, and the next
@@ -1345,44 +1448,48 @@ or not anyone has dispatched one. For 30 days after the merge that added
 `git log --diff-filter=A --format=%cs -- .github/workflows/production-release.yml`
 prints its date — never re-run one of those runs in full or re-run its failed jobs: a
 re-run uses the old workflow file, production jobs included; dispatch **Deploy** for dev
-instead. The single-job re-run in §4.1 is the one exception. After those 30 days this
+instead. After those 30 days this
 paragraph describes nothing GitHub can still do. The first release ships every surface —
 the new workflow file and the surface map are paths every surface deploys on — so
 dispatch it by hand, or open the scheduled one, and read the plan before approving.
 
 > [!warning] A green dev tier does not prove production has the secrets
-> Secrets are per-Worker and per-GitHub-Environment: dev and production share a
-> commit, never a value. So a change that needs a new fail-closed secret can pass
-> every dev smoke check and still take production down on the first request after
-> approval — which is what `OSN_TOTP_ENCRYPTION_KEY` did between the 2026-07-27
-> cutover and 2026-09-13. The `Preflight — required prod secrets are set` step in
-> `production-release.yml` guards against exactly this, but it only asserts the names
-> in its own `required` list, which today holds `OSN_PAIRWISE_SALT` alone — **a new
-> fail-closed secret is caught only if somebody adds its name there** (englishstreetventures/osn#1021
-> is extending the list to the whole set). The smoke check after the deploy (§7) catches
-> the 503 and rolls osn-api back, but only after the new version has served for up to a
-> minute. So before approving a release that introduces one, diff the names yourself:
-> `cd osn/api && bunx --bun wrangler secret list --env production` against §3.1.
+> Secrets are per-Worker: dev and production share a commit, never a value. So a
+> change that needs a new fail-closed secret can pass every dev smoke check and still
+> take production down on the first request after approval — which is what
+> `OSN_TOTP_ENCRYPTION_KEY` did between the 2026-07-27 cutover and 2026-09-13. The plan
+> guard reads each API Worker's live secret names, at `alchemy-plan` and again in the
+> stack job, and refuses while one lacks a name the inventory's production row
+> requires — **so a new fail-closed secret is caught only if its pull request adds the
+> name to that row** (§5.9). The guard reads names, never values: a wrong value still
+> reaches the deploy, and the smoke check after it (§7) catches the 503 and rolls the
+> Worker back, after up to a minute. `bun run --cwd shared/infra secrets:check-live --
+> --tier production` compares every Worker's names with the inventory before you
+> approve.
 
 ### 5.6 Approval order when a cire release changes what a plan tier opens
 
-`deploy-cire-host` and `deploy-cire-api` are separate production jobs with no
-`needs:` between them, and one approval releases both. A `needs:` edge would put
-cire-api in front of the gate later than the rest and cost a second approval on
-every release that ships both, so the order is set by hand instead. When a release
-changes the contract between them — the plan tiers ([[cire-entitlements]]) are the
-case that exists — ship them in **two releases, host first**:
+The cire stack job (`stack-cire-production`) deploys cire-api and the organiser portal
+in one Alchemy run, in no set order, and naming either surface in `surfaces` asks for
+the whole stack. So no release ships one without the other: every cire release deploys
+whatever `main` holds for both. When a change alters the contract between them — the
+plan tiers ([[cire-entitlements]]) are the case that exists — ship it in **two pull
+requests and two releases, host first**:
 
 1. Run the pre-flight queries below, before approving anything.
-2. If a release waiting for approval ships `cire_api` while `cire_host` ships or is
-   held back, reject it — the plan summary flags that case. The dev gate can hold host
-   and ship api alone, which is the pairing below that breaks.
-3. Dispatch a release with `surfaces: cire_host`, approve it, and wait for it to
-   finish. If its plan shows `cire_host` as `held back`, the release ships nothing and
-   asks for no approval: get dev to deploy the portal first (§5.0 item 3), then
-   dispatch again.
-4. Dispatch a release with `surfaces: cire_api` and approve it. It applies the D1
+2. Merge the portal side alone: the portal change that reads both shapes. Let dev
+   deploy it.
+3. Dispatch a release naming a cire surface, approve both gates, and wait for it to
+   finish. The stack deploys every cire surface together, so any that dev holds back,
+   or that production runs newer, holds the portal too: if the plan shows the cire
+   stack waiting, the release ships no portal, so get dev to deploy what it names first
+   (§5.0 item 3), then dispatch again.
+4. Only then merge the API side. The next release that ships cire-api applies its D1
    migrations, then deploys the Worker.
+
+The plan summary warns on every release in which `cire_api` and `cire_host` both
+change. If such a release carries a contract change, reject it: the portal side has to
+reach production in a release that does not carry the API side.
 
 The order matters because only one pairing breaks. The new portal reads either
 wedding-list shape: `tier` when the API sends it, the legacy entitlement keys
@@ -1408,7 +1515,7 @@ bunx wrangler d1 execute cire-db --env production --remote --command \
 | Entitlements by key | The counts 0073 will lift | `vendors` or `capacity_1000` rows become Crimson weddings, then `registry` or `capacity_500` rows Gold ones |
 
 **If the first query shows any `pending` row, close its Stripe session before
-approving `deploy-cire-api`.** 0073 marks the row `expired` in D1, which does
+approving the release that ships cire-api.** 0073 marks the row `expired` in D1, which does
 not close the session at Stripe: it stays payable for a day after it opened,
 and a payment there settles into the tier that replaced its product. The new
 Worker closes such a page at Stripe before it opens a tier checkout for that
@@ -1435,7 +1542,7 @@ has completed: its webhook settles it, and nothing more is needed. A pending
 row with no `checkout_session_id` never handed out a payment page and needs
 nothing.
 
-After `deploy-cire-api`, the owner confirms the lift:
+After the cire stack job deploys cire-api, the owner confirms the lift:
 
 ```bash
 bunx wrangler d1 execute cire-db --env production --remote --command \
@@ -1449,7 +1556,7 @@ wedding opens every module.
 
 The release that follows — englishstreetventures/osn#1315, which deletes the legacy
 entitlement rows and drops the portal's fallback and the list's legacy keys —
-ships only once this one is live on both jobs.
+ships only once this one is live on both surfaces.
 
 Two accounts back the two tiers: the dev account's credentials on the `dev`
 Environment, the existing `CLOUDFLARE_API_TOKEN` only on `production`. A
@@ -1472,132 +1579,217 @@ stated here.*
 
 ---
 
-### 5.7 Moving a site's domain from Pages to its Worker (a flip) 🔑
+### 5.7 Rolling a site back 🔑
 
-Each Pages site moves one at a time, in the order cire vendor, cire host, cire landing,
-then `musubi.social` (englishstreetventures/osn#1787). Before each:
+Every production site serves from its Worker: `vendor.cireweddings.com` since release
+42329249886 (2026-11-07), `host.cireweddings.com` since release 42779388723
+(2026-11-10), and the apexes `cireweddings.com` and `musubi.social` since release
+42817386650 (2026-11-10). The Pages projects they moved from are deleted, so a site has
+no Pages site to go back to (englishstreetventures/osn#1787).
 
-- The site has run `staged` through at least one release, and the `site-parity` artifact
-  of the latest release shows no difference a real path relies on. Four are expected
-  and accepted:
-  - Pages' `access-control-allow-origin: *`, which the Worker does not send (accepted by
-    the owner).
-  - HTML's `content-type`: `text/html` from the Worker, `text/html; charset=utf-8` from
-    Pages. Cloudflare's asset upload keeps the media type and drops the parameter, from
-    Alchemy and Wrangler alike, so no upload can set it, and every page of the four
-    staged sites declares `<meta charset="UTF-8">` within its first 1024 bytes, where
-    the browser looks when the header names no charset.
-  - JavaScript's `text/javascript` where Pages says `application/javascript`: the same
-    type.
-  - An unknown path on cire landing: the Worker answers 404, Pages 200 with its
-    single-page fallback. Every page the site links is a file. The organiser and vendor
-    portals, like musubi social, serve their own page there as Pages does
-    ([[infrastructure-as-code#Sites]]).
+A site Worker that answers wrongly after a deploy is rolled back by its stack job's smoke
+check (§5.0 item 7). To roll one back by hand, open **Workers & Pages**, the Worker
+(`cire-host`, `cire-vendor`, `cire-landing`, `osn-social` or `musubi-landing`),
+**Deployments**, and roll back to the version before the fault; site Workers hold no
+secret, so Cloudflare allows it. That version lacks every change since it was deployed:
+before rolling back, list them (`git log --oneline <its commit>..origin/main -- <the
+site's paths>`, the paths in `scripts/deploy-surfaces.ts`), and if a security fix is
+among them, fix forward instead. A hand rollback leaves no Deployment record, so the
+next release that ships the stack deploys `main` again: fix forward first, or leave that
+stack's sites out of releases until the fix is on `main`.
 
-  The comparison does not ask a directory page's address without its trailing slash
-  (`/login`, `/privacy`), which both redirect to the slash form, the Worker with a 307
-  and Pages with a 308. The owner accepted the 307 (englishstreetventures/osn#1988):
-  cire's own links name each page in the slash form, which CI checks after the build
-  ([[cire-development#Links to a site's own pages]]), so only an address typed or
-  linked from elsewhere meets the redirect.
+**After a deploy or a rollback of `musubi.social`**, check what passes through it: a
+passkey sign-in on `https://musubi.social`, staying signed in after a reload; a sign-in to
+the organiser portal, whose OIDC consent screen is `https://musubi.social/authorize`; and
+`curl -sSI https://musubi.social/.well-known/apple-app-site-association`, which answers
+200 `application/json`. `curl -sSI https://musubi.social/authorize` must carry
+`x-frame-options: DENY` and a `content-security-policy` holding `frame-ancestors 'none'`:
+the consent screen must never be framed, and the smoke check reads neither header.
 
-  *Measured 2026-11-05 — release run 41818903897: its `site-parity` report; each HTML
-  file of its `production-sites` artifact searched for `<meta charset` in its first 1024
-  bytes (byte 38 on every cire page, 137 on musubi social's); and
-  `curl -sS -D - -o /dev/null` of each built page's address, with and without the
-  slash, on both hosts. The staged host's `/_astro/theme-boot.B7YqAPRH.css` answers
-  `text/css` with ETag `f23e95daca37f70e89cfd58fba764a14`, the manifest hash Alchemy
-  gives the file uploaded as `text/css; charset=utf-8`.*
+### 5.8 Holding a site's host off its Worker 🔑
 
-  Both comparisons, this one and the dev guest route comparison
-  ([[infrastructure-as-code#The guest route comparison]]), send smoke-check's CI user agent
-  (`CI_USER_AGENT`) — the guest comparison's local Wrangler runtime too, whose calls to
-  cire-api go out through a relay that sets it — and a refused run — the `site-parity` job failing on exit 3, its
-  report's `refused` list naming the site, side and path — means an answer, asked twice,
-  did not come from the site. Either Cloudflare answered in its place (a challenge, an
-  Access redirect, a 429, or a 403 carrying Cloudflare's own error page: a block rule,
-  or a fault in the host's DNS or custom domain), or `/` did not answer both hosts with
-  a 2xx HTML page: a zone's custom error page or custom block response, a host or
-  custom domain not ready yet (no answer, or Cloudflare's 52x or 530 page), or a site
-  with no page there. A redirect on `/` counts as no page, even to the same path on
-  both hosts. On every other path a zone's own page leaves nothing to tell it from the
-  site's, so check the zone has none before you trust a match. The job also fails
-  whenever a comparison compared nothing: exit 2 (a usage error, before any request),
-  exit 4 (an error stopped the script), a comparison step that ran but did not finish
-  (no exit code after its 5-minute timeout, or a code the script never gives), and an
-  exit of 0 or 1 that left no report.
-- A pull request turns the site from `staged` to `worker` in
-  `shared/infra/src/production-sites.ts`. Once it merges, every release that ships the
-  site's stack fails at `alchemy-plan`'s precheck until the flip runs, so the daily run
-  never moves a domain; dispatch releases whose `surfaces` leave that stack's sites out
-  meanwhile.
+A host taken off its site Worker in the dashboard stays off while
+`PRODUCTION_HOST_HOLDS` in
+[`shared/infra/src/production-sites.ts`](../../shared/infra/src/production-sites.ts)
+holds it: the stack declares the site's Worker with no custom domain, the plan guard
+refuses any plan in which a site Worker would serve the host, and the site's smoke
+check passes once it has read that the host is off its Worker
+([[infrastructure-as-code#Production sites]]). A site with no entry is a plain
+`worker`, and a release dispatched by hand that ships its stack attaches its
+production host. The Worker keeps getting each release's build.
 
-No copy of `CLOUDFLARE_PAGES_DNS_TOKEN` is kept outside GitHub: the rollback below runs
-in the release workflow's own attach job.
+A scheduled release never adds a host: the guard refuses any plan of the daily run, or
+of a re-run of it, in which a site Worker would gain one, naming the host and saying to
+dispatch by hand. A release dispatched by hand may add one. So the hold list governs
+every release built from a commit that holds the entry, and before then, or for a
+re-run of a release dispatched from an older commit, **only the approver** stops a
+release dispatched by hand from putting a host back: never re-run such a release while
+a host is held, and reject any whose `alchemy-plan` summary lists a held host under
+**Domains added**. A hand-run `deploy:production` from an older commit declares the
+host again and runs no guard.
 
-**The flip release.** At low traffic, dispatch **Production release** with
-`flip: <site>` and `surfaces: <site>`. It runs only the site's stack, and asks four
-approvals, one per job, in this order:
+An entry is the site, its production host and a reason:
 
-1. `alchemy-plan` — the precheck confirms the host is still on the site's Pages project;
-   the plan must show the site's Worker as its only `update`, every other line a noop.
-2. `stack-<stack>-verify` — plans the stack again with the same force, and refuses unless
-   the plan is still that one update and equals the plan approved in step 1. It deploys
-   nothing and holds no Pages token. A refusal here ends the release with nothing moved.
-3. `flip-detach-<stack>` — on a fresh runner with nothing installed, one of the two jobs
-   holding `CLOUDFLARE_PAGES_DNS_TOKEN` with the attach job (`alchemy-plan`'s precheck
-   reads with it too, before its install): `pages-domain.ts detach` checks the token's
-   reach, reads and prints where the host is, refuses unless it is on the site's own
-   Pages project, then takes the host off the project and deletes its CNAME. **The site
-   is down from here** until step 4's
-   deploy attaches the domain, so approve step 4 at once: the outage is your wait plus
-   step 4's install, state store check, snapshot and plan, a few minutes. The approved
-   plan from step 1 is kept 7 days; step 4 refuses without it.
-4. `stack-<stack>-production` — installs, checks the state store, plans the stack once
-   more and runs the guard as in step 2, then deploys (which attaches the domain to the
-   Worker), and smoke-checks the site on its production host, rolling back on failure.
-   The record job then records the site in `production-records`. A guard refusal here
-   stops before the deploy and leaves the host on neither Pages nor the Worker: roll
-   back with an attach release (step 2 below; there is no Worker domain to remove).
+```ts
+export const PRODUCTION_HOST_HOLDS: readonly HostHold[] = [
+  {
+    site: "cire_vendor",
+    host: "vendor.cireweddings.com",
+    reason: "Serves nothing until the vendor export ships.",
+  },
+];
+```
 
-**If `flip-detach-<stack>` fails**, its Pages domain delete or its CNAME delete failed,
-and the job names which. Dispatch an attach release (step 2 below): it makes only what
-is missing, so it puts the host back on Pages from either half. Then dispatch the flip
-again.
+The reason is one line stating the constraint that keeps the host off. It is public:
+the file, the guard's run summary and the smoke check's notice print it. Never write
+the incident, a finding or an issue reference there (`AGENTS.md`, Issues); PS7 refuses
+an issue or finding reference, but cannot judge the rest. The same holds for the pull
+request's title and body and for its changeset, which stays in
+`shared/infra/CHANGELOG.md`: name the site and the constraint, never what happened.
 
-**Never re-run a failed step 4.** Once its deploy has run, the Worker may hold the domain
-already, so a re-plan shows the site's Worker as a noop, and the flip guard refuses any
-flip plan without that update. Fix forward with a release dispatched without `flip`, or
-roll back.
+The guard and the smoke check read the Worker's custom domains, not zone routes. Never
+send a held host to a Worker with a route (**Websites**, the zone, **Workers Routes**):
+neither would see it.
 
-**If step 4 fails or the site misbehaves**, roll back in this order:
+**Taking a host off, the usual order.** The entry comes first, so no release can put
+the host back in between.
 
-1. Take the custom domain off the Worker. Fastest: the dashboard (Workers → the site's
-   Worker → Settings → Domains & Routes). Or merge a pull request that sets the mode back
-   to `staged` and dispatch **Production release** with `unflip: <site>` and
-   `surfaces: <site>`: the plan guard refuses a production host leaving its Worker in any
-   other release, and shows the removal for approval 1. Its stack job takes the host off
-   the Worker, and the attach job after it asks its own approval and does step 2, so
-   approve it at once: the site is down from that deploy until Pages validates the host.
-2. Dispatch **Production release** with `attach: <site>` and every other input empty. It
-   runs the plan job and `attach-pages-domain` alone, behind one approval, on a fresh
-   runner with nothing installed: `pages-domain.ts attach` checks the token's reach,
-   refuses while another Pages project lists the host or the zone holds any record that
-   could route it but its CNAME to `<project>.pages.dev` (TXT, MX and CAA records stay
-   and do not count), then puts back whichever of that CNAME and the Pages project's
-   domain is missing. Pages re-validates and issues the certificate, which takes minutes.
-3. Revert the flip pull request, if step 1 did not, so the mode is `staged` again and no
-   release tries to attach the domain. Until it merges, every release that ships the
-   site's stack fails `alchemy-plan`'s precheck (the host is on Pages while the mode says
-   `worker`); dispatch releases whose `surfaces` leave that stack's sites out.
+1. Open a pull request that adds the entry, with a changeset for `@shared/infra`
+   (`bun run changeset`, patch). Merge it.
+2. At once, before approving any release, take the host off the Worker: **Workers &
+   Pages**, the Worker, **Settings**, **Domains & Routes**, remove it.
+3. Dispatch **Production release**. The entry changed `shared/infra/`, so every
+   production stack ships. The held site's plan shows no domain change, its summary
+   lists the host under **Held off their Workers**, and its smoke check passes with a
+   notice.
 
-When GitHub Actions is down, or the attach job refuses the token, do step 2 in the
-dashboard instead: **Workers & Pages → the Pages project → Custom domains → Set up a
-custom domain** with the host, then in the zone's **DNS**, a proxied CNAME from the host
-to `<project>.pages.dev` if Pages did not make one.
+A release that ships the stack while the host is still on its Worker is refused: the
+guard reads that the Worker would give the host up, and no release takes a host off
+(the refusal says the host is held). Every shipping stack is guarded in the one
+`alchemy-plan` job, so that refusal stops the whole release, the daily one included.
+Step 2 ends it. To ship another stack before then, dispatch with `surfaces` naming no
+surface of the held site's stack.
 
-Each Pages project and its job keep deploying until `musubi.social` has moved and
-soaked, so the Pages copy a rollback returns to is current.
+**Taking a host off in a hurry.** When the host must go before a pull request can
+merge, take it off in the dashboard first (step 2), then open the entry's pull request
+at once. Until it is on `main`, the daily release refuses to put the host back, but a
+release dispatched by hand does not: reject every such release whose `alchemy-plan`
+summary lists the host under **Domains added**. Only the approver stops it.
+
+**Bringing a host back.**
+
+1. Detach whatever was put on the host meanwhile, such as a maintenance Worker or a
+   DNS record, and check it holds nothing (`dig +short <host> A`, `AAAA`, `CNAME`, as
+   §5.4 says). A host still on another Worker fails the deploy after its approval.
+2. Open a pull request that removes the entry, with a changeset for `@shared/infra`.
+   Merge it.
+3. Dispatch **Production release** by hand; the daily release refuses to add the host.
+   The plan lists the host under **Domains added** for its site; approve it, and the
+   smoke check asks the host as for any site.
+
+### 5.9 Setting a production secret 🔑
+
+A production Worker's secrets live on the Worker alone. No stack uploads one: the
+inventory's production rows take every value from the Worker (`source: "worker"` in
+`shared/infra/src/secrets/inventory.ts`), and `apiWorkerProps()` refuses a secret
+passed on production. Every Alchemy upload asks Cloudflare to keep the secrets it does
+not name (`keep_bindings: ["secret_text", "secret_key"]`, as `wrangler deploy` sends;
+a patch to the provider, [[infrastructure-as-code#Production API Workers and storage]]),
+so a deploy leaves them as they are.
+
+To add or change one:
+
+1. In the pull request whose code first reads it, add the name to the Worker's
+   production row in the inventory: `secrets` when the Worker cannot serve without it,
+   `optional` otherwise. Never set a name the row lists as `forbidden`.
+2. Before approving the release that ships that pull request, set the value on the
+   Worker from its package directory, keeping your own copy (Cloudflare never returns
+   a value):
+
+   ```bash
+   cd cire/api   # or osn/api, or zap/api; cire-invites holds no secret
+   printf '%s' "$VALUE" | bunx wrangler secret put <NAME> --env production
+   ```
+
+   osn-api's `OSN_PAIRWISE_SALT`, `OSN_TOTP_ENCRYPTION_KEY` and
+   `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` go through the `set-osn-api-secret` workflow
+   instead (§3.1, §10).
+3. `bun run --cwd shared/infra secrets:check-live -- --tier production` compares every
+   Worker's live names with the inventory.
+
+What a release does with them:
+
+- `alchemy-plan`, and each stack job again before its deploy, reads every adopted
+  Worker's live secret names (`bun run read:live` in the stack's `infra/` directory;
+  names only, never a value). The plan guard refuses while a Worker lacks a name its
+  production row requires, holds one the row forbids, or declares a var or binding
+  under the name of a live secret, which the upload would replace. A live name the row
+  does not list is shown under **Live, listed** and kept.
+- After the deploy the stack job reads the names again, and its `Check every secret
+  live before the deploy is live after it` step fails, naming each, when one live
+  before is gone. No record job of that stack runs. Set each again from your copy.
+- `wrangler secret put` writes a new version of the Worker holding the value and
+  deploys it (`wrangler versions secret put` is the form that does not deploy, §5.0
+  item 7). Several pages say a warm isolate keeps the old value until the Worker
+  deploys again. A release uploads an API Worker when its code or declaration
+  changed, to undo a smoke check's rollback, or when dispatched with `force` for its
+  surface, which passes `--force` to Alchemy. So to make a value reach every warm
+  isolate now, dispatch Production release with `force` and that surface.
+
+*Unverified — whether a warm isolate of the version before keeps serving with the old
+value after `wrangler secret put` deploys a new version.*
+
+The `production` GitHub Environment needs only `CLOUDFLARE_ACCOUNT_ID`,
+`CLOUDFLARE_API_TOKEN`, `INTERNAL_SERVICE_SECRET` (osn-api's smoke check sends it, so it
+must equal the Worker's value) and, for the `set-osn-api-secret` workflow, the TOTP key
+values it reads. `bun run --cwd shared/infra secrets:check-github -- --tier production`
+checks those names. The dev tier is unchanged: its secrets are `dev` Environment
+secrets the dev stacks upload on every deploy ([[infrastructure-as-code#GitHub Environment secrets]]).
+
+### 5.10 The first release on the stacks 🔑
+
+The first releases on the stacks adopt osn-api, cire-api, cire-invites and zap-api,
+with their databases and buckets, under their live names. The
+planner finds no production record for those four surfaces under their record jobs, so
+it offers each again. `SHIPS_AFTER` in `scripts/release-plan.ts` sets the order: until
+`zap_api` has a production record, the musubi and cire stacks wait whole — every surface
+they deploy and their own changes — since a stack uploads every Worker it declares, so
+any change to it would upload osn-api or cire-api too. A release that names any surface
+of those stacks reads `zap_api`'s record, and a forced release is held too. zap-api
+holds a secret its stack does not upload, so its record exists only once a production
+deploy has kept every secret.
+
+1. **The first release ships the zap stack alone.** Approval 1's summary shows `ZapApi`
+   `create` and `ZapDb` `adopted`. The `create` is an adoption made at deploy time: the
+   Worker's database has no state row yet, so the plan cannot adopt the Worker, and the
+   guard allows the `create` only because the live read found a Worker of that name.
+2. **A later release ships the musubi and cire stacks.** Approval 1 shows `OsnApi` and
+   `CireApi` `create`, on the same terms; `OsnDb`, `CireDb`, `CireAssets`, `CireSheets`
+   and `CireInvites` `adopted`; and each site `update` or nothing.
+3. **From then on** an adopted resource shows `update` or nothing. The live read
+   still checks each API Worker's secrets, Durable Object classes and custom domains
+   on every release; a cron schedule that differs from the declaration is listed, not
+   refused, and storage settings are judged only on a release that adopts them
+   ([[infrastructure-as-code#Production API Workers and storage]]).
+
+Before the first of them:
+
+- Run `bun run --cwd shared/infra secrets:check-live -- --tier production`. Every name
+  each production row requires must be live, and none it forbids: zap-api's row forbids
+  `GROWTHBOOK_CLIENT_KEY`, so if zap-api still holds it, delete it first
+  (`cd zap/api && bunx wrangler secret delete GROWTHBOOK_CLIENT_KEY --env production`).
+  The guard refuses the stack otherwise.
+- Never re-run a **Production release** run whose job list has a `Deploy osn/api —
+  production` job: a re-run uses that run's workflow file, whose jobs deploy the API
+  Workers with Wrangler, outside the stacks. Dispatch a new release instead.
+
+Read each adoption's summary for refusals and notices: a cron schedule, a database's
+read replication or a bucket's settings that differ live from the declaration refuse
+the release that adopts them; a live Durable Object class that no declared binding
+names refuses any release, since the upload would delete it with its storage; and an
+observability change, or a custom domain whose previews flag differs, is listed. A
+first release that fails is fixed forward on `main`, and the next release offers the
+same stacks again; a short outage of the surface that failed is accepted.
 
 ## 6. Optional: guest account-linking bridge (cire → osn)
 
@@ -1642,7 +1834,7 @@ and the chosen `kid` as `CIRE_API_ARC_KEY_ID`, then register the **public** half
 curl -X POST "$OSN_ISSUER_URL/graph/internal/register-service" \
   -H "Authorization: Bearer $INTERNAL_SERVICE_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{"serviceId":"cire-api","keyId":"<CIRE_API_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"graph:read,graph:resolve-account,org:read,account:email-read"}'
+  -d '{"serviceId":"cire-api","keyId":"<CIRE_API_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"graph:read,graph:resolve-account,org:read,account:email-read,step-up:verify"}'
 ```
 
 (`POST /graph/internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is
@@ -1650,12 +1842,16 @@ unset, 401 on a bad bearer, and 409 when the `kid` belongs to another service
 (`kid_serviceid_mismatch`) or has been revoked (`kid_revoked`) — a revoked key is
 replaced under a new `kid`; `osn/api/src/routes/graph-internal.ts`.)
 
-cire-api requests four scopes, the `ARC_*_SCOPE` constants of
+cire-api requests five scopes, the `ARC_*_SCOPE` constants of
 `cire/api/src/services/osn-bridge.ts`: `graph:read`, `graph:resolve-account`,
-`org:read` and `account:email-read`, the last for the organiser-address lookup
-(`POST /internal/accounts/emails`), which refuses `graph:read`. A registration
-holds exactly the scopes its last call listed. On dev the musubi stack seeds this
-registration with all four, so nobody runs this command there
+`org:read`, `account:email-read`, for the organiser-address lookup
+(`POST /internal/accounts/emails`), which refuses `graph:read`, and
+`step-up:verify`, for a host's removal of their Cire data
+(`/internal/step-up/requests` and `/internal/step-up/verify`). Run it again
+after the release that adds a scope has deployed osn-api: until then a host's
+removal answers 503. A registration holds exactly the scopes its last call
+listed. On dev the musubi stack seeds this registration with all five, so
+nobody runs this command there
 ([[infrastructure-as-code#Seeds and the ARC registration]]).
 
 > **Vendors (Phase 2): re-run this command per environment after the `@osn/api` `PERMITTED_SCOPES` change deploys.**
@@ -1666,13 +1862,13 @@ registration with all four, so nobody runs this command there
 ## 7. Post-deploy verification (smoke checks)
 
 Each check maps to a startup requirement listed above. The first runs by machine after
-every Worker deploy from CI (`production-release.yml`), and after every dev stack deploy
-for each surface of the stack (`deploy.yml`); after a hand-run production deploy, run it
-yourself (§5.1). A person runs the rest.
+every stack deploy, once for each surface of the stack: in production from the stack
+jobs of `production-release.yml`, on dev from those of `deploy.yml`. A person runs the
+rest.
 
 | Check | Who runs it |
 |---|---|
-| 1. Each Worker answers: health, JWKS, a first route | **Automatic** — the smoke-check step after every CI Worker deploy in production, and after every dev stack deploy for each of its surfaces |
+| 1. Each Worker answers: health, JWKS, a first route | **Automatic** — the smoke-check steps after every stack deploy, production and dev, one per surface |
 | 2. No ephemeral-key warning in osn-api's logs | A person |
 | 3. Coordination-store limits persist across isolates | A person |
 | 4. OTP email arrives | A person |
@@ -1682,23 +1878,21 @@ yourself (§5.1). A person runs the rest.
 | 8. RSVP write | A person |
 | 9. Account linking, if enabled | A person |
 
-The production Pages deploys — the organiser and vendor portals, the cire landing
-site and `musubi.social` — have no automatic check and no automatic rollback. The site
-Workers the production stacks deploy are each checked after the stack's deploy, on the
-host their mode gives them: the spare host while staged, the production host once their
-domain has moved. On dev every surface is a Worker and each is checked. Checks 5 to 7 are the ones that reach
-`musubi.social` and the organiser portal.
+Every Worker the production stacks deploy, API Workers and sites, is checked after the
+stack's deploy, on its production host; a site `PRODUCTION_HOST_HOLDS` holds off has its
+custom domains read instead (§5.8). On dev every surface is a Worker and each is
+checked. Checks 5 to 7 are the ones that reach `musubi.social` and the organiser
+portal.
 
 ### The automatic check
 
 [`scripts/smoke-check.ts`](../../scripts/smoke-check.ts) (`bun run scripts/smoke-check.ts <surface> <tier>`)
-runs as the step after `wrangler deploy` in each Worker job of `production-release.yml`,
-once per site in each production stack job, and once per surface in each dev stack job of
-`deploy.yml`, after the Alchemy deploy. It asks the Worker's own hosts. A Wrangler
-Worker's production hosts come from its Wrangler route config; a check of a Worker a stack
-deploys names no host and takes its origin from `SMOKE_ORIGIN`, which the stack job sets
-from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
-`production-hosts` step on production ([[infrastructure-as-code#Production sites]]):
+runs once per surface in each stack job, production and dev, after the Alchemy deploy.
+It asks the Worker's own hosts. No target names a host: each check takes its origin from
+`SMOKE_ORIGIN`, which the stack job sets from its `dev-hosts` step on dev
+([[infrastructure-as-code#Dev hosts]]) and its `production-hosts` step on production,
+which writes every API Worker's origin and every non-off site's
+([[infrastructure-as-code#Production sites]]):
 
 | Surface | Production | Dev probes (on the dev origin) | A working Worker answers |
 |---|---|---|---|
@@ -1706,10 +1900,11 @@ from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
 | cire-api | `https://api.cireweddings.com/api/auth/session` | the same path | 200 `{"signedIn":false}`. cire-api has no health route — its root and `/health` answer 404 |
 | cire-invites | `https://invite.cireweddings.com/` and `/smoke-check-no-such-wedding` | the same paths, the redirect judged against `SMOKE_MARKETING_ORIGIN` | a redirect to the marketing site; a rendered page, 404 or 200 — so a broken design import fails it, and cire-api being down does not |
 | zap-api | `https://zap.cireweddings.com/health` | the same path | 200 `{"status":"ok"}` |
-| cire host | the site Worker's `/` and `/vendors/enquiries/smoke-check`, on its spare host while staged (the Pages project has no check) | the same paths | 200 HTML for both: the second is the path cire-api's enquiry emails link, which the single-page fallback serves |
-| cire vendor, cire landing | the site Worker's `/`, on its spare host while staged (the Pages project has no check) | `/` | 200 HTML |
+| cire host | `https://host.cireweddings.com/` and `/vendors/enquiries/smoke-check` | the same paths | 200 HTML for both: the second is the path cire-api's enquiry emails link, which the single-page fallback serves. |
+| cire vendor | `https://vendor.cireweddings.com/` | `/` | 200 HTML. |
+| cire landing | `https://cireweddings.com/` | `/` | 200 HTML. |
 | musubi landing | `https://www.musubi.social/` | `/` | 200 HTML |
-| musubi social | the site Worker's `/`, `/smoke-check-deep-link` and `/.well-known/apple-app-site-association`, on `next.musubi.social` while staged | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback; and on production 200 `application/json` holding a JSON object, the file iOS reads to offer the app's passkeys |
+| musubi social | `https://musubi.social/`, `/smoke-check-deep-link` and `/.well-known/apple-app-site-association` | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback; and on production 200 `application/json` holding a JSON object, the file iOS reads to offer the app's passkeys. |
 | pulse landing | none (`off` on production) | `/` and `/api/geo` | 200 HTML; 200 with a JSON object, from the Worker's own code |
 | every dev browser host: cire-invites, cire host, cire vendor, cire landing, musubi social, musubi landing, pulse landing | none | `/` with no service token, following no redirect | a 301, 302, 303 or 307 to a `*.cloudflareaccess.com` host: Access's sign-in |
 
@@ -1724,19 +1919,15 @@ How it decides:
   probe passes in two rounds in a row. No answer names the version that gave it, so a
   pass straight after the deploy can come from the version before; the second pass
   narrows that window, it does not close it.
-- **A site its release gives a new host gets up to 240 s.** A Workers custom domain's
-  first certificate takes about two minutes ([[dev-environment#1. Tier map]]). So in
-  each production stack job a step runs
-  [`scripts/smoke-budgets.ts`](../../scripts/smoke-budgets.ts) over the plan approved at
-  `alchemy-plan`, and each site whose plan attaches a host other than a production
-  host passes `SMOKE_BUDGET_MS=240000` to its check, which still asks every 10 seconds
-  and passes on the first two good rounds. A flip attaches the production host, which
-  the zone's own certificate covers, so a flip keeps the minute, and so does every
-  other check, the Wrangler Workers' and dev's included. The check refuses a value
-  outside 60 to 240 s before any request. Each stack smoke step has seven minutes:
-  with every request at its timeout, a 240 s check, its rollback and the re-check take
-  366 s (SB4 in `scripts/tests/smoke-check.test.ts`). When the budget step fails,
-  every check reads no budget and asks for a minute.
+  A release attaches only production hosts, each covered by its zone's own
+  certificate, so a site gaining one keeps the minute. Each production stack's smoke
+  step has five minutes: with every request at its timeout, a check, its rollback and
+  the re-check take 186 s (SB4 in `scripts/tests/smoke-check.test.ts`).
+- **A held site** (`PRODUCTION_HOST_HOLDS`, §5.8) has no host to ask. Its check reads
+  the Worker's custom domains (`GET /accounts/{id}/workers/domains?service=<worker>`,
+  tried as a deployments read is) and passes, with a notice naming the host and the
+  list, only when the held host is not among them. The host still on the Worker, or a
+  read that fails, fails the step. It probes nothing and never rolls back.
 - **The Worker answered wrongly** when time runs out: it restores the version that
   served before this deploy, with the message `Smoke check failed: <run URL>`, then
   asks once more and says whether the restored version answers. It reads the Worker's
@@ -1746,13 +1937,11 @@ How it decides:
   could restore twice or race a deploy, and makes it through the Cloudflare API with the job's
   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`: `wrangler rollback` in CI
   answers its own "secrets have changed" prompt with yes and forces the rollback
-  through, which would put old secret values back. In production each deploy step
-  writes the version it deployed to `WRANGLER_OUTPUT_FILE_PATH`, and the check rolls
-  back only while the newest deployment serves that version. On dev the stack job's
-  compare step passes `SMOKE_DEPLOYMENT`, the deployment id the stack deploy made, and
-  the check rolls back only while that deployment is the newest. Either way a deploy
-  made by anything else is never overwritten.
-- **On dev, a Worker the stack deploy left unchanged is never rolled back**
+  through, which would put old secret values back. The stack job's compare step passes
+  `SMOKE_DEPLOYMENT`, the deployment id the stack deploy made, and the check rolls back
+  only while that deployment is the newest, so a deploy made by anything else is never
+  overwritten.
+- **A Worker the stack deploy left unchanged is never rolled back**
   (`SMOKE_DEPLOYMENT=unchanged`), and one whose newest deployment is a smoke-check
   rollback fails at once without a probe: the stack's state names code that Worker does
   not serve, and the next run's snapshot deploys with `--force` to re-upload it
@@ -1761,16 +1950,15 @@ How it decides:
 - **The rollback was refused** (`Rollback refused`) when the Worker's secrets changed
   since the version it would restore, or when the newest deployment is not this job's.
   **It failed** (`Rollback failed`) when the API refused for another reason or did not
-  answer, when the deploy step's output cannot be read, or when the Worker has no
-  earlier version — always so on its first deploy. Either way a person decides what
+  answer, or when the Worker has no earlier version — always so on its first deploy. Either way a person decides what
   the Worker serves next, starting from its Deployments tab (§5.0 item 7).
 - **Nothing answered** (DNS, TLS, a timeout), **or Cloudflare answered** in the Worker's
   place (Access, a bot challenge, a 429): no rollback, since code is not what failed. A
   429 counts here because Cloudflare answers every Worker on the account with one once
   the daily request cap is spent, and anyone can spend it from the public hosts. The
   one probed route with a limit of its own, osn-api's `/health/coordination`, allows
-  10 calls a minute per IP, and a check asks it at most 8 times: osn-api's check is
-  never given a longer budget.
+  10 calls a minute per IP, and a check, which asks for a minute, asks it at most 8
+  times.
 - **osn-api refused the bearer**: `/health/coordination` answered 401, so the
   `INTERNAL_SERVICE_SECRET` the job holds is not the Worker's. No rollback: new code
   cannot fix a secret. Set the Environment's value to the Worker's (`gh secret set
@@ -1811,15 +1999,13 @@ How it decides:
    | `OSN_CORS_ORIGIN` | `osn/api/src/lib/cors-config.ts` |
    | an email provider | `osn/api/src/lib/email-layer.ts` — production carries `RESEND_API_KEY` and no `OSN_EMAIL_OPTIONAL`, so a missing provider fails the boot outright (§1.1) |
 
-   Any one of them missing takes down **every** route, not the feature it belongs to.
-   The deploy job's `Preflight — required prod secrets are set` step is meant to catch
-   that first, but it checks only the names hard-coded in its own `required` list —
-   `OSN_PAIRWISE_SALT` today — so a secret nobody added there sails past it, and
-   `wrangler deploy` reports success while every route 503s. That is how production ran
-   without `OSN_TOTP_ENCRYPTION_KEY` from the 2026-07-27 cutover to 2026-09-13. The smoke
-   check fails such a deploy and rolls it back, after up to a minute of 503s; re-read
-   §0 against `wrangler secret list --env <tier>` when the list above grows. Extending
-   the preflight to the whole set is englishstreetventures/osn#1021.
+   Any one of them missing takes down **every** route, not the feature it belongs to,
+   while the deploy itself reports success. That is how production ran without
+   `OSN_TOTP_ENCRYPTION_KEY` from the 2026-07-27 cutover to 2026-09-13. The plan guard
+   catches a missing secret first: it refuses the release while osn-api lacks any name
+   its production inventory row requires (§5.9), so a secret this list gains goes into
+   that row too. A missing var, binding or malformed value still reaches the deploy,
+   and the smoke check fails it and rolls it back, after up to a minute of 503s.
 
    `/.well-known/jwks.json` must also return an ES256 (`alg:"ES256"`, P-256) JWK; the
    smoke check asks for one.
@@ -1862,11 +2048,11 @@ How it decides:
    (`POST /api/organiser/weddings` → `201`). No bootstrap-owner config is involved.
    Confirm a created wedding then appears in the list and is owner-scoped (another
    account's list stays empty). The owner verifies with:
-   `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM weddings;"`.
+   `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT count(*) FROM weddings;"`.
 8. **RSVP write succeeds.** A guest claims their family code on the guest site and submits
    an RSVP (`POST /api/rsvp`). A 2xx + a persisted row confirms cire-api ↔ D1 writes and
    the guest-session cookie path. The owner verifies with:
-   `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM rsvps;"`.
+   `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT count(*) FROM rsvps;"`.
 9. **(If enabled) account-linking returns non-503.** `POST /api/account/link` should not
    answer 503 once §6 is wired; a 503 means the ARC bridge config is missing.
 
@@ -1885,20 +2071,22 @@ How it decides:
 | Coordination store: class, binding, `v1` migration, bundle | `shared/coordination/src/store.ts`; `osn/api/wrangler.toml`; `osn/api/src/lib/coordination/durable.ts` |
 | Client-IP extraction (proxy) | `shared/rate-limit/src/index.ts:82-89` |
 | `INTERNAL_SERVICE_SECRET` register-service | `osn/api/src/routes/graph-internal.ts:203-214` |
-| osn-api Worker entry (fetch + scheduled) | module `osn/api/src/entry.ts` (handler + `CoordinationStore`), handler `osn/api/src/index.ts`; deploy `osn/api/package.json` (`dev:wrangler` / `deploy`) |
+| osn-api Worker entry (fetch + scheduled) | module `osn/api/src/entry.ts` (handler + `CoordinationStore`), handler `osn/api/src/index.ts`; local Worker `osn/api/package.json` (`dev:wrangler`); production deploy `musubiProductionApis()` in `musubi/infra/src/declaration.ts` |
 | osn-api missing-binding 503 (`COORDINATION`; `RL_USER_*` outside local) | `osn/api/src/index.ts` (`fetch`) |
 | osn D1 bindings + per-env vars | `osn/api/wrangler.toml` (`[[env.<env>.d1_databases]]`, `[env.<env>.vars]`) |
-| osn migrations | `osn/db/drizzle/`; scripts `osn/db/package.json` (`db:migrate:*`); prod applied by CI (`deploy-osn-api` in `production-release.yml`) |
-| Post-deploy smoke check + rollback (§7) | `scripts/smoke-check.ts` (`SMOKE_TARGETS` holds the hosts); hosts held to the route config by `scripts/tests/smoke-targets.test.ts` |
+| osn migrations | `osn/db/drizzle/`; local and staging scripts `osn/db/package.json` (`db:migrate:local|staging`); prod applied by Alchemy in the musubi stack job's `migrate` step (`stack-musubi-production` in `production-release.yml`, `migrate:production` in `musubi/infra/package.json`) |
+| Production migration ledger read and judged (§4) | `shared/infra/src/production-live.ts` (`readLedger`, `countLedger`, `judgeLedger`); production's extra migration files `shared/infra/src/migrations.ts` (`archivedPlaceholder`, `FREEZE_MIGRATION`); proof `shared/infra/tests/d1/ledger-conversion.test.ts` |
+| Post-deploy smoke check + rollback (§7) | `scripts/smoke-check.ts` (`SMOKE_TARGETS` names each Worker and its probes; the origin comes from `SMOKE_ORIGIN`); production Worker names held to the Wrangler configs by `scripts/tests/smoke-targets.test.ts` |
+| Production secrets: inventory, live read, kept after the deploy (§5.9) | `shared/infra/src/secrets/inventory.ts`; `shared/infra/src/production-live.ts`; each stack's `scripts/read-live.ts` (`bun run read:live`); the provider patch `patches/@alchemy.run%2Fcloudflare@2.0.0-beta.85.patch`, held by `shared/infra/tests/keep-secrets.test.ts` |
 | cire D1 / R2 bindings + prod vars | `cire/api/wrangler.toml:12-43` |
 | cire edge fail-closed + WEB_ORIGIN parse | `cire/api/src/index.ts` (`fetch`), rule in `cire/api/src/lib/web-origin.ts` |
 | cire ARC bridge (account-linking) | `cire/api/src/services/osn-bridge.ts`, env `cire/api/src/index.ts:25-27,80-85` |
 | Drop orphaned demo wedding (`wed_bootstrap`) | `cire/db/migrations-archive/0015_drop_bootstrap_wedding.sql` (applied; squashed out of the live set 2026-09-10) |
 | Organiser open access (any OSN user; no boot gate) | list/create `cire/api/src/routes/organiser-weddings.ts`; per-wedding authz `cire/api/src/middleware/wedding-owner.ts`, `wedding-member.ts` |
-| cire migrate scripts | `cire/db/package.json` (`db:migrate:local|prod`); the dev database: `cire/infra` |
+| cire migrate scripts | local: `cire/db/package.json` (`db:push`, `db:migrate:local`); dev's and production's databases: the cire stack (`cire/infra`, `migrate:production` on production) |
 | cire seed (local; the dev tier imports it through the cire stack) | `cire/db/seed/dev-seed.sql`; `scripts/cire-db-seed.sh`; `cire/infra/src/declaration.ts` |
 | Dev deploys per push | `.github/workflows/deploy.yml` (`changes` → `stack-<stack>-dev` → `deploy-<surface>-dev`); the stacks under `*/infra/` ([[infrastructure-as-code]]) |
-| Production releases (daily or by hand; one approval, two when a stack ships) | `.github/workflows/production-release.yml` (`plan` → `build` and `sites` side by side → `alchemy-plan` → `deploy-<surface>`, `stack-<stack>-production` → `record-<site>`, `site-parity`; `attach-pages-domain` for an attach or unflip release); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts`; site modes `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; live custom domains `scripts/worker-deployments.ts domains`; site-build check `scripts/production-sites-artifact.ts`; Pages domain moves `scripts/pages-domain.ts`; Pages comparison `scripts/site-parity.ts` |
+| Production releases (daily or by hand; two approvals) | `.github/workflows/production-release.yml` (`plan`, then `build` and `sites` side by side, then `alchemy-plan`, then `stack-<stack>-production` for musubi, cire and zap, then `record-<surface>`); planner `scripts/release-plan.ts` (`SHIPS_AFTER`); surface map `scripts/deploy-surfaces.ts`; site modes, host holds and adopted names `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; live read `shared/infra/src/production-live.ts`; live custom domains `scripts/worker-deployments.ts domains`; site-build check `scripts/production-sites-artifact.ts` |
 
 ## Related
 
@@ -1914,30 +2102,16 @@ How it decides:
 
 ## 8. Vendor portal first-run (manual, one-time)
 
-> **These steps are NOT automated.** A team member with Cloudflare account access must run them by hand, before or just after the first `deploy-cire-vendor` CI job runs. They are listed here so the person merging PR B knows to run them. See [[cire-vendors]] for the full vendor portal system doc; see [[cire-auth]] for the auth model the portal relies on.
+> **These steps are NOT automated.** A team member with Cloudflare account access runs them by hand. See [[cire-vendors]] for the full vendor portal system doc; see [[cire-auth]] for the auth model the portal relies on.
 
-### 8.1 Create the Pages project
+> [!note]
+> Cire vendor is `worker` in `shared/infra/src/production-sites.ts`: the cire stack deploys the portal to the `cire-vendor` Worker, which holds `vendor.cireweddings.com` since release 42329249886 (2026-11-07). The `cire-vendor` Pages project is deleted. §8.4 rolls back the portal's allowlist entries.
 
-⚠️ Run this **once**, before the CI deploy job references the project. If the project does not exist, the deploy job errors with "project not found."
+### 8.1 Confirm CORS allowlist changes are live
 
-```bash
-bunx wrangler pages project create cire-vendor
-```
+After the release that ships the portal's allowlist entry to production completes, check that cire-api allows the portal's origin. `WEB_ORIGIN` holds `https://vendor.cireweddings.com`, in `cireProductionApis()` and its mirror in `cire/api/wrangler.toml`, and ships through the cire stack job (§5.5). osn-api lists no cire origin: the portal does not call it from the browser ([[cire-vendors]]).
 
-### 8.2 Add the custom domain
-
-In the Cloudflare dashboard (or via Wrangler if supported):
-
-1. Open the `cire-vendor` Pages project.
-2. Go to **Custom domains** → **Set up a custom domain**.
-3. Enter `vendor.cireweddings.com`.
-4. Cloudflare creates the DNS CNAME record on the `cireweddings.com` zone by itself, because this account manages the zone. Confirm the CNAME is present.
-
-### 8.3 Confirm CORS allowlist changes are live
-
-After the release that ships PR B to production completes, check that both Workers now allow the new origin. The allowlist entries add `https://vendor.cireweddings.com` to `cire/api/wrangler.toml` `WEB_ORIGIN` and to `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`. They ship through the normal release jobs (§5.5) — you need no separate `wrangler deploy`.
-
-Quick smoke check (replace `<token>` with a real short-lived claim token from a test seed):
+Quick smoke check:
 
 ```bash
 # CORS preflight to cire-api
@@ -1945,36 +2119,28 @@ curl -si -X OPTIONS https://api.cireweddings.com/api/vendor/listing \
   -H "Origin: https://vendor.cireweddings.com" \
   -H "Access-Control-Request-Method: GET" \
   | grep -i "access-control"
-
-# CORS preflight to osn-api
-curl -si -X OPTIONS https://id.musubi.social/organisations \
-  -H "Origin: https://vendor.cireweddings.com" \
-  -H "Access-Control-Request-Method: GET" \
-  | grep -i "access-control"
 ```
 
-Expected: `access-control-allow-origin: https://vendor.cireweddings.com` in both responses.
+Expected: `access-control-allow-origin: https://vendor.cireweddings.com`.
 
-### 8.4 Secrets
+### 8.2 Secrets
 
 No new secret is required for the vendor portal itself:
 
 - `RESEND_API_KEY` — the `vendor-claim-invite` email needs it on **cire-api** (`cire/api/src/index.ts` picks the Resend layer only when it is present). Confirm with `bunx wrangler secret list --env production` from `cire/api` before the first vendor invite; without it the invite email is not sent. See §1.1 and §3.2.
-- The vendor portal (`cire/vendor`) is a static Pages app with no server-side secrets. It reads from `cire-api` and `osn-api` via `authFetch` in the browser.
+- The vendor portal (`cire/vendor`) is a static site, served by the `cire-vendor` Worker, with no server-side secrets. It reads from `cire-api` and `osn-api` via `authFetch` in the browser.
 
-### 8.5 ARC re-registration (org:read scope)
+### 8.3 ARC re-registration (org:read scope)
 
 The vendor portal uses `vendorOrgMember()` middleware, which needs the `org:read` scope on cire-api's ARC key registration. ⚠️ Until this step runs, `/api/vendor/*` writes return 503. The organiser CRM and claim-link generation keep working. After deploying, re-run the §6.2 `register-service` call per environment with `allowedScopes: "graph:read,graph:resolve-account,org:read"`.
 
-### 8.6 Rollback
+### 8.4 Rollback
 
 To roll the vendor portal back:
 
-1. Remove the `https://vendor.cireweddings.com` entries from `cire/api/wrangler.toml` `WEB_ORIGIN` and `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`.
-2. Merge the revert PR — the merge redeploys both dev Workers. Then dispatch a release with `surfaces: cire_api osn_api` and approve it (§5.5), which ships the narrowed allowlists to production.
-3. Optionally disable the `cire-vendor` Pages project custom domain in the Cloudflare dashboard.
-
-You need not delete the Pages project — leave it idle.
+1. Remove the `https://vendor.cireweddings.com` entry from `WEB_ORIGIN`: from the host list `cireProductionApis()` joins in `cire/infra/src/declaration.ts`, and from its mirror in `cire/api/wrangler.toml` `[env.production.vars]`.
+2. Merge the revert PR — the merge redeploys the dev Worker. Then dispatch a release with `surfaces: cire_api` and approve both gates (§5.5), which ships the narrowed allowlist to production with the rest of the cire stack.
+3. To take the portal off `vendor.cireweddings.com` as well, hold the host off the `cire-vendor` Worker as §5.8 says: a pull request adding `cire_vendor`'s entry to `PRODUCTION_HOST_HOLDS`, then the host removed in the dashboard (**Workers & Pages**, the Worker, **Settings**, **Domains & Routes**). No release takes it off, and without the entry the next release that ships the cire stack attaches it again.
 
 ---
 
@@ -1982,7 +2148,7 @@ You need not delete the Pages project — leave it idle.
 
 > ⚠️ **Requires explicit authorization; prod writes.** Every step in this section changes production infrastructure or sets production secrets. Do NOT run any of these steps without explicit human authorisation from the team. They are a deploy-time checklist, not automated tasks.
 
-These steps are manual follow-ups to the c2b chats PR (Zap PR A). The `deploy-zap-api` job in `.github/workflows/production-release.yml` skips its migrate and deploy steps while the prod D1 id is a placeholder; step 9.1 fills it in (done — `zap/api/wrangler.toml` carries a real id).
+These steps are manual follow-ups to the c2b chats PR (Zap PR A). Step 9.1 is done: `zap-db-prod` exists and `zap/api/wrangler.toml` carries its real id. zap-api deploys through the zap stack job (`stack-zap-production` in `.github/workflows/production-release.yml`), which adopts `zap-api-production` and `zap-db-prod` under those names (`zapProductionApis()` in `zap/infra/src/declaration.ts`), applies the database's migrations with Alchemy before each deploy (§4), and uploads no secret ([[zap]]).
 
 ### 9.1 Create the zap-db-prod D1 database
 
@@ -2000,12 +2166,9 @@ Copy the returned `database_id` and paste it into `zap/api/wrangler.toml` under 
 binding = "DB"
 database_name = "zap-db-prod"
 database_id = "<paste-id-here>"          # replace "placeholder-replace-after-d1-create"
-migrations_dir = "../db/drizzle"
 ```
 
-⚠️ Committing this change **activates the `deploy-zap-api` job**. The next release that ships zap-api builds it, applies its D1 migrations and deploys it.
-
-Commit and merge the change.
+The zap stack names the database by name and the parity test holds the binding equal to it. The block names no `migrations_dir`: the zap stack migrates the database (§4). Commit and merge the change.
 
 ### 9.2 Set zap-api production secrets
 
@@ -2018,7 +2181,8 @@ cd zap/api
 # No secret needed for OSN_JWKS_URL — it is a plaintext var.
 
 # REQUIRED: S2S bearer secret for ARC key registration at POST /internal/register-service.
-# Needed to register cire-api's ARC public key with zap-api (§9.3 below).
+# Needed to register cire-api's ARC public key with zap-api (§9.3 below). The
+# release refuses to deploy zap-api while its Worker lacks it (§5.9).
 bunx wrangler secret put INTERNAL_SERVICE_SECRET --env production
 
 # OPTIONAL: ZAP_CORS_ORIGIN — comma-sep origins that may call user-facing /chats* routes
@@ -2070,24 +2234,14 @@ curl -X POST "$ZAP_API_URL/internal/register-service" \
 
 ### 9.4 Apply zap-db-prod migrations
 
-Once the D1 database exists and the wrangler.toml is updated (§9.1), apply the schema migrations:
-
-```bash
-# From zap/api/ (migrations_dir = "../db/drizzle" is in wrangler.toml)
-bunx wrangler d1 migrations apply zap-db-prod --env production --remote
-
-# Or via the @zap/db script:
-# bun run --cwd zap/db db:migrate:prod
-```
-
-The CI deploy job (`deploy-zap-api`) runs migrations automatically on each deploy once activated — this manual step is needed only for the initial bring-up before the first CI deploy fires.
+No hand step. The zap stack job's `migrate` step applies `zap/db/drizzle/`'s pending migrations with Alchemy (`bun run migrate:production` in `zap/infra`) in every release that ships the zap stack, before its deploy (§4). Never run `wrangler d1 migrations apply` against `zap-db-prod`: Wrangler's ledger stopped when Alchemy took the database over, so it would apply again every migration since (§4.1).
 
 ### 9.5 Smoke-check zap-api production
 
-After the first `deploy-zap-api` run completes:
+After a release that ships zap-api completes:
 
-1. **Health check — automatic.** The `deploy-zap-api` job's smoke check asks `https://zap.cireweddings.com/health` for a 200 after every deploy and rolls the Worker back when it answers wrongly (§7). It confirms the Worker booted, the D1 binding is present and the JWKS URL is set.
-2. **D1 row count (owner step).** `bunx wrangler d1 execute zap-db-prod --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
+1. **Health check — automatic.** The zap stack job's smoke check asks `https://zap.cireweddings.com/health` for a 200 after every deploy and rolls the Worker back when it answers wrongly (§7). It confirms the Worker booted, the D1 binding is present and the JWKS URL is set.
+2. **D1 row count (owner step).** `bunx wrangler d1 execute zap-db-prod --env production --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
 3. **ARC registration (smoke).** After §9.3, a test `POST /internal/chats` from cire-api should return 201 (not 401/403/503). Confirm the `class` column on the returned row is `'c2b'`.
 
 
@@ -2096,7 +2250,8 @@ After the first `deploy-zap-api` run completes:
 ## 10. Rotating `OSN_TOTP_ENCRYPTION_KEY`
 
 This key decrypts **every enrolled second factor on every account**. A rotation
-is two secret writes and two deploys, with an unattended wait between them; it
+is three secret changes, each followed by a deploy of osn-api, with an unattended
+wait before the last; it
 costs no downtime and no re-enrolment, provided the order below is kept. The
 mechanism — the two-key ring, the lazy re-encryption — is in
 [[totp#Rotating the encryption key]]. This section is the procedure for
@@ -2149,16 +2304,20 @@ gh secret set OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --repo englishstreetventures/osn 
 # then run the `set-osn-api-secret` workflow: secret=OSN_TOTP_ENCRYPTION_KEY_PREVIOUS, tier=production
 # or, by hand — read the warning above first:
 cd osn/api && printf '%s' "$OLD_KEY" | bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --env production
-bunx --bun wrangler deploy --env production
+# then let a release deploy osn-api: see the box below
 ```
 
 Nothing changes for users: both slots hold the same key, so every credential
 still verifies and none is rewritten.
 
 > [!important] Redeploy, every time
-> `wrangler secret put` does not cycle warm isolates. Until osn-api is
-> redeployed, some requests are served by isolates that have never seen the new
-> secret. This applies to every step below, including the deletion in §10.4.
+> Treat `wrangler secret put` as not reaching warm isolates (§5.9): until osn-api
+> deploys again, some requests may be served by isolates that have never seen the
+> new secret. This applies to every step below, including the deletion in §10.4.
+> After each step, dispatch Production release with `force` and `surfaces: osn_api`
+> (`gh workflow run production-release.yml -f surfaces=osn_api -f force=true`),
+> which passes `--force` to Alchemy and uploads osn-api again, and wait for its
+> musubi stack job to pass before the next step.
 
 ### 10.2 Step 2 — install the new key
 
@@ -2216,8 +2375,11 @@ Once the count is zero (or you have accepted the remainder):
 
 ```bash
 cd osn/api && bunx wrangler secret delete OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --env production
-bunx --bun wrangler deploy --env production
+# then let a release deploy osn-api (§10.1, Redeploy, every time)
 ```
+
+osn-api's production inventory row lists `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` as
+optional, so the release refuses nothing once it is gone.
 
 Rows still stamped with the old slot number keep working — the stamp is a hint,
 and the remaining key opens them by trial. Do not "tidy" those stamps.

@@ -2,6 +2,7 @@ import { createAutoSize } from "@cire/ui/lib/auto-size";
 import SegmentedTabs from "@cire/ui/segmented-tabs";
 import BriefcaseBusiness from "lucide-solid/icons/briefcase-business";
 import Compass from "lucide-solid/icons/compass";
+import FolderDown from "lucide-solid/icons/folder-down";
 import Gift from "lucide-solid/icons/gift";
 import House from "lucide-solid/icons/house";
 import IdCard from "lucide-solid/icons/id-card";
@@ -39,6 +40,7 @@ import {
   type Module,
   serializeRoute,
 } from "../lib/dashboard-route";
+import type { InAppLink } from "../lib/link-click";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { scrollDelta } from "../lib/scroll-to-results";
 import type { PaidTier, Tier } from "../lib/tiers";
@@ -61,6 +63,7 @@ import RemintPanel from "./RemintPanel";
 import RsvpView from "./RsvpView";
 import SettingsPanel from "./SettingsPanel";
 import { ViewBarContext, type ViewBarContextValue, type ViewBarSlot } from "./ViewBar";
+import WeddingExport from "./WeddingExport";
 
 /**
  * The three big write surfaces, split out of the first load.
@@ -292,9 +295,13 @@ const MODULE_SUB_TABS: ModuleSubTabs = {
     { id: "content", label: "Content", icon: Rows3, edit: true },
     { id: "codes", label: "Codes", icon: KeyRound, edit: true },
   ],
+  // Export is every seat's, though only an owner can download: its address is
+  // handed out beyond the portal, and anyone else who opens it is told to ask
+  // an owner rather than sent to another view without a word.
   settings: [
     { id: "wedding", label: "Profile", icon: IdCard },
     { id: "hosts", label: "Co-hosts", icon: UsersRound },
+    { id: "export", label: "Export", icon: FolderDown },
   ],
 };
 
@@ -302,16 +309,17 @@ const MODULE_SUB_TABS: ModuleSubTabs = {
  *  labelled tabs and a view's controls share one row down to about here. */
 const ICON_TABS_BELOW_PX = 36 * 16;
 
-/** Where each of the invite message's places lives. */
-interface InviteMessageRoute {
+/** A view of the dashboard: its module and sub-view. */
+interface PlaceRoute {
   module: Module;
   sub: string;
 }
 
+/** Where each of the invite message's places lives. */
 const INVITE_MESSAGE_ROUTES = {
   codes: { module: "invite", sub: "codes" },
   households: { module: "guests", sub: "list" },
-} satisfies Readonly<Record<InviteMessagePlace, InviteMessageRoute>>;
+} satisfies Readonly<Record<InviteMessagePlace, PlaceRoute>>;
 
 /** Tab and panel ids are derived from the module so the pair can never point at
  *  a stale partner: switching module re-mints both in the same render. */
@@ -400,7 +408,8 @@ export default function ModuleShell(props: ModuleShellProps) {
   }
 
   /**
-   * Follow one of the invite-message links. One route write: a module change
+   * Follow a link to another view: one of the invite-message links, or one of
+   * Settings' links between its own views. One route write: a module change
    * carries its sub, so the move never passes through the module's default
    * view, and a refused move (the builder's unsaved-changes prompt) is not
    * asked about twice.
@@ -413,8 +422,7 @@ export default function ModuleShell(props: ModuleShellProps) {
    * page then brings the heading to the foot of the chrome if it is above it,
    * which overrides the panel jump a view change makes.
    */
-  function openInviteMessagePlace(place: InviteMessagePlace) {
-    const to: InviteMessageRoute = INVITE_MESSAGE_ROUTES[place];
+  function openPlace(to: PlaceRoute) {
     if (to.module !== module()) props.onModule(to.module, to.sub);
     else if (to.sub !== active()) props.onSub(to.sub);
     if (module() === to.module && active() === to.sub && heading) {
@@ -422,6 +430,19 @@ export default function ModuleShell(props: ModuleShellProps) {
       const move = scrollDelta(heading.getBoundingClientRect().top, sentinel?.offsetHeight ?? 0);
       if (move !== 0) window.scrollBy({ top: move, behavior: "instant" });
     }
+  }
+
+  function openInviteMessagePlace(place: InviteMessagePlace) {
+    openPlace(INVITE_MESSAGE_ROUTES[place]);
+  }
+
+  /** A link to one of Settings' views, built only for a link that is drawn. */
+  function settingsLink(sub: string): InAppLink {
+    const to: PlaceRoute = { module: "settings", sub };
+    return {
+      href: serializeRoute({ view: "weddings", weddingId: props.weddingId, ...to }),
+      onOpen: () => openPlace(to),
+    };
   }
 
   /** The invite-message line for one place, wired to this shell's roles and
@@ -439,7 +460,7 @@ export default function ModuleShell(props: ModuleShellProps) {
   /** A place's address: its module and sub-view. Built only for a link that
    *  is drawn. */
   function inviteMessageHref(place: InviteMessagePlace): string {
-    const to: InviteMessageRoute = INVITE_MESSAGE_ROUTES[place];
+    const to: PlaceRoute = INVITE_MESSAGE_ROUTES[place];
     return serializeRoute({
       view: "weddings",
       weddingId: props.weddingId,
@@ -522,13 +543,19 @@ export default function ModuleShell(props: ModuleShellProps) {
   // a host who has not scrolled sees nothing move. Whether it was stuck is read
   // before the DOM changes (a computation runs ahead of the render), and the
   // move after it, with the panel already held open.
+  //
+  // The first change of view also arms the arriving view's fade (`view-arrive`,
+  // `global.css`): what the shell paints first never fades, and every view that
+  // mounts after a change does.
   let wasStuck = false;
+  const [swapped, setSwapped] = createSignal(false);
   createComputed(
     on(
       [module, active],
       () => {
         wasStuck = isStuck();
         setHolding(true);
+        setSwapped(true);
       },
       { defer: true },
     ),
@@ -729,8 +756,17 @@ export default function ModuleShell(props: ModuleShellProps) {
               {/* The measured box has to be a child of the frame, and `flow-root`
                 is what makes the measurement honest: without it a first or last
                 child's margin collapses through the wrapper, so the height read
-                differs depending on whether the frame is currently clipped. */}
-              <div ref={panelSize.content} class="flow-root">
+                differs depending on whether the frame is currently clipped.
+                `view-arrive` fades in each child it gains once `data-swapped`
+                is set: a view a change of module or sub-tab mounts, and a view
+                taking over from its `Suspense` fallback. Each view is one
+                element here, so the states a view swaps inside itself arrive
+                at once. */}
+              <div
+                ref={panelSize.content}
+                class="view-arrive flow-root"
+                data-swapped={swapped() ? "" : undefined}
+              >
                 {/* ── Overview ─────────────────────────────────────────────────── */}
                 <Show when={module() === "overview"}>
                   <Overview
@@ -778,15 +814,20 @@ export default function ModuleShell(props: ModuleShellProps) {
                 {/* ── Run sheet: the day, read-only for every role ─────────────── */}
                 <Show when={module() === "run-sheet"}>
                   <Suspense fallback={<PanelLoading />}>
-                    <RunSheetView
-                      weddingId={props.weddingId}
-                      tier={props.tier}
-                      callerRole={props.callerRole}
-                      canEdit={props.canEdit}
-                      onOpenChecklist={
-                        props.canEdit ? () => props.onModule("checklist") : undefined
-                      }
-                    />
+                    {/* The run sheet's root is a `Switch`. This one element holds
+                      its states — loading, failure, the day — so they swap
+                      inside the view, at once, and only the view fades in. */}
+                    <div>
+                      <RunSheetView
+                        weddingId={props.weddingId}
+                        tier={props.tier}
+                        callerRole={props.callerRole}
+                        canEdit={props.canEdit}
+                        onOpenChecklist={
+                          props.canEdit ? () => props.onModule("checklist") : undefined
+                        }
+                      />
+                    </div>
                   </Suspense>
                 </Show>
 
@@ -956,7 +997,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                   </Show>
                 </Show>
 
-                {/* ── Settings: Profile + Co-hosts ─────────────────────────────── */}
+                {/* ── Settings: Profile + Co-hosts + Export ────────────────────── */}
                 <Show when={module() === "settings"}>
                   <Show when={active() === "wedding"}>
                     <SettingsPanel
@@ -967,6 +1008,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                       onWeddingUpdated={props.onWeddingUpdated}
                       onWeddingDeleted={props.onWeddingDeleted}
                       onTierRaised={props.onTierRaised}
+                      exportPage={settingsLink("export")}
                     />
                   </Show>
                   <Show when={active() === "hosts"}>
@@ -981,6 +1023,14 @@ export default function ModuleShell(props: ModuleShellProps) {
                       canLeave
                       onLeft={props.onLeftWedding}
                       onOwnRoleChanged={props.onOwnRoleChanged}
+                    />
+                  </Show>
+                  <Show when={active() === "export"}>
+                    <WeddingExport
+                      weddingId={props.weddingId}
+                      weddingSlug={props.weddingSlug}
+                      canManage={props.canManage}
+                      coHosts={settingsLink("hosts")}
                     />
                   </Show>
                 </Show>

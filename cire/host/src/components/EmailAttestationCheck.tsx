@@ -33,7 +33,6 @@ export default function EmailAttestationCheck(props: {
         <Checkbox
           box="native"
           size="sm"
-          align="start"
           checked={props.checked}
           onChange={props.onChange}
           disabled={props.disabled}

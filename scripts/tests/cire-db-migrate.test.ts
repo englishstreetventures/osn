@@ -88,9 +88,8 @@ test("a database part-way through the original chain is refused, naming what it 
   ]);
   expect(verdict).toMatchObject({ ok: false, missing: ["0005_hosts.sql", "0006_tiers.sql"] });
   expect(verdict.message).toContain("0005_hosts.sql, 0006_tiers.sql");
-  // Recovery ships the migrations with the code that matches them; applying
-  // them by hand under an older Worker would break it.
-  expect(verdict.message).toContain("approve the deploy run");
+  // A local database is rebuilt, never brought level by applying the archive by hand.
+  expect(verdict.message).toContain("db:reset");
   expect(verdict.message).not.toContain("db:migrate");
 });
 
@@ -279,9 +278,9 @@ test("namesOf throws on a row with no readable name, so no ledger entry is lost"
 // ── arguments ────────────────────────────────────────────────────────────────
 
 test("parseArgs takes the database name and passes every flag through", () => {
-  expect(parseArgs(["cire-db", "--env", "production", "--remote"])).toEqual({
+  expect(parseArgs(["cire-db", "--local", "--persist-to", ".wrangler/state"])).toEqual({
     database: "cire-db",
-    flags: ["--env", "production", "--remote"],
+    flags: ["--local", "--persist-to", ".wrangler/state"],
   });
 });
 
@@ -290,9 +289,49 @@ test("parseArgs refuses a missing database name", () => {
   expect(parseArgs(["--local"])).toHaveProperty("error");
 });
 
-test("parseArgs refuses a call that names neither --local nor --remote, or both", () => {
+test("parseArgs refuses a call that does not name --local", () => {
   expect(parseArgs(["cire-db"])).toHaveProperty("error");
-  expect(parseArgs(["cire-db", "--local", "--remote"])).toHaveProperty("error");
+  expect(parseArgs(["cire-db", "--env", "production"])).toHaveProperty("error");
+});
+
+// Wrangler migrates no deployed cire database: the cire stack is the one
+// migrator of dev's and production's, through Alchemy.
+test("parseArgs refuses --remote, with --local or without", () => {
+  for (const argv of [
+    ["cire-db", "--env", "production", "--remote"],
+    ["cire-db", "--remote"],
+    ["cire-db", "--local", "--remote"],
+    ["cire-db", "--local", "--remote=true"],
+  ]) {
+    expect(parseArgs(argv)).toEqual({ error: expect.stringContaining("--remote is refused") });
+  }
+});
+
+// Wrangler reads `--local false` and `--no-local` as remote, and `--env` or
+// `--config` can point a local name at another block; the script passes
+// nothing to wrangler but `--local` and a persistence directory.
+test("parseArgs passes only --local and --persist-to, refusing every other flag", () => {
+  for (const argv of [
+    ["cire-db", "--local", "false"],
+    ["cire-db", "--local", "--no-local"],
+    ["cire-db", "--local=false"],
+    ["cire-db", "--local", "--env", "production"],
+    ["cire-db", "--local", "--config", "other.toml"],
+    ["cire-db", "--local", "--persist-to"],
+    ["cire-db", "--local", "extra"],
+    ["cire-db", "--local", "--local"],
+    ["cire-db", "--local", "--", "--remote"],
+    ["cire-db", "--local", "--persist-to", "/tmp/x", "--persist-to=/tmp/y"],
+  ]) {
+    expect({ argv, parsed: parseArgs(argv) }).toEqual({
+      argv,
+      parsed: { error: expect.any(String) },
+    });
+  }
+  expect(parseArgs(["cire-db", "--persist-to=/tmp/x", "--local"])).toEqual({
+    database: "cire-db",
+    flags: ["--persist-to=/tmp/x", "--local"],
+  });
 });
 
 // ── the real archive ─────────────────────────────────────────────────────────
@@ -348,23 +387,22 @@ test("the real archive refuses a stray migration that reused an archived number"
 });
 
 // The ledger read assumes wrangler keeps its ledger in d1_migrations and
-// applies this script's MIGRATIONS_DIR; both come from cire/api/wrangler.toml.
-test("every cire D1 block in wrangler.toml uses the ledger table and directory this script reads", () => {
+// applies this script's MIGRATIONS_DIR; both come from cire/api/wrangler.toml's
+// top-level block, the local database's. [env.production]'s names no
+// directory: Wrangler is not production's migrator.
+test("cire/api/wrangler.toml's local D1 block uses the ledger table and directory this script reads", () => {
   type D1Block = { migrations_dir?: string; migrations_table?: string };
   const config = Bun.TOML.parse(
     readFileSync(resolve(MIGRATIONS_DIR, "..", "..", "api", "wrangler.toml"), "utf8"),
   ) as { d1_databases?: D1Block[]; env?: Record<string, { d1_databases?: D1Block[] }> };
-  const blocks = [
-    ...(config.d1_databases ?? []),
-    ...Object.values(config.env ?? {}).flatMap((env) => env.d1_databases ?? []),
-  ];
-  // The top level (local `wrangler dev`) and [env.production].
-  expect(blocks.length).toBe(2);
-  for (const block of blocks) {
-    expect(resolve(MIGRATIONS_DIR, "..", "..", "api", block.migrations_dir ?? "")).toBe(
-      MIGRATIONS_DIR,
-    );
-    expect(block.migrations_table ?? LEDGER_TABLE).toBe(LEDGER_TABLE);
+  const [local, ...others] = config.d1_databases ?? [];
+  expect(others).toEqual([]);
+  expect(resolve(MIGRATIONS_DIR, "..", "..", "api", local?.migrations_dir ?? "")).toBe(
+    MIGRATIONS_DIR,
+  );
+  expect(local?.migrations_table ?? LEDGER_TABLE).toBe(LEDGER_TABLE);
+  for (const block of Object.values(config.env ?? {}).flatMap((env) => env.d1_databases ?? [])) {
+    expect(block.migrations_dir).toBeUndefined();
   }
 });
 

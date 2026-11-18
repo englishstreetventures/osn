@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -13,7 +13,6 @@ import {
   SortableProvider,
   useDragDropContext,
 } from "@shared/sortable";
-import { toast } from "@shared/toast";
 import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -23,7 +22,6 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { createMemo, createSignal, createUniqueId, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { downloadBlob } from "../lib/download";
 import { FIELD_BAR_CLASS } from "../lib/form-field";
 import {
   belowSmallestUnitError,
@@ -32,6 +30,7 @@ import {
   minorToInput,
   parseMinor,
 } from "../lib/money";
+import { CIRE_MARKETING_URL } from "../lib/osn";
 import {
   ensureRegistryLoaded,
   type GiftLogEntry,
@@ -49,9 +48,14 @@ import {
 } from "../lib/registry-store";
 import { sameButOrder } from "../lib/sortable-rows";
 import { haptic } from "../lib/touch-feedback";
+import { deleteWithUndo, isPendingDelete, isReturning, returned } from "../lib/undo-delete";
+import { CsvExportButton } from "./CsvExportButton";
 import { LinkPill } from "./LinkPill";
 import RegistryImageField from "./RegistryImageField";
 import ReorderControls from "./ReorderControls";
+
+/** A gift's name in `undo-delete`. */
+const giftKey = (itemId: string) => `gift:${itemId}`;
 
 const RECORD_CLASS = `${cardClass({ padding: "sm" })} gap-2`;
 const CASH_CLASS = `${cardClass({ padding: "sm" })} gap-1`;
@@ -320,7 +324,6 @@ export default function RegistryView(props: RegistryViewProps) {
   const snapshot = registryAccessor(props.weddingId);
   const [error, setError] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
-  const [exporting, setExporting] = createSignal(false);
 
   // Add-item form state. `newKind` picks a gift to reserve, a group gift or a
   // cash fund; each shows only its own fields, and the body carries only those.
@@ -366,7 +369,9 @@ export default function RegistryView(props: RegistryViewProps) {
       throw new Error("unauthorised");
     }
     if (!res.ok) throw new Error(`Failed to load registry (${res.status})`);
-    return (await res.json()) as RegistrySnapshot;
+    const snap = (await res.json()) as RegistrySnapshot;
+    // A gift waiting on its undo toast is still on the server; it stays off screen.
+    return { ...snap, items: snap.items.filter((it) => !isPendingDelete(giftKey(it.id))) };
   };
 
   onMount(() => {
@@ -710,18 +715,44 @@ export default function RegistryView(props: RegistryViewProps) {
   };
 
   // ── Delete item ───────────────────────────────────────────────────────────
-  const deleteItem = async (item: RegistryItem) => {
-    patchSnap((s) => ({ ...s, items: s.items.filter((x) => x.id !== item.id) }));
-    haptic("commit");
-    try {
-      const res = await authFetch(itemUrl(item.id), { method: "DELETE" });
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`delete ${res.status}`);
-    } catch {
-      haptic("reject");
-      setError("Couldn't remove that gift.");
-      void reload();
-    }
+  /**
+   * Undo puts back the gift as the list holds it now, since the row's own
+   * object can lag a move; the `DELETE`, which also reaps an orphaned picture,
+   * goes only once the toast has gone (`deleteWithUndo`). Until then `load`
+   * leaves the gift out of any read, so a reload meanwhile does not bring it
+   * back. A session that has expired by then sends the organiser to sign in,
+   * the gift still on the server.
+   */
+  const deleteItem = (item: RegistryItem, click: MouseEvent) => {
+    const kept = peekCachedRegistry(props.weddingId)?.items.find((x) => x.id === item.id) ?? item;
+    const drop = () => patchSnap((s) => ({ ...s, items: s.items.filter((x) => x.id !== item.id) }));
+    deleteWithUndo(
+      {
+        key: giftKey(item.id),
+        message: `Removed “${item.title}”`,
+        undoName: `Undo removing “${item.title}”`,
+        restored: `Restored “${item.title}”`,
+        hide: drop,
+        restore: () =>
+          patchSnap((s) =>
+            s.items.some((x) => x.id === item.id) ? s : { ...s, items: [...s.items, kept] },
+          ),
+        commit: async ({ keepalive }) => {
+          try {
+            const res = await authFetch(itemUrl(item.id), { method: "DELETE", keepalive });
+            if (!res.ok) throw new Error(`delete ${res.status}`);
+            // A read that does not filter (the settings tab's) may have carried it back.
+            drop();
+          } catch (err) {
+            if (isAuthExpired(err)) return redirectToLogin();
+            haptic("reject");
+            setError("Couldn't remove that gift.");
+            void reload();
+          }
+        },
+      },
+      click,
+    );
   };
 
   // ── Reorder ───────────────────────────────────────────────────────────────
@@ -991,34 +1022,6 @@ export default function RegistryView(props: RegistryViewProps) {
     }
   };
 
-  // ── Export ────────────────────────────────────────────────────────────────
-  // The couple's own copy of the gift log. The view above pages 50 at a time
-  // and the whole log is deleted a year after the wedding (the summary band
-  // says so), so a download is the only way they keep who gave what, in which
-  // currency, and what the guest wrote.
-  //
-  // Reports outcome through toasts rather than the `error()` Notice above: that
-  // Notice is for a view that failed to load and stays broken, and a download
-  // that failed is a transient thing the couple retries — the same shape the
-  // guest and RSVP exports already use in `GuestTable`.
-  const exportGifts = async () => {
-    if (exporting()) return;
-    setExporting(true);
-    try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/gifts.csv")));
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`Export failed (${res.status})`);
-      downloadBlob(`cire-gifts-${props.weddingSlug}.csv`, await res.blob());
-      toast.success("Gift log downloaded");
-    } catch (err) {
-      if (isAuthExpired(err)) return redirectToLogin();
-      haptic("reject");
-      toast.error("Gift export failed. Try again.");
-    } finally {
-      setExporting(false);
-    }
-  };
-
   return (
     <div class="flex flex-col gap-6">
       <Show when={error()}>
@@ -1259,6 +1262,10 @@ export default function RegistryView(props: RegistryViewProps) {
                                   sortable.isActiveDraggable(),
                                 "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                   dndState.dragging() && !sortable.isActiveDraggable(),
+                                "row-return": isReturning(giftKey(item.id)),
+                              }}
+                              onAnimationEnd={(e) => {
+                                if (e.target === e.currentTarget) returned(giftKey(item.id));
                               }}
                             >
                               <div class="flex flex-wrap items-center gap-3">
@@ -1346,7 +1353,8 @@ export default function RegistryView(props: RegistryViewProps) {
                                       variant="bareDanger"
                                       type="button"
                                       aria-label={`Remove ${item.title}`}
-                                      onClick={() => deleteItem(item)}
+                                      data-undo-key={giftKey(item.id)}
+                                      onClick={(e) => deleteItem(item, e)}
                                     >
                                       ✕
                                     </Button>
@@ -1505,11 +1513,14 @@ export default function RegistryView(props: RegistryViewProps) {
       {/* ── Gifts received ────────────────────────────────────────────────── */}
       <Show when={props.view === "gifts"}>
         {/* The record that outlives the detail. Written by the retention sweep a
-            year after the last event, in the same pass that deletes the
-            households every gift hangs off — so this is not a summary OF the log
-            below, it is what stands INSTEAD of it. The copy has to say that
-            outright, or a couple reads an empty log as an empty guest list.
-            Rendered ONLY when a summary exists, i.e. only after the sweep. */}
+            year after the last event (three years after the wedding was
+            created, when the sweep cannot read the event dates), in the same
+            pass that deletes the households every gift hangs off — so this is
+            not a summary OF the log below, it is what stands INSTEAD of it. The
+            copy has to say that outright, or a couple reads an empty log as an
+            empty guest list. It names no period: the record does not say which
+            rule applied. Rendered ONLY when a summary exists, i.e. only after
+            the sweep. */}
         <Show when={summaryBand()}>
           {(band) => (
             <div class={RECORD_CLASS}>
@@ -1517,9 +1528,17 @@ export default function RegistryView(props: RegistryViewProps) {
                 Your record of gifts
               </Eyebrow>
               <p class="text-text-muted text-ui-sm">
-                On {band().sweptOn}, a year after your wedding, we deleted your guests' details —
-                who gave each gift, and the notes they wrote. We kept the amount and the day of each
-                cash gift, and these totals.
+                On {band().sweptOn}, as{" "}
+                <a
+                  href={`${CIRE_MARKETING_URL}/privacy/hosts/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={proseLinkClass()}
+                >
+                  our privacy notice<span class="sr-only"> (opens in a new tab)</span>
+                </a>{" "}
+                says, we deleted your guests' details — who gave each gift, and the notes they
+                wrote. We kept the amount and the day of each cash gift, and these totals.
               </p>
               <Show when={band().claimsTotal > 0}>
                 <span class="text-text text-ui-md">
@@ -1651,20 +1670,18 @@ export default function RegistryView(props: RegistryViewProps) {
           </div>
         </Show>
 
-        {/* Shown only to an owner, and only when there is a log to download —
-            after the retention sweep the list is empty and an export would
-            hand back a header row. `Button` rather than the raw classes
-            `GuestTable` uses, to match the "Load more gifts" control below it. */}
+        {/* The couple's own copy of the gift log: the view pages 50 at a time
+            and the retention sweep deletes the whole log, so a
+            download is the only way they keep who gave what. Shown only to an
+            owner, and only when there is a log to download — after the sweep
+            the list is empty and an export would hand back a header row. */}
         <Show when={props.canManage && gifts().length > 0}>
-          <Button
-            variant="quiet"
-            size="sm"
+          <CsvExportButton
+            weddingId={props.weddingId}
+            weddingSlug={props.weddingSlug}
+            kind="gifts"
             class="self-start"
-            disabled={exporting()}
-            onClick={() => void exportGifts()}
-          >
-            {exporting() ? "Exporting…" : "Download gifts (CSV)"}
-          </Button>
+          />
         </Show>
 
         <Show

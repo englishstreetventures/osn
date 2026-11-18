@@ -1,16 +1,24 @@
 import { ProfileOnboarding } from "@osn/auth-ui/ProfileOnboarding";
 import { useAuth } from "@osn/client/solid";
+import { clsx } from "@shared/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Button } from "@shared/ui/ui/button";
+import { buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
-import { useLocation, useNavigate } from "@solidjs/router";
+import { A, useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, lazy, Show, Suspense } from "solid-js";
 
+import { AccountDataActions } from "../components/AccountDataActions";
+import { AppRowsLoading } from "../components/AppRowsLoading";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SectionTabs } from "../components/SectionTabs";
+import { SignedOutNote } from "../components/SignedOutNote";
 import { PRODUCT_NAME } from "../lib/auth";
 import { registrationClient } from "../lib/authClients";
+import { placeholderRows } from "../lib/page-cache";
+import { PAGE_DATA } from "../lib/page-names";
+import { usePageTitle } from "../lib/page-title";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 
 // Code-split the Security section so `@simplewebauthn/browser` is only
@@ -42,6 +50,7 @@ function sectionFromHash(hash: string): Section {
 
 export function SettingsPage() {
   const { session, profiles, activeProfileId } = useAuth();
+  usePageTitle(() => "Settings");
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -65,8 +74,9 @@ export function SettingsPage() {
     navigate(`/settings#${value}`, { replace: true, scroll: false });
   };
 
-  const accessToken = () => session()?.accessToken ?? null;
-  const claims = createMemo(() => getTokenClaims(accessToken()));
+  // Claims are read for display and the profile id only; no request carries
+  // this token — every client sends through the page's auth runtime.
+  const claims = createMemo(() => getTokenClaims(session()?.accessToken ?? null));
   const activeProfile = createMemo(
     () => profiles()?.find((p) => p.id === activeProfileId()) ?? null,
   );
@@ -82,11 +92,7 @@ export function SettingsPage() {
 
       <Show
         when={session()}
-        fallback={
-          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-            Sign in to manage your settings.
-          </div>
-        }
+        fallback={<SignedOutNote>Sign in to manage your settings.</SignedOutNote>}
       >
         {/* Profile onboarding banner */}
         <div class="mb-4">
@@ -119,10 +125,10 @@ export function SettingsPage() {
                 <AvatarFallback size="lg">{profileInitials(activeProfile())}</AvatarFallback>
               </Avatar>
               <div>
-                <p class="text-foreground font-medium">
-                  {activeProfile()?.displayName || `@${claims().handle}`}
+                <p class="text-foreground text-title font-medium">
+                  {activeProfile()?.displayName || `@${claims().handle ?? "…"}`}
                 </p>
-                <p class="text-muted-foreground text-body">@{claims().handle}</p>
+                <p class="text-muted-foreground text-meta">@{claims().handle ?? "…"}</p>
               </div>
             </div>
 
@@ -131,7 +137,7 @@ export function SettingsPage() {
                 Handle
               </Label>
               <Input value={`@${claims().handle ?? ""}`} disabled />
-              <p class="text-subtle text-meta">Handles cannot be changed.</p>
+              <p class="text-muted-foreground text-meta">Handles cannot be changed.</p>
             </div>
 
             <div class="flex flex-col gap-1.5">
@@ -143,7 +149,7 @@ export function SettingsPage() {
                 disabled
                 placeholder="No display name set"
               />
-              <p class="text-subtle text-meta">Profile editing coming soon.</p>
+              <p class="text-muted-foreground text-meta">Profile editing coming soon.</p>
             </div>
           </Card>
         </Show>
@@ -165,15 +171,31 @@ export function SettingsPage() {
               <Input value={claims().profileId ?? ""} disabled face="code" />
             </div>
 
-            <div class="border-border border-t pt-4">
-              <h3 class="text-foreground text-title font-medium">Danger zone</h3>
-              <p class="text-subtle text-meta mt-1 mb-3">
-                Account deletion is permanent and cannot be undone.
+            <section aria-labelledby="settings-your-data" class="border-t pt-4">
+              <h3 id="settings-your-data" class="text-foreground text-title font-medium">
+                Your data
+              </h3>
+              <p class="text-muted-foreground text-body mt-1 mb-3">
+                Download a copy of your account's data, or we email you a link to download it later.
+                The email carries the link, not your data.
               </p>
-              <Button variant="ghostDanger" size="sm" disabled>
-                Delete account (coming soon)
-              </Button>
-            </div>
+              <AccountDataActions />
+            </section>
+
+            <section aria-labelledby="settings-danger-zone" class="border-t pt-4">
+              <h3 id="settings-danger-zone" class="text-foreground text-title font-medium">
+                Danger zone
+              </h3>
+              <p class="text-muted-foreground text-body mt-1 mb-3">
+                Delete your account, its profiles and handles. You have 7 days to change your mind.
+              </p>
+              <A
+                href="/settings/delete-account"
+                class={clsx(buttonVariants({ variant: "ghostDanger", size: "sm" }), "max-md:h-10")}
+              >
+                Delete account…
+              </A>
+            </section>
           </Card>
         </Show>
 
@@ -181,14 +203,16 @@ export function SettingsPage() {
         <Show when={section() === "security"}>
           <Card padding="md" class="flex flex-col gap-3">
             <Show
-              when={accessToken() && claims().profileId}
+              when={claims().profileId}
               fallback={
                 <p class="text-muted-foreground text-body">Sign in to manage your passkeys.</p>
               }
             >
-              <Suspense fallback={<p class="text-muted-foreground text-body">Loading…</p>}>
-                <SecuritySection accessToken={accessToken()!} profileId={claims().profileId!} />
-              </Suspense>
+              {(profileId) => (
+                <Suspense fallback={<SecurityLoading />}>
+                  <SecuritySection profileId={profileId()} />
+                </Suspense>
+              )}
             </Show>
           </Card>
         </Show>
@@ -196,17 +220,48 @@ export function SettingsPage() {
         {/* Connected apps section */}
         <Show when={section() === "apps"}>
           <Card padding="md" class="flex flex-col gap-4">
-            <Show
-              when={accessToken()}
-              fallback={<p class="text-subtle text-meta">Sign in to manage your connected apps.</p>}
-            >
-              <Suspense fallback={<p class="text-subtle text-meta">Loading…</p>}>
-                <ConnectedAppsSection accessToken={accessToken()!} />
-              </Suspense>
-            </Show>
+            {/* Static words, so they show while the section's code loads. */}
+            <p class="text-muted-foreground text-body">
+              Apps you have signed in to with your {PRODUCT_NAME} account. Revoking removes an app's
+              access; it will ask for your consent again the next time you sign in there.
+            </p>
+            <Suspense fallback={<ConnectedAppsLoading />}>
+              <ConnectedAppsSection />
+            </Suspense>
           </Card>
         </Show>
       </Show>
     </main>
+  );
+}
+
+/*
+ * A Suspense fallback goes when the section lands, and nothing holds both, so
+ * each fallback's own wrapper carries `aria-busy` and leaves with it.
+ */
+
+/**
+ * The Security section's place while its code loads: the passkeys' head and
+ * one row, each as tall as `@osn/auth-ui`'s at each width. Below `md` the
+ * head's "Add a passkey" is 40px tall, and the row's actions sit under its
+ * words, 40px tall: 144px, against 92px from `md`. The package keeps its own
+ * placeholder internal, so these numbers copy it; `LoadingShapes.browser.test.tsx`
+ * fails when the two part.
+ */
+function SecurityLoading() {
+  return (
+    <div aria-busy="true" class="flex flex-col gap-3">
+      <ResponsiveSkeleton standsFor="line" width={24} height={8} phoneHeight={10} />
+      <ResponsiveSkeleton standsFor="row" height={23} phoneHeight={36} />
+    </div>
+  );
+}
+
+/** The connected apps' list's place while their code loads: as many rows as it last landed, one when none. */
+function ConnectedAppsLoading() {
+  return (
+    <div aria-busy="true">
+      <AppRowsLoading count={placeholderRows(PAGE_DATA.connectedApps)} />
+    </div>
   );
 }

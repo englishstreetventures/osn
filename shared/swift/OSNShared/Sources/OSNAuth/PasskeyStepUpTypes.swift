@@ -19,6 +19,7 @@ public enum StepUpPurpose: String, Sendable, Equatable, Encodable {
     case accountExport = "account_export"
     case pulseAppDelete = "pulse_app_delete"
     case zapAppDelete = "zap_app_delete"
+    case cireAppDelete = "cire_app_delete"
     case recoveryGenerate = "recovery_generate"
     case passkeyRegister = "passkey_register"
     case passkeyDelete = "passkey_delete"

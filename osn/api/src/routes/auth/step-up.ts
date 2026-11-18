@@ -1,6 +1,9 @@
+import type { StepUpPurpose } from "@shared/observability/metrics";
 import { Elysia, t } from "elysia";
 
-import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
+import { resolveAccountWindowPrincipal } from "../../lib/auth-derive";
+import { EMAIL_LINK_SECRET_PATTERN, emailLinkIdPattern } from "../../services/auth/email-link";
+import { isAuthError } from "../../services/auth/errors";
 import type { AuthRouteContext } from "./context";
 import {
   errorResponse,
@@ -8,16 +11,88 @@ import {
   stepUpTokenResponse,
 } from "./response-schemas";
 
+/** Every purpose a step-up token may name. */
+const PURPOSE = t.Union([
+  t.Literal("account_delete"),
+  t.Literal("account_export"),
+  t.Literal("account_restore"),
+  t.Literal("pulse_app_delete"),
+  t.Literal("zap_app_delete"),
+  t.Literal("cire_app_delete"),
+  t.Literal("recovery_generate"),
+  t.Literal("passkey_register"),
+  t.Literal("passkey_delete"),
+  t.Literal("email_change"),
+  t.Literal("security_event_ack"),
+  t.Literal("totp_enroll"),
+  t.Literal("totp_disable"),
+]);
+
+/**
+ * The purposes a session of an account whose deletion is pending may mint a
+ * step-up for: the export and the cancel, the two things such a session is
+ * for. Its token is refused for every other purpose, and for none.
+ */
+const PENDING_DELETION_PURPOSES: ReadonlySet<StepUpPurpose> = new Set<StepUpPurpose>([
+  "account_export",
+  "account_restore",
+]);
+
+/** Whether a caller may mint a step-up token naming `purpose` (or none). */
+const purposeAdmitted = (caller: { pendingDeletion: boolean }, purpose?: StepUpPurpose) =>
+  !caller.pendingDeletion || (purpose !== undefined && PENDING_DELETION_PURPOSES.has(purpose));
+
 export function createStepUpRoutes(ctx: AuthRouteContext) {
-  const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
+  const { auth, run, handleError, rateLimit, socketIpOf, rl, sessionMetaFrom } = ctx;
+
+  /**
+   * The caller's account and profile, with the token's `osn_sid` binding for
+   * the live-session gate, or null.
+   *
+   * An ordinary access token resolves through `findProfileById`, which finds
+   * no profile of an account whose deletion is pending. A pending-deletion
+   * token resolves only while its account's deletion is still pending, and
+   * comes back with `pendingDeletion` set, for the route to hold to
+   * {@link PENDING_DELETION_PURPOSES}. Any other audience (a restricted
+   * recovery session's among them) and a profile that is gone answer null.
+   */
+  const callerAccount = async (
+    authorization: string | undefined,
+  ): Promise<{
+    accountId: string;
+    profileId: string;
+    sessionBinding: string | null;
+    pendingDeletion: boolean;
+  } | null> => {
+    const claims = await resolveAccountWindowPrincipal(auth, authorization);
+    if (!claims) return null;
+    const profile = await run(
+      claims.pendingDeletion
+        ? auth.findProfileByIdIncludingTombstoned(claims.profileId)
+        : auth.findProfileById(claims.profileId),
+    );
+    if (!profile) return null;
+    if (claims.pendingDeletion && (profile.accountDeletedAt ?? null) === null) return null;
+    return {
+      accountId: profile.accountId,
+      profileId: profile.id,
+      sessionBinding: claims.sessionBinding,
+      pendingDeletion: claims.pendingDeletion,
+    };
+  };
+
   return (
     new Elysia()
       // -------------------------------------------------------------------------
-      // Step-up (sudo) — passkey + OTP ceremonies that mint a short-lived
-      // JWT required for sensitive operations (recovery generate, email
-      // change). All routes authenticate via Bearer access token so the
-      // account is known up-front; the challenge / OTP stores are keyed
-      // by accountId to keep the ceremony scoped to the caller.
+      // Step-up (sudo) — passkey, emailed-link and authenticator ceremonies
+      // that mint a short-lived JWT required for sensitive operations
+      // (recovery generate, email change). All routes authenticate via Bearer
+      // access token so the account is known up-front; each ceremony's state
+      // is scoped to the caller's account. A minted token is bound to the
+      // family of the caller's live session, and no gate accepts it once that
+      // family has no live session. A session of an account whose deletion is
+      // pending mints only for export and restore (`callerAccount`,
+      // `PENDING_DELETION_PURPOSES`).
       // -------------------------------------------------------------------------
       .post(
         "/step-up/passkey/begin",
@@ -33,17 +108,26 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-            if (!claims) {
+            // No purpose here: begin only parks a challenge, and complete
+            // holds a pending-deletion caller to its purposes.
+            const caller = await callerAccount(headers.authorization);
+            if (!caller) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const profile = await run(auth.findProfileById(claims.profileId));
-            if (!profile) {
-              set.status = 401;
-              return { error: "unauthorized" };
+            // Before the challenge is written: the account parks one, so a
+            // token whose session has ended would overwrite the live one's.
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_passkey_begin",
+              caller.accountId,
+              caller,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
             }
-            return await run(auth.beginStepUpPasskey(profile.accountId));
+            return await run(auth.beginStepUpPasskey(caller.accountId));
           } catch (e) {
             const { status, body: errBody } = handleError(e);
             set.status = status;
@@ -55,6 +139,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             200: t.Object({ options: publicKeyCredentialRequestOptions }),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
@@ -75,18 +161,31 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-            if (!claims) {
+            const caller = await callerAccount(headers.authorization);
+            // Before the challenge is taken: a refused purpose leaves it parked.
+            if (!caller || !purposeAdmitted(caller, body.purpose)) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const profile = await run(auth.findProfileById(claims.profileId));
-            if (!profile) {
-              set.status = 401;
-              return { error: "unauthorized" };
+            // Before the challenge is taken: a token whose session has ended
+            // mints nothing and leaves the parked challenge in place. The
+            // session found here is the one the minted token is bound to.
+            const live = await ctx.liveSession(
+              "step_up_passkey_complete",
+              caller.accountId,
+              caller,
+              headers.cookie,
+            );
+            if (live.sessionHash === null) {
+              set.status = 409;
+              return live.refusal;
             }
             const result = await run(
-              auth.completeStepUpPasskey(profile.accountId, body.assertion, body.purpose),
+              auth.completeStepUpPasskey(
+                { accountId: caller.accountId, familyId: live.familyId },
+                body.assertion,
+                body.purpose,
+              ),
             );
             return {
               step_up_token: result.stepUpToken,
@@ -108,8 +207,10 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               t.Union([
                 t.Literal("account_delete"),
                 t.Literal("account_export"),
+                t.Literal("account_restore"),
                 t.Literal("pulse_app_delete"),
                 t.Literal("zap_app_delete"),
+                t.Literal("cire_app_delete"),
                 t.Literal("recovery_generate"),
                 t.Literal("passkey_register"),
                 t.Literal("passkey_delete"),
@@ -124,37 +225,65 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             200: stepUpTokenResponse,
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
           detail: { operationId: "completeStepUpPasskey", security: [{ bearerAuth: [] }] },
         },
       )
+      // -------------------------------------------------------------------------
+      // Step-up by emailed link. Begin mails a link to the account's own
+      // address for ONE purpose, fixed here; the link's page confirms it with
+      // the number this tab shows (shared `/email-link/:requestId/confirm`),
+      // which mints nothing. This tab, signed in as the same account and
+      // holding the claim secret, polls status and gets the step-up token,
+      // once. Every refusal of a poll or a Resend is `expired`, except a
+      // caller whose session has ended: each of the three routes refuses it
+      // 409 `session_stale` before it mails, reads or spends anything.
+      // -------------------------------------------------------------------------
       .post(
-        "/step-up/otp/begin",
-        async ({ headers, set, server, request }) => {
+        "/step-up/email/begin",
+        async ({ body, headers, set, server, request }) => {
+          // A claim secret is minted here; nothing may cache any part of it.
+          set.headers["cache-control"] = "no-store";
           const rlErr = await rateLimit(
             headers,
             socketIpOf({ server, request }),
-            "step_up_otp_begin",
-            rl.stepUpOtpBegin,
+            "step_up_email_begin",
+            rl.stepUpEmailBegin,
           );
           if (rlErr) {
             set.status = 429;
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-            if (!claims) {
+            const caller = await callerAccount(headers.authorization);
+            if (!caller || !purposeAdmitted(caller, body.purpose)) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const profile = await run(auth.findProfileById(claims.profileId));
-            if (!profile) {
-              set.status = 401;
-              return { error: "unauthorized" };
+            const { accountId } = caller;
+            // Before the request is opened: a link mails the owner and spends
+            // the account's daily link ceiling.
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_email_begin",
+              accountId,
+              caller,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
             }
-            return await run(auth.beginStepUpOtp(profile.accountId));
+            return await run(
+              auth.beginStepUpEmail(
+                accountId,
+                body.purpose,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+              ),
+            );
           } catch (e) {
             const { status, body: errBody } = handleError(e);
             set.status = status;
@@ -162,47 +291,79 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
           }
         },
         {
+          // The purpose the minted token will name. Required: every gate
+          // names one, so a purposeless token verifies nowhere.
+          body: t.Object({
+            purpose: PURPOSE,
+          }),
           response: {
-            // `sent` is always true on the success path — the OTP send is
-            // awaited, so a transport failure surfaces as an error status
-            // rather than `{ sent: false }`.
-            200: t.Object({ sent: t.Boolean() }),
+            // `claimSecret` and `pairingCode` match log redaction deny-list
+            // entries. `expiresAt` is Unix seconds.
+            200: t.Object({
+              requestId: t.String(),
+              claimSecret: t.String(),
+              pairingCode: t.String(),
+              expiresAt: t.Number(),
+            }),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
-          detail: { operationId: "beginStepUpOtp", security: [{ bearerAuth: [] }] },
+          detail: { operationId: "beginStepUpEmail", security: [{ bearerAuth: [] }] },
         },
       )
       .post(
-        "/step-up/otp/complete",
-        async ({ body, headers, set, server, request }) => {
+        "/step-up/email/:requestId/status",
+        async ({ params, body, headers, set, server, request }) => {
+          // The completing answer carries a step-up token.
+          set.headers["cache-control"] = "no-store";
           const rlErr = await rateLimit(
             headers,
             socketIpOf({ server, request }),
-            "step_up_otp_complete",
-            rl.stepUpOtpComplete,
+            "step_up_email_status",
+            rl.stepUpEmailStatus,
           );
           if (rlErr) {
             set.status = 429;
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-            if (!claims) {
+            const caller = await callerAccount(headers.authorization);
+            if (!caller) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const profile = await run(auth.findProfileById(claims.profileId));
-            if (!profile) {
-              set.status = 401;
-              return { error: "unauthorized" };
-            }
-            const result = await run(
-              auth.completeStepUpOtp(profile.accountId, body.code, body.purpose),
+            const { accountId } = caller;
+            // Before the request is read: a confirmed one is claimed and spent
+            // by the poll that finds it. The session found here is the one the
+            // minted token is bound to.
+            const live = await ctx.liveSession(
+              "step_up_email_status",
+              accountId,
+              caller,
+              headers.cookie,
             );
+            if (live.sessionHash === null) {
+              set.status = 409;
+              return live.refusal;
+            }
+            // A pending-deletion caller finishes only a link begun for one of
+            // its purposes; any other reads as expired.
+            const result = await run(
+              auth.stepUpEmailStatus(
+                { accountId, familyId: live.familyId },
+                caller.profileId,
+                params.requestId,
+                body.claimSecret,
+                caller.pendingDeletion ? PENDING_DELETION_PURPOSES : undefined,
+              ),
+            );
+            if (result.status !== "complete") return result;
             return {
+              status: result.status,
               step_up_token: result.stepUpToken,
               expires_in: result.expiresIn,
             };
@@ -213,33 +374,99 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
           }
         },
         {
-          // See /step-up/passkey/complete for the purpose-claim rationale.
-          body: t.Object({
-            code: t.String(),
-            purpose: t.Optional(
-              t.Union([
-                t.Literal("account_delete"),
-                t.Literal("account_export"),
-                t.Literal("pulse_app_delete"),
-                t.Literal("zap_app_delete"),
-                t.Literal("recovery_generate"),
-                t.Literal("passkey_register"),
-                t.Literal("passkey_delete"),
-                t.Literal("email_change"),
-                t.Literal("security_event_ack"),
-                t.Literal("totp_enroll"),
-                t.Literal("totp_disable"),
-              ]),
-            ),
+          params: t.Object({
+            requestId: t.String({ pattern: emailLinkIdPattern("step_up") }),
           }),
+          body: t.Object({ claimSecret: t.String({ pattern: EMAIL_LINK_SECRET_PATTERN }) }),
           response: {
-            200: stepUpTokenResponse,
+            200: t.Union([
+              // The number the waiting screen shows, so a reloaded tab can
+              // show it again without keeping it.
+              t.Object({ status: t.Literal("pending"), pairingCode: t.Optional(t.String()) }),
+              // Also "no such request", "wrong claim secret", another
+              // account's request and an address changed since begin.
+              t.Object({ status: t.Literal("expired") }),
+              t.Object({
+                status: t.Literal("complete"),
+                step_up_token: t.String(),
+                expires_in: t.Number(),
+              }),
+            ]),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
-          detail: { operationId: "completeStepUpOtp", security: [{ bearerAuth: [] }] },
+          detail: { operationId: "getStepUpEmailStatus", security: [{ bearerAuth: [] }] },
+        },
+      )
+      .post(
+        "/step-up/email/:requestId/resend",
+        async ({ params, body, headers, set, server, request }) => {
+          set.headers["cache-control"] = "no-store";
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "step_up_email_resend",
+            rl.stepUpEmailResend,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const caller = await callerAccount(headers.authorization);
+            if (!caller) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const { accountId } = caller;
+            // Before the request is rewritten: a Resend mails the owner and
+            // spends the ceiling and the mailbox's Resends.
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_email_resend",
+              accountId,
+              caller,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
+            return await run(
+              auth.resendStepUpEmail(
+                accountId,
+                params.requestId,
+                body.claimSecret,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+                caller.pendingDeletion ? PENDING_DELETION_PURPOSES : undefined,
+              ),
+            );
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({
+            requestId: t.String({ pattern: emailLinkIdPattern("step_up") }),
+          }),
+          body: t.Object({ claimSecret: t.String({ pattern: EMAIL_LINK_SECRET_PATTERN }) }),
+          response: {
+            200: t.Object({
+              status: t.Union([t.Literal("sent"), t.Literal("limit"), t.Literal("expired")]),
+            }),
+            400: errorResponse,
+            401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "resendStepUpEmailLink", security: [{ bearerAuth: [] }] },
         },
       )
       // No `/step-up/totp/begin` counterpart, and that is not an omission: TOTP
@@ -260,18 +487,31 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-            if (!claims) {
+            const caller = await callerAccount(headers.authorization);
+            // Before the code is checked: a refused purpose counts no guess.
+            if (!caller || !purposeAdmitted(caller, body.purpose)) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const profile = await run(auth.findProfileById(claims.profileId));
-            if (!profile) {
-              set.status = 401;
-              return { error: "unauthorized" };
+            // Before the code is checked: a token whose session has ended
+            // mints nothing, records no TOTP step and counts no guess. The
+            // session found here is the one the minted token is bound to.
+            const live = await ctx.liveSession(
+              "step_up_totp_complete",
+              caller.accountId,
+              caller,
+              headers.cookie,
+            );
+            if (live.sessionHash === null) {
+              set.status = 409;
+              return live.refusal;
             }
             const result = await run(
-              auth.completeStepUpTotp(profile.accountId, body.code, body.purpose),
+              auth.completeStepUpTotp(
+                { accountId: caller.accountId, familyId: live.familyId },
+                body.code,
+                body.purpose,
+              ),
             );
             return {
               step_up_token: result.stepUpToken,
@@ -291,8 +531,10 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               t.Union([
                 t.Literal("account_delete"),
                 t.Literal("account_export"),
+                t.Literal("account_restore"),
                 t.Literal("pulse_app_delete"),
                 t.Literal("zap_app_delete"),
+                t.Literal("cire_app_delete"),
                 t.Literal("recovery_generate"),
                 t.Literal("passkey_register"),
                 t.Literal("passkey_delete"),
@@ -307,10 +549,156 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             200: stepUpTokenResponse,
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
           detail: { operationId: "completeStepUpTotp", security: [{ bearerAuth: [] }] },
+        },
+      )
+      // -------------------------------------------------------------------------
+      // An app's step-up request (`services/auth/app-step-up.ts`): an app whose
+      // own pages cannot run a step-up (cire's organiser portal holds no OSN
+      // token) begins one over ARC and sends the person here, on Musubi, to
+      // confirm it. The read shows the page what it confirms; the confirm
+      // spends a step-up token for the request's purpose and answers where to
+      // send the person back, with a code on the address's fragment. A request
+      // of another account, and any request to a session of an account whose
+      // deletion is pending, is not found: the window allows nothing else.
+      // -------------------------------------------------------------------------
+      .get(
+        "/step-up/requests/:requestId",
+        async ({ params, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "step_up_request_read",
+            rl.stepUpRequestRead,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const caller = await callerAccount(headers.authorization);
+            if (!caller) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            if (caller.pendingDeletion) {
+              set.status = 404;
+              return { error: "not_found" };
+            }
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_request_read",
+              caller.accountId,
+              caller,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
+            const found = await run(auth.readAppStepUp(params.requestId, caller.accountId));
+            if (!found) {
+              set.status = 404;
+              return { error: "not_found" };
+            }
+            return { purpose: found.purpose, return_host: found.returnHost };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ requestId: t.String({ minLength: 1, maxLength: 64 }) }),
+          response: {
+            200: t.Object({ purpose: t.Literal("cire_app_delete"), return_host: t.String() }),
+            401: errorResponse,
+            404: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "readAppStepUpRequest", security: [{ bearerAuth: [] }] },
+        },
+      )
+      .post(
+        "/step-up/requests/:requestId/confirm",
+        async ({ params, body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "step_up_request_confirm",
+            rl.stepUpRequestConfirm,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const caller = await callerAccount(headers.authorization);
+            if (!caller) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            if (caller.pendingDeletion) {
+              set.status = 404;
+              return { error: "not_found" };
+            }
+            // The request lasts no longer than this session's family, which
+            // the confirm records.
+            const live = await ctx.liveSession(
+              "step_up_request_confirm",
+              caller.accountId,
+              caller,
+              headers.cookie,
+            );
+            if (live.sessionHash === null) {
+              set.status = 409;
+              return live.refusal;
+            }
+            const confirmed = await run(
+              auth.confirmAppStepUp(
+                params.requestId,
+                { accountId: caller.accountId, familyId: live.familyId },
+                body.step_up_token,
+              ),
+            );
+            if (!confirmed) {
+              set.status = 404;
+              return { error: "not_found" };
+            }
+            return { return_to: confirmed.returnTo };
+          } catch (e) {
+            // A step-up token this request cannot take: another purpose, spent,
+            // or not of this account.
+            if (isAuthError(e)) {
+              set.status = 403;
+              return { error: "step_up_required" };
+            }
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ requestId: t.String({ minLength: 1, maxLength: 64 }) }),
+          body: t.Object({ step_up_token: t.String({ minLength: 1 }) }),
+          response: {
+            200: t.Object({ return_to: t.String() }),
+            401: errorResponse,
+            403: errorResponse,
+            404: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "confirmAppStepUpRequest", security: [{ bearerAuth: [] }] },
         },
       )
   );

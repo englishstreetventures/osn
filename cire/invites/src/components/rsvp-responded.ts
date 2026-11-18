@@ -100,15 +100,19 @@ export function hasAnyHouseholdReply(
  *    long enough to read, and then simply stays. All that expires at the end
  *    is the tick's draw animation and the parent's `justResponded` cue.
  *
- * The fill's sweep, in either direction — must equal the `duration-500`
- * utility on the fill layer.
+ * Every time here is the one at `--motion-scale` 1. The stylesheet multiplies
+ * each by the scale, and `EventCard` multiplies the hold by it, so the three
+ * places stay in step when the scale slows them.
+ *
+ * The fill's sweep, in either direction — must equal the
+ * `duration-[calc(500ms*var(--motion-scale))]` utility on the fill layer.
  */
 export const SWEEP_DURATION_MS = 500;
 
-/** Matches `--animate-tick-draw`'s delay in `global.css` — unchanged from the Save-button era. */
+/** Matches `--animate-tick-draw`'s delay in `global.css`. */
 export const TICK_DELAY_MS = 180;
 
-/** Matches `--animate-tick-draw`'s duration in `global.css` — unchanged from the Save-button era. */
+/** Matches `--animate-tick-draw`'s duration in `global.css`. */
 export const TICK_DURATION_MS = 340;
 
 /** The instant the tick's stroke finishes drawing, relative to celebration start. */

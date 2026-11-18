@@ -73,7 +73,9 @@ export const RsvpBody = RsvpItem;
 export type RsvpBody = Schema.Schema.Type<typeof RsvpBody>;
 
 export const BulkRsvpBody = Schema.Struct({
-  rsvps: Schema.Array(RsvpItem).check(Schema.isMaxLength(MAX_RSVP_BATCH)),
+  // At least one reply: the guest site never sends a save with none, and the
+  // server holds the same rule.
+  rsvps: Schema.Array(RsvpItem).check(Schema.isMinLength(1), Schema.isMaxLength(MAX_RSVP_BATCH)),
   // The household member the page showed as answering ("Answering as …").
   // Absent from a page that showed none, or that predates the field.
   memberGuestId: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),

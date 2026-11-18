@@ -14,6 +14,8 @@ import { eq } from "drizzle-orm";
 import { Effect, Fiber, Layer } from "effect";
 import { beforeAll, beforeEach, vi } from "vitest";
 
+import { completePasskeyStepUp } from "../../helpers/step-up-session";
+
 /** The counters the next assertions report, in the order they are verified. */
 const nextCounters = vi.hoisted(() => [] as number[]);
 
@@ -202,11 +204,11 @@ describe("passkey step-up: two assertions verified against one counter", () => {
       yield* auth.beginStepUpPasskey(profile.accountId);
       const write = h.hold(WRITE);
       const late = yield* Effect.forkChild(
-        Effect.result(auth.completeStepUpPasskey(profile.accountId, assertion(credentialId))),
+        Effect.result(completePasskeyStepUp(auth, profile.accountId, assertion(credentialId))),
       );
       yield* Effect.promise(() => write.reached);
       yield* auth.beginStepUpPasskey(profile.accountId);
-      yield* auth.completeStepUpPasskey(profile.accountId, assertion(credentialId));
+      yield* completePasskeyStepUp(auth, profile.accountId, assertion(credentialId));
       write.release();
 
       const outcome = yield* Fiber.join(late);

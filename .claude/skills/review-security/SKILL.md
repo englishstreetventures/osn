@@ -91,7 +91,7 @@ git diff "$DIFF_BASE"...HEAD | grep -nE '<pattern>'
 |---|---|
 | `document.cookie`, `Set-Cookie`, `setCookie`, `cookie.set`, `__Host-`, `SameSite`, `max-age` (grep `-i`, the header spells it `Max-Age=` and the option `maxAge`) | Cookies |
 | `consent`, `revoke`, `withdraw`, `optOut`, `denied`, `granted` | Cookies, Compliance → subprocessors |
-| `<script`, `<iframe`, `src="https://`, `googletagmanager`, `maps.googleapis`, `pinterest` | Cookies, Compliance → subprocessors, Configuration (references) |
+| `<script`, `<iframe`, `src="https://`, `import("https://`, `unpkg`, `esm.sh`, `jsdelivr`, `googletagmanager`, `maps.googleapis`, `pinterest` | Cookies, Compliance → subprocessors, Configuration (references) |
 | `randomBytes`, `Math.random`, `crypto.getRandomValues`, `.toString(36)`, `%` (a modulo applied to random bytes biases the output) | Tokens & Sessions, Cryptography (references) |
 | `` sql` ``, `${`, `Bun.spawn`, `exec(`, `LIKE` | Injection (references) |
 | `redirect`, `return_url`, `next=`, `location.href =` | Redirects (references) |

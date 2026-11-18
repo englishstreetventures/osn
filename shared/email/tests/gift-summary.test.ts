@@ -17,7 +17,7 @@ import type { RegistryGiftSummaryData } from "../src/templates/gift-summary";
 
 const base: RegistryGiftSummaryData = {
   weddingName: "Ama & Jonah",
-  finalEventOn: "2025-05-10",
+  retainedFrom: { rule: "final-event", on: "2025-05-10" },
   sweptOn: "2026-05-11",
   giftCount: 2,
   giftCurrency: "AUD",
@@ -172,6 +172,35 @@ describe("registry-gift-summary", () => {
     // Plain text has no markup to escape into, and mangling the name there
     // would only make the record harder to read.
     expect(out.text).toContain("<script>Ben & Jo");
+  });
+
+  /**
+   * The sweep deletes a wedding's guest data a year after its last event, or,
+   * when it cannot read the dates of the events, three years after the wedding
+   * was created. The opening says which, with the day it counted from, so the
+   * couple are never told of a last event that has no date.
+   */
+  it("says when the guest data went and the day it counted from, by the rule that applied", () => {
+    const year = renderTemplate("registry-gift-summary", base);
+    const created = renderTemplate("registry-gift-summary", {
+      ...base,
+      retainedFrom: { rule: "created", on: "2023-05-01" },
+    });
+
+    for (const body of [year.text, year.html]) {
+      expect(body).toContain("A year has passed since the last event of Ama &");
+      expect(body).toContain("on 2025-05-10.");
+    }
+    for (const body of [created.text, created.html]) {
+      expect(body).toContain("Three years have passed since Ama &");
+      // True of a wedding with no event it could date and of one with some:
+      // either way, not every date could be read.
+      expect(body).toContain(
+        "was created on Cire, on 2023-05-01, and we could not read the dates of all its events.",
+      );
+      expect(body).not.toContain("A year has passed");
+      expect(body).not.toContain("last event");
+    }
   });
 
   it("says who gave and what they wrote are unrecoverable, and never suggests otherwise", () => {

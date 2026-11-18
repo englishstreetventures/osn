@@ -20,6 +20,7 @@ describe("applying access", () => {
     let calls = 0;
     const seen: boolean[] = [];
     const h: Harness = await createHarness({
+      tuning: { accessBudgetMs: 2_000 },
       hooks: {
         onAccess: (decision) =>
           Effect.gen(function* () {
@@ -96,8 +97,8 @@ describe("applying access", () => {
     expect(h.decisions.at(-1)!.features.workspace.reason).toBe("grant");
   });
 
-  it("waits for a live lease, and fails busy, row due, when it is never freed", async () => {
-    const h = await createHarness();
+  it("waits for a live lease, and applies once its holder frees it", async () => {
+    const h = await createHarness({ tuning: { accessBudgetMs: 2_000 } });
     await run(h.storage.ensureCustomer("org_1", h.now()));
     const lease = await run(
       h.storage.acquireAccess({ customerRef: "org_1", now: h.now(), until: later(30_000) }),
@@ -126,6 +127,20 @@ describe("applying access", () => {
       }),
     );
     expect(h.decisions).toHaveLength(1);
+  });
+
+  it("fails busy, and leaves the row due, when a live lease is never freed", async () => {
+    const h = await createHarness({ tuning: { accessBudgetMs: 10 } });
+    await run(h.storage.ensureCustomer("org_1", h.now()));
+    await run(
+      h.billing.grant({
+        customerRef: "org_1",
+        featureId: "workspace",
+        source: "comp",
+        grantedBy: "ops",
+        expiresAt: null,
+      }),
+    );
 
     await run(
       h.storage.acquireAccess({ customerRef: "org_1", now: h.now(), until: later(30_000) }),
@@ -238,7 +253,10 @@ describe("applying access", () => {
 
   it("polls a busy lease by reading the row alone, backing off, until its budget runs out", async () => {
     const calls = new Map<string, number>();
-    const h = await createHarness({ wrap: counting(calls) });
+    const h = await createHarness({
+      wrap: counting(calls),
+      tuning: { backoffMs: 1, accessBudgetMs: 75 },
+    });
     await run(h.storage.ensureCustomer("org_1", h.now()));
     await run(
       h.storage.acquireAccess({ customerRef: "org_1", now: h.now(), until: later(30_000) }),
@@ -256,7 +274,7 @@ describe("applying access", () => {
         )
       )._tag,
     ).toBe("AccessBusy");
-    // A 150 ms budget from 2 ms, doubling: at most 9 reads, and one acquire.
+    // A 75 ms budget from 1 ms, doubling: at most 9 reads, and one acquire.
     expect(calls.get("acquireAccess")).toBe(1);
     expect((calls.get("findCustomer") ?? 0) <= 9).toBe(true);
   });
@@ -365,7 +383,7 @@ describe("forgetCustomer", () => {
   });
 
   it("deletes nothing while another process holds the lease, and fails busy", async () => {
-    const h = await createHarness();
+    const h = await createHarness({ tuning: { accessBudgetMs: 10 } });
     await grantWorkspace(h);
     const decisions = h.decisions.length;
     await run(

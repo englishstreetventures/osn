@@ -328,7 +328,7 @@ describe("EventTable events caching", () => {
 });
 
 /**
- * The Events tab's "Download events (CSV)" button — the CSV is built (and
+ * The Events tab's "Download events CSV" button — the CSV is built (and
  * formula-sanitised) server-side at `GET …/events.csv`; the component only hands
  * the response Blob to the shared download helper. Mirrors GuestTable's export
  * tests.
@@ -353,7 +353,11 @@ describe("EventTable events CSV export", () => {
     render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" canManage />);
     await waitFor(() => screen.getByText("Reception"));
 
-    fireEvent.click(screen.getByRole("button", { name: /Download events/i }));
+    // The portal's download button: its word beside its icon.
+    const download = screen.getByRole("button", { name: "Download events CSV" });
+    expect(download.textContent).toBe("Download events CSV");
+    expect(download.querySelector("svg")).not.toBeNull();
+    fireEvent.click(download);
 
     // Hits the server-built CSV endpoint…
     await waitFor(() =>

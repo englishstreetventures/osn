@@ -57,9 +57,13 @@ describe("selectEmailLayer", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-step-up",
+          template: "link-email-change",
           to: "alice@example.com",
-          data: { code: "111111", ttlMinutes: 10, instanceName: "Musubi" },
+          data: {
+            url: "https://musubi.example/verify#111111",
+            ttlMinutes: 10,
+            instanceName: "Musubi",
+          },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -119,9 +123,13 @@ describe("selectEmailLayer", () => {
         Effect.gen(function* () {
           const email = yield* EmailService;
           yield* email.send({
-            template: "otp-step-up",
+            template: "link-email-change",
             to: "alice@example.com",
-            data: { code: "222222", ttlMinutes: 10, instanceName: "Musubi" },
+            data: {
+              url: "https://musubi.example/verify#222222",
+              ttlMinutes: 10,
+              instanceName: "Musubi",
+            },
           });
         }).pipe(Effect.provide(layer)),
       );
@@ -183,9 +191,13 @@ describe("selectEmailLayer", () => {
         Effect.gen(function* () {
           const email = yield* EmailService;
           yield* email.send({
-            template: "otp-step-up",
+            template: "link-email-change",
             to: "alice@example.com",
-            data: { code: "222222", ttlMinutes: 10, instanceName: "Musubi" },
+            data: {
+              url: "https://musubi.example/verify#222222",
+              ttlMinutes: 10,
+              instanceName: "Musubi",
+            },
           });
         }).pipe(Effect.provide(layer)),
       );

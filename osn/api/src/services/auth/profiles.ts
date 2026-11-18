@@ -5,11 +5,16 @@
 
 import { accounts, users } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
-import { and, desc, eq, getTableColumns, isNull } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNull, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DatabaseError } from "./errors";
-import { looksLikeEmail } from "./helpers";
+import {
+  identifierAsTyped,
+  looksLikeEmail,
+  MAX_IDENTIFIER_LENGTH,
+  normaliseIdentifier,
+} from "./helpers";
 import type { ProfileWithEmail } from "./types";
 
 /**
@@ -55,6 +60,51 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
+      };
+    });
+
+  /**
+   * The profile a sign-in or recovery email names: of the account stored with
+   * the address exactly as typed, else of the one stored with it lower-cased,
+   * and of that account its default profile. Every email is now written
+   * lower-cased, and the database refuses a capital; the typed match keeps an
+   * account stored with capitals before that rule signing in by the address
+   * as stored, and tells it apart from one whose address differs only in case.
+   *
+   * The choice is made in the statement's ORDER BY, not from the first rows it
+   * returns: the join yields a row per profile, so a LIMIT over unordered rows
+   * could hold only the other account's.
+   *
+   * One statement on every call. Whether it looks up one address or two
+   * depends only on whether the typed address has capitals, never on whether
+   * an account exists.
+   */
+  const findProfileBySignInEmail = (
+    normalised: string,
+    asTyped: string,
+  ): Effect.Effect<ProfileWithEmail | null, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const candidates = asTyped === normalised ? [normalised] : [asTyped, normalised];
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ profile: users, account: accounts })
+            .from(users)
+            .innerJoin(accounts, eq(users.accountId, accounts.id))
+            .where(inArray(accounts.email, candidates))
+            .orderBy(desc(sql`${accounts.email} = ${asTyped}`), desc(users.isDefault))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        ...row.profile,
+        email: row.account.email,
+        lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -79,6 +129,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -102,10 +153,13 @@ export function createProfilesModule() {
     });
 
   /**
-   * Variant of `findProfileById` that ignores the soft-delete tombstone.
-   * Only the cancellation + deletion-status routes should use this; every
-   * other route should use `findProfileById` so tombstoned accounts cannot
-   * mutate state during the grace window.
+   * Variant of `findProfileById` that ignores the soft-delete tombstone, and
+   * returns the account's `deleted_at` as `accountDeletedAt`. Only the routes
+   * an account may reach while its deletion is pending use it: delete,
+   * restore and deletion status; export and step-up, for a pending-deletion
+   * token; and passkey enrolment, for a restricted recovery token. Every
+   * other route uses `findProfileById`, so a tombstoned account cannot change
+   * anything during the grace window.
    */
   const findProfileByIdIncludingTombstoned = (
     profileId: string,
@@ -128,6 +182,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -162,13 +217,25 @@ export function createProfilesModule() {
     });
 
   /**
-   * Resolves a (normalised) identifier to a profile.
-   * Identifiers containing "@" are treated as email addresses; all others as handles.
+   * Resolves an identifier, as the caller submitted it, to a profile. One
+   * containing "@" once normalised is an email address; any other is a handle.
+   * Normalises it here, with the same {@link normaliseIdentifier} every caller
+   * derives its store keys from. One longer than any account's identifier
+   * names nobody and is not looked up: whether it is too long depends only on
+   * what was sent.
    */
   const resolveIdentifier = (
     identifier: string,
-  ): Effect.Effect<ProfileWithEmail | null, DatabaseError, Db> =>
-    looksLikeEmail(identifier) ? findProfileByEmail(identifier) : findProfileByHandle(identifier);
+  ): Effect.Effect<ProfileWithEmail | null, DatabaseError, Db> => {
+    const normalised = normaliseIdentifier(identifier);
+    const asTyped = identifierAsTyped(identifier);
+    if (normalised.length > MAX_IDENTIFIER_LENGTH || asTyped.length > MAX_IDENTIFIER_LENGTH) {
+      return Effect.succeed(null);
+    }
+    return looksLikeEmail(normalised)
+      ? findProfileBySignInEmail(normalised, asTyped)
+      : findProfileByHandle(normalised);
+  };
 
   /**
    * Finds the default profile for an account. Uses DESC ordering on isDefault
@@ -197,6 +264,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 

@@ -1,10 +1,18 @@
 import type { RecoveryClient, StepUpClient } from "@osn/client";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 // @vitest-environment happy-dom
-import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
+import { render, cleanup, screen, fireEvent, waitFor, within } from "@solidjs/testing-library";
+import { Suspense } from "solid-js";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { RecoveryCodesView, recoveryCodesFileName } from "../src/RecoveryCodesView";
+import { dialogDescription } from "./helpers/dialog";
+import { WAIT, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Show-once recovery-code view. Tests cover:
@@ -28,8 +36,9 @@ interface ClientStub {
 interface StepUpStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
 }
 
 function makeClientStub(): ClientStub {
@@ -46,8 +55,9 @@ function makeStepUpStub(): StepUpStub {
     passkeyComplete: vi
       .fn()
       .mockResolvedValue({ token: "su_tok", expiresAt: Math.floor(Date.now() / 1000) + 300 }),
-    otpBegin: vi.fn(),
-    otpComplete: vi.fn(),
+    emailBegin: vi.fn(),
+    emailStatus: vi.fn(),
+    emailResend: vi.fn(),
   };
 }
 
@@ -86,19 +96,21 @@ const sampleCodes = [
 let stub: ClientStub;
 let stepUp: StepUpStub;
 
-/** Renders in passkey-only mode, so the dialog auto-runs the ceremony. */
 function renderView(extra: Record<string, unknown> = {}) {
   return render(() => (
     <RecoveryCodesView
       client={asClient(stub)}
       stepUpClient={asStepUp(stepUp)}
-      accessToken="acc_live"
       runPasskeyCeremony={async () => assertion}
-      passkeyOnly
       productName="Musubi"
       {...extra}
     />
   ));
+}
+
+/** Picks the step-up sheet's passkey factor once the sheet is up. */
+async function usePasskey() {
+  fireEvent.click(await screen.findByRole("button", { name: "Use passkey" }));
 }
 
 /**
@@ -153,15 +165,15 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await clickGenerate();
+    await usePasskey();
     await waitFor(() => {
       for (const code of sampleCodes) {
         expect(screen.getByText(code)).toBeTruthy();
       }
     });
 
-    expect(stepUp.passkeyBegin).toHaveBeenCalledWith({ accessToken: "acc_live" });
+    expect(stepUp.passkeyBegin).toHaveBeenCalledWith();
     expect(stub.generateRecoveryCodes).toHaveBeenCalledWith({
-      accessToken: "acc_live",
       stepUpToken: "su_tok",
     });
   });
@@ -199,9 +211,83 @@ describe("RecoveryCodesView", () => {
     await clickGenerate(/Generate new codes/i);
     await waitFor(() => screen.getByRole("button", { name: /Generate new set/i }));
     fireEvent.click(screen.getByRole("button", { name: /Generate new set/i }));
+    await usePasskey();
 
     await waitFor(() => expect(screen.getByText(sampleCodes[0]!)).toBeTruthy());
     expect(stepUp.passkeyBegin).toHaveBeenCalled();
+  });
+
+  // The header holds the title alone; Cancel leads the footer pair.
+  it("puts Cancel first in the rotation dialog's footer, beside Generate new set", async () => {
+    stub.getRecoveryCodesStatus.mockResolvedValue({
+      active: 10,
+      total: 10,
+      generatedAt: 1_750_000_000,
+    });
+    renderView();
+    await clickGenerate(/Generate new codes/i);
+    const title = await screen.findByRole("heading", { name: "Generate a new set?" });
+    expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+    const cancel = screen.getByRole("button", { name: /^Cancel$/ });
+    expect([...cancel.parentElement!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+      ["Cancel", "Generate new set"],
+    );
+  });
+
+  // The sheet says why, in one line under its title.
+  it("says why on the step-up sheet before a new set is generated", async () => {
+    stub.getRecoveryCodesStatus.mockResolvedValue({
+      active: 10,
+      total: 10,
+      generatedAt: 1_750_000_000,
+    });
+    renderView();
+    await clickGenerate(/Generate new codes/i);
+    fireEvent.click(await screen.findByRole("button", { name: /Generate new set/i }));
+    expect(await dialogDescription("Confirm it's you")).toBe(
+      "To generate recovery codes, confirm it's you.",
+    );
+  });
+
+  // The confirm dialog closes in the same tick the step-up sheet opens, so two
+  // modal layers overlap for the length of the confirm's exit.
+  it("opens the step-up sheet from the rotation dialog, and Escape leaves the set untouched", async () => {
+    stub.getRecoveryCodesStatus.mockResolvedValue({
+      active: 10,
+      total: 10,
+      generatedAt: 1_750_000_000,
+    });
+    renderView();
+
+    await clickGenerate(/Generate new codes/i);
+    fireEvent.click(await screen.findByRole("button", { name: /Generate new set/i }));
+    const sheet = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    expect(within(sheet).getByRole("button", { name: "Use passkey" })).toBeTruthy();
+    fireEvent.keyDown(sheet, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull(),
+    );
+    const generate = screen.getByRole("button", {
+      name: /Generate new codes/i,
+    }) as HTMLButtonElement;
+    expect(generate.disabled).toBe(false);
+    expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
+    expect(stub.generateRecoveryCodes).not.toHaveBeenCalled();
+  });
+
+  // The generate holds focus through the wait: `busy`, not `disabled`.
+  it("keeps the generate button busy, not disabled, while it generates", async () => {
+    stub.generateRecoveryCodes.mockReturnValue(new Promise(() => {}));
+    renderView();
+    await clickGenerate();
+    await usePasskey();
+    const generating = await screen.findByRole("button", { name: "Generating…" });
+    expect(generating.getAttribute("aria-busy")).toBe("true");
+    expect((generating as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(generating);
+    await Promise.resolve();
+    expect(stub.generateRecoveryCodes).toHaveBeenCalledTimes(1);
   });
 
   it("Done button is disabled until the 'I've saved' checkbox is ticked", async () => {
@@ -209,6 +295,7 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await clickGenerate();
+    await usePasskey();
     await waitFor(() => screen.getByRole("button", { name: /^Done$/ }));
 
     const done = screen.getByRole("button", { name: /^Done$/ }) as HTMLButtonElement;
@@ -232,6 +319,7 @@ describe("RecoveryCodesView", () => {
     renderView({ productName: "Acme" });
 
     await clickGenerate();
+    await usePasskey();
     await waitFor(() => screen.getByText(sampleCodes[0]!));
     fireEvent.click(screen.getByRole("button", { name: /Download \.txt/ }));
 
@@ -244,6 +332,7 @@ describe("RecoveryCodesView", () => {
     renderView({ onSaved });
 
     await clickGenerate();
+    await usePasskey();
     await waitFor(() => screen.getByText(sampleCodes[0]!));
 
     fireEvent.click(screen.getByRole("checkbox"));
@@ -256,26 +345,31 @@ describe("RecoveryCodesView", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
-  it("shows an error message when generate throws and does not render any codes", async () => {
-    stub.generateRecoveryCodes.mockRejectedValue(new Error("rate_limited"));
+  it("reads a refused generate as the map's sentence above the button, and renders no codes", async () => {
+    stub.generateRecoveryCodes.mockRejectedValue(apiError("PLANTED-generate", 429, "rate_limited"));
     renderView();
 
     await clickGenerate();
-    await waitFor(() => {
-      expect(screen.getByText(/rate_limited/)).toBeTruthy();
-    });
+    await usePasskey();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(WAIT);
+    expect(alertsText()).not.toContain("PLANTED");
+    // Above the action it is about, so it is read before the button again.
+    const button = screen.getByRole("button", { name: /Generate/ });
+    expect(alert.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // None of the stale-set sample codes ever rendered.
     expect(screen.queryByText(sampleCodes[0]!)).toBeNull();
   });
 
-  it("falls back to a generic error message when the thrown value has no message", async () => {
-    stub.generateRecoveryCodes.mockRejectedValue("network");
+  it("reads a thrown value that is not an error as the general sentence", async () => {
+    stub.generateRecoveryCodes.mockRejectedValue("PLANTED-network");
     renderView();
 
     await clickGenerate();
-    await waitFor(() => {
-      expect(screen.getByText(/Failed to generate recovery codes/i)).toBeTruthy();
-    });
+    await usePasskey();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Something went wrong. Try again.");
+    expect(alertsText()).not.toContain("PLANTED");
   });
 
   it("still allows generating when the status read fails", async () => {
@@ -284,13 +378,14 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await waitFor(() => {
-      expect(screen.getByText(/Couldn't check whether you have recovery codes/i)).toBeTruthy();
+      expect(screen.getByText(/Your recovery codes didn't load/i)).toBeTruthy();
     });
     // An unreadable count is treated conservatively as "might have codes", so
     // the rotation dialog gates generation — confirm it to proceed.
     await clickGenerate();
     await waitFor(() => screen.getByRole("button", { name: /Generate new set/i }));
     fireEvent.click(screen.getByRole("button", { name: /Generate new set/i }));
+    await usePasskey();
     await waitFor(() => screen.getByText(sampleCodes[0]!));
   });
 
@@ -302,7 +397,7 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await waitFor(() => {
-      expect(screen.getByText(/Couldn't check whether you have recovery codes/i)).toBeTruthy();
+      expect(screen.getByText(/Your recovery codes didn't load/i)).toBeTruthy();
     });
     // An unreadable count is treated as "might have codes", so the confirmation
     // dialog must still gate the ceremony.
@@ -311,6 +406,34 @@ describe("RecoveryCodesView", () => {
 
     expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
     expect(stub.generateRecoveryCodes).not.toHaveBeenCalled();
+  });
+
+  // A failed status read is the panel's own line, never a throw into the
+  // host's boundary, and its Try again reads the status again.
+  it("says a failed status read in its place, with a Try again, and keeps the panel", async () => {
+    stub.getRecoveryCodesStatus
+      .mockRejectedValueOnce(apiError("PLANTED-status", 503, "unavailable"))
+      .mockResolvedValue({ active: 4, total: 10, generatedAt: 1_750_000_000 });
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <RecoveryCodesView
+          client={asClient(stub)}
+          stepUpClient={asStepUp(stepUp)}
+          runPasskeyCeremony={async () => assertion}
+          productName="Musubi"
+        />
+      </Suspense>
+    ));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Your recovery codes didn't load.");
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("button", { name: /Generate/ })).toBeTruthy();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByText(/4 of 10 codes unused/)).toBeTruthy());
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("holds the generate button until the status read settles", async () => {
@@ -334,13 +457,79 @@ describe("RecoveryCodesView", () => {
       () => screen.getByRole("button", { name: /Checking/i }) as HTMLButtonElement,
     );
     expect(button.disabled).toBe(true);
-    expect(screen.getByTestId("recovery-status-skeleton")).toBeTruthy();
+    // The line's place is held by a block a reader skips, in a busy region.
+    const region = document.querySelector('[aria-busy="true"]');
+    expect(region?.querySelector('[aria-hidden="true"]')).toBeTruthy();
 
     release({ active: 0, total: 0, generatedAt: null });
     await waitFor(() => expect(button.disabled).toBe(false));
     // Settled: the placeholder is gone and the button says what it will do.
-    expect(screen.queryByTestId("recovery-status-skeleton")).toBeNull();
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(screen.getByText(/You don't have any recovery codes yet/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Generate recovery codes/i })).toBeTruthy();
+  });
+});
+
+// A read under a host's Suspense boundary would hand the whole boundary to the
+// host's fallback, on the first read and on the refetch after Done.
+describe("RecoveryCodesView — under a host's Suspense", () => {
+  beforeEach(() => {
+    stub = makeClientStub();
+    stepUp = makeStepUpStub();
+    vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function renderInSuspense() {
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <RecoveryCodesView
+          client={asClient(stub)}
+          stepUpClient={asStepUp(stepUp)}
+          runPasskeyCeremony={async () => assertion}
+          productName="Musubi"
+        />
+      </Suspense>
+    ));
+  }
+
+  it("holds its place while the first status read is out", async () => {
+    stub.getRecoveryCodesStatus.mockReturnValue(new Promise(() => {}));
+    renderInSuspense();
+    await waitFor(() => expect(stub.getRecoveryCodesStatus).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("button", { name: /Checking/i })).toBeTruthy();
+  });
+
+  it("never shows the old set's count after a new set, and holds its place until the new one lands", async () => {
+    stub.getRecoveryCodesStatus
+      .mockResolvedValueOnce({ active: 7, total: 10, generatedAt: 1_750_000_000 })
+      .mockReturnValue(new Promise(() => {}));
+    stub.generateRecoveryCodes.mockResolvedValue({ codes: sampleCodes });
+    renderInSuspense();
+
+    await clickGenerate(/Generate new codes/i);
+    fireEvent.click(await screen.findByRole("button", { name: /Generate new set/i }));
+    await usePasskey();
+    await screen.findByText(sampleCodes[0]!);
+    // Read again at once, behind the codes on screen.
+    await waitFor(() => expect(stub.getRecoveryCodesStatus).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: /^Done$/ }));
+
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.queryByText(/7 of 10 codes unused/)).toBeNull();
+    expect(screen.getByRole("button", { name: /Checking/i })).toBeTruthy();
+    expect(document.querySelector('[aria-busy="true"] [aria-hidden="true"]')).toBeTruthy();
+    // Done reads nothing more.
+    expect(stub.getRecoveryCodesStatus).toHaveBeenCalledTimes(2);
   });
 });
 

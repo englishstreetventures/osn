@@ -15,7 +15,8 @@ import {
  * cire-api signs an organiser in through OSN's OIDC provider and then holds
  * its own 7-day session, keyed on the raw OSN profile id. Nothing on the OSN
  * side reaches that session, so when the account signs out everywhere else, or
- * revokes the cire connection, osn-api asks cire-api to end it through
+ * revokes the cire connection, or asks for the account's deletion, osn-api
+ * asks cire-api to end it through
  * `POST /internal/revoke-organiser-sessions` (`cire/api/src/routes/internal-revoke.ts`):
  * one request per live profile of the account, each naming one profile id,
  * authenticated by a shared bearer secret. An account that has never signed in
@@ -27,7 +28,10 @@ import {
  */
 
 export interface CireOrganiserRevokeConfig {
-  /** cire-api's origin, no trailing slash (`CIRE_INTERNAL_REVOKE_URL`). */
+  /**
+   * cire-api's origin, no trailing slash (`CIRE_API_URL`, the one variable
+   * for it: the account deletion reaches cire there too).
+   */
   readonly url: string | null;
   /** The bearer secret cire-api's `CIRE_INTERNAL_REVOKE_SECRET` holds. */
   readonly secret: string | null;
@@ -76,11 +80,11 @@ const usableUrl = (raw: string): string | null => {
  * secret is never trimmed.
  */
 export function cireOrganiserRevokeConfig(env: {
-  readonly CIRE_INTERNAL_REVOKE_URL?: string;
+  readonly CIRE_API_URL?: string;
   readonly CIRE_INTERNAL_REVOKE_SECRET?: string;
   readonly CIRE_OIDC_CLIENT_ID?: string;
 }): CireOrganiserRevokeConfig {
-  const url = env.CIRE_INTERNAL_REVOKE_URL?.trim().replace(/\/+$/, "");
+  const url = env.CIRE_API_URL?.trim().replace(/\/+$/, "");
   const secret = env.CIRE_INTERNAL_REVOKE_SECRET;
   return {
     url: url ? usableUrl(url) : null,
@@ -164,7 +168,7 @@ export const revokeCireOrganiserSessions = (
   const { url, secret, clientId } = config;
   if (url === null || secret === null || clientId === null) {
     const missing = [
-      url === null ? "CIRE_INTERNAL_REVOKE_URL" : null,
+      url === null ? "CIRE_API_URL" : null,
       secret === null ? "CIRE_INTERNAL_REVOKE_SECRET" : null,
       clientId === null ? "CIRE_OIDC_CLIENT_ID" : null,
     ]

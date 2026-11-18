@@ -1,0 +1,1 @@
+ALTER TABLE `organisations` ADD `owner_inherited_at` integer;

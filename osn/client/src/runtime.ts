@@ -1,0 +1,133 @@
+import { Effect, Layer, ManagedRuntime } from "effect";
+
+import { AuthFetchTransportError } from "./errors";
+import { ACCOUNT_SESSION_KEY, OsnAuth, createOsnAuthLive, type OsnAuthConfig } from "./service";
+import { StorageLive, type Storage } from "./storage";
+
+/**
+ * `fetch` that sends the signed-in account's access token and renews it.
+ *
+ * It resolves with every response, whatever its status, except that a 401 is
+ * renewed and retried once. It rejects with exactly one of:
+ *
+ * - `AuthExpiredError` — the session the request was made for has ended.
+ *   When the runtime ended it, `onSessionChange` listeners were told. When
+ *   it was replaced or ended on this page or in another tab while the
+ *   request was out, the request was not renewed or sent again and its
+ *   answer, whatever it was, is not handed back.
+ * - whatever `fetch` rejected with (`TypeError`, `AbortError`) — the request
+ *   itself failed or was aborted; the session is kept. A URL that is not on
+ *   the issuer's origin is refused the same way, with a `TypeError`, before
+ *   anything is sent: the token goes nowhere else.
+ * A 401 answered to a token of an account whose deletion is pending, after a
+ * renewal that minted one too, is handed back as it is and ends nothing: the
+ * route does not serve such a session, which is still live
+ * (`isPendingDeletionToken`).
+ *
+ * - `TokenRefreshError` — the token had expired and the issuer could not
+ *   renew it or could not say why; the session is kept. A token not yet
+ *   expired is sent instead. After such a failure renewal pauses, 2 s
+ *   doubling to 30 s or the issuer's `Retry-After`, and the calls in the
+ *   pause send no grant.
+ * - `ActiveProfileResetError` — the issuer renewed for another profile than
+ *   the one the request was made as (osn-api does this only for a restricted
+ *   recovery session or an account scheduled for deletion, and refuses a
+ *   profile the account does not own, which ends the session); the default
+ *   profile is active now, unless the page switched profile meanwhile. The
+ *   request was not sent.
+ * - `StorageError`.
+ *
+ * Every authenticated client in this package is built with one. A client
+ * passes its own `credentials`; the default is `"include"`. A client passes
+ * an abort and the other rejections here through unchanged, and turns a
+ * request that failed into its own error at status `0` (`reach` in
+ * `./auth-fetch.ts`).
+ */
+export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+/** What the runtime tells its listeners after it changed the session itself. */
+export type SessionChange =
+  | { readonly kind: "ended" }
+  | { readonly kind: "profile-reset"; readonly profileId: string }
+  /**
+   * A renewal brought a token on the other audience than the one the page
+   * held: `pending` true when the account's deletion is now pending (this
+   * device or another asked for it), false when it is no longer (it was kept).
+   */
+  | { readonly kind: "pending-deletion"; readonly pending: boolean };
+
+export interface OsnAuthRuntime {
+  /** Every authenticated client is built with this. Clients never see a token. */
+  readonly authFetch: AuthFetch;
+  /** Runs one operation on this runtime's single `OsnAuth` service. */
+  readonly run: <A, E>(effect: Effect.Effect<A, E, OsnAuth>) => Promise<A>;
+  /** Called after the runtime ends the session or resets the active profile. Returns an unsubscribe. */
+  readonly onSessionChange: (listener: (change: SessionChange) => void) => () => void;
+}
+
+/**
+ * The page's one auth service. Build it once, at module scope, and hand the
+ * same runtime to `AuthProvider` and to every client: the session cache and
+ * every single-flight guard live in the service, so a second runtime is a
+ * second set of guards and a second `/token` grant racing the first.
+ *
+ * Builds nothing until its first call, so importing it costs no request.
+ *
+ * `storage` defaults to `StorageLive` (`localStorage`). A platform where
+ * `localStorage` must never hold auth data (iOS) passes another layer, such as
+ * `createEphemeralStorage()`.
+ */
+export function createOsnAuthRuntime(
+  config: OsnAuthConfig,
+  options?: { storage?: Layer.Layer<Storage> },
+): OsnAuthRuntime {
+  const listeners = new Set<(change: SessionChange) => void>();
+  const onSessionChange = (change: SessionChange) => {
+    for (const listener of listeners) {
+      // A listener's fault is its own: report it on its own task, after every
+      // other listener has heard the change.
+      try {
+        listener(change);
+      } catch (err) {
+        queueMicrotask(() => {
+          throw err;
+        });
+      }
+    }
+  };
+
+  const runtime = ManagedRuntime.make(
+    createOsnAuthLive(config, { onSessionChange }).pipe(
+      Layer.provide(options?.storage ?? StorageLive),
+    ),
+  );
+
+  const run = <A, E>(effect: Effect.Effect<A, E, OsnAuth>): Promise<A> =>
+    runtime.runPromise(effect);
+
+  const authFetch: AuthFetch = (input, init) =>
+    run(Effect.flatMap(OsnAuth, (auth) => auth.authFetch(input, init))).catch((err: unknown) => {
+      throw err instanceof AuthFetchTransportError ? err.cause : err;
+    });
+
+  // A browser tells every other tab when one changes the stored account, or
+  // clears storage (`key` null). A sign-out there, or a sign-in after it,
+  // ends this page's session at once rather than at its next request.
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("storage", (event: { key: string | null }) => {
+      if (event.key !== null && event.key !== ACCOUNT_SESSION_KEY) return;
+      run(Effect.flatMap(OsnAuth, (auth) => auth.checkStoredAccount())).catch(() => undefined);
+    });
+  }
+
+  return {
+    authFetch,
+    run,
+    onSessionChange: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}

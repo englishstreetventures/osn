@@ -18,7 +18,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-16
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -187,6 +187,7 @@ guest surface never tells a caller which of those it is.
 | `GET …/budget.csv`, `GET …/tasks.csv` | The budget lines, payments and tasks the couple entered; they can take them away whatever tier the wedding is on ([[cire-budget]], [[cire-checklist-tasks]]) |
 | `GET …/seating.csv` | The seating chart the couple set out; they can take it away whatever tier the wedding is on ([[cire-seating]]) |
 | `GET …/module-rows` | How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and `seating.csv` would carry (`{ budgetLines, tasks, gifts, seats }`), so a locked card offers a download only when there is something in it |
+| `POST …/archive` | The whole wedding as one ZIP, the gift, budget, checklist, seating, vendor and registry rows included: how an owner takes the wedding away, at any tier, before deleting it or their account ([[cire-development#CSV exports]]). `cire/api/tests/routes/wedding-archive.test.ts` downloads it for an Ivory wedding |
 | `PUT …/settings` with `budgetTotalMinor` | A single number written by onboarding, not the budget module ([[cire-budget]]) |
 
 A wedding whose tier no longer includes a module keeps that module's rows; it
@@ -427,6 +428,12 @@ dashboard, and marking first means a delivery landing between the two
 statements already finds the purchase refunded. Setting Crimson, or raising
 without `--lower`, prints one statement and refunds nothing.
 
+A checkout still open when the wedding is lowered settles on its own once
+paid: a from-Gold Crimson page paid after a lowering below Gold is refunded
+automatically, never granted, and any other page grants the tier it sold
+([[cire-upgrades#Taking money and granting nothing]]). Expire the wedding's
+open Checkout Session in the Stripe dashboard first if neither is wanted.
+
 > [!warning]
 > A production D1 write is an owner step: an agent never runs it, and it needs explicit authorisation naming `cire-db`.
 > The owner gets that before applying the printed SQL with
@@ -554,6 +561,13 @@ modules open, and the list is fetched again for the guest cap
 (`handleTierRaised` in `OrganiserApp.tsx`). The dialog stands on its own so the
 onboarding tier step can place it under the tier cards.
 
+The E2E flow `cire-checklist-holders` redeems seeded codes on a Gold wedding of
+its own: one that names nothing (404), a Gold code (409 `tier_already_held`,
+left unspent) and a Crimson code, which moves the wedding to Crimson, and reads
+the redemption back from cire's database
+([`cire-checklist-holders.flow.ts`](../../tools/e2e/tests/flows/cire-checklist-holders.flow.ts),
+[[testing-patterns#The end-to-end suite]]).
+
 ## How a wedding reaches a tier
 
 | Path | `tier_source` | `tier_granted_by` | Who |
@@ -570,9 +584,10 @@ wording for that is englishstreetventures/osn#1317.
 
 ## Deploying a change to tiers
 
-The portal and the API deploy in separate jobs, and one approval releases
-both. So in production ship them in **two releases, host first**: a release
-with `surfaces: cire_host`, then one with `surfaces: cire_api`. The new portal
+The cire stack job deploys the portal and the API in one run, in no set order,
+and every cire release deploys whatever `main` holds for both. So in production
+ship them in **two pull requests and two releases, host first**: merge the portal
+side and release the cire stack, then merge the API side and release again. The new portal
 reads either list shape, while the old portal on the new API would request
 `/tasks` for an Ivory wedding, get a 402 and blank its Overview. The order and the pre-flight
 queries are in [[production-deploy]] §5.6.

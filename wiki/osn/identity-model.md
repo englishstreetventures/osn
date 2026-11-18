@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-18
 ---
 # Identity Model
 
@@ -60,7 +60,7 @@ The `accounts` table is the **authentication principal** — the entity that log
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text PK` | `acc_` prefix + 12 hex chars |
-| `email` | `text UNIQUE` | Login credential — the only place email lives |
+| `email` | `text UNIQUE` | Login credential — the only place email lives. Written lower case; the database refuses a capital: see below |
 | `passkeyUserId` | `text NOT NULL UNIQUE` | Random UUID used as WebAuthn `user.id` — opaque, non-correlating |
 | `maxProfiles` | `integer` | Default 5; enforced by `createProfile` |
 | `createdAt` | `timestamp` | |
@@ -71,6 +71,10 @@ The `accounts` table is the **authentication principal** — the entity that log
 - `passkeyUserId` is a random UUID generated at account creation, used as the WebAuthn `user.id` in passkey registration. It stops anyone correlating two profiles on the same account through matching WebAuthn credential `user.id` fields.
 - Email is **only on accounts**, not duplicated on profiles.
 - Passkeys reference `accounts.id` (not profile IDs), because authentication is account-level.
+
+**The email at the database.** Every writer stores the address lower-cased: registration, email change and `registerProfile` call `toLowerCase()`, and the seeds use lower-case literals. Two triggers, `accounts_email_lower_case` (insert) and `accounts_email_lower_case_update` (update of `email`), refuse an email holding a capital A to Z with the message `account email is not lower case`, whoever writes it. SQLite's `lower()` folds only A to Z, so a capital outside them passes; no writer stores one. Migration [`20261110132140_account_email_lower_case.sql`](../../osn/db/drizzle/20261110132140_account_email_lower_case.sql) creates the triggers and changes no stored row, so it cannot fail on what a database holds. [`osn/db/src/triggers.ts`](../../osn/db/src/triggers.ts) copies them into every test database and into the local file `db:push` builds ([[testing-patterns#Schema-derived test databases]]).
+
+**Finding an account by what the user typed.** Passkey sign-in (begin and complete), recovery-code sign-in, and email and authenticator-code recovery all take one identifier, an email address or a handle. `normaliseIdentifier` (`osn/api/src/services/auth/helpers.ts`) trims it, strips any leading `@` and lower-cases it, so `Alice@X.com`, `@Alice` and ` alice ` name the same account, as they do in the people search. Every store key a ceremony derives (the login challenge, the probe key) starts from that one string, so a ceremony begun in one case and finished in another meets its own entries. `resolveIdentifier` (`profiles.ts`) treats one longer than 255 characters, longer than any stored email or handle, as naming nobody and looks nothing up. Otherwise it looks up a handle by that string, and an email in one statement that matches the address as typed (trimmed, `@` stripped, case kept) or lower-cased, preferring the row stored as typed, and of that account its default profile. The typed match is for a row stored with capitals before the triggers: it signs in by its address exactly as stored, and stays apart from an account whose address differs only in case. The owner, never an agent, can count such rows with `SELECT count(*) FROM accounts WHERE email <> lower(email)`, which reads counts only and sees capitals A to Z only.
 
 ## Profiles (DB table: `users`)
 
@@ -83,7 +87,7 @@ The `users` table is the **public-facing identity**. This is what other profiles
 | `handle` | `text UNIQUE` | `@handle` — immutable social identity |
 | `displayName` | `text` | Nullable display name |
 | `avatarUrl` | `text` | Nullable avatar URL |
-| `isDefault` | `boolean` | Exactly one per account; auto-selected on login |
+| `isDefault` | `boolean` | Exactly one per account; auto-selected on login. A partial unique index (`users_one_default_per_account`) refuses a second; a profile delete keeps one even when another delete or default change lands at once |
 | `createdAt` | `timestamp` | |
 | `updatedAt` | `timestamp` | |
 
@@ -103,6 +107,7 @@ Organisations are independent entities that are **composed of profiles, not acco
 | `handle` | `text UNIQUE` | Shared namespace with user handles |
 | `name` | `text` | Display name |
 | `ownerId` | `text FK → users.id` | A profile, not an account |
+| `ownerInheritedAt` | `integer`, nullable | Unix seconds when the owner received it by succession (below); NULL for an owner who created it |
 
 ### Organisation Members
 
@@ -111,13 +116,23 @@ Organisations are independent entities that are **composed of profiles, not acco
 | `id` | `text PK` | `orgm_` prefix |
 | `organisationId` | `text FK → organisations.id` | |
 | `profileId` | `text FK → users.id` | The member's profile |
-| `role` | `admin \| member` | |
+| `role` | `admin \| member` | The database refuses any other value: see below |
+
+**The role at the database.** Two triggers, `organisation_members_role_known` (insert) and `organisation_members_role_known_update` (update of `role`), refuse any role but `admin` or `member` with the message `organisation member role is not admin or member`, whoever writes it. Migration [`20261107024712_organisation_member_role_check.sql`](../../osn/db/drizzle/20261107024712_organisation_member_role_check.sql) creates them. Drizzle cannot declare a trigger, so [`osn/db/src/triggers.ts`](../../osn/db/src/triggers.ts) copies them into every test database (`applySchema`) and into the local file `db:push` builds; see [[testing-patterns#Schema-derived test databases]].
+
+The migration ends by stopping if a stored row already holds another role; it rewrites nothing, since mapping or deleting such a row changes who can act for an organisation. If it stops, a later migration cannot fix it: Alchemy applies files in name order and stops at the first that fails, so every release that ships the musubi stack stops at "Apply osn-db-prod's migrations with Alchemy" before the Worker deploys (the running Worker keeps serving), and on dev every musubi stack deploy fails. Recover in this order:
+
+1. The owner counts the rows on the database that stopped, under their own Cloudflare login; an agent never runs it. It reads counts only, never rows. On production: `cd osn/api && bunx wrangler d1 execute osn-db-prod --remote --env production --command "SELECT count(*) FROM organisation_members WHERE role NOT IN ('admin', 'member')"`.
+2. The owner decides whether each such row becomes `member` or `admin`, or is deleted. It is a permission decision.
+3. The owner writes that change on the same database with `wrangler d1 execute`, and the next release applies the file unchanged. Each row changed or deleted is an admin action on user data: record it per [[access-control#Internal admin actions on user data]] (row count, the decision, who made it and when).
+
+Never rewrite the file to recover. By then `osn-db-dev` has almost always applied it, since a merge deploys dev at once, and Alchemy refuses an applied file whose bytes changed ([[infrastructure-as-code#Migrations]]).
 
 **Key invariants:**
 - Multiple profiles from the same account **can be in the same org** — one might be admin, another a member. This is by design.
-- Org ownership is per-profile. Deleting a profile that owns an org requires ownership transfer first.
+- Org ownership is per-profile, and it changes in two places only, both by succession. The hard delete of the owner's account passes each organisation it owns to the successor the person named, else the longest-standing other admin, else the longest-standing other member (made admin), and deletes it when there is none or the person chose `delete` ([[account-deletion#Organisations the person owns]]). And the member it passed to may **decline** it (`POST /organisations/:handle/decline-ownership`, `declineOwnership`) within 30 days of receiving it, as `owner_inherited_at` records (`GET` on the same path answers whether the caller may, and until when, with the same refusals, writing nothing): it passes on by the same order, leaving out the decliner's own account, or is deleted when there is none, and the decliner leaves it. Each new owner by succession gets `owner_inherited_at` = now and an email with the decline link ([[account-deletion#Emails]]). An owner who created the organisation cannot decline it (409 `not_declinable`), and nor can one who received it more than 30 days ago; either can delete it. No route hands an organisation to a member of the owner's choosing, and `deleteProfile` refuses a profile that owns an organisation, and deletes nothing once its profile has become an owner since its read (each statement carries the check).
 - The `listMembers` service return **never includes `accountId`** — defence in depth against correlation leakage.
-- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. The owner needs no such guard: `ownerId` never changes.
+- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. `ownerId` changes only by succession — the hard delete of the owner's account, or a decline — each in a batch that also deletes the old owner's membership rows (the decline deletes the decliner's row first, while the owner is still the decliner, so the guard every statement carries still holds). So `addMember`'s owner-only admin grant, which inserts from the caller's own admin row, grants nothing after a stale read of the owner; `updateMemberRole` writes only while `organisations.owner_id` is still the caller; and the owner's own `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation: an old owner's write in flight across a decline changes nothing and is refused with the message the checks give now. Tests: `osn/api/tests/services/organisation.test.ts` ("an old owner's removal held across a decline…", "…delete held across a decline…", `declineOwnership`), and on D1 `osn/api/tests/d1/account-hard-delete.test.ts` ("a decline of an organisation received by succession, on D1").
 
 ## Token Model
 
@@ -134,8 +149,9 @@ Organisations are independent entities that are **composed of profiles, not acco
 
 | `aud` | Minted by | Accepted by |
 |---|---|---|
-| `osn-access` | login, `/token` refresh, `/profiles/switch` | every authenticated route here, plus `pulse/api`, `zap/api` and `cire/api` through `@shared/osn-auth-client` |
+| `osn-access` | login, `/token` refresh, `/profiles/switch`, for an account whose deletion is not pending | every authenticated route here, plus `pulse/api`, `zap/api` and `cire/api` through `@shared/osn-auth-client` |
 | `osn-recovery` | a restricted recovery session | `resolvePasskeyEnrollPrincipal` **only** — i.e. `/passkey/register/begin` and `/complete`, and nothing else anywhere |
+| `osn-pending-deletion` | login and `/token` refresh, for an account whose deletion is pending (`accounts.deleted_at` set) | `resolveAccountWindowPrincipal` **only** — `GET /account/deletion-status`, `GET /account/export`, `POST /account/restore`, the `already_pending` answer of `DELETE /account`, `GET /totp/status`, and the step-up routes for `account_export` and `account_restore`. See [[sessions#The pending-deletion session]] |
 | `osn-step-up` | `/step-up/*/complete` | the step-up verifiers, purpose-bound — see [[step-up]] |
 | a relying party's `client_id` | the OIDC token endpoint (`typ: at+jwt`) | that relying party. Never a first-party route |
 
@@ -143,7 +159,7 @@ Organisations are independent entities that are **composed of profiles, not acco
 
 Every one of these values is on the reserved OIDC client-id deny-list (`RESERVED_OIDC_CLIENT_IDS`), so no relying party can register under a name whose tokens would collide with an internal verifier's pin.
 
-Access tokens live in `localStorage` and are the only auth secret there after C3. A 5-minute TTL caps the XSS blast radius — the companion change is client `authFetch` silent-refresh on 401 via the HttpOnly refresh cookie. Third-party OAuth clients receive `expires_in: 300` in the `/token` response.
+Access tokens live only in the page's memory: `@osn/client` writes no token to storage ([[#Client Storage Model]]), so a script that can read `localStorage` finds none to carry off. A 5-minute TTL caps what a token taken from a running page is worth — the companion is the client's `authFetch`, which renews the token through the HttpOnly refresh cookie before it expires and on a 401 ([[sessions#Renewal in the browser]]). Third-party OAuth clients receive `expires_in: 300` in the `/token` response.
 
 **Issuer pinning.** Access and step-up JWTs are signed with `iss = AuthConfig.issuerUrl` and every verify pins `issuer` with a **30s `clockTolerance`** (`signJwt` / `verifyJwt` in `osn/api/src/services/auth/helpers.ts`). A token minted by a different OSN deployment is rejected. The downstream `@shared/osn-auth-client` verifier carries the same contract — rollout is **verifier-first**: the tolerant verifier must deploy before the signer enforces `iss`, or every legacy iss-less token would be rejected the instant the signer rolls out.
 
@@ -153,7 +169,7 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 
 **Sliding-window expiry:** when less than half the TTL remains (< 15 days), the session's `expiresAt` is extended by the full TTL from now. This matches the Copenhagen Book's recommended pattern.
 
-**Revocation:** `invalidateSession(token)` ends the token's device: every session of its family, so a refresh of the same token in another tab cannot leave one behind ([[sessions#Endpoints]]). `POST /logout` exposes it. A passkey added or deleted ends the account's other devices instead: `invalidateOtherAccountSessions(accountId, keepSessionHash)` deletes every session outside the caller's family ([[sessions]]).
+**Revocation:** `invalidateSession(token)` ends the token's device: every session of its family, so a refresh of the same token in another tab cannot leave one behind ([[sessions#Endpoints]]). `POST /logout` exposes it, and every route that sets a new session cookie ends the device of the cookie the request carried the same way, once the new session exists (`endReplacedSession`; [[sessions#Endpoints]]). A passkey added or deleted ends the account's other devices instead: `invalidateOtherAccountSessions(accountId, keepSessionHash)` deletes every session outside the caller's family ([[sessions]]).
 
 **Sessions table:**
 
@@ -165,56 +181,61 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 | `created_at` | `integer` | Unix seconds |
 | `restricted_until` | `integer` nullable | Non-null only on a restricted recovery session, where it equals `expires_at`. Drives **rotation**, not request-time authorisation — see [[sessions#The restricted recovery session]] |
 | `restricted_amr` | `text` nullable | The RFC 8176 factor that minted a restricted recovery session (`otp` / `totp` / `webauthn`). What the passkey-enrolment bypass is checked against, so the step-up it skips is priced at the ceremony actually performed. NULL on every ordinary session |
+| `replaced_at` | `integer` nullable | Set by a sign-in on the browser holding the cancel handle of a deletion job that predates the restore record (`deletion_jobs.restore` NULL), whose account has no credential left: the family stays live but renews only for its own account's profiles, and `GET /authorize` reads it as no session. Every other family a sign-in replaces ends. Copied across rotations, never cleared — see [[sessions#Endpoints]]; removed with englishstreetventures/osn#2299 |
 
 Two profile management endpoints:
-- `POST /profiles/switch` — present the session token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).
-- `POST /profiles/list` — present the session token in the request body; receive all profiles for the account. Session tokens are never sent via `Authorization` headers to avoid conflation with access tokens.
+- `POST /profiles/switch` — Bearer access token, target `profile_id` in the body; receive a new access token for that profile, bound to the caller's session. That session must be live, named by the session cookie or the token's `osn_sid`, or the answer is `409 session_stale` ([[sessions#Access-token session binding (`osn_sid`)]]). Per-account rate limited (20 switches/hr).
+- `GET /profiles/list` — Bearer access token; receive all profiles for the account. The session token itself travels only in the HttpOnly cookie, never in an `Authorization` header, so it is not confused with an access token.
 
 ## Client Storage Model
 
-`@osn/client` stores the multi-profile session under a single `localStorage` key:
+`@osn/client` holds the session in two places (`osn/client/src/service.ts`, `osn/client/src/tokens.ts`):
 
-| Key | Shape | Purpose |
-|-----|-------|---------|
-| `@osn/client:account_session` | `AccountSession` JSON | Refresh token, active profile ID, per-profile access tokens, scopes, ID token |
-
-The `AccountSession` structure:
+| Where | Shape | Holds |
+|-------|-------|-------|
+| The service's memory | `AccountSession` | Active profile ID, per-profile access tokens, scopes, ID token |
+| `localStorage` key `@osn/client:account_session` | `StoredAccount` JSON | `hasSession`, the active profile ID and the sign-in's id — nothing else |
 
 ```typescript
-interface AccountSession {
-  refreshToken: string;           // Account-scoped (shared across profiles)
-  activeProfileId: string;        // Currently active profile
-  profileTokens: Record<string, ProfileToken>;  // Per-profile access tokens
-  scopes: string[];
-  idToken: string | null;
+interface StoredAccount {
+  hasSession: boolean;      // this device holds a session cookie, as far as the client knows
+  activeProfileId: string;  // the profile the page was on; a reload's grant names it
+  signInId: string;         // random, one per sign-in on this device; never sent anywhere
 }
 ```
 
 **Design decisions:**
-- Single-key storage (not multi-key) avoids the need for `keys()` enumeration on logout and simplifies atomic writes.
-- Expired profile tokens are pruned on every `saveAccountSession` call (except the active profile's token, which is kept for identity tracking).
-- An in-memory cache avoids redundant `localStorage.getItem` + `JSON.parse` round-trips within the same service instance.
-- All storage reads are validated against Effect Schema (`decodeAccountSession`) — malformed data is discarded rather than consumed.
-- Legacy sessions (pre-P4, stored under `@osn/client:session`) are migrated transparently on the first `getSession()` call.
+- No credential is written to storage. Page script reads `localStorage` as easily as the page does, so a token there is a token any injected script can take elsewhere. A reload gets its token from the HttpOnly session cookie instead ([[#Session load on mount — durable refresh across reloads]]). `@osn/auth-ui`'s sign-up keeps one value in `localStorage`, `osn.signup.live`: a live sign-up request's id, its retire secret and its expiry, and nothing about the address. The retire secret is not a credential: it can only end that request, for a begin for the same address, and no route turns it into a session, a token, a link or the pairing number ([[email-links#Sign-up]]). The claim secret, which does yield the session, stays in the tab that began, in its `sessionStorage`.
+- Every write goes through `saveAccountSession`, which keeps the full session in memory and writes only the `StoredAccount` cut.
+- Every read is validated against Effect Schema (`decodeStoredAccount`), which takes those fields and nothing else; malformed data is removed rather than consumed. A stored value with more fields — an older client's tokens — is rewritten without them on the first read (an older value with no `signInId` gets one), and no token is ever read from storage.
+- Tabs share the stored account but nothing in memory: each holds its own tokens and renews for itself, and acts as the profile its own screen shows. A sign-in (`setSession`) or a cold-start bootstrap begins a new `signInId`; a reload, a renewal and a profile switch keep it. A tab ends its session, with no request and leaving storage alone, when the stored account is gone or carries another `signInId` — another tab signed out, and perhaps someone signed in since. The runtime checks on every `storage` event for the key (`checkStoredAccount`) and `authFetch` before every request ([[sessions#Renewal in the browser]]).
+- Expired tokens of profiles other than the active one are pruned from memory on every save.
+- iOS passes `createEphemeralStorage()`, so not even the stored account reaches disk there.
 
 ## Session load on mount — durable refresh across reloads
 
-`@osn/client` exposes `loadSession()` (the entry point the SolidJS `AuthProvider` calls on mount via the `session` resource). The access token is persisted in the `AccountSession` JSON alongside everything else, but its **5-minute TTL** is far shorter than the gap between sessions, so that copy almost always reads as a **stale access token after a page reload**. The HttpOnly `__Host-osn_session` refresh cookie (30-day sliding window) is what actually keeps the organiser signed in; `loadSession` must consult it rather than trust the cached access token alone.
+`@osn/client` exposes `loadSession()` (the entry point the SolidJS `AuthProvider` calls on mount via the `session` resource, on the page's one `createOsnAuthRuntime`). Access tokens live only in memory, so a reloaded page holds none. The HttpOnly `__Host-osn_session` refresh cookie (30-day sliding window) is what keeps the user signed in; `loadSession` redeems it.
 
 `loadSession` resolves three cases, in order (`osn/client/src/service.ts`):
 
-| Stored account? | Cached access token | Action |
+| Stored account? | Access token in memory | Action |
 |---|---|---|
-| none | — | **Cold-start bootstrap**: replay the cookie against `POST /token` and rebuild the account from the response (post-login full-page navigation). |
-| present | still valid | Return it directly — the fast path, no `/token` roundtrip. |
-| present | **expired** but `hasSession === true` | **Rehydrate from the cookie** via the same `/token` grant. |
+| none | — | **Cold-start bootstrap** — only when the `osn_has_session` marker is set: replay the cookie against `POST /token` and rebuild the account from the response (post-login full-page navigation). |
+| present | still valid | Return it directly — no `/token` roundtrip. Only a page that already holds a session gets here. |
+| present, `hasSession === true` | none, or expired | **Rehydrate from the cookie** via the same `/token` grant, naming the stored active profile, so a reload keeps the profile it was on. Every reload takes this path. A refused grant also removes the stored account, so the next load spends no grant on a dead cookie; a transient failure keeps it. |
 
-> **Reload-logout bug (fixed).** Previously `loadSession` returned `toSession(account)` whenever *any* stored account existed. `toSession` yields `null` for an expired access token, so on every reload more than 5 minutes after the last token issuance the organiser was reported logged-out and `RequireAuth` bounced them to sign-in — even though the refresh cookie was alive the whole time. The expired-token branch above now rehydrates from the cookie before concluding "logged out".
+`toSession` yields `null` without a valid token, so a `loadSession` that trusted the stored account alone would report every reloaded user as signed out while the cookie is alive; the third case is what stops that.
+
+A session set or ended while the bootstrap grant is out wins: a sign-in adopted, a log out, or another tab storing another sign-in or none. The load then resolves to the session the page holds, or `null`, and the grant's answer is neither saved nor, if refused, allowed to forget the stored account ([[sessions#Renewal in the browser]]).
 
 **Single-flight + retry/backoff.** Both cold-start and rehydrate go through one shared, single-flighted cookie grant (`fetchTokenGrant`), so concurrent mounts fire **exactly one** `/token` — replaying a rotated cookie a second time would trip C2 reuse detection and revoke the family. The grant classifies failures:
 
-- **Terminal** (`/token` 4xx, e.g. `invalid_grant`): the cookie is genuinely gone/expired/rotated → fail fast, **no retry**, `loadSession` resolves to `null` (genuinely logged out, never throws).
-- **Transient** (network error, `429`, `5xx`): the cookie is probably still alive; the server just couldn't answer (cold Worker isolate, momentary blip) → **bounded exponential backoff** (3 attempts, ~0 + 200ms + 400ms) before giving up, so a single hiccup doesn't evict a live session.
+- **Terminal** (`/token` 4xx but 429, e.g. `invalid_grant`): the cookie is genuinely gone/expired/rotated: fail fast, **no retry**; `loadSession` resolves to `null` (genuinely logged out, never throws). The exception is a `400 invalid_grant` the issuer marks as leaving the cookie's status unknown (a lost rotation race, a storage error): it is retried once after 250 ms — see [[sessions#Renewal in the browser]].
+- **Transient** (`5xx`): the cookie is probably still alive; the server just couldn't answer (cold Worker isolate, momentary blip), so the grant gets **bounded exponential backoff** (3 attempts, ~0 + 200ms + 400ms) before giving up: a single hiccup must not evict a live session.
+- **Network** (`fetch` rejects; a CORS refusal looks the same): 2 attempts, ~0 + 200ms. A refused origin never becomes an allowed one on the next attempt.
+- **Rate limited** (`429`): 1 attempt, since a retry inside the same window would meet the same refusal. The failure carries `Retry-After`, which sets how long renewal pauses ([[sessions#Renewal in the browser]]).
+
+**Which profile a grant mints for.** `POST /token` takes an optional `profile_id`. The issuer mints the access token for it when the cookie session's account owns that profile, bound to the rotated session as any grant is, and for the account's default profile when the field is absent. A grant naming a profile the account does not own — another account's, or one that is gone — is refused with `400 invalid_grant`, the same answer for both, so the refusal says nothing about which profiles exist ([[sessions#Renewal in the browser]]). A restricted recovery session, and a session of an account scheduled for deletion, mint for the default profile although they name one the account owns. Renewal in the browser and the rehydrate on reload always name the active profile; the cold-start bootstrap and `refreshHeldSession` name none. The bootstrap runs only when the page holds no account, and a held session's answer never becomes the page's session. A page that holds an account always has a profile to name, since only a named grant can be refused when the cookie belongs to another account. Deleting the active profile makes another active: one the page holds a token for, or else the account's default profile, which `POST /profiles/delete` answers as `default_profile_id`. The delete makes the oldest remaining profile the default when it removes the default, or when the account had none. An answer that names no default leaves the deleted profile active, with no token, and its next grant is refused. An empty active profile id goes out as `profile_id=`, which `/token` refuses rather than reading as none.
 
 This keeps the short access-token TTL (XSS blast-radius cap) intact while making the *session* durable: the user stays signed in across reloads for as long as the refresh cookie lives — **provided the app and the issuer share a registrable domain**. `__Host-osn_session` is `SameSite=Lax`, so a browser sends it on a credentialed `POST /token` only when the calling page is same-site with the issuer.
 
@@ -224,15 +245,25 @@ This keeps the short access-token TTL (XSS blast-radius cap) intact while making
 
 ```mermaid
 sequenceDiagram
-  participant U as User
+  participant U as Tab that began
+  participant M as Device the email is opened on
   participant API as @osn/api
   participant DB as accounts + users + passkeys
 
-  U->>API: POST /register/begin<br/>{ email, handle, displayName }
-  API->>U: 200 (OTP emailed)
-  U->>API: POST /register/complete { otp }
-  API->>DB: tx { insert account, insert profile }
-  API-->>U: 200 + access token + HttpOnly session cookie
+  U->>API: POST /register/begin<br/>{ email, handle, birthdate, displayName }
+  API-->>U: 200 { requestId, claimSecret, pairingCode }
+  API-)M: email: /verify/<requestId>#<link secret>
+  loop until confirmed
+    U->>API: POST /register/:requestId/status { claimSecret }
+    API-->>U: 200 { status: pending, pairingCode }
+  end
+  M->>API: POST /email-link/:requestId/candidates { linkSecret }
+  API-->>M: 200 { pairingCandidates }
+  M->>API: POST /email-link/:requestId/confirm { linkSecret, pairingPick }
+  API-->>M: 200 { status: confirmed } (no cookie, no token)
+  U->>API: POST /register/:requestId/status { claimSecret }
+  API->>DB: batch { insert account, insert profile }
+  API-->>U: 201 + access token + HttpOnly session cookie
   Note over U,API: UI refuses to advance until passkey enrollment completes
   U->>API: POST /passkey/register/begin<br/>Authorization: Bearer <access>
   API-->>U: WebAuthn options
@@ -241,12 +272,14 @@ sequenceDiagram
   API-->>U: 200 — account now has ≥1 WebAuthn credential
 ```
 
-Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
+The link, the pairing number and the refusals are in [[email-links]]. With the Email Verification API flag on, a browser that has the API can prove the address at `begin` instead: the request is confirmed there, no email goes, and the tab's first status poll makes the account — [[email-verification-api]]. Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
 
 Passkey (or security key) is the only primary login factor. OTP and magic-
 link primary-login surfaces were removed; OTP survives as the step-up and
-email-change verification factor. The recovery-code path is the single
-"lost device" escape hatch — see `[[recovery-codes]]`.
+email-change verification factor. A lost device has three ways back: a
+recovery code, which mints an ordinary session, and an emailed link or an
+authenticator code, each of which mints a restricted session that can only
+enrol a passkey — see [[recovery-codes]] and [[account-recovery-factors]].
 
 ## Cross-Service Impact
 
@@ -261,7 +294,7 @@ email-change verification factor. The recovery-code path is the single
 
 ## Privacy Rules
 
-1. **`accountId` never appears in**: API responses, JWT claims (except refresh tokens, which only the account holder sees), log entries (enforced via redaction deny-list), metric attributes, span attributes, or any data sent to other services.
+1. **`accountId` never appears in**: API responses, JWT claims (except refresh tokens, which only the account holder sees), log entries (enforced via redaction deny-list), metric attributes, span attributes, or any data sent to other services. Exceptions: the account deletion's erasure call to each app (`POST /internal/account-deleted`, once the deletion window has passed), where it keys the app's record of the erasure so a repeat answers the same, and the data export's call to each app (`account_id` beside the profile ids). No other call to an app carries it: the deletion preview and Pulse's session end send the profile ids alone ([[account-deletion#The app contract]]). An app also reads it back from `/internal/step-up/verify`, for the person who stepped up to that app's own deletion purpose; for a host's removal of their Cire data, that answer adds every profile id of the account, released only to a request the person confirmed on Musubi ([[step-up#App step-up requests]]).
 2. **`passkeyUserId` (not `accountId`)** is used as the WebAuthn `user.id` to prevent passkey-based profile correlation.
 3. **Rate limiting is per-profile** for API calls, **per-IP for auth** — per-account rate limits would correlate profiles. Exception: profile-switch rate limiting is per-account (acceptable because the endpoint inherently requires the account-scoped refresh token).
 4. **Block independence** — blocking on one profile does NOT affect other profiles on the same account.
@@ -290,7 +323,7 @@ Settings-surface operations over an account's existing credentials. All routes b
 
 ### Enrolment hardening
 
-- `residentKey: "required"` — discoverable-credential / conditional-UI login is mandatory.
+- `residentKey: "preferred"` — an authenticator that can hold a discoverable credential makes one, so it signs in through conditional UI; a FIDO2 security key without a resident-key slot registers as non-discoverable and signs in through the identifier form ([[passkey-primary#Accepting security keys]]).
 - `userVerification: "required"` — biometric or PIN, never silent sign-in.
 - `maxPasskeys = 10` per account, enforced at `begin` and re-checked race-safely at `complete`.
 
@@ -302,7 +335,7 @@ The challenge proves itself — 16 random bytes, an expiry and an HMAC over both
 
 ### Last-passkey guard
 
-`deletePasskey` refuses when this would be the final passkey AND the account has zero unused recovery codes. The user must first generate recovery codes or add a second passkey — otherwise the delete would lock them out of the account.
+`deletePasskey` refuses to delete an account's last passkey, whatever recovery codes the account holds (`osn/api/src/services/auth/passkey-management.ts`). To replace a passkey, the user adds the new one first, then deletes the old one.
 
 ## Multi-Account Roadmap
 

@@ -21,12 +21,12 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "three": "^0.186.1",
+    "three": "^0.187.0",
     "web-haptics": "0.0.6"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
-    "@types/three": "^0.186.0",
+    "@types/three": "^0.187.0",
     "vitest": "5.0.5"
   }
 }

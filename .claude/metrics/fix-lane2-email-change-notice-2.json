@@ -1,0 +1,129 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/lane2-email-change-notice-2",
+    "base_sha": "d19c2d1be905fb69b357558aa5d68eecd5ad1da1",
+    "head_sha": "58cd5fba822a6280db0bc9d3de6f83c8d67bf400",
+    "generated_at": "2026-11-11T01:57:31.843Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none",
+    "issues": 0
+  },
+  "window": {
+    "sessions": 0,
+    "first_ts": null,
+    "last_ts": null,
+    "span_seconds": 0,
+    "active_seconds": 0,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "thinking": 0,
+      "cache_write_5m": 0,
+      "cache_write_1h": 0,
+      "cache_read": 0
+    },
+    "by_model": {},
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 3,
+      "docs": 4,
+      "config": 1,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 266,
+        "deleted": 11
+      },
+      "docs": {
+        "added": 17,
+        "deleted": 11
+      },
+      "config": {
+        "added": 30,
+        "deleted": 10
+      },
+      "source": {
+        "added": 133,
+        "deleted": 30
+      }
+    },
+    "packages": [
+      "osn/api",
+      "shared/openapi"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {},
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 0,
+      "with_tools": 0,
+      "with_one_tool": 0,
+      "context_median": 0,
+      "context_p90": 0
+    }
+  },
+  "review": null
+}

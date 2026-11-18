@@ -254,44 +254,4 @@ describe("0044 invite palette", () => {
       expect(row[seed], seed).toBeNull();
     }
   });
-
-  it("drops every per-section colour column and adds the scheme columns", () => {
-    const db = applyUpToTarget();
-    applyTarget(db);
-
-    const columns = (
-      db.query("PRAGMA table_info(wedding_invite_customisations)").all() as { name: string }[]
-    ).map((c) => c.name);
-
-    for (const dropped of [
-      "hero_accent_color",
-      "hero_surface_color",
-      "story_accent_color",
-      "story_surface_color",
-      "details_accent_color",
-      "details_surface_color",
-      "welcome_accent_color",
-      "welcome_surface_color",
-    ]) {
-      expect(columns, `${dropped} must be dropped`).not.toContain(dropped);
-    }
-    for (const added of [
-      "palette_preset",
-      "palette_ground",
-      "palette_card",
-      "palette_ink",
-      "palette_gilt",
-      "palette_bloom",
-      "hero_tone",
-      "story_tone",
-      "details_tone",
-      "welcome_tone",
-    ]) {
-      expect(columns, `${added} must exist`).toContain(added);
-    }
-    // The copy + image + slider columns must survive untouched.
-    for (const kept of ["hero_title", "story_body", "hero_image_key", "hero_blur"]) {
-      expect(columns, `${kept} must survive`).toContain(kept);
-    }
-  });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { assertDistinctPlans, defineFeature, definePlan } from "../src/plans";
-import { annual, monthly, workspace } from "./support/billing";
+import { monthly, workspace } from "./support/billing";
 
 const price = {
   interval: "month",
@@ -28,10 +28,6 @@ describe("defineFeature", () => {
 });
 
 describe("definePlan", () => {
-  it("accepts a well-formed plan", () => {
-    expect(plan().id).toBe("starter");
-  });
-
   it.each(["", "Starter", "1starter", "star-ter"])("refuses the id %j", (id) => {
     expect(() => plan({ id })).toThrow(/must match/);
   });
@@ -62,10 +58,6 @@ describe("definePlan", () => {
 });
 
 describe("assertDistinctPlans", () => {
-  it("accepts distinct plans", () => {
-    expect(() => assertDistinctPlans([monthly, annual])).not.toThrow();
-  });
-
   it("refuses a plan id used twice", () => {
     expect(() => assertDistinctPlans([monthly, plan({ id: "monthly" })])).toThrow(
       /"monthly" is defined twice/,

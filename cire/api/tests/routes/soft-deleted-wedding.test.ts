@@ -80,6 +80,7 @@ const LIMITER_OPTIONS = [
   "accountLinkLimiter",
   "exportLimiter",
   "giftExportLimiter",
+  "archiveLimiter",
   "inviteLimiter",
   "previewLimiter",
   "weddingCreateLimiter",
@@ -128,6 +129,8 @@ const stripe: StripeClient = {
   createPlatformCheckoutSession: unreached,
   retrievePlatformCheckoutSession: unreached,
   expirePlatformCheckoutSession: unreached,
+  createPlatformRefund: unreached,
+  findPlatformRefund: unreached,
   retrievePrice: unreached,
 };
 // OAuth too, so its start and callback are on the app.
@@ -460,6 +463,12 @@ const NOT_WEDDING_SCOPED: Record<string, string> = {
   "POST /api/csp-report/": "a browser's CSP report; names no wedding",
   "POST /api/realtime/fallback": "a portal tab's report that push stopped; names no wedding",
   "POST /internal/revoke-organiser-sessions": "revokes one OSN profile's organiser sessions",
+  "POST /internal/account-deletion-preview":
+    "osn-api's ARC call: lists live weddings by the account's profiles, never by a wedding id it is given",
+  "POST /internal/account-deleted":
+    "osn-api's ARC call: erases an account's seats and attribution across weddings, deleted ones included, by profile",
+  "POST /internal/account-export":
+    "osn-api's ARC call: lists the seats an account's profiles hold, by profile, never by a wedding id it is given",
   "GET /api/rsvp-digest/stop":
     "a signed, seat-scoped digest preference; harmless on a deleted wedding and kept for a restore",
   "POST /api/rsvp-digest/stop":
@@ -480,11 +489,17 @@ const NOT_WEDDING_SCOPED: Record<string, string> = {
   "GET /api/organiser/stripe/oauth/callback":
     "Stripe's redirect, which names a wedding only through a state its start minted, and refuses a deleted one before the exchange; tests/routes/registry-stripe-oauth.test.ts",
   "POST /api/stripe/platform-webhook":
-    "an upgrade settles into a soft-deleted wedding by decision; tests/routes/stripe-platform-webhook.test.ts",
+    "an upgrade paid for a soft-deleted wedding is refunded, never granted, by decision; tests/routes/stripe-platform-webhook.test.ts",
   "GET /api/organiser/weddings":
     "the caller's own list; its live/deleted split is tests/services/weddings.test.ts",
   "POST /api/organiser/weddings": "creates a new wedding",
   "GET /api/organiser/handle-search": "profile autocomplete; names no wedding",
+  "POST /api/organiser/account/removal/preview":
+    "the caller's own seats, a deleted wedding's included by design: the removal takes its last seat; tests/routes/organiser-account.test.ts",
+  "POST /api/organiser/account/removal/confirmation":
+    "asks osn-api for a step-up request; names no wedding",
+  "DELETE /api/organiser/account":
+    "removes the caller's own seats on every wedding, a deleted one's included by design; tests/routes/organiser-account.test.ts",
   "POST /api/organiser/weddings/:weddingId/restore":
     "the one organiser route that must reach a deleted wedding; tests/routes/wedding-lifecycle.test.ts",
 };

@@ -189,7 +189,7 @@ export function ExplorePage() {
       />
 
       <Show when={showCreateForm()}>
-        <div class="mx-auto max-w-3xl px-8 pt-6">
+        <div class="mx-auto max-w-3xl px-4 pt-6 md:px-8">
           <CreateEventForm
             onSuccess={handleFormSuccess}
             onCancel={() => setShowCreateForm(false)}
@@ -210,7 +210,7 @@ export function ExplorePage() {
         style={{ "grid-template-columns": "minmax(0, 1fr) 44%" }}
       >
         {/* Events pane */}
-        <div class="min-w-0 px-8 pt-6 pb-20">
+        <div class="min-w-0 px-4 pt-6 pb-20 md:px-8">
           <FilterRail
             active={chip()}
             onSelect={setChip}
@@ -269,7 +269,7 @@ export function ExplorePage() {
                     >
                       On your radar
                     </h2>
-                    <span class="text-muted-foreground hover:text-foreground cursor-pointer text-xs">
+                    <span class="text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1 text-xs">
                       View all <Icon name="chevron-right" size={11} />
                     </span>
                   </div>

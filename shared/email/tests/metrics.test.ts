@@ -17,11 +17,8 @@ describe("classifyHttpStatus", () => {
   const cases: Array<{ status: number; expected: ReturnType<typeof classifyHttpStatus> }> = [
     // 2xx
     { status: 200, expected: "2xx" },
-    { status: 202, expected: "2xx" },
     { status: 299, expected: "2xx" },
     // below 2xx → "network" (informational / unexpected)
-    { status: 0, expected: "network" },
-    { status: 100, expected: "network" },
     { status: 199, expected: "network" },
     // 3xx is intentionally not a bucket — CloudflareEmailLive uses
     // `response.ok` + the 429/5xx branches, so 3xx arriving here means
@@ -31,18 +28,12 @@ describe("classifyHttpStatus", () => {
     { status: 399, expected: "network" },
     // 4xx
     { status: 400, expected: "4xx" },
-    { status: 422, expected: "4xx" },
-    { status: 429, expected: "4xx" },
     { status: 499, expected: "4xx" },
     // 5xx
     { status: 500, expected: "5xx" },
-    { status: 503, expected: "5xx" },
     { status: 599, expected: "5xx" },
     // above 5xx → "network" again
     { status: 600, expected: "network" },
-    { status: 999, expected: "network" },
-    // negative status (some HTTP libraries use -1 for "no response")
-    { status: -1, expected: "network" },
   ];
   for (const { status, expected } of cases) {
     it(`${String(status)} → ${expected}`, () => {

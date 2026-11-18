@@ -1,22 +1,28 @@
 import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
-import { makeDbD1Live } from "@osn/db/service";
+import { makeDbD1Live, type Db } from "@osn/db/service";
 import type { CoordinationNamespace } from "@shared/coordination";
+import type { EmailService } from "@shared/email";
 import { installWorkersTracing } from "@shared/observability/tracing";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
-import { buildAppDeps } from "./build-deps";
+import { appOrigins, buildAppDeps, INSTANCE_NAME } from "./build-deps";
 import { withBackgroundSink } from "./lib/background";
 import { createDurableCoordination } from "./lib/coordination/durable";
 import { selectEmailLayer } from "./lib/email-layer";
 import { readOsnRateLimitBindings, USER_TIERS } from "./lib/native-rate-limiters";
-import { registerOutboundKeysOnce } from "./lib/outbound-arc";
 import { osnLoggerLayer, runOsn } from "./observability";
 import * as accountErasure from "./services/account-erasure";
-import { setRuntimeTier } from "./services/auth/helpers";
+import { frontendOrigin, setRuntimeTier } from "./services/auth/helpers";
 import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
 import { rotatedSweepMaxChunks, runRotatedSessionSweep } from "./services/auth/tokens";
+import { deletionAppsConfig, type DeletionAppsConfig } from "./services/deletion-apps";
+import {
+  runEmailChangeSweep,
+  runHandleHoldSweep,
+  runSecurityEventSweep,
+} from "./services/retention";
 
 // ---------------------------------------------------------------------------
 // Cloudflare Workers handler for @osn/api. The Worker's module is
@@ -88,12 +94,29 @@ export interface Env {
   // sign-in, profile choice, or consent. Unset falls back to `/authorize` on
   // the first configured origin.
   OSN_AUTHORIZE_UI_URL?: string;
+  // Sign-up accepts a browser Email Verification API token when truthy. Unset
+  // (every tier today) = off. Read once, in `build-deps.ts`.
+  OSN_EMAIL_VERIFICATION_API?: string;
+  // Local E2E only; a deployed tier refuses to boot with it. See `build-deps.ts`.
+  OSN_EMAIL_VERIFICATION_EMULATOR_URL?: string;
+  // Where the account deletion reaches each app, and the apps this tier does
+  // not run (comma-separated). `deletionAppsConfig` reads them.
   PULSE_API_URL?: string;
   ZAP_API_URL?: string;
-  // cire-api's origin and cire's OIDC client id, for ending an account's cire
-  // organiser sessions on sign out everywhere else and on cire's connection
-  // revoke. The bearer secret is CIRE_INTERNAL_REVOKE_SECRET below.
-  CIRE_INTERNAL_REVOKE_URL?: string;
+  // cire-api's origin: the deletion reaches cire here, and so does the
+  // organiser-session revoke (bearer: CIRE_INTERNAL_REVOKE_SECRET below).
+  CIRE_API_URL?: string;
+  // cire's organiser portal: where Musubi sends a person back after they
+  // confirm a cire step-up request. `appStepUpReturnConfig` reads it.
+  CIRE_ORGANISER_ORIGIN?: string;
+  OSN_DELETION_ABSENT_APPS?: string;
+  // Jobs one deletion fan-out pass reaches, and accounts one hard-delete pass
+  // erases. Unset: 4, inside Workers Free's 50 queries a cron run. Production
+  // sets 50.
+  OSN_DELETION_FANOUT_MAX_JOBS?: string;
+  // cire's OIDC client id. Every cire organiser-session revoke needs it: it
+  // finds the account's profiles that signed in to cire by their consent to
+  // this client.
   CIRE_OIDC_CLIENT_ID?: string;
   TRUSTED_PROXY_COUNT?: string;
   // Secrets (`wrangler secret put`) — present ONLY on `env`, never process.env.
@@ -316,68 +339,82 @@ export const handler: OsnWorkerHandler = {
   // Cron-triggered maintenance. Replaces the Bun `setInterval` deletion sweeper
   // (account-erasure fan-out retry + hard-delete). Configured by the
   // `[triggers] crons` entry in wrangler.toml (every 6h — matching the Bun
-  // SWEEPER_INTERVAL default). Two independent sweeps share the cron; each is
-  // its own `waitUntil` + `catchAll` so a failure in one never aborts the other
-  // and the isolate stays alive until each settles.
+  // SWEEPER_INTERVAL default). Every sweep below is its own `waitUntil` +
+  // `Effect.catch`, so a failure in one never aborts another and the isolate
+  // stays alive until each settles. All of them share the invocation's D1
+  // query allowance (50 on Workers Free); the deletion sweeps' per-run cap,
+  // `OSN_DELETION_FANOUT_MAX_JOBS`, is what keeps them inside it.
   //
-  // ARC outbound-key registration on the Workers path. Pulse + Zap verify
-  // inbound ARC tokens against a PRE-REGISTERED public key (Pulse:
-  // `arc-middleware.ts` looks the kid up in an in-memory registry seeded by
-  // `POST /internal/register-service`; osn's own register-service stores keys
-  // in `service_account_keys` — there is NO JWKS-by-kid pull). The Bun server
-  // registers osn's outbound key at boot via `startOutboundKeyRotation` in
-  // `local.ts`. A workerd isolate has no boot hook, so we register here, once
-  // per isolate, BEFORE the fan-out sweeps run — otherwise the very first
-  // `/internal/account-deleted` POST would be 401'd by the downstream and the
-  // GDPR Art. 17 erasure would stall. `outbound-arc.ts`'s lazy init only mints
-  // the keypair; it does NOT publish the public key downstream. Registration is
-  // an idempotent upsert; the once-per-isolate latch keeps every later cron
-  // tick from re-POSTing. A failure here is logged and swallowed so a transient
-  // downstream outage never aborts the sweeps (the next tick retries).
+  // The fan-out signs its calls with this isolate's outbound ARC key, which it
+  // publishes first (`lib/outbound-arc.ts`); apps verify against the published
+  // set, so no registration with each app is needed.
   async scheduled(_event, env, ctx) {
     installWorkersTracing(ctx.tracing);
     setRuntimeTier(env.OSN_ENV);
     if (!env.DB) return;
     const dbLayer = makeDbD1Live(env.DB);
-    const fanoutUrls = { pulseApiUrl: env.PULSE_API_URL, zapApiUrl: env.ZAP_API_URL };
+    const maxJobsSetting = accountErasure.deletionSweepMaxJobs(env.OSN_DELETION_FANOUT_MAX_JOBS);
+    const maxJobs =
+      maxJobsSetting === "invalid"
+        ? accountErasure.DELETION_SWEEP_DEFAULT_MAX_JOBS
+        : maxJobsSetting;
+    let deletionApps: DeletionAppsConfig | null = null;
+    try {
+      deletionApps = deletionAppsConfig(env);
+    } catch (error) {
+      await runOsn(
+        Effect.logError("scheduled fan-out skipped: the deletion app settings are wrong", {
+          reason: error instanceof Error ? error.message : "invalid",
+        }),
+      );
+    }
 
-    // Register the outbound ARC key, THEN run the fan-out retry sweep — awaited in
-    // sequence within the tick so the first `/internal/account-deleted` POST on a
-    // fresh isolate isn't 401'd before the key is published downstream. A
-    // registration failure is logged and does not block the sweep (the POST then
-    // 401s and is retried on the next tick, per the fail-and-retry posture below).
-    ctx.waitUntil(
-      (async () => {
-        await registerOutboundKeysOnce({
-          pulseApiUrl: env.PULSE_API_URL,
-          zapApiUrl: env.ZAP_API_URL,
-          internalServiceSecret: env.INTERNAL_SERVICE_SECRET,
-          osnEnv: env.OSN_ENV,
-        }).catch((err) =>
-          runOsn(
-            Effect.logError("scheduled outbound ARC key registration failed", {
-              reason: String(err),
-            }),
-          ),
-        );
-        await runOsn(
-          accountErasure.runFanOutRetrySweep(fanoutUrls).pipe(
+    if (deletionApps !== null) {
+      const config = deletionApps;
+      ctx.waitUntil(
+        runOsn(
+          Effect.gen(function* () {
+            if (maxJobsSetting === "invalid") {
+              yield* Effect.logWarning(
+                "OSN_DELETION_FANOUT_MAX_JOBS is not a whole number from 1 to 200; sweeping with the default",
+              );
+            }
+            return yield* accountErasure.runFanOutRetrySweep({ config, maxJobs });
+          }).pipe(
             Effect.catch((err) =>
               Effect.logError("scheduled fan-out retry sweep failed", { reason: String(err) }),
             ),
             Effect.provide(dbLayer),
           ),
-        );
-      })(),
-    );
+        ),
+      );
+    }
 
+    // The hard delete mails the account's address and each organisation's
+    // new owner once it has removed the account. The transport is chosen as
+    // the routes' is; a tier whose transport cannot be built still erases,
+    // with no mail, and says so once.
+    let hardDeleteLayer: Layer.Layer<Db | EmailService> | Layer.Layer<Db> = dbLayer;
+    try {
+      hardDeleteLayer = Layer.merge(dbLayer, selectEmailLayer(env, osnLoggerLayer));
+    } catch (error) {
+      await runOsn(
+        Effect.logError("scheduled hard delete runs without mail: the email transport is wrong", {
+          reason: error instanceof Error ? error.message : "invalid",
+        }),
+      );
+    }
+    const notices = {
+      appUrl: frontendOrigin({ authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL, origin: appOrigins(env) }),
+      instanceName: INSTANCE_NAME,
+    };
     ctx.waitUntil(
       runOsn(
-        accountErasure.runHardDeleteSweep().pipe(
+        accountErasure.runHardDeleteSweep({ batchSize: maxJobs, notices }).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled hard-delete sweep failed", { reason: String(err) }),
           ),
-          Effect.provide(dbLayer),
+          Effect.provide(hardDeleteLayer),
         ),
       ),
     );
@@ -415,6 +452,42 @@ export const handler: OsnWorkerHandler = {
         }).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled rotated-session sweep failed", { reason: String(err) }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    // Retention sweeps (`wiki/compliance/retention.md`): security events past
+    // 12 months, email-change records past 90 days, and handle holds past
+    // their release. Each deletes at most two chunks of 500 a run.
+    ctx.waitUntil(
+      runOsn(
+        runSecurityEventSweep().pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled security-event sweep failed", { reason: String(err) }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    ctx.waitUntil(
+      runOsn(
+        runEmailChangeSweep().pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled email-change sweep failed", { reason: String(err) }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    ctx.waitUntil(
+      runOsn(
+        runHandleHoldSweep().pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled handle-hold sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
         ),

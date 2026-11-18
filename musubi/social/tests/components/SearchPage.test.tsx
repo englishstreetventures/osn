@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
+import { AuthExpiredError, GraphClientError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
+import { toast } from "@shared/toast";
 import { MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +21,7 @@ vi.mock("../../src/lib/api", () => ({
   recommendationClient: { search: mocks.search },
 }));
 
+import { ShellDialogsProvider } from "../../src/components/ShellDialogs";
 import { SearchPage } from "../../src/pages/SearchPage";
 
 function authedProvider(signedIn = true) {
@@ -66,9 +69,12 @@ const org = (handle: string, name: string, isMember = false) => ({
 function renderPage(signedIn = true) {
   return render(() => (
     <AuthContext.Provider value={authedProvider(signedIn)}>
-      <MemoryRouter>
-        <Route path="/" component={SearchPage} />
-      </MemoryRouter>
+      {/* The signed-out note's Sign in opens the shell's dialog. */}
+      <ShellDialogsProvider>
+        <MemoryRouter>
+          <Route path="/" component={SearchPage} />
+        </MemoryRouter>
+      </ShellDialogsProvider>
     </AuthContext.Provider>
   ));
 }
@@ -87,6 +93,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   cleanup();
   vi.clearAllMocks();
@@ -96,12 +103,13 @@ describe("<SearchPage />", () => {
   it("prompts before searching, and searches from the first character", async () => {
     renderPage();
     expect(screen.getByText(/Start typing to find people/)).toBeDefined();
+    expect(document.title).toBe("Search · Musubi");
     expect(mocks.search).not.toHaveBeenCalled();
 
     // One character is a real search — the server scopes it to the caller's own
     // connections and organisations rather than the global index.
     await type("a");
-    expect(mocks.search).toHaveBeenCalledWith("tkn", "a", expect.anything());
+    expect(mocks.search).toHaveBeenCalledWith("a", expect.anything());
   });
 
   it("groups results under People and Organisations headings", async () => {
@@ -130,7 +138,6 @@ describe("<SearchPage />", () => {
     renderPage();
     await type("ali");
     expect(mocks.search).toHaveBeenCalledWith(
-      "tkn",
       "ali",
       expect.objectContaining({ limit: 15, orgLimit: 8 }),
     );
@@ -145,8 +152,31 @@ describe("<SearchPage />", () => {
     fireEvent.click(screen.getByText("Connect"));
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("tkn", "alice");
+    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("alice");
     await waitFor(() => expect(screen.getByText("Requested")).toBeDefined());
+  });
+
+  // Accept holds focus through its wait (`busy`, not `disabled`), names it, and
+  // sends once however often pressed. No e2e flow can receive a request.
+  it("keeps Accept busy, not disabled, while the accept runs", async () => {
+    mocks.search.mockResolvedValue({
+      people: [person("alice", "pending_received")],
+      organisations: [],
+    });
+    mocks.acceptConnection.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    await type("ali");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Accept" })).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    const accepting = screen.getByRole("button", { name: "Accepting…" }) as HTMLButtonElement;
+    expect(accepting.getAttribute("aria-busy")).toBe("true");
+    expect(accepting.disabled).toBe(false);
+    fireEvent.click(accepting);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.acceptConnection).toHaveBeenCalledTimes(1);
   });
 
   it("reports an empty result set", async () => {
@@ -193,4 +223,39 @@ describe("<SearchPage />", () => {
     expect(screen.getByText(/Sign in to search/)).toBeDefined();
     expect(screen.queryByLabelText("Search people and organisations")).toBeNull();
   });
+
+  it.each([
+    ["connect", "none", "Connect", "Failed to send request", () => mocks.sendConnectionRequest],
+    [
+      "accept",
+      "pending_received",
+      "Accept",
+      "Failed to accept request",
+      () => mocks.acceptConnection,
+    ],
+  ] as const)(
+    "words an ended session, a server message and a missing message on %s",
+    async (_n, status, label, fallback, call) => {
+      mocks.search.mockResolvedValue({ people: [person("alice", status)], organisations: [] });
+      const spy = vi.spyOn(toast, "error");
+      renderPage();
+      await type("ali");
+      await waitFor(() => expect(screen.getByRole("button", { name: label })).toBeDefined());
+
+      call().mockRejectedValueOnce(new AuthExpiredError({}));
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spy).toHaveBeenLastCalledWith("Your session has ended. Sign in again.");
+
+      call().mockRejectedValueOnce(new GraphClientError("Connection already exists", 400));
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spy).toHaveBeenLastCalledWith("Connection already exists");
+
+      call().mockRejectedValueOnce(new GraphClientError("", 400));
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spy).toHaveBeenLastCalledWith(fallback);
+    },
+  );
 });

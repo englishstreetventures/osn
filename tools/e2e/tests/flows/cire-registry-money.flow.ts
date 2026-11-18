@@ -1,12 +1,14 @@
 /**
  * Cire organiser portal: an owner whose own settings take money — money gifts
  * on, a Stripe account that can charge — opens the gift list on a site that
- * cannot take a money gift. The stack's cire-api holds a Stripe key and no
- * Connect webhook secret, so the registry read answers `takesPayments: false`,
- * its settings name `payments_unavailable` as why guests cannot give money,
- * and the portal says so: the Money gifts panel names the site, a list holding
- * one cash fund and two group gifts and nothing else cannot be published, and
- * the gift list says guests cannot see its cash funds and group gifts.
+ * takes money gifts. The stack's cire-api holds a Stripe key and the Connect
+ * webhook's secret, so the registry read answers `takesPayments: true` and
+ * names nothing that keeps guests from giving money, the Money gifts panel
+ * says nothing of the site, a list holding one cash fund and two group gifts
+ * and nothing else may be published, and the gift list hides none of them
+ * from guests. What the portal says on a site that cannot take a money gift
+ * is held by its own tests and cire-api's: a cire-api without the secret
+ * would need a sign-in of its own.
  *
  * One group gift, an espresso machine with a $1,200 target, has had $1,400
  * given by two households beside a gift refunded in full and one not yet paid.
@@ -16,9 +18,10 @@
  * adds a third group gift through the form, which the API stores as a cash
  * fund marked a group gift and whose row says what is left to raise; then
  * edits it, and the portal refuses a cleared target before sending anything
- * and stores a new one. The gifts tab lists all three together. Guests cannot
- * give on this stack, so the money a guest gives towards one is held by
- * cire-api's route tests (`tests/routes/registry-group-gifts.test.ts`).
+ * and stores a new one. The gifts tab lists all three together. The money a
+ * guest gives towards a group gift is held by cire-api's route tests
+ * (`tests/routes/registry-group-gifts.test.ts`); a guest's gift to a plain
+ * cash fund is the Fund Wedding steps below.
  *
  * The wedding is `CIRE_ORGANISER.money`, which cire-api seeds for the suite
  * (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`). The flow reads its
@@ -61,6 +64,35 @@
  * second code, which would revoke the connection. The onboarding route
  * answers 409 `stripe_standard_account`. That panel is the flow's screenshot.
  *
+ * Then, on a second page so the screenshot stays that panel, Money Wedding's
+ * budget: the owner adds a venue line with an estimate, which counts as spent
+ * until an actual figure replaces it; sets a total the line runs over, and the
+ * summary says so; schedules a deposit and ticks it paid; then deletes the
+ * line, lets its Undo toast run out, and the line and its payment leave
+ * cire-api together.
+ *
+ * And Enquiries Wedding (`CIRE_ORGANISER.enquiries`, on Crimson, the tier the
+ * vendor directory needs): from the directory the owner enquires with a
+ * florist whose listing was made in the vendor portal, so its organisation
+ * owns it but no vendor profile is on it. Its first message waits on the
+ * listing, the florist joins the wedding's own vendor list, and no claim link
+ * is minted for an owned listing. The inbox holds that enquiry and a seeded
+ * one a claimed string quartet has quoted. The stack runs no vendor chat, so
+ * that thread's messages answer 503 and the thread says messaging is
+ * unavailable, while its quote, from the enquiry itself, goes to the budget
+ * with Add to budget, and the Budget module lists it.
+ *
+ * Then Fund Wedding (`CIRE_ORGANISER.fund`, `tests/support/cire-fund-gift.ts`),
+ * whose published list starts empty: the owner adds a cash fund through the
+ * gift list's form, and a guest of its one household, in a browser of their
+ * own, opens the invitation at the household's link, chooses the fund in the
+ * gift page's money panel, gives $75 and is handed to Stripe's Checkout,
+ * served by the Stripe stand-in. The flow pays there and delivers the signed
+ * `checkout.session.completed` to cire-api's Connect webhook; the gift reads
+ * `succeeded` under the fund's name, and the owner's gift log shows it
+ * received. The money panel, the fund chosen, is
+ * `screenshots/cire-registry-money/guest-money-panel.png`.
+ *
  * Then the owner signs out everywhere else on OSN, and their cire sessions end
  * too. The flow asks osn-api the way `@osn/auth-ui`'s sessions view does: an
  * access token from `POST /token` on the session cookie, then
@@ -70,19 +102,29 @@
  * both). The flow waits for cire-api's session probe to answer signed out for
  * the cookie the browser still holds, finds no `organiser_sessions` row left
  * for the dev profile, sees the gift list read with that cookie answer 401,
- * and sees the portal, opened again, send the owner to sign in. These steps share this flow's sign-in rather than spend one of
- * their own (`tests/flows.test.ts` caps them), and come last because they end
- * it. A flow after this one signs in afresh.
+ * and sees the portal, opened again, send the owner to sign in. These steps,
+ * like the budget, enquiry and fund ones, share this flow's sign-in rather than
+ * spend one of their own (`tests/flows.test.ts` caps them), and come last
+ * because they end it. A flow after this one signs in afresh.
  */
 
+import type { Page } from "@playwright/test";
+
 import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
-import { expect, queryOne, signInToCireHost, test } from "../support/fixtures";
+import { giveToANewFund } from "../support/cire-fund-gift";
+import {
+  expect,
+  onSuiteClock,
+  queryOne,
+  signInToCireHost,
+  test,
+  type Flow,
+} from "../support/fixtures";
 
 const { weddingId, fundTitle, groupGift, accountId, connector } = CIRE_ORGANISER.money;
 const REGISTRY_URL = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/registry`;
 const ONBOARDING_URL = `${REGISTRY_URL}/stripe/session`;
 const SESSION_URL = `${ORIGINS.cireApi}/api/auth/session`;
-const UNAVAILABLE = /money gifts aren’t available on this site yet/i;
 
 /** How many cire organiser sessions the dev profile holds. */
 function organiserSessions(): number {
@@ -104,7 +146,7 @@ function osnSessions(): number {
   return row?.n ?? -1;
 }
 
-test("cire-registry-money", async ({ page, flow }) => {
+test("cire-registry-money", async ({ page, browser, flow }) => {
   const money = queryOne<{ ready: number }>(
     DB_FILES.cire,
     `SELECT (cash_gifts_enabled = 1 AND stripe_charges_enabled = 1
@@ -127,10 +169,10 @@ test("cire-registry-money", async ({ page, flow }) => {
       items?: Array<{ id: string; allowPartial?: boolean; raised?: unknown }>;
     };
     const group = body.items?.find((item) => item.id === groupGift.id);
-    const notice = page.getByTestId("money-gifts-unavailable");
-    await expect(notice).toBeVisible();
+    // Enabled once the settings have loaded and the funds count as something
+    // guests can see.
     const publish = page.getByRole("radio", { name: /^Published/ });
-    await expect(publish).toBeDisabled();
+    await expect(publish).toBeEnabled();
     return {
       status: response.status(),
       takesPayments: "takesPayments" in body ? String(body.takesPayments) : "absent",
@@ -138,42 +180,35 @@ test("cire-registry-money", async ({ page, flow }) => {
         body.settings && "moneyGiftsBlockedBy" in body.settings
           ? String(body.settings.moneyGiftsBlockedBy)
           : "absent",
-      notice: (await notice.textContent()) ?? "",
+      notices: await page.getByTestId("money-gifts-unavailable").count(),
       publishBlocked: await publish.isDisabled(),
-      publishNotice: (await page.locator("#registry-publish-blocked").textContent()) ?? "",
+      publishNotices: await page.locator("#registry-publish-blocked").count(),
       groupGift: group?.allowPartial === true ? "group gift" : "absent",
       raised: JSON.stringify(group?.raised ?? null),
     };
   });
   flow.check("registry read", 200, settings.status);
-  flow.check("registry read says the site takes money gifts", "false", settings.takesPayments);
+  flow.check("registry read says the site takes money gifts", "true", settings.takesPayments);
   flow.check(
-    "registry read names the site as why guests cannot give money",
-    "payments_unavailable",
+    "registry read names nothing that keeps guests from giving money",
+    "null",
     settings.blockedBy,
   );
-  flow.check("Money gifts panel names the site", true, UNAVAILABLE.test(settings.notice));
+  flow.check("no notice says money gifts are unavailable", 0, settings.notices);
   flow.check(
-    "a list of a cash fund and a group gift is blocked from publishing",
-    true,
+    "a list of a cash fund and two group gifts may be published",
+    false,
     settings.publishBlocked,
   );
-  flow.check("the publish notice names the site", true, UNAVAILABLE.test(settings.publishNotice));
+  flow.check("no notice blocks publishing", 0, settings.publishNotices);
 
   const list = await flow.step("open the gift list", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/list`);
     // The fund's name appears three times in the gift list, so take the first.
     await expect(page.getByText(fundTitle).first()).toBeVisible();
-    const notice = page.getByText(/Guests can’t see your cash funds/);
-    await expect(notice).toBeVisible();
-    return (await notice.textContent()) ?? "";
+    return page.getByTestId("funds-hidden").count();
   });
-  flow.check("the gift list says guests cannot see the fund", true, UNAVAILABLE.test(list));
-  flow.check(
-    "the gift list names both cash funds and group gifts",
-    true,
-    list.trim().startsWith("Guests can’t see your cash funds and group gifts:"),
-  );
+  flow.check("the gift list hides no cash fund or group gift from guests", 0, list);
   flow.check("registry read marks the group gift", "group gift", settings.groupGift);
   flow.check(
     "registry read counts the two received gifts towards it, and nothing else",
@@ -713,6 +748,13 @@ test("cire-registry-money", async ({ page, flow }) => {
   flow.check("cire-api onboarding on a Standard account", 409, standardLink.status);
   flow.check("cire-api says why", "stripe_standard_account", standardLink.error);
 
+  // On a page of its own, so the flow's screenshot stays the connected panel,
+  // and before the sign-out below, which ends the session these steps use.
+  const planning = await flow.newPage(page.context());
+  await budgetSteps(flow, planning);
+  await enquirySteps(flow, planning);
+  await giveToANewFund(flow, planning, browser);
+
   const accessToken = await flow.step(
     "organiser: an access token from the OSN session",
     async () => {
@@ -776,3 +818,326 @@ test("cire-registry-money", async ({ page, flow }) => {
   });
   flow.check("the portal lands on its sign-in page", "/login/", portal);
 });
+
+/** How long a deleted budget line's toast offers Undo: `UNDO_MS` in cire/host's `lib/undo-delete.ts`. */
+const UNDO_WINDOW_MS = 5_000;
+
+/** The Budget module's summary: "Spent so far", the figure, any total and any
+ *  "Over budget", one line apiece, joined with spaces. */
+async function spentSoFar(page: Page): Promise<string> {
+  const summary = page.getByText("Spent so far", { exact: true }).locator("..");
+  return summary.evaluate((box) =>
+    Array.from(box.children, (part) => (part.textContent ?? "").replace(/\s+/g, " ").trim()).join(
+      " ",
+    ),
+  );
+}
+
+/** A wedding's budget lines, as `name category estimate quote actual`, sorted. */
+function budgetLines(wedding: string): string {
+  const row = queryOne<{ lines: string | null }>(
+    DB_FILES.cire,
+    `SELECT group_concat(line, '; ') AS lines FROM (
+       SELECT name || ' ' || category || ' ' || coalesce(estimate_minor, '-') || ' '
+              || coalesce(quoted_minor, '-') || ' ' || coalesce(actual_minor, '-') AS line
+         FROM budget_items WHERE wedding_id = ? ORDER BY name)`,
+    wedding,
+  );
+  return row?.lines ?? "";
+}
+
+/** A wedding's budget payments, as `label amount due paid?`, sorted. */
+function budgetPayments(wedding: string): string {
+  const row = queryOne<{ lines: string | null }>(
+    DB_FILES.cire,
+    `SELECT group_concat(line, '; ') AS lines FROM (
+       SELECT p.label || ' ' || p.amount_minor || ' ' || coalesce(p.due_at, '-') || ' '
+              || CASE WHEN p.paid_at IS NULL THEN 'unpaid' ELSE 'paid' END AS line
+         FROM payments p JOIN budget_items b ON b.id = p.budget_item_id
+        WHERE b.wedding_id = ? ORDER BY p.label)`,
+    wedding,
+  );
+  return row?.lines ?? "";
+}
+
+/**
+ * Money Wedding's budget: the owner adds a line, records what it cost, sets a
+ * total it runs over, schedules a deposit and marks it paid, then deletes the
+ * line and lets its Undo toast run out. The line and its payment leave cire-api
+ * together.
+ */
+async function budgetSteps(flow: Flow, page: Page): Promise<void> {
+  // `weddingId` is Money Wedding's, from the top of the file.
+  const BUDGET_API = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/budget`;
+  const line = page
+    .getByTestId("budget-venue")
+    .getByRole("listitem")
+    .filter({ hasText: "Boathouse hire" });
+
+  await flow.step("open Money Wedding's budget", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/budget`);
+    await expect(page.getByText("No budget items yet.")).toBeVisible();
+  });
+
+  const added = await flow.step("add a venue line with an estimate", async () => {
+    await page.getByLabel("Category", { exact: true }).selectOption({ label: "Venue" });
+    await page.getByLabel("Item", { exact: true }).fill("Boathouse hire");
+    await page.getByLabel("Estimate (optional)", { exact: true }).fill("1200");
+    const created = page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url() === `${BUDGET_API}/items`,
+    );
+    await page.getByRole("button", { name: "Add item" }).click();
+    const status = (await created).status();
+    await expect(line).toBeVisible();
+    await expect(page.getByText("Spent so far", { exact: true }).locator("..")).toContainText(
+      "$1,200.00",
+    );
+    return { status, spent: await spentSoFar(page) };
+  });
+  flow.check("cire-api adds the line", 200, added.status);
+  flow.check("an estimate alone counts as spent", "Spent so far $1,200.00", added.spent);
+
+  const actual = await flow.step("record what the line cost", async () => {
+    const saved = page.waitForResponse(
+      (r) => r.request().method() === "PATCH" && r.url().startsWith(`${BUDGET_API}/items/`),
+    );
+    const cell = line.getByLabel("Actual", { exact: true });
+    await cell.fill("1350");
+    await cell.blur();
+    const status = (await saved).status();
+    await expect(page.getByText("Spent so far", { exact: true }).locator("..")).toContainText(
+      "$1,350.00",
+    );
+    return { status, spent: await spentSoFar(page) };
+  });
+  flow.check("cire-api saves the actual figure", 200, actual.status);
+  flow.check("the actual figure replaces the estimate", "Spent so far $1,350.00", actual.spent);
+
+  const capped = await flow.step("set a total the line runs over", async () => {
+    await page.getByRole("button", { name: "Set a budget →" }).click();
+    await page.getByLabel("Total budget (AUD)", { exact: true }).fill("1000");
+    const saved = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url() === `${BUDGET_API}/total`,
+    );
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const status = (await saved).status();
+    await expect(page.getByText("Over budget", { exact: true })).toBeVisible();
+    return { status, spent: await spentSoFar(page) };
+  });
+  flow.check("cire-api saves the total", 200, capped.status);
+  flow.check(
+    "the summary says spent of the total, and over it",
+    "Spent so far $1,350.00 of $1,000.00 Over budget",
+    capped.spent,
+  );
+
+  const paid = await flow.step("schedule a deposit and mark it paid", async () => {
+    await line.getByRole("button", { name: "payments (0)" }).click();
+    await line.getByLabel("Payment label", { exact: true }).fill("Deposit");
+    await line.getByLabel("Amount", { exact: true }).fill("500");
+    await line.getByLabel("Due date", { exact: true }).fill("2026-12-01");
+    const created = page.waitForResponse(
+      (r) => r.request().method() === "POST" && /\/budget\/items\/[^/]+\/payments$/.test(r.url()),
+    );
+    await line.getByRole("button", { name: "Add payment" }).click();
+    const createdStatus = (await created).status();
+    const deposit = line.getByText("Deposit · $500.00", { exact: false });
+    await expect(deposit).toContainText("due 2026-12-01");
+    const ticked = page.waitForResponse(
+      (r) => r.request().method() === "PATCH" && /\/payments\/[^/]+$/.test(r.url()),
+    );
+    await line.getByRole("checkbox", { name: "Deposit paid" }).check();
+    const tickedStatus = (await ticked).status();
+    await expect(deposit).toContainText("paid");
+    await expect(line.getByRole("button", { name: "payments (1)" })).toBeVisible();
+    return { createdStatus, tickedStatus };
+  });
+  flow.check("cire-api adds the payment", 200, paid.createdStatus);
+  flow.check("cire-api marks it paid", 200, paid.tickedStatus);
+  flow.check(
+    "budget_items holds the line with its estimate and actual",
+    "Boathouse hire venue 120000 - 135000",
+    budgetLines(weddingId),
+  );
+  flow.check(
+    "payments holds the paid deposit",
+    "Deposit 50000 2026-12-01 paid",
+    budgetPayments(weddingId),
+  );
+  const total = queryOne<{ total: number | null }>(
+    DB_FILES.cire,
+    "SELECT budget_total_minor AS total FROM weddings WHERE id = ?",
+    weddingId,
+  );
+  flow.check("the wedding's total is stored", 100_000, total?.total ?? -1);
+  const paidAt = queryOne<{ at: number }>(
+    DB_FILES.cire,
+    `SELECT p.paid_at AS at FROM payments p JOIN budget_items b ON b.id = p.budget_item_id
+      WHERE b.wedding_id = ?`,
+    weddingId,
+  );
+  flow.check("paid on the suite clock", true, onSuiteClock(paidAt?.at));
+
+  const removed = await flow.step("delete the line and let its toast run out", async () => {
+    await line.getByRole("button", { name: "Delete item" }).click();
+    await expect(page.getByText("Deleted “Boathouse hire”")).toBeVisible();
+    // The line is still on cire-api while the toast offers Undo.
+    const during = budgetLines(weddingId);
+    const answered = page.waitForResponse(
+      (r) => r.request().method() === "DELETE" && r.url().startsWith(`${BUDGET_API}/items/`),
+    );
+    // Off the toast, so no pointer resting over it holds its timer.
+    await page.mouse.move(0, 0);
+    await page.clock.runFor(UNDO_WINDOW_MS + 1_000);
+    const status = (await answered).status();
+    await expect(page.getByText("No budget items yet.")).toBeVisible();
+    return { during, status };
+  });
+  flow.check(
+    "toast up: the line is still on cire-api",
+    "Boathouse hire venue 120000 - 135000",
+    removed.during,
+  );
+  flow.check("toast gone: cire-api deletes the line", 200, removed.status);
+  flow.check("the line has left cire-api", "", budgetLines(weddingId));
+  flow.check("its payment went with it", "", budgetPayments(weddingId));
+}
+
+/**
+ * Enquiries Wedding, on Crimson: the owner enquires with a vendor from the
+ * directory whose listing has no vendor profile on it, so its first message
+ * waits on the listing, then adds a claimed vendor's quote to the budget. The
+ * stack runs no vendor chat, so that vendor's messages answer 503 and the
+ * thread says messaging is unavailable; the quote comes from the enquiry row.
+ */
+async function enquirySteps(flow: Flow, page: Page): Promise<void> {
+  const { weddingId: wedding, open, quoted } = CIRE_ORGANISER.enquiries;
+  const WEDDING_API = `${ORIGINS.cireApi}/api/organiser/weddings/${wedding}`;
+  const message = "We marry on 20 June 2099 in Sydney. Could you do the flowers?";
+  const inboxRow = (name: string) => page.getByRole("button", { name: new RegExp(`^${name}`) });
+
+  const listed = await flow.step("browse the vendor directory", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${wedding}/vendors/browse`);
+    await expect(page.getByRole("button", { name: `Enquire with ${open.name}` })).toBeVisible({
+      timeout: 60_000,
+    });
+    return page.getByRole("button", { name: "Already added to this wedding" }).count();
+  });
+  flow.check("the vendor already enquired with is marked added", 1, listed);
+
+  const dialog = page.getByRole("dialog", { name: `Enquire with ${open.name}` });
+  const sent = await flow.step(`enquire with ${open.name}`, async () => {
+    await page.getByRole("button", { name: `Enquire with ${open.name}` }).click();
+    const send = dialog.getByRole("button", { name: "Send", exact: true });
+    await expect(send).toBeDisabled();
+    await dialog.getByLabel("Your message", { exact: true }).fill(message);
+    await expect(send).toBeEnabled();
+    const answered = page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url() === `${WEDDING_API}/enquiries`,
+    );
+    await send.click();
+    const status = (await answered).status();
+    await expect(page.getByText("Enquiry sent")).toBeVisible();
+    await expect(dialog).toBeHidden();
+    return status;
+  });
+  flow.check("cire-api opens the enquiry", 201, sent);
+  const waiting = queryOne<{
+    status: string;
+    chat: string | null;
+    body: string | null;
+    by: string;
+    vendor: string | null;
+  }>(
+    DB_FILES.cire,
+    `SELECT e.status, e.zap_chat_id AS chat, e.pending_body AS body, e.created_by AS by,
+            v.name || ' ' || v.category AS vendor
+       FROM vendor_enquiries e JOIN vendors v ON v.id = e.vendor_id
+      WHERE e.wedding_id = ? AND e.directory_vendor_id = ?`,
+    wedding,
+    open.listingId,
+  );
+  flow.check(
+    "the enquiry waits on the listing, from the dev profile",
+    `open none ${CIRE_ORGANISER.profileId}`,
+    `${waiting?.status} ${waiting?.chat ?? "none"} ${waiting?.by}`,
+  );
+  flow.check("its first message is held for the vendor", message, waiting?.body ?? "none");
+  flow.check(
+    "the vendor joins the wedding's own list",
+    `${open.name} ${open.category}`,
+    waiting?.vendor ?? "none",
+  );
+  const claims = queryOne<{ n: number }>(
+    DB_FILES.cire,
+    "SELECT count(*) AS n FROM vendor_claims WHERE directory_vendor_id = ?",
+    open.listingId,
+  );
+  flow.check("an owned listing mints no claim link", 0, claims?.n ?? -1);
+
+  const thread = await flow.step(
+    "the inbox holds both enquiries; open the one just sent",
+    async () => {
+      await page.goto(`${ORIGINS.cireHost}/#/w/${wedding}/vendors/enquiries`);
+      await expect(inboxRow(open.name)).toBeVisible();
+      await expect(inboxRow(quoted.name)).toBeVisible();
+      const read = page.waitForResponse(
+        (r) => r.request().method() === "GET" && /\/enquiries\/[^/]+\/messages$/.test(r.url()),
+      );
+      await inboxRow(open.name).click();
+      const status = (await read).status();
+      await expect(page.getByText(message).first()).toBeVisible();
+      await expect(page.getByText(/not delivered yet/i).first()).toBeVisible();
+      return status;
+    },
+  );
+  flow.check("the thread reads its held message", 200, thread);
+
+  const quote = await flow.step(`open ${quoted.name}'s quoted enquiry`, async () => {
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    const read = page.waitForResponse(
+      (r) =>
+        r.request().method() === "GET" &&
+        r.url() === `${WEDDING_API}/enquiries/${quoted.enquiryId}/messages`,
+    );
+    await inboxRow(quoted.name).click();
+    const status = (await read).status();
+    await expect(
+      page.getByText("Messaging is temporarily unavailable. Please try again shortly."),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add to budget" })).toBeVisible();
+    return { status, card: await page.getByText("$4,800", { exact: true }).count() };
+  });
+  flow.check("with no vendor chat on this stack, its messages answer 503", 503, quote.status);
+  flow.check("the thread shows the quote", 1, quote.card);
+
+  const budgeted = await flow.step("add the quote to the budget", async () => {
+    const answered = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" &&
+        r.url() === `${WEDDING_API}/enquiries/${quoted.enquiryId}/add-to-budget`,
+    );
+    await page.getByRole("button", { name: "Add to budget" }).click();
+    const status = (await answered).status();
+    await expect(page.getByText("Added to budget")).toBeVisible();
+    return status;
+  });
+  flow.check("cire-api adds the quote to the budget", 201, budgeted);
+  flow.check(
+    "budget_items holds the vendor's line at the quote",
+    `${quoted.name} ${quoted.category} - ${quoted.quotedMinor} -`,
+    budgetLines(wedding),
+  );
+
+  const listedInBudget = await flow.step("the budget lists the quoted line", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${wedding}/budget`);
+    await expect(
+      page.getByTestId(`budget-${quoted.category}`).getByText(quoted.name, { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Spent so far", { exact: true }).locator("..")).toContainText(
+      "$4,800.00",
+    );
+    return spentSoFar(page);
+  });
+  flow.check("a quote with no actual counts as spent", "Spent so far $4,800.00", listedInBudget);
+}

@@ -318,7 +318,7 @@ describe("the osn-recovery audience at the route boundary", () => {
   it("a recovery bearer still cannot reach the step-up ceremony it bypasses", async () => {
     // The bypass must not be reachable as a general privilege. If a restricted
     // session could mint a step-up token it would reach /recovery/generate,
-    // DELETE /account, GET /account/export and /account/email/complete — every
+    // DELETE /account, GET /account/export and /account/email/:id/complete — every
     // route the restriction exists to prevent.
     const { user, ordinary, restricted } = await tokensFor("ra-stepup@example.com", "rastepup");
     // The ceremony needs a credential to challenge, so the control is only a
@@ -352,6 +352,34 @@ describe("the osn-recovery audience at the route boundary", () => {
     };
     expect(options.options?.challenge).toBeTruthy();
     expect(options.options?.allowCredentials?.map((c) => c.id)).toEqual(["ra-stepup-credential"]);
+  });
+
+  it("a recovery bearer cannot begin a step-up by emailed link either", async () => {
+    // The restricted session was minted by proving the mailbox, so a step-up
+    // link to that same mailbox would hand it every gate the emailed factor
+    // reaches. The route takes ordinary access tokens only.
+    const { ordinary, restricted } = await tokensFor("ra-stepup-link@example.com", "rastepuplink");
+    const url = "http://localhost/step-up/email/begin";
+    const body = JSON.stringify({ purpose: "account_export" });
+
+    const refused = await authApp.handle(
+      new Request(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${restricted}`, "Content-Type": "application/json" },
+        body,
+      }),
+    );
+    expect(refused.status).toBe(401);
+
+    const allowed = await authApp.handle(
+      new Request(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${ordinary}`, "Content-Type": "application/json" },
+        body,
+      }),
+    );
+    expect(allowed.status).toBe(200);
+    expect((await allowed.json()) as { requestId?: string }).toHaveProperty("requestId");
   });
 
   // ---------------------------------------------------------------------------

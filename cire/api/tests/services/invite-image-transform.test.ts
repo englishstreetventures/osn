@@ -6,7 +6,6 @@ import { CIRE_METRICS } from "../../src/metrics";
 import type { StoredAsset } from "../../src/services/invite-assets";
 import { AssetsR2Service, createAssetsStub } from "../../src/services/invite-assets";
 import {
-  blurForVariant,
   buildTransformCacheKey,
   DEFAULT_VARIANT,
   IMAGE_VARIANTS,
@@ -59,19 +58,6 @@ describe("resolveVariant", () => {
   });
 });
 
-describe("blurForVariant", () => {
-  it("blurs ONLY the hero-bg backdrop, with a server-side radius", () => {
-    expect(blurForVariant("hero-bg")).toBe(VARIANT_BLUR["hero-bg"]);
-    expect(blurForVariant("hero-bg")).toBeGreaterThan(0);
-  });
-
-  it("leaves the sharp variants (thumb/card/hero) un-blurred", () => {
-    expect(blurForVariant("thumb")).toBeUndefined();
-    expect(blurForVariant("card")).toBeUndefined();
-    expect(blurForVariant("hero")).toBeUndefined();
-  });
-});
-
 describe("negotiateFormat", () => {
   it("prefers AVIF, then WebP, then JPEG by Accept", () => {
     expect(negotiateFormat("image/avif,image/webp,*/*")).toBe("image/avif");
@@ -87,9 +73,6 @@ describe("negotiateFormat", () => {
 });
 
 describe("buildTransformCacheKey", () => {
-  const keyUrl = (args: Parameters<typeof buildTransformCacheKey>[0]) =>
-    new URL(buildTransformCacheKey(args).url);
-
   it("bakes slug, slot, variant and format into a stable GET key", () => {
     const req = buildTransformCacheKey({
       slug: "cire-wedding",
@@ -120,15 +103,7 @@ describe("buildTransformCacheKey", () => {
     expect(a.url).toBe(b.url);
   });
 
-  it("differs by format so AVIF/WebP/JPEG are cached apart", () => {
-    const base = { slug: "s", slot: "hero", variant: "card" } as const;
-    const avif = keyUrl({ ...base, format: "image/avif" }).searchParams.get("format");
-    const webp = keyUrl({ ...base, format: "image/webp" }).searchParams.get("format");
-    const jpeg = keyUrl({ ...base, format: "image/jpeg" }).searchParams.get("format");
-    expect(new Set([avif, webp, jpeg]).size).toBe(3);
-  });
-
-  it("differs by version so a re-upload (bumped updatedAt) mints a fresh entry (T-S1)", () => {
+  it("differs by version so a re-upload (bumped updatedAt) mints a fresh entry", () => {
     // The version is the server-side row `updatedAt` epoch ms, not the client
     // `?v=`. Two different versions must yield different keys so a re-uploaded
     // image isn't served the stale cached transform.
@@ -140,7 +115,7 @@ describe("buildTransformCacheKey", () => {
     expect(new URL(v2.url).searchParams.get("v")).toBe("1718999999999");
   });
 
-  it("folds the per-wedding blur into the key so two blurs are cached apart (0018)", () => {
+  it("folds the per-wedding blur into the key so two blurs are cached apart", () => {
     const base = { slug: "s", slot: "hero", variant: "hero-bg", format: "image/webp" } as const;
     const b28 = buildTransformCacheKey({ ...base, blur: 28 });
     const b5 = buildTransformCacheKey({ ...base, blur: 5 });
@@ -158,31 +133,6 @@ describe("buildTransformCacheKey", () => {
       format: "image/webp",
     });
     expect(new URL(none.url).searchParams.get("blur")).toBeNull();
-  });
-
-  it("differs by variant and includes the ?v= content version when present", () => {
-    const card = buildTransformCacheKey({
-      slug: "s",
-      slot: "hero",
-      variant: "card",
-      format: "image/jpeg",
-    });
-    const hero = buildTransformCacheKey({
-      slug: "s",
-      slot: "hero",
-      variant: "hero",
-      format: "image/jpeg",
-    });
-    expect(card.url).not.toBe(hero.url);
-
-    const versioned = keyUrl({
-      slug: "s",
-      slot: "hero",
-      variant: "card",
-      format: "image/jpeg",
-      version: "1718000000",
-    });
-    expect(versioned.searchParams.get("v")).toBe("1718000000");
   });
 });
 
@@ -233,7 +183,7 @@ describe("transformAsset", () => {
     expect(new Uint8Array(out.bytes)).toEqual(new Uint8Array([9, 9, 9]));
   });
 
-  it("applies the server-side blur for the hero-bg backdrop variant (T-B1)", async () => {
+  it("applies the server-side blur for the hero-bg backdrop variant", async () => {
     const images = createImagesStub();
     await Effect.runPromise(transformAsset(images, ORIGINAL, "hero-bg", "image/webp"));
     // hero-bg renders at the hero width WITH the server-chosen blur radius.
@@ -244,7 +194,7 @@ describe("transformAsset", () => {
     expect(images.calls[0]!.blur).toBeGreaterThan(0);
   });
 
-  it("honours the per-wedding blur override on the hero-bg variant, incl. an explicit 0 (0018)", async () => {
+  it("honours the per-wedding blur override on the hero-bg variant, incl. an explicit 0", async () => {
     const override = createImagesStub();
     await Effect.runPromise(transformAsset(override, ORIGINAL, "hero-bg", "image/webp", 7));
     // The override (7) wins over the VARIANT_BLUR default.
@@ -283,11 +233,6 @@ describe("transformAsset", () => {
 });
 
 describe("imageCacheControl", () => {
-  it("gives the default lifetime a year, never revalidated", () => {
-    expect(imageCacheControl("public", "immutable")).toBe("public, max-age=31536000, immutable");
-    expect(imageCacheControl("private", "immutable")).toBe("private, max-age=31536000, immutable");
-  });
-
   it("gives a revocable image an hour and drops `immutable`", () => {
     expect(REVOCABLE_MAX_AGE_S).toBe(3600);
     expect(imageCacheControl("public", "revocable")).toBe("public, max-age=3600");

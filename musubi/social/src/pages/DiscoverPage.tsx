@@ -1,12 +1,20 @@
-import type { Suggestion } from "@osn/client";
+import { type Suggestion } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Button } from "@shared/ui/ui/button";
+import { Button, buttonVariants } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { A } from "@solidjs/router";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
-import { graphClient, recommendationClient } from "../lib/api";
+import { EmptyNote } from "../components/EmptyNote";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
+import { SignedOutNote } from "../components/SignedOutNote";
+import { describeActionError } from "../lib/action-error";
+import { graphClient } from "../lib/api";
+import { scopeMark } from "../lib/page-cache";
+import { sentRequests, suggestions } from "../lib/page-data";
+import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
 
 /**
@@ -23,25 +31,48 @@ function suggestionReason(suggestion: Suggestion): string {
     : "Suggested for you";
 }
 
+/** The route's preload. */
+export function preloadDiscover(): void {
+  suggestions.preload();
+}
+
 export function DiscoverPage() {
   const { session } = useAuth();
-  const token = () => session()?.accessToken ?? "";
+  usePageTitle(() => "Discover");
 
-  const [recommendations, { refetch }] = createResource(
-    () => token() || false,
-    (t) => recommendationClient.suggestConnections(t as string, { limit: 20 }),
-  );
+  // Through the page cache: shown again, the last suggestions draw at once
+  // and are read again behind them.
+  const recommendations = suggestions.use(() => []);
 
   const [sending, setSending] = createSignal<Set<string>>(new Set());
 
+  /**
+   * Busy from the press. Waits for any read of the suggestions that is out,
+   * and sends nothing for a card that read removed (`DESIGN.md` §Empty
+   * states). A card asked is taken off at once: osn-api suggests nobody with
+   * a request in flight.
+   */
   async function connect(handle: string) {
+    if (sending().has(handle)) return;
     setSending((s) => new Set(s).add(handle));
     try {
-      await graphClient.sendConnectionRequest(token(), handle);
+      const mark = scopeMark();
+      const shown = await recommendations.settled();
+      if (!shown?.suggestions.some((s) => s.handle === handle)) return;
+      await graphClient.sendConnectionRequest(handle);
       toast.success(`Request sent to @${handle}`);
-      refetch();
+      suggestions.update(
+        [],
+        (value) => ({
+          ...value,
+          suggestions: value.suggestions.filter((s) => s.handle !== handle),
+        }),
+        mark,
+      );
+      suggestions.invalidate();
+      sentRequests.invalidate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send request");
+      toast.error(describeActionError(err, "Failed to send request"));
     } finally {
       setSending((s) => {
         const next = new Set(s);
@@ -60,84 +91,86 @@ export function DiscoverPage() {
         </p>
       </div>
 
-      <Show
-        when={session()}
-        fallback={
-          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-            Sign in to discover people.
-          </div>
-        }
-      >
-        <Show
-          when={!recommendations.loading}
-          fallback={
-            <div class="grid gap-3 sm:grid-cols-2">
-              {Array.from({ length: 4 }, () => (
-                <div class="bg-muted/50 rounded-card h-28 animate-pulse" />
-              ))}
-            </div>
-          }
-        >
+      <Show when={session()} fallback={<SignedOutNote>Sign in to discover people.</SignedOutNote>}>
+        <div aria-busy={recommendations.busy || undefined}>
           <Show
-            when={(recommendations()?.suggestions.length ?? 0) > 0}
+            when={recommendations()}
             fallback={
-              <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-                No suggestions yet.{" "}
-                <A href="/search" class="text-foreground underline underline-offset-2">
-                  Search for someone
-                </A>
-                , or join an organisation to find people you already share one with.
+              <div class="grid gap-3 md:grid-cols-2">
+                {/* As many as the page last landed, one when nothing is known. */}
+                {Array.from({ length: recommendations.rows }, () => (
+                  // A card is 114px, and 126px below `md`, where Connect
+                  // takes the touch height.
+                  <ResponsiveSkeleton standsFor="card" height={28.5} phoneHeight={31.5} />
+                ))}
               </div>
             }
           >
-            <div class="grid gap-3 sm:grid-cols-2">
-              <For each={recommendations()?.suggestions}>
-                {(suggestion) => (
-                  <div class="border-border hover:bg-muted/30 rounded-card flex flex-col gap-3 border p-4 transition-colors">
-                    <div class="flex items-center gap-3">
-                      <Avatar class="h-10 w-10">
-                        <Show when={safeAvatarUrl(suggestion.avatarUrl)}>
-                          {(url) => (
-                            <AvatarImage
-                              src={url()}
-                              alt={suggestion.handle}
-                              referrerpolicy="no-referrer"
-                              loading="lazy"
-                            />
-                          )}
-                        </Show>
-                        <AvatarFallback>
-                          {suggestion.handle.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-title truncate font-medium">
-                          {suggestion.displayName || `@${suggestion.handle}`}
-                        </p>
-                        <Show when={suggestion.displayName}>
-                          <p class="text-subtle text-meta truncate">@{suggestion.handle}</p>
-                        </Show>
+            <Show
+              when={(recommendations()?.suggestions.length ?? 0) > 0}
+              fallback={
+                <EmptyNote>
+                  No suggestions yet.{" "}
+                  <A href="/search" class={buttonVariants({ variant: "link", size: "inline" })}>
+                    Search for someone
+                  </A>
+                  , or join an organisation to find people you already share one with.
+                </EmptyNote>
+              }
+            >
+              <div class="grid gap-3 md:grid-cols-2">
+                <For each={recommendations()?.suggestions}>
+                  {(suggestion) => (
+                    // A card, not a row: the tile itself is not a control (its
+                    // Connect button is), so it takes no hover wash.
+                    <Card padding="sm" class="flex flex-col gap-3">
+                      <div class="flex items-center gap-3">
+                        <Avatar class="h-10 w-10">
+                          <Show when={safeAvatarUrl(suggestion.avatarUrl)}>
+                            {(url) => (
+                              <AvatarImage
+                                src={url()}
+                                alt={suggestion.handle}
+                                referrerpolicy="no-referrer"
+                                loading="lazy"
+                              />
+                            )}
+                          </Show>
+                          <AvatarFallback>
+                            {suggestion.handle.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-foreground text-title truncate font-medium">
+                            {suggestion.displayName || `@${suggestion.handle}`}
+                          </p>
+                          <Show when={suggestion.displayName}>
+                            <p class="text-muted-foreground text-meta truncate">
+                              @{suggestion.handle}
+                            </p>
+                          </Show>
+                        </div>
                       </div>
-                    </div>
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="text-subtle text-meta min-w-0 truncate">
-                        {suggestionReason(suggestion)}
-                      </span>
-                      <Button
-                        size="sm"
-                        class="h-7 max-md:h-10"
-                        disabled={sending().has(suggestion.handle)}
-                        onClick={() => connect(suggestion.handle)}
-                      >
-                        {sending().has(suggestion.handle) ? "Sending..." : "Connect"}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-muted-foreground text-meta min-w-0 truncate">
+                          {suggestionReason(suggestion)}
+                        </span>
+                        <Button
+                          size="sm"
+                          class="h-7 max-md:h-10"
+                          busy={sending().has(suggestion.handle)}
+                          onClick={() => connect(suggestion.handle)}
+                        >
+                          {sending().has(suggestion.handle) ? "Sending…" : "Connect"}
+                        </Button>
+                      </div>
+                    </Card>
+                  )}
+                </For>
+              </div>
+            </Show>
           </Show>
-        </Show>
+        </div>
       </Show>
     </main>
   );

@@ -1,5 +1,5 @@
 // The `import.meta.main` block of scripts/cire-db-migrate.ts, which cire/db's
-// `db:push` and `db:migrate:*` scripts run: what reaches `wrangler d1
+// `db:push` and `db:migrate:local` scripts run: what reaches `wrangler d1
 // migrations apply`, and with what exit code.
 //
 // Each test copies the script byte for byte into a temporary tree shaped like
@@ -146,7 +146,7 @@ const ledgerOf = (names: readonly string[]) => rows(...names.map((name) => ({ na
 
 const archive = archivedMigrations();
 const baseline = migrationStatements(readFileSync(join(MIGRATIONS_DIR, BASELINE), "utf8"));
-const PROD = ["cire-db", "--env", "production", "--remote"] as const;
+const TARGET = ["cire-db", "--local", "--persist-to", ".wrangler/state"] as const;
 
 describe.concurrent("before any wrangler call", () => {
   test("no arguments exit non-zero", async () => {
@@ -160,17 +160,25 @@ describe.concurrent("before any wrangler call", () => {
     expect(calls(dir)).toEqual([]);
   });
 
-  test("a target that is neither --local nor --remote exits non-zero", async () => {
+  test("a target that is not --local exits non-zero", async () => {
     const dir = tree({});
     const { exitCode, stderr } = await run(dir, "cire-db", "--env", "production");
-    expect(stderr).toContain("pass exactly one of --local or --remote");
+    expect(stderr).toContain("pass --local");
+    expect(exitCode).not.toBe(0);
+    expect(calls(dir)).toEqual([]);
+  });
+
+  test("a remote target exits non-zero before any wrangler call: Wrangler migrates no deployed cire database", async () => {
+    const dir = tree({});
+    const { exitCode, stderr } = await run(dir, "cire-db", "--env", "production", "--remote");
+    expect(stderr).toContain("--remote is refused");
     expect(exitCode).not.toBe(0);
     expect(calls(dir)).toEqual([]);
   });
 
   test("without cire/api's own wrangler it stops rather than fetch another", async () => {
     const dir = tree({}, false);
-    const { exitCode, stderr } = await run(dir, ...PROD);
+    const { exitCode, stderr } = await run(dir, ...TARGET);
     expect(exitCode).toBe(1);
     expect(stderr).toContain("cire/api has no wrangler of its own");
     expect(stderr).toContain("bun install --frozen-lockfile");
@@ -178,12 +186,12 @@ describe.concurrent("before any wrangler call", () => {
 });
 
 describe.concurrent("a ledger the check refuses never reaches the apply", () => {
-  test("production part-way through the archive", async () => {
+  test("a database part-way through the archive", async () => {
     const dir = tree({
       schema: { out: rows(ledgerTable) },
       ledger: { out: ledgerOf(archive.filter((name) => name < "0062")) },
     });
-    const { exitCode, stderr } = await run(dir, ...PROD);
+    const { exitCode, stderr } = await run(dir, ...TARGET);
     expect(exitCode).toBe(1);
     expect(stderr).toContain("::error::cire-db-migrate: cire-db:");
     expect(stderr).toContain("0062_gift_note_hidden.sql");
@@ -198,7 +206,7 @@ describe.concurrent("a ledger the check refuses never reaches the apply", () => 
       },
       ledger: { out: ledgerOf([BASELINE]) },
     });
-    const { exitCode, stderr } = await run(dir, ...PROD);
+    const { exitCode, stderr } = await run(dir, ...TARGET);
     expect(exitCode).toBe(1);
     expect(stderr).toContain("older baseline");
     expect(applies(dir)).toEqual([]);
@@ -209,7 +217,7 @@ describe.concurrent("a ledger the check refuses never reaches the apply", () => 
       schema: { out: rows(ledgerTable) },
       ledger: { out: ledgerOf(["0002_add_rsvp_dietary.sql"]) },
     });
-    expect((await run(dir, ...PROD)).exitCode).toBe(1);
+    expect((await run(dir, ...TARGET)).exitCode).toBe(1);
     expect(applies(dir)).toEqual([]);
   });
 
@@ -218,7 +226,7 @@ describe.concurrent("a ledger the check refuses never reaches the apply", () => 
       schema: { out: rows(ledgerTable) },
       ledger: { out: ledgerOf([BASELINE, "0058_myfeature.sql"]) },
     });
-    const { exitCode, stderr } = await run(dir, ...PROD);
+    const { exitCode, stderr } = await run(dir, ...TARGET);
     expect(exitCode).toBe(1);
     expect(stderr).toContain("0058_myfeature.sql");
     expect(applies(dir)).toEqual([]);
@@ -228,7 +236,7 @@ describe.concurrent("a ledger the check refuses never reaches the apply", () => 
 describe.concurrent("a ledger that cannot be read never reaches the apply", () => {
   test("wrangler exits non-zero, as on an authentication error", async () => {
     const dir = tree({ schema: { out: '{"error":{"text":"Authentication error"}}', exit: 1 } });
-    const { exitCode, stderr } = await run(dir, ...PROD);
+    const { exitCode, stderr } = await run(dir, ...TARGET);
     expect(exitCode).toBe(1);
     expect(stderr).toContain("could not read the ledger of cire-db, so nothing was applied");
     expect(stderr).toContain("wrangler d1 execute exited 1");
@@ -237,7 +245,7 @@ describe.concurrent("a ledger that cannot be read never reaches the apply", () =
 
   test("wrangler exits 0 with output that is not a result set", async () => {
     const dir = tree({ schema: { out: "not json\n" } });
-    const { exitCode, stderr } = await run(dir, ...PROD);
+    const { exitCode, stderr } = await run(dir, ...TARGET);
     expect(exitCode).toBe(1);
     expect(stderr).toContain("could not read the ledger");
     expect(applies(dir)).toEqual([]);
@@ -245,7 +253,7 @@ describe.concurrent("a ledger that cannot be read never reaches the apply", () =
 
   test("wrangler is killed mid-read, as a timeout kills it", async () => {
     const dir = tree({ schema: { kill: true } });
-    const { exitCode, stderr } = await run(dir, ...PROD);
+    const { exitCode, stderr } = await run(dir, ...TARGET);
     expect(exitCode).toBe(1);
     expect(stderr).toContain("SIGKILL");
     expect(applies(dir)).toEqual([]);
@@ -253,7 +261,7 @@ describe.concurrent("a ledger that cannot be read never reaches the apply", () =
 
   test("the ledger read fails after the schema read succeeded", async () => {
     const dir = tree({ schema: { out: rows(ledgerTable) }, ledger: { out: "", exit: 1 } });
-    expect((await run(dir, ...PROD)).exitCode).toBe(1);
+    expect((await run(dir, ...TARGET)).exitCode).toBe(1);
     expect(applies(dir)).toEqual([]);
   });
 
@@ -262,7 +270,7 @@ describe.concurrent("a ledger that cannot be read never reaches the apply", () =
       schema: { out: rows(ledgerTable) },
       ledger: { out: rows({ name: BASELINE }, { name: 58 }) },
     });
-    const { exitCode, stderr } = await run(dir, ...PROD);
+    const { exitCode, stderr } = await run(dir, ...TARGET);
     expect(exitCode).toBe(1);
     expect(stderr).toContain("no readable name");
     expect(applies(dir)).toEqual([]);
@@ -286,19 +294,19 @@ describe.concurrent("a ledger the check passes is applied once, to the same targ
       ledger: { out: ledgerOf([BASELINE]) },
       apply: {},
     });
-    const { exitCode, stdout } = await run(dir, ...PROD);
+    const { exitCode, stdout } = await run(dir, ...TARGET);
     expect(exitCode).toBe(0);
     expect(stdout).toContain("built from this baseline");
     expect(calls(dir)).toHaveLength(3);
   });
 
-  test("production complete: the reads and the apply carry the same target and config", async () => {
+  test("a complete ledger: the reads and the apply carry the same target and config", async () => {
     const dir = tree({
       schema: { out: rows(ledgerTable) },
       ledger: { out: ledgerOf(archive) },
       apply: {},
     });
-    const { exitCode } = await run(dir, ...PROD);
+    const { exitCode } = await run(dir, ...TARGET);
     expect(exitCode).toBe(0);
     const made = calls(dir);
     expect(made).toHaveLength(3);
@@ -306,7 +314,7 @@ describe.concurrent("a ledger the check passes is applied once, to the same targ
       expect(cwd).toBe(join(dir, "cire", "api"));
       expect(args.slice(0, 2)).toEqual(["--config", join(dir, "cire", "api", "wrangler.toml")]);
       const at = args.indexOf("cire-db");
-      expect(args.slice(at, at + PROD.length)).toEqual([...PROD]);
+      expect(args.slice(at, at + TARGET.length)).toEqual([...TARGET]);
     }
     expect(made.at(-1)!.args.slice(2, 5)).toEqual(["d1", "migrations", "apply"]);
   });

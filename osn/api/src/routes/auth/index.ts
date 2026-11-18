@@ -27,6 +27,7 @@ import { createAuthRouteContext } from "./context";
 import { createCrossDeviceRoutes } from "./cross-device";
 import { createDevLoginRoutes, type DevLoginConfig } from "./dev-login";
 import { createEmailChangeRoutes } from "./email-change";
+import { createEmailLinkRoutes } from "./email-link";
 import { createDefaultAuthRateLimiters, type AuthRateLimiters } from "./limiters";
 import { createPasskeyLoginRoutes } from "./login";
 import { createOidcRoutes } from "./oidc";
@@ -151,6 +152,7 @@ export function createAuthRoutes(
   return new Elysia({ prefix: "" })
     .use(devLoginPlugin)
     .use(createRegistrationRoutes(ctx))
+    .use(createEmailLinkRoutes(ctx))
     .use(createTokenRoutes(ctx))
     .use(createPasskeyEnrollRoutes(ctx))
     .use(createPasskeyLoginRoutes(ctx))

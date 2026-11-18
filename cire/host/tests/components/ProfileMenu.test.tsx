@@ -29,7 +29,14 @@ describe("ProfileMenu", () => {
   afterEach(cleanup);
 
   it("renders an initial from the display name when there is no avatar image", () => {
-    render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+    render(() => (
+      <ProfileMenu
+        session={SESSION}
+        onSecurity={() => {}}
+        onRemoveData={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
     const trigger = screen.getByRole("button", { name: /account menu/i });
     expect(trigger.textContent).toBe("A");
     expect(trigger.querySelector("img")).toBeNull();
@@ -40,6 +47,7 @@ describe("ProfileMenu", () => {
       <ProfileMenu
         session={{ ...SESSION, avatarUrl: "https://cdn.test/alex.png" }}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
       />
     ));
@@ -57,6 +65,7 @@ describe("ProfileMenu", () => {
       <ProfileMenu
         session={{ ...SESSION, avatarUrl: "https://cdn.test/referrer.png" }}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
       />
     ));
@@ -71,6 +80,7 @@ describe("ProfileMenu", () => {
       <ProfileMenu
         session={{ ...SESSION, avatarUrl: "https://avatars.test/alex.png" }}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
       />
     ));
@@ -86,6 +96,7 @@ describe("ProfileMenu", () => {
       <ProfileMenu
         session={{ ...SESSION, avatarUrl: avatarUrl() }}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
       />
     ));
@@ -105,6 +116,7 @@ describe("ProfileMenu", () => {
         <ProfileMenu
           session={{ ...SESSION, avatarUrl }}
           onSecurity={() => {}}
+          onRemoveData={() => {}}
           onSignOut={() => {}}
         />
       ));
@@ -118,7 +130,14 @@ describe("ProfileMenu", () => {
   it("ends the open menu on the build's version, which the keyboard passes by", async () => {
     vi.stubEnv("PUBLIC_BUILD_SHA", "0123456789abcdef0123456789abcdef01234567");
     try {
-      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      render(() => (
+        <ProfileMenu
+          session={SESSION}
+          onSecurity={() => {}}
+          onRemoveData={() => {}}
+          onSignOut={() => {}}
+        />
+      ));
       openMenu();
       const line = await screen.findByText("Version 0123456");
       expect(line.getAttribute("translate")).toBe("no");
@@ -138,13 +157,25 @@ describe("ProfileMenu", () => {
     try {
       vi.stubEnv("PUBLIC_BUILD_SHA", "  0123456789abcdef  ");
       const first = render(() => (
-        <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />
+        <ProfileMenu
+          session={SESSION}
+          onSecurity={() => {}}
+          onRemoveData={() => {}}
+          onSignOut={() => {}}
+        />
       ));
       openMenu();
       expect(await screen.findByText("Version 0123456")).toBeTruthy();
       first.unmount();
       vi.stubEnv("PUBLIC_BUILD_SHA", "   ");
-      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      render(() => (
+        <ProfileMenu
+          session={SESSION}
+          onSecurity={() => {}}
+          onRemoveData={() => {}}
+          onSignOut={() => {}}
+        />
+      ));
       openMenu();
       expect(await screen.findByText("Version local")).toBeTruthy();
     } finally {
@@ -155,7 +186,14 @@ describe("ProfileMenu", () => {
   it("says a build made from no commit is local", async () => {
     vi.stubEnv("PUBLIC_BUILD_SHA", "");
     try {
-      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      render(() => (
+        <ProfileMenu
+          session={SESSION}
+          onSecurity={() => {}}
+          onRemoveData={() => {}}
+          onSignOut={() => {}}
+        />
+      ));
       openMenu();
       expect(await screen.findByText("Version local")).toBeTruthy();
     } finally {
@@ -164,7 +202,14 @@ describe("ProfileMenu", () => {
   });
 
   it("names the account (display name + handle) at the top of the open menu", async () => {
-    render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+    render(() => (
+      <ProfileMenu
+        session={SESSION}
+        onSecurity={() => {}}
+        onRemoveData={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
     openMenu();
     expect(await screen.findByText("Alex Host")).toBeTruthy();
     expect(screen.getByText("@alex")).toBeTruthy();
@@ -173,7 +218,14 @@ describe("ProfileMenu", () => {
   it("renders the loading/absent-session fallbacks without crashing", async () => {
     // useAuth().session is a Resource: undefined while the probe is in flight,
     // null when signed out — the masthead renders through both on every load.
-    render(() => <ProfileMenu session={null} onSecurity={() => {}} onSignOut={() => {}} />);
+    render(() => (
+      <ProfileMenu
+        session={null}
+        onSecurity={() => {}}
+        onRemoveData={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
     expect(screen.getByRole("button", { name: /account menu/i }).textContent).toBe("Y");
     openMenu();
     expect(await screen.findByText("Your account")).toBeTruthy();
@@ -185,6 +237,7 @@ describe("ProfileMenu", () => {
       <ProfileMenu
         session={{ ...SESSION, handle: null }}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
       />
     ));
@@ -199,6 +252,7 @@ describe("ProfileMenu", () => {
       <ProfileMenu
         session={{ ...SESSION, handle: null, email: null }}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
       />
     ));
@@ -213,6 +267,7 @@ describe("ProfileMenu", () => {
       <ProfileMenu
         session={{ ...SESSION, displayName: null }}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
       />
     ));
@@ -225,7 +280,14 @@ describe("ProfileMenu", () => {
 
   it("selecting Security & passkeys fires onSecurity", async () => {
     const onSecurity = vi.fn();
-    render(() => <ProfileMenu session={SESSION} onSecurity={onSecurity} onSignOut={() => {}} />);
+    render(() => (
+      <ProfileMenu
+        session={SESSION}
+        onSecurity={onSecurity}
+        onRemoveData={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
     openMenu();
     fireEvent.pointerUp(await screen.findByText(/Security & passkeys/i), { button: 0 });
     expect(onSecurity).toHaveBeenCalledOnce();
@@ -233,7 +295,14 @@ describe("ProfileMenu", () => {
 
   it("selecting Sign out fires onSignOut", async () => {
     const onSignOut = vi.fn();
-    render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={onSignOut} />);
+    render(() => (
+      <ProfileMenu
+        session={SESSION}
+        onSecurity={() => {}}
+        onRemoveData={() => {}}
+        onSignOut={onSignOut}
+      />
+    ));
     openMenu();
     fireEvent.pointerUp(await screen.findByText(/Sign out/i), { button: 0 });
     expect(onSignOut).toHaveBeenCalledOnce();
@@ -242,7 +311,14 @@ describe("ProfileMenu", () => {
   it("chooses the theme from its radio rows, and stays open to compare", async () => {
     const { themePreference, setThemePreference } = await import("../../src/lib/preferences");
     setThemePreference("system");
-    render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+    render(() => (
+      <ProfileMenu
+        session={SESSION}
+        onSecurity={() => {}}
+        onRemoveData={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
     openMenu();
     const dark = await screen.findByRole("menuitemradio", { name: "Dark" });
     expect(screen.getByRole("menuitemradio", { name: "System" }).getAttribute("aria-checked")).toBe(

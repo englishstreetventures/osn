@@ -1,124 +1,163 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createAuthFetchers, safeErrorMessage, safeJson } from "../src/auth-fetch";
+import { createAuthFetchers, safeErrorMessage, withDeadline } from "../src/auth-fetch";
+import { AuthExpiredError } from "../src/errors";
+import { safeJson } from "../src/response-body";
+import type { AuthFetch } from "../src/runtime";
 
 class FakeError extends Error {
-  constructor(message: string) {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = "FakeError";
+    this.status = status;
   }
 }
 
-const { authGet, authPost, authPatch, authDelete, authDeleteVoid } = createAuthFetchers(FakeError);
+const authFetch = vi.fn<AuthFetch>();
+const { authGet, authPost, authPatch, authDelete, authDeleteVoid } = createAuthFetchers(
+  FakeError,
+  authFetch,
+);
 
 const url = "https://osn.example.com/thing";
-const TOKEN = "test-token";
 
 function mockFetch(response: { ok: boolean; status?: number; json: () => Promise<unknown> }) {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+  authFetch.mockResolvedValue(response as Response);
 }
 
-function headersOf(call: Parameters<typeof fetch>) {
-  return (call[1] as RequestInit).headers as Record<string, string>;
+function initOf(index = 0): RequestInit {
+  return authFetch.mock.calls[index]![1]!;
+}
+
+function headersOf(index = 0) {
+  return (initOf(index).headers ?? {}) as Record<string, string>;
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  authFetch.mockReset();
 });
 
-describe("createAuthFetchers — Authorization header", () => {
-  it("authGet sends Bearer auth", async () => {
-    mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await authGet(url, TOKEN);
-    expect(headersOf(vi.mocked(fetch).mock.calls[0]!).Authorization).toBe(`Bearer ${TOKEN}`);
-  });
+const ALL = [
+  ["authGet", () => authGet(url)],
+  ["authPost", () => authPost(url, { a: 1 })],
+  ["authPatch", () => authPatch(url, { a: 1 })],
+  ["authDelete", () => authDelete(url)],
+  ["authDeleteVoid", () => authDeleteVoid(url)],
+] as const;
 
-  it("authPost sends Bearer auth", async () => {
-    mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await authPost(url, TOKEN, { a: 1 });
-    expect(headersOf(vi.mocked(fetch).mock.calls[0]!).Authorization).toBe(`Bearer ${TOKEN}`);
-  });
+describe("createAuthFetchers — sends through authFetch", () => {
+  it.each(ALL)(
+    "%s sets no Authorization of its own and keeps the cookie at home",
+    async (_n, run) => {
+      mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      await run();
+      expect(authFetch).toHaveBeenCalledTimes(1);
+      expect(authFetch.mock.calls[0]![0]).toBe(url);
+      expect(headersOf()).not.toHaveProperty("Authorization");
+      // These routes read no cookie; `authFetch` would otherwise default to "include".
+      expect(initOf().credentials).toBe("same-origin");
+    },
+  );
 
-  it("authPatch sends Bearer auth", async () => {
-    mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await authPatch(url, TOKEN, { a: 1 });
-    expect(headersOf(vi.mocked(fetch).mock.calls[0]!).Authorization).toBe(`Bearer ${TOKEN}`);
-  });
-
-  it("authDelete sends Bearer auth", async () => {
-    mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await authDelete(url, TOKEN);
-    expect(headersOf(vi.mocked(fetch).mock.calls[0]!).Authorization).toBe(`Bearer ${TOKEN}`);
-  });
-
-  it("authDeleteVoid sends Bearer auth", async () => {
-    mockFetch({ ok: true, json: () => Promise.resolve(null) });
-    await authDeleteVoid(url, TOKEN);
-    expect(headersOf(vi.mocked(fetch).mock.calls[0]!).Authorization).toBe(`Bearer ${TOKEN}`);
+  it.each(ALL)("%s passes the session's end through unchanged", async (_n, run) => {
+    const ended = new AuthExpiredError({ cause: "refused" });
+    authFetch.mockRejectedValue(ended);
+    await expect(run()).rejects.toBe(ended);
   });
 });
 
 describe("createAuthFetchers — Content-Type", () => {
   it("authPost sends application/json", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await authPost(url, TOKEN, { a: 1 });
-    expect(headersOf(vi.mocked(fetch).mock.calls[0]!)["Content-Type"]).toBe("application/json");
+    await authPost(url, { a: 1 });
+    expect(headersOf()["Content-Type"]).toBe("application/json");
   });
 
   it("authPatch sends application/json", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await authPatch(url, TOKEN, { a: 1 });
-    expect(headersOf(vi.mocked(fetch).mock.calls[0]!)["Content-Type"]).toBe("application/json");
+    await authPatch(url, { a: 1 });
+    expect(headersOf()["Content-Type"]).toBe("application/json");
   });
 });
 
 describe("createAuthFetchers — authPost body handling", () => {
   it('sends body: undefined, not the string "undefined", when called with no body', async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await authPost(url, TOKEN);
-    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    await authPost(url);
+    const init = initOf();
     expect(init.body).toBeUndefined();
   });
 
   it("JSON-stringifies a provided body", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await authPost(url, TOKEN, { a: 1 });
-    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    await authPost(url, { a: 1 });
+    const init = initOf();
     expect(init.body).toBe(JSON.stringify({ a: 1 }));
   });
 });
 
 describe("createAuthFetchers — Invalid response on ok-but-unparseable body", () => {
-  it("authGet throws Invalid response: <status>", async () => {
+  it("authGet throws Invalid response: <status>, carrying the status", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.reject(new Error("bad json")) });
-    await expect(authGet(url, TOKEN)).rejects.toThrow("Invalid response: 200");
+    await expect(authGet(url)).rejects.toMatchObject({
+      name: "FakeError",
+      message: "Invalid response: 200",
+      status: 200,
+    });
   });
 
-  it("authPost throws Invalid response: <status>", async () => {
+  it("authPost throws Invalid response: <status>, carrying the status", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.reject(new Error("bad json")) });
-    await expect(authPost(url, TOKEN, { a: 1 })).rejects.toThrow("Invalid response: 200");
+    await expect(authPost(url, { a: 1 })).rejects.toMatchObject({
+      name: "FakeError",
+      message: "Invalid response: 200",
+      status: 200,
+    });
   });
 
-  it("authPatch throws Invalid response: <status>", async () => {
+  it("authPatch throws Invalid response: <status>, carrying the status", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.reject(new Error("bad json")) });
-    await expect(authPatch(url, TOKEN, { a: 1 })).rejects.toThrow("Invalid response: 200");
+    await expect(authPatch(url, { a: 1 })).rejects.toMatchObject({
+      name: "FakeError",
+      message: "Invalid response: 200",
+      status: 200,
+    });
   });
 
-  it("authDelete throws Invalid response: <status>", async () => {
+  it("authDelete throws Invalid response: <status>, carrying the status", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.reject(new Error("bad json")) });
-    await expect(authDelete(url, TOKEN)).rejects.toThrow("Invalid response: 200");
+    await expect(authDelete(url)).rejects.toMatchObject({
+      name: "FakeError",
+      message: "Invalid response: 200",
+      status: 200,
+    });
   });
 });
 
 describe("createAuthFetchers — authDeleteVoid", () => {
   it("resolves on an empty/unparseable success body", async () => {
     mockFetch({ ok: true, json: () => Promise.reject(new Error("bad json")) });
-    await expect(authDeleteVoid(url, TOKEN)).resolves.toBeUndefined();
+    await expect(authDeleteVoid(url)).resolves.toBeUndefined();
   });
 
   it("throws on non-2xx", async () => {
-    mockFetch({ ok: false, json: () => Promise.resolve({ error: "boom" }) });
-    await expect(authDeleteVoid(url, TOKEN)).rejects.toBeInstanceOf(FakeError);
+    mockFetch({ ok: false, status: 403, json: () => Promise.resolve({ error: "boom" }) });
+    await expect(authDeleteVoid(url)).rejects.toBeInstanceOf(FakeError);
+  });
+});
+
+describe("createAuthFetchers — a failed response's status reaches the error", () => {
+  it.each([
+    ["authGet", () => authGet(url)],
+    ["authPost", () => authPost(url, { a: 1 })],
+    ["authPatch", () => authPatch(url, { a: 1 })],
+    ["authDelete", () => authDelete(url)],
+    ["authDeleteVoid", () => authDeleteVoid(url)],
+  ] as const)("%s throws with the message and the status", async (_name, run) => {
+    mockFetch({ ok: false, status: 403, json: () => Promise.resolve({ error: "boom" }) });
+    await expect(run()).rejects.toMatchObject({ name: "FakeError", message: "boom", status: 403 });
   });
 });
 
@@ -158,40 +197,103 @@ describe("createAuthFetchers — signal forwarding", () => {
   it("authGet forwards the abort signal", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
     const controller = new AbortController();
-    await authGet(url, TOKEN, { signal: controller.signal });
-    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    await authGet(url, { signal: controller.signal });
+    const init = initOf();
     expect(init.signal).toBe(controller.signal);
   });
 
   it("authPost forwards the abort signal", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
     const controller = new AbortController();
-    await authPost(url, TOKEN, { a: 1 }, { signal: controller.signal });
-    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    await authPost(url, { a: 1 }, { signal: controller.signal });
+    const init = initOf();
     expect(init.signal).toBe(controller.signal);
   });
 
   it("authPatch forwards the abort signal", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
     const controller = new AbortController();
-    await authPatch(url, TOKEN, { a: 1 }, { signal: controller.signal });
-    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    await authPatch(url, { a: 1 }, { signal: controller.signal });
+    const init = initOf();
     expect(init.signal).toBe(controller.signal);
   });
 
   it("authDelete forwards the abort signal", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
     const controller = new AbortController();
-    await authDelete(url, TOKEN, { signal: controller.signal });
-    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    await authDelete(url, { signal: controller.signal });
+    const init = initOf();
     expect(init.signal).toBe(controller.signal);
   });
 
   it("authDeleteVoid forwards the abort signal", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve(null) });
     const controller = new AbortController();
-    await authDeleteVoid(url, TOKEN, { signal: controller.signal });
-    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    await authDeleteVoid(url, { signal: controller.signal });
+    const init = initOf();
     expect(init.signal).toBe(controller.signal);
+  });
+});
+
+describe("withDeadline — the caller's own abort", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("F6: an abort mid-call rejects with the caller's reason, aborts the request, and ends the deadline", async () => {
+    const caller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const call = withDeadline(
+      FakeError,
+      1_000,
+      (signal) => {
+        seen = signal;
+        // As `fetch` does: pending until aborted, then the signal's reason.
+        return new Promise<never>((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+      caller.signal,
+    );
+    const reason = new DOMException("The person left", "AbortError");
+    caller.abort(reason);
+    await expect(call).rejects.toBe(reason);
+    expect(seen?.aborted).toBe(true);
+    expect(seen?.reason).toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+    // Nothing is left to fire: a deadline rejection here would go unhandled
+    // and fail the run.
+    await vi.advanceTimersByTimeAsync(2_000);
+  });
+
+  it("F7: a signal already aborted rejects with its reason and sends nothing", async () => {
+    const caller = new AbortController();
+    const reason = new Error("gone before it started");
+    caller.abort(reason);
+    const request = vi.fn(() => Promise.resolve("sent"));
+    await expect(withDeadline(FakeError, 1_000, request, caller.signal)).rejects.toBe(reason);
+    expect(request).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("F8: a call that has answered no longer reacts to the caller's abort", async () => {
+    const caller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const call = withDeadline(
+      FakeError,
+      1_000,
+      (signal) => {
+        seen = signal;
+        return Promise.resolve("answered");
+      },
+      caller.signal,
+    );
+    await expect(call).resolves.toBe("answered");
+    caller.abort(new DOMException("The person left", "AbortError"));
+    expect(seen?.aborted).toBe(false);
   });
 });

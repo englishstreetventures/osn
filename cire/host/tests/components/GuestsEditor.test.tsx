@@ -266,6 +266,77 @@ describe("GuestsEditor", () => {
     expect(save.disabled).toBe(true);
   });
 
+  /** Load `events` in place of the default schedule, with the default guests. */
+  function primeLoadWithEvents(events: unknown[]) {
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/events")) return Promise.resolve(json(events));
+      if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+      if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+      if (u.endsWith("/changes/preview")) return Promise.resolve(json({}, 500));
+      return Promise.resolve(fallback(url));
+    });
+  }
+
+  it("saves the guest list while an event holds stored values the checks refuse", async () => {
+    // A guests save writes no event, so the API checks no event field on it,
+    // and an unchanged one is taken as stored on any save. Neither does this
+    // editor wait on them.
+    primeLoadWithEvents([
+      { ...EVENTS[0], name: "", startAt: "2026-11-14T15:00", timezone: "AEST" },
+    ]);
+    render(() => <GuestsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+
+    fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+    const save = (await waitFor(() =>
+      screen.getByRole("button", { name: /Save changes/i }),
+    )) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    expect(screen.queryByText(/before saving/i)).toBeNull();
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/preview"))).toBe(
+        true,
+      ),
+    );
+  });
+
+  it("still blocks the guest list on two events of one name, which attendance is linked by", async () => {
+    primeLoadWithEvents([
+      EVENTS[0],
+      { ...EVENTS[0], id: "evt_2", slug: "ceremony-2", sortOrder: 1 },
+    ]);
+    render(() => <GuestsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+
+    fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+    const save = (await waitFor(() =>
+      screen.getByRole("button", { name: /Save changes/i }),
+    )) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(screen.getByText(/Fix 1 error before saving/i)).toBeTruthy();
+  });
+
+  it("counts every error a guests save waits on, and none it does not", async () => {
+    // The duplicate name counts. The stored blank name and zone do not: the
+    // save sends them as stored, and the API takes them so.
+    primeLoadWithEvents([
+      EVENTS[0],
+      { ...EVENTS[0], id: "evt_2", slug: "ceremony-2", sortOrder: 1 },
+      { ...EVENTS[0], id: "evt_3", slug: "untitled", name: "", timezone: "AEST", sortOrder: 2 },
+    ]);
+    render(() => <GuestsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+
+    fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+    const save = (await waitFor(() =>
+      screen.getByRole("button", { name: /Save changes/i }),
+    )) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(screen.getByText("Fix 1 error before saving.")).toBeTruthy();
+  });
+
   it("runs the save flow: preview → shared modal → apply → toast", async () => {
     primeLoad();
     render(() => <GuestsEditor weddingId="wed_a" />);

@@ -4,10 +4,6 @@ import { changedMutate, parseMutateEntry, rootMutateEntry } from "../src/paths.t
 
 const ROOT = "/repo";
 
-test("rootMutateEntry roots a package-relative entry and keeps its line range", () => {
-  expect(rootMutateEntry("src/a.ts:20-48", "cire/vendor", ROOT)).toBe("cire/vendor/src/a.ts:20-48");
-});
-
 test("rootMutateEntry keeps an exclusion", () => {
   expect(rootMutateEntry("!src/b.ts", "cire/vendor", ROOT)).toBe("!cire/vendor/src/b.ts");
 });

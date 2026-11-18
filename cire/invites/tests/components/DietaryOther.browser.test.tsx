@@ -130,8 +130,8 @@ describe("the Anything else field", () => {
     (within(fieldset).getByText("Other").closest("label") as HTMLElement).click();
     await new Promise(requestAnimationFrame);
 
-    const inner = trackOf(fieldset).firstElementChild as HTMLElement;
-    const style = window.getComputedStyle(inner);
+    // The wrapper is the box that clips: its edge is the one that grows.
+    const style = window.getComputedStyle(trackOf(fieldset));
     expect([style.overflowX, style.overflowY]).toEqual(["clip", "clip"]);
   });
 

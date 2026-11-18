@@ -13,6 +13,13 @@
  * address is refused; and the owner removes Hana's own address in the editor,
  * which asks for no attestation.
  *
+ * Change history (the same wedding). A sheet with no address column adds a
+ * household, Ito, so it asks for no attestation; the owner opens Change
+ * history, reverts that sheet, and is asked to confirm in words that name the
+ * guest list alone. Cire-api restores the guest list from the sheet's
+ * before-image: the household and its guest are gone, the change reads
+ * Reverted, and the address the earlier sheet gave Gus stays.
+ *
  * Seating (`CIRE_ORGANISER.seating`: a reception whose one plan, "Plan 1", is
  * in use — Ada and Bo Alpha at Table 1, Cy Charlie at Table 2 — and an after
  * party, inviting Ada, with no plan). The owner opens the seating chart, which
@@ -24,14 +31,23 @@
  * page, before any seating step: the file carries each guest's reply to both
  * events, and seating writes nothing it reads.
  *
- * The guest-email and RSVP steps share this flow's sign-in because `flows.test.ts` caps
- * organiser sign-ins at seven. They run first, so the flow's screenshot is the
- * seating chart.
+ * The whole wedding (the same wedding, still before any seating step). The
+ * owner downloads it from Settings › Export as one ZIP: the flow checks its
+ * file list, that its RSVP sheet is the one just downloaded byte for byte,
+ * that its venue file holds the reception's three seats, that its invite
+ * picture is the seeded hero's bytes, and that its manifest calls every file
+ * whole.
+ *
+ * The guest-email, change-history, RSVP and archive steps share this flow's
+ * sign-in because `flows.test.ts` caps organiser sign-ins at seven. They run
+ * first, so the flow's screenshot is the seating chart.
  */
 
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import { unzipSync } from "fflate";
 
 import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import {
@@ -319,8 +335,148 @@ async function guestEmailSteps(flow: Flow, page: Page): Promise<void> {
     "none none none",
     `${hanaAfter?.email ?? "none"} ${hanaAfter?.source ?? "none"} ${hanaAfter?.version ?? "none"}`,
   );
-  // Let the save finish closing before the seating steps navigate away.
+  // Let the save finish closing before the next steps navigate away.
   await expect(dialog).toBeHidden();
+
+  await revertSteps(flow, page, { apply: applyImport, attestation });
+}
+
+/** The wedding's guest households, by name, sorted and comma-joined. */
+function householdsInDb(): string {
+  const row = queryOne<{ names: string | null }>(
+    DB_FILES.cire,
+    `SELECT group_concat(family_name) AS names FROM (
+       SELECT family_name FROM families WHERE wedding_id = ? AND kind = 'guest' ORDER BY family_name)`,
+    emailsWeddingId,
+  );
+  return row?.names ?? "";
+}
+
+/**
+ * Change history, on the guest-email wedding: a sheet with no address column
+ * adds a household, so it asks for no attestation and changes no address; the
+ * owner reverts it from Change history and the household is gone again, while
+ * the address the earlier sheet gave Gus stays.
+ */
+async function revertSteps(
+  flow: Flow,
+  page: Page,
+  controls: { apply: Locator; attestation: Locator },
+): Promise<void> {
+  const { household: addedHousehold, firstName: addedGuest } = CIRE_ORGANISER.emails.reverted;
+  const importMode = page.getByRole("radio", { name: /Spreadsheet import/ });
+  const history = page
+    .locator("details")
+    .filter({ has: page.locator("summary", { hasText: "Change history" }) });
+  // The change the sheet makes, as the history summarises it.
+  const addedRow = history.getByRole("listitem").filter({ hasText: "+1 guests, +1 families" });
+
+  const added = await flow.step(
+    `a sheet with no address column adds the ${addedHousehold} household`,
+    async () => {
+      await page.goto(`${ORIGINS.cireHost}/#/w/${emailsWeddingId}/guests/edit`);
+      await importMode.click();
+      await page.getByLabel("guests.csv").setInputFiles({
+        name: "guests.csv",
+        mimeType: "text/csv",
+        buffer: Buffer.from(
+          [
+            "Family ID,Family Name,Guest First Name,Guest Last Name",
+            `1,${household},${noAddress},${household}`,
+            `1,${household},${guestsOwn.firstName},${household}`,
+            `2,${addedHousehold},${addedGuest},${addedHousehold}`,
+          ].join("\n"),
+        ),
+      });
+      const previewed = page.waitForResponse(
+        (r) => r.url() === `${EMAILS_CHANGES_API}/preview` && r.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Preview", exact: true }).click();
+      const preview = (await previewed).status();
+      await expect(controls.apply).toBeEnabled();
+      const asksAttestation = await controls.attestation.count();
+      const applied = page.waitForResponse(
+        (r) => r.url() === `${EMAILS_CHANGES_API}/apply` && r.request().method() === "POST",
+      );
+      const reloaded = page.waitForEvent("load");
+      await controls.apply.click();
+      const status = (await applied).status();
+      await reloaded;
+      return { preview, asksAttestation, status };
+    },
+  );
+  flow.check("the sheet previews", 200, added.preview);
+  flow.check("a sheet that changes no address asks for no attestation", 0, added.asksAttestation);
+  flow.check("the sheet applies", 200, added.status);
+  flow.check(
+    `the ${addedHousehold} household is added`,
+    `${addedHousehold},${household}`,
+    householdsInDb(),
+  );
+
+  const asked = await flow.step("revert the sheet from Change history", async () => {
+    await importMode.click();
+    const listed = page.waitForResponse(
+      (r) => r.url() === `${EMAILS_CHANGES_API}/list` && r.request().method() === "GET",
+    );
+    await history.locator(":scope > summary").click();
+    await listed;
+    await expect(addedRow).toContainText("Applied");
+    let confirm = "";
+    page.once("dialog", (prompt) => {
+      confirm = prompt.message();
+      void prompt.accept();
+    });
+    const reverted = page.waitForResponse(
+      (r) => r.url() === `${EMAILS_CHANGES_API}/revert` && r.request().method() === "POST",
+    );
+    // The history reloads the page once the revert lands.
+    const reloaded = page.waitForEvent("load");
+    await addedRow.getByRole("button", { name: "Revert" }).click();
+    const status = (await reverted).status();
+    await reloaded;
+    return { confirm, status };
+  });
+  flow.check(
+    "the confirm names the guest list alone",
+    true,
+    asked.confirm.startsWith(
+      "Revert this change? Households, guests and their invitations are restored",
+    ),
+  );
+  flow.check("cire-api reverts the sheet", 200, asked.status);
+  flow.check(`the ${addedHousehold} household is gone`, household, householdsInDb());
+  const guestsLeft = queryOne<{ names: string | null }>(
+    DB_FILES.cire,
+    `SELECT group_concat(first_name) AS names FROM (
+       SELECT g.first_name FROM guests g JOIN families f ON f.id = g.family_id
+        WHERE f.wedding_id = ? ORDER BY g.first_name)`,
+    emailsWeddingId,
+  );
+  flow.check(
+    `${addedGuest}'s row is gone`,
+    `${noAddress},${guestsOwn.firstName}`,
+    guestsLeft?.names ?? "",
+  );
+  const reverts = queryOne<{ n: number }>(
+    DB_FILES.cire,
+    "SELECT count(*) AS n FROM imports WHERE wedding_id = ? AND status = 'reverted'",
+    emailsWeddingId,
+  );
+  flow.check("one change is marked reverted", 1, reverts?.n ?? -1);
+  const gusKept = addressOf(noAddress);
+  flow.check(
+    `${noAddress}'s address from the earlier sheet stays`,
+    `${sheetAddresses.second} organiser_attested`,
+    `${gusKept?.email ?? "none"} ${gusKept?.source ?? "none"}`,
+  );
+
+  await flow.step("the history marks the sheet reverted", async () => {
+    await importMode.click();
+    await history.locator(":scope > summary").click();
+    await expect(addedRow).toContainText("Reverted");
+    await expect(addedRow.getByRole("button", { name: "Revert" })).toHaveCount(0);
+  });
 }
 
 test("cire-seating", async ({ page, flow }) => {
@@ -330,11 +486,11 @@ test("cire-seating", async ({ page, flow }) => {
 
   const rsvps = await flow.step("download the RSVP sheet from the RSVPs page", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/guests/rsvps`);
-    // The Guests tab has a button of the same name; the event strip is the
-    // RSVPs page's alone.
+    // The event strip is the RSVPs page's alone, and the download ends its
+    // row: once the strip is drawn, the button is this page's.
     await expect(page.getByRole("tablist", { name: "Events" })).toBeVisible();
     const download = page.waitForEvent("download");
-    await page.getByRole("button", { name: "Download RSVPs (CSV)" }).click();
+    await page.getByRole("button", { name: "Download RSVPs CSV" }).click();
     const file = await download;
     const stream = await file.createReadStream();
     const chunks: Buffer[] = [];
@@ -353,6 +509,91 @@ test("cire-seating", async ({ page, flow }) => {
       "TESTSEAT-CHA-0002,Charlie,Cy,Charlie,Attending,,,,Guest,",
     ].join("\n"),
     rsvps.body.split("\r\n").join("\n"),
+  );
+
+  const archive = await flow.step("download the whole wedding from Settings → Export", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/settings/export`);
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download wedding" }).click();
+    const file = await download;
+    await expect(page.getByRole("status", { name: "Wedding downloaded" })).toBeVisible();
+    const stream = await file.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    return { name: file.suggestedFilename(), entries: unzipSync(Buffer.concat(chunks)) };
+  });
+  const folder = `cire-wedding-${slug}/`;
+  const entry = (path: string) => archive.entries[`${folder}${path}`];
+  const text = (path: string) => new TextDecoder().decode(entry(path) ?? new Uint8Array());
+  flow.check("the archive is named for the wedding", `cire-wedding-${slug}.zip`, archive.name);
+  flow.check(
+    "the archive holds the wedding's files",
+    [
+      "README.txt",
+      "wedding.csv",
+      "guests.csv",
+      "households.csv",
+      "events.csv",
+      "rsvps.csv",
+      "seating.csv",
+      "seating-plans.csv",
+      "registry.csv",
+      "gifts.csv",
+      "budget.csv",
+      "tasks.csv",
+      "vendors.csv",
+      "invite.csv",
+      "questions.csv",
+      "for-import/events.csv",
+      "for-import/guests.csv",
+      "files/invite/hero.jpg",
+      "manifest.json",
+    ].join("\n"),
+    Object.keys(archive.entries)
+      .map((name) => name.slice(folder.length))
+      .join("\n"),
+  );
+  flow.check(
+    "the archive's RSVP sheet is the one the RSVPs page gives",
+    rsvps.body,
+    text("rsvps.csv"),
+  );
+  flow.check(
+    "the archive's venue file seats the reception",
+    [
+      "Event,Table,Capacity,Guest,Household,RSVP",
+      `Reception,${tables.one},4,${ada.name},Alpha,Attending`,
+      `Reception,${tables.one},4,${bo.name},Alpha,Attending`,
+      `Reception,${tables.two},4,${cy.name},Charlie,Attending`,
+    ].join("\n"),
+    text("seating.csv").split("\r\n").join("\n"),
+  );
+  flow.check(
+    "the archive's invite picture is the wedding's hero",
+    true,
+    Buffer.from(entry("files/invite/hero.jpg") ?? []).equals(
+      readFileSync(
+        resolve(import.meta.dirname, "../../../../cire/api/src/db/e2e-envelope-hero.jpg"),
+      ),
+    ),
+  );
+  const manifest = JSON.parse(text("manifest.json") || "{}") as {
+    format?: string;
+    version?: number;
+    data?: { complete: boolean }[];
+    files?: { status: string }[];
+  };
+  flow.check(
+    "the archive's manifest names its format",
+    "cire-wedding-archive 1",
+    `${manifest.format ?? ""} ${manifest.version ?? ""}`,
+  );
+  flow.check(
+    "the manifest calls every file whole and every picture included",
+    "16 whole, 1 included",
+    `${(manifest.data ?? []).filter((d) => d.complete).length} whole, ${
+      (manifest.files ?? []).filter((f) => f.status === "included").length
+    } included`,
   );
 
   await flow.step("open the wedding's seating chart", async () => {

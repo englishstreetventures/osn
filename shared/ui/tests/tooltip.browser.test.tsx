@@ -5,9 +5,9 @@
  * - The hidden copy is `normal-case`. Chrome passes a `text-transform` into the
  *   text it exposes, so a trigger inside an `uppercase` run (`Th` is one) would
  *   otherwise reach a screen reader in capitals.
- * - The panel's enter and exit sit behind `motion-safe:`. This tier's
- *   stylesheet has no `*` reduced-motion switch of its own, unlike cire host's,
- *   so here nothing but the prefix stops the animation.
+ * - The panel's entry stops for a reader who asked for reduced motion. This
+ *   tier's stylesheet has no `*` reduced-motion clamp of its own, unlike cire
+ *   host's, so here only the shared switch in `tokens.css` stops it.
  *
  * Every other guarantee is held where the component is used, by
  * `cire/host/tests/components/RsvpView.badges.browser.test.tsx`.
@@ -68,18 +68,33 @@ async function openPanel(): Promise<HTMLElement> {
 }
 
 function mount() {
+  // Room above the label, so the panel opens on its own side and covers
+  // nothing a test points at next.
   return render(() => (
-    <p class="uppercase">
-      Guest{" "}
-      <Tooltip text={TEXT}>
-        <span>Host-entered</span>
-      </Tooltip>
-    </p>
+    <div style={{ padding: "80px 40px" }}>
+      <p class="uppercase">
+        Guest{" "}
+        <Tooltip text={TEXT}>
+          <span>Host-entered</span>
+        </Tooltip>
+      </p>
+      <button type="button">Away</button>
+    </div>
   ));
 }
 
 afterEach(async () => {
   await emulateMedia({ reducedMotion: "no-preference" });
+  // Close an open panel and wait out the skip window before unmounting, so the
+  // next test's hover starts cold: Kobalte keeps tooltip timing in module
+  // scope, shared by every test in this file.
+  if (document.querySelector('[role="tooltip"]')) {
+    await userEvent.hover(screen.getByRole("button", { name: "Away" }));
+    await vi.waitFor(() => {
+      if (document.querySelector('[role="tooltip"]')) throw new Error("panel still open");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 450));
+  }
   cleanup();
 });
 

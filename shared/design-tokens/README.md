@@ -71,9 +71,11 @@ token or identifier takes.
 | Group     | Tokens                                                        | Obligation                                      |
 | --------- | ------------------------------------------------------------- | ----------------------------------------------- |
 | Grounds   | `--ui-ground`, `--ui-ground-deep`                           | what other tokens are measured _against_        |
+| Scrim     | `--ui-scrim`                                                 | **no floor** — a veil, defaults to black at 50% |
 | Surfaces  | `--ui-surface`, `--ui-surface-raised`, `--ui-surface-sunk` | also grounds, for contrast                      |
 | Edges     | `--ui-hairline`                                              | decoration, **no floor**                        |
 |           | `--ui-hairline-strong`                                       | 3:1                                             |
+|           | `--ui-choice-edge`                                           | 3:1 — falls back to `--ui-hairline-strong`      |
 | Ink       | `--ui-ink`, `--ui-ink-secondary`                            | 4.5:1 against every ground and surface          |
 |           | `--ui-ink-tertiary`                                          | 3:1 — large text, ornament, disabled only       |
 | Accent    | `--ui-accent`, `--ui-accent-strong`                         | fills; what sits on them is what is measured    |
@@ -86,9 +88,15 @@ token or identifier takes.
 |           | `--ui-focus-width`, `--ui-focus-offset`                      | —                                               |
 | Radius    | `--ui-radius-hair\|sm\|md\|lg\|pill`                         | —                                               |
 |           | `--ui-radius-control`                                        | a role, not a size — defaults to `md`           |
+|           | `--ui-radius-field`                                          | a role — defaults to `control`, then `md`       |
+|           | `--ui-radius-sheet`                                          | a role — defaults to `lg`                       |
 | Type      | `--ui-font-body\|display\|mono`                              | —                                               |
-| Motion    | `--ui-dur-fast\|base\|slow`, `--ui-ease-out\|in-out`        | —                                               |
+|           | `--ui-weight-title`                                          | a role, not a step — defaults to 600            |
+| Motion    | `--ui-dur-fast\|base\|slow\|exit`, `--ui-ease-out\|in-out\|exit` | by job, never by the nearest number         |
+|           | `--ui-scale-enter\|exit`, `--ui-distance-enter\|exit`        | by job, never by the nearest number             |
 | Elevation | `--ui-elev-1\|2`                                             | —                                               |
+
+Each motion token's job is in [the wiki's §Motion](../../wiki/shared/design-tokens.md#motion).
 
 Three surfaces is the minimum, not a preference: `musubi/social` and `pulse/web`
 both collapse shadcn's `secondary`/`muted`/`accent` onto one value and

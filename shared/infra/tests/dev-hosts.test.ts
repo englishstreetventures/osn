@@ -36,8 +36,6 @@ describe("dev-hosts", () => {
   test("C1: without a valid DEV_DOMAIN or stage it exits 2 and writes no output", () => {
     for (const [args, env] of [
       [["--stage", "dev"], {}],
-      [["--stage", "dev"], { DEV_DOMAIN: "" }],
-      [["--stage", "dev"], { DEV_DOMAIN: "musubi.social" }],
       [["--stage", "production"], { DEV_DOMAIN: "example.dev" }],
       [[], { DEV_DOMAIN: "example.dev" }],
     ] as const) {

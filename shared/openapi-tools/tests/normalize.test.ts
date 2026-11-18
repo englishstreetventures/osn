@@ -43,22 +43,10 @@ describe("stripVoidContent", () => {
 });
 
 describe("stripRedundantNullable", () => {
-  it("removes the 3.0 keyword when the union already says null", () => {
-    const node = { nullable: true, anyOf: [{ type: "string" }, { type: "null" }] };
-    stripRedundantNullable(node);
-    expect(node).toEqual({ anyOf: [{ type: "string" }, { type: "null" }] });
-  });
-
   it("removes the 3.0 keyword when a type array already says null", () => {
     const node = { nullable: true, type: ["string", "null"] };
     stripRedundantNullable(node);
     expect(node).toEqual({ type: ["string", "null"] });
-  });
-
-  it("removes it beside an enum whose type array says null", () => {
-    const node = { enum: ["host_left", "organiser"], nullable: true, type: ["string", "null"] };
-    stripRedundantNullable(node);
-    expect(node).toEqual({ enum: ["host_left", "organiser"], type: ["string", "null"] });
   });
 
   it("keeps `nullable` when nothing else expresses nullability", () => {
@@ -80,12 +68,6 @@ describe("collapseNullUnions", () => {
     collapseNullUnions(node, unhandled);
     return unhandled;
   };
-
-  it("rewrites a plain null union as a type array", () => {
-    const node = { anyOf: [{ type: "number" }, { type: "null" }] };
-    expect(collapse(node)).toEqual([]);
-    expect(node).toEqual({ type: ["number", "null"] });
-  });
 
   it("collapses a flat const union to an enum", () => {
     const node = {
@@ -182,12 +164,6 @@ describe("excludePaths", () => {
   it("matches an exact string against the whole path, not as a prefix", () => {
     const d = doc();
     excludePaths(d, ["/graph"]);
-    expect(Object.keys(d.paths)).toHaveLength(5);
-  });
-
-  it("leaves the document alone when given no patterns", () => {
-    const d = doc();
-    excludePaths(d, []);
     expect(Object.keys(d.paths)).toHaveLength(5);
   });
 

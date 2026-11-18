@@ -1,4 +1,4 @@
-import { tierSecrets, type SiteMode, type SiteSurface } from "@shared/infra";
+import { tierSecrets, type HostHold, type SiteMode, type SiteSurface } from "@shared/infra";
 import * as Alchemy from "alchemy";
 
 import {
@@ -82,6 +82,12 @@ export function evaluateCire(input: {
   readonly workingDirFiles?: readonly string[];
   /** Production site modes in place of PRODUCTION_SITE_MODES. */
   readonly modes?: Readonly<Record<SiteSurface, SiteMode>>;
+  /**
+   * Host holds in place of PRODUCTION_HOST_HOLDS; none unless given, so no
+   * test reads the live list and an entry the owner adds fails none.
+   * `"stack default"` passes none, so the stack takes its own default.
+   */
+  readonly holds?: readonly HostHold[] | "stack default";
 }): Promise<Evaluation> {
   return evaluateStack({
     stage: input.stage,
@@ -92,7 +98,13 @@ export function evaluateCire(input: {
       Alchemy.Stack(
         "cire",
         offlineStackOptions(),
-        cireStack({ env: input.env, generatedDir, workingDir, modes: input.modes }),
+        cireStack({
+          env: input.env,
+          generatedDir,
+          workingDir,
+          modes: input.modes,
+          holds: input.holds === "stack default" ? undefined : (input.holds ?? []),
+        }),
       ),
   });
 }

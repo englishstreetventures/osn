@@ -19,6 +19,8 @@ import { summarisePlan } from "../src/plan-summary";
  * and the level in green, wraps the message in bold cyan (effect 4.0.3
  * src/internal/effect.ts:6762-6782), and Alchemy's sink puts `ESC[0m` before
  * the message (alchemy src/Util/ConsoleSink.ts:5-17, src/Cli/GlobalLog.ts:64-76).
+ * The pinned 2.0.0-beta.85 prints `[HH:MM:SS.mmm] INFO: ` with no fiber id;
+ * tests/plan-guard.test.ts G15, G16 and G19 read the lines it prints itself.
  */
 const ESC = "\u001b";
 const reset = `${ESC}[0m`;

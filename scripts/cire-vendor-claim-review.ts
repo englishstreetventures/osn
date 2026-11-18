@@ -93,9 +93,9 @@ export type Db = "cire" | "osn";
 
 /**
  * The wrangler arguments that point `d1 execute` at one tier's database.
- * `local` names no env and passes `--local`: the top-level block in both
- * `cire/api/wrangler.toml` and `osn/api/wrangler.toml` carries the production
- * database id, so `--remote` on a name it holds would reach production.
+ * `local` names no env and passes `--local`: the top-level block of
+ * `osn/api/wrangler.toml` carries the id of a database in the production
+ * account, so `--remote` on a name a top-level block holds is never right.
  * `production` passes `--env production`. `dev` passes the dev database's own
  * name with `--remote` and no env: neither file declares it, so wrangler looks
  * it up by name through the API, in the account the credentials name.

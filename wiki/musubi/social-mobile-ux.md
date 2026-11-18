@@ -2,14 +2,14 @@
 title: Social — Mobile UX analysis & plan
 description: Why @musubi/social is unusable on phones today, and the phased plan to fix it
 tags: [app, identity, ux, mobile, plan]
-status: shipped
+status: completed
 packages:
   - "@musubi/social"
 related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-09
 ---
 
 # Social — Mobile UX analysis & plan
@@ -22,12 +22,18 @@ wrong and the phased plan that fixed it, scoped to the app only (per
 `DESIGN.md`, the shared `@shared/ui` primitives are never edited — cire and
 pulse consume them too).
 
-> **Superseded in one detail (2026-08-02):** the tab bar now carries a fifth
+> **Superseded in three details.** The tab bar carries a fifth
 > destination, **Search** (`/search`), because search is the one surface whose
-> reachable spot differs by shell — the desktop rail got a live combobox, and a
+> reachable spot differs by shell — the desktop rail has a live combobox, and a
 > header field on mobile is the least thumb-reachable place a search box can
-> go. `NAV_ITEMS` gained a `mobileOnly` flag so the rail filters it out. See
+> go. `NAV_ITEMS` has a `mobileOnly` flag so the rail filters it out. See
 > `DESIGN.md` §Responsive layout and [[social-graph]].
+>
+> Phase 1 below differs from the code in two more places. `Layout` mounts one
+> shell, not both: an `md` media-query signal picks the rail or the mobile
+> shell (`src/App.tsx`). And the signed-out top bar shows two buttons, "Sign
+> in" (`secondary`) and "Create account" (default), both `size="sm"`
+> (`MobileTopBar.tsx`).
 >
 > **All five phases shipped 2026-07-28** in the same PR as this audit.
 > The findings below are kept as the record of the pre-fix state; the Plan
@@ -36,8 +42,9 @@ pulse consume them too).
 > bar), `MobileTopBar.tsx` (mobile header), `ResponsiveDialogContent.tsx`
 > (bottom-sheet dialog face), `AccountMenu` / `AuthDialogs` /
 > `ProfileSwitcherDialog` (account UI shared by the shells — only the
-> active shell mounts, gated on an `md` matchMedia signal in `Layout`,
-> which also keeps the auth-dialog surface single-instance), safe-area +
+> active shell mounts, gated on an `md` matchMedia signal in `Layout`, and
+> the three dialogs mount once above that switch, in `ShellDialogs.tsx`, so
+> one open across a switch stays open), safe-area +
 > `pb-nav` utilities and the 16 px mobile-input rule in `App.css`, and a
 > **Responsive layout** section in `DESIGN.md` that locks the system
 > (single `md` breakpoint, `max-md:` touch-target mechanism, sheet dialogs,
@@ -47,8 +54,9 @@ pulse consume them too).
 > **Prep-pr review round (2026-07-28):** security pass (duplicate dialog mounts → resolved structurally by single-shell mounting; nav icons now `aria-hidden`), perf pass (both shells always
 > mounted → conditional mount + one `MobileChrome` chunk; duplicate dialog/memo work → falls out of that; `useIsMobile` first-frame
 > flip → synchronous matchMedia init), tests (T-M1/T-M2/T-U1/T-U2/T-S1
-> written; T-S2 Layout-composition test deferred — `AuthProvider`
-> bootstraps a network `POST /token`, so it needs a heavier fixture).
+> written; T-S2, the Layout composition, is `tests/App.browser.test.tsx`,
+> which mocks `AuthProvider` because the real one bootstraps a network
+> `POST /token`).
 
 Platform priority is **iOS > Web > Android** ([[monorepo-structure#Native apps (iOS)]]), so mobile Safari is
 the primary target for every fix below.
@@ -163,7 +171,10 @@ mobile shell; at and above it, today's rail is unchanged.
   (single source for both shells).
 - New `MobileNav.tsx`: fixed bottom tab bar (`md:hidden`), the four nav items
   with 20 px icons + `text-meta` labels, ≥48 px item height plus `pb-safe`,
-  active state = `text-foreground` vs `text-subtle`.
+  active state = `text-foreground` for icon and label plus a 2px
+  `--foreground` bar along the tab's top edge, so ink is not its only mark; a
+  resting tab writes its label in `text-muted-foreground` and its icon in
+  `text-subtle`, as the rail does.
 - New `MobileTopBar.tsx`: slim sticky header (`md:hidden`) with the
   Musubi wordmark (no "Social" tag — at 320 px the signed-out bar has no
   room for it), `ThemeToggle`, and the account control — avatar

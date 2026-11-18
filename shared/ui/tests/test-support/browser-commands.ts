@@ -16,8 +16,9 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
  * `forcedColors` emulates a Windows contrast theme, under which the browser
  * replaces author colours with system ones and drops `box-shadow`.
  *
- * Restore the preference in an `afterEach` (`{ reducedMotion: "no-preference" }`):
- * the browser context is shared across tests in a file, so a leaked preference
+ * Restore the preference (`{ reducedMotion: "no-preference" }`) in an
+ * `afterEach`, or in an `afterAll` when every test in the file wants it: the
+ * browser context is shared across tests in a file, so a leaked preference
  * silently changes every later assertion about animation.
  *
  * A twin of `cire/invites/tests/test-support/browser-commands.ts`, and
@@ -30,3 +31,128 @@ export const emulateMedia = defineBrowserCommand<
 >(async (ctx, options) => {
   await ctx.page.emulateMedia(options);
 });
+
+/**
+ * Move the real pointer to a point on an element, in `steps` moves from where
+ * it is now. `x` and `y` are fractions of the element's box, so `0.5, 0.5` is
+ * its centre and `0.5, 1.2` is just below it.
+ *
+ * Playwright's mouse sends input through the browser, which then fires
+ * `pointerleave`, `pointerenter` and `pointermove` in its own order. A test that
+ * dispatched those events itself would set the order it is meant to check, so a
+ * claim about how a hover panel behaves while the pointer crosses to it needs
+ * the real thing. The box is read through the test's frame, so a scaled or
+ * offset iframe still lands on the element.
+ */
+export const movePointer = defineBrowserCommand<
+  [{ selector: string; x?: number; y?: number; steps?: number }]
+>(async (ctx, { selector, x = 0.5, y = 0.5, steps = 1 }) => {
+  const box = await ctx.iframe.locator(selector).first().boundingBox();
+  if (!box) throw new Error(`nothing to point at: ${selector}`);
+  await ctx.page.mouse.move(box.x + box.width * x, box.y + box.height * y, { steps });
+});
+
+/**
+ * Move the real pointer to the centre of an element and hold its button down,
+ * until `releasePointer`. A press is `:active` only while the browser holds a
+ * real button down on the element: a dispatched `pointerdown` or `mousedown`
+ * sets no `:active`, so a claim about how a pressed control looks needs real
+ * input. The box is read through the test's frame, as `movePointer` reads it.
+ */
+export const pressPointer = defineBrowserCommand<[{ selector: string }]>(
+  async (ctx, { selector }) => {
+    const box = await ctx.iframe.locator(selector).first().boundingBox();
+    if (!box) throw new Error(`nothing to press: ${selector}`);
+    await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await ctx.page.mouse.down();
+  },
+);
+
+/** Let go of the button `pressPointer` holds down, where the pointer is now. */
+export const releasePointer = defineBrowserCommand<[]>(async (ctx) => {
+  await ctx.page.mouse.up();
+});
+
+/**
+ * Hold a key down until `releaseKey` lets it go: `" "` holds Space, which a
+ * browser treats as a press on a focused button while it is held. Keys go to
+ * whatever has focus, so focus the element first.
+ */
+export const holdKey = defineBrowserCommand<[string]>(async (ctx, key) => {
+  await ctx.page.keyboard.down(key);
+});
+
+/** Let go of a key `holdKey` holds down. */
+export const releaseKey = defineBrowserCommand<[string]>(async (ctx, key) => {
+  await ctx.page.keyboard.up(key);
+});
+
+/**
+ * Fail every request the calling test file's frame makes for a URL matching
+ * `pattern` (a Playwright glob), as a dropped connection does, until
+ * `allowRequests` is called with the same pattern. Other files' frames fetch as
+ * usual, so a file that runs beside this one is not affected.
+ */
+export const failRequests = defineBrowserCommand<[string]>(async (ctx, pattern) => {
+  const frame = await ctx.frame();
+  await ctx.page.route(pattern, (route) =>
+    route.request().frame() === frame ? route.abort("failed") : route.fallback(),
+  );
+});
+
+/** Undo `failRequests` for `pattern`. */
+export const allowRequests = defineBrowserCommand<[string]>(async (ctx, pattern) => {
+  await ctx.page.unroute(pattern);
+});
+
+/**
+ * A PNG, as base64, of what the page paints over an element's box `pad` CSS
+ * pixels out on every side, drawn at `scale` device pixels per CSS pixel — 1
+ * for most desktop screens, 2 for a phone's or a Retina one. Sub-pixel layout
+ * is snapped to device pixels when it paints, so a claim that one painted
+ * thing is centred in another holds only at the ratios it was measured at.
+ *
+ * Through the DevTools protocol, not `page.screenshot`: Playwright puts the
+ * context's own ratio back before it shoots, and a device pixel ratio is the
+ * browser context's, fixed when it opens. The ratio is set back to 1 after.
+ */
+export const paintedBox = defineBrowserCommand<[{ selector: string; scale: 1 | 2; pad?: number }]>(
+  async (ctx, { selector, scale, pad = 4 }): Promise<{ png: string; scale: number }> => {
+    const session = await ctx.page.context().newCDPSession(ctx.page);
+    const size = ctx.page.viewportSize() ?? { width: 414, height: 896 };
+    const metrics = (deviceScaleFactor: number) =>
+      session.send("Emulation.setDeviceMetricsOverride", {
+        width: size.width,
+        height: size.height,
+        deviceScaleFactor,
+        mobile: false,
+      });
+    try {
+      await metrics(scale);
+      const frame = await ctx.frame();
+      // Two frames, so layout and paint have both run at the new ratio.
+      await frame.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      const box = await ctx.iframe.locator(selector).first().boundingBox();
+      if (!box) throw new Error(`nothing painted: ${selector}`);
+      const shot = await session.send("Page.captureScreenshot", {
+        format: "png",
+        clip: {
+          x: box.x - pad,
+          y: box.y - pad,
+          width: box.width + 2 * pad,
+          height: box.height + 2 * pad,
+          scale: 1,
+        },
+      });
+      return { png: shot.data, scale };
+    } finally {
+      await metrics(1);
+      await session.detach();
+    }
+  },
+);

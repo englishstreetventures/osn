@@ -10,10 +10,13 @@
  *   #/w/<weddingId>/<module>/<sub>          → that wedding + a module + a sub-view
  *   #/w/<weddingId>/guests/rsvps/<eventId>  → the RSVP page, on one event
  *   #/security                              → the account-security view
+ *   #/remove-data[?code=<code>]             → "Remove my Cire data"; Musubi
+ *                                             sends the person back here with
+ *                                             the code of a confirmed request
  *
  * `<module>` is one of {@link MODULES} below, and each module carries an
- * optional `<sub>` (e.g. `guests/rsvps`, `invite/codes`,
- * `settings/hosts`). The RSVP page alone goes one level deeper: it shows one
+ * optional `<sub>` (e.g. `guests/rsvps`, `invite/codes`, `settings/hosts`,
+ * `settings/export`). The RSVP page alone goes one level deeper: it shows one
  * event at a time, and the event it shows is part of the address, so a reload
  * or a shared link opens the same event. Any other page ignores a segment past
  * its sub, and nothing else inside a view (an open modal, a selected row, a
@@ -89,7 +92,10 @@ export const MODULE_SUBS = {
   guests: ["list", "edit", "rsvps"],
   seating: ["index"],
   invite: INVITE_VIEWS,
-  settings: ["wedding", "hosts"],
+  // `export` is the whole wedding as one download. Its address is handed out
+  // beyond the portal — in a Musubi account's export, and from the flows that
+  // delete an account or a person's Cire data — so the segment stays `export`.
+  settings: ["wedding", "hosts", "export"],
 } satisfies Record<Module, readonly string[]>;
 
 export function defaultSub(module: Module): string {
@@ -105,6 +111,8 @@ export function isSubOf(module: Module, sub: string): boolean {
  * - `weddings` with no `weddingId` ⇒ the list
  * - `weddings` with a `weddingId` ⇒ that wedding's dashboard on `module`/`sub`
  * - `security` ⇒ the security panel
+ * - `remove-data` ⇒ the "Remove my Cire data" screen, with the code Musubi sent
+ *   the person back with, when it did
  */
 export type DashboardRoute =
   | { view: "weddings"; weddingId: null; module: Module; sub: string }
@@ -117,7 +125,19 @@ export type DashboardRoute =
        *  absent, the page shows its first event. */
       rsvpEvent?: string;
     }
-  | { view: "security"; weddingId: null; module: Module; sub: string };
+  | { view: "security"; weddingId: null; module: Module; sub: string }
+  | {
+      view: "remove-data";
+      weddingId: null;
+      module: Module;
+      sub: string;
+      /**
+       * The code of a step-up request the person confirmed on Musubi. Read once
+       * from the address; {@link serializeRoute} leaves it out, so the
+       * canonical rewrite on load takes it out of the address and history.
+       */
+      code?: string;
+    };
 
 /** Whether a module and sub are the RSVP page, the one page whose address
  *  names an event. */
@@ -195,15 +215,33 @@ function weddingRoute(
   return { view: "weddings", weddingId, module, sub };
 }
 
+/** A code as osn-api makes them: base64url, no padding. */
+const CODE = /^[A-Za-z0-9_-]{1,64}$/;
+
 /**
  * Parse a location hash into a {@link DashboardRoute}. Total + defensive:
  * unknown shapes fall back to the wedding list. Role-gated modules/subs are NOT
  * gated here (the parser doesn't know the caller's role) — the shell resolves
- * the visible module/sub when it renders.
+ * the visible module/sub when it renders. A query after the path (`?…`) is
+ * read before the path is split, and only the remove-data view reads one.
  */
 export function parseRoute(hash: string): DashboardRoute {
-  const parts = segments(hash);
+  const queryAt = hash.indexOf("?");
+  const path = queryAt === -1 ? hash : hash.slice(0, queryAt);
+  const query = queryAt === -1 ? "" : hash.slice(queryAt + 1);
+  const parts = segments(path);
   if (parts.length === 0) return LIST_ROUTE;
+
+  if (parts[0] === "remove-data") {
+    const route: DashboardRoute = {
+      view: "remove-data",
+      weddingId: null,
+      module: DEFAULT_MODULE,
+      sub: defaultSub(DEFAULT_MODULE),
+    };
+    const code = new URLSearchParams(query).get("code");
+    return code !== null && CODE.test(code) ? { ...route, code } : route;
+  }
 
   if (parts[0] === "security") {
     return {
@@ -259,6 +297,7 @@ export function parseRoute(hash: string): DashboardRoute {
  *  `#/w/…` form so bookmarks migrate forward on first navigation). */
 export function serializeRoute(route: DashboardRoute): string {
   if (route.view === "security") return "#/security";
+  if (route.view === "remove-data") return "#/remove-data";
   if (route.weddingId === null) return "#/weddings";
   const id = encodeURIComponent(route.weddingId);
   const onDefaultSub = route.sub === defaultSub(route.module);

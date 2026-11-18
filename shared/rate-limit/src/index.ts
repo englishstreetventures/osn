@@ -52,7 +52,8 @@ export function createRateLimiter(config: RateLimiterConfig): RateLimiter {
 
   /**
    * Evict expired entries. Runs on every check() call but short-circuits
-   * if less than one window has elapsed since the last sweep (P-W16).
+   * if less than one window has elapsed since the last sweep, so a busy
+   * limiter does not walk its whole map on every request.
    * Also runs unconditionally when store exceeds maxEntries as a hard cap.
    */
   function sweep() {
@@ -177,6 +178,60 @@ export function isValidIp(value: string): boolean {
   return v.includes("::") || colons >= 2;
 }
 
+/** The eight 16-bit groups of an IPv6 address, or null when it does not parse. */
+function ipv6Groups(value: string): number[] | null {
+  let text = value.toLowerCase();
+  const tail: number[] = [];
+  const lastColon = text.lastIndexOf(":");
+  if (lastColon < 0) return null;
+  const lastPart = text.slice(lastColon + 1);
+  if (lastPart.includes(".")) {
+    // A trailing dotted IPv4 address fills the last two groups.
+    if (!isValidIp(lastPart)) return null;
+    const octets = lastPart.split(".").map(Number);
+    tail.push((octets[0]! << 8) | octets[1]!, (octets[2]! << 8) | octets[3]!);
+    text = text.slice(0, lastColon + 1);
+    if (!text.endsWith("::")) text = text.slice(0, -1);
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] | null => {
+    if (part === "") return [];
+    const groups = part.split(":").map((g) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN));
+    return groups.some(Number.isNaN) ? null : groups;
+  };
+  const head = parse(halves[0]!);
+  const rest = halves.length === 2 ? parse(halves[1]!) : [];
+  if (!head || !rest) return null;
+  const known = head.length + rest.length + tail.length;
+  if (halves.length === 1) return known === 8 ? [...head, ...tail] : null;
+  if (known > 7) return null;
+  return [...head, ...Array<number>(8 - known).fill(0), ...rest, ...tail];
+}
+
+/**
+ * The network a client address belongs to, for a limit that must not hand a
+ * new allowance to every address one subscriber holds. An IPv4 address is its
+ * own network and comes back as given. An IPv6 address comes back as its /64
+ * prefix (`2001:db8:1:2::/64`, lowercase, no leading zeros), since one
+ * subscriber is commonly given a whole /64 and can rotate through it at will;
+ * an IPv4 address written in IPv6 form (`::ffff:203.0.113.9`) comes back as
+ * that IPv4 address. Anything else — the {@link UNRESOLVED_IP} sentinel, an
+ * empty string, a value that does not parse — comes back as given.
+ */
+export function clientNetwork(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  const groups = ipv6Groups(ip);
+  if (!groups) return ip;
+  if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) {
+    return [groups[6]! >> 8, groups[6]! & 0xff, groups[7]! >> 8, groups[7]! & 0xff].join(".");
+  }
+  return `${groups
+    .slice(0, 4)
+    .map((g) => g.toString(16))
+    .join(":")}::/64`;
+}
+
 /**
  * Options controlling how {@link getClientIp} resolves the trusted client IP.
  * Every resolution mode that depends on a proxy **fails closed**: if the
@@ -214,7 +269,7 @@ export interface ClientIpOptions {
 
 /**
  * Extract the trusted client IP from request headers under an explicit trust
- * policy (S-M34).
+ * policy.
  *
  * Resolution order:
  *  1. `trustCloudflare` → use `cf-connecting-ip`, else {@link UNRESOLVED_IP}
@@ -225,7 +280,7 @@ export interface ClientIpOptions {
  *     a valid IP, else {@link UNRESOLVED_IP}.
  *
  * @deprecated The no-argument call form (`getClientIp(headers)`) preserves the
- * pre-S-M34 behaviour: it returns the LEFT-most `x-forwarded-for` entry and
+ * behaviour from before the trust policy: it returns the LEFT-most `x-forwarded-for` entry and
  * falls back to the literal `"unknown"` — both of which a client can spoof
  * without a trusted proxy. This default exists only so sibling services keep
  * compiling during the rollout. **Migrate** by passing a {@link ClientIpOptions}

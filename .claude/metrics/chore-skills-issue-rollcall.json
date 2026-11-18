@@ -1,0 +1,219 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "chore/skills-issue-rollcall",
+    "base_sha": "99f0b7ce268e0c461f9031b5cc2cadfdab3ef142",
+    "head_sha": "5afaf30b3234469df6a1711eb214e7839975df10",
+    "generated_at": "2026-11-17T00:12:58.738Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2375,
+    "type": null,
+    "labels": [
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed",
+      "product:osn"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-06T09:16:33.441Z",
+    "last_ts": "2026-11-17T00:12:52.581Z",
+    "span_seconds": 917779,
+    "active_seconds": 59510,
+    "compactions": 1
+  },
+  "spend": {
+    "usd_equivalent": 103.01024528499991,
+    "tokens": {
+      "input": 1157,
+      "output": 572217,
+      "thinking": 194332,
+      "cache_write_5m": 180184,
+      "cache_write_1h": 11662814,
+      "cache_read": 247954831
+    },
+    "by_model": {
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 1093,
+          "output": 522343,
+          "thinking": 172854,
+          "cache_write_5m": 0,
+          "cache_write_1h": 11662814,
+          "cache_read": 246382254
+        },
+        "usd_equivalent": 101.15332279999994,
+        "messages": 558
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 17
+      },
+      "claude-haiku-5-5": {
+        "tokens": {
+          "input": 14,
+          "output": 19218,
+          "thinking": 10789,
+          "cache_write_5m": 58145,
+          "cache_write_1h": 0,
+          "cache_read": 32056
+        },
+        "usd_equivalent": 0.017199085,
+        "messages": 7
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 50,
+          "output": 30656,
+          "thinking": 10689,
+          "cache_write_5m": 122039,
+          "cache_write_1h": 0,
+          "cache_read": 1540521
+        },
+        "usd_equivalent": 1.8397234000000002,
+        "messages": 25
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 1093,
+          "output": 522343,
+          "thinking": 172854,
+          "cache_write_5m": 0,
+          "cache_write_1h": 11662814,
+          "cache_read": 246382254
+        },
+        "usd_equivalent": 101.15332279999994,
+        "messages": 575
+      },
+      "subagent": {
+        "tokens": {
+          "input": 64,
+          "output": 49874,
+          "thinking": 21478,
+          "cache_write_5m": 180184,
+          "cache_write_1h": 0,
+          "cache_read": 1572577
+        },
+        "usd_equivalent": 1.8569224850000001,
+        "messages": 32
+      }
+    },
+    "effort": {
+      "medium": 565,
+      "high": 25
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 0,
+      "docs": 5,
+      "config": 0,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 39,
+        "deleted": 7
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 93,
+    "corrective_turns": 10,
+    "tokens_before_first_edit": 1100815,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 317,
+      "SendMessage": 64,
+      "Agent": 40,
+      "Skill": 13,
+      "WebFetch": 12,
+      "Write": 11,
+      "ToolSearch": 5,
+      "TaskUpdate": 5,
+      "AskUserQuestion": 5,
+      "SubagentHandback": 5,
+      "ListAgents": 4,
+      "TaskCreate": 3,
+      "Read": 3,
+      "Edit": 2,
+      "WebSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 3
+    },
+    "skills": {
+      "new-feat": 2,
+      "write-issue": 2,
+      "rate-complexity": 1,
+      "orchestrate": 1,
+      "pick-agent": 1,
+      "prep-pr": 2,
+      "write-pr": 2,
+      "run": 1,
+      "chrome": 3,
+      "retro-v2": 1,
+      "review-docs": 1
+    },
+    "subagents": {
+      "web-fetch": 4,
+      "explorer": 2,
+      "designer": 6,
+      "mechanic": 1,
+      "implementer": 22,
+      "shepherd": 1,
+      "reviewer": 4
+    },
+    "requests": {
+      "main": 558,
+      "subagent": 32,
+      "with_tools": 393,
+      "with_one_tool": 311,
+      "context_median": 387024,
+      "context_p90": 863458
+    }
+  },
+  "review": null
+}

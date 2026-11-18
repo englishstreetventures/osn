@@ -1,3 +1,4 @@
+import { expect } from "vitest";
 import { page } from "vitest/browser";
 
 /**
@@ -30,7 +31,8 @@ export async function settle(): Promise<void> {
  * Writes `<dir>/<name>-<width>-<theme>.png` at each width in each theme.
  * `dir` resolves from the calling test file's directory, as
  * `page.screenshot`'s path does; `setTheme` puts a theme on the page the way
- * the portal under test does.
+ * the portal under test does, and must have put it there when it returns, or
+ * a picture named for one theme would show the other.
  */
 export async function pictureEach(
   name: string,
@@ -41,6 +43,7 @@ export async function pictureEach(
       await page.viewport(viewport.width, viewport.height);
       options.setTheme(theme);
       await settle();
+      expect(document.documentElement.dataset.theme, `${name}-${viewport.width}`).toBe(theme);
       await page.screenshot({ path: `${options.dir}/${name}-${viewport.width}-${theme}.png` });
     }
   }

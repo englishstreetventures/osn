@@ -2,8 +2,9 @@
  * Registry gift-summary email template.
  *
  * Sent once per wedding, by cire's retention sweep, at the moment the sweep
- * deletes that wedding's guest data — a year after the last event. It carries
- * the record cire keeps on `registry_settings.gift_summary_json` — the counts,
+ * deletes that wedding's guest data — a year after the last event, or three
+ * years after the wedding was created when its event dates could not be read.
+ * It carries the record cire keeps on `registry_settings.gift_summary_json` — the counts,
  * the totals and each money gift's amount and day — and says plainly that who
  * gave each gift, and what they wrote, is gone.
  *
@@ -49,8 +50,13 @@ export interface RegistryGiftSummaryGift {
 export interface RegistryGiftSummaryData {
   /** The wedding as the couple named it, e.g. "Ama & Jonah". */
   readonly weddingName: string;
-  /** `YYYY-MM-DD` of the last event — the far end of the retained year. */
-  readonly finalEventOn: string;
+  /**
+   * The `YYYY-MM-DD` the retained period counted from, and the rule that set
+   * it: `final-event`, the last event, a year before the deletion; or
+   * `created`, the day the wedding was created, three years before, for a
+   * wedding whose event dates cire could not read.
+   */
+  readonly retainedFrom: { readonly rule: "final-event" | "created"; readonly on: string };
   /** `YYYY-MM-DD` the sweep ran and the detail went. */
   readonly sweptOn: string;
   /** Money gifts that actually settled, in every currency. */
@@ -96,6 +102,20 @@ function moneyLine(data: RegistryGiftSummaryData): string {
   return `Money gifts: ${data.giftCount} — ${parts.join("; ")}`;
 }
 
+/**
+ * Why the guest data went now, with the day it counted from. `name` and `on`
+ * arrive escaped for the HTML body and raw for the text one.
+ */
+function whenLine(
+  rule: RegistryGiftSummaryData["retainedFrom"]["rule"],
+  name: string,
+  on: string,
+): string {
+  return rule === "created"
+    ? `Three years have passed since ${name} was created on Cire, on ${on}, and we could not read the dates of all its events.`
+    : `A year has passed since the last event of ${name}, on ${on}.`;
+}
+
 export function renderRegistryGiftSummary(data: RegistryGiftSummaryData): RenderedEmail {
   const subject = `Your gift record from ${data.weddingName}`;
   const money = moneyLine(data);
@@ -134,7 +154,7 @@ export function renderRegistryGiftSummary(data: RegistryGiftSummaryData): Render
   const text = [
     `Hello,`,
     ``,
-    `A year has passed since the last event of ${data.weddingName}, on ${data.finalEventOn}. As we said we would, we have now deleted the guest data from that wedding: who gave each gift, and any message they sent with it.`,
+    `${whenLine(data.retainedFrom.rule, data.weddingName, data.retainedFrom.on)} As we said we would, we have now deleted the guest data from that wedding: who gave each gift, and any message they sent with it.`,
     ``,
     `We counted it first. Here is what your registry held, as of ${data.sweptOn}:`,
     ``,
@@ -171,7 +191,7 @@ export function renderRegistryGiftSummary(data: RegistryGiftSummaryData): Render
   const html = wrap(
     `<h2>Your gift record from ${esc(data.weddingName)}</h2>` +
       `<p>Hello,</p>` +
-      `<p>A year has passed since the last event of ${esc(data.weddingName)}, on ${esc(data.finalEventOn)}. As we said we would, we have now deleted the guest data from that wedding: who gave each gift, and any message they sent with it.</p>` +
+      `<p>${whenLine(data.retainedFrom.rule, esc(data.weddingName), esc(data.retainedFrom.on))} As we said we would, we have now deleted the guest data from that wedding: who gave each gift, and any message they sent with it.</p>` +
       `<p>We counted it first. Here is what your registry held, as of ${esc(data.sweptOn)}:</p>` +
       `<ul><li>${esc(money)}</li><li>${esc(listLine)}</li></ul>` +
       htmlList +

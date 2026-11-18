@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-18
 ---
 
 # Cire development guide
@@ -110,7 +110,7 @@ own block beside it; add a row for a new one.
 |---|---|
 | `auth.ts` | `sessionAuth` — the guest claim-code cookie |
 | `osn-auth.ts` | `osnAuth` — the organiser session cookie, else an OSN access token |
-| `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, the CSV exports, adding, changing or removing any seat, delete. `weddingOwnerIncludingDeleted()` is the same check for the restore route alone, the only organiser route that reaches a soft-deleted wedding |
+| `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, the CSV exports and the whole-wedding archive, adding, changing or removing any seat, delete. `weddingOwnerIncludingDeleted()` is the same check for the restore route alone, the only organiser route that reaches a soft-deleted wedding |
 | `wedding-editor.ts` | owner or `editor` — module writes, the RSVP-by date, marking a household's code sent |
 | `wedding-member.ts` | reads + invite preview — every role carrying the `member` capability (`editor`, `viewer`; **not** `helper`) |
 | `wedding-run-sheet.ts` | the day-of run sheet — every role including `helper`. Standalone: mount it INSTEAD OF `wedding-member.ts`, never after it |
@@ -129,7 +129,7 @@ on one fluent Elysia chain. Where a new route goes:
 
 | Where | What goes there |
 |---|---|
-| Before `originGuard` | A route no browser session authenticates, whose callers do not all send an allowed `Origin`: the CSP collector, the internal revoke back-channel, the RSVP digest's stop link and the invite lookup. A global `onBeforeHandle` covers only what is mounted after it, so these skip the guard with no entry in `EXEMPT_PATHS` |
+| Before `originGuard` | A route no browser session authenticates, whose callers do not all send an allowed `Origin`: the CSP collector, the internal revoke back-channel, osn-api's two account-deletion calls and its account-export call (ARC, [[cire-auth#osn-api's ARC calls (account deletion)]]), the RSVP digest's stop link and the invite lookup. A global `onBeforeHandle` covers only what is mounted after it, so these skip the guard with no entry in `EXEMPT_PATHS` |
 | After the chain | The Stripe mounts: the Connect webhook, the upgrade routes and the platform webhook. The upgrade routes and the platform webhook share one upgrade service and mount together, only with both a Stripe client and the platform webhook secret (on a deployed tier, one that differs from the Connect secret): the early return skips both otherwise, since only that webhook grants what the routes sell. No type limit keeps the two webhooks here |
 | Anywhere else | Inside the chain, after the guard. A route that exists only under a setting mounts as `setting ? routes : new Elysia()`, as Connect onboarding does |
 
@@ -167,7 +167,7 @@ Two type limits apply to the chain:
   `LSP` tool run `tsc` ([[agent-tooling#Code search]]), so they show the error
   while `typecheck` passes.
 
-`createApp` makes **66** chained calls, counting `.headers`.
+`createApp` makes **69** chained calls, counting `.headers`.
 
 *Measured 2026-10-27 on TypeScript 7.1.0-beta and Bun 1.4.4 — the chain's own mounts repeated or cut in a scratch copy of `createApp`, checked with `node_modules/.bin/tsc -p cire/api --noEmit` and `bun run --cwd cire/api typecheck`*
 
@@ -218,6 +218,42 @@ are the patterns, and their tests read the statements back to pin the row
 count each read returns. A file a locked module's card offers also needs its
 count in `GET …/module-rows` and an entry in the portal's `LOCKED_EXPORTS`.
 
+**The whole-wedding archive** (`POST /api/organiser/weddings/:weddingId/archive`,
+`routes/wedding-archive.ts`, `services/wedding-archive.ts`) puts every export
+in one ZIP, with households, vendors, the gift list, every seating plan, the
+wedding's settings, the invitation and the R2 files the wedding holds, and a
+`manifest.json` written last. The host portal's page for it is
+`#/w/<weddingId>/settings/export`; osn-api's account export links there. Owner
+only, no tier gate, a POST behind the origin guard so a same-site page cannot
+start one. Its own limiter answers first (`archiveLimiter`, 10 a day per
+owner, in memory), then the shared one, which it spends too. What it keeps to:
+
+- **Every D1 read before the first byte.** `read()` runs each exporter and the
+  file list (29 statements for a wedding with every module filled, the gates
+  included, under D1's 50 a request on Workers Free); a failure is the route's
+  500. R2 objects are read while the archive streams, one per pull
+  (`highWaterMark: 0`), each whole before its entry is written; one that is
+  missing or fails is left out and named in the manifest.
+
+  *Measured 2026-11-16 — `recordStatements` (`cire/api/tests/test-helpers.ts`) over one `POST …/archive` for a `fullWeddingStatements` wedding, signed in with an organiser-session cookie, on bun:sqlite*
+
+- **R2 limits.** At most 900 objects (each read is one of the 1,000 calls to
+  Cloudflare services an invocation may make) and 256 MiB of them (the portal
+  holds the archive as one Blob; fflate writes no ZIP64). The count is checked
+  before a read; the byte total before a picture's body is read when R2
+  reports its size, and after every read. A picture's key must lie under
+  `assets/<weddingId>/`, and the uploaded sheets are parsed and written again
+  through `serialiseCsv`, so no cell reaches a spreadsheet unguarded.
+- **Stored entries, native CRC-32.** `lib/stored-zip.ts` hands each entry to
+  fflate's `Zip` with its CRC from `node:zlib`, which workerd and Bun implement
+  natively, so the per-byte cost is a copy. `tests/workerd/entry.test.ts` runs
+  an archive on workerd under production's compatibility flags.
+- **CPU.** The archive serialises what every CSV download serialises, in one
+  request. Workers Paid (production) allows 30 s; on Workers Free (dev) a
+  wedding with much in it can pass 10 ms and be stopped, mid-stream if it
+  happens while R2 objects are read. The archive then has no
+  end-of-central-directory record, and the portal saves nothing.
+
 ## Tests
 
 Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
@@ -227,10 +263,12 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
   beside their source. `cire/api/src/services/import.ts` pairs with
   `cire/api/tests/services/import.test.ts`, and test-only support code sits
   there too (`cire/api/tests/test-helpers/`, `cire/host/tests/test-support/`).
-  The Miniflare-backed D1 tier is cire's alone: `cire/api/tests/db/`, run on its
-  own with `bun run --cwd cire/api test:d1`. Unlike the vitest packages, which
-  exclude that tier by path, `@cire/api` runs on `bun test` and so picks it up in
-  the package's ordinary `test` script as well — expect workerd to boot there.
+  Cire's Miniflare-backed D1 tier is `cire/api/tests/db/d1-integration.test.ts`
+  and `migrate-wrapper.test.ts`, run on their own with
+  `bun run --cwd cire/api test:d1`. The package's ordinary `test` script leaves
+  the first out with `--path-ignore-patterns`, as the vitest packages exclude
+  theirs by path, but workerd still boots there for the index, D1 session, query
+  error, R2 reconcile and Worker entry tests.
 - **Exercising the upgrade checkout locally** needs TWO `stripe listen`
   forwarders, because there are two endpoints: `--forward-connect-to` for gift
   events (which happen on a couple's connected account) and `--forward-to` for
@@ -328,8 +366,10 @@ holds shared source to the floor.
 It lists the packages it expects, so a new dependency fails it until it meets
 the floor and joins the list. It exempts three build-only packages by name, and
 fails if any of them moves from `devDependencies` to `dependencies`:
-`@cire/build-tools` (an Astro integration that reads the filesystem; it states
-ES2022 but keeps `bun-types`), `@shared/dev-urls` and `@shared/typescript-config`.
+`@cire/build-tools` (an Astro integration that reads the filesystem, plus a pure
+module the guest Worker bundles for its response headers; neither reaches a
+browser, and it states ES2022 but keeps `bun-types`), `@shared/dev-urls` and
+`@shared/typescript-config`.
 
 What this does and does not catch:
 
@@ -385,12 +425,15 @@ bun run --cwd cire/db db:reset            # wipe the local D1, migrate, seed
 cd cire/api && bunx wrangler types
 ```
 
-Apply cire migrations through the `cire/db` scripts, never a bare
-`wrangler d1 migrations apply`. `0001_initial.sql` is a baseline standing for
+Apply cire migrations to a local database through the `cire/db` scripts, never a
+bare `wrangler d1 migrations apply`. `0001_initial.sql` is a baseline standing for
 the archived chain in `cire/db/migrations-archive/`, and
 `scripts/cire-db-migrate.ts` refuses a database that stopped part-way through
-that chain, where wrangler would skip the rest without a word. Why, and how to
-squash the chain again: `cire/db/README.md`.
+that chain, where wrangler would skip the rest without a word. It refuses
+`--remote`: the cire stack migrates the dev and production databases with
+Alchemy, and production's release refuses the same gap in production's ledger
+before anything writes ([[production-deploy#4.1 How a production database is migrated]]).
+Why, and the squash's present limit: `cire/db/README.md`.
 
 Organiser sign-in needs five values, read by `oidcConfigFromEnv`
 (`cire/api/src/lib/oidc.ts`) in the Worker and the Bun server alike:
@@ -512,10 +555,10 @@ refuses the rebuild in CI unless the pull request carries the
 `migrations:rewrite` label, so add it. `20261026040620_seating_plans.sql`
 rebuilds `seating_assignments` this way.
 
-**A field the guest site reads is optional there.** `deploy-cire-invites` has no
-`needs:` edge on `deploy-cire-api` in `production-release.yml`, and a release can
-ship one without the other (a `surfaces` dispatch, or the dev check holding one
-back), so the site can reach production before the API that serves a new field. `isValidClaimResponse`
+**A field the guest site reads is optional there.** The cire stack job in
+`production-release.yml` uploads the guest site and cire-api in one Alchemy run, in
+no set order, and the guest side of a change can merge, and ship, before its API
+side, so the site can reach production before the API that serves a new field. `isValidClaimResponse`
 (`cire/invites/src/components/utils.ts`) is read as "no session" by both its
 callers when it returns `false`, so a field it requires sends every signed-in
 household back to the code form for that window. Give the field `?` in the type
@@ -526,7 +569,7 @@ API older than the column accepts the write and drops the field, so a value
 entered in that window is not stored.
 
 **The organiser portal reads both shapes of a field the API changes.**
-`deploy-cire-host` has no `needs:` edge on `deploy-cire-api` either
+The same cire stack job uploads the portal and cire-api in no set order
 ([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
 so the portal can serve against the API before the one it ships with. A portal
 that reads only the new shape throws, or shows nothing, for that window. Read the
@@ -534,25 +577,24 @@ old shape as well, at the one place every answer passes through, until the old
 API is gone: `readTaskRow` (`cire/host/src/lib/tasks-store.ts`) takes a task's
 `assigneeHostIds`, or the single `assignedHostId` the API before holders sends.
 
-### Deploying by hand
+### Deploying
 
-CI does this in a production release ([[production-deploy]] §5.5). A hand-run
-deploy leaves no record the release planner reads, so after a hand-run rollback
-dispatch a `force` release of `cire_api` to bring production back to main. By hand:
-
-```bash
-cd cire/api && bunx wrangler deploy --env production
-```
-
-**Never a bare `wrangler deploy`** — the config blocks it, deliberately.
+Nothing deploys a cire Worker by hand. Production deploys in a release, through
+the cire stack job ([[production-deploy]] §5.2, §5.5), and dev on every push
+through the same stack. Alchemy plans against its own state, so a Worker
+uploaded or rolled back by hand stays as it is until a release that changes
+its code or declaration, or a release dispatched with `force` for it, which
+passes `--force` to Alchemy ([[production-deploy]] §5.1). **Never a bare `wrangler deploy`** — the
+config blocks it, deliberately.
 
 The **guest site is a Worker, not Pages.** The adapter emits `dist/server` +
 `dist/client` and a generated `dist/server/wrangler.json` extending
-`cire/invites/wrangler.jsonc`; CI strips the unsupported `legacy_env` field first
-(see `production-release.yml`, and `deploy.yml` for dev).
+`cire/invites/wrangler.jsonc`; the cire stack stages `dist/server` and uploads
+it with `dist/client` as its assets ([[infrastructure-as-code#Bundling and the module registry]]).
+To make the production build locally:
 
 ```bash
-# The values the deploy-cire-invites job's build step sets in
+# The values the sites job's guest-site build step sets in
 # production-release.yml; with OSN_DEPLOY_TIER=production the build fails
 # unless PUBLIC_API_URL is https://api.cireweddings.com.
 PUBLIC_API_URL=https://api.cireweddings.com \
@@ -560,7 +602,6 @@ PUBLIC_SITE_URL=https://invite.cireweddings.com \
 PUBLIC_MARKETING_URL=https://cireweddings.com \
 OSN_DEPLOY_TIER=production \
   bun run --cwd cire/invites build
-cd cire/invites && bunx wrangler deploy --config dist/server/wrangler.json
 ```
 
 ## Organiser API paths
@@ -577,7 +618,12 @@ read from the hash, the same way, though that id only ever selects among the
 events the API returned and never reaches a request path. A tab name from an old
 `#/weddings/<id>/<tab>` link picks a module only when it is one of the legacy
 alias table's own keys (`Object.hasOwn`); any other name, one every object
-inherits included, opens the wedding's default module. Ids further along the path
+inherits included, opens the wedding's default module. A query after the path
+(`#/remove-data?code=…`, where Musubi sends a host back after they confirm
+removing their Cire data) is read before the path is split, by the
+`remove-data` view alone: a code that is not base64url is dropped, and
+`serializeRoute` leaves it out, so the canonical rewrite on load takes it out of
+the address once the screen has kept it. Ids further along the path
 (an item, a task, a payment) are encoded at the call site with
 `encodeURIComponent`. `tests/lib/wedding-path.contract.test.ts` fails on any
 hand-built `/api/organiser/weddings/${…}` outside `api.ts`.
@@ -585,9 +631,9 @@ hand-built `/api/organiser/weddings/${…}` outside `api.ts`.
 ## Portal security headers
 
 The organiser portal (`@cire/host`) and the vendor portal (`@cire/vendor`) are
-static Astro builds on Cloudflare Pages. Every response header they send comes
-from `public/_headers`, which Pages applies to every path, as do the Workers that
-serve the same builds on dev and, staged, on production
+static Astro builds served from static assets by their Workers, on dev and on
+production. Every response header they send comes from
+`public/_headers`, which the Workers and Pages alike apply to every path
 ([[infrastructure-as-code#Production sites]]). `astro dev` does
 not read that file, so the devloop runs with no CSP at all.
 
@@ -612,9 +658,11 @@ All three cire Astro apps share that integration: `tierHeaders` in
 imported as `@cire/build-tools/tier-headers`. It holds the rewrite, the URL
 checks and the bundle check, and its tests cover both kinds of build. Each
 app's `src/lib/tier-headers.ts` holds only that app's part: the env chain it
-reads and which build output must name the API. The package is build-only, so
-only an app's `astro.config.mjs` (through that file) imports it; never import
-it from app code, since it reads the filesystem.
+reads and which build output must name the API. The integration reads the
+filesystem, so only an app's `astro.config.mjs` (through that file) imports
+`tier-headers`; never import it from app code. `origin-trial` is the one module
+app code imports: it is pure, and the guest Worker uses it for its response
+headers ([[cire-development#Chrome origin trials]]).
 
 The integration reads the env from Vite's resolved config, the same object that
 fills `import.meta.env.PUBLIC_*` in the bundle. A portal resolves it through
@@ -634,9 +682,9 @@ than as a blocked API on a deployed tier:
   at all, an empty value included, which the integration reads from
   `process.env`: each deploy job's build step for the three apps sets it to
   `dev` or `production`, and turbo hashes it, so a deploy build never replays a
-  cached test build made without it. On dev the cire stack's site check also
-  refuses a build that does not name the dev API, before upload
-  ([[infrastructure-as-code]]); production has only this integration's checks.
+  cached test build made without it. The cire stack's site check also refuses
+  a build that does not name the stage's API, before upload, on dev and on
+  production ([[infrastructure-as-code#Sites]]).
 - The build deploys with a tier other than `dev` or `production`
 - The tier is `production` and the origin is not `https://api.cireweddings.com`
 
@@ -742,11 +790,70 @@ same-origin chunks once the Access session expires.
 
 Hold production until the walk passes. A merge deploys the dev tier at once;
 production waits for a release ([[production-deploy]] §5.5). Do not approve a
-release that ships the portal (`cire_host` or `cire_vendor` in its plan) until the
+release that ships the portal (`cire_host` or `cire_vendor` in its plan, or the cire
+stack, which deploys both portals at the release commit) until the
 walk passes. On a failed walk, reject that release — or dispatch one with
 `surfaces` set to leave the portal out, if the other surfaces must ship — and
 revert. Leaving the release waiting instead holds every surface in it, not only
 the portal, and holds back the next release behind it.
+
+## Chrome origin trials
+
+Cire uses two Chrome features that are not on by default yet. Each runs on a
+token that Chrome checks against the page's origin, sent in an `Origin-Trial`
+response header. The tokens are public and first-party, and each feature has
+two, both with subdomain matching: one for `cireweddings.com`, which works on
+`invite.`, `host.`, `vendor.` and `api.` there, and one for the dev zone
+(`DEV_DOMAIN`, `esv.tools`), which works on `invite.cire.` and `host.cire.`
+there. Every tier sends both tokens of a feature in one header, separated by a
+comma; Chrome uses the one whose origin matches the page and ignores the other.
+A new dev zone needs new dev tokens ([[dev-environment#What dev turns on that production does not]]).
+
+| Feature | Used by | Served from | Tokens lapse |
+|---|---|---|---|
+| `HTMLInCanvas` | the invite envelope ([[cire-envelope]]) | every guest-site SSR response | 2 Mar 2027, both |
+| `WebMCP` | the organiser portal's agent tools, once englishstreetventures/osn#2209 lands | every organiser-portal path | 30 Mar 2027, both |
+
+**The autofill event is not used.** Chrome's `autofill` event (`AutofillEvent`
+trial) fires at `document` just before the browser fills a field, with the
+values in `event.autofillValues`. A real autofill gives the guest email box
+nothing the browser does not already give it without a token: `input` and
+`change` fire on the field after the fill, with the value in place, and
+`input.matches(":autofill")` is already true inside the `input` handler. A page
+can read that in every Chrome, with no trial and no token.
+
+*Measured 2026-11-12 — headed Chromium 156.0.8078.4 under Playwright, a real fill through the DevTools `Autofill.trigger` command on a lone `<input type="email" autocomplete="email">`, with and without `--enable-blink-features=AutofillEvent`; with the flag, the `autofill` event fired once at `document` with an empty `field.value`; in both runs `input` and `change` then fired on the field with the value set and `:autofill` true.*
+
+The strings, a decoder and the renewal window are in
+`cire/build-tools/src/origin-trial.ts` (`@cire/build-tools/origin-trial`, pure,
+so the guest Worker imports it), as `htmlInCanvas`, `htmlInCanvasDev`, `webmcp`
+and `webmcpDev`. The guest site adds its two tokens in `securityHeaders()`
+(`cire/invites/src/lib/security-headers.ts`), as one comma-separated header,
+SSR-only like `X-Robots-Tag`, so the prerendered legal pages do not enable it.
+The portal is a static build, so its tokens are two `Origin-Trial` lines in
+`cire/host/public/_headers`, which Cloudflare joins into one header with a comma;
+they are second copies of the strings, and its test compares them with the
+module's. The vendor portal and the marketing site carry none.
+
+**Renewal.** `cire/build-tools/tests/origin-trial.test.ts` fails once a token is
+within 14 days of its expiry, so a pull request goes red with time to act; it
+also checks each token's Chrome signature, origin and feature, and that none is
+third-party. Register the origin again for the feature on the Chrome
+origin-trials site (Match subdomains on, third-party off), replace the string in
+`origin-trial.ts` (and, for a WebMCP token, its line in the host `_headers`), and
+move the expiry date in that test, in the table above and
+in the `Lapses` comment beside the string. A trial can also end before its token
+does, so a page tests for a feature before it uses it. The envelope does:
+`"requestPaint" in HTMLCanvasElement.prototype`
+(`cire/envelope/src/boot.ts`). The WebMCP code must do the same.
+
+**What a token cannot prove.** Chrome checks the token against the page's
+origin, so no local test shows a feature turned on. The check is in stable
+Chrome with no flags, from the console of the page that uses it: on the dev
+tier after the merge deploys it, and on production after a release. On a guest
+invite, `"requestPaint" in HTMLCanvasElement.prototype` is `true`. On any page,
+DevTools → Application → Frames → `top` lists the page's origin trials and
+whether Chrome accepted each token.
 
 ## Links to a site's own pages
 
@@ -814,10 +921,10 @@ caller looks its app up by name in `scripts/bundle-size-budgets.txt`, the one
 place a re-baseline touches. See that file's own comment for the exact steps.
 
 The headroom is deliberately smaller than the mistake the guard exists to
-catch, and that is the part worth getting right. `motion` costs **21261 bytes
-gzip in the minified build** — the size of its own already-minified client
-vendor chunk, `dist/client/_astro/animate.*.js`, and the same figure you get by
-rebuilding with `stubMotionForSsr()` removed. A threshold set to "measured plus
+catch, and that is the part worth getting right. `motion`, the library that
+first set it, cost **21261 bytes gzip in the minified build**
+([[bundle-size-guards]] has how that was measured and a check you can
+re-run). A threshold set to "measured plus
 one motion" would put a fresh library of exactly that class *under* the line,
 which is how the first version of this number went wrong: it carried 47657
 bytes, motion's cost back when the build was unminified. The arithmetic is
@@ -853,11 +960,9 @@ Three choices keep the bundle small; together they took it from 285 KB to
   with `sourcemap: true` set **through the same `astro:build:setup` hook** as
   `minify`, plus `upload_source_maps: true` in `cire/invites/wrangler.jsonc` —
   the adapter never sets that key itself, so it has to come from the checked-in
-  config the generated `dist/server/wrangler.json` extends. Production's CI
-  rewrite of that generated file (in `production-release.yml`) only deletes
-  `legacy_env`, so the key survives into the deployed config untouched. The dev
-  tier does not read that file: the cire stack stages `dist/server` and uploads
-  each module's map as Wrangler's `upload_source_maps` sends it
+  config the generated `dist/server/wrangler.json` extends. No deploy reads that
+  file: on both tiers the cire stack stages `dist/server` and uploads each
+  module's map as Wrangler's `upload_source_maps` sends it
   ([[infrastructure-as-code#Bundling and the module registry]]).
 
   > [!warning] Never set `sourcemap` as a plain `vite.build` value here.
@@ -877,8 +982,7 @@ Three choices keep the bundle small; together they took it from 285 KB to
   `import * as z from "zod/v4/core"`), which `core/routing/handler.js` calls
   on every non-prerendered request whether or not the app defines any
   actions (`src/actions` doesn't exist here). There's no app-level config to
-  skip that code path, so unlike `motion` (see the SSR-stub comment in
-  `astro.config.mjs`) this is not stubbed — it's a real, reachable Astro core
+  skip that code path, so it is not stubbed — it's a real, reachable Astro core
   dependency, not dead weight from an unreachable path.
 
 ## Related

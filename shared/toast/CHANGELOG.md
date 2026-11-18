@@ -1,5 +1,40 @@
 # @shared/toast
 
+## 0.3.16
+
+### Patch Changes
+
+- f040da3: Tests only: cases that a kept sibling already fails on are removed, each checked by breaking the source and watching both fail. Toast and dev-urls gain one case each, and four Toaster cases move to fake timers so they can fail on what they name.
+
+## 0.3.15
+
+### Patch Changes
+
+- d60b6ce: Hover and focus no longer touch a toast's clock once it is leaving: `pause` and `scheduleDismiss` do nothing for a dismissing toast, so its removal always runs. A toast that held focus as it was dismissed no longer leaves a dwell timer behind that `resetToasts()` cannot clear and that ends the next toast raised under the same id, and a pointer or focus that reaches a leaving toast no longer keeps it in the queue.
+
+## 0.3.14
+
+### Patch Changes
+
+- 8397b84: A toast's action can carry its own accessible name (`action.ariaLabel`), so
+  several toasts that each offer "Undo" can say which row each one restores.
+  Each toast element now carries `data-toast-id`, the id `toast()` returned, so
+  the caller can find the toast it raised, to move focus to its action.
+
+  The action's look and the arrival's curve join the `--toast-*` contract:
+  `--toast-action-case`, `--toast-action-tracking`, `--toast-action-radius`,
+  `--toast-action-size` and `--toast-action-weight`, and
+  `--toast-enter-easing`. Each defaults to the value the stylesheet wrote
+  before, so an app that maps none of them sees no change. The comment on the
+  bottom positions now says what `column-reverse` does: the oldest toast stays
+  nearest the edge.
+
+## 0.3.13
+
+### Patch Changes
+
+- f2c7a76: Every written motion value left in these packages states its reason, so `house/no-literal-motion` and `scripts/check-motion-literals.ts` pass: `Modal`'s keyword easings, the toast's curves and spinner, pulse's onboarding rings, pin and their staggers, its live and brand pulses, and the landing sites' hovers and reveals, which have no motion tokens. Pulse's own motion now reads the token of its job: the calendar's reminder buttons, the onboarding chips and the explore card lift on `--ui-dur-fast` (120ms), the onboarding step and the header's "Create new event" button and label on `--ui-dur-base` (200ms), and the onboarding progress fill on `--ui-dur-slow`, all on `--ui-ease-out`. The explore card animates `border-color`, `translate` and `box-shadow` by name rather than `transition-all`.
+
 ## 0.3.12
 
 ### Patch Changes

@@ -10,7 +10,8 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-11-02
+  - "[[account-deletion]]"
+last-reviewed: 2026-11-18
 ---
 
 # Zap
@@ -84,7 +85,7 @@ All three routes are protected by ARC token verification (audience `zap-api`, sc
 
 #### `chat:c2b` scope
 
-The `chat:c2b` scope is the ARC permission gate for all c2b operations. It is granted when a service (e.g. `cire-api`) registers its ARC public key with zap-api's `POST /internal/register-service` requesting `allowedScopes: "chat:c2b"`. See [[arc-tokens]] and the zap-api production bring-up runbook for the registration steps.
+The `chat:c2b` scope is the ARC permission gate for all c2b operations. It is granted when a service (e.g. `cire-api`) registers its ARC public key with zap-api's `POST /internal/register-service` requesting `allowedScopes: "chat:c2b"`, the only scope a registration may hold. A token that claims `iss: "osn-api"` never reaches the registry: it is verified against the keys osn-api publishes, and the registry refuses a key registered for `osn-api` ([[arc-tokens#osn-api as issuer — published outbound keys]]). See the zap-api production bring-up runbook for the registration steps.
 
 ### DSAR / account-export
 
@@ -95,9 +96,22 @@ The DSAR account-export (`GET /account/export`) includes c2b message bodies:
 
 This split is by design: c2b body content is server-visible, user-attributed data that users have a right to receive under GDPR/DSAR; c2c ciphertext is opaque to the server and cannot be exported.
 
+### Account deletion
+
+osn-api reaches Zap for every account deleted, verified against its published keys:
+
+| Route | Scope | What it does |
+|---|---|---|
+| `POST /internal/account-deletion-preview` | `account:deletion-preview` | `{ profileIds, deletesAt }`: answers no actions, as Zap holds nothing that needs the person's answer. |
+| `POST /internal/account-deleted` | `account:erase` | Once the account's 7-day window has passed ([`services/accountErasure.ts`](../../zap/api/src/services/accountErasure.ts)): deletes each chat the person's profiles leave with no one, with its messages; removes their other memberships; replaces their sender id with `deleted` on what stays, and wipes the body of a plain-text message they wrote, while an end-to-end message keeps its ciphertext; replaces them as creator of every chat that stays. One read (the ledger row and the profiles' chats), then one batch whose statements each check membership as they run, so a member who joins in between keeps the chat. The batch writes the `zap_account_purges` row after the deletes and before the senders are replaced, counting the end-to-end messages that stayed, so the count agrees with what the batch kept. Answers what Zap kept, read back from that row: one item when end-to-end messages stay in chats with other members. A repeat, or a second call that overlaps the first, writes nothing more and answers the same. The body carries no email address. |
+
+The list route answers `""` for a body the erasure wiped, and an export leaves wiped messages out, so the other member of a consumer-to-business chat reads the erased person's message as empty and unnamed (`zap/api/tests/routes/internal.test.ts`).
+
+Counted as `zap.account.erased` (`ok`, `repeat`, `error`). The contract all apps implement is in [[account-deletion#The app contract]].
+
 ### CI pipeline
 
-`deploy-zap-api` in `.github/workflows/production-release.yml` is **live**. It was written to stay dormant until the production D1 existed, and that condition is met: `[[env.production.d1_databases]]` in `zap/api/wrangler.toml` carries a real `database_id`, so the job's `zapcheck` step sets `provisioned=true` and deploys instead of skipping. Only `[env.dev]` (local `wrangler dev` only) and staging still hold `placeholder-replace-after-d1-create`, which the check ignores on purpose. It runs in a production release that finds `zap/` changed since zap-api last deployed, and waits on that release's one approval of the `production` GitHub Environment — see [[production-deploy]] §5.5. On dev, the zap stack (`zap/infra`) deploys `zap-api-dev` and its database `zap-db-dev` in the dev account on every merge that touches zap; the release ships zap-api only once a dev deploy of the same content passed its smoke check, as it does every surface ([[dev-environment]]). `[env.dev]` in `zap/api/wrangler.toml` is the local `wrangler dev` posture and deploys nothing.
+The zap stack job, `stack-zap-production` in `.github/workflows/production-release.yml`, deploys production: `zapProductionApis()` in `zap/infra/src/declaration.ts` adopts `zap-api-production` and `zap-db-prod` under those names, with the vars, binding, custom domain and compatibility that `[env.production]` in `zap/api/wrangler.toml` mirrors (`zap/infra/tests/parity.test.ts` holds them equal), and uploads no secret: `INTERNAL_SERVICE_SECRET` stays on the Worker, and the release refuses zap-api while it is missing ([[production-deploy#5.9 Setting a production secret 🔑]]). Before the deploy the job applies `zap/db/drizzle/`'s pending migrations to `zap-db-prod` with Alchemy, by deploying the database alone (`migrate:production` in `zap/infra`, [[production-deploy#4.1 How a production database is migrated]]); Wrangler migrates no deployed zap database. Only `[env.dev]` (local `wrangler dev` only) and staging hold `placeholder-replace-after-d1-create`. After the deploy it smoke-checks the Worker, and `Record zap/api — production` records it. It runs in a production release that finds `zap/` or the zap stack's paths changed since zap-api last deployed, after that release's two approvals of the `production` GitHub Environment — see [[production-deploy]] §5.5. zap-api ships before osn-api and cire-api on the first releases on the stacks ([[production-deploy]] §5.10). On dev, the zap stack (`zap/infra`) deploys `zap-api-dev` and its database `zap-db-dev` in the dev account on every merge that touches zap; the release ships zap-api only once a dev deploy of the same content passed its smoke check, as it does every surface ([[dev-environment]]). `[env.dev]` in `zap/api/wrangler.toml` is the local `wrangler dev` posture and deploys nothing.
 
 ## Authentication & authorization
 

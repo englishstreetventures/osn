@@ -1,9 +1,15 @@
-import { clsx } from "@shared/ui/lib/utils";
 import { Button } from "@shared/ui/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@shared/ui/ui/dropdown-menu";
 import { For, type JSX } from "solid-js";
 
 import { setThemePref, themePref, type ThemePref } from "../lib/theme";
+import { TOGGLE_BOX } from "./ShellFrame";
 
 function IconSystem() {
   return (
@@ -61,43 +67,44 @@ const OPTIONS: { value: ThemePref; label: string; icon: () => JSX.Element }[] = 
   { value: "dark", label: "Dark", icon: IconDark },
 ];
 
-export function ThemeToggle() {
+/**
+ * The theme menu: one choice of three, on `@shared/ui`'s radio rows, so it
+ * draws the account menu's row, focus and check, and tells assistive
+ * technology which theme is on (`menuitemradio`, `aria-checked`).
+ *
+ * `place` sizes the trigger for the shell it sits in (`TOGGLE_BOX`).
+ */
+export function ThemeToggle(props: { place?: keyof typeof TOGGLE_BOX }) {
   const current = () => OPTIONS.find((o) => o.value === themePref()) ?? OPTIONS[0];
+  const choose = (value: string) => {
+    const option = OPTIONS.find((o) => o.value === value);
+    if (option) setThemePref(option.value);
+  };
 
   return (
-    <Popover>
-      <PopoverTrigger
+    <DropdownMenu>
+      <DropdownMenuTrigger
         as={Button}
         variant="ghost"
         size="icon"
-        class="h-7 w-7"
+        class={TOGGLE_BOX[props.place ?? "rail"]}
         aria-label={`Theme: ${current().label}`}
         title={`Theme: ${current().label}`}
       >
         {current().icon()}
-      </PopoverTrigger>
-      <PopoverContent padding="tight" class="w-40">
-        <For each={OPTIONS}>
-          {(opt) => {
-            const active = () => themePref() === opt.value;
-            return (
-              <button
-                type="button"
-                class={clsx(
-                  "text-body flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
-                  active()
-                    ? "bg-muted text-foreground font-medium"
-                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                )}
-                onClick={() => setThemePref(opt.value)}
-              >
-                <span class={clsx(active() ? "text-foreground" : "text-subtle")}>{opt.icon()}</span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent class="w-40">
+        <DropdownMenuRadioGroup value={themePref()} onChange={choose}>
+          <For each={OPTIONS}>
+            {(opt) => (
+              <DropdownMenuRadioItem value={opt.value}>
+                <span class="text-subtle mr-2.5 inline-flex">{opt.icon()}</span>
                 {opt.label}
-              </button>
-            );
-          }}
-        </For>
-      </PopoverContent>
-    </Popover>
+              </DropdownMenuRadioItem>
+            )}
+          </For>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

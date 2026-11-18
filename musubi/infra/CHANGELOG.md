@@ -1,5 +1,216 @@
 # @musubi/infra
 
+## 0.6.8
+
+### Patch Changes
+
+- 5742a4e: An app whose own pages cannot run a step-up asks for one through Musubi: an app step-up request. osn-api adds the purpose `cire_app_delete` (spent by `cire-api` alone), `POST /internal/step-up/requests` to begin a request bound to the hash of a secret the app's cookie holds in the asking browser, `GET /step-up/requests/:id` and `POST /step-up/requests/:id/confirm` for Musubi's confirm page, and a request form of `/internal/step-up/verify` that spends nothing and answers the account and every profile of it. The return address is pinned to `CIRE_ORGANISER_ORIGIN`, which the musubi stack sets. `@osn/client` adds `createAppStepUpClient`; `@osn/auth-ui`'s step-up sheet offers its three factors for the new purpose. Musubi adds `/confirm/:requestId`, and follows an app's `http:` link to this machine, which osn-api forwards from a local run only. New counter `osn.auth.app_step_up.requests`; two step-up limiters join the rate-limit endpoint list. The musubi stack registers cire-api's dev key with `step-up:verify`.
+
+## 0.6.7
+
+### Patch Changes
+
+- 2aca4d6: The local Bun servers listen on the address their own variable names: `OSN_LOCAL_HOSTNAME` for `@osn/api`, `PULSE_LOCAL_HOSTNAME` for `@pulse/api`. Unset, as under `bun run dev`, each listens on every interface. `@musubi/infra`'s check of what osn-api reads on dev lists `OSN_LOCAL_HOSTNAME` among the names the dev stack leaves unset.
+
+## 0.6.6
+
+### Patch Changes
+
+- db8c428: Account deletion gets its emails and the calls its screens need.
+
+  - `@shared/email`: five templates — `account-deletion-scheduled`, `account-deletion-cancelled`, `account-deleted`, `organisation-ownership-received` and `account-data-link`. Text another party wrote is escaped and never in a subject; every one names an organisation by its handle only. Every template draws its button through one helper, `emailButton`: the recovery, step-up and email-change links' buttons take 6px corners at the text's own weight, as every other button already did.
+  - `@osn/api`: `DELETE /account` mails the scheduled notice (the date, how to keep the account and download the data, and what each answer does, from the request's own preview); `POST /account/restore` mails the cancelled one. The hard delete reads the address, the held handles and what each app kept before its batch, and once the batch has removed the account mails the old address and each organisation's new owner, side by side, each send giving up after 10 seconds (at most 10 ownership notices one by one on a transport with no batch send); a pass whose batch removed nothing mails nothing. The cron and the local sweeper provide the email transport to it; local sweeps run on the app's runtime and skip a tick while a pass runs. New `POST /account/data-link` mails the account a link to its download page (per IP, then three a day per account). New `POST /organisations/:handle/decline-ownership`: a member who received an organisation by succession may hand it back within 30 days; it passes on as the hard delete would pass it, or is deleted, and the decliner leaves it in the same batch, the next owner mailed. `GET` on the same path answers whether the caller may decline it, and until when, with the same refusals, and writes nothing. `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation. The deletion preview's organisation actions carry `candidates`, the members a successor answer may name, read beside the organisations at most 50 an organisation. CORS exposes `Content-Disposition` and `Retry-After`. The local Bun server keys its per-address limiters on a sent `cf-connecting-ip` when `OSN_E2E_CLIENT_ADDRESS=1`, which only the E2E stack sets.
+  - `@osn/db`: `organisations.owner_inherited_at` (migration `20261116094005_organisation_owner_inherited_at`), NULL for every existing row.
+  - `@osn/client`: a 401 after a renewal that minted a pending-deletion token reaches the caller and ends nothing; `onSessionChange` gains `pending-deletion`; `isPendingDeletionToken`. The Solid provider gains `pendingDeletion` and `renewSession`, and lists no profiles for a pending-deletion session. `deleteAccount` throws `AccountDeletionRefusedError` with the open actions, fresh preview or refused action; new `exportAccount`, `sendDataLink`, `declineOwnership` and `declineOwnershipStatus`.
+  - `@shared/observability`: `OrgAction` gains `decline_ownership`; the auth rate-limit endpoint union gains `account_data_link`.
+  - `@tools/lab`: the auth-ui stories' hand-built auth contexts carry `pendingDeletion` and `renewSession`.
+  - `@shared/design-tokens`: a contract colour, `--ui-choice-edge`, for the edge of an unchosen radio, checkbox or switch track, owing 3:1. It falls back to `--ui-hairline-strong`, so an app that does not map it looks as before, and the conformance check measures it unmapped as that token, under that token's waiver (`COLOR_FALLBACKS`, `colorFallback`).
+  - `@shared/ui`: `RadioGroup`'s circle, `Checkbox`'s box, `Switch`'s track and the unticked native box draw their edge in `--ui-choice-edge`.
+  - `@osn/auth-ui`: `InlineAction`, the underlined button that ends an error line, is exported as `@osn/auth-ui/InlineAction`.
+  - `@musubi/infra`: the dev stack's env check lists `OSN_E2E_CLIENT_ADDRESS` as left unset on dev: only the Bun dev server reads it, for the E2E suite.
+
+## 0.6.5
+
+### Patch Changes
+
+- adec70d: Tests only: cases a kept sibling already fails on are removed, each checked by breaking the source and watching both fail, and the observability Worker import walk now follows multi-line exports. Tests that could not fail now can, and realtime and email tests that waited on the real clock run on the test clock.
+
+## 0.6.4
+
+### Patch Changes
+
+- 048a636: Production sign-up accepts a browser Email Verification API token: a person on Chrome signed in to Gmail joins with no emailed link. Dev already did.
+
+## 0.6.3
+
+### Patch Changes
+
+- Updated dependencies [731488c]
+  - @shared/infra@0.10.3
+
+## 0.6.2
+
+### Patch Changes
+
+- d9a12fc: Musubi's dev tier can try the browser Email Verification API with a real Chrome: musubi social serves a second Chrome origin-trial token, for the dev zone and its subdomains, beside the production one, and the musubi stack turns `OSN_EMAIL_VERIFICATION_API` on for osn-api on stage `dev` only. Production stays off. The origin-trial test checks every token in `_headers` and fails 14 days before one expires, and the verifier sets its outcome on the `auth.email_verification.verify` span, where the dev tier's traces show it.
+
+## 0.6.1
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- Updated dependencies [5347e06]
+- Updated dependencies [5347e06]
+  - @shared/infra@0.10.2
+
+## 0.6.0
+
+### Minor Changes
+
+- 05ca2d8: The account deletion reaches cire: cire is the third app in `DELETION_APPS` (audience `cire-api`), with `deletion_jobs.cire_done_at`, which reads as pending on a row written before the column. osn-api reads cire-api's origin from `CIRE_API_URL`, renamed from `CIRE_INTERNAL_REVOKE_URL`, for both the deletion and the organiser-session revoke; on a deployed tier a value that is not `https:` now refuses the boot. The musubi stack sets it on dev and production, and the dev URLs set it locally. `DELETE /account` ends the person's cire organiser sessions through that revoke (trigger `account_deletion`) when it schedules a deletion. No app is sent the person's email address any more: `receivesEmail` and the `email` field of `POST /internal/account-deleted` are gone. `DeletionFanoutService` gains `cire`.
+
+## 0.5.1
+
+### Patch Changes
+
+- 582649a: `@shared/osn-auth-client/arc` verifies an ARC token osn-api sent an app against the keys osn-api publishes, refusing a token from another issuer, for a scope the app does not let osn-api use, or whose kid fails its MAC, before fetching anything. `@shared/crypto/arc-kid` mints and checks those key ids under a MAC key derived from the secret with HKDF-SHA-256, never the secret itself, and derives none from a secret under 32 characters; a dev deploy refuses an `INTERNAL_SERVICE_SECRET` that short; `@shared/crypto/arc-metrics` is a Worker-safe export of the ARC metrics. `DeletionRequestResult` gains `could_not_check` and `stale_choices`. The musubi stack gives osn-api Zap's address on dev and production and declares Pulse absent.
+- Updated dependencies [582649a]
+  - @shared/infra@0.10.1
+
+## 0.5.0
+
+### Minor Changes
+
+- 6e75a5f: Alchemy is the migrator of every production database. `flattenMigrations()` writes production's extra files (refusing placeholders for archived names, and the freeze of Wrangler's `d1_migrations`) and `migrationFiles()` lists them; `retainedD1Props()` names the `__alchemy_migrations` table; `read:live` reads each migrated database's ledger through D1's `/query`, keeping counts only, and the plan guard refuses a ledger Alchemy could not convert or would replay from, and a frozen ledger whose trigger is gone (`readLedger()`, `countLedger()`, `judgeLedger()`). The musubi and zap stacks declare `osn-db-prod` and `zap-db-prod` with their migrations, and `migrate:production` deploys each database alone before the release's deploy. The `[env.production]` D1 blocks of `osn/api` and `zap/api` name no `migrations_dir`, and `osn/db` and `zap/db` drop `db:migrate:prod`. `bun run --cwd shared/infra test:d1` proves the conversion on local copies of each database.
+
+### Patch Changes
+
+- Updated dependencies [6e75a5f]
+  - @shared/infra@0.10.0
+
+## 0.4.0
+
+### Minor Changes
+
+- b5ff9b9: The production API Workers deploy through the Alchemy stacks. The musubi stack declares osn-api and its database on production, and the new zap production stack declares zap-api and its database; each adopts the existing Worker, database and Durable Object class by name, and a release migrates the database with Wrangler before the deploy.
+
+  - `@shared/infra`: `apiWorker()` adopts a production Worker under its own name only; production secrets stay on the Worker (`source: "worker"` in the inventory), and the patched provider keeps every live secret an upload does not name. A new live read (`readProductionLive()`, `runReadLiveCli()`) gives the plan guard each adopted resource's live settings and secret names, and checks after a deploy that no secret went. The plan guard refuses creating a database or bucket, creating an API Worker that does not exist live, unbinding a Durable Object, and a release whose Worker lacks a required secret.
+  - `@musubi/infra`, `@zap/infra`: `read:live` reads what the stack's adopted resources hold live; zap gains `plan:production`, `deploy:production` and `plan:guard`.
+  - `@osn/api`, `@zap/api`: no hand-deploy script; production deploys only through the release workflow.
+
+### Patch Changes
+
+- Updated dependencies [b5ff9b9]
+  - @shared/infra@0.9.0
+
+## 0.3.0
+
+### Minor Changes
+
+- 630cf31: A production host can be held off its site's Worker in code. `PRODUCTION_HOST_HOLDS` in `shared/infra/src/production-sites.ts` lists each held host with its site and a one-line reason; the stacks declare a held site's Worker with no custom domain, and the plan guard refuses any plan in which a site Worker would serve a held host, whether it gains the host or holds it already. The guard now reads the host each product's declaration gives its site Workers (`PRODUCTION_SITE_DOMAINS`, passed as `declared` to `runPlanGuardCli`, which no longer takes `sites` or `modes`), refuses every host a Worker would give up, and lists the stack's held hosts in its run summary. With `--scheduled`, which the production release passes when its schedule started it, the guard refuses every host a Worker would gain (`addedHostRefusals`), so only a release dispatched by hand adds a host.
+
+  A site is `off` or `worker`: the `staged` mode goes with `PRODUCTION_STAGING_HOSTS`, `PAGES_PROJECTS`, `SiteModeError` and the spare-host allowance in `domainRefusals`. `cireProductionSites` and `musubiProductionSites` take `holds`, and `siteDomain` takes them as a third argument. `@musubi/social` drops its redirect off `osn-social.pages.dev`, which no host serving its bundle can reach, so its built CSP hashes one inline script.
+
+### Patch Changes
+
+- Updated dependencies [630cf31]
+  - @shared/infra@0.8.0
+
+## 0.2.17
+
+### Patch Changes
+
+- 0821963: The secret inventory forbids `OSN_EMAIL_VERIFICATION_EMULATOR_URL` on osn-api on both tiers, as the production deploy's preflight does, and the musubi stack's read check names it and `OSN_EMAIL_VERIFICATION_API` as deliberately unset on dev, each with its reason.
+- Updated dependencies [0821963]
+  - @shared/infra@0.7.6
+
+## 0.2.16
+
+### Patch Changes
+
+- Updated dependencies [6c2f518]
+  - @shared/infra@0.7.5
+
+## 0.2.15
+
+### Patch Changes
+
+- 6c209aa: The plan guard reads neither `--flip` nor `--unflip`, and its record carries no `flip` or `unflip` key. A Worker giving up its production host, another site's host, or one the code does not name is refused in every release; the refusal says to take the host off in the Cloudflare dashboard first. `GuardInput` loses `flip`, `sites` and `domains`, `domainRefusals()` its `unflip` argument, `planRecord()` its `flip` and `unflip` fields, and `DomainReading` its `read` list, which only the flip rules read. `@musubi/infra`'s `plan:guard` usage comment follows.
+- Updated dependencies [6c209aa]
+  - @shared/infra@0.7.4
+
+## 0.2.14
+
+### Patch Changes
+
+- ab6810e: The musubi stack's tests follow musubi social serving from its Worker: the production declaration puts the apex `musubi.social` on the `osn-social` Worker, and the guard tests read that Worker at the apex. The app's `_headers` comment says the static-asset layer, not Pages, would guess the Apple app-site association file's type.
+- Updated dependencies [ab6810e]
+  - @shared/infra@0.7.3
+
+## 0.2.13
+
+### Patch Changes
+
+- Updated dependencies [df9b5d9]
+  - @shared/infra@0.7.2
+
+## 0.2.12
+
+### Patch Changes
+
+- c687234: Every workspace that uses Effect runs `effect` 4.1.2, with `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
+  `@effect/vitest` at 4.1.2 and the root overrides for
+  `@effect/platform-node-shared` and `@effect/sql-d1` with them. The stacks run
+  `alchemy` and `@alchemy.run/cloudflare` 2.0.0-beta.85, which loads on Effect
+  4.1 unpatched; the provider's patch, carried to beta.85, keeps the D1 import
+  the stacks ran on beta.84 and the content types Wrangler uploads assets with.
+  beta.85 deploys state store version 8, which beta.84 cannot use, so a tier's
+  store cannot go back once it is upgraded.
+
+  The production plan guard reads beta.85's console lines
+  (`[hh:mm:ss.mmm] INFO: …`), and `messageOf()` reads no logfmt record.
+  `@shared/infra`'s tests hold the AWS SDK the provider installs,
+  `@distilled.cloud/aws`, to listing and aborting an R2 bucket's multipart
+  uploads, and run both under Bun. `RETIRED_STAGING_HOSTS` is gone from
+  `@shared/infra`, and `domainRefusals()` takes `(changes, unflip)`: a site's
+  Worker gives up only its current spare host without an `unflip` naming the
+  site.
+
+- Updated dependencies [c687234]
+  - @shared/infra@0.7.1
+
+## 0.2.11
+
+### Patch Changes
+
+- Updated dependencies [d3b719a]
+- Updated dependencies [aeab4d4]
+  - @shared/infra@0.7.0
+
+## 0.2.10
+
+### Patch Changes
+
+- Updated dependencies [a28e017]
+  - @shared/infra@0.6.9
+
 ## 0.2.9
 
 ### Patch Changes

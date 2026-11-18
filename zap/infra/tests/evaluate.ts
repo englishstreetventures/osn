@@ -36,6 +36,15 @@ export function stackEnv(): Record<string, string | undefined> {
   };
 }
 
+/** What a production stack step's environment holds: the target and the production pair, no secret. */
+export function productionEnv(): Record<string, string | undefined> {
+  return {
+    OSN_DEPLOY_TIER: "production",
+    CLOUDFLARE_ACCOUNT_ID: "0".repeat(32),
+    CLOUDFLARE_API_TOKEN: "placeholder-token",
+  };
+}
+
 /** Evaluates the zap stack body offline at `stage` with `env`. The stack uploads no site. */
 export function evaluateZap(input: {
   readonly stage: string;

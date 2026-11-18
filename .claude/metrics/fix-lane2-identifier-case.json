@@ -1,0 +1,195 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/lane2-identifier-case",
+    "base_sha": "65aad70ada6f9396d023bf874ac6586241bab6b0",
+    "head_sha": "3f60995ea4ad202082c367c5e130dc0b2f0665eb",
+    "generated_at": "2026-11-10T16:25:56.279Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none",
+    "issues": 0
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-10T12:59:05.476Z",
+    "last_ts": "2026-11-10T16:25:50.603Z",
+    "span_seconds": 12405,
+    "active_seconds": 3878,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 45.36490579999999,
+    "tokens": {
+      "input": 968,
+      "output": 393597,
+      "thinking": 198068,
+      "cache_write_5m": 1944195,
+      "cache_write_1h": 0,
+      "cache_read": 69420297
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 968,
+          "output": 393597,
+          "thinking": 198068,
+          "cache_write_5m": 1944195,
+          "cache_write_1h": 0,
+          "cache_read": 69420297
+        },
+        "usd_equivalent": 45.36490579999999,
+        "messages": 465
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 968,
+          "output": 393597,
+          "thinking": 198068,
+          "cache_write_5m": 1944195,
+          "cache_write_1h": 0,
+          "cache_read": 69420297
+        },
+        "usd_equivalent": 45.36490579999999,
+        "messages": 467
+      }
+    },
+    "effort": {
+      "xhigh": 279,
+      "high": 186
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 7,
+      "docs": 4,
+      "config": 0,
+      "source": 8
+    },
+    "loc": {
+      "generated": {
+        "added": 35,
+        "deleted": 0
+      },
+      "test": {
+        "added": 907,
+        "deleted": 6
+      },
+      "docs": {
+        "added": 27,
+        "deleted": 11
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 130,
+        "deleted": 32
+      }
+    },
+    "packages": [
+      "osn/api",
+      "osn/db"
+    ],
+    "touches_migration": true,
+    "commits": 5
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 429,
+      "Skill": 14,
+      "Write": 9,
+      "Agent": 6,
+      "Read": 6,
+      "SubagentHandback": 6,
+      "ToolSearch": 3,
+      "Edit": 3,
+      "SendMessage": 1,
+      "Monitor": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 3
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-state": 1,
+      "review-security": 2,
+      "write-pr": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 5
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 465,
+      "with_tools": 458,
+      "with_one_tool": 439,
+      "context_median": 120663,
+      "context_p90": 333010
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 4,
+    "located": 3,
+    "acted_on": 1,
+    "paired": 3,
+    "acted_on_paired": 1,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

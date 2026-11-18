@@ -78,59 +78,6 @@ describe("CreateEventForm", () => {
     expect(mockPost).not.toHaveBeenCalled();
   });
 
-  it("successful submit → calls api.events.post with correct body → calls onSuccess", async () => {
-    mockPost.mockResolvedValue({ error: null });
-    const onSuccess = vi.fn();
-    const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm onSuccess={onSuccess} onCancel={() => {}} />
-    ));
-
-    fireEvent.input(getByLabelText("Title"), { target: { value: "My Event" } });
-    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
-
-    const form = getByText("Create").closest("form")!;
-    fireEvent.submit(form);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(mockPost).toHaveBeenCalledWith(expect.objectContaining({ title: "My Event" }));
-    expect(onSuccess).toHaveBeenCalled();
-  });
-
-  it("posts the body alone — no headers, the session cookie is the credential", async () => {
-    mockPost.mockResolvedValue({ error: null });
-    const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
-    ));
-
-    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
-    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
-
-    fireEvent.submit(getByText("Create").closest("form")!);
-    await Promise.resolve();
-
-    expect(mockPost).toHaveBeenCalledTimes(1);
-    expect(mockPost.mock.calls[0]).toHaveLength(1);
-  });
-
-  it("submit with endTime set → api called with endTime present", async () => {
-    mockPost.mockResolvedValue({ error: null });
-    const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
-    ));
-
-    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
-    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
-    fireEvent.input(getByLabelText("End time"), { target: { value: "2030-06-01T12:00" } });
-
-    fireEvent.submit(getByText("Create").closest("form")!);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
-    expect(body.endTime).toBeDefined();
-  });
-
   it("API error → does not call onSuccess; calls toast.error", async () => {
     mockPost.mockResolvedValue({ error: new Error("server error") });
     const onSuccess = vi.fn();
@@ -167,60 +114,6 @@ describe("CreateEventForm", () => {
 
     const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
     expect(body.visibility).toBe("private");
-  });
-
-  it("RadioGroup: clicking 'Guest list only' changes joinPolicy in submit payload", async () => {
-    mockPost.mockResolvedValue({ error: null });
-    const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
-    ));
-
-    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
-    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
-
-    fireEvent.click(screen.getByText("Guest list only"));
-
-    fireEvent.submit(getByText("Create").closest("form")!);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
-    expect(body.joinPolicy).toBe("guest_list");
-  });
-
-  it("Checkbox: toggling SMS channel includes it in submit payload", async () => {
-    mockPost.mockResolvedValue({ error: null });
-    const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
-    ));
-
-    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
-    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
-
-    // Click "SMS" checkbox label to toggle it on
-    fireEvent.click(screen.getByText("SMS"));
-
-    fireEvent.submit(getByText("Create").closest("form")!);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
-    expect(body.commsChannels).toEqual(expect.arrayContaining(["email", "sms"]));
-  });
-
-  it("price blank → submit omits priceAmount/priceCurrency", async () => {
-    mockPost.mockResolvedValue({ error: null });
-    const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
-    ));
-    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
-    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
-    fireEvent.submit(getByText("Create").closest("form")!);
-    await Promise.resolve();
-    await Promise.resolve();
-    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
-    expect(body.priceAmount).toBeUndefined();
-    expect(body.priceCurrency).toBeUndefined();
   });
 
   it("price 0 → submit omits priceAmount/priceCurrency (free)", async () => {

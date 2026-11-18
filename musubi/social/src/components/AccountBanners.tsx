@@ -14,10 +14,10 @@ import { ErrorBoundary, lazy, Show, Suspense } from "solid-js";
  * prop that is evaluated eagerly — a `fallback`, say — would fetch it for
  * everybody and show nothing for it.
  *
- * The session is read here, outside `Suspense`. Read inside, the boundary
- * tracks the session resource and would blank the banners every time the
- * session refetches: adopting one, switching profile, deleting a profile,
- * signing out.
+ * The active profile is read here, outside `Suspense`. Read inside, the
+ * boundary would track it and blank the banners every time it changes. It is
+ * null until a session exists and again once the session ends, so the stack
+ * mounts only for a signed-in user.
  *
  * `ErrorBoundary` renders nothing because this is shell code. Both banners
  * read rate-limited endpoints, a Solid resource rethrows its fetch error on
@@ -27,15 +27,14 @@ import { ErrorBoundary, lazy, Show, Suspense } from "solid-js";
 const AccountBannerStack = lazy(() => import("./AccountBannerStack"));
 
 export function AccountBanners() {
-  const { session } = useAuth();
-  const accessToken = () => session()?.accessToken ?? null;
+  const { activeProfileId } = useAuth();
 
   return (
     <ErrorBoundary fallback={null}>
-      <Show when={accessToken()}>
-        {(token) => (
+      <Show when={activeProfileId()}>
+        {(profileId) => (
           <Suspense>
-            <AccountBannerStack accessToken={token()} />
+            <AccountBannerStack profileId={profileId()} />
           </Suspense>
         )}
       </Show>

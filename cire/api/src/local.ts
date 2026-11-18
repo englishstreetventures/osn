@@ -21,6 +21,10 @@ import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
 import { createAssetsStub } from "./services/invite-assets";
+import {
+  createOrganiserEmailLookupFromEnv,
+  createRemovalBridgeFromEnv,
+} from "./services/osn-bridge";
 import { createR2Stub } from "./services/r2-imports";
 import { createStripeClientFromEnv } from "./services/stripe";
 import { stripeConnectOAuthFromEnv } from "./services/stripe-connect-oauth";
@@ -182,7 +186,28 @@ const localResend = localResendConfig({
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   RESEND_API_URL: process.env.RESEND_API_URL,
 });
-if (localResend) appOptions.emailLayer = makeResendEmailLive(localResend);
+if (localResend) {
+  appOptions.emailLayer = makeResendEmailLive(localResend);
+  // The owners' addresses for the owner notices, from osn-api over ARC, as the
+  // Worker finds them (index.ts): all three values or no lookup, and no
+  // lookup sends no notice. The E2E stack sets them, with a key its osn-api
+  // holds the public half of.
+  const lookup = await createOrganiserEmailLookupFromEnv({
+    osnApiUrl: process.env.OSN_API_URL,
+    arcPrivateKeyJwk: process.env.CIRE_API_ARC_PRIVATE_KEY,
+    arcKeyId: process.env.CIRE_API_ARC_KEY_ID,
+  });
+  if (lookup) appOptions.organiserEmailLookup = lookup;
+}
+
+// A host's removal of their Cire data reaches osn-api with the same ARC key the
+// lookups above use; unset, its routes answer 503. The E2E stack sets it.
+const removalBridge = await createRemovalBridgeFromEnv({
+  osnApiUrl: process.env.OSN_API_URL,
+  arcPrivateKeyJwk: process.env.CIRE_API_ARC_PRIVATE_KEY,
+  arcKeyId: process.env.CIRE_API_ARC_KEY_ID,
+});
+if (removalBridge) appOptions.accountRemovalBridge = removalBridge;
 
 // The local D1 binding runs over the same bun connection as `db`, so the Effect
 // handle and the promise handle see one database, as they do in the test suite.
@@ -195,8 +220,14 @@ const app = createApp(db, appOptions);
 // so an organiser's claim can come from the organiser's own address.
 const keepSentClientAddress = process.env.CIRE_E2E_CLIENT_ADDRESS === "1";
 
+// Unset, the server listens on every interface, as `bun run dev` always has.
+// The E2E stack names a loopback address: its webhook secrets are committed
+// placeholders, which must sign nothing another machine sends.
+const hostname = process.env.CIRE_LOCAL_HOSTNAME || undefined;
+
 const server = Bun.serve({
   port,
+  hostname,
   // Both parameters are contextually typed by `Bun.serve`; naming `Bun.Server`
   // here would need its WebSocket type argument, which this server has not got.
   fetch(request, srv) {

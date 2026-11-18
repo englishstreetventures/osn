@@ -35,11 +35,14 @@ const CIRE_COLOR = {
   dark: {
     "--ui-ground": "oklch(16.8% 0.026 148)",
     "--ui-ground-deep": "oklch(13.2% 0.021 148)",
+    "--ui-scrim": "color-mix(in srgb, oklch(13.2% 0.021 148) 72%, transparent)",
     "--ui-surface": "oklch(20.6% 0.028 149)",
     "--ui-surface-raised": "oklch(24.4% 0.032 149)",
     "--ui-surface-sunk": "oklch(14.4% 0.022 148)",
     "--ui-hairline": "oklch(85% 0.06 145 / 0.11)",
     "--ui-hairline-strong": "oklch(85% 0.06 145 / 0.44)",
+    // cire maps no choice edge: it falls back to the boundary.
+    "--ui-choice-edge": "oklch(85% 0.06 145 / 0.44)",
     "--ui-ink": "oklch(94.6% 0.011 90)",
     "--ui-ink-secondary": "oklch(94.6% 0.011 90 / 0.58)",
     "--ui-ink-tertiary": "oklch(94.6% 0.011 90 / 0.4)",
@@ -57,11 +60,14 @@ const CIRE_COLOR = {
   light: {
     "--ui-ground": "oklch(88.6% 0.011 92)",
     "--ui-ground-deep": "oklch(84.5% 0.014 92)",
+    "--ui-scrim": "color-mix(in srgb, oklch(84.5% 0.014 92) 72%, transparent)",
     "--ui-surface": "oklch(92.4% 0.009 92)",
     "--ui-surface-raised": "oklch(95.2% 0.007 92)",
     "--ui-surface-sunk": "oklch(85.8% 0.013 92)",
     "--ui-hairline": "oklch(44% 0.022 340 / 0.18)",
     "--ui-hairline-strong": "oklch(44% 0.022 340 / 0.74)",
+    // cire maps no choice edge: it falls back to the boundary.
+    "--ui-choice-edge": "oklch(44% 0.022 340 / 0.74)",
     "--ui-ink": "oklch(27% 0.018 340)",
     "--ui-ink-secondary": "oklch(44% 0.022 340)",
     "--ui-ink-tertiary": "oklch(44% 0.022 340 / 0.74)",
@@ -124,7 +130,26 @@ const CIRE_LEADING = {
   "--ui-leading-relaxed": "1.75",
 } as const satisfies Record<`--ui-leading-${LeadingStep}`, string>;
 
+/**
+ * The contract tokens cire leaves unmapped, each lent `initial`, the
+ * guaranteed-invalid value, so it takes its fallback (a 600 title, overlays in
+ * from 96% and out to 98%) as in cire's apps. Without them a cire subtree
+ * would inherit what the lab's own stylesheet maps on `:root`: Musubi's.
+ */
+const CIRE_UNMAPPED = {
+  "--ui-weight-title": "initial",
+  "--ui-scale-enter": "initial",
+  "--ui-scale-exit": "initial",
+} as const;
+
 /** Every `--ui-*` token cire maps, for one theme, ready for a `style` prop. */
 export function cireStyle(which: CireTheme): JSX.CSSProperties {
-  return { ...CIRE_COLOR[which], ...CIRE_RADIUS, ...CIRE_TEXT, ...CIRE_TRACKING, ...CIRE_LEADING };
+  return {
+    ...CIRE_COLOR[which],
+    ...CIRE_RADIUS,
+    ...CIRE_TEXT,
+    ...CIRE_TRACKING,
+    ...CIRE_LEADING,
+    ...CIRE_UNMAPPED,
+  };
 }

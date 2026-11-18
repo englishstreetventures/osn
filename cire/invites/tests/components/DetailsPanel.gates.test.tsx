@@ -12,10 +12,6 @@ vi.mock("../../src/components/invite-emptiness", async (importOriginal) => ({
   hasRunOfShow: () => false,
   hasGuestPolicy: () => false,
 }));
-vi.mock("motion", () => ({
-  animate: vi.fn(() => ({ finished: Promise.resolve() })),
-}));
-
 import { DetailsPanel } from "../../src/components/DetailsPanel";
 
 const EVENT: EventSummary = {

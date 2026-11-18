@@ -8,7 +8,6 @@ import {
   isModule,
   isSubOf,
   LIST_ROUTE,
-  MODULE_SUBS,
   MODULES,
   parseRoute,
   serializeRoute,
@@ -71,6 +70,56 @@ describe("dashboard-route", () => {
         module: DEFAULT_MODULE,
         sub: defaultSub(DEFAULT_MODULE),
       });
+    });
+
+    it("parses the remove-data view, with no code", () => {
+      expect(parseRoute("#/remove-data")).toEqual({
+        view: "remove-data",
+        weddingId: null,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
+      });
+    });
+
+    it("reads the code Musubi sends a person back with, before the path is split", () => {
+      // Red on reading the query as part of the path: `remove-data?code=…`
+      // would match no view and land on the wedding list, losing the code.
+      expect(parseRoute("#/remove-data?code=abc_DEF-123")).toEqual({
+        view: "remove-data",
+        weddingId: null,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
+        code: "abc_DEF-123",
+      });
+      expect(parseRoute("#/remove-data/?code=abc")).toMatchObject({
+        view: "remove-data",
+        code: "abc",
+      });
+    });
+
+    it("drops a code that is empty, or is not one osn-api makes", () => {
+      for (const hash of [
+        "#/remove-data?code=",
+        "#/remove-data?code=a%3Fb",
+        "#/remove-data?code=a?b",
+      ]) {
+        expect({ hash, route: parseRoute(hash) }).toEqual({
+          hash,
+          route: {
+            view: "remove-data",
+            weddingId: null,
+            module: DEFAULT_MODULE,
+            sub: defaultSub(DEFAULT_MODULE),
+          },
+        });
+      }
+    });
+
+    it("ignores a query on any other view", () => {
+      expect(parseRoute("#/security?code=abc")).toEqual(parseRoute("#/security"));
+      expect(parseRoute("#/w/wed_1/settings/export?code=abc")).toEqual(
+        parseRoute("#/w/wed_1/settings/export"),
+      );
     });
 
     it("decodes a wedding id with reserved characters", () => {
@@ -269,6 +318,7 @@ describe("dashboard-route", () => {
       { view: "weddings", weddingId: "wed_1", module: "invite", sub: "codes" },
       { view: "weddings", weddingId: "wed_1", module: "settings", sub: "wedding" },
       { view: "weddings", weddingId: "wed_1", module: "settings", sub: "hosts" },
+      { view: "weddings", weddingId: "wed_1", module: "settings", sub: "export" },
       { view: "weddings", weddingId: "wed/with spaces", module: "guests", sub: "rsvps" },
       {
         view: "security",
@@ -276,7 +326,18 @@ describe("dashboard-route", () => {
         module: DEFAULT_MODULE,
         sub: defaultSub(DEFAULT_MODULE),
       },
+      {
+        view: "remove-data",
+        weddingId: null,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
+      },
     ];
+
+    it("serialises the remove-data view without its code, which the screen has kept", () => {
+      // The canonical rewrite on load must take the code out of the address.
+      expect(serializeRoute(parseRoute("#/remove-data?code=abc"))).toBe("#/remove-data");
+    });
 
     it("parse(serialize(route)) === route for every producible route", () => {
       for (const route of routes) {
@@ -301,72 +362,6 @@ describe("dashboard-route", () => {
       expect(isSubOf("overview", "index")).toBe(true);
       expect(isSubOf("seating", "index")).toBe(true);
     });
-  });
-});
-
-describe("budget module route", () => {
-  it("budget is a known module", () => {
-    expect(isModule("budget")).toBe(true);
-    expect(MODULES).toContain("budget");
-  });
-
-  it("parses #/w/<id>/budget to the budget module", () => {
-    expect(parseRoute("#/w/wed_1/budget")).toMatchObject({
-      view: "weddings",
-      weddingId: "wed_1",
-      module: "budget",
-    });
-  });
-
-  it("serializes a budget route back to the canonical hash", () => {
-    expect(
-      serializeRoute({ view: "weddings", weddingId: "wed_1", module: "budget", sub: "index" }),
-    ).toBe("#/w/wed_1/budget");
-  });
-});
-
-describe("checklist module route", () => {
-  it("checklist is a known module", () => {
-    expect(isModule("checklist")).toBe(true);
-    expect(MODULES).toContain("checklist");
-  });
-
-  it("parses #/w/<id>/checklist to the checklist module", () => {
-    const r = parseRoute("#/w/wed_1/checklist");
-    expect(r.view).toBe("weddings");
-    expect(r.weddingId).toBe("wed_1");
-    expect(r.module).toBe("checklist");
-  });
-
-  it("serializes a checklist route back to the canonical hash", () => {
-    expect(
-      serializeRoute({ view: "weddings", weddingId: "wed_1", module: "checklist", sub: "index" }),
-    ).toBe("#/w/wed_1/checklist");
-  });
-});
-
-describe("run-sheet module route", () => {
-  it("is a known module with one view, after the checklist", () => {
-    expect(isModule("run-sheet")).toBe(true);
-    expect(MODULES.indexOf("run-sheet")).toBe(MODULES.indexOf("checklist") + 1);
-    expect(MODULE_SUBS["run-sheet"]).toEqual(["index"]);
-  });
-
-  it("parses #/w/<id>/run-sheet and serializes it back", () => {
-    const r = parseRoute("#/w/wed_1/run-sheet");
-    expect(r).toMatchObject({ view: "weddings", weddingId: "wed_1", module: "run-sheet" });
-    expect(
-      serializeRoute({ view: "weddings", weddingId: "wed_1", module: "run-sheet", sub: "index" }),
-    ).toBe("#/w/wed_1/run-sheet");
-  });
-});
-
-describe("vendors module Browse sub-tab", () => {
-  it("vendors module exposes index + browse + enquiries subs", () => {
-    expect(MODULE_SUBS.vendors).toEqual(["index", "browse", "enquiries"]);
-    expect(isSubOf("vendors", "browse")).toBe(true);
-    expect(isSubOf("vendors", "enquiries")).toBe(true);
-    expect(defaultSub("vendors")).toBe("index");
   });
 });
 

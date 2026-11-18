@@ -287,7 +287,7 @@ describe("GuestTable", () => {
     expect(screen.getAllByText("Sent")).toHaveLength(1);
   });
 
-  it("offers the CSV downloads to an owner only", async () => {
+  it("offers an owner the guests download alone, and no one else any", async () => {
     primeLoad();
     const { unmount } = render(() => (
       <GuestTable
@@ -299,8 +299,7 @@ describe("GuestTable", () => {
       />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
-    expect(screen.queryByRole("button", { name: /Download guests \(CSV\)/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Download RSVPs \(CSV\)/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Download/i })).toBeNull();
     unmount();
 
     authFetchMock.mockResolvedValueOnce(json({ inviteMessage: null }));
@@ -312,13 +311,17 @@ describe("GuestTable", () => {
         weddingSlug="nadia-sam-abc123"
       />
     ));
-    expect(screen.getByRole("button", { name: /Download guests \(CSV\)/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Download RSVPs \(CSV\)/i })).toBeTruthy();
+    // One download, the guest list, its word beside its icon; the RSVP sheet
+    // is the RSVPs page's.
+    const download = screen.getByRole("button", { name: "Download guests CSV" });
+    expect(download.textContent).toBe("Download guests CSV");
+    expect(download.querySelector("svg")).not.toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Download/i })).toEqual([download]);
   });
 
-  // The downloads wait, unseen, while the list loads; a wedding with no
-  // households has nothing to export, so they never arrive.
-  it("offers an owner no CSV downloads while the wedding has no households", async () => {
+  // The download waits, unseen, while the list loads; a wedding with no
+  // households has nothing to export, so it never arrives.
+  it("offers an owner no CSV download while the wedding has no households", async () => {
     authFetchMock
       .mockResolvedValueOnce(json([]))
       .mockResolvedValueOnce(json(EVENTS))
@@ -332,8 +335,7 @@ describe("GuestTable", () => {
       />
     ));
     await waitFor(() => expect(screen.getByText("No guests yet")).toBeTruthy());
-    expect(screen.queryByRole("button", { name: /Download guests \(CSV\)/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Download RSVPs \(CSV\)/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Download/i })).toBeNull();
   });
 
   it("uses the host's custom message as the first line when one is set", async () => {
@@ -435,39 +437,6 @@ describe("GuestTable", () => {
     ));
 
     expect(screen.getAllByTestId("invite-message-links")).toHaveLength(1);
-  });
-
-  it("downloads the RSVP CSV when the export button is clicked", async () => {
-    primeLoad();
-    const csv = "Family Code,Family Name\r\nSHARMA-WIDGET-AB3K9-X7QPM,Sharma";
-    authFetchMock.mockResolvedValueOnce(
-      new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } }),
-    );
-
-    render(() => (
-      <GuestTable
-        weddingId="wed_a"
-        canManage
-        weddingName="Nadia & Sam"
-        weddingSlug="nadia-sam-abc123"
-      />
-    ));
-    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
-
-    fireEvent.click(screen.getByRole("button", { name: /Download RSVPs/i }));
-
-    // Hits the server-built CSV endpoint…
-    await waitFor(() =>
-      expect(
-        authFetchMock.mock.calls.some(
-          (c) => String(c[0]) === "https://api.test/api/organiser/weddings/wed_a/rsvps.csv",
-        ),
-      ).toBe(true),
-    );
-    // …and triggers a blob download with the slug-based filename.
-    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
-    expect(downloadBlobMock.mock.calls[0]![0]).toBe("cire-rsvps-nadia-sam-abc123.csv");
-    expect(downloadBlobMock.mock.calls[0]![1]).toBeInstanceOf(Blob);
   });
 
   it("downloads the guest-roster CSV when its export button is clicked", async () => {

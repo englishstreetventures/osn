@@ -72,38 +72,53 @@ export interface ProfileToken {
 }
 
 /**
- * Persisted per-device session state. After Copenhagen Book C3 the refresh
- * token is cookie-only, so the client keeps nothing sensitive on disk — just
- * the access-token cache (short TTL) and a `hasSession` flag so we know
- * whether to attempt silent refresh. Setting `hasSession = false` is how the
- * client signals "cookie was cleared server-side or expired".
+ * The session a page holds, in memory only. Its tokens are credentials, and
+ * page script can read anything in storage, so none of them is ever written
+ * there: storage gets the {@link StoredAccount} cut of it. A reload gets its
+ * token from the HttpOnly session cookie.
  */
 export interface AccountSession {
   hasSession: boolean;
   activeProfileId: string;
+  /** The sign-in this session belongs to; see {@link StoredAccount.signInId}. */
+  signInId: string;
   profileTokens: Record<string, ProfileToken>;
   scopes: string[];
   idToken: string | null;
+}
+
+/**
+ * What a reload needs that is not a credential: whether this device holds a
+ * session, the profile the page was on, which the reload's grant names, and
+ * which sign-in it is. The only auth state the client writes to storage.
+ */
+export interface StoredAccount {
+  hasSession: boolean;
+  activeProfileId: string;
+  /**
+   * A random id each sign-in on this device gets, and every later write of
+   * the same session keeps. A tab whose id is not the stored one belongs to a
+   * sign-in that has ended. Never sent anywhere.
+   */
+  signInId: string;
 }
 
 // ---------------------------------------------------------------------------
 // Schema validation
 // ---------------------------------------------------------------------------
 
-const ProfileTokenSchema = Schema.Struct({
-  accessToken: Schema.String,
-  expiresAt: Schema.Number,
-});
-
-const AccountSessionSchema = Schema.Struct({
+/**
+ * Reads exactly these fields; anything else in the stored value, the tokens
+ * an older client wrote included, is dropped. A value an older client wrote
+ * has no `signInId`; the reader gives it one.
+ */
+const StoredAccountSchema = Schema.Struct({
   hasSession: Schema.Boolean,
   activeProfileId: Schema.String,
-  profileTokens: Schema.Record(Schema.String, ProfileTokenSchema),
-  scopes: Schema.Array(Schema.String),
-  idToken: Schema.NullOr(Schema.String),
+  signInId: Schema.optional(Schema.String),
 });
 
-export const decodeAccountSession = Schema.decodeUnknownSync(AccountSessionSchema);
+export const decodeStoredAccount = Schema.decodeUnknownSync(StoredAccountSchema);
 
 const PublicProfileSchema = Schema.Struct({
   id: Schema.String,
@@ -133,16 +148,77 @@ const CreateProfileResponseSchema = Schema.Struct({
 
 export const decodeCreateProfileResponse = Schema.decodeUnknownSync(CreateProfileResponseSchema);
 
-/** Extract the `sub` claim from a JWT payload without cryptographic verification. */
-export function extractJwtSub(jwt: string): string | null {
+const DeleteProfileResponseSchema = Schema.Struct({
+  default_profile_id: Schema.NonEmptyString,
+});
+
+/**
+ * The account's default profile once the deleted one is gone, from a
+ * `POST /profiles/delete` answer; `None` when the answer does not name one.
+ * Never throws: the server has deleted the profile whatever the body says.
+ */
+export const decodeDeleteProfileResponse = Schema.decodeUnknownOption(DeleteProfileResponseSchema);
+
+/** The claims this package reads from a JWT, unverified and untyped until checked. */
+interface JwtClaims {
+  readonly sub?: unknown;
+  readonly aud?: unknown;
+  readonly iat?: unknown;
+  readonly exp?: unknown;
+}
+
+/**
+ * The audience osn-api gives the access tokens of an account whose deletion
+ * is pending. Mirrors `PENDING_DELETION_TOKEN_AUDIENCE` in `@osn/api`
+ * (`src/services/auth/constants.ts`); `tests/pending-deletion-session.test.ts`
+ * reads it from tokens the way osn-api writes them.
+ */
+const PENDING_DELETION_AUDIENCE = "osn-pending-deletion";
+
+/** Decode a JWT's payload without cryptographic verification; null when it will not decode. */
+function decodeJwtPayload(jwt: string): JwtClaims | null {
   try {
     const payload = jwt.split(".")[1];
     if (!payload) return null;
     // JWT payloads use Base64URL encoding (RFC 7515) — convert to standard Base64
     const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const decoded = JSON.parse(atob(base64)) as { sub?: string };
-    return decoded.sub ?? null;
+    const decoded: unknown = JSON.parse(atob(base64));
+    return typeof decoded === "object" && decoded !== null ? (decoded as JwtClaims) : null;
   } catch {
     return null;
   }
+}
+
+/** Extract the `sub` claim from a JWT payload without cryptographic verification. */
+export function extractJwtSub(jwt: string): string | null {
+  const sub = decodeJwtPayload(jwt)?.sub;
+  return typeof sub === "string" ? sub : null;
+}
+
+/**
+ * Whether an access token belongs to an account whose deletion is pending:
+ * its `aud` is `osn-pending-deletion`. Such a session reaches only the
+ * deletion status, the data download and the restore; every other route
+ * answers it 401 without the session having ended. Read without
+ * verification: the issuer decides what the token reaches, and this only
+ * decides what the page shows.
+ */
+export function isPendingDeletionToken(jwt: string): boolean {
+  const aud = decodeJwtPayload(jwt)?.aud;
+  return Array.isArray(aud)
+    ? aud.includes(PENDING_DELETION_AUDIENCE)
+    : aud === PENDING_DELETION_AUDIENCE;
+}
+
+/**
+ * The lifetime the issuer gave a JWT, `exp - iat`, in milliseconds. Null when
+ * either claim is missing or the two do not describe a positive span. Read
+ * without verification: the value only tunes when the client renews.
+ */
+export function extractJwtLifetimeMs(jwt: string): number | null {
+  const payload = decodeJwtPayload(jwt);
+  const iat = payload?.iat;
+  const exp = payload?.exp;
+  if (typeof iat !== "number" || typeof exp !== "number" || exp <= iat) return null;
+  return (exp - iat) * 1000;
 }

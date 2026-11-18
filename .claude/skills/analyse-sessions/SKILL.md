@@ -43,7 +43,7 @@ Read three things off it and write them down before continuing:
 | Read | Because |
 |---|---|
 | How many cards | A single-digit sample supports no trend at all |
-| How many are `confirmed` | Unconfirmed ratings are an agent's own guess, and every difficulty comparison excludes them |
+| How many are `confirmed` | Unconfirmed ratings were made by backfill or after the work began, so they may have been fitted to the cost, and every difficulty comparison excludes them |
 | What share is `at-open` | Those cards are missing review-cycle cost. A remote session's container dies with its transcripts, so its cards stay `at-open` forever and the corpus under-reports |
 
 If nothing is rated, say so at the top of your answer. Most of the interesting
@@ -133,8 +133,8 @@ Where the data supports a change to how work is dispatched, hand it to
 
 `wiki/conventions/session-metrics.md` holds the schema and the reasoning
 behind every field. `tools/pr-metrics/README.md` has the commands. Cards are
-written by the **`retro`** skill, which runs after `prep-pr` opens a pull
-request, and — for a branch whose retro never ran — by the `SessionEnd` hook,
+written by the **`retro`** skill, which `prep-pr` runs before its first push,
+and — for a branch whose retro never ran — by the `SessionEnd` hook,
 whose `--if-absent` run never overwrites one `retro` committed.
 
 `retro` is the per-session counterpart of this skill: it reads **one** card and

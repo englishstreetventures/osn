@@ -1,6 +1,6 @@
 {
   "name": "@shared/realtime",
-  "version": "0.2.13",
+  "version": "0.2.28",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@shared/observability": "workspace:*",
-    "effect": "4.0.7"
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",

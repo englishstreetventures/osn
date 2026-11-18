@@ -1,0 +1,188 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/osn-browser-email-verification",
+    "base_sha": "7547935e7161e571bb347ff3af6d9022ae57c94f",
+    "head_sha": "d674257bcb312040054321847b26c9d607fa0110",
+    "generated_at": "2026-11-10T16:34:06.634Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2088,
+    "type": null,
+    "labels": [
+      "product:osn-core",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-10T12:45:48.159Z",
+    "last_ts": "2026-11-10T16:34:01.224Z",
+    "span_seconds": 13693,
+    "active_seconds": 5179,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 59.07638719999996,
+    "tokens": {
+      "input": 920,
+      "output": 394087,
+      "thinking": 193225,
+      "cache_write_5m": 1666380,
+      "cache_write_1h": 0,
+      "cache_read": 107147668
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 920,
+          "output": 394087,
+          "thinking": 193225,
+          "cache_write_5m": 1666380,
+          "cache_write_1h": 0,
+          "cache_read": 107147668
+        },
+        "usd_equivalent": 59.07638719999996,
+        "messages": 438
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 920,
+          "output": 394087,
+          "thinking": 193225,
+          "cache_write_5m": 1666380,
+          "cache_write_1h": 0,
+          "cache_read": 107147668
+        },
+        "usd_equivalent": 59.07638719999996,
+        "messages": 440
+      }
+    },
+    "effort": {
+      "xhigh": 354,
+      "high": 84
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 10,
+      "docs": 7,
+      "config": 2,
+      "source": 28
+    },
+    "loc": {
+      "generated": {
+        "added": 13,
+        "deleted": 0
+      },
+      "test": {
+        "added": 930,
+        "deleted": 4
+      },
+      "docs": {
+        "added": 84,
+        "deleted": 18
+      },
+      "config": {
+        "added": 79,
+        "deleted": 1
+      },
+      "source": {
+        "added": 1367,
+        "deleted": 33
+      }
+    },
+    "packages": [
+      "osn/api",
+      "osn/auth-ui",
+      "osn/client",
+      "shared/observability",
+      "shared/openapi",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 323,
+      "Read": 65,
+      "Edit": 39,
+      "Write": 11,
+      "Skill": 8,
+      "WebFetch": 6,
+      "ToolSearch": 5,
+      "Monitor": 5,
+      "SubagentHandback": 3,
+      "Agent": 2,
+      "WebSearch": 1,
+      "SendMessage": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 11
+    },
+    "skills": {
+      "new-feat": 2,
+      "stress-plan": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 1,
+      "review-security": 1,
+      "write-issue": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 1
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 438,
+      "with_tools": 426,
+      "with_one_tool": 389,
+      "context_median": 224016,
+      "context_p90": 476169
+    }
+  },
+  "review": null
+}

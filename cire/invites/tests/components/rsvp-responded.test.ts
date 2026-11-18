@@ -21,9 +21,10 @@ import {
  * so no component test can observe the real timing, and every combination
  * type-checks and builds.
  *
- * These are the guards that relate them. The class-level half (the fill
- * really does carry `duration-500`, `origin-left`, `scale-x-0`) lives in
- * `EventCard.test.tsx`, next to the markup it is pinning.
+ * These are the guards that relate them. The engine's half — the fill's
+ * transition and the tick's animation really run these times, multiplied by
+ * `--motion-scale` — lives in `EventCard.browser.test.tsx` and
+ * `styles/choreography-scale.browser.test.tsx`.
  */
 
 const GLOBAL_CSS = readFileSync(join(import.meta.dirname, "../../src/styles/global.css"), "utf8");

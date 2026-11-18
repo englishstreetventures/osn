@@ -72,6 +72,7 @@ describe("<SettingsPage /> tabs", () => {
     renderSettings("/settings");
     expect(screen.getByText("Handles cannot be changed.")).toBeTruthy();
     expect(screen.queryByTestId("security-section")).toBeNull();
+    expect(document.title).toBe("Settings · Musubi");
   });
 
   it("opens the tab a deep link names", async () => {

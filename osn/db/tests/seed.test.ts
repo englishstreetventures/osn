@@ -11,6 +11,7 @@ import {
   buildSeedOrganisations,
   buildSeedOrgMembers,
   buildSeedServiceAccounts,
+  seedProfileRows,
 } from "../src/seed";
 import { applySchema } from "../src/testing";
 
@@ -33,6 +34,38 @@ describe("buildSeedUsers", () => {
     const defaults = multiProfiles.filter((u) => u.isDefault);
     expect(defaults).toHaveLength(1);
     expect(defaults[0].id).toBe("usr_seed_multi_main");
+  });
+});
+
+describe("seedProfileRows", () => {
+  it("leaves a seeded default plain when its account already has another default", async () => {
+    // An account holds one default profile, and its index refuses a second.
+    const db = createTestDb();
+    const now = new Date();
+    await db.insert(schema.accounts).values(buildSeedAccounts(now)).onConflictDoNothing();
+    await db.insert(schema.users).values({
+      id: "usr_seed_multi_chosen",
+      accountId: "acc_seed_multi",
+      handle: "multi_chosen",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await db.insert(schema.users).values(seedProfileRows(now)).onConflictDoNothing();
+
+    const rows = await db
+      .select({ id: schema.users.id, isDefault: schema.users.isDefault })
+      .from(schema.users);
+    const multi = Object.fromEntries(
+      rows.filter((r) => r.id.startsWith("usr_seed_multi_")).map((r) => [r.id, r.isDefault]),
+    );
+    expect(multi).toEqual({
+      usr_seed_multi_chosen: true,
+      usr_seed_multi_main: false,
+      usr_seed_multi_alt: false,
+      usr_seed_multi_work: false,
+    });
   });
 });
 

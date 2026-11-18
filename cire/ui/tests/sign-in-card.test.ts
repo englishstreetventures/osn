@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import source from "../src/sign-in-card.astro?raw";
@@ -44,9 +46,14 @@ describe("sign-in-card.astro", () => {
   });
 
   it("sits at a 30rem measure at the top of the page, never centred", () => {
-    const main = openingTag("main");
-    expect(main).toMatch(/\bpy-24\b/);
-    expect(main).toContain("[--page-max:30rem]");
-    expect(main).not.toMatch(/justify-center|min-h-dvh|my-auto/);
+    // The frame's classes are exported beside the card's, for the host
+    // portal's page in the same shape; read as text, as the template is.
+    expect(openingTag("main")).toBe("<main class={signInFrameClass}>");
+    const classes = readFileSync(new URL("../src/sign-in-card-class.ts", import.meta.url), "utf8");
+    const frame = /export const signInFrameClass = "([^"]*)";/.exec(classes)?.[1];
+    expect(frame).toBeDefined();
+    expect(frame).toMatch(/\bpy-24\b/);
+    expect(frame).toContain("[--page-max:30rem]");
+    expect(frame).not.toMatch(/justify-center|min-h-dvh|my-auto/);
   });
 });

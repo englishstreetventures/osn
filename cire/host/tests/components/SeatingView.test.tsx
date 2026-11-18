@@ -549,7 +549,10 @@ describe("SeatingView — what a host sees", () => {
   it("offers the venue file to an owner only", async () => {
     fakeApi();
     await renderView({ canManage: true });
-    expect(screen.getByRole("button", { name: "Download seating CSV" })).toBeTruthy();
+    // The portal's download button: its word beside its icon.
+    const download = screen.getByRole("button", { name: "Download seating CSV" });
+    expect(download.textContent).toBe("Download seating CSV");
+    expect(download.querySelector("svg")).not.toBeNull();
     cleanup();
     fakeApi();
     await renderView({ canManage: false });
@@ -1008,6 +1011,26 @@ describe("SeatingView — the venue file", () => {
     fireEvent.click(screen.getByRole("button", { name: "Download seating CSV" }));
     await screen.findByText("Could not download the seating chart. Try again.");
     expect(saved).toHaveLength(1);
+  });
+});
+
+describe("SeatingView — one venue file at a time", () => {
+  it("asks for the file once however often it is pressed while one is on its way", async () => {
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    let release = () => {};
+    const until = new Promise<void>((resolve) => (release = resolve));
+    const api = fakeApi({ hold: { url: /seating\.csv$/, until } });
+    await renderView({ canManage: true });
+    const files = () => api.calls.filter((call) => call.url === `${API}/seating.csv`);
+    const button = screen.getByRole("button", { name: "Download seating CSV" });
+    fireEvent.click(button);
+    await waitFor(() => expect(button.textContent).toBe("Exporting seating…"));
+    fireEvent.click(button);
+    expect(files()).toHaveLength(1);
+    release();
+    await waitFor(() => expect(button.textContent).toBe("Download seating CSV"));
+    fireEvent.click(button);
+    await waitFor(() => expect(files()).toHaveLength(2));
   });
 });
 

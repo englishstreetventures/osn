@@ -1,5 +1,209 @@
 # @shared/ui
 
+## 0.18.0
+
+### Minor Changes
+
+- db8c428: `Checkbox`, `RadioGroup` and `Switch` draw on one rule: the control sits on its words' first line whatever their length, 8px from them, at prose leading; a chosen radio's 8px dot sits in the centre of its 16px circle; options are 8px apart in a column and 16px in a row; keyboard focus is the house outline, 2px off. `align` is gone (every control sits on the first line). `RadioGroup` and `Checkbox` take `touch`: below `md` each row is a 44px target and the space between options stays even, with nothing around it moving. `RadioGroupItem` takes a `description`. Musubi's deletion flow and the recovery-codes box use `touch` in place of their own row classes; Pulse's attendance setting puts each option's line under its words, and Pulse maps `--ui-choice-edge` to its `--subtle`, so an unchosen radio's edge clears 3:1 (it was 1.10–1.31:1 on `--input`, an edge nobody could see on a dark card); Pulse's and Musubi's contract tests hold the choice edge at 3:1 on every ground in both themes.
+- db8c428: Account deletion gets its emails and the calls its screens need.
+
+  - `@shared/email`: five templates — `account-deletion-scheduled`, `account-deletion-cancelled`, `account-deleted`, `organisation-ownership-received` and `account-data-link`. Text another party wrote is escaped and never in a subject; every one names an organisation by its handle only. Every template draws its button through one helper, `emailButton`: the recovery, step-up and email-change links' buttons take 6px corners at the text's own weight, as every other button already did.
+  - `@osn/api`: `DELETE /account` mails the scheduled notice (the date, how to keep the account and download the data, and what each answer does, from the request's own preview); `POST /account/restore` mails the cancelled one. The hard delete reads the address, the held handles and what each app kept before its batch, and once the batch has removed the account mails the old address and each organisation's new owner, side by side, each send giving up after 10 seconds (at most 10 ownership notices one by one on a transport with no batch send); a pass whose batch removed nothing mails nothing. The cron and the local sweeper provide the email transport to it; local sweeps run on the app's runtime and skip a tick while a pass runs. New `POST /account/data-link` mails the account a link to its download page (per IP, then three a day per account). New `POST /organisations/:handle/decline-ownership`: a member who received an organisation by succession may hand it back within 30 days; it passes on as the hard delete would pass it, or is deleted, and the decliner leaves it in the same batch, the next owner mailed. `GET` on the same path answers whether the caller may decline it, and until when, with the same refusals, and writes nothing. `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation. The deletion preview's organisation actions carry `candidates`, the members a successor answer may name, read beside the organisations at most 50 an organisation. CORS exposes `Content-Disposition` and `Retry-After`. The local Bun server keys its per-address limiters on a sent `cf-connecting-ip` when `OSN_E2E_CLIENT_ADDRESS=1`, which only the E2E stack sets.
+  - `@osn/db`: `organisations.owner_inherited_at` (migration `20261116094005_organisation_owner_inherited_at`), NULL for every existing row.
+  - `@osn/client`: a 401 after a renewal that minted a pending-deletion token reaches the caller and ends nothing; `onSessionChange` gains `pending-deletion`; `isPendingDeletionToken`. The Solid provider gains `pendingDeletion` and `renewSession`, and lists no profiles for a pending-deletion session. `deleteAccount` throws `AccountDeletionRefusedError` with the open actions, fresh preview or refused action; new `exportAccount`, `sendDataLink`, `declineOwnership` and `declineOwnershipStatus`.
+  - `@shared/observability`: `OrgAction` gains `decline_ownership`; the auth rate-limit endpoint union gains `account_data_link`.
+  - `@tools/lab`: the auth-ui stories' hand-built auth contexts carry `pendingDeletion` and `renewSession`.
+  - `@shared/design-tokens`: a contract colour, `--ui-choice-edge`, for the edge of an unchosen radio, checkbox or switch track, owing 3:1. It falls back to `--ui-hairline-strong`, so an app that does not map it looks as before, and the conformance check measures it unmapped as that token, under that token's waiver (`COLOR_FALLBACKS`, `colorFallback`).
+  - `@shared/ui`: `RadioGroup`'s circle, `Checkbox`'s box, `Switch`'s track and the unticked native box draw their edge in `--ui-choice-edge`.
+  - `@osn/auth-ui`: `InlineAction`, the underlined button that ends an error line, is exported as `@osn/auth-ui/InlineAction`.
+  - `@musubi/infra`: the dev stack's env check lists `OSN_E2E_CLIENT_ADDRESS` as left unset on dev: only the Bun dev server reads it, for the E2E suite.
+
+## 0.17.1
+
+### Patch Changes
+
+- 7b90b0c: `Button`'s `ghostDanger` takes no fill on hover, so its red ink stays at 4.5:1 or better against the page or card behind it in Musubi's light and dark themes.
+
+## 0.17.0
+
+### Minor Changes
+
+- da04fab: A `Dialog` sheet slides. Below `md`, `DialogContent presentation="sheet"` rises from its own height below the bottom edge over `--ui-dur-slow` and falls back over `--ui-dur-base`, both on the new `--ui-ease-sheet` token (`cubic-bezier(0.32, 0.72, 0, 1)`), at full opacity and unscaled, with its scrim fading on the same pace; closed part-way up or reopened part-way down it turns round from where it is. It moves by CSS transitions through two new utilities, `animate-sheet-in` and `animate-sheet-out`, beside two keyframes that move nothing and tell Kobalte how long to keep a closing sheet mounted. Under reduced motion it does not slide: it fades in and out with its scrim, in place, on the same pace and curve, with no transform on any frame; a new `sheet-hidden` utility holds where a sheet starts and ends, its own height below the edge or, under reduced motion, in place and transparent. At `md` and up, and with `presentation="centred"`, nothing changes. `DialogOverlay` takes the same optional `presentation`. Every sheet changes with it: Musubi's dialogs below `md`, `@osn/auth-ui`'s step-up, "Generate a new set?" and "Create a new profile", and pulse's share sheet. Musubi's, pulse's and `@osn/auth-ui`'s design documents say so; the lab adds a `DialogSheetSlide` story and lists the new curve.
+
+## 0.16.0
+
+### Minor Changes
+
+- ed7813d: `Button` presses: while a pointer or a held Space presses it, it scales to 0.97 over `--ui-dur-fast` on `--ui-ease-out` and eases back when let go, in every app that draws it (Musubi, `@osn/auth-ui`'s views, pulse). It sets `scale`, so a call site's `transform` stays. No press while disabled, busy or `aria-disabled`, at `size="inline"`, or under `prefers-reduced-motion: reduce`. The colour fade keeps Tailwind's 150ms and curve. Musubi's and `@osn/auth-ui`'s `DESIGN.md` name the press beside the orb, and the lab's `shared/ui/Button` gains a `Press` story.
+
+## 0.15.3
+
+### Patch Changes
+
+- 90c891b: `Dialog` takes its shadow, its scrim and its sheet corners from the design-token contract.
+
+  - `@shared/design-tokens` adds a scrim role, `--ui-scrim` (`bg-ui-scrim`), in its own `scrim` group of `CONTRACT_COLOR_TOKENS`. It sits in no contrast pair, so no app has to map it; unmapped it is black at 50%.
+  - `DialogContent` casts `--ui-elev-2`, as `Modal` and a raised `Card` do, instead of Tailwind's `shadow-xl`. Musubi and pulse map no elevation, so their dialogs now cast `0 8px 24px rgb(0 0 0 / 0.12)`.
+  - `DialogOverlay` and `Modal`'s `::backdrop` both paint `--ui-scrim`. Musubi's and pulse's dialog scrims paint the same pixels as before (black at 50%).
+  - The sheet presentation keeps square bottom corners at every width below `md`; between 640px and 767px they were round.
+  - The lab's colour story shows the new role, and its cire mapping carries cire's scrim.
+  - Musubi's `DESIGN.md` records the elevation and scrim it leaves unmapped.
+
+## 0.15.2
+
+### Patch Changes
+
+- 6dd5ff4: Three browser test files pass when Vitest runs each test again in the same page (`--repeats`). `data.browser.test.tsx` clears the page and scrolls back to the top after each test. A page keeps the orb's module once it arrives, so in the two busy-button files a repeat checks that a busy button draws the orb at once; the room the orb waits in, when its fetch starts, and the fetch after a failed one are checked on the first run only, which each test reads from Vitest's repeat index. The test of a failed fetch waits for its own run's fetch, not one an earlier run made. Neither file sleeps for a fixed time: the failed-fetch test waits for an idle callback queued after the button's and then for its own import of the orb to fail, and the load test waits for an idle callback queued after the button's, then checks that the one fetch started after the button turned busy. No component changes.
+
+## 0.15.1
+
+### Patch Changes
+
+- 2035748: `Modal`'s comment on its keyword curves says why its exit does not read the new `--ui-ease-exit`: its `ease-in` speeds up as the dialog goes, and the Kobalte overlays' exit curve slows down. Its stylesheet is unchanged. `overlay-motion.browser.test.tsx` holds `Dialog`, `Popover` and the default menu closing on `--ui-ease-exit`, apart from `--ui-ease-out`, and `dialog-default.browser.test.tsx` holds an unmapped `Dialog`'s entry and exit on `cubic-bezier(0.22, 1, 0.36, 1)`.
+
+## 0.15.0
+
+### Minor Changes
+
+- 9a86d64: `CardTitle` reads its weight from the design-token contract's title weight, `--ui-weight-title`, through `font-ui-title`, and falls back to 600, the `font-semibold` it carried before, as `DialogTitle` does. No app maps the token, so every card title draws exactly as before: a snapshot of the title's computed style written before the change still passes. Pulse imports `Card` but draws no `CardTitle`. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+### Patch Changes
+
+- e275448: `card-default.browser.test.tsx` says which apps draw the unmapped card title it holds: pulse and cire, which map no title weight. Musubi maps 500, and the metrics dashboard and the lab draw its 500. The test and its snapshot are unchanged.
+
+## 0.14.0
+
+### Minor Changes
+
+- 5bc7db4: `DialogTitle` reads its weight from the design-token contract's title-weight role, `--ui-weight-title`, through the utility `font-ui-title`, as `Badge` does, and falls back to 600, the `font-semibold` it carried before. The token's comments in `tokens.css` and `index.ts` name both parts that read it. No app maps the token, so pulse's three dialogs, Musubi's and the auth views draw their titles exactly as before; a snapshot of the title's computed style written before the change still passes, and pulse's browser tests check 600 under pulse's own stylesheet. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+  An app that wants its overlays to fade without scaling sets `--ui-scale-enter` and `--ui-scale-exit` to 1. Every Kobalte overlay then changes only its opacity; `Modal`'s exit scale stops too, while its rise and sink stay, and its entry keeps its own `scale(0.98)`, so it still grows as it opens. No component changed for this: the browser tests now prove it, and the design-token wiki page describes it. Default motion is unchanged.
+
+### Patch Changes
+
+- 5684587: `DropdownMenu`'s default separator draws only its 1px hairline. It renders as an `<hr>`, which kept preflight's 1px top border in the panel's ink, and that border covered the hairline in pulse's menus; Musubi's menus look the same as before, because its base styles already painted that border in the hairline colour. In a contrast theme, which replaces the fill with the page colour, the separator draws its top border, so the line still shows there. The accent separator cire's menus draw now does the same in a contrast theme, where it showed no line before; outside one it is unchanged.
+
+## 0.13.0
+
+### Minor Changes
+
+- 2c2906f: A title weight in the token contract, and `Badge` reads it.
+
+  - `@shared/design-tokens`: new role token `--ui-weight-title`, the weight a shared part sets a short title or a tag in, read through the utility `font-ui-title` (`--font-weight-ui-title` in `@theme inline`). It falls back to 600. `CONTRACT_SCALAR_TOKENS.fontWeight` lists it, and the agrees test fails if `tokens.css` does not alias it. The README's contract table gains it, with the `field` and `sheet` radius roles it was missing.
+  - `@shared/ui`: `Badge`'s label reads `font-ui-title` in place of `font-semibold`, so an app sets its weight once with `--ui-weight-title`. No app maps it, so every badge still draws at 600. `Badge`'s props refuse `innerHTML`, `innerText` and `textContent` (`SafeProps`). `Badge` carries no focus classes: a label takes no focus, so it draws no ring and removes no outline. A frozen snapshot of the unmapped badge's computed style, written before the change, holds pulse's look.
+  - `@tools/lab`: `Badges` shows both treatments and gains a treatment control; new `BadgeWeights` shows every badge unmapped and under `--ui-weight-title: 500`, captioned with the computed weight. The theming story's unmapped column also clears the weight token.
+  - `@pulse/web`: the token-contract browser test checks pulse's three badges compute 600 under its own stylesheet.
+
+- 3424e05: `OtpInput` fits a phone, names its boxes from a label, and puts focus where it says.
+
+  - The boxes share the column's width, up to 48px each and 48px tall; from a 328px column up the row is the same six 48px squares, 8px apart. Narrower, the gaps close to 4px before the boxes shrink, so the boxes are 40px wide in a 260px column, and the row still fits a 212px one.
+  - An empty box's edge is the ink at 55%, which reads at 3:1 on a light and a dark ground, and the boxes take the text fields' `field` corner.
+  - New optional `aria-labelledby` (the visible label's id): the group takes the label's name and box N is named "<label> Digit N". Without it the names stay "Verification code" and "Digit N".
+  - New optional `aria-describedby`, set on every box; every box is `aria-invalid` while `status` is `error`.
+  - `autofocus` and the refocus after an error focus box 1 one task later, once it is enabled, so they land when the caller re-enables the boxes in the same run and inside a Kobalte dialog.
+  - Focus draws the text field's 2px `--ui-focus` ring 2px off the ground, with an outline a contrast theme paints on the focused box only; colours fade on the contract's fast step.
+  - The value has no gaps: focus past the first empty box moves to it, typing over a digit replaces it, Backspace, Delete and a cut remove one, and an autofill of the whole code is taken whole (no box has `maxlength`).
+
+  The lab's `shared/ui/forms` group draws it as `Otp`, `OtpStates` and `OtpNarrow`. Musubi's `DESIGN.md` records the boxes' edge and corner, and that a screen gives the code row at least 260px on a phone.
+
+- ae53236: New `Skeleton` (`@shared/ui/ui/skeleton`): the block a list or panel shows in place of each line, row, field, button, card or chip while it loads.
+
+  - `standsFor` names what the block stands in for and sets its corner: `line` (`rounded-ui-sm`), `row` (`rounded-ui-md`, the default and the fallback for an unknown value), `field` (`rounded-ui-field`, the role `Input` and `Select` read), `control` (`rounded-ui-control`, the role `Button` reads), `card` (`rounded-ui-lg`) or `pill` (`rounded-ui-pill`).
+  - `width` and `height` are spacing steps (`48` is 12rem); no width fills the container. Both are always inline, so a caller's `w-*` or `h-*` cannot resize the block. It never runs wider than its container, a numeric width does not shrink in a flex row, and a size that is not a finite number of at least 0 is refused (full width, or a 1rem height).
+  - Every block fills with `--ui-surface-sunk`, with no edge. In a forced-colours theme, which repaints that fill as the page's `Canvas`, it draws a 1px edge the theme paints in its text colour. It pulses on Tailwind's `--animate-pulse` behind `motion-safe:`, so it stands still for a reader who asked for reduced motion.
+  - One `aria-hidden` div with no role and no children; `class` carries placement only, and no other prop reaches it.
+
+  Nothing imports it yet. The lab's `shared/ui/feedback` group draws it as `Skeletons`, `SkeletonGrounds`, `SkeletonInPlace` and `SkeletonPlayground`, and the overview has an entry. The package README's list of primitives names `Skeleton`, `Switch`, `Textarea`, `Label` and `Fieldset`.
+
+## 0.12.0
+
+### Minor Changes
+
+- 3abdb2b: `Button` gains two opt-in props; a button that uses neither draws as before.
+
+  `variant="link" size="inline"` is a link set inside a sentence: underlined at
+  rest, in the sentence's own size, line height and weight, adding no height to
+  the line. An `<a>` wearing `buttonVariants({ variant: "link", size: "inline" })`
+  wraps with the text, and its focus ring closes round each line. A standalone
+  `link` still underlines on hover only.
+
+  `busy` marks a wait the button started. While busy it keeps keyboard focus, sets
+  `aria-busy` and `aria-disabled`, refuses activation (a click, Enter, Space, and
+  the form submission they would make, with or without an `onClick`), dims as a
+  disabled button does except while focused from the keyboard, where it stays at
+  full strength so its focus ring keeps its contrast, and draws the 20px `Orb`
+  before the label the caller passes. The orb loads as a chunk of its own,
+  fetched only by a page holding a `Button` that carries a `busy` prop.
+
+  `ButtonProps` is now a union: `inline` goes with `link` only, and `busy` is not
+  accepted at `icon` or `inline`. A caller holding a variant and a size in
+  variables narrows them per member. The box classes (`inline-flex`, gap, no
+  wrap, type step, weight) move from the base string into each box size; every
+  existing variant and size keeps the same class set, except that `sm` drops the
+  `text-ui-base` its own `text-ui-sm` overrode. No computed style changes.
+
+  The lab's `shared/ui/Button` gains `Inline` and `Busy` stories, and its
+  Playground a `busy` control.
+
+- bceeafe: `Field` takes `labelTreatment`, `"caps"` by default or `"plain"`. A field that
+  does not pass it draws exactly as before, so cire's forms do not change.
+
+  `plain` draws the label as `Label` draws it by default: the words as written,
+  full ink, weight 500, the control type step. The hint, the errors, the gaps and
+  the wiring (`id`, `aria-describedby`, `aria-invalid`) are the same in both, and
+  `labelHidden` wins over either. `Label` and the plain label take their classes
+  from one file, `label-classes.ts`, so the two cannot drift; `Label` draws as
+  before.
+
+  `Field` now reads its `hint` once and holds it, so a hint written as JSX is
+  built once rather than on every read. It still follows a hint that changes or
+  goes away, and the DOM it draws is unchanged.
+
+  The lab's `shared/ui/forms` gains `PlainLabels` and `FieldPlayground`.
+
+- 4ce452e: Add `Orb` (`@shared/ui/ui/orb`): a dotted sphere drawn into a canvas that moves
+  while something is in progress, in one of nine states at 20 or 64px. Its ink
+  is the text colour it inherits, so it reads on whatever ground that text is set
+  for. It moves for five seconds at most, then holds one still frame; it holds
+  that frame from the start under `prefers-reduced-motion: reduce` and follows a
+  change of that preference. It stops drawing off screen and in a hidden tab,
+  keeps every orb on one animation loop and one clock, sizes its bitmap from the
+  box it measures, and caps it at two device pixels per CSS pixel. The canvas is `aria-hidden`; it
+  belongs inside a control whose own label says what is happening. `Button`'s
+  `busy` draws it.
+
+  The drawing engine is upstream's thinking-orbs engine (MIT), vendored byte for
+  byte into `shared/ui/vendor/thinking-orbs/` at a pinned commit. The export
+  points TypeScript at a types-only `src/ui/orb-api.ts`, so a consumer's type
+  check never reads the engine.
+
+  The lab gains `shared/ui/Orb` (`States`, `InButtons`, `Playground`) and an
+  `Orb` row on the `shared/ui` overview.
+
+  `scripts/verify-vendored-anti-slop.sh` becomes `scripts/verify-vendored.sh
+  <tree> [base-ref] [repo-root]`, which checks any vendored tree; CI's
+  `script-tests` job runs it on every tree `scripts/vendored-trees.txt` lists.
+
+## 0.11.1
+
+### Patch Changes
+
+- f2c7a76: Every written motion value left in these packages states its reason, so `house/no-literal-motion` and `scripts/check-motion-literals.ts` pass: `Modal`'s keyword easings, the toast's curves and spinner, pulse's onboarding rings, pin and their staggers, its live and brand pulses, and the landing sites' hovers and reveals, which have no motion tokens. Pulse's own motion now reads the token of its job: the calendar's reminder buttons, the onboarding chips and the explore card lift on `--ui-dur-fast` (120ms), the onboarding step and the header's "Create new event" button and label on `--ui-dur-base` (200ms), and the onboarding progress fill on `--ui-dur-slow`, all on `--ui-ease-out`. The explore card animates `border-color`, `translate` and `box-shadow` by name rather than `transition-all`.
+
+## 0.11.0
+
+### Minor Changes
+
+- d3fe597: Overlays leave faster and smaller than they arrive, and each motion token says what it is for. `tokens.css` adds `--ui-dur-exit` (80ms), `--ui-scale-enter` (0.96), `--ui-scale-exit` (0.98), `--ui-distance-enter` (24px) and `--ui-distance-exit` (8px), each with a one-line job comment, and `CONTRACT_SCALAR_TOKENS.motion` lists them. `animate-out` runs `--ui-dur-exit`; `zoom-in` and `zoom-out` replace `zoom-in-95` and `zoom-out-95` and read the scale tokens. Under `prefers-reduced-motion: reduce`, `animate-in` and `animate-out` run nothing: the old reduced-motion rule matched no overlay, so `Dialog`, `Popover` and the default `DropdownMenu` still moved.
+
+  In `@shared/ui`, `Dialog`, `Popover` and both `DropdownMenu` looks take their scale from the tokens; `Popover`, `Tooltip` and the default menu grow from their trigger. `Tooltip` opens after 400ms, goes at once with no exit (the pointer can still cross onto it), and a neighbour opened within 300ms of another closing carries `data-instant` and does not animate. `Modal` exits in 150ms by default (was 200ms), sinking 8px to 0.98 rather than 24px, and its backdrop fades out with it. Musubi's `DESIGN.md` names the shared overlay motion; the lab's motion story reads the new duration.
+
+## 0.10.3
+
+### Patch Changes
+
+- 6c81633: `Button`, and anything wearing `buttonVariants`, hides its focus outline instead of removing it, so in a Windows contrast theme (forced colours), which drops the focus ring, keyboard focus draws a 2px outline. Outside a contrast theme nothing changes.
+
 ## 0.10.2
 
 ### Patch Changes

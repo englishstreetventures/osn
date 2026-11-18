@@ -9,8 +9,10 @@ import {
 
 describe("refuseUnadopted", () => {
   test("refuses a production resource no step has adopted, and passes an adopted one or any other stage", () => {
-    expect(() => refuseUnadopted("cire-db", "production")).toThrow(ProductionNotAdoptedError);
-    expect(() => refuseUnadopted("cire-db", "production")).toThrow(/PRODUCTION_ADOPTIONS/);
+    expect(() => refuseUnadopted("cire-db-new", "production")).toThrow(ProductionNotAdoptedError);
+    expect(() => refuseUnadopted("cire-db-new", "production")).toThrow(/PRODUCTION_ADOPTIONS/);
+    expect(() => refuseUnadopted("cire-db", "production")).not.toThrow();
+    expect(() => refuseUnadopted("cire-db", "production", [])).toThrow(ProductionNotAdoptedError);
     expect(() => refuseUnadopted("cire-db", "production", ["cire-db"])).not.toThrow();
     expect(() => refuseUnadopted("cire-db", "production", ["cire-db-dev"])).toThrow(
       ProductionNotAdoptedError,

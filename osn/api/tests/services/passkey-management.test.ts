@@ -1,28 +1,23 @@
 import { it, expect, describe } from "@effect/vitest";
-import { passkeys, recoveryCodes, sessions } from "@osn/db/schema";
+import { passkeys, recoveryCodes, securityEvents, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
+import { NO_LIVE_SESSION, stepUpThroughService } from "../helpers/step-up-link";
 
 /** Fresh email recorder + merged test layer. Replaces the old sendEmail callback. */
 function makeEmailCapture() {
   const email = makeLogEmailLive();
   return {
     layer: Layer.merge(createTestLayer(), email.layer),
-    latest: (): string | undefined => {
-      const all = email.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/(\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => email.recorded(),
     all: () => email.recorded(),
   };
 }
@@ -245,7 +240,7 @@ describe("deletePasskey", () => {
       const alice = yield* auth.registerProfile("pk-del-notify@example.com", "pkdelnotify");
       yield* seedPasskey(alice.accountId);
       const toDelete = yield* seedPasskey(alice.accountId);
-      yield* auth.deletePasskey(alice.accountId, toDelete, null);
+      yield* auth.deletePasskey(alice.accountId, toDelete, NO_LIVE_SESSION);
 
       // The notification is forkDaemon'd — wait for the fiber to complete.
       yield* Effect.promise(() => new Promise((r) => setTimeout(r, 50)));
@@ -302,7 +297,7 @@ describe("deletePasskey", () => {
       const alice = yield* auth.registerProfile("pk-last@example.com", "pklast");
       const only = yield* seedPasskey(alice.accountId);
 
-      const err = yield* Effect.flip(auth.deletePasskey(alice.accountId, only, null));
+      const err = yield* Effect.flip(auth.deletePasskey(alice.accountId, only, NO_LIVE_SESSION));
       expect(err._tag).toBe("AuthError");
       expect((err as { message: string }).message).toMatch(/another passkey/i);
 
@@ -326,7 +321,7 @@ describe("deletePasskey", () => {
       // credential. The invariant "every account has ≥1 passkey" holds
       // cradle-to-grave.
       yield* auth.generateRecoveryCodesForAccount(alice.accountId);
-      const err = yield* Effect.flip(auth.deletePasskey(alice.accountId, only, null));
+      const err = yield* Effect.flip(auth.deletePasskey(alice.accountId, only, NO_LIVE_SESSION));
       expect(err._tag).toBe("AuthError");
       expect((err as { message: string }).message).toMatch(/another passkey/i);
 
@@ -341,7 +336,7 @@ describe("deletePasskey", () => {
       const first = yield* seedPasskey(alice.accountId);
       yield* seedPasskey(alice.accountId);
 
-      const result = yield* auth.deletePasskey(alice.accountId, first, null);
+      const result = yield* auth.deletePasskey(alice.accountId, first, NO_LIVE_SESSION);
       expect(result.remaining).toBe(1);
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -352,7 +347,7 @@ describe("deletePasskey", () => {
       const bob = yield* auth.registerProfile("pk-xa2@example.com", "pkxa2");
       const bobPk = yield* seedPasskey(bob.accountId);
 
-      const err = yield* Effect.flip(auth.deletePasskey(alice.accountId, bobPk, null));
+      const err = yield* Effect.flip(auth.deletePasskey(alice.accountId, bobPk, NO_LIVE_SESSION));
       expect(err._tag).toBe("AuthError");
 
       // Bob's row untouched.
@@ -367,7 +362,9 @@ describe("deletePasskey", () => {
   it.effect("rejects malformed passkey ids with AuthError", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-bad@example.com", "pkbad");
-      const err = yield* Effect.flip(auth.deletePasskey(alice.accountId, "not-a-pk-id", null));
+      const err = yield* Effect.flip(
+        auth.deletePasskey(alice.accountId, "not-a-pk-id", NO_LIVE_SESSION),
+      );
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -443,11 +440,11 @@ describe("passkey register step-up gate (S-H1)", () => {
     return Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-add-ok@example.com", "pkaddok");
       yield* seedPasskey(alice.accountId);
-      yield* auth.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         alice.accountId,
-        cap.latest()!,
         "passkey_register",
+        cap.recorded,
       );
       const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
       expect(result.options.challenge).toBeTruthy();
@@ -478,12 +475,12 @@ describe("passkey count cap (MAX_PASSKEYS_PER_ACCOUNT)", () => {
         yield* seedPasskey(alice.accountId);
       }
       // Begin requires step-up once the account has ≥1 passkey.
-      // Mint one via the OTP ceremony.
-      yield* auth.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      // Mint one through the emailed link.
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         alice.accountId,
-        cap.latest()!,
         "passkey_register",
+        cap.recorded,
       );
       const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
       expect(result.options.challenge).toBeTruthy();
@@ -501,7 +498,7 @@ describe("deletePasskey does not touch recovery codes", () => {
       const extra = yield* seedPasskey(alice.accountId);
       yield* auth.generateRecoveryCodesForAccount(alice.accountId);
       const before = yield* auth.countActiveRecoveryCodes(alice.accountId);
-      yield* auth.deletePasskey(alice.accountId, extra, null);
+      yield* auth.deletePasskey(alice.accountId, extra, NO_LIVE_SESSION);
       const after = yield* auth.countActiveRecoveryCodes(alice.accountId);
       expect(after.active).toBe(before.active);
     }).pipe(Effect.provide(createTestLayer())),
@@ -512,3 +509,45 @@ describe("deletePasskey does not touch recovery codes", () => {
 // surface-verification checks.
 void recoveryCodes;
 void sessions;
+
+describe("two deletes of an account's two passkeys at once", () => {
+  it.live("the one that finds its passkey the last is refused, and records nothing", () => {
+    // Red on answering the losing delete as a success: its guarded delete
+    // removes nothing, yet it would record a deletion, mail the owner and
+    // sweep the account's other sessions for a passkey that is still there.
+    const { db, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
+    return Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("pk-race@example.com", "pkrace");
+      const first = yield* seedPasskey(alice.accountId);
+      const second = yield* seedPasskey(alice.accountId);
+
+      const held = queries.hold(/^delete from "passkeys"/);
+      const losing = yield* Effect.forkChild(
+        Effect.result(auth.deletePasskey(alice.accountId, first, NO_LIVE_SESSION)),
+      );
+      yield* Effect.promise(() => held.reached);
+      yield* auth.deletePasskey(alice.accountId, second, NO_LIVE_SESSION);
+      held.release();
+
+      const outcome = yield* Fiber.join(losing);
+      expect(outcome._tag).toBe("Failure");
+      const { db: read } = yield* Db;
+      const left = yield* Effect.promise(() =>
+        read
+          .select({ id: passkeys.id })
+          .from(passkeys)
+          .where(eq(passkeys.accountId, alice.accountId)),
+      );
+      expect(left.map((r) => r.id)).toEqual([first]);
+      const events = yield* Effect.promise(() =>
+        read
+          .select({ kind: securityEvents.kind })
+          .from(securityEvents)
+          .where(eq(securityEvents.accountId, alice.accountId)),
+      );
+      expect(events.filter((e) => e.kind === "passkey_delete")).toHaveLength(1);
+    }).pipe(Effect.provide(layer));
+  });
+});

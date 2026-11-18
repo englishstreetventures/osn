@@ -1,23 +1,35 @@
 import { Db } from "@osn/db/service";
+import type { EmailService } from "@shared/email";
+import { verifyOsnArcToken } from "@shared/osn-auth-client/arc";
+import { clearJwksCache } from "@shared/osn-auth-client/jwks-cache";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 
+import { _resetOutboundKeyForTests } from "../../src/lib/outbound-arc";
 import { createAccountExportRoutes } from "../../src/routes/account-export";
+import { createArcJwksRoutes } from "../../src/routes/arc-jwks";
 import { exportLines, type ExportDownstream } from "../../src/services/account-export";
 import { createAuthService } from "../../src/services/auth";
+import { NO_DELETION_APPS, type DeletionAppsConfig } from "../../src/services/deletion-apps";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+
+/** A test database and mail layer, or one over a held handle of the same shape. */
+type TestLayer = Layer.Layer<Db | EmailService>;
 
 beforeAll(async () => {
   config = await makeTestAuthConfig();
 });
 
-// The step-up token only signs (no Db), so it can run against the ambient
-// runtime. `purpose: account_export` is required by the export verifier.
-async function seed(layer: ReturnType<typeof createTestLayer>) {
+// A step-up token is bound to a live session of the account, which the mint
+// seeds through the test's layer. `purpose: account_export` is required by
+// the export verifier.
+async function seed(layer: TestLayer) {
   const auth = createAuthService(config);
   const profile = await Effect.runPromise(
     auth
@@ -38,28 +50,35 @@ async function seed(layer: ReturnType<typeof createTestLayer>) {
   return { auth, profile, accessToken: tokens.accessToken };
 }
 
-const mintStepUp = (auth: ReturnType<typeof createAuthService>, accountId: string) =>
-  Effect.runPromise(auth.issueStepUpToken(accountId, "otp", "account_export"));
+const mintStepUp = (
+  auth: ReturnType<typeof createAuthService>,
+  accountId: string,
+  layer: TestLayer,
+) =>
+  Effect.runPromise(
+    mintStepUpToken(auth, accountId, "otp", "account_export").pipe(Effect.provide(layer)),
+  );
 
 /** Direct-mode client-IP resolution needs a trusted XFF hop under app.handle. */
 const IP_HEADERS = { "x-forwarded-for": "1.2.3.4" };
 
 function makeApp(
-  layer: ReturnType<typeof createTestLayer>,
+  layer: TestLayer,
   opts: {
     exportLimiter?: RateLimiterBackend;
-    downstreams?: ExportDownstream[];
+    apps?: DeletionAppsConfig;
   } = {},
 ) {
   return createAccountExportRoutes(
     config,
+    { secure: false },
     layer,
     Layer.empty,
     opts.exportLimiter,
     undefined,
     { trustedProxyCount: 1 },
     undefined,
-    opts.downstreams ?? [],
+    opts.apps ?? NO_DELETION_APPS,
   );
 }
 
@@ -90,7 +109,7 @@ describe("GET /account/export — gating", () => {
     const { auth, profile, accessToken } = await seed(layer);
     // A delete-purpose token must not authorise an export.
     const wrongPurpose = await Effect.runPromise(
-      auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+      mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)),
     );
     const app = makeApp(layer);
     const res = await app.handle(
@@ -113,6 +132,37 @@ describe("GET /account/export — gating", () => {
     expect(typeof body.detail?.error).toBe("string");
   });
 
+  it("a database fault while the step-up token's session is checked is a 500, not a step-up refusal", async () => {
+    // Red on the route answering every verifier failure as 403
+    // `step_up_required`: a fault would read as "step up again".
+    const base = createTestLayerWithSqlite();
+    const held = holdQueries(base.db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: held.db }), base.email.layer);
+    const { auth, profile, accessToken } = await seed(layer);
+    const stepUpToken = await mintStepUp(auth, profile.accountId, layer);
+    const app = makeApp(layer);
+    // The verifier's lookup of the token's session family, and no other read.
+    const lookup = held.hold(/"family_id" = \?/);
+    const answered = app.handle(
+      new Request("http://localhost/account/export", {
+        headers: {
+          ...IP_HEADERS,
+          Authorization: `Bearer ${accessToken}`,
+          "x-step-up-token": stepUpToken,
+        },
+      }),
+    );
+    await Promise.race([lookup.reached, answered]);
+    base.sqlite.run("DROP TABLE sessions");
+    lookup.release();
+
+    const res = await answered;
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 500,
+      body: { error: "internal_error" },
+    });
+  });
+
   it("a failed step-up (403) does not consume the 1/24h allowance", async () => {
     const layer = createTestLayer();
     const { auth, profile, accessToken } = await seed(layer);
@@ -132,7 +182,7 @@ describe("GET /account/export — gating", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -149,7 +199,7 @@ describe("GET /account/export — gating", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -161,7 +211,7 @@ describe("GET /account/export — gating", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -176,20 +226,21 @@ describe("GET /account/export — download name", () => {
     const { auth, profile, accessToken } = await seed(layer);
     const app = createAccountExportRoutes(
       { ...config, instanceName },
+      { secure: false },
       layer,
       Layer.empty,
       undefined,
       undefined,
       { trustedProxyCount: 1 },
       undefined,
-      [],
+      NO_DELETION_APPS,
     );
     const res = await app.handle(
       new Request("http://localhost/account/export", {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -226,7 +277,7 @@ describe("GET /account/export — bundle", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -300,7 +351,7 @@ describe("GET /account/export — bundle", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -350,26 +401,21 @@ describe("GET /account/export — bundle", () => {
     // A downstream whose fetch always throws → degraded, not a broken stream.
     const app = createAccountExportRoutes(
       config,
+      { secure: false },
       layer,
       Layer.empty,
       undefined,
       undefined,
       { trustedProxyCount: 1 },
       undefined,
-      [
-        {
-          namespace: "pulse",
-          url: "http://127.0.0.1:0/internal/account-export",
-          audience: "pulse-api",
-        },
-      ],
+      { ...NO_DELETION_APPS, urls: { pulse: "http://127.0.0.1:0" } },
     );
     const res = await app.handle(
       new Request("http://localhost/account/export", {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -466,5 +512,140 @@ describe("GET /account/export — bundle", () => {
     expect(lines.some((l) => l.section === "pulse.events_hosted")).toBe(true);
     expect(lines[lines.length - 1]).toEqual({ end: true });
     await runtime.dispose();
+  });
+});
+
+/**
+ * An app's section arrives whole only when the app can verify osn-api's call
+ * against the key osn-api publishes. The stand-in app verifies the way Pulse
+ * and Zap do, with `verifyOsnArcToken`, against osn-api's own
+ * `GET /.well-known/arc-jwks.json` served from the same database, with the
+ * kid MAC checked under the secret both sides hold.
+ */
+describe("GET /account/export — an app verifies osn-api's call against the published key", () => {
+  const KID_SECRET = "test-internal-secret-of-32-chars!";
+
+  /** osn-api's key set over HTTP, and an app admitting a token only as Pulse and Zap do. */
+  const servers = (layer: TestLayer, appSecret: string | undefined) => {
+    const jwks = createArcJwksRoutes(layer);
+    const issuer = Bun.serve({ port: 0, fetch: (request) => jwks.handle(request) });
+    const verdicts: unknown[] = [];
+    const app = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const verdict = await verifyOsnArcToken(
+          request.headers.get("authorization") ?? undefined,
+          { osnIssuer: `http://localhost:${issuer.port}`, kidSecret: appSecret },
+          {
+            audience: "zap-api",
+            scope: "account:export",
+            allowedScopes: new Set(["account:export"]),
+          },
+        );
+        verdicts.push(verdict);
+        if (!verdict.ok) return new Response("refused", { status: 401 });
+        return new Response(
+          `${JSON.stringify({ section: "zap.chats", record: { chatId: "c1" } })}\n`,
+        );
+      },
+    });
+    return {
+      appUrl: `http://localhost:${app.port}`,
+      verdicts,
+      stop: () => {
+        void app.stop(true);
+        void issuer.stop(true);
+      },
+    };
+  };
+
+  const exportWith = async (appSecret: string | undefined) => {
+    // A key another test published went to another database.
+    _resetOutboundKeyForTests();
+    clearJwksCache();
+    const layer = createTestLayer();
+    const { auth, profile, accessToken } = await seed(layer);
+    const running = servers(layer, appSecret);
+    try {
+      const app = makeApp(layer, {
+        apps: {
+          ...NO_DELETION_APPS,
+          urls: { zap: running.appUrl },
+          arc: { kidSecret: KID_SECRET },
+        },
+      });
+      const res = await app.handle(
+        new Request("http://localhost/account/export", {
+          headers: {
+            ...IP_HEADERS,
+            Authorization: `Bearer ${accessToken}`,
+            "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
+          },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const lines = (await res.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      return { lines, verdicts: running.verdicts };
+    } finally {
+      running.stop();
+      _resetOutboundKeyForTests();
+    }
+  };
+
+  it("the app's section arrives undegraded, its kid's MAC checked", async () => {
+    const { lines, verdicts } = await exportWith(KID_SECRET);
+    expect(verdicts).toEqual([{ ok: true }]);
+    expect(lines.filter((line) => "degraded" in line)).toEqual([]);
+    expect(lines).toContainEqual({ section: "zap.chats", record: { chatId: "c1" } });
+  });
+
+  it("an app holding another secret refuses the kid, and the section is degraded", async () => {
+    const { lines, verdicts } = await exportWith("another-secret-also-of-32-characters");
+    expect(verdicts).toEqual([{ ok: false, reason: "unknown_issuer" }]);
+    expect(lines).toContainEqual({ degraded: "zap", reason: expect.any(String) });
+  });
+});
+
+describe("GET /account/export — the apps a tier names", () => {
+  it("names a deployed tier's app with no address as not configured, and leaves out an app it does not run", async () => {
+    const layer = createTestLayer();
+    const { auth, profile, accessToken } = await seed(layer);
+    const fetched = vi.spyOn(globalThis, "fetch");
+    try {
+      const app = makeApp(layer, {
+        apps: {
+          ...NO_DELETION_APPS,
+          local: false,
+          arc: { kidSecret: "s" },
+          urls: {},
+          absent: new Set(["pulse"]),
+        },
+      });
+      const res = await app.handle(
+        new Request("http://localhost/account/export", {
+          headers: {
+            ...IP_HEADERS,
+            Authorization: `Bearer ${accessToken}`,
+            "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
+          },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const lines = (await res.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(lines).toContainEqual({ degraded: "zap", reason: "not_configured" });
+      expect(lines.some((line) => line.degraded === "pulse")).toBe(false);
+      expect(
+        lines.some((line) => typeof line.section === "string" && line.section.startsWith("pulse.")),
+      ).toBe(false);
+      expect(fetched).not.toHaveBeenCalled();
+    } finally {
+      fetched.mockRestore();
+    }
   });
 });

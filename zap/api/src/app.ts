@@ -65,7 +65,7 @@ export function createApp(options: AppOptions = {}) {
       .use(healthRoutes({ serviceName: SERVICE_NAME }))
       .get("/", () => ({ status: "ok", service: SERVICE_NAME }))
       .use(createChatsRoutes(dbLayer, verification, undefined, rateLimiters))
-      .use(createInternalRoutes(dbLayer))
+      .use(createInternalRoutes(dbLayer, verification))
   );
 }
 

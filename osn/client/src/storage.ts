@@ -34,10 +34,10 @@ export const StorageLive = Layer.succeed(Storage, {
 
 /**
  * In-memory `Storage` layer: persists nothing past the process, so nothing
- * written through it ever reaches disk. Used on iOS to keep the auth session
- * out of `localStorage` (the app has no other way to persist across a cold
- * start there — see `bootstrapFromCookie`), and in tests for isolation.
- * Each call returns a fresh, independent store.
+ * written through it ever reaches disk. Used on iOS to keep even the stored
+ * account (no token: `StoredAccount`) out of `localStorage` (a cold start
+ * there rebuilds from the cookie — see `bootstrapFromCookie`), and in tests
+ * for isolation. Each call returns a fresh, independent store.
  */
 export function createEphemeralStorage(): Layer.Layer<Storage> {
   const store = new Map<string, string>();

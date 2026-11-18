@@ -124,6 +124,7 @@ export function renderOrganiserPage(opts: PageOptions): OrganiserPage {
           onWedding={() => {}}
           onAll={() => {}}
           onSecurity={() => {}}
+          onRemoveData={() => {}}
           onSignOut={() => {}}
           onOpenPalette={() => {}}
         />

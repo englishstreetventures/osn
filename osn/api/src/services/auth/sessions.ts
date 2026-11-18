@@ -8,7 +8,23 @@ import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { rowsChanged } from "@shared/db-utils";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
-import { and, desc, eq, gt, gte, inArray, lt, notExists, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  exists,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  not,
+  notExists,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { Effect } from "effect";
 
 import { canBatch } from "../../lib/batch";
@@ -18,6 +34,7 @@ import {
   metricSessionSecurityInvalidation,
   withSessionOp,
 } from "../../metrics";
+import { accountHasJobPredatingRestoreRecord } from "../deletion-job-shape";
 import { MAX_SESSIONS_PER_ACCOUNT, ROTATION_GRACE_MS } from "./constants";
 import { AuthError, DatabaseError } from "./errors";
 import { deriveSessionBinding, hashSessionToken, sessionHandleFromHash } from "./helpers";
@@ -92,6 +109,25 @@ export const inLiveFamilyOf = (db: DbService["db"], sessionHash: string) =>
   inArray(sessions.familyId, liveFamilyOf(db, sessionHash));
 
 /**
+ * True when `sessionHash` was rotated out longer than `ROTATION_GRACE_MS` ago
+ * and its rotation record is live: a replay of a token its device has moved
+ * on from. Reads `rotated_sessions` only, so a delete of `sessions` can use it.
+ */
+const rotatedOutPastGrace = (db: DbService["db"], sessionHash: string, nowMs: number) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(rotatedSessions)
+      .where(
+        and(
+          eq(rotatedSessions.tokenHash, sessionHash),
+          gt(rotatedSessions.expiresAt, nowMs),
+          lte(rotatedSessions.rotatedAt, nowMs - ROTATION_GRACE_MS),
+        ),
+      ),
+  );
+
+/**
  * Finds the session id whose per-profile binding equals `sessionBinding`.
  *
  * The comparison is constant-time even though the presented value arrives
@@ -114,29 +150,46 @@ export function createSessionsModule() {
   /**
    * Ends the device a session token belongs to: every session of its family,
    * found from the live session or from the token's live rotation record
-   * (see {@link familyOf}). Used by the `/logout` endpoint. One statement, so
-   * a refresh of the same token in another tab, whether it finished before
-   * the delete or is in flight when the delete runs, leaves no session of the
-   * device behind.
+   * (see {@link familyOf}). One statement, so a refresh of the same token in
+   * another tab, whether it finished before the delete or is in flight when
+   * the delete runs, leaves no session of the device behind.
    *
    * A token no live session holds, found through a rotation record written
    * longer than `ROTATION_GRACE_MS` ago, is a replay of a token its device has
-   * moved on from, and counts as reuse as it does at `/token`: the
-   * `reuse_detected` metric, then `family_revoked` and a warning when the
-   * delete removed a session, or an info line when none was left. No line
-   * names the account, the family or the token. The family's rotation records
-   * go with it, so one token counts as reuse once. Inside the window it is the
+   * moved on from, and counts as reuse as it does at `/token`. When this
+   * request's delete removed a session, `family_revoked` and a warning. Then
+   * the family's rotation records are deleted, and the request whose delete
+   * removes them counts `reuse_detected` (with an info line when its own
+   * delete found no session left), so two requests replaying one token at once
+   * count it once. Each line says which request found it (`at`); none names
+   * the account, the family or the token. A records delete that fails is
+   * logged on its own: the family's sessions are already gone, and a later
+   * replay of the token counts the reuse. Inside the window it is the
    * device's own race with its refresh, and nothing is counted.
+   *
+   * A sign-in (`at` is `"sign-in"`) leaves live, and marks `replaced_at`, the
+   * family of an account whose pending deletion job predates the restore
+   * record (`deletion-job-shape.ts`): that account has no credential left, so
+   * the session its deletion kept is its only way to cancel. Marked, the
+   * family renews only for its own account's profiles. A token rotated out
+   * past the grace window is still a replay, and reuse ends the family here
+   * as it would at `/token`. Every other family ends, an account scheduled
+   * for deletion since restore records exist included: it can sign in again.
+   * The spare goes with englishstreetventures/osn#2299.
    *
    * Silently succeeds when the token names nothing (idempotent — don't leak
    * whether a session was valid). Otherwise the family's rotation records
    * stay, as a revoke by handle leaves them.
    */
-  const invalidateSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
+  const endFamilyOfToken = (
+    sessionToken: string,
+    at: "logout" | "sign-in",
+  ): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const sessionId = hashSessionToken(sessionToken);
       const { db } = yield* Db;
       const nowMs = Date.now();
+      const sparesLegacyCancelHandle = at === "sign-in";
       // The token's live rotation record, when no live session holds its hash.
       // Read before the delete, which removes the live session of a token
       // still in use.
@@ -162,50 +215,112 @@ export function createSessionsModule() {
         .limit(1);
       const removal = db
         .delete(sessions)
-        .where(inArray(sessions.familyId, familyOf(db, sessionId, nowMs)));
+        .where(
+          and(
+            inArray(sessions.familyId, familyOf(db, sessionId, nowMs)),
+            sparesLegacyCancelHandle
+              ? or(
+                  not(accountHasJobPredatingRestoreRecord(db, sessions.accountId)),
+                  rotatedOutPastGrace(db, sessionId, nowMs),
+                )
+              : undefined,
+          ),
+        );
+      // The handle the sign-in spares, marked replaced: it renews from now on
+      // only for its own account's profiles (`refreshTokens`), whatever
+      // becomes of the deletion. Exactly the rows the delete above spares.
+      const mark = db
+        .update(sessions)
+        .set({
+          replacedAt: sql<number>`coalesce(${sessions.replacedAt}, ${Math.floor(nowMs / 1000)})`,
+        })
+        .where(
+          and(
+            inArray(sessions.familyId, familyOf(db, sessionId, nowMs)),
+            accountHasJobPredatingRestoreRecord(db, sessions.accountId),
+            not(rotatedOutPastGrace(db, sessionId, nowMs)),
+          ),
+        );
       const { record, removed } = yield* Effect.tryPromise({
         try: async () => {
           // One batch on D1, so one request and one transaction, over the two
           // tables the delete's own lookup reads.
           if (canBatch(db)) {
+            if (sparesLegacyCancelHandle) {
+              const [records, , result] = await db.batch([rotatedOut, mark, removal]);
+              return { record: records[0], removed: rowsChanged(result) };
+            }
             const [records, result] = await db.batch([rotatedOut, removal]);
             return { record: records[0], removed: rowsChanged(result) };
           }
           // In turn on bun:sqlite, where a failed read loses only the reuse
-          // signal, never the logout.
+          // signal, never the delete.
           const records = await rotatedOut.then(
             (rows) => rows,
             () => [],
           );
+          if (sparesLegacyCancelHandle) await mark;
           return { record: records[0], removed: rowsChanged(await removal) };
         },
         catch: (cause) => new DatabaseError({ cause }),
       });
       if (record === undefined || nowMs - record.rotatedAt < ROTATION_GRACE_MS) return;
 
-      metricSessionReuseDetected();
       if (removed > 0) {
         metricSessionFamilyRevoked();
-        yield* Effect.logWarning("Session token reuse detected at logout — family revoked");
-      } else {
-        yield* Effect.logInfo(
-          "Session token reuse detected at logout — no session of the family was left",
-        );
+        yield* Effect.logWarning(`Session token reuse detected at ${at} — family revoked`);
       }
       // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .delete(rotatedSessions)
-            .where(
-              and(
-                eq(rotatedSessions.accountId, record.accountId),
-                eq(rotatedSessions.familyId, record.familyId),
+      // No cause in the line: a database error's text carries the ids.
+      const recordsRemoved = yield* Effect.tryPromise({
+        try: async () =>
+          rowsChanged(
+            await db
+              .delete(rotatedSessions)
+              .where(
+                and(
+                  eq(rotatedSessions.accountId, record.accountId),
+                  eq(rotatedSessions.familyId, record.familyId),
+                ),
               ),
-            ),
+          ),
         catch: (cause) => new DatabaseError({ cause }),
-      });
+      }).pipe(
+        Effect.catch(() =>
+          Effect.logError(
+            "Session token reuse: the family's rotation records could not be removed",
+          ).pipe(Effect.map(() => 0)),
+        ),
+      );
+      if (recordsRemoved === 0) return;
+      metricSessionReuseDetected();
+      if (removed === 0) {
+        yield* Effect.logInfo(
+          `Session token reuse detected at ${at} — no session of the family was left`,
+        );
+      }
     });
+
+  /** `POST /logout`: ends the device the cookie's token belongs to ({@link endFamilyOfToken}). */
+  const invalidateSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
+    endFamilyOfToken(sessionToken, "logout");
+
+  /**
+   * A route that has just issued a new session ends the device the request's
+   * own session cookie named ({@link endFamilyOfToken}). The browser drops that
+   * cookie when the new one lands, and a renewal sent with it before the
+   * sign-in can answer after it: ending the family leaves that answer's
+   * rotated cookie naming no session, so the next renewal with it is refused
+   * rather than acting as whoever held the old cookie. Every new session has
+   * a family of its own, so this never ends the session the request issued.
+   * That holds for an account scheduled for deletion too, which can sign in
+   * again (passkey, recovery code, or email or authenticator recovery followed
+   * by a passkey enrolment; cross-device sign-in refuses it) to a session that
+   * can still cancel; the one exception is a job from before restore records
+   * existed, whose handle is spared and marked ({@link endFamilyOfToken}).
+   */
+  const endReplacedSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
+    endFamilyOfToken(sessionToken, "sign-in").pipe(Effect.withSpan("auth.session.end_replaced"));
 
   /**
    * The account's live session ids, most recently used first.
@@ -254,8 +369,8 @@ export function createSessionsModule() {
     }).pipe(Effect.withSpan("auth.session.resolve_binding"));
 
   /**
-   * Names the caller's own live session for the paths that revoke every
-   * OTHER session on the account (passkey register and passkey delete). Both
+   * Names the caller's own session for the paths that revoke every OTHER
+   * session on the account (passkey register and passkey delete). Both
    * inputs are server-derived: the hash comes from the HttpOnly cookie, the
    * binding from the signed access token. Neither is ever read from the
    * request body, so a caller cannot name someone else's session as its own
@@ -268,20 +383,9 @@ export function createSessionsModule() {
    * sign-you-out-everywhere failure the binding exists to prevent, reached
    * through a stale cookie instead of a missing one. Checking membership
    * costs nothing extra: the fallback already reads these rows.
-   */
-  const resolveCallerSession = (
-    accountId: string,
-    profileId: string,
-    caller: { cookieSessionHash?: string | null; sessionBinding?: string | null },
-  ): Effect.Effect<string | null, DatabaseError, Db> =>
-    classifyCallerSession(accountId, profileId, caller).pipe(
-      Effect.map((r) => (r._tag === "resolved" ? r.sessionHash : null)),
-    );
-
-  /**
-   * The three-way classification behind {@link resolveCallerSession}, for the
-   * destructive "revoke every OTHER session" paths (passkey register/delete)
-   * that must NOT degrade to an account-wide wipe on ambiguity:
+   *
+   * Three answers, because these paths must NOT degrade to an account-wide
+   * wipe on ambiguity:
    *
    *  - `resolved`  — a cookie or `osn_sid` binding names a live session. Keep
    *    it, revoke the rest.
@@ -312,6 +416,64 @@ export function createSessionsModule() {
       if (bound) return { _tag: "resolved", sessionHash: bound } as const;
       return { _tag: "stale" } as const;
     }).pipe(Effect.withSpan("auth.session.classify_caller"));
+
+  /**
+   * The caller's live, ordinary session on the account — its hash and its
+   * family — or null: the row its session cookie names, else the row its
+   * access token's `osn_sid` binding names, provided that row belongs to this
+   * account, is unrestricted and is not yet expired. Both inputs are server-derived: the hash from the
+   * HttpOnly cookie, the binding from the signed token.
+   *
+   * Stricter than {@link classifyCallerSession}, which counts every row of the
+   * account. Here a restricted recovery row counts for nothing, since such a
+   * session may only enrol a passkey and must never mint a step-up token or
+   * an ordinary access token, and neither does a row past its `expires_at`,
+   * which nothing deletes the moment it lapses.
+   *
+   * The cookie is read as well as the binding because each browser tab keeps
+   * its own access token while sharing the cookie: a renewal in one tab
+   * deletes the row another tab's token is bound to, and the cookie names the
+   * row that replaced it. A caller presenting neither holds nothing to check
+   * and gets null without a read.
+   */
+  const resolveLiveOrdinarySession = (
+    accountId: string,
+    profileId: string,
+    caller: { cookieSessionHash: string | null; sessionBinding: string | null },
+  ): Effect.Effect<{ sessionHash: string; familyId: string } | null, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { cookieSessionHash, sessionBinding } = caller;
+      if (!cookieSessionHash && !sessionBinding) return null;
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1000);
+      // Same window as `liveSessionIds`: newest first, so the caller's own
+      // row (recently used by definition) sits inside the cap.
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ id: sessions.id, familyId: sessions.familyId })
+            .from(sessions)
+            .where(
+              and(
+                eq(sessions.accountId, accountId),
+                isNull(sessions.restrictedUntil),
+                gt(sessions.expiresAt, nowSec),
+              ),
+            )
+            .orderBy(desc(sessions.lastUsedAt))
+            .limit(MAX_SESSIONS_PER_ACCOUNT),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const ids = rows.map((row) => row.id);
+      const hash =
+        cookieSessionHash && ids.includes(cookieSessionHash)
+          ? cookieSessionHash
+          : sessionBinding
+            ? matchBinding(ids, profileId, sessionBinding)
+            : null;
+      const row = hash === null ? undefined : rows.find((r) => r.id === hash);
+      return row ? { sessionHash: row.id, familyId: row.familyId } : null;
+    }).pipe(Effect.withSpan("auth.session.check_live"));
 
   /**
    * Invalidates all sessions for an account EXCEPT the device of the one
@@ -519,9 +681,10 @@ export function createSessionsModule() {
 
   return {
     invalidateSession,
+    endReplacedSession,
     resolveSessionByBinding,
-    resolveCallerSession,
     classifyCallerSession,
+    resolveLiveOrdinarySession,
     invalidateOtherAccountSessions,
     listAccountSessions,
     revokeAccountSession,

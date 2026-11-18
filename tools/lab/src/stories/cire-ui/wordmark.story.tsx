@@ -21,7 +21,7 @@ function themesFor(choice: ThemeChoice): CireTheme[] {
  */
 const PORTAL_MOTION: JSX.CSSProperties = {
   "--dur-fast": "120ms",
-  "--ease-out": "cubic-bezier(0.22, 1, 0.36, 1)",
+  "--ease-out": "cubic-bezier(0.23, 1, 0.32, 1)",
 };
 
 /** A wrapper that carries cire's whole `--ui-*` mapping for one theme. */

@@ -15,7 +15,12 @@
  * name with the portal's, and the two pages differ only in that name.
  */
 import { eyebrowClass } from './eyebrow'
-import { signInCardClass } from './sign-in-card-class'
+import {
+  signInCardClass,
+  signInFrameClass,
+  signInHeaderClass,
+  signInTitleClass,
+} from './sign-in-card-class'
 import SignInPanel from './sign-in-panel'
 
 interface Props {
@@ -31,10 +36,10 @@ const LABEL = {
   vendor: "Cire · Vendor portal",
 } as const satisfies Record<Props['portal'], string>
 ---
-<main class="page-frame py-24 [--page-max:30rem]">
-  <header class="mb-8 flex flex-col gap-1.5 text-center">
+<main class={signInFrameClass}>
+  <header class={signInHeaderClass}>
     <p class={eyebrowClass()}>{LABEL[portal]}</p>
-    <h1 class="font-ui-display text-ui-ink text-[clamp(1.9rem,5cqi,2.6rem)] leading-ui-none font-light">
+    <h1 class={`${signInTitleClass} leading-ui-none`}>
       Sign in
     </h1>
   </header>

@@ -54,9 +54,13 @@ describe("CloudflareEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "link-email-change",
           to: "alice@example.com",
-          data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+          data: {
+            url: "https://musubi.example/verify#000000",
+            ttlMinutes: 10,
+            instanceName: "Musubi",
+          },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -76,7 +80,7 @@ describe("CloudflareEmailLive", () => {
     };
     expect(payload.to).toEqual([{ email: "alice@example.com" }]);
     expect(payload.from).toEqual({ email: "noreply@osn.test" });
-    expect(payload.subject).toBe("Verify your Musubi email");
+    expect(payload.subject).toBe("Confirm your new Musubi email");
     expect(payload.text).toContain("000000");
     expect(payload.html).toContain("000000");
   });
@@ -104,9 +108,13 @@ describe("CloudflareEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-step-up",
+        template: "link-email-change",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 5, instanceName: "Musubi" },
+        data: {
+          url: "https://musubi.example/verify#000000",
+          ttlMinutes: 5,
+          instanceName: "Musubi",
+        },
       },
       "rate_limited",
     );
@@ -140,9 +148,13 @@ describe("CloudflareEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-registration",
+        template: "link-email-change",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+        data: {
+          url: "https://musubi.example/verify#000000",
+          ttlMinutes: 10,
+          instanceName: "Musubi",
+        },
       },
       "dispatch_failed",
     );
@@ -152,9 +164,9 @@ describe("CloudflareEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-registration",
+        template: "link-email-change",
         to: "alice@example.com",
-        data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
+        data: { url: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
       },
       "render_failed",
     );
@@ -185,9 +197,13 @@ describe("CloudflareEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "link-email-change",
           to: "alice@example.com",
-          data: { code: "999888", ttlMinutes: 10, instanceName: "Musubi" },
+          data: {
+            url: "https://musubi.example/verify#999888",
+            ttlMinutes: 10,
+            instanceName: "Musubi",
+          },
         });
       }).pipe(Effect.provide(layer)),
     );

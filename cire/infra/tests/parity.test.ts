@@ -8,6 +8,7 @@ import { cireDeclaration, GUEST_OBSERVABILITY } from "../src/declaration";
 import {
   DEV_DOMAIN,
   evaluateCire,
+  productionEnv,
   removeEvaluations,
   resourcesOf,
   stackEnv,
@@ -30,10 +31,18 @@ interface WranglerTier {
   readonly vars: Readonly<Record<string, string>>;
   readonly durable_objects: { readonly bindings: readonly DurableObjectBinding[] };
   readonly unsafe: { readonly bindings: readonly UnsafeBinding[] };
-  readonly d1_databases: readonly { readonly binding: string }[];
-  readonly r2_buckets: readonly { readonly binding: string }[];
+  readonly d1_databases: readonly { readonly binding: string; readonly database_name: string }[];
+  readonly r2_buckets: readonly { readonly binding: string; readonly bucket_name: string }[];
   readonly images: { readonly binding: string };
   readonly triggers: { readonly crons: readonly string[] };
+  readonly routes: readonly { readonly pattern: string; readonly custom_domain: boolean }[];
+  readonly observability: {
+    readonly enabled: boolean;
+    readonly head_sampling_rate: number;
+    readonly redact_query_string: boolean;
+    readonly traces: { readonly enabled: boolean };
+    readonly logs: { readonly invocation_logs: boolean };
+  };
 }
 
 interface WranglerConfig {
@@ -60,6 +69,7 @@ const invitesWrangler = Bun.JSONC.parse(readRepo("cire/invites/wrangler.jsonc"))
     readonly logs: { readonly invocation_logs: boolean };
     readonly traces: { readonly enabled: boolean; readonly head_sampling_rate: number };
   };
+  readonly routes: readonly { readonly pattern: string; readonly custom_domain: boolean }[];
 };
 
 /** Binding, var and secret names cire-api holds on dev and not on production, each with why. */
@@ -76,6 +86,8 @@ const PRODUCTION_ONLY: Readonly<Record<string, string>> = {
   ZAP_API_URL:
     "dev does not call zap: unset, the enquiry chat bridge is off and no vendor mail is sent",
   GROWTHBOOK_CLIENT_KEY: "dev has no GrowthBook key; every flag serves its coded default",
+  CIRE_OPS_EMAIL:
+    "dev sends no operator alerts: the address is unset there (tests/reads.test.ts, UNSET_ON_DEV)",
 };
 
 /** Keys of `cire/invites/wrangler.jsonc` that declare no var, binding or secret. */
@@ -176,6 +188,100 @@ describe("cire on dev against Wrangler's production config", () => {
       flags: invitesWrangler.compatibility_flags,
     });
     expect(resources.CireInvites?.Props.crons).toEqual([]);
+  });
+});
+
+describe("PA: cire on production against Wrangler's production config", () => {
+  let production: Evaluation;
+
+  beforeAll(async () => {
+    production = await evaluateCire({ stage: "production", env: productionEnv() });
+  });
+
+  test("PA1: cire-api's vars equal [env.production]'s exactly, and it uploads no secret", () => {
+    const env = resourcesOf(production).CireApi?.Props.env ?? {};
+    const vars = Object.fromEntries(
+      Object.entries(env).filter(([, value]) => typeof value === "string"),
+    );
+    expect(vars).toEqual(wrangler.env.production.vars);
+    for (const name of [
+      ...tierSecrets("cire-api", "production").secrets,
+      ...tierSecrets("cire-api", "production").optional,
+    ]) {
+      expect(env).not.toHaveProperty(name);
+    }
+  });
+
+  test("PA2: cire-api's bindings are [env.production]'s: the database and buckets by name, the Images binding, the realtime hub's class, and each limiter's id and budget", () => {
+    const production_ = wrangler.env.production;
+    const env = resourcesOf(production).CireApi?.Props.env ?? {};
+    const resources = resourcesOf(production);
+    const [database] = production_.d1_databases;
+    expect(env.DB).toBe(resources.CireDb);
+    expect(resources.CireDb?.Props.name).toBe(database?.database_name);
+    for (const bucket of production_.r2_buckets) {
+      const id = bucket.binding === "ASSETS" ? "CireAssets" : "CireSheets";
+      expect(env[bucket.binding]).toBe(resources[id]);
+      expect(resources[id]?.Props.name).toBe(bucket.bucket_name);
+    }
+    expect(env[production_.images.binding]).toMatchObject({ kind: "Cloudflare.Images.Images" });
+    for (const binding of production_.durable_objects.bindings) {
+      expect({ [binding.name]: env[binding.name] }).toMatchObject({
+        [binding.name]: { kind: "Cloudflare.DurableObject", className: binding.class_name },
+      });
+    }
+    for (const limiter of production_.unsafe.bindings.filter((b) => b.type === "ratelimit")) {
+      expect({ [limiter.name]: env[limiter.name] }).toMatchObject({
+        [limiter.name]: {
+          kind: "Cloudflare.RateLimit",
+          namespaceId: limiter.namespace_id,
+          simple: limiter.simple,
+        },
+      });
+    }
+    const names = Object.keys(env).toSorted();
+    expect(names).toEqual(
+      [
+        ...Object.keys(production_.vars),
+        ...production_.d1_databases.map((d) => d.binding),
+        ...production_.r2_buckets.map((b) => b.binding),
+        production_.images.binding,
+        ...production_.durable_objects.bindings.map((b) => b.name),
+        ...production_.unsafe.bindings.map((b) => b.name),
+      ].toSorted(),
+    );
+  });
+
+  test("PA3: cire-api's domain, crons, compatibility and observability are [env.production]'s, plus legacy_module_registry", () => {
+    const props = resourcesOf(production).CireApi?.Props;
+    const production_ = wrangler.env.production;
+    expect(production_.routes).toEqual([{ pattern: props?.domain, custom_domain: true }]);
+    expect(props?.crons).toEqual(production_.triggers.crons);
+    expect(props?.compatibility).toEqual({
+      date: wrangler.compatibility_date,
+      flags: [...wrangler.compatibility_flags, "legacy_module_registry"],
+    });
+    expect(props?.observability).toEqual({
+      enabled: production_.observability.enabled,
+      headSamplingRate: production_.observability.head_sampling_rate,
+      redactQueryString: production_.observability.redact_query_string,
+      logs: { enabled: true, invocationLogs: production_.observability.logs.invocation_logs },
+      traces: { enabled: production_.observability.traces.enabled },
+      // Workers Issues is not in the file: declared on, as on dev; the live read lists any difference.
+      issues: { enabled: true },
+    });
+  });
+
+  test("PA4: the guest Worker serves wrangler.jsonc's route with its own flags, binds nothing and uploads no secret", () => {
+    const props = resourcesOf(production).CireInvites?.Props;
+    expect(invitesWrangler.routes).toEqual([{ pattern: props?.domain, custom_domain: true }]);
+    expect(props?.compatibility).toEqual({
+      date: invitesWrangler.compatibility_date,
+      flags: invitesWrangler.compatibility_flags,
+    });
+    expect(props?.env).toEqual({});
+    expect(props?.crons).toEqual([]);
+    expect(props?.bundle).toBe(false);
   });
 });
 

@@ -1,14 +1,15 @@
 import { DbLive } from "@osn/db/service";
 import { initObservability, PrettyLoggerLive } from "@shared/observability";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
 import { createInMemoryCoordination } from "./lib/coordination/memory";
 import { selectEmailLayer } from "./lib/email-layer";
-import { startOutboundKeyRotation } from "./lib/outbound-arc";
-import * as accountErasure from "./services/account-erasure";
-import { runRotatedSessionSweep } from "./services/auth/tokens";
+import { keepSentClientAddress, type RequestAddress } from "./lib/local-client-address";
+import { DELETION_SWEEP_DEFAULT_MAX_JOBS, deletionSweepMaxJobs } from "./services/account-erasure";
+import { frontendOrigin } from "./services/auth/helpers";
+import { runLocalSweeps } from "./services/sweeps";
 
 export { SERVICE_NAME };
 export const port = Number(process.env.PORT) || 4000;
@@ -77,20 +78,40 @@ export async function buildAppDeps_Bun(): Promise<
 }
 
 /**
- * Bun-only startup side effects: bind the port, warn about ephemeral keys, kick
- * off outbound ARC key rotation, and start the account-erasure sweeper. Kept
+ * Bun-only startup side effects: bind the port, warn about ephemeral keys, and
+ * start the account-erasure sweeper. Kept
  * out of `app.ts` (the pure factory) and out of the Workers path entirely (the
  * Workers entry moves the sweeper to a cron `scheduled` handler).
  */
 export function startBunServer(
   app: App,
-  built: Pick<BuiltDeps, "jwtEphemeral" | "envNonLocal" | "trustedProxyCountUnconfigured"> & {
+  built: Pick<
+    BuiltDeps,
+    "deps" | "jwtEphemeral" | "envNonLocal" | "trustedProxyCountUnconfigured"
+  > & {
     observabilityLayer: Layer.Layer<never>;
   },
 ): void {
   const { observabilityLayer, jwtEphemeral, envNonLocal, trustedProxyCountUnconfigured } = built;
 
-  app.listen({ port, reusePort: false });
+  // Unset, the server listens on every interface, as under `bun run dev`. The
+  // E2E stack names a loopback address: the secrets it hands this server are
+  // committed placeholders, so no other machine may reach it.
+  const hostname = process.env.OSN_LOCAL_HOSTNAME || undefined;
+  app.listen({ hostname, port, reusePort: false });
+  // Only the E2E stack sets this, and only on a local server: the routes'
+  // per-address limiters then key on a `cf-connecting-ip` the request sends,
+  // so a flow can spend its own windows (`keepSentClientAddress`).
+  const keepSentAddress = process.env.OSN_E2E_CLIENT_ADDRESS === "1" && !envNonLocal;
+  if (keepSentAddress && app.server) {
+    const server = app.server;
+    // The socket peer, read through the server's own method as it stands
+    // before the swap below (a closure over `server.requestIP` would call the
+    // swapped one and never return).
+    const socketPeer = server.requestIP.bind(server);
+    const peer = (request: Request): RequestAddress => socketPeer(request);
+    server.requestIP = keepSentClientAddress(peer);
+  }
   void Effect.runPromise(
     Effect.gen(function* () {
       if (jwtEphemeral) {
@@ -106,6 +127,11 @@ export function startBunServer(
           "TRUSTED_PROXY_COUNT is unset — rate limiting will key off the socket peer (direct mode). If @osn/api sits behind a reverse proxy / load balancer, set TRUSTED_PROXY_COUNT to the number of trusted hops so x-forwarded-for is honoured spoof-safely.",
         );
       }
+      if (keepSentAddress) {
+        yield* Effect.logWarning(
+          "OSN_E2E_CLIENT_ADDRESS=1: rate limits key on a sent cf-connecting-ip. For the E2E stack only.",
+        );
+      }
       yield* Effect.logInfo("osn-app listening");
     }).pipe(
       Effect.annotateLogs({ port: String(port), service: SERVICE_NAME }),
@@ -114,39 +140,44 @@ export function startBunServer(
     ),
   );
 
-  // Outbound ARC key registration with downstream services. Used by the
-  // account-erasure fan-out to call Pulse / Zap `/internal/account-deleted`.
-  // Falls through gracefully in local dev when downstreams aren't up yet.
-  void startOutboundKeyRotation({
-    pulseApiUrl: process.env.PULSE_API_URL,
-    zapApiUrl: process.env.ZAP_API_URL,
-    internalServiceSecret: process.env.INTERNAL_SERVICE_SECRET,
-    osnEnv: process.env.OSN_ENV,
-  }).catch(() => undefined);
-
-  // Hard-delete + fan-out retry + rotated-session sweeper. Single-instance —
-  // a multi-instance deploy would need a lock; for now the fixed 6-hour cadence
-  // + idempotent per-row writes keep multi-instance safe enough that a stray
-  // double-pass is a non-event. (The Workers entry runs the same sweeps on a
-  // cron.)
+  // Fan-out retry, hard-delete, OIDC code, rotated-session and retention sweeper.
+  // Single-instance — a multi-instance deploy would need a lock; for now the
+  // fixed 6-hour cadence + idempotent per-row writes keep multi-instance safe
+  // enough that a stray double-pass is a non-event. (The Workers entry runs the
+  // same sweeps on a cron.)
   const SWEEPER_INTERVAL_MS =
     Number(process.env.OSN_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
-  const fanoutUrls = {
-    pulseApiUrl: process.env.PULSE_API_URL,
-    zapApiUrl: process.env.ZAP_API_URL,
+  // The apps the fan-out reaches come from the same settings the app was
+  // built from (`buildAppDeps`), so the sweep and the routes agree.
+  const maxJobs = deletionSweepMaxJobs(process.env.OSN_DELETION_FANOUT_MAX_JOBS);
+  // Where the hard delete's emails point, as the routes' own emails do.
+  const notices = {
+    appUrl: frontendOrigin(built.deps.authConfig),
+    instanceName: built.deps.authConfig.instanceName,
   };
+  // Each sweep's failure, a defect included, is logged and the next sweep
+  // still runs (`runLocalSweeps`). The sweeps run on the app's runtime, built
+  // once at boot with the database, the email transport and observability:
+  // one connection for every pass. A tick that finds the last pass still
+  // running skips: two passes over one account would race each other.
+  const sweepRuntime =
+    built.deps.appRuntime ?? ManagedRuntime.make(Layer.merge(DbLive, observabilityLayer));
+  let sweeping = false;
   const runSweep = (): void => {
-    void Effect.runPromise(
-      Effect.gen(function* () {
-        yield* accountErasure.runFanOutRetrySweep(fanoutUrls);
-        yield* accountErasure.runHardDeleteSweep();
-        yield* runRotatedSessionSweep();
-      }).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)) as Effect.Effect<
-        unknown,
-        never,
-        never
-      >,
-    ).catch(() => undefined);
+    if (sweeping) return;
+    sweeping = true;
+    void sweepRuntime
+      .runPromise(
+        runLocalSweeps(
+          built.deps.deletionApps,
+          maxJobs === "invalid" ? DELETION_SWEEP_DEFAULT_MAX_JOBS : maxJobs,
+          notices,
+        ),
+      )
+      .catch(() => undefined)
+      .finally(() => {
+        sweeping = false;
+      });
   };
   setInterval(runSweep, SWEEPER_INTERVAL_MS).unref?.();
 }
@@ -167,6 +198,7 @@ export type { App };
 
 if (process.env.NODE_ENV !== "test") {
   startBunServer(app, {
+    deps: built.deps,
     observabilityLayer: built.observabilityLayer,
     jwtEphemeral: built.jwtEphemeral,
     envNonLocal: built.envNonLocal,

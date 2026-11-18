@@ -1,5 +1,6 @@
 import Button, { buttonClass } from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import Reveal from "@cire/ui/reveal";
 import { toast, type ToastOptions } from "@shared/toast";
 import { Input } from "@shared/ui/ui/input";
 import { Textarea } from "@shared/ui/ui/textarea";
@@ -376,7 +377,10 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           </div>
         </fieldset>
 
-        <Show when={preset() === null}>
+        {/* `Reveal`: "Another amount" grows its field open above the name
+            and note rather than shoving them down in one frame; a set amount
+            takes it away at once. */}
+        <Reveal pace="slow" when={preset() === null}>
           <label class="font-body text-text-muted text-ui-sm mb-5 block">
             <span class="mb-1 block">Amount ({props.currency})</span>
             <Input
@@ -391,7 +395,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               onInput={(event) => setCustomText(event.currentTarget.value)}
             />
           </label>
-        </Show>
+        </Reveal>
 
         <div class="mx-auto mb-5 flex max-w-104 flex-col gap-3 text-left">
           <label class="font-body text-text-muted text-ui-sm">

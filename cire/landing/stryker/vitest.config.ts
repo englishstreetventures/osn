@@ -10,4 +10,12 @@ import { defineConfig } from "vitest/config";
 
 import base from "../vitest.config.ts";
 
-export default defineConfig({ ...base, root: fileURLToPath(new URL("..", import.meta.url)) });
+export default defineConfig({
+  ...base,
+  root: fileURLToPath(new URL("..", import.meta.url)),
+  // In Stryker's sandbox the `@cire/ui` `.astro?raw` import in
+  // tests/legal-pages.test.ts resolves to this checkout's cire/ui, outside the
+  // sandbox root, and Vite's file-access check fails the dry run on it. Nothing
+  // is served from here, so the check is off.
+  server: { fs: { strict: false } },
+});

@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-16
 ---
 # Cire invite builder
 
@@ -171,10 +171,10 @@ Who can load the closing image:
 `hero` and `story` stay public and publicly cacheable, and the builder links
 them at the public route; only `footer` is gated. It is deliberately NOT given the events section's
 `opacity-0` class: the unlock choreography animates the events, and a section
-that needs a motion chunk to become visible is a section that can stay invisible
-when that chunk fails to load (the exact failure `UnlockReveal.motion.ts` warns
-about). It sits below every event card, so it is off-screen while the reveal
-plays.
+that needs the reveal's chunk to become visible is a section that can stay
+invisible when that chunk fails to load (the failure each pack's `InvitePage`
+catches by revealing the events without the animation). It sits below every
+event card, so it is off-screen while the reveal plays.
 
 **It has no tone setting of its own.** It paints the WELCOME section's surface
 (`sectionVars(theme, "welcome")`, passed in as `themeVars`). The welcome
@@ -732,9 +732,9 @@ more than the household has actually said.
 **The `<Toaster>` lives at the page root**, not in the events section. Inside
 that section it was broken two ways at once: the section is
 `<Show when={!preview}>`, so host preview had no toaster mounted and every
-`toast.success` was silently dropped; and Motion One's reveal leaves an
-inline `transform` on the section, which makes it the containing block AND a
-stacking context for the `position: fixed` toaster inside it — so the toast
+`toast.success` was silently dropped; and the unlock reveal moves the section
+with a `transform`, which makes it the containing block AND a stacking context
+for the `position: fixed` toaster inside it — so the toast
 was positioned against the section rather than the viewport and painted below
 the `z-100` RSVP sheet it fires underneath. It now sits beside the modals on
 its own `Z_LAYER.TOAST` (150), above `MODAL`/`MODAL_POPOVER` and below
@@ -1078,7 +1078,9 @@ never fetches the page to see a `noindex`, and a disallowed URL can still be
 indexed from links elsewhere. The prerendered legal pages are served by the
 static-asset layer without running the Worker, so they get only the
 `public/_headers` rules, which leave `X-Robots-Tag` out on purpose.
-`tests/lib/security-headers.test.ts` fails if `_headers` gains it, and
+`Origin-Trial` is left out of that file for the same reason: the legal pages do
+not use the trial ([[cire-development#Chrome origin trials]]).
+`tests/lib/security-headers.test.ts` fails if `_headers` gains either, and
 `tests/pages/legal-pages.test.ts` fails if a legal page stops prerendering.
 
 `public/robots.txt` lets every crawler fetch every path, so crawlers reach the
@@ -1215,8 +1217,8 @@ fourth item in the row, because the three legal links already fill a 320px
 phone.
 
 - **Where it comes from.** `PUBLIC_BUILD_SHA`, set to `github.sha` on the
-  build step of `stack-cire-dev` (`deploy.yml`) and
-  `deploy-cire-invites` (`production-release.yml`), and typed in
+  guest-site build step of `stack-cire-dev` (`deploy.yml`) and of
+  `sites` (`production-release.yml`), and typed in
   `cire/invites/env.d.ts`. Astro inlines it like `PUBLIC_API_URL`, into the
   SSR Worker and the prerendered legal pages alike.
 - **No stale build.** A `PUBLIC_*` variable is in turbo's `build.env` hash
@@ -1366,7 +1368,11 @@ nothing there edits the page. `ModuleShell` mounts ONE builder
 while the module is Invite and hands it `view`; a move between views is a
 route change the builder's unsaved guard keeps, so the draft survives with no
 prompt. All four views are an editor's (owners and editors); only the re-mint
-is the owner's.
+is the owner's. The E2E flow `cire-checklist-holders` re-mints a seeded
+wedding's two households onto the simple style from Codes, after the warning
+that one household's code was sent, and checks in cire's database that both
+codes changed and neither counts as sent
+([`cire-checklist-holders.flow.ts`](../../tools/e2e/tests/flows/cire-checklist-holders.flow.ts)).
 
 **The invite message copies a household's message.** Under the first-line
 field sit a household picker, a preview of the composed message and a copy

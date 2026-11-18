@@ -1,5 +1,255 @@
 # @osn/api
 
+## 0.29.8
+
+### Patch Changes
+
+- Updated dependencies [5742a4e]
+  - @shared/observability@0.26.4
+  - @shared/crypto@0.15.7
+  - @shared/osn-auth-client@0.5.7
+
+## 0.29.7
+
+### Patch Changes
+
+- 2aca4d6: The local Bun servers listen on the address their own variable names: `OSN_LOCAL_HOSTNAME` for `@osn/api`, `PULSE_LOCAL_HOSTNAME` for `@pulse/api`. Unset, as under `bun run dev`, each listens on every interface. `@musubi/infra`'s check of what osn-api reads on dev lists `OSN_LOCAL_HOSTNAME` among the names the dev stack leaves unset.
+
+## 0.29.6
+
+### Patch Changes
+
+- Updated dependencies [db8c428]
+  - @shared/observability@0.26.3
+  - @shared/crypto@0.15.6
+  - @shared/osn-auth-client@0.5.6
+
+## 0.29.5
+
+### Patch Changes
+
+- Updated dependencies [adec70d]
+  - @shared/crypto@0.15.5
+  - @shared/observability@0.26.2
+  - @shared/db-utils@0.9.5
+  - @shared/osn-auth-client@0.5.5
+  - @pulse/db@0.20.21
+  - @zap/db@0.7.3
+
+## 0.29.4
+
+### Patch Changes
+
+- Updated dependencies [f040da3]
+  - @pulse/db@0.20.20
+  - @zap/db@0.7.2
+  - @shared/openapi-tools@0.1.9
+  - @shared/rate-limit@0.4.1
+  - @shared/crypto@0.15.4
+  - @shared/osn-auth-client@0.5.4
+
+## 0.29.3
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- Updated dependencies [5347e06]
+  - @pulse/db@0.20.19
+  - @shared/crypto@0.15.3
+  - @shared/db-utils@0.9.4
+  - @shared/observability@0.26.1
+  - @shared/osn-auth-client@0.5.3
+  - @zap/db@0.7.1
+
+## 0.29.2
+
+### Patch Changes
+
+- Updated dependencies [05ca2d8]
+  - @shared/observability@0.26.0
+  - @shared/crypto@0.15.2
+  - @shared/osn-auth-client@0.5.2
+
+## 0.29.1
+
+### Patch Changes
+
+- @shared/crypto@0.15.1
+  - @shared/osn-auth-client@0.5.1
+
+## 0.29.0
+
+### Minor Changes
+
+- 582649a: Pulse and Zap take part in account deletion. Pulse's preview lists the upcoming events a person hosts, one action per series and per other event (one for all past 100), with the 14-day cancellation as the default; its erasure takes the answers and `deleteEverything`, keeps a cancelled event 14 days for its guests or deletes it, deletes the person's series and web sessions, and answers what it kept. `POST /internal/account-sessions/revoke` ends a person's Pulse web sessions. Zap's preview lists nothing; its erasure removes the person's memberships, deletes a chat left with no one, replaces their sender id on what stays with a deletion sentinel and wipes the body of a plain-text message they wrote, recording each account in `zap_account_purges`. Each erasure checks state as each write runs and answers a call that overlaps another with the same kept list; the preview and session-end bodies carry no account id, and the erasure body no email address. Both verify osn-api's ARC tokens against the keys osn-api publishes, treating an `INTERNAL_SERVICE_SECRET` under 32 characters as absent; Pulse's key registry and register-service routes are gone, and Zap's registry refuses keys for osn-api.
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+- Updated dependencies [582649a]
+  - @zap/db@0.7.0
+  - @shared/osn-auth-client@0.5.0
+  - @shared/crypto@0.15.0
+  - @shared/observability@0.25.1
+
+## 0.28.25
+
+### Patch Changes
+
+- Updated dependencies [3437d4a]
+  - @shared/observability@0.25.0
+  - @shared/crypto@0.14.35
+  - @shared/osn-auth-client@0.4.73
+
+## 0.28.24
+
+### Patch Changes
+
+- @shared/crypto@0.14.34
+  - @shared/osn-auth-client@0.4.72
+
+## 0.28.23
+
+### Patch Changes
+
+- c34015f: A step-up token is now bound to the session that minted it. `POST /step-up/passkey/complete`, `POST /step-up/email/:requestId/status` and `POST /step-up/totp/complete` stamp the family of the caller's live session into the token as `osn_fam`, and every gate that spends a token, `POST /internal/step-up/verify` included, refuses one whose family has no live, unrestricted, unexpired session of the account left, or that carries no `osn_fam`, before it claims the token's single-use id. A token minted on a device that has since signed out, been revoked or been swept is refused at every gate, whoever presents it, another live session of the account and Pulse included; a renewal keeps the family, so the minting session's silent refresh does not end it. The refusal counts as `osn.auth.step_up.verified{result="session_ended"}`, a new label on `StepUpVerifyResult`.
+
+  `POST /internal/step-up/verify` takes a required `profile_id`, the profile the calling service verified its own caller as, and refuses a token that is not of the account owning it; it spends `pulse_app_delete` only for `pulse-api` and `zap_app_delete` only for `zap-api`, and accepts no `account_delete`. Pulse's `DELETE /account` sends its caller's profile id. `issueStepUpToken`, `completeStepUpPasskey`, `completeStepUpTotp` and `stepUpEmailStatus` take a `MintingSession` (`{ accountId, familyId }`) in place of the account id; `verifyStepUpForExternalPurpose` takes the profile id; `verifyStepUpToken` always takes the expected account; and every step-up verifier now needs `Db` and can fail with `DatabaseError`, which `DELETE /account`, `GET /account/export` and `POST /internal/step-up/verify` answer as a 500.
+
+- Updated dependencies [c34015f]
+  - @shared/observability@0.24.2
+  - @shared/crypto@0.14.33
+  - @shared/osn-auth-client@0.4.71
+
+## 0.28.22
+
+### Patch Changes
+
+- Updated dependencies [0d8f467]
+  - @shared/observability@0.24.1
+  - @shared/crypto@0.14.32
+  - @shared/osn-auth-client@0.4.70
+
+## 0.28.21
+
+### Patch Changes
+
+- Updated dependencies [6e75a5f]
+  - @zap/db@0.6.19
+  - @shared/crypto@0.14.31
+  - @shared/osn-auth-client@0.4.69
+
+## 0.28.20
+
+### Patch Changes
+
+- Updated dependencies [45c409b]
+  - @shared/observability@0.24.0
+  - @shared/rate-limit@0.4.0
+  - @shared/crypto@0.14.30
+  - @shared/osn-auth-client@0.4.68
+
+## 0.28.19
+
+### Patch Changes
+
+- Updated dependencies [f052448]
+  - @shared/observability@0.23.0
+  - @shared/crypto@0.14.29
+  - @shared/osn-auth-client@0.4.67
+
+## 0.28.18
+
+### Patch Changes
+
+- Updated dependencies [0821963]
+  - @shared/observability@0.22.0
+  - @shared/crypto@0.14.28
+  - @shared/osn-auth-client@0.4.66
+
+## 0.28.17
+
+### Patch Changes
+
+- Updated dependencies [cbd32bd]
+- Updated dependencies [9d193fe]
+  - @shared/observability@0.21.0
+  - @shared/crypto@0.14.27
+  - @shared/osn-auth-client@0.4.65
+
+## 0.28.16
+
+### Patch Changes
+
+- Updated dependencies [64cb5fa]
+  - @shared/observability@0.20.3
+  - @shared/crypto@0.14.26
+  - @shared/osn-auth-client@0.4.64
+
+## 0.28.15
+
+### Patch Changes
+
+- @shared/crypto@0.14.25
+  - @shared/osn-auth-client@0.4.63
+
+## 0.28.14
+
+### Patch Changes
+
+- Updated dependencies [73043c4]
+  - @pulse/db@0.20.18
+  - @zap/db@0.6.18
+  - @shared/crypto@0.14.24
+  - @shared/osn-auth-client@0.4.62
+
+## 0.28.13
+
+### Patch Changes
+
+- c687234: Every workspace that uses Effect runs `effect` 4.1.2, with `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
+  `@effect/vitest` at 4.1.2 and the root overrides for
+  `@effect/platform-node-shared` and `@effect/sql-d1` with them. The stacks run
+  `alchemy` and `@alchemy.run/cloudflare` 2.0.0-beta.85, which loads on Effect
+  4.1 unpatched; the provider's patch, carried to beta.85, keeps the D1 import
+  the stacks ran on beta.84 and the content types Wrangler uploads assets with.
+  beta.85 deploys state store version 8, which beta.84 cannot use, so a tier's
+  store cannot go back once it is upgraded.
+
+  The production plan guard reads beta.85's console lines
+  (`[hh:mm:ss.mmm] INFO: …`), and `messageOf()` reads no logfmt record.
+  `@shared/infra`'s tests hold the AWS SDK the provider installs,
+  `@distilled.cloud/aws`, to listing and aborting an R2 bucket's multipart
+  uploads, and run both under Bun. `RETIRED_STAGING_HOSTS` is gone from
+  `@shared/infra`, and `domainRefusals()` takes `(changes, unflip)`: a site's
+  Worker gives up only its current spare host without an `unflip` naming the
+  site.
+
+- Updated dependencies [c687234]
+  - @pulse/db@0.20.17
+  - @shared/crypto@0.14.23
+  - @shared/db-utils@0.9.3
+  - @shared/observability@0.20.2
+  - @zap/db@0.6.17
+  - @shared/osn-auth-client@0.4.61
+
 ## 0.28.12
 
 ### Patch Changes

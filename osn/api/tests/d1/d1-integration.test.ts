@@ -6,6 +6,7 @@ import {
   appEnrollments,
   connections,
   deletionJobs,
+  handleHolds,
   organisationMembers,
   organisations,
   passkeys,
@@ -30,6 +31,7 @@ import { and, count, eq, isNotNull, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../src/lib/unique-constraint";
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import {
@@ -274,6 +276,7 @@ beforeEach(async () => {
   // or `users`, must be cleared before those parent rows.
   for (const table of [
     deletionJobs,
+    handleHolds,
     securityEvents,
     sessions,
     passkeys,
@@ -293,7 +296,13 @@ beforeEach(async () => {
 
 describe("osn/api account erasure over real D1 (Miniflare)", () => {
   it("requestErasure commits the multi-statement batch atomically on D1", async () => {
-    const out = await run(requestErasure({ accountId: ACCOUNT_ID, cancelSessionId: "ses_keep" }));
+    const out = await run(
+      requestErasure({
+        accountId: ACCOUNT_ID,
+        cancel: { sessionId: "ses_keep", familyId: "fam_keep" },
+        heldHandleDigest: makeHeldHandleDigest(undefined),
+      }),
+    );
     expect(out.newlyScheduled).toBe(true);
 
     // The batch tombstoned the account and wrote a deletion job.
@@ -305,7 +314,13 @@ describe("osn/api account erasure over real D1 (Miniflare)", () => {
   });
 
   it("cancelErasure clears the job + un-tombstones via the async batch path", async () => {
-    await run(requestErasure({ accountId: ACCOUNT_ID, cancelSessionId: "ses_keep" }));
+    await run(
+      requestErasure({
+        accountId: ACCOUNT_ID,
+        cancel: { sessionId: "ses_keep", familyId: "fam_keep" },
+        heldHandleDigest: makeHeldHandleDigest(undefined),
+      }),
+    );
     const cancelled = await run(cancelErasure(ACCOUNT_ID));
     expect(cancelled.cancelled).toBe(true);
 

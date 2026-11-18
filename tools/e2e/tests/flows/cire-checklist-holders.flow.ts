@@ -14,13 +14,32 @@
  * viewer, and a comped `premium_templates` row, which opens the premium
  * envelope on Gold. The local cire-api resolves no names, so each person
  * shows, and is found, by their profile id.
+ *
+ * Then, on the same sign-in, a second wedding the owner has alone
+ * (`CIRE_ORGANISER.settings`, on Gold), so no other flow's wedding is
+ * re-minted or deleted:
+ *
+ * - Settings → Plan → "Have a code?": a code that names nothing is refused
+ *   with cire-api's 404 worded beside the field; the Gold code, which the
+ *   wedding holds, is refused 409 and stays unspent; the Crimson code moves the
+ *   wedding to Crimson, the plan says so and offers no code any more, and
+ *   cire-api records the redemption and the code's one use.
+ * - Invite → Codes: the re-mint warns that one household's code was sent,
+ *   names both households and the simple style, and on confirm rotates every
+ *   code. The new codes are compared with the seeded ones in the database and
+ *   never recorded.
+ * - Settings → Delete wedding: a link name one letter short keeps Delete off;
+ *   the exact one deletes the wedding, which leaves the list's tiles for
+ *   "Recently deleted", offered for restore until a week after the delete,
+ *   while its row stays, marked deleted; Restore brings it back, still on
+ *   Crimson.
  */
 
 import { resolve } from "node:path";
 
 import type { Page } from "@playwright/test";
 
-import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import { CIRE_ORGANISER, CLOCK_T0, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import {
   expect,
   onSuiteClock,
@@ -304,4 +323,270 @@ test("cire-checklist-holders", async ({ page, flow }) => {
   flow.check("the envelope set back to None", 200, cleared);
   flow.check("the stored envelope once None is chosen", "none", envelopeInDb());
   flow.check("envelope saves sent: the pick and the clear", 2, envelopeSaves);
+
+  await settingsSteps(flow, page);
 });
+
+const SETTINGS = CIRE_ORGANISER.settings;
+const SETTINGS_API = `${ORIGINS.cireApi}/api/organiser/weddings/${SETTINGS.weddingId}`;
+const SETTINGS_PAGE = `${ORIGINS.cireHost}/#/w/${SETTINGS.weddingId}/settings`;
+
+/** How long a deleted wedding can be restored: `RESTORE_WINDOW_S`, `cire/api/src/db/live-wedding.ts`. */
+const RESTORE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The last day the deleted wedding can be restored, worded as the list words
+ * it (`restoreUntilLabel`, en-AU, in the browser's UTC). The delete lands in
+ * the suite clock's first hour ("deleted on the suite clock"), which starts at
+ * midnight UTC, so the day is `CLOCK_T0` plus the window on every run:
+ * "8 October 2026".
+ */
+const RESTORE_DAY = new Intl.DateTimeFormat("en-AU", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+}).format(CLOCK_T0 + RESTORE_WINDOW_MS);
+
+/** The settings wedding's tier, where it came from, and whether it is deleted. */
+function settingsWeddingInDb() {
+  return queryOne<{
+    tier: string;
+    source: string | null;
+    grantedBy: string | null;
+    style: string;
+    deletedAt: number | null;
+  }>(
+    DB_FILES.cire,
+    `SELECT tier, tier_source AS source, tier_granted_by AS grantedBy, code_style AS style,
+            deleted_at AS deletedAt
+       FROM weddings WHERE id = ?`,
+    SETTINGS.weddingId,
+  );
+}
+
+/** A seeded unlock code's uses so far, and this wedding's redemptions of it. */
+function codeUses(codeId: string): string {
+  const row = queryOne<{ used: number; redemptions: number }>(
+    DB_FILES.cire,
+    `SELECT c.redeemed_count AS used,
+            (SELECT count(*) FROM unlock_code_redemptions r
+              WHERE r.code_id = c.id AND r.wedding_id = ?) AS redemptions
+       FROM unlock_codes c WHERE c.id = ?`,
+    SETTINGS.weddingId,
+    codeId,
+  );
+  return row ? `${row.used} used, ${row.redemptions} redemptions` : "no code";
+}
+
+/**
+ * The settings wedding, on the same sign-in: an owner redeems unlock codes,
+ * re-mints the family codes, then deletes the wedding and restores it.
+ */
+async function settingsSteps(flow: Flow, page: Page): Promise<void> {
+  const planSection = page.getByRole("region", { name: "Plan", exact: true });
+  const codeDialog = page.getByRole("dialog", { name: "Use a code" });
+  const codeField = codeDialog.getByRole("textbox", { name: "Code" });
+  const useCode = codeDialog.getByRole("button", { name: "Use code" });
+  const redeem = async (code: string) => {
+    const answered = page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url() === `${SETTINGS_API}/unlock-code`,
+    );
+    await codeField.fill(code);
+    await useCode.click();
+    return (await answered).status();
+  };
+
+  await flow.step("open the settings wedding's settings", async () => {
+    await page.goto(SETTINGS_PAGE);
+    await expect(planSection).toContainText("This wedding is on Gold.");
+  });
+
+  const wrong = await flow.step("a code that names nothing is refused", async () => {
+    await planSection.getByRole("button", { name: "Have a code?" }).click();
+    await expect(codeDialog).toBeVisible();
+    const offeredEmpty = await useCode.isEnabled();
+    const status = await redeem(SETTINGS.codes.wrong);
+    await expect(codeDialog).toContainText(
+      "That code is not valid, or it has expired or been used.",
+    );
+    return { offeredEmpty, status };
+  });
+  flow.check("Use code is off until a code is typed", false, wrong.offeredEmpty);
+  flow.check("cire-api refuses an unknown code", 404, wrong.status);
+
+  const held = await flow.step("the Gold code is refused: the wedding is on Gold", async () => {
+    const status = await redeem(SETTINGS.codes.gold.code);
+    await expect(codeDialog).toContainText(
+      "This wedding is already on Gold, so the code would add nothing. It has not been used.",
+    );
+    return status;
+  });
+  flow.check("cire-api refuses a code for the tier held", 409, held);
+  flow.check(
+    "the Gold code is not spent",
+    "0 used, 0 redemptions",
+    codeUses(SETTINGS.codes.gold.id),
+  );
+  const kept = settingsWeddingInDb();
+  flow.check(
+    "the wedding stays on its comped Gold",
+    "gold comp script:e2e-seed",
+    `${kept?.tier} ${kept?.source} ${kept?.grantedBy}`,
+  );
+
+  const raised = await flow.step("the Crimson code moves the wedding to Crimson", async () => {
+    const status = await redeem(SETTINGS.codes.crimson.code);
+    await expect(codeDialog).toBeHidden();
+    await expect(page.getByText("Code accepted. This wedding is now on Crimson.")).toBeVisible();
+    await expect(planSection).toContainText("This wedding is on Crimson.");
+    // Crimson is the top tier, so no code is offered there.
+    await expect(planSection.getByRole("button", { name: "Have a code?" })).toHaveCount(0);
+    return status;
+  });
+  flow.check("cire-api takes the Crimson code", 200, raised);
+  const upgraded = settingsWeddingInDb();
+  flow.check(
+    "the wedding is on Crimson, from the code",
+    `crimson code code:${SETTINGS.codes.crimson.id}`,
+    `${upgraded?.tier} ${upgraded?.source} ${upgraded?.grantedBy}`,
+  );
+  flow.check(
+    "the Crimson code has one use spent, by this wedding",
+    "1 used, 1 redemptions",
+    codeUses(SETTINGS.codes.crimson.id),
+  );
+  const redeemed = queryOne<{ by: string; at: number }>(
+    DB_FILES.cire,
+    `SELECT redeemed_by_osn_profile_id AS by, redeemed_at AS at
+       FROM unlock_code_redemptions WHERE wedding_id = ?`,
+    SETTINGS.weddingId,
+  );
+  flow.check("redeemed by the dev profile", CIRE_ORGANISER.profileId, redeemed?.by ?? "missing");
+  flow.check("redeemed on the suite clock", true, onSuiteClock(redeemed?.at));
+
+  // ── The family codes, re-minted onto the simple style ──────────────────
+  const remint = page.getByRole("button", { name: "Re-mint all codes" });
+  await flow.step("open the wedding's codes", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${SETTINGS.weddingId}/invite/codes`);
+    // Enabled once the panel has counted the households.
+    await expect(remint).toBeEnabled({ timeout: 60_000 });
+    await expect(page.getByRole("radio", { name: /^Simple/ })).toBeChecked();
+  });
+
+  const warned = await flow.step(
+    "re-mint: the owner is warned a sent code stops working",
+    async () => {
+      await remint.click();
+      const warning = page.getByText("1 family has already been sent their code.", {
+        exact: false,
+      });
+      await expect(warning).toBeVisible();
+      const question = page.getByText("Re-mint all 2 family codes in the", { exact: false });
+      await expect(question).toBeVisible();
+      return (await question.textContent())?.replace(/\s+/g, " ").trim() ?? "";
+    },
+  );
+  flow.check(
+    "the confirm names both families and the style",
+    "Re-mint all 2 family codes in the simple style? This can't be undone.",
+    warned,
+  );
+
+  const reminted = await flow.step("re-mint every code in the simple style", async () => {
+    const answered = page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url() === `${SETTINGS_API}/remint`,
+    );
+    await page.getByRole("button", { name: "Yes, re-mint" }).click();
+    const status = (await answered).status();
+    await expect(page.getByText("Re-minted 2 family codes")).toBeVisible();
+    return status;
+  });
+  flow.check("cire-api re-mints the codes", 200, reminted);
+  const codesNow = SETTINGS.families.map(({ id }) =>
+    queryOne<{ code: string; sent: number | null }>(
+      DB_FILES.cire,
+      "SELECT public_id AS code, code_shared_at AS sent FROM families WHERE id = ?",
+      id,
+    ),
+  );
+  // Compared with the seeded codes, never recorded: a re-mint draws them at random.
+  flow.check(
+    "every family's code changed",
+    true,
+    codesNow.every((row, i) => row !== undefined && row.code !== SETTINGS.families[i]!.code),
+  );
+  flow.check(
+    "every new code has the simple style's six-character tail",
+    true,
+    codesNow.every((row) => row !== undefined && /^[A-Z]+-[A-Z]+-[0-9A-Z]{6}$/.test(row.code)),
+  );
+  flow.check("no new code counts as sent", 0, codesNow.filter((row) => row?.sent !== null).length);
+  flow.check("the wedding is on the simple style", "simple", settingsWeddingInDb()?.style ?? "");
+
+  // ── Deleting the wedding, then restoring it from the list ──────────────
+  const confirmDelete = page.getByRole("dialog", { name: "Delete this wedding" });
+  const deleteButton = confirmDelete.getByRole("button", { name: "Delete wedding", exact: true });
+  const offered = await flow.step("open the danger zone and mistype the link name", async () => {
+    await page.goto(SETTINGS_PAGE);
+    await page
+      .getByRole("region", { name: "Delete this wedding" })
+      .getByRole("button", { name: "Delete wedding…" })
+      .click();
+    await expect(confirmDelete).toBeVisible();
+    await confirmDelete.getByRole("textbox").fill(SETTINGS.slug.slice(0, -1));
+    return deleteButton.isEnabled();
+  });
+  flow.check("a link name one letter short keeps Delete off", false, offered);
+
+  const recentlyDeleted = page.getByRole("region", { name: "Recently deleted" });
+  const deleted = await flow.step("type the link name and delete the wedding", async () => {
+    await confirmDelete.getByRole("textbox").fill(SETTINGS.slug);
+    await expect(deleteButton).toBeEnabled();
+    const answered = page.waitForResponse(
+      (r) => r.request().method() === "DELETE" && r.url() === SETTINGS_API,
+    );
+    await deleteButton.click();
+    const status = (await answered).status();
+    await expect(page).toHaveURL(/#\/weddings$/);
+    await expect(recentlyDeleted).toContainText(SETTINGS.name);
+    const restoreLine = recentlyDeleted
+      .getByRole("listitem")
+      .filter({ hasText: SETTINGS.name })
+      .getByText(/^Deleted — you can restore it until/);
+    return {
+      status,
+      tiles: await page.getByRole("button", { name: new RegExp(`^${SETTINGS.name}`) }).count(),
+      restoreLine: (await restoreLine.textContent())?.trim() ?? "",
+    };
+  });
+  flow.check("cire-api deletes the wedding", 200, deleted.status);
+  flow.check("the wedding leaves the list's tiles", 0, deleted.tiles);
+  flow.check(
+    "the list offers a restore until a week after the delete",
+    `Deleted — you can restore it until ${RESTORE_DAY}.`,
+    deleted.restoreLine,
+  );
+  const softDeleted = settingsWeddingInDb();
+  flow.check("the wedding's row stays, marked deleted", true, softDeleted?.deletedAt != null);
+  flow.check("deleted on the suite clock", true, onSuiteClock(softDeleted?.deletedAt ?? undefined));
+
+  const restored = await flow.step("restore the wedding from the list", async () => {
+    const answered = page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url() === `${SETTINGS_API}/restore`,
+    );
+    await recentlyDeleted.getByRole("button", { name: "Restore" }).click();
+    const status = (await answered).status();
+    await expect(page.getByText("Wedding restored.")).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`#/w/${SETTINGS.weddingId}`));
+    await expect(recentlyDeleted).toHaveCount(0);
+    return status;
+  });
+  flow.check("cire-api restores the wedding", 200, restored);
+  const back = settingsWeddingInDb();
+  flow.check(
+    "the wedding is live again, as it was",
+    "live crimson",
+    `${back?.deletedAt == null ? "live" : "deleted"} ${back?.tier}`,
+  );
+}

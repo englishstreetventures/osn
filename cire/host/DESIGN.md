@@ -18,9 +18,12 @@ this portal and the vendor portal — share one corner scale and one motion ladd
 > **The container is continuous; only its contents change.**
 
 When a host moves between modules, sub-tabs, or steps of the invite builder, the
-panel does not unmount and remount. It keeps its box, animates its height to the
-new content, and cross-fades what is inside. Nothing in the chrome may jump: the
-module's view bar animates its height with the panel's (§The stuck stack).
+panel does not unmount and remount. It keeps its box and animates its height to
+the new content. A view that a module or sub-tab change mounts fades in over the
+held frame, and the view it replaces goes at once; the invite builder, one view
+across its four steps, does not fade between them (§4, "A view arrives by fading
+in"). Nothing in the chrome may jump: the module's view bar animates its height
+with the panel's (§The stuck stack).
 
 Every motion decision below follows from this. Where a transition would need the
 frame to disappear and come back, the transition is wrong, not the frame.
@@ -97,6 +100,7 @@ be used as a class somewhere too, which means the invite preview works by luck;
 | `--status-no-ink`, `--status-maybe-ink`         | the glyph on the red and tint circles; **≥ 4.5:1** on its circle    |
 | `--focus`                                       | the focus ring                                                      |
 | `--inner-lip`, `--elev-1`, `--elev-2`           | depth                                                               |
+| `--glass-edge`, `--glass-ring`                  | the chosen glass's lit inner edge and its outer ring: the ring is the hairline at 0.5px in dark and `--gold-ink` at 80% and 1px in light (the owner's choice on #2371), **≥ 3:1** on the track there (§7, `SegmentedTabs`) |
 | `--pill-ground`                                 | the ground a non-primary pill sits on: the surface at 30%, the glass track's own (§4, One pill language) |
 | `--pill-sm-height`                              | a small pill's height, 28px (§4, One form-field height)             |
 
@@ -237,8 +241,8 @@ region a reader moves to, or data; a line that only decorates is not drawn
 (the owner's choice). The RSVPs view draws no
 intro: the chosen sub-tab says "RSVPs" on screen, and a hidden `<h2>` gives a
 reader moving by headings the name the visible intros of Households and Edit
-give theirs. Its download is the bar's icon button after the reply key (§4,
-One pill language).
+give theirs. Its download ends the bar's first row, after the event strip,
+and on a phone the search row (§4, One pill language, A page's download).
 
 **An eyebrow over a heading says what the screen does not** (the owner's
 choice, englishstreetventures/osn#1991). Where the module's header, the open
@@ -297,7 +301,9 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   inside the centred `Modal`, the RSVP reply editor in its table cell or phone
   row, the colour area in its popover, a step card inside the import guide, a
   `Disclosure` set inside another box (`nested`);
-- a compact row (`px-3 py-2`) of text and glyphs — a budget line, a checklist
+- a compact row (`px-3 py-2`) of text and glyphs — a budget line (written as
+  `py-1 pr-2 pl-3` with 4px inside each part, because its panels open through
+  `Reveal`; see "A panel that opens inside a row" below), a checklist
   task, a registry item, a seat, a vendor, an FAQ entry — and the run sheet's
   bands and rows, whose coming-up wash is a table highlight;
 - a menu row's or a nav row's highlight — the command palette, every portal
@@ -470,8 +476,9 @@ box (by default the parts draw pulse's own). Its label is body ink — a consent
 statement too, which reads more easily than the secondary ink did — at
 `text-ui-sm`, or `text-ui-base` where the row is a form's own line (the
 checklist starter, the gift list's visibility and "Let guests give money"),
-8px from the box, at prose leading; a label that wraps takes `align="start"`,
-the box on its first line. Radios sit 16px apart in a row, so each reads with
+8px from the box, at prose leading, the box on its first line whatever the
+label's length (`@shared/ui`'s one rule, `wiki/shared/component-library.md`
+§Choice controls). Radios sit 16px apart in a row, so each reads with
 its own word, and 8px apart in a column (the owner's choice). A line under a
 box that says what ticking does is the box's `description`, inside the label
 in the secondary ink; a line about the box that holds a link — the notice an
@@ -524,15 +531,39 @@ one row:
   the ink turns the body ink, with a gold edge; while what it opens is open it
   stands on the raised surface in the body ink and its hairline, whatever the
   pointer does (the owner's choice). It is an icon button that
-  stands alone in a page's chrome — the reply key, the guest list's and the
-  RSVP page's Downloads, Add household on a narrow panel and the
-  getting-started guide's Dismiss. A row's icon action, repeated once per
+  stands alone in a page's chrome — the reply key, the RSVP page's download on
+  a phone, Add household on a narrow panel and the getting-started guide's
+  Dismiss. A row's icon action, repeated once per
   row — a household's four actions and its "⋯" — is `quiet` at `icon`: the
   same circle, its hover a gold edge and readable gold, held while what it
   opens is open. `round` stays the guest sheet's ×. A dialog's or a drawer's
   own × — the event drawer's Close, the module drawer's Close modules —
   stays `bare`: it belongs to the frame it closes, not to a bar of the page's pills, and a
   hairline circle in a panel's head would read as one more of its actions.
+- **A page's download** is one button wherever it is drawn
+  (`DownloadButton`, `src/components/CsvExportButton.tsx`): `outline` at
+  `sm`, the 28px pill, led by the `download` glyph at 14px, stroke 1.75, and
+  its words, "Download <what> CSV" — events, guests, RSVPs, gifts, seating.
+  The owner chose the icon with its words for every download, and the guest
+  list alone on the Households tab, the RSVP sheet being the RSVPs tab's
+  (englishstreetventures/osn#2357: "Button should have both icon and
+  'Download events CSV'"). It sits beside the intro on Events and
+  Households, beside Print on the seating chart, and on the registry above
+  the gift log, under its totals. While the file is fetched its words read
+  "Exporting <what>…" and it is `aria-disabled`, so a second press spends
+  nothing from the owner's export limit and the focus a keyboard press left
+  on it stays; a toast says how it went, where the seating chart says only a
+  failure, in its own live region. Settings' per-module downloads
+  (`LockedExport`) and the import panel's template and round-trip downloads
+  keep their own look (§The whole wedding as one download).
+  Two places are the builder's choice, which the owner has not ruled on
+  (englishstreetventures/osn#2357). On RSVPs it ends the view bar's first
+  row, after the event strip, which scrolls when the row runs short: the
+  second row, beside the search box, the reply filter and the key, has no
+  room for its words at 1280px with the sidebar open. On a phone it ends the
+  search row as the bar's icon button, its words hidden text, its name and
+  its tooltip, as the reply key beside it is drawn: that row has about 358px
+  for the search box, the sort select, the key and the download.
 - **A block pressed to choose** — the code-style and re-mint radio cards
   (14px), a design or an envelope card (16px, both `invite/picker-card.ts`) — is marked as `choice` marks an answer, at
   its own corner: a gold edge and a 2px ring at 60%, no wash; under the
@@ -571,22 +602,65 @@ module card, the droplet popovers, the reply key's panel), every portal menu (th
 look reads `--elev-2`), the co-host suggestion list and a row lifted by a
 drag;
 the command palette takes the same raised surface and depth at its 16px modal
-corner. A tooltip — `ActionTip`'s panel and the rail's tips — keeps
+corner. `Modal` is the exception: it casts the shared contract shadow
+(`--ui-elev-2`), which cire does not map. A tooltip — `ActionTip`'s panel and the rail's tips — keeps
 `shadow-md`, the shadow `@shared/ui`'s `Tooltip` paints, so a tooltip here
 matches the shared one beside it. A pill stays flat but for the glass's own
 lift. Nothing else writes Tailwind's other shadow steps.
 
-**Motion.** Three durations and three easings, and **no animation library in
+Behind a `Modal` the page sits under the contract's scrim, `--ui-scrim`, which
+each cire stylesheet's contract block maps to the deep ground at 72%,
+`color-mix(in srgb, var(--ui-ground-deep) 72%, transparent)`: a black veil
+would read as a hole in the light theme and vanish in the dark one. Unmapped,
+the contract paints black at 50%. `tests/styles/modal-scrim.browser.test.tsx`
+holds it in both themes, and `cire/vendor`'s `tests/styles/tokens.test.ts`
+holds the four stylesheets to the one line.
+
+**Motion.** Three durations and four easings, and **no animation library in
 this package by design**.
 
 ```css
 --dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
---dur-base: calc(200ms * var(--motion-scale)); /* a panel swap, a pill slide */
---dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal */
---ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
+--dur-base: calc(200ms * var(--motion-scale)); /* a panel's height, a pill slide */
+--dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal, a disclosure opening, a strip's glass */
+--ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 --ease-spring: linear(0, 0.055, …, 1.083, …, 1); /* something landing with a little give */
+--ease-glide: linear(0, 0.053, …, 1.028, …, 1); /* a strip's glass, travelling with barely any */
+--default-transition-timing-function: var(--ease-out); /* a transition that names no easing */
 ```
+
+`--ease-out` is the strong ease-out the motion skills name (`emil-design-eng`,
+`animate`), the owner's choice of 2026-11-11 for all four cire apps, and
+cire's one curve for something arriving: "consolidate to one arriving
+curve … Use our default curve not tailwind's" (the owner, 2026-11-11). Each
+cire stylesheet's `@theme` sets Tailwind's `--default-transition-timing-function`
+to it, so a transition that names no easing runs cire's curve, never
+Tailwind's `cubic-bezier(0.4, 0, 0.2, 1)`: a bare `transition-colors` or
+`transition-ui-colors`, and the `@shared/ui` parts cire renders that write
+one — `Checkbox`'s and `RadioGroupItem`'s drawn box, `Switch`'s track and
+thumb, `Meter`'s fill. Tailwind's `ease-out` class reads it, and so does every
+shared part that reads `var(--ease-out, var(--ui-ease-out))`: the fields, the
+native checkbox and radio classes, the accent `DropdownMenu`'s pop and its
+rows, `SegmentedTabs`.
+
+The shared overlays arrive on it too. Each cire stylesheet's contract mapping
+sets `--ui-ease-out: var(--ease-out)` (the owner's choice of 2026-11-12, once
+the contract gave exits a token of their own, englishstreetventures/osn#2228),
+so `Modal`'s rise and every entry run by `@shared/design-tokens`' `animate-in`
+— `Tooltip` and `Popover` opening, the default `DropdownMenu`'s pop — follow
+cire's curve rather than the contract's `cubic-bezier(0.22, 1, 0.36, 1)`.
+`cire/vendor`'s `tests/styles/tokens.test.ts` fails if one app drops the
+mapping or maps an exit; `tests/styles/overlay-curves.browser.test.tsx` reads a
+`Popover`'s and a `Modal`'s curves back as they run. `@shared/toast` alone
+arrives on CSS's own `ease-out`, a keyword in its own stylesheet.
+
+Exits keep their own curves. `Popover`'s exit, like every `animate-out`, runs
+the contract's `--ui-ease-exit`, `cubic-bezier(0.22, 1, 0.36, 1)`, which no
+cire stylesheet maps; `Modal`'s and the toast's run `ease-in`, the nav sheet's
+and the droplet's `--ease-in-out`. A `Switch`'s thumb and a `Meter`'s fill move
+between two places, which would take `--ease-in-out`, but they name no easing,
+so they run `--ease-out`; naming one is a change to `@shared/ui`.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor
@@ -596,6 +670,23 @@ the whole `animation` declaration, so `@theme` declares a one-overshoot
 small things arriving — a popover, a tick — never for a sheet or a page, which
 should not bounce.
 
+`--ease-glide` is the same spring damped harder (ratio 0.75, the same natural
+frequency per run): it goes 3% past at about half the run and settles, against
+`--ease-spring`'s 8%. Its `@theme` fallback is `cubic-bezier(0.36, 1.3, 0.3, 1)`,
+3% past, swapped out by the same `@supports` block. It moves one thing: the
+glass of a segmented strip (§7, `SegmentedTabs`), whose place glides on it while
+its width and height ease out, all on `--dur-slow` — 320ms on touch, 200ms at a
+desk. The move is the owner's choice from a rendered comparison (#2164): the
+house spring grew the glass past its own tab and threw it 8% past a far one,
+and a host taps these strips many times a session, so the move is a little
+slower than a pill slide, to be felt, and lands without a bounce. The glide is
+a token of its own rather than a firmer `--ease-spring`, so the droplet, a task
+holder's tick and the thread's send button keep the house spring. A second tap
+mid-move starts from where the glass is on screen, never from where it was
+going; a CSS transition carries the place over but not the speed, so the glass
+starts the new move at the curve's own pace. `@cire/ui`'s
+`tests/lib/sliding-pill.browser.test.tsx` samples it frame by frame.
+
 **The ladder follows the input, not the screen.** With a fine pointer — a mouse
 or a trackpad, at a desk — an organiser waits on every popover and panel before
 the next click, so `@media (pointer: fine)` shortens the ladder to 90 / 150 /
@@ -603,10 +694,12 @@ the next click, so `@media (pointer: fine)` shortens the ladder to 90 / 150 /
 query reads the _primary_ pointer, so a touch laptop driven by its trackpad
 gets the desk pace. `Modal` (`@shared/ui`) takes its two durations from the same
 ladder through `--ui-modal-enter` and `--ui-modal-exit`, set under the same
-query. A new motion reaches for a `--dur-*` token, never a literal or
-Tailwind's bare 150ms `transition`, so it follows the input with everything
-else. The one kind written as its own duration is a pulse far longer than
-`--dur-slow`, and there are two: the attention glow,
+query. On touch it runs its own fallbacks: a 350ms rise, and a 150ms exit
+that matches the desk rather than a touch `--dur-*` rung. A new motion
+reaches for a `--dur-*` token, never a literal or Tailwind's bare 150ms
+`transition`, so it follows the input with everything else. The one kind
+written as its own duration is a pulse far longer than `--dur-slow`, and
+there are two: the attention glow,
 `calc(2.6s * var(--motion-scale))`, and the loaders' pulse, which `Loading`
 and `Skeleton` share (`@cire/ui`'s `lib/pulse.ts`), and `SkeletonOutline`'s
 bars, blocks and glyphs run on the same values: Tailwind's `pulse`
@@ -614,22 +707,30 @@ keyframes over `calc(2s * var(--motion-scale))` on `--ease-in-out`.
 
 **One motion rule: choosing on base, hovering on fast** (the owner's
 choice). A choice being made — a strip's choice, a reply
-filter's — moves its colours on `--dur-base` with `--ease-in-out`, the glass's
-own step; a hover comes and goes on `--dur-fast` with `--ease-out`, halfway
-hovers included. A browser takes a transition from the state an element moves
-to, so the choice giving the mark up runs on the rest state's clock, the fast
-one: no marker is kept on the old choice for it. So the owner's "a chosen or
+filter's — moves its colours on `--dur-base` with `--ease-in-out`; a hover
+comes and goes on `--dur-fast` with `--ease-out`, halfway hovers included. A
+browser takes a transition from the state an element moves to, so the choice
+giving the mark up runs on the rest state's clock, the fast one: no marker is kept on the old choice for it. So the owner's "a chosen or
 unchosen change runs on base" holds only for the choice arriving; whether the
 one leaving should hold the base clock too is the owner's call (#1959). The
-glass still slides on the spring.
+glass under a strip's choice moves on its own, slower clock (`--dur-slow` with
+`--ease-glide`, above), so the chosen word's colour lands first: at 200ms on
+touch against the glass's 320ms, at 150ms at a desk against its 200ms.
 
 **One ladder in all four cire apps.** The vendor portal, the guest site and the
-marketing site carry this ladder, its `pointer: fine` block and the two easings
-`--ease-out` and `--ease-in-out`; `cire/vendor`'s `tests/styles/tokens.test.ts`
-fails if any copy differs. The spring is the two portals' alone, because only
-their animations read it — the glass strips slide on it in both, the droplet
-in host: the guest site and the marketing site declare neither the token nor
-the `@supports` block, and the test fails if one gains a copy. The vendor portal
+marketing site carry this ladder, its `pointer: fine` block, the two easings
+`--ease-out` and `--ease-in-out`, and the default curve set to `--ease-out`;
+`cire/vendor`'s `tests/styles/tokens.test.ts` fails if any copy differs or
+drops the default curve. The same test holds the two copies outside the apps
+to this file: `@cire/ui`'s test stylesheet (`tests/test-support/tailwind.css`,
+the desk ladder, both easings, the default curve and the springs' `@theme`
+fallbacks) and every
+`--dur-*` or `--ease-*` a cire story in the component lab sets inline. The two
+springs are the two portals' alone, because only their animations read them —
+the glass strips glide on `--ease-glide` in both, the thread's send button
+grows on `--ease-spring` in both, the droplet in host: the guest site and the
+marketing site declare neither token nor the `@supports` block, and the test
+fails if one gains a copy. The vendor portal
 renders no `Modal`, so it alone
 sets no `--ui-modal-*` timing. The guest site and the marketing site keep their
 own timing only for choreography longer than `--dur-slow`: an unlock reveal, a
@@ -641,7 +742,10 @@ slowed to 0.1× and judged frame by frame. Nothing in the app itself writes it.
 `prefers-reduced-motion: reduce` is a global kill switch in `@layer base`, not a
 per-component branch. It sets `transition-duration` and `animation-duration` with
 `!important`, which beats an inline style — so a hook that writes a duration
-inline still stops, and no hook needs a `matchMedia` check of its own.
+inline still stops, and no hook needs a `matchMedia` check of its own. A view
+transition is the exception: the switch reaches none of its pseudo-elements, so
+the script that starts one checks `matchMedia` itself (the theme cross-fade,
+below).
 
 Two hooks carry the design law of §1, both from `@cire/ui` and shared with the
 vendor portal:
@@ -651,18 +755,61 @@ vendor portal:
   survives the transition, so a resized window, a changed font size or a late
   image never fights a stale number. The measured wrapper is a `flow-root`, so a
   child's top margin cannot escape it and change the answer depending on whether
-  the frame was clipped at the time.
+  the frame was clipped at the time. While a disclosure inside it grows open,
+  the frame follows the content with no transition of its own, and so for the
+  growth's last step: one growth has one clock, and a frame animating each
+  frame of it would trail the growth and cut the panel's foot.
 - **`createSlidingPill`** (`@cire/ui/sliding-pill`, shared with the vendor
   portal) — moves one highlight between tabs instead of cross-fading one
   highlight per tab. That is what makes a strip read as a single control rather
-  than a row of them. `SegmentedTabs` (§7) moves its glass with it on
-  `--ease-spring`; the module rail's marker keeps `--ease-out`. The pill's row
+  than a row of them. `SegmentedTabs` (§7) moves its glass with it, the place
+  on `--ease-glide` and the size on `--ease-out`, on `--dur-slow`; the module
+  rail's marker keeps `--ease-out` on `--dur-base` for both. The pill's row
   must be `relative`: an absolutely positioned element paints above
   non-positioned siblings in the same stacking context, and without it the
   underlay covers its own labels.
 
 The sheet variant of the module nav deliberately gets no pill. A pill measures a
 strip the eye can see all of at once, and a sheet is a list.
+
+**A view arrives by fading in** (the owner's choice, 2026-11-10, from a
+rendered comparison, englishstreetventures/osn#2164: "the arriving view fades in
+(opacity, `--dur-base`, `--ease-out`, never on first paint)", and "several of
+these should run a little slower than the compare page's defaults so people can
+feel them. Choose the rung per child, by eye"). `ModuleShell`'s measured box
+carries `view-arrive`, and the first change of module or sub-tab sets
+`data-swapped` on it. From then on each child the box gains fades from opacity 0
+to 1 on `--dur-base` with `--ease-out`: a view a change mounts, and a view
+taking over from its `Suspense` fallback. Each view is one element in the box,
+so the states a view swaps inside itself — its own loading row giving way to
+its rows — arrive at once; the shell holds the run sheet, whose root is a
+`Switch`, in one plain element for this. The owner chose the rung on
+2026-11-11: `--dur-base` (150ms at a desk, 200ms on touch), one rung below
+`--dur-slow`. Opacity only, so nothing fights the
+height; the view it replaces goes at once, because a fading view keeps its
+controls focusable in a box that is going away. The panel the page opens on
+never fades, because `data-swapped` is not set until the first change. The fade
+is a transition from `@starting-style`, not keyframes: a starting style applies
+only to an element's first style, so a child that stays mounted across a change
+— the invite builder across its four views — is never re-faded. None of these
+is a new child of the box, so each arrives at once: the builder's own steps and
+Content's sections, which show their cards by `hidden`; the re-mint panel the
+owner sees on Codes, which mounts inside the builder's column; a `Suspense`
+nested inside a view (the two editors in `EditWorkspace`, the builder in its
+column); and the controls a view lends the view bar. Under
+`prefers-reduced-motion: reduce` the view arrives at once: the transition is
+declared only under `no-preference`, because the kill switch's
+0.01ms still paints a starting style's opacity 0 for a frame or more. An engine
+without `@starting-style` (before Chrome 117, Safari 17.5, Firefox 129) swaps
+at once. A fading view is a stacking context, and the z-20 view bar stays
+painted over it; the two editors' save bars portal to `<body>` and never fade
+with it. `tests/components/ModuleShell.view-arrive.browser.test.tsx` checks the
+first paint, a sub-tab press under the stuck bar, a module change to a view with
+no `Suspense`, the `Suspense` hand-off, the run sheet's day arriving at once,
+reduced motion, the builder not re-faded, and both editors' save bars. The
+builder's hidden cards, the re-mint panel, a nested `Suspense`, the view bar's
+controls and an engine without `@starting-style` are read from the code, not
+tested.
 
 **The droplet.** A checklist row's popovers — the assign popover and the
 time editor — grow out of the control that opened them (`droplet-popover`,
@@ -693,20 +840,229 @@ trigger falls to `<body>`. A new menu is the shared `DropdownMenu` on its accent
 look; a new Kobalte popover takes `menu-pop` unless it belongs to a checklist
 row.
 
-**A disclosure fades open and closes at once.** A `<details>` body drops 4px and
-fades in on `::details-content`; it closes instantly, because a fading body
-leaves its controls focusable in a box that is going away. The fade sits inside
-`prefers-reduced-motion: no-preference`: the global switch selects `*`, which
-reaches no pseudo-element. `Disclosure` (§7) carries it as a transition declared
-only on the open state, so closing has none to run and a disclosure that is
-open when it first paints does not fade. Every `<details>` in the portal is
-`Disclosure`, so the stylesheet keeps no fade of its own.
+**An icon's tooltip scales in after its wait, and only then.** When a mouse
+has rested on a control for the 300ms delay, `ActionTip`'s panel fades in and
+scales up from 0.96 (`tip-pop`, on the menus' `menu-pop-in` keyframes) from the
+side of the control it opened on (`--kb-popper-content-transform-origin`), as
+`@shared/ui`'s `Tooltip` beside it does. Keyboard focus, and the next tip in a
+run (one already showing, or one closed less than 300ms before), show the panel
+at once: a tooltip the keyboard opens is never animated, and icons read one
+after another show each name in place. No exit: the layer unmounts the panel as
+it closes. It runs on `--dur-base` with `--ease-out`, 150ms at a desk; a touch
+never opens one. That is one rung above the menus' `--dur-fast`. The owner
+asked that "several of these should run a little slower than the compare
+page's defaults so people can feel them" and that the rung be chosen "per
+child, by eye" (2026-11-10, englishstreetventures/osn#2164); it was picked on
+2026-11-11 from frames of both rungs: on `--dur-fast` the panel is 87% opaque
+30ms in, so no fade is seen. So it arrives a little slower than the shared
+`Tooltip` (120ms) and the collapsed rail's tooltip (`rail-tip`, `--dur-fast`).
+Under reduced motion the global switch cuts it to nothing. `ActionTip.browser.test.tsx`
+holds it: a delayed open runs `menu-pop-in` from the panel's bottom edge, a
+keyboard open and the next tip in a run run nothing, and under reduced motion
+no frame is partway.
+
+**The command palette fades up.** ⌘K's centred dialog rises through the page:
+from transparent, 10px below its place and at 98.5% of its size, scaled from
+its own centre, while its scrim fades in (`palette-rise` and `palette-scrim` in
+`global.css`). Both run on `--dur-base` with `--ease-out` — 150ms at a desk,
+200ms on touch — one rung slower than a hover, so the arrival can be seen. The
+owner asked for "a little slower than the compare page's fast rung"
+(englishstreetventures/osn#2164, 2026-11-10), and chose `--dur-base` for the
+entry (2026-11-11: "keep --dur-base for cmd palette entry"). It has no exit: a box
+holding live controls closes at once, so the palette and its scrim leave in
+one frame. Under reduced motion the global switch zeroes both, and it appears
+at once. `tests/components/CommandPalette.browser.test.tsx` holds the first
+frame (below its place, no sideways offset, opacity under 1), the clock, the
+one-frame exit at rest and mid-arrival, and the reduced-motion case.
+
+**A disclosure grows open and closes at once.** As a `<details>` opens, its box
+grows from the summary row to its full height while the body drops 4px and
+fades in, all on `::details-content`; it closes instantly, because a fading
+body leaves its controls focusable in a box that is going away. The growth, the
+drop and the fade share `--dur-slow` and `--ease-out`, so on no frame is the box
+full while the text is still faint, or the text full in a box still short. The
+owner chose the slow step over the issue's `--dur-base` (2026-11-10: "just a
+tad slower to allow people to feel the animation"), one step for all three so
+the text does not finish before the box. A disclosure opening inside an open
+one grows both boxes on the same frames, since the outer one's height is
+`auto`.
+
+The height moves from 0 to `auto` through `interpolate-size: allow-keywords`,
+which only Chrome and Edge have (Safari and Firefox have none as of
+2026-11-10). The height, the clip and `interpolate-size` sit inside
+`@supports (interpolate-size: allow-keywords)`: elsewhere the box opens at once
+and the body fades and drops in it on the same `--dur-slow`, and without the gate the transition's
+`allow-discrete` would step the height to `auto` partway through. The body is
+clipped only while it grows, so no line spills past the box: `overflow` steps
+from `clip` to `visible` on a zero-length transition delayed by `--dur-slow`.
+Open and at rest nothing is cut — a focus ring at the body's edge, a row lifted
+by a drag in "Arrange tables" — the same rule as `createAutoSize`, which holds
+nothing at rest. The module panel's `createAutoSize` frame stands aside while a
+disclosure in it grows, so only the disclosure moves.
+`tests/components/ModuleShell.disclosure.browser.test.tsx` holds it: on no
+frame of an opening does the frame cut the panel, in a panel under the
+frame's 480px cap and in the seating screen's real panel, and the frame still
+moves between two views when one holds a disclosure open.
+
+It sits inside `prefers-reduced-motion: no-preference`: the global switch
+selects `*`, which reaches no pseudo-element, so under `reduce` a disclosure
+opens at once. `Disclosure` (§7) carries it as a transition declared only on
+the open state, so closing has none to run and a disclosure that is open when
+it first paints runs nothing. Every `<details>` in the portal is `Disclosure`,
+so the stylesheet keeps no opening of its own.
+`tests/styles/disclosure.browser.test.tsx` reads every frame of an opening: the
+card between its two heights on several frames, the body's opacity within 0.05
+of the card's share of its growth on each, the clip while it grows and none at
+rest, a nested card and its parent growing by the same amount, and under
+emulated reduced motion the full height on the first frame.
+
+**A panel that opens inside a row grows through `Reveal`** (`@cire/ui/reveal`),
+the owner's choice (2026-11-10, englishstreetventures/osn#2164). Its height
+grows from nothing as it fades in, on `--dur-base` with `--ease-out`, so the
+rows below move down with it rather than jump; it closes at once, because it
+holds fields. Where the portal draws it: a budget line's "per head" and
+"payments (n)" panels, and a message's time on a phone (§7, `MessageThread`).
+The owner chose `--dur-base` for the budget panels on 2026-11-11: one rung
+above `--dur-fast` (200ms on touch, 150ms at a desk), a little slower than the
+comparison page's fast defaults. `Reveal` opens on `--dur-base` unless its
+caller passes `pace="slow"`, which only the guest site does; the portal passes
+none. `Reveal` clips what it holds, inside 4px of room that keeps a focus ring
+at the content's edge whole, and a matching negative margin hands that room
+back to the layout, so a closed panel takes no height
+([frontend-patterns](../../wiki/shared/frontend-patterns.md) §A reveal needs a
+wrapper that outlives the content it reveals). A budget line has no `gap`,
+because both closed `Reveal`s stay in it and a gap would add to every line:
+each part carries 4px above, below and to its right instead, and the line's
+padding is 4px less, so every gap still measures 8px, the space above an
+opening panel grows with it, and a closed panel adds nothing. The clip would
+also cut text that runs past the edge, so a
+payment's label and an event's name inside a panel wrap anywhere
+(`wrap-anywhere`): either can be one 80-character word. A control inside the
+panel that closes it — Cancel, Save, "Use a fixed amount" — hands focus back to
+the toggle that opened it, and a payment's ✕ hands it to the next payment's
+box, or to "Payment label" when none follows, so focus never falls to the page.
+`BudgetView.reveal.browser.test.tsx` samples the opening frame by frame and
+measures the room, the spacing and the wrapping; `BudgetView.test.tsx` holds
+the focus.
 
 **A toggled box that is not in the top layer fades out in CSS alone.**
 `transition-behavior: allow-discrete` holds `display` until an opacity fade has
 run, and `@starting-style` gives the opening its from-state. A dialog or popover in
 the top layer cannot do this in Safari or Firefox: leaving the top layer needs
 `overlay`, which is Chrome only, so `Modal` defers `close()` in script instead.
+
+**The unsaved-changes bar rises from the window's foot and goes at once.** The
+events and guests editors' bar, fixed to the foot of the window, mounts with
+whichever edit first makes the draft differ from the saved one — a keystroke
+in a field as often as a press — and rises from that edge by its own height
+(`bar-rise`: `translate: 0 100%` in `@starting-style`, with `translate`
+transitioned) on `--dur-slow` with `--ease-out`, 200ms at a desk and 320ms on
+touch. It leaves at once — on Save, Discard or an undo back to no changes —
+because it holds Undo, Discard and Save, and a bar sliding away would leave
+them focusable in a box that is going; the next edit after an undo back to no
+changes raises it again. The rung is one above `--dur-base`, for the reason
+and by the owner's leave given for the tooltip above
+(englishstreetventures/osn#2164), picked by eye on 2026-11-11: on `--dur-base`
+the curve covers 92% of the rise in its first 60ms at a desk, and the bar reads
+as appearing rather than rising. The `translate` is on the fixed bar itself,
+never an ancestor, so the window stays its containing block. An engine without
+`@starting-style` (before Chrome 117, Safari 17.5, Firefox 129) shows the bar
+at rest at once. Under reduced motion the global switch puts it straight at
+rest: it may show its start until the engine ends the switch's 0.01ms
+transition, a frame or two and more on a loaded machine, then rest, on no
+frame partway. `tests/components/unsaved-bar.browser.test.tsx` reads both
+editors' bar frame by frame: drawn first below its place by no more than its
+height, rising over several frames and never sinking, at rest at the end, gone
+on the frame Discard runs, and under reduced motion on no frame partway, its
+transition under a millisecond with its delay, and at rest by the first frame
+after the engine ends it.
+
+**A dropped row settles into its slot** (the owner's choice). Let go with a
+pointer, a sortable row eases from where it was released into its new slot; a
+cancelled drag eases it back. It runs on `--dur-base` with `--ease-out`: 150ms
+at a desk and 200ms on touch, a rung the owner chose over `--dur-slow`. The row
+keeps the look it was dragged in
+until it lands (on most lists the gold edge, the 80% surface fill and
+`--elev-2`; Depth, above), so it crosses its neighbours above them rather than
+as a see-through box. The rows that shift aside to open its slot do not move
+again at the drop. A keyboard move does not animate, and reduced motion lands
+the row at once. A drag that catches a settling row picks it up where it is.
+`@shared/sortable` does it for every list
+([drag-and-drop](../../wiki/shared/drag-and-drop.md) §A dropped row settles
+into its slot).
+
+**A one-click delete can be taken back.** A task's, a budget line's or a
+gift's ✕ takes the row off at once, since it holds live controls, and raises a
+`@shared/toast` toast that offers Undo for five seconds (`lib/undo-delete.ts`,
+the owner's choice of a toast over an in-place strip, englishstreetventures/osn#2164).
+The toast's own clock is the window, so it pauses while the pointer or focus
+is on the toast. A ✕ pressed from the keyboard or by a screen reader moves
+focus to its Undo, so the window waits for as long as focus stays there, and
+Undo hands focus back to the restored row's ✕. Each Undo is named after its
+row for a screen reader ("Undo deleting “Book the venue”"), and is drawn like
+every portal action: its label as written, on a pill (§7 Labels). Nothing is
+sent until the toast has gone, so Undo puts back the very row, where it stood
+unless the list was reordered while the toast was up (then it can land one
+place later, after the row it ties with), and a second toast says so in its
+own live region. Several deletes stack, oldest at the bottom edge, and each
+Undo restores its own row. The undo toast arrives on `--dur-base` and
+`--ease-out` (`.undo-toast` maps `--toast-enter-duration` and
+`--toast-enter-easing`): 150ms at a desk and 200ms on touch, against the
+package's 160ms. That makes it faster than the default at a desk and slower
+on touch. The owner chose `--dur-base` over `--dur-slow` after watching both
+rendered. Every other
+portal toast keeps the package's 160ms arrival, as the vendor portal's do. An
+undo toast leaves at once (`.undo-toast.ui-toast--leaving`), because it holds
+Undo. The row Undo puts back fades in where it stood (`row-return`: opacity
+alone, so the box a drag measures does not move, on `--dur-slow` and
+`--ease-out`), and only on that return. Under reduced motion the global switch
+makes all of it immediate. `tests/lib/undo-delete.browser.test.tsx` and the
+three `*.undo.browser.test.tsx` files hold it, and picture the stack at 390
+and 1280px in both ramps in `e2e-artifacts/cire-host/undo-delete/`.
+
+**A theme change cross-fades the page.** A theme chosen in the account menu
+(§6) is applied inside `document.startViewTransition` (`@cire/ui/lib/theme`),
+so the whole page, the open menu included, fades from one ramp to the other as
+one snapshot: nothing moves, only colour changes. The fade runs on `--dur-base`
+with `--ease-in-out`, 150ms at a desk and 200ms on touch. The owner chose this
+step, and the curve, for a fade that is brief and does not hold the page
+(2026-11-11). The in-out curve
+passes quickly through the halfway frame, where the two ramps meet in a flat
+grey. `::view-transition-group(root)` is timed with the two snapshots, so the
+transition ends with the fade, not on the browser's own 0.25s. The vendor
+portal carries the same rules, since it shares the script.
+
+While the fade runs the browser hit-tests the snapshot, not the page: a press
+lands on `<html>` whatever is under it. The theme choices keep the menu open,
+so a second try would read as a press outside it and close it. Until the fade
+ends the script drops a `pointerdown` on `<html>`: no `pointerdown` listener
+after it sees the press, so the menu, which dismisses on `pointerdown`, stays
+open and focus stays put. The press is not replayed; the host makes it again
+once the fade ends, so the pointer waits no longer than the fade. The `click`
+that follows still reaches `<html>`. A choice made from the keyboard is never
+dropped. `pointer-events: none` on `::view-transition` does not help: the
+captured root takes no press either
+([frontend-patterns](../../wiki/shared/frontend-patterns.md) §A view transition
+takes every press until it ends).
+
+A second choice mid-fade, which only the keyboard can make, or a change of
+viewport size, such as a phone turned, skips the running fade. The skipped
+fade still applies its choice, the last choice lands, and the script handles
+the skipped fade's rejected `ready`, so nothing is logged.
+
+Under reduced motion, and in a browser without `startViewTransition`, the
+theme changes at once: the rules sit inside
+`prefers-reduced-motion: no-preference`, because the global switch selects `*`
+and reaches no pseudo-element, and the script checks `matchMedia` and starts no
+transition. `tests/components/ProfileMenu.crossfade.browser.test.tsx` reads the
+two snapshots' duration and curve and the transition's end, keeps the open
+menu through a press mid-fade and frees the pointer after it, lands two quick
+choices and a choice cut short by a resize with no rejection, and changes the
+theme at once under reduced motion and with no `startViewTransition`;
+`tests/components/CommandPalette.browser.test.tsx` checks that the palette's
+theme row starts no fade. `cire/vendor`'s `tests/styles/tokens.test.ts` fails
+if the two portals' rules differ, or if the guest or marketing site carries
+them.
 
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
@@ -875,6 +1231,12 @@ Three states, not two: `system`, `dark`, `light` (`@cire/ui/lib/theme`'s
 Collapsing "system" into "dark" would silently convert a host who follows their
 OS into a host pinned to dark, the moment they opened the menu to look at it.
 
+A theme chosen in the account menu cross-fades the page (§4): the menu passes
+`{ fade: true }` to `setThemePreference`, and nothing else does. Every other
+change of theme applies at once: the command palette's theme row, a keyboard
+action that should not wait on a fade; the boot script's, before first paint;
+and the OS's while a host is on "system", which nobody in the page chose.
+
 `src/lib/preference-keys.ts` holds the storage keys and the boot script
 (`@cire/ui/lib/theme-boot`'s `themeBootScript`, over `cire.host.theme`),
 inlined in `<head>` before the stylesheet on every page. It has to run before first paint — a host
@@ -911,15 +1273,15 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Button`, `buttonClass`, `proseLinkClass`                       | Nineteen variants in four groups. **Boxed actions**, ten: `primary` (filled — the commit, gold: `--ui-accent` with `--on-gold`), `cta` (outlined, filled on hover — the guest site's call to action), `outline` (a gold word in a 40% gold edge; under the pointer the edge turns full gold and nothing fills, so the word keeps its 4.5:1 on the page and every card — `@cire/ui` `tests/outline.browser.test.tsx`), `quiet` (a hairline and the secondary ink; it holds its hover look while what it opens is open, `aria-expanded`; at `icon`, a row's icon action), `bar` (the portals' bar icon button and the top bar's ⌘K: `quiet`'s rest; under the pointer the ground lifts to the surface at 60%, the body ink and a gold edge; open, `aria-expanded`, the raised surface in the body ink and its hairline, which the pointer does not move; hover and open on `--dur-fast` with `ease-out`, the outline never transitioned; §4 One pill language), `quietDanger` (red only on hover), `choice` (one of several, marked by `aria-pressed` or `aria-checked` with an accent edge, accent ink and a 2px 60% accent ring, so the mark is more than colour; under the pointer an unchosen one goes halfway, its edge and ink a mix of rest and chosen and a 1px 30% ring, so chosen and hovered differ by the ring's width and not by gold alone; its hover moves on `--dur-fast` and its choosing on `--dur-base`, §4 One motion rule; locked with `aria-disabled` it keeps its look and stops answering the pointer, while `disabled` still fades it; the guest site's one of several, and a swatch's in the portals — a section's tone, a registry picture — whose own fill is what is chosen), `glass` (the portals' one of several: the glass track's look at rest, a strip choice's halfway hover, chosen the strip's glass in readable gold at medium weight, the rest at normal weight with each word's width held at medium (`GLASS_WORD`, the strip's own) — the cue that is not colour, as a strip's; on `choice`'s two clocks; `lib/glass.ts`'s `GLASS_CHOICE`), `dashed` (an empty slot), `danger` (the confirm that destroys). **The ground:** every boxed pill but `primary` sits on `--pill-ground`, the glass track's ground (§4, One pill language). **Blocks**, two: `tile` (the whole block is the control) and `field` (a trigger shaped like the field it stands in for). **Sheet chrome**, two: `chip`, and `round`, a glyph on the opaque surface disc with no edge, muted ink brightening on hover, at 28px (`sm`), 32px (`md`, `icon`) or 44px (`lg`, its × on the `lg` text step). **Borderless**, five: `link`, `subtle`, `touchLink`, `bare`, `bareDanger`. Six sizes: `sm` (28px here, `--pill-sm-height`), `md` (38px), `lg`, `form` (34px, beside a form field, md's type), `swatch` (a frame round a picture) and `icon` (a 28px circle on a boxed variant, at least 24px square on a borderless one). **Corners:** the actions take `rounded-ui-control`, a pill; `tile`, `field` and the `swatch` size take `rounded-ui-field`, 14px; `chip` and `round` take the `pill` step, so they stay round side by side whatever `control` is. The borderless five take `control` as well, which only their focus ring shows. **Labels** show as written — sentence case, normal tracking, `font-medium` on a boxed size (below). `type="button"` is set **before** the spread, so a toolbar control inside a settings form does not submit it, and a caller who means `submit` can still say so; `aria-disabled` swallows the click as well as announcing it. `buttonClass` gives an `<a>` or a Kobalte trigger the same classes. A `tile` that holds a sentence or a name rather than a label — a getting-started step, a wedding in the wedding list — adds `whitespace-normal`, and `justify-start` where it is a row, since the base holds a label to one centred line. **A link inside a sentence** is not a `Button`: `proseLinkClass({ tone })` gives its `<a>` an underline at rest at 2px, no type size or weight of its own (the sentence's), wrapping with the words round it, `Button`'s focus ring, and one of two inks — `accent`, readable gold, the default and the tone inside a tinted `Notice` too; `muted`, the secondary ink, brightening to the body ink on hover. A link that stands alone is a pill, not this (`wiki/shared/component-library.md` §cire's `Button`): in the portal it is `LinkPill` (`src/components/LinkPill.tsx`), `outline` at `sm`, 28px, the pill height of the actions and filters beside it. A link that takes the place of a button in a row of `md` actions — "Open your Stripe Dashboard" beside "Check again" in the registry settings — is an `<a>` with `buttonClass({ variant: "outline" })` at the row's size instead, new tab and hidden "(opens in a new tab)" as a `LinkPill`'s, so it matches the buttons it stands among. A destination a host knows by its mark — a vendor's Website and Instagram, an event's Maps and Pinterest — leads with that mark at 14px; in a row narrower than 14rem (`LINK_PILL_ROW`, a container query) its word becomes hidden text and the pill a 28px circle, so the name stays whole, and the word is the pill's `title`, so the circle names itself under the pointer too. "Link" and "Preview live" keep their words at every width. Every portal pill leads away from the portal — a vendor's site, a map, a shop, the live invite — so it opens a new tab and says so in hidden text, "(opens in a new tab)"; an address that is not `http:` or `https:` draws no pill at all. Hidden words after a visible word name what it leads to ("Link to the shop page for Napkins", "Maps for Reception"), so the name starts with the word on the pill and a page with several of one word tells them apart. The portal draws no `round`: its bar's icon buttons are `bar` at `icon` (§4, One pill language), the reply key among them (§A badge that explains itself). |
 | `Card`, `cardClass`, `cardBoxClass`, `CardCta`, `CardCtaButton` | The raised surface at the 16px card corner, plus its furnishings: the "go to the module" line at the foot, and that line as a button for a card that is not itself the control. A card's label is `Eyebrow`. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. `cardBoxClass` is the box alone — corner, border and fill, no padding or layout — for a part that pads its own pieces, as `Disclosure` does; its `nested` option takes the 6px step. Three options, each defaulting to the card every module drew before the others existed (`md`, `wash`, `default`): **`padding`** `sm` 16px (a filter bar, a small card in a list), `md` 20px, `lg` 24px (a panel that holds a whole form), `xl` 32px (the sign-in card); **`fill`** `wash` (the surface at 30%, so a grid of cards reads as one layer), `well` (the sunk surface, for a box holding something already on the page — on the guest and marketing sites the sunk surface is the page ground, so there a well shows its border alone), `opaque` (the surface, for a card nothing behind may show through) and `none` (for a card set on something that already has a ground); **`tone`**, the border alone: `default` the hairline, `accent` the gold rule, `danger` the red one, for the card that holds an action nobody can undo. The steps are `@shared/ui` `Card`'s plus `xl`, and its `muted` is the `well` here. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it. It is `cardClass`'s alone, since `Card` is a `<div>`, and it goes only with the wash fill and a tone other than `danger`: the hover lifts the wash and turns the border gold, which no other fill has a step for, and a danger card holds a control rather than being one. The type refuses the rest, whether `interactive` is written `true` or passed as a `boolean`. **Every bordered, padded block on the page draws its box from these**, at a step: the full-width panels (settings, the gift-list settings, the code style, a new wedding, the invite builder) `lg`; the filter bars and add forms (`FIELD_BAR_CLASS` in `src/lib/form-field.ts`), the small cards in a list and the event rows `sm`; the import's diff preview `sm` on the `well`; a row with no ground of its own (a deleted wedding, a design or an envelope to choose) `sm` on `none`; the getting-started guide `lg` with the `accent` tone; the danger zone the `danger` tone on `none`; the sign-in card `xl` on `opaque`. A state that recolours a card keeps its own plain class beside the card's — a design that is chosen, a co-host who owns the wedding, an event row in error or being dragged, a table a guest is dragged over — and wins over the card's `base:` default. One card is drawn by hand: the guest editor's household card, whose stuck head sits flush with its top edge, which no padding step leaves.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `Disclosure`                                                    | A native `<details>`: a summary row, a marker that turns as it opens, and the opening fade (§4). Two tones. **`card`**, the default: `cardBoxClass({ fill: "well" })` — Card's border, the 16px corner and the sunk fill — with the padding on the summary row (`px-4 py-3`, so the whole row is the click target) and the body (`px-4 pb-4`), not on the box; `nested` gives the 6px step for one set inside another box. Its summary is the body face at the `base` step, and its marker a leading `›` that turns 90°. **`rule`**: a hairline under the row, no fill and no corner, the summary in the display face at the `lg` step with `leading-ui-tight`, and a trailing `+` that turns 45° into ×; the body is `pb-5`. The owner chose the fill, both markers and their ink (englishstreetventures/osn#1834): the marker is `--ui-accent-ink` in both, `aria-hidden`, at the summary's own size, and turns on `--dur-fast` with the house easing, keyed to its own `<details>` (`details[open] > summary > marker`) so a closed disclosure inside an open one stays closed. The summary has no hover colour and no corner of its own; its focus ring is the square one. The body is a column with Card's 12px gap. `open` sets whether it starts open; `onToggle` reports every new state, a script's change and the mount included, so a count of whether the reader touched it listens to `onSummaryClick`. A caller's `class` places it and does not restyle it; a treatment one app owns, such as `attention-glow`, goes on a wrapper. An Astro page renders it to static HTML.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `Disclosure`                                                    | A native `<details>`: a summary row, a marker that turns as it opens, and the opening, a growth and a fade (§4). Two tones. **`card`**, the default: `cardBoxClass({ fill: "well" })` — Card's border, the 16px corner and the sunk fill — with the padding on the summary row (`px-4 py-3`, so the whole row is the click target) and the body (`px-4 pb-4`), not on the box; `nested` gives the 6px step for one set inside another box. Its summary is the body face at the `base` step, and its marker a leading `›` that turns 90°. **`rule`**: a hairline under the row, no fill and no corner, the summary in the display face at the `lg` step with `leading-ui-tight`, and a trailing `+` that turns 45° into ×; the body is `pb-5`. The owner chose the fill, both markers and their ink (englishstreetventures/osn#1834): the marker is `--ui-accent-ink` in both, `aria-hidden`, at the summary's own size, and turns on `--dur-fast` with the house easing, keyed to its own `<details>` (`details[open] > summary > marker`) so a closed disclosure inside an open one stays closed. The summary has no hover colour and no corner of its own; its focus ring is the square one. The body is a column with Card's 12px gap. `open` sets whether it starts open; `onToggle` reports every new state, a script's change and the mount included, so a count of whether the reader touched it listens to `onSummaryClick`. A caller's `class` places it and does not restyle it; a treatment one app owns, such as `attention-glow`, goes on a wrapper. An Astro page renders it to static HTML.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `Eyebrow`, `eyebrowClass`                                       | The small-caps label that leads a section, a card or a group of fields: one size (`xs`), one letter-spacing (`widest`, 0.16em) and two tones — `accent` in readable gold (`--ui-accent-ink`), the default, and `muted` in the secondary ink. The owner chose the spacing and both inks (englishstreetventures/osn#1833). It sets no weight, so on a guest's invite it follows the couple's body weight. `as` renders it as `p` (the default), `span`, `h2`, `h3`, `legend` or `dt`; `eyebrowClass` gives the same classes to anything else. A table head is not an eyebrow — it is `Th` — and the invite preview, which re-declares the couple's palette on a wrapper below the root, draws its own. Every label that leads a section, a card, a fieldset or a group of fields in the portal is `Eyebrow`, and an `.astro` page's (the sign-in page) is `eyebrowClass`. A quiet label — a budget figure's, a checklist bucket's, a command palette group's — takes `muted`, and so does a group's head inside a module: the run sheet's day (`as="h3"`) and each seating group, "Not seated" and every table (the owner's choice; a table's name a host typed shows in its small caps). A heading over a section is the display face light, `SectionIntro`'s, Security's included, and no eyebrow repeats it (§3, "An eyebrow over a heading says what the screen does not").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `FileInput`                                                     | A native file input whose button is `Button`'s `quiet` pill at `form`, the 34px form-field height, on the portals' pill ground (`FILE_BUTTON`, held to `quiet` and `form` by a test), the file name beside it in body ink at the small step, the house focus outline on the input and the whole picker at 40% when disabled. A picker with no visible label takes an `aria-label`. Its button's word is the browser's own ("Choose File" in Chromium). The portal's four pickers are `FileInput`: the guest-list spreadsheet, invite pictures (named by `aria-label`, its row's Crop, Phone crop and Remove at 34px), gift pictures and event pictures.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `Loading`                                                       | "This is on its way": one pulsing small-caps line with `role="status"`, for a list or a page still fetching. A lazy panel's fallback is `PanelLoading` instead, which holds the panel's height and does not pulse.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `Loading`                                                       | "This is on its way": one pulsing small-caps line with `role="status"`, for a list or a page still fetching, or a download in flight (Settings → Export). A lazy panel's fallback is `PanelLoading` instead, which holds the panel's height and does not pulse.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `Skeleton`                                                      | A loading placeholder: one `aria-hidden` block with no role and no words, pulsing with `Loading`. `standsFor` picks the corner and the fill (§4, Skeletons): `card`, the default, `row`, `field` or `pill`; the caller's `class` carries the height, the width and the place, and no other prop reaches it. The region that holds the placeholders and the content that replaces them carries `aria-busy` while it loads, never one that holds a heading, a form, a live region or a control a reader can reach (an outline's are `inert` and `aria-hidden`), and is hidden when a failed read leaves it empty (`empty:hidden`), so it adds no gap. In the RSVP view bar, a divider stands before the event strip's placeholder, where the loaded strip's does. |
 | `SkeletonOutline` | A loading placeholder that is the real row drawn hollow (§4, Hollow rows): the view renders its own markup from a typed sample inside it. `aria-hidden` and `inert`, so nothing inside is read, focused or pressed; the region that holds it and what replaces it carries `aria-busy`, and an outline lent to the view bar, outside that region, needs none. It renders in the browser only (`client:only`). It takes no `class`: its children bring their own layout. A part of the row that is a disc or a chip takes `data-skeleton="block"`, a button drawn as words `data-skeleton="text"`. Its children are a still picture: a part that changes inside them after it mounts is not redrawn, so a layout that changes renders a new outline. |
 | `MessageThread`                                                 | An enquiry thread, the same in both portals: the messages oldest first in segments, each opened by a centred time line, and the reply box under them (§An enquiry thread). Your words on a 20% gold wash, theirs on half the surface inside a hairline, both at the 16px corner, `px-4 py-2.5`, the base step in full ink, 3/4 of the column wide. |
 | `Note`                                                          | Cire's standing note: `Notice`'s `accent` tone led by a ✦, drawn as `Notice`'s circled icons are (inline, `aria-hidden`, in the tone's readable gold, sized from the text step) with "Note" read in its place; `sm` unless a size is asked for. **Placed only where the owner asks for one** (englishstreetventures/osn#1868: "I'll let you know when to use a cire note"); a standing note anywhere else is `Notice`'s unmarked `accent`. Not on the marketing site, whose readable gold is its metal gold, not inside the invite preview, which re-declares the couple's palette below the root, and not on `--bg-deep`, where its words read 4.35:1 in light; `tests/styles/notice-contrast.browser.test.tsx` holds it and every `Notice` tone at 4.5:1 on the page, the card's three fills, the raised surface and the run sheet's coming-up row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `SegmentedTabs`, `GLASS_FILL`                                   | Every segmented control in the portals: one 28px glass track (`h-7`, the surface at 30% inside a 1px hairline, 2px padding) holding 22px choices, and one frosted highlight — the raised surface at 55% under the accent at 14%, a lit inner edge (`--glass-edge`, white 10% dark and 70% light), `--inner-lip` and `--elev-1` — that slides to the chosen one on `--dur-base` and `--ease-spring` (`createSlidingPill`), and jumps for a reader who turned motion down. Labels in sentence case at normal tracking, `text-ui-xs`, idle in the secondary ink, chosen in the readable gold at medium weight (the cue that is not colour, the owner's choice on #1845); under the pointer an unchosen one goes halfway. A hover's colours move on `--dur-fast` with `--ease-out`, a choice being made on `--dur-base` with `--ease-in-out` (§4, One motion rule). A choice may lead with its icon, carry a count or a "New" after its word, and go icon-only below its call site's width, its label then its name and its `data-tip` — the whole strip, or one choice beside others that keep their words. Three meanings: `tabs` (a tablist, manual activation: the arrows, Home and End move focus and Enter or Space chooses), `radio` (a radiogroup with one tab stop, the checked radio, whose arrows move and choose, wrapping, and whose choice the call site may refuse) and `current` (buttons, `aria-current="page"`). `scroll` lets a strip scroll sideways inside 4px of room for the ring, revealing a choice without moving the page. Where the portal draws it: a module's views (`ModuleShell`), the Edit modes (`EditWorkspace`), the RSVP page's events (`RsvpView`, `scroll`) and its reply filter (`radio`, `scroll`, §Chips), the invite builder's sections under Content, and the vendor portal's two views. `GLASS_FILL` (`@cire/ui/lib/glass`) is the glass without its place, for a lone glass pill: the invite builder's place on a phone. |
+| `SegmentedTabs`, `GLASS_FILL`                                   | Every segmented control in the portals: one 28px glass track (`h-7`, the surface at 30% inside a 1px hairline, 2px padding) holding 22px choices, and one frosted highlight — the raised surface at 55% under the accent at 14%, a lit inner edge (`--glass-edge`, white 10% dark and 70% light), an outer ring (`--glass-ring`: the hairline at 0.5px in dark; in light `--gold-ink` at 80% and 1px, the owner's choice on #2371 ("C: gold-ink at 80%"), which sets the glass 3.58:1 apart from its track on the page and 3.61:1 on a card, where the pale glass under a gold word could not differ from a pale track by more than about 1.2:1 — englishstreetventures/osn#2356, `tests/styles/glass-contrast.browser.test.tsx`), `--inner-lip` and `--elev-1` — that glides to the chosen one on `--dur-slow`, its place on `--ease-glide` and its size on `--ease-out` so it never grows past the choice (`createSlidingPill`, §4; the move is the owner's choice, #2164), and jumps for a reader who turned motion down. Labels in sentence case at normal tracking, `text-ui-xs`, idle in the secondary ink, chosen in the readable gold at medium weight (the cue that is not colour, the owner's choice on #1845); under the pointer an unchosen one goes halfway. A hover's colours move on `--dur-fast` with `--ease-out`, a choice being made on `--dur-base` with `--ease-in-out` (§4, One motion rule). A choice may lead with its icon, carry a count or a "New" after its word, and go icon-only below its call site's width, its label then its name and its `data-tip` — the whole strip, or one choice beside others that keep their words. Three meanings: `tabs` (a tablist, manual activation: the arrows, Home and End move focus and Enter or Space chooses), `radio` (a radiogroup with one tab stop, the checked radio, whose arrows move and choose, wrapping, and whose choice the call site may refuse) and `current` (buttons, `aria-current="page"`). `scroll` lets a strip scroll sideways inside 4px of room for the ring, revealing a choice without moving the page. Where the portal draws it: a module's views (`ModuleShell`), the Edit modes (`EditWorkspace`), the RSVP page's events (`RsvpView`, `scroll`) and its reply filter (`radio`, `scroll`, §Chips), the invite builder's sections under Content, and the vendor portal's two views. `GLASS_FILL` (`@cire/ui/lib/glass`) is the glass without its place, for a lone glass pill: the invite builder's place on a phone, and the round chevron beside it, which wears the same ring in light because the two are one button. |
 | `Wordmark`, `WordmarkPlaceholder`                               | The top bar's way home, "✦ Cire": a button named by its label alone ("Cire — all weddings"), the ✦ in readable gold at rest and under the pointer, "Cire" in the display face at `md`, light, wide tracking, in a 6px box that takes the surface at 60% under the pointer. `Button`'s own ring; the box pulls 4px left and none right, so the ring clears the divider by 4px. Only the wash fades, on `--dur-fast`. `WordmarkPlaceholder` is the same box and glyphs with nothing to press, which `index.astro`'s boot bar renders to HTML, so the island's swap moves nothing. |
 | `SignInCard`, `SignInPanel`, `signInCardClass`                 | The login page, the same on both portals but for the portal's name: "Cire · Host portal" over a roman "Sign in", and the opaque `xl` card with its top edge lit by `--inner-lip`, at a 30rem measure set at the top of the page so the header never moves while the island fills the card. The panel: copy at the small step, one large pill, a danger `Notice` for a declined, failed or unavailable sign-in; after the press "Connecting to musubi…" at full strength, a second press ignored and announced, and the button back after a back-forward restore or ten seconds. It resumes on `?returnTo` only when it is a same-origin path. The card, the measure, the type, the label and the pending state are the owner's choices. |
 | `PersonAvatar`, `avatarTriggerClass`                           | A person's photo, drawn only from an https URL with no `Referer`, with a page-wide set of URLs that failed. `blank`, a face in a stack or a list: the empty avatar (§Who holds a task), with `ring` for the stack's 2px band in the page's colour outside the circle. `initial`, an account's circle: a hairline with no fill of its own, photo or letter, the letter as §3 sets it. `avatarTriggerClass` is the 36px button the account menu opens from: the portals' pill ground (`--pill-ground`) and `Button`'s ring; the avatar's edge turns `--gold-dim` under its pointer. The fill is the trigger's because the guest site's account card lays no ground under a gold word. |
@@ -1232,6 +1594,155 @@ holders' stack:
   Save reads "Saving…" and is `aria-disabled` while the write is out. A refusal
   is a `danger` `Notice` in the popover, worded by cause.
 
+### The whole wedding as one download: Settings → Export
+
+`WeddingExport.tsx`, at `#/w/<weddingId>/settings/export`, is how an owner takes
+the wedding away as one ZIP, at every tier. The address is handed out beyond
+the portal (a Musubi account's export, the flows that delete an account or a
+person's Cire data), so the decisions below start from someone arriving on it:
+
+- **A third Settings view, every seat's.** "Export", with lucide's
+  `folder-down`, after Profile and Co-hosts, shown to every role. A view hidden
+  from non-owners would send anyone else who opens the address to Profile
+  without a word; shown, it tells them why there is no download. Settings' hint
+  names it ("Profile, budget, co-hosts, and export"), so ⌘K finds it by
+  "export".
+- **One panel, the Profile panel's shape.** The `lg` card: `SectionIntro`
+  ("Download the whole wedding", one line saying what the file is and that it
+  works on every plan), the action, then "What's in it" under a hairline, as
+  Profile's Plan sits under the form. The list is the archive's own
+  `README.txt` in nine lines, at the prose measure in the secondary ink, then
+  one line naming `manifest.json` in the code face, what is not included, and
+  that the file holds guests' details.
+- **One button that keeps its name.** "Download wedding", `primary` at `md`:
+  the page's one commit. It is named the same in every state, so the press that
+  starts a download and the one that takes another are the same control, and an
+  end-to-end flow finds it by that name. While a download runs it stays in
+  place, `aria-disabled` (never `disabled`, which drops the focus it holds),
+  and nothing retries for the owner: after a failure the button is the retry.
+- **Preparing.** Beside the button, what has arrived so far ("4.2 MB so far",
+  decimal units, `data-numeric` so the figures hold their width), for the eye
+  only: in a live region it would be read at every chunk. Under it, `Loading`'s
+  line, "Preparing your download…", pulsing on the loaders' pulse until the
+  archive ends, and one line saying many pictures can take a minute. The
+  answer has no length, so the count is the only progress there is.
+  This is not the look of Profile's per-module CSV downloads (`LockedExport`:
+  the label becomes "Downloading…", the button is `disabled`, a toast reports):
+  that pattern stays the look for short downloads, while the archive has no
+  known length and can take a minute, so it keeps the button's name with
+  `aria-disabled` (focus stays), shows `Loading` and the count, and reports in
+  a `Notice`.
+- **Saved.** A `success` `Notice` at `sm`: "Downloaded
+  cire-wedding-<slug>.zip (4.2 MB).", the file name in the code face, which may break anywhere
+  (a slug can be 60 letters with no hyphen). It sits in
+  a `role="status"` region mounted with the page and named "Wedding downloaded"
+  only while it holds the notice: a live region inserted with its words is read
+  unreliably (`PaletteField` does the same).
+- **Failed.** A `danger` `Notice` at `sm` with `alert`, worded by cause: not an
+  owner (reload to see your access), no such wedding (restore it first), the
+  download limit ("Too many downloads for now. Try again later."), the API
+  failing, no connection, and an archive cut short ("…so nothing was saved").
+- **Every notice at the prose measure,** sized to its words, so the saved line,
+  a failure and the non-owner's note read as one column under the button
+  rather than bands across a wide panel.
+- **Anyone but an owner** sees the same page with an `info` `Notice` where the
+  action would be: only an owner can download the whole wedding; ask one of its
+  owners, and a prose link to Co-hosts, where they are listed. A helper's seat
+  has no Settings: at this address it shows the same note, with no link, over
+  the run sheet.
+- **The delete dialog points here.** Its "Want a copy?" line links "Download
+  the whole wedding" (`proseLinkClass`, accent) to this view, through the
+  dashboard's own navigation, which puts focus on the module's heading; a
+  modified click opens the address in a new tab.
+- **No motion of its own.** The view fades in as every view does (§4, A view
+  arrives by fading in), the line pulses as every loader does, and the saved
+  and failed notices arrive at once, as every `Notice` in the portal does. The
+  panel is taller than `createAutoSize`'s cap, so the few pixels the state adds
+  under the button move the list below at once.
+- **The other way to keep the wedding.** An owner reads, under the button, that
+  deleting their Musubi account or removing their Cire data deletes a wedding
+  only they own, with "add another owner" a prose link to Co-hosts in the
+  sentence: the two things an owner on the way out can do, on one page.
+
+### Leaving Cire: Remove my Cire data
+
+`RemoveCireData.tsx`, at `#/remove-data`, is how a host leaves Cire and keeps
+their Musubi account. The account menu opens it with "Remove my Cire data",
+between "Security & passkeys" and "Sign out": a row like its neighbours,
+because the page explains before it asks anything. The top bar names the
+section "Your Cire data". The portal cannot run a step-up, so the screen has
+two steps and a trip to Musubi between them; the decisions:
+
+- **One column at 48rem** (`max-w-3xl`), on the page's left edge as Security
+  sits, so the rows read as a list and not as bands across a 1280px page.
+- **The step is the eyebrow.** "Step 1 of 2" or "Step 2 of 2", in readable
+  gold as every eyebrow over a heading is, over the display heading "Remove
+  your Cire data", then one muted line saying what to do on this step (§3: an
+  eyebrow carries what the heading does not).
+- **What happens, first and on both steps.** An `lg` card, "What happens", in
+  body ink at the prose measure: every promise the removal makes, so the person
+  reads them again on the step that removes.
+- **Weddings grouped by what happens to them**, each group under a muted
+  `Eyebrow` with its count: "Deleted with your data" (the weddings they alone
+  own), "You leave these" (another owner, or a lower seat), "Already deleted".
+  Past 100 weddings they alone own, the list cannot tell which owned weddings
+  have another owner, so owned rows sit under "You own these" and say "If no
+  one else does, it's deleted". Each wedding is an `sm` card, on `none` when
+  already deleted, as the wedding list's deleted rows are; its name in the
+  display face, breaking anywhere, since a host wrote it; one line under it.
+- **A wedding they alone own** carries, under its line, "Download wedding to
+  keep a copy. Add another owner to keep it on Cire." — two prose links to its
+  Settings views through the dashboard's own navigation — then the answer, the
+  native box "Delete this wedding" (its name adds the wedding's). A wedding
+  another profile of the account owns cannot be opened from this session, so
+  it says to sign in with that profile instead of offering the links.
+- **"Delete every wedding only you own"** is a box on an `sm` card with the
+  `accent` tone, first in its group, when there are two or more such weddings,
+  one the list leaves out, or more than 100. Ticked, it disables each box
+  below it. It answers only a list that draws it: when a later list hides it
+  (the rounds already taken left one such wedding, or the weddings changed
+  between visits), the answer is dropped, so no box shows ticked where it
+  cannot be unticked.
+- **One line about the whole screen**, a `Notice` at `sm`, under the list and
+  over the buttons the person pressed: an answer missing (`danger`), the list
+  changed under them (`warn`), the confirmation run out (`warn`), a failure
+  (`danger`), and on step 2 with nothing else to say, "Confirmed on Musubi…"
+  (`success`). A press with answers missing also marks each unanswered box:
+  `aria-invalid`, an inline `danger` `Notice` as the box's note ("Tick this to
+  go on, or add another owner first."), and focus on the first.
+- **The buttons**, after a hairline: step 1's `primary` "Confirm on Musubi",
+  step 2's `danger` "Remove my Cire data", each with a `quiet` "Cancel" after
+  it. A pressed one keeps its place and its focus, `aria-disabled`, its words
+  "Going to Musubi…" or "Removing…", and the list above is `inert` until it
+  answers. A removal of more than three weddings the person owns takes
+  several rounds; `Loading`'s line says so under the buttons.
+- **Done** is not the dashboard: the person is signed out, so the page takes
+  the sign-in page's shape, from the frame, header and heading classes
+  `@cire/ui` exports beside the card's (`sign-in-card-class.ts`) — "Cire · Host
+  portal" over a display heading, "Your Cire data is removed" at
+  `leading-ui-tight`, since it wraps on a phone, and one opaque `xl` card with
+  two lines and two `outline` pills, "Sign in again" and "Go to Musubi". Focus
+  goes to the heading, which shows the house ring after keyboard use. "Go to
+  Musubi" opens in the same tab, where every other portal pill that leaves the
+  portal opens a new one (§7, `Button`): the person has just been signed out
+  of Cire, and the page has nothing left to keep open.
+- **The code Musubi sends back** is kept in the tab and taken out of the
+  address before the portal checks the session, so a sign-in bounce carries
+  `#/remove-data` and never the code (`lib/removal-code.ts`).
+- **A chunk of its own.** The screen is a `lazy()` view behind `PanelLoading`,
+  as the portal's other occasional screens are; the done page is a small module
+  of its own (`RemovalDone.tsx`).
+- **No motion of its own.** Every state arrives at once, as every `Notice`
+  does; the loaders pulse as every loader does.
+
+`tests/components/RemoveCireData.browser.test.tsx` paints every state at 390
+and 1280px in both ramps and fails if anything runs past the page or the
+column, a 90-letter wedding name with no space included.
+`tests/components/RemoveCireData.test.tsx` holds the removal's rounds (a 429
+between them waited out, a failure after one) and the dropped answer;
+`tests/components/OrganiserApp.removal-code.test.tsx` holds the code out of a
+sign-in bounce.
+
 ### Two rules that apply to all of them
 
 **Anything spread onto an element takes `SafeProps`.** Solid's `HTMLAttributes`
@@ -1278,8 +1789,8 @@ cannot hover it. Where the badges are icons with nothing written beside them —
 the RSVP meta line's provenance — one button in the view bar opens a key that
 names every one, with what it says: "What the reply icons mean", a 28px
 `info` glyph on the bar's icon button (`bar` at `icon`), the last control in
-the bar's second row (on a phone, in the search row) but for the owner's
-download after it, on the raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
+the bar's second row (on a phone, in the search row, the owner's download
+after it), on the raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
 Depth). One stop for the page, not one per row.
 
 On a guest's meta line (§Names and meta lines) a provenance badge is an icon
@@ -1495,11 +2006,19 @@ switch adds a rem: its focusable input sits inside its label, below the
 track's top edge.
 
 The same holds at the foot. The invite builder's save bar sticks to the bottom
-of the window, so its form carries the bar's measured height as `--save-bar-h`
-(a `ResizeObserver` rewrites it when an error row joins the bar or the line
-wraps, and it goes with the bar), and a control that takes focus in the form
-carries `scroll-margin-bottom: calc(var(--save-bar-h, 0px) + 0.5rem)`. The
-bottom offset is the measured bar, never a guess.
+of the window and the events and guests editors' unsaved-changes bar is fixed
+there, so each writes its measured height as `--save-bar-h` on a box round
+its rows: the builder's form, and each editor's list, which the bar names
+because it is portalled to `<body>` (`trackSaveBarHeight`,
+`src/lib/save-bar.ts`). A `ResizeObserver` rewrites it when an error row joins
+the bar or the line wraps, and it goes with the bar. A control that takes focus
+in the builder's section cards or an editor's list carries
+`scroll-margin-bottom: calc(var(--save-bar-h, 0px) + 0.5rem)`
+(`CLEAR_OF_SAVE_BAR`): a browser counts a control behind the bar as in view,
+and without the margin Tab would leave focus under it. The bars' own buttons,
+the builder's tab row, the drawers and the preview modals carry no margin. The bottom offset is the measured bar, never a guess.
+`InviteBuilder.save-bar.browser.test.tsx` and `unsaved-bar.browser.test.tsx`
+hold it.
 
 A stuck layer is the same box stuck or not: nothing in it changes size when it
 sticks, because Safari has no scroll anchoring to hide the jump. A shadow on
@@ -1520,9 +2039,10 @@ height with a placeholder the size of each (§4, Skeletons), so the bar is the
 same height while the RSVP replies load as after, at both widths. A module
 with one view has no bar.
 
-**What each Guests tab lends it.** RSVPs: a divider and the event strip in the
-first row; the slim search and the reply filter in the second; on a phone the
-search and the sort select in the second and the reply filter in a third.
+**What each Guests tab lends it.** RSVPs: a divider, the event strip and an
+owner's download in the first row; the slim search, the reply filter and the
+reply key in the second; on a phone the search, the sort select, the key and
+the download in the second and the reply filter in a third.
 Households: the count and the search in the first row, and on a phone the
 search alone. Edit: a divider, the mode switch and Add household, icons alone
 below 36rem. "Showing n of m" and the tallies stay in the panel, under the bar.

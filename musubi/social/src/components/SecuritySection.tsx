@@ -4,6 +4,12 @@ import { TotpView } from "@osn/auth-ui/TotpView";
 
 import { PRODUCT_NAME } from "../lib/auth";
 import { passkeysClient, recoveryClient, stepUpClient, totpClient } from "../lib/authClients";
+import {
+  authenticatorStatus,
+  passkeyList,
+  recoveryCodesStatus,
+  useSettingsRead,
+} from "../lib/security-data";
 import { runPasskeyCeremony } from "../lib/webauthn-ceremony";
 import { runPasskeyRegistration } from "../lib/webauthn-registration";
 
@@ -23,38 +29,45 @@ import { runPasskeyRegistration } from "../lib/webauthn-registration";
  * the authenticator next because it is the recovery factor a user is most
  * likely to set up; recovery codes last because they are the fallback for
  * when even that is gone.
+ *
+ * Each view reads through the page cache (`lib/security-data.ts`): the tab
+ * shown again draws what it last had at once and reads it again behind it.
  */
 export interface SecuritySectionProps {
-  accessToken: string;
   profileId: string;
 }
 
 export default function SecuritySection(props: SecuritySectionProps) {
+  const passkeys = useSettingsRead(passkeyList);
+  const authenticator = useSettingsRead(authenticatorStatus);
+  const recoveryCodes = useSettingsRead(recoveryCodesStatus);
   return (
     <div class="flex flex-col gap-8">
       <PasskeysView
         client={passkeysClient}
         stepUpClient={stepUpClient}
-        accessToken={props.accessToken}
         profileId={props.profileId}
         runPasskeyCeremony={runPasskeyCeremony}
         runPasskeyRegistration={runPasskeyRegistration}
         totpClient={totpClient}
+        read={passkeys}
       />
 
       <section class="flex flex-col gap-4 border-t pt-8">
         <TotpView
           client={totpClient}
           stepUpClient={stepUpClient}
-          accessToken={props.accessToken}
           runPasskeyCeremony={runPasskeyCeremony}
+          read={authenticator}
         />
       </section>
 
       <section class="flex flex-col gap-4 border-t pt-8">
         <div class="flex flex-col gap-1">
-          <h2 class="text-lg font-semibold">Recovery codes</h2>
-          <p class="text-muted-foreground text-sm">
+          {/* The panels' own headings' look: `text-ui-md` at the title weight
+              is `text-title` at 500 here. */}
+          <h2 class="text-foreground text-title font-medium">Recovery codes</h2>
+          <p class="text-muted-foreground text-body">
             Keep a set somewhere away from your devices — a recovery code works when every other way
             back in is gone.
           </p>
@@ -62,10 +75,10 @@ export default function SecuritySection(props: SecuritySectionProps) {
         <RecoveryCodesView
           client={recoveryClient}
           stepUpClient={stepUpClient}
-          accessToken={props.accessToken}
           runPasskeyCeremony={runPasskeyCeremony}
           totpClient={totpClient}
           productName={PRODUCT_NAME}
+          read={recoveryCodes}
         />
       </section>
     </div>

@@ -558,11 +558,15 @@ const namesProduction = (words: string[], rest: string[]): boolean =>
       ((word === "--env" || word === "-e") && rest[k + 1] === "production"),
   );
 
+const PRODUCTION_MIGRATE =
+  "Wrangler is no deployed database's migrator: each stack migrates its database with Alchemy, so `wrangler d1 migrations apply` would apply again every migration Alchemy applied since it took the ledger over, and `migrations list` reads a production ledger. `wrangler d1 migrations apply|list` passes only with `--local`, or against a dev database by its dev name with no production `--env` (wiki/shared/production-deploy.md §4).";
+
 /**
- * `wrangler d1 execute|export` is refused by default. It passes when `--local`
- * is present, or when the database is named with a `-dev` suffix and nothing
- * (`--env`, `CLOUDFLARE_ENV`, `WRANGLER_ENV`) names production. `words` holds
- * the whole command, leading assignments and an `env` prefix included.
+ * `wrangler d1 execute|export` and `wrangler d1 migrations apply|list` are
+ * refused by default. Each passes when `--local` is present, or when the
+ * database is named with a `-dev` suffix and nothing (`--env`,
+ * `CLOUDFLARE_ENV`, `WRANGLER_ENV`) names production. `words` holds the whole
+ * command, leading assignments and an `env` prefix included.
  */
 function productionDbRule(words: string[]): string | null {
   const at = words.findIndex(isWrangler);
@@ -574,11 +578,41 @@ function productionDbRule(words: string[]): string | null {
     if (VALUE_FLAGS.has(word)) k += 1;
     else if (!word.startsWith("-")) positional.push(word);
   }
-  const verb = positional.findIndex((word) => word === "execute" || word === "export");
-  if (verb < 0 || !positional.includes("d1")) return null;
-  if (rest.includes("--local")) return null;
-  if (!isCleanDevCommand(words, rest, positional, verb)) return PRODUCTION_READ;
+  if (!positional.includes("d1")) return null;
+  const read = positional.findIndex((word) => word === "execute" || word === "export");
+  const migrate = positional.findIndex(
+    (word, k) => (word === "apply" || word === "list") && positional[k - 1] === "migrations",
+  );
+  const verb = read >= 0 ? read : migrate;
+  if (verb < 0) return null;
+  if (isLocalOnly(rest)) return null;
+  if (!isCleanDevCommand(words, rest, positional, verb)) {
+    return read >= 0 ? PRODUCTION_READ : PRODUCTION_MIGRATE;
+  }
   return null;
+}
+
+/**
+ * Whether wrangler can read the command only as local: one bare `--local`,
+ * followed by a flag or nothing, since its parser takes the next word as the
+ * flag's value (`--local false` is remote) and keeps every copy of a repeated
+ * flag; no other spelling of it (`--local=…`, `--no-local`); no `--remote` or
+ * `--preview`; and no `--`, after which wrangler reads no flag.
+ */
+function isLocalOnly(rest: string[]): boolean {
+  const at = rest.indexOf("--local");
+  if (at < 0 || rest.lastIndexOf("--local") !== at) return false;
+  if (!(rest[at + 1] ?? "-").startsWith("-")) return false;
+  return !rest.some(
+    (word) =>
+      word === "--" ||
+      word === "--no-local" ||
+      word.startsWith("--local=") ||
+      word === "--remote" ||
+      word.startsWith("--remote=") ||
+      word === "--preview" ||
+      word.startsWith("--preview="),
+  );
 }
 
 /** Flags that redirect what a database name resolves to. */

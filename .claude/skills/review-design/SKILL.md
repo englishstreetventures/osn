@@ -209,7 +209,8 @@ what it draws, the component you checked, and the verdict — `U-<id>`, `uses
   duplicates a package's, or each of two surfaces of one product carrying its
   own. The Solution uses the package's, or moves the one component into the
   package, which ships as a pull request of its own
-  (`wiki/conventions/stacked-prs.md` §Frontend: one component per pull request).
+  (`wiki/conventions/stacked-prs.md` §Frontend: when a component gets its own
+  pull request).
 - A component two surfaces need and no package has: a finding proposing it for
   the package. One that one surface alone needs is not.
 
@@ -268,8 +269,8 @@ grep -nE '<pattern>' <file>                                      # every line of
 - An action takes the shape and the case its document gives it. In the cire
   apps an action is a pill (`cire/host/DESIGN.md` §4) and its label is in
   sentence case (§7, Labels), so a label in capitals or `uppercase` on an
-  action is a finding there. Musubi keeps ghost and link buttons flat
-  (`musubi/social/DESIGN.md` §Radii). Where the document is silent, the
+  action is a finding there. In Musubi every Button variant is a pill, ghost
+  and link included (`musubi/social/DESIGN.md` §Radii). Where the document is silent, the
   surface's sibling screens settle it.
 
 ### Colour and contrast
@@ -293,10 +294,11 @@ grep -nE '<pattern>' <file>                                      # every line of
 `outline|focus|ring|forced-colors|transition-(colors|all)`
 
 - Where the document says a focus ring never animates — `cire/host/DESIGN.md`
-  §4, Focus, for every cire app — `transition-colors` or `transition-all` on
-  anything that takes focus is a finding: both fade `outline-color` too, so the
-  ring arrives late. The Solution names the properties instead
-  (`transition-ui-colors` in the cire apps).
+  §4, Focus, for every cire app; `musubi/social/DESIGN.md` §Focus for Musubi —
+  `transition-colors` or `transition-all` on anything that takes focus is a
+  finding: both fade `outline-color` too, so the ring arrives late. The
+  Solution names the properties instead (`transition-ui-colors` in the cire
+  apps and Musubi).
 - A focus ring that is missing is not this lens's. An element that takes focus
   under `outline-none`, with no outline of its own on focus, shows no focus in a
   contrast theme (forced colours): `outline-none` removes the outline there too,
@@ -314,8 +316,52 @@ grep -nE '<pattern>' <file>                                      # every line of
 - The surface's motion law holds. The host portal's container is continuous
   (`cire/host/DESIGN.md` §1): a panel that unmounts and remounts on a tab switch
   breaks it.
+- The governing `DESIGN.md` has a motion section. One without it is a Medium
+  finding on the document, and every motion the diff adds is then held to the
+  nearest sibling surface's rules.
 - Motion respects `prefers-reduced-motion` the way the surface's stylesheet
   already does.
+
+When the diff adds or changes a transition, keyframe, view transition, spring or
+gesture handler, hold each changed animation to the craft bar in
+`.claude/skills/review-animations/STANDARDS.md` and the ten standards at the top
+of `.claude/skills/review-animations/SKILL.md`: whether it needs to animate, how
+often the user sees it, its easing, duration, origin, the properties it moves
+and how it interrupts. Read both files; never invoke the skill. It is marked
+`disable-model-invocation`, opens by answering with a fixed greeting, and writes
+its own tiers, where this report writes `U-` findings. For a gesture, also read
+`.claude/skills/gestures/SKILL.md`; for a claim that an animation drops frames,
+`.claude/skills/animation-performance/SKILL.md`.
+
+- **The document is what ships, and the owner chooses.** Hold the animation to
+  the duration, easing, transform origin or reduced-motion rule in the
+  `DESIGN.md` or its stylesheet: a miss against the document is High, as any
+  broken document rule is, unless the branch changes that value in the
+  `DESIGN.md` and its pull request body quotes the owner's answer and where it
+  was given; a `DESIGN.md` change with no such record is High. Where `STANDARDS.md` asks for something different, do not
+  drop it: write a finding for the owner's call, as the paragraph below on a look
+  the documents do not settle says, with both values, the document's file and
+  line, and the skill's. Say in `## Coverage` which value you held the animation to.
+- **A miss no document rules on is Medium**, or Low where it is polish no one
+  sees at a glance. A motion on a keyboard action or a high-frequency control is
+  Medium; so is an animation of `width`, `height`, `top` or `left` where
+  `transform` or `opacity` would do.
+- **A skill's code is never the fix.** Its examples use `framer-motion` and
+  `motion/react`. The Solution names CSS, the View Transitions API or the
+  library the surface already imports, as the second bullet above says.
+- Record each animated file under `## Coverage` with the standards you checked.
+  A diff with no animation says so there in one line.
+
+### Worst-case content
+
+When the diff draws a component that shows user data, read
+`.claude/skills/break-ui/SKILL.md` and `.claude/skills/break-ui/CATALOG.md` as a checklist, never
+invoking the skill: it writes a demo toggle into the code, and this review
+changes nothing. Walk the changed markup against each case it lists: a long or
+unbroken name or email, a one-letter name, a missing field, a huge count, zero
+items, non-Latin text, emoji. Report a case that would clip, overflow or break
+the layout as a `U-` finding, High when the diff adds the line. Record the cases
+you could only reason about as `unmeasured` in `## Measurements`, with the method.
 
 ### Type and copy
 
@@ -356,6 +402,19 @@ grep -nE '<pattern>' <file>                                      # every line of
 - The gotchas in `wiki/shared/frontend-patterns.md` §Rendering and animation
   gotchas apply: a `transform` on an ancestor of something `fixed`, `sticky`
   offsets against the scrollport, `overflow: hidden` making a scroll container.
+
+### Platform features
+
+`dialog|popover|anchor|position-anchor|@starting-style|view-transition|scroll-timeline|addEventListener("scroll"|getBoundingClientRect`
+
+- Where the diff hand-builds a modal, popover, tooltip, scroll effect or
+  transition, check that `modern-web-guidance` has no guide for it
+  (`design-system` Step 3 names the pinned command). A guide that fits, which
+  the diff ignores, is a finding, unless the surface's `DESIGN.md` names a
+  different value. A guide never overrides a `DESIGN.md`.
+- A script loaded from a CDN URL (`unpkg`, `esm.sh`, `jsdelivr`), copied from a guide's fallback, is a finding: a polyfill is a pinned dependency.
+- The skill's `### Modern Web Guidance` reply section belongs in chat only: a
+  commit message or PR body that carries it is a finding.
 
 ### Boundaries between surfaces
 
@@ -531,10 +590,13 @@ Tiers:
 In a `--full` sweep every line is in scope, so the tier is the one a changed
 line would take.
 
-**A look the documents do not settle is the owner's.** When two answers are
-defensible and no rule chooses between them, the finding says so, names the
-options in the Solution, and leaves the choice to the owner; whoever fixes it
-shows the owner each option rendered, light and dark, before asking.
+**A look the documents do not settle, or settle differently from a skill, is the
+owner's.** When two answers are defensible and no rule chooses between them, or
+the governing document names one value and a skill's checklist another, the
+finding says so, names the options in the Solution (the document's with its file
+and line), and leaves the choice to the owner; whoever fixes it shows the owner
+each option rendered, light and dark, before asking. A branch that followed its
+document where a skill differs gets this finding at Low, never High.
 
 If the review finds nothing, write "No design concerns found." at the top of
 `## Design findings` — and still fill every other section.

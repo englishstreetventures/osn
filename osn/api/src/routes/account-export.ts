@@ -8,18 +8,21 @@ import {
 import { Layer } from "effect";
 import { Elysia } from "elysia";
 
-import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
-import { arcFetchStream } from "../lib/outbound-arc";
+import { resolveAccountWindowPrincipal } from "../lib/auth-derive";
+import type { CookieSessionConfig } from "../lib/cookie-session";
+import { createLiveSessionCheck } from "../lib/live-session";
+import {
+  arcFetchStream,
+  OutboundKeyNotPublishedError,
+  publishOutboundKey,
+} from "../lib/outbound-arc";
 import { publicError } from "../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAccountExportRequested } from "../metrics";
-import {
-  defaultExportDownstreams,
-  exportLines,
-  ndjsonStream,
-  type ExportDownstream,
-} from "../services/account-export";
+import { exportDownstreams, exportLines, ndjsonStream } from "../services/account-export";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import { isAuthError } from "../services/auth/errors";
+import { NO_DELETION_APPS, type DeletionAppsConfig } from "../services/deletion-apps";
 import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import { errorResponse, stepUpRequiredResponse } from "./auth/response-schemas";
 
@@ -49,9 +52,19 @@ function exportFileName(instanceName: string): string {
  * contract and `[[wiki/compliance/dsar]]` for the locked spec). The step-up
  * token rides the `x-step-up-token` header (a GET has no body) and must carry
  * `purpose: "account_export"`.
+ *
+ * Reachable from a session of an account whose deletion is pending (its
+ * `osn-pending-deletion` token), while the deletion is still pending: the
+ * person can take a copy of their data before it goes.
  */
 export function createAccountExportRoutes(
   authConfig: AuthConfig,
+  /**
+   * Names the session cookie the live-session check reads. Required, with no
+   * default: a deployed tier's cookie carries the `__Host-` prefix, and a
+   * defaulted value would read a name no browser sends.
+   */
+  cookieConfig: CookieSessionConfig,
   dbLayer: Layer.Layer<Db> = DbLive,
   loggerLayer: Layer.Layer<never> = Layer.empty,
   /**
@@ -68,11 +81,14 @@ export function createAccountExportRoutes(
   ipRateLimiter: RateLimiterBackend = memoryLimiter(OSN_RATE_LIMITS.accountExportIp),
   clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
   runtime?: AppRuntime,
-  downstreams: ExportDownstream[] = defaultExportDownstreams(),
+  /** Where each app is on this tier, and the ARC kid secret its call carries. */
+  deletionApps: DeletionAppsConfig = NO_DELETION_APPS,
 ) {
+  const downstreams = exportDownstreams(deletionApps);
   const auth = createAuthService(authConfig);
   const contentDisposition = `attachment; filename="${exportFileName(authConfig.instanceName)}"`;
   const { run } = makeAppRunner<Db>(runtime, Layer.merge(dbLayer, loggerLayer));
+  const { liveSessionGate } = createLiveSessionCheck({ auth, run, cookieConfig });
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 
   type IpCtx = {
@@ -108,17 +124,37 @@ export function createAccountExportRoutes(
       }
 
       try {
-        const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+        const claims = await resolveAccountWindowPrincipal(auth, headers.authorization);
         if (!claims) {
           set.status = 401;
           metricAccountExportRequested("unauthorized");
           return { error: "unauthorized" };
         }
-        const profile = await run(auth.findProfileById(claims.profileId));
-        if (!profile) {
+        // An ordinary token finds no profile of an account whose deletion is
+        // pending; a pending-deletion token finds one only while it is.
+        const profile = await run(
+          claims.pendingDeletion
+            ? auth.findProfileByIdIncludingTombstoned(claims.profileId)
+            : auth.findProfileById(claims.profileId),
+        );
+        if (!profile || (claims.pendingDeletion && (profile.accountDeletedAt ?? null) === null)) {
           set.status = 401;
           metricAccountExportRequested("unauthorized");
           return { error: "unauthorized" };
+        }
+
+        // Before the step-up token is read: one minted while the session was
+        // live is not spent once it has ended.
+        const staleErr = await liveSessionGate(
+          "account_export",
+          profile.accountId,
+          claims,
+          headers.cookie,
+        );
+        if (staleErr) {
+          set.status = 409;
+          metricAccountExportRequested("unauthorized");
+          return staleErr;
         }
 
         const stepUpToken = headers["x-step-up-token"];
@@ -130,6 +166,9 @@ export function createAccountExportRoutes(
         try {
           await run(auth.verifyStepUpForAccountExport(profile.accountId, stepUpToken));
         } catch (e) {
+          // A refused token asks for a fresh step-up; a database fault in the
+          // verifier is the route's 500, never "step up again".
+          if (!isAuthError(e)) throw e;
           set.status = 403;
           metricAccountExportRequested("step_up_failed");
           const { body: errBody } = handleError(e);
@@ -151,17 +190,26 @@ export function createAccountExportRoutes(
         }
 
         const { db } = await run(Db);
+        // Every app verifies osn-api's call against the key it publishes, so
+        // the key is written before the stream signs anything, and the stream
+        // signs with that key. A failure here leaves each app's section
+        // degraded rather than failing the export.
+        const key = downstreams.some((ds) => ds.url !== null)
+          ? await run(publishOutboundKey(deletionApps.arc)).catch(() => null)
+          : null;
         const stream = ndjsonStream(
           exportLines({
             db,
             accountId: profile.accountId,
             downstreams,
             fetchStream: (ds, body) =>
-              arcFetchStream(ds.url, body, {
-                audience: ds.audience,
-                scope: "account:export",
-                timeoutMs: 10_000,
-              }),
+              key === null
+                ? Promise.reject(new OutboundKeyNotPublishedError())
+                : arcFetchStream(key, ds.url ?? "", body, {
+                    audience: ds.audience,
+                    scope: "account:export",
+                    timeoutMs: 10_000,
+                  }),
           }),
         );
         metricAccountExportRequested("ok");
@@ -191,6 +239,8 @@ export function createAccountExportRoutes(
         400: errorResponse,
         401: errorResponse,
         403: stepUpRequiredResponse,
+        // `session_stale`: the access token's session has ended.
+        409: errorResponse,
         // Two different limits, same status: the pre-auth per-IP throttle, and
         // the per-account 1-per-24h cap. The second is consumed only AFTER a
         // successful step-up, so a fumbled ceremony never burns the day's

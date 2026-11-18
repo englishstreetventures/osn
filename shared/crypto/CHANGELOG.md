@@ -1,5 +1,204 @@
 # @osn/crypto
 
+## 0.15.7
+
+### Patch Changes
+
+- Updated dependencies [5742a4e]
+  - @shared/observability@0.26.4
+
+## 0.15.6
+
+### Patch Changes
+
+- Updated dependencies [db8c428]
+  - @osn/db@0.29.0
+  - @shared/observability@0.26.3
+
+## 0.15.5
+
+### Patch Changes
+
+- adec70d: Tests only: cases a kept sibling already fails on are removed, each checked by breaking the source and watching both fail, and the observability Worker import walk now follows multi-line exports. Tests that could not fail now can, and realtime and email tests that waited on the real clock run on the test clock.
+- Updated dependencies [adec70d]
+  - @shared/observability@0.26.2
+  - @osn/db@0.28.3
+
+## 0.15.4
+
+### Patch Changes
+
+- Updated dependencies [f040da3]
+  - @osn/db@0.28.2
+
+## 0.15.3
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- Updated dependencies [5347e06]
+  - @osn/db@0.28.1
+  - @shared/observability@0.26.1
+
+## 0.15.2
+
+### Patch Changes
+
+- Updated dependencies [05ca2d8]
+  - @osn/db@0.28.0
+  - @shared/observability@0.26.0
+
+## 0.15.1
+
+### Patch Changes
+
+- Updated dependencies [4deee2c]
+  - @osn/db@0.27.1
+
+## 0.15.0
+
+### Minor Changes
+
+- 582649a: `@shared/osn-auth-client/arc` verifies an ARC token osn-api sent an app against the keys osn-api publishes, refusing a token from another issuer, for a scope the app does not let osn-api use, or whose kid fails its MAC, before fetching anything. `@shared/crypto/arc-kid` mints and checks those key ids under a MAC key derived from the secret with HKDF-SHA-256, never the secret itself, and derives none from a secret under 32 characters; a dev deploy refuses an `INTERNAL_SERVICE_SECRET` that short; `@shared/crypto/arc-metrics` is a Worker-safe export of the ARC metrics. `DeletionRequestResult` gains `could_not_check` and `stale_choices`. The musubi stack gives osn-api Zap's address on dev and production and declares Pulse absent.
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+- Updated dependencies [582649a]
+  - @osn/db@0.27.0
+  - @shared/observability@0.25.1
+
+## 0.14.35
+
+### Patch Changes
+
+- Updated dependencies [3437d4a]
+- Updated dependencies [3437d4a]
+  - @osn/db@0.26.0
+  - @shared/observability@0.25.0
+
+## 0.14.34
+
+### Patch Changes
+
+- Updated dependencies [2dc810a]
+  - @osn/db@0.25.9
+
+## 0.14.33
+
+### Patch Changes
+
+- Updated dependencies [c34015f]
+  - @shared/observability@0.24.2
+
+## 0.14.32
+
+### Patch Changes
+
+- Updated dependencies [0d8f467]
+  - @shared/observability@0.24.1
+
+## 0.14.31
+
+### Patch Changes
+
+- Updated dependencies [6e75a5f]
+  - @osn/db@0.25.8
+
+## 0.14.30
+
+### Patch Changes
+
+- Updated dependencies [45c409b]
+  - @shared/observability@0.24.0
+
+## 0.14.29
+
+### Patch Changes
+
+- Updated dependencies [f052448]
+  - @shared/observability@0.23.0
+  - @osn/db@0.25.7
+
+## 0.14.28
+
+### Patch Changes
+
+- Updated dependencies [0821963]
+  - @shared/observability@0.22.0
+
+## 0.14.27
+
+### Patch Changes
+
+- Updated dependencies [cbd32bd]
+- Updated dependencies [9d193fe]
+  - @shared/observability@0.21.0
+
+## 0.14.26
+
+### Patch Changes
+
+- Updated dependencies [64cb5fa]
+  - @shared/observability@0.20.3
+
+## 0.14.25
+
+### Patch Changes
+
+- Updated dependencies [12b4731]
+  - @osn/db@0.25.6
+
+## 0.14.24
+
+### Patch Changes
+
+- Updated dependencies [73043c4]
+  - @osn/db@0.25.5
+
+## 0.14.23
+
+### Patch Changes
+
+- c687234: Every workspace that uses Effect runs `effect` 4.1.2, with `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
+  `@effect/vitest` at 4.1.2 and the root overrides for
+  `@effect/platform-node-shared` and `@effect/sql-d1` with them. The stacks run
+  `alchemy` and `@alchemy.run/cloudflare` 2.0.0-beta.85, which loads on Effect
+  4.1 unpatched; the provider's patch, carried to beta.85, keeps the D1 import
+  the stacks ran on beta.84 and the content types Wrangler uploads assets with.
+  beta.85 deploys state store version 8, which beta.84 cannot use, so a tier's
+  store cannot go back once it is upgraded.
+
+  The production plan guard reads beta.85's console lines
+  (`[hh:mm:ss.mmm] INFO: …`), and `messageOf()` reads no logfmt record.
+  `@shared/infra`'s tests hold the AWS SDK the provider installs,
+  `@distilled.cloud/aws`, to listing and aborting an R2 bucket's multipart
+  uploads, and run both under Bun. `RETIRED_STAGING_HOSTS` is gone from
+  `@shared/infra`, and `domainRefusals()` takes `(changes, unflip)`: a site's
+  Worker gives up only its current spare host without an `unflip` naming the
+  site.
+
+- Updated dependencies [c687234]
+  - @osn/db@0.25.4
+  - @shared/observability@0.20.2
+
 ## 0.14.22
 
 ### Patch Changes

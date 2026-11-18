@@ -54,6 +54,7 @@ function mount(opts: { wedding?: WeddingSummary | null; sectionLabel?: string } 
     onWedding: vi.fn(),
     onAll: vi.fn(),
     onSecurity: vi.fn(),
+    onRemoveData: vi.fn(),
     onSignOut: vi.fn(),
     onOpenPalette: vi.fn(),
   };
@@ -118,6 +119,7 @@ describe("TopBar", () => {
         onWedding={() => {}}
         onAll={() => {}}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
         onOpenPalette={() => {}}
       />
@@ -141,6 +143,7 @@ describe("TopBar", () => {
         onWedding={() => {}}
         onAll={() => {}}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
         onOpenPalette={() => {}}
       />
@@ -161,6 +164,7 @@ describe("TopBar", () => {
         onWedding={() => {}}
         onAll={() => {}}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
         onOpenPalette={() => {}}
       />
@@ -179,6 +183,7 @@ describe("TopBar", () => {
         onWedding={() => {}}
         onAll={() => {}}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
         onOpenPalette={() => {}}
       />

@@ -1,0 +1,1378 @@
+# Design — @osn/auth-ui
+
+The design rules for `@osn/auth-ui`, the sign-in, registration, step-up and
+account-security views of OSN. Read this file before changing how any of
+these views looks. Rules are written in the `ui-*` contract of
+`@shared/design-tokens`, never in one host's utilities, because the package
+belongs to OSN-the-system and not to any one app
+([osn-and-musubi](../../wiki/shared/osn-and-musubi.md)).
+
+Each section gives the rule, then what the code does where the two differ,
+with the issue that brings the code to the rule.
+
+## 1. Scope and hosts
+
+**What the package exports.** One subpath per view in `package.json`
+(`ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
+`RecoveryCodesView`, `Register`, `SecurityEventsBanner`,
+`SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`, `TurnstileWidget`), one for `AuthHeader`,
+the title row every dialog shares, one for `DialogActions`, every dialog's
+footer (§4: Musubi draws its own dialogs with these two), and a barrel,
+`src/index.ts`, which also carries `RecoveryLoginForm`, `TurnstileWidget`,
+`turnstileEnabled` and the `RunPasskeyCeremony` / `RunPasskeyRegistration`
+types.
+
+**Hosts today.** `@musubi/social` is the one workspace that depends on the
+package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
+the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
+Two views mount in no app: `SessionsView` (#2055) and `ChangeEmailForm`
+(#2056). Only their tests and lab stories render them. Musubi's profile
+switcher is its own (`ProfileSwitcherDialog`); the package draws none, but
+Musubi's own dialogs take their header and footer from it (`AuthHeader`,
+`DialogActions`), so every dialog in the product has one shape.
+
+**What a host supplies.**
+
+- The stylesheet: `@shared/design-tokens/tokens.css`, which carries the
+  `@source` for `osn/auth-ui/src`, so the views' classes compile in the host;
+  and a `:root` block mapping every `--ui-*` role (§2). Nothing else: no view
+  names a host's own vocabulary.
+- A `Toaster` from `@shared/toast`, for the views that call `toast`.
+- `AuthProvider` from `@osn/client/solid`, for the views that call `useAuth`.
+- The `Dialog` that frames `SignIn` and `Register` (with `host="dialog"`);
+  neither draws one, and each names it through its `AuthHeader`, so the
+  host's `DialogContent` takes no `aria-label`. Where focus goes as that
+  dialog opens is the host's (Musubi: the dialog itself, §9). On a page
+  (`host="page"`) the view draws no frame and no side padding. `StepUpDialog`
+  draws its own (§8): a host mounts it when an action needs it and removes it
+  on `onToken` or `onCancel`.
+- Per view:
+
+| View | Props a host passes | Context it reads |
+| --- | --- | --- |
+| `SignIn` | `client` (`LoginClient`), `recoveryClient`, `productName`, `host`: `"dialog"` with `onCancel`, or `"page"` with an optional `onCancel` and `cancelLabel`; `registrationClient` and `runPasskeyRegistration` (both, or recovery offers the recovery code only); `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
+| `Register` | `client` (`RegistrationClient`), `productName`, `onCancel`, `host`: `"dialog"`, or `"page"` with an optional `cancelLabel`; `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
+| `RecoveryLoginForm` | `client` (`RecoveryClient`), `host`: `"dialog"` with `onDismiss` (the dialog's Cancel), or `"page"`; `registrationClient` and `runPasskeyRegistration`; `turnstileSiteKey`, `productName`; `onSuccess`, `onCancel` (back to sign-in) | `AuthProvider` |
+| `PasskeysView` | `client`, `stepUpClient`; `profileId` and `runPasskeyRegistration` (both, or "Add a passkey" is hidden); `runPasskeyCeremony`, `totpClient`, `passkeyOnly`; `read` (a `SettingsRead` of the list, or the view reads `client.list()` itself) | — |
+| `TotpView` | `client` (`TotpClient`), `stepUpClient`; `runPasskeyCeremony`, `passkeyOnly`; `read` (of the status) | `Toaster` |
+| `RecoveryCodesView` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `onSaved`; `read` (of the count) | — |
+| `SecurityEventsBanner` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `onVisibleCountChange` | — |
+| `SessionsView` | `client` | — |
+| `ChangeEmailForm` | `accountClient`, `stepUpClient`; `runPasskeyCeremony`, `onChanged` | — |
+| `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode`, `productName` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
+| `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue`, `showLockoutRule` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
+| `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `warning`, `purpose` | — |
+| `AuthHeader` | `title`, `host`: `"dialog"`, or `"page"` with optional `onCancel`, `cancelLabel`, `cancelDisabled` | the `Dialog`'s context, with `host="dialog"` |
+| `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
+| `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
+| `TurnstileWidget` | `siteKey`, `onToken`; `onReady`, `alternative`, `theme`, `class` | — |
+
+The clients come from `@osn/client`. A view takes no access token: the host
+builds each authenticated client with its auth runtime's `authFetch`
+(`createOsnAuthRuntime`), which sends the token and renews it. A ceremony runner is the host's own
+wrapper round `@simplewebauthn/browser`: the settings views and `StepUpDialog`
+take one and import no WebAuthn runtime. `SignIn` and `Register` import
+`startAuthentication` and `startRegistration` themselves, and
+`RecoveryLoginForm` imports `browserSupportsWebAuthn`.
+
+## 2. Token contract
+
+**The rule.** Inside the package, colour, radius, type, tracking and leading
+come only from `ui-*` utilities — `text-ui-ink`, `bg-ui-surface-sunk`,
+`rounded-ui-md`, `text-ui-sm` and the rest — as
+[design-tokens](../../wiki/shared/design-tokens.md) rule 1 requires. A view
+never names a host's own vocabulary, a raw palette colour or an arbitrary
+value.
+
+**As built.** Every view follows the rule: the `@shared/ui` parts render
+through the contract, and the views' own classes are `ui-*` utilities alone —
+`text-ui-ink`, `text-ui-ink-secondary`, `text-ui-accent-ink`,
+`bg-ui-surface-sunk`, `border-ui-ink-tertiary` (the leading edge of
+`CheckEmailView`'s wait fill, an ornament in the faintest ink),
+`border-ui-hairline`, `rounded-ui-sm`, `rounded-ui-md`,
+`font-ui-mono`, `font-ui-title`, the `text-ui-*` steps and `leading-ui-snug`
+— with weights no heavier than `font-medium`. `tests/token-contract.test.ts`
+holds it: it fails on any class in a view that names a host's colour (the
+shadcn names on every colour prefix, with variants and opacity), a Tailwind
+palette colour, a Tailwind type step, a weight above 500, a Tailwind radius,
+an arbitrary value, or a checkbox the view draws itself.
+
+**Status roles in use.**
+
+- `ui-success` — ink for a confirmed good state: the shared parts' own success
+  states (`UsernameInput`, `OtpInput`).
+- `ui-warn` — a border and a wash: the `SecurityEventsBanner` box, with the
+  ink left alone, since Musubi puts warn ink inside `Notice` only
+  (`musubi/social/DESIGN.md` §Status colours); and `Notice tone="warn"`, ink included, for
+  `RecoveryCodesView`'s line when an account has no recovery codes.
+- `ui-info` — `Notice tone="info"` for a blocker that stops a flow here: no
+  WebAuthn in `SignIn` and `Register`, and `RecoveryLoginForm`'s ways back in
+  that need a passkey ceremony.
+- `ui-danger` — ink for a failure: every view's error line, drawn by
+  `Notice` (`tone="danger"`).
+- `ui-accent-ink` — "(this device)" in `SessionsView`.
+
+## 3. Type
+
+**The rule.** Sizes come from the contract's `text-ui-*` steps (`xs`, `sm`,
+`base`, `md`, `lg`, `xl`, `2xl`); a host maps those to its own scale.
+
+**As built** (in Musubi's map: `xs` 12px, `sm` 13px, `base` and `md` 14px,
+the title weight 500):
+
+| Role | Classes | Where |
+| --- | --- | --- |
+| Title of a sign-in or create-account view | `AuthHeader`: `DialogTitle` in a dialog, an `h2` in its classes on a page | `SignIn`, `Register` |
+| Heading of a panel | `text-ui-ink text-ui-md font-ui-title`, `DialogTitle`'s and `CardTitle`'s look | `PasskeysView`, `TotpView`, `SessionsView`, `ChangeEmailForm` |
+| Heading of a step inside a view | `text-ui-ink text-ui-base font-medium` | `RecoveryLoginForm`'s `enrol`, `enrolled` and `expired` steps; `TotpView`'s "Scan this with your authenticator app"; `CheckEmailView`, `ConfirmLinkPage` |
+| Body copy | `text-ui-sm leading-ui-snug text-ui-ink-secondary` | the views' own paragraphs and lines; a done line ("Your email is now …") in `text-ui-ink` |
+| Meta lines (dates, "(synced)") | `text-ui-xs text-ui-ink-secondary` | the list rows, the banner |
+| "(this device)" | `text-ui-xs text-ui-accent-ink` | `SessionsView` |
+| Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | `Register`'s date of birth |
+| Names in a row | `text-ui-ink text-ui-base font-medium`; the banner's headlines `text-ui-sm` | `PasskeysView`, `TotpView`, `SessionsView`, `SecurityEventsBanner` |
+| Codes | `font-ui-mono text-ui-sm` | `RecoveryCodesView`'s list, `TotpView`'s setup key. Every six-digit code is typed into `OtpInput`'s boxes, at the contract's `text-ui-md`, which Musubi maps to its title step (14px from 768px; its mobile input rule keeps 16px below). `RecoveryLoginForm`'s recovery code, 16 characters in four groups, is an `Input` in a `Field` |
+
+The `@shared/ui` parts inside the views (Button, Field, Input, Label,
+OtpInput, Card and Dialog titles) take the contract steps.
+
+`StepUpDialog` follows the rule. Its title is `DialogTitle` (`text-ui-md` at
+the contract's title weight), through `AuthHeader`; its one line, the warning
+or else the reason, is `DialogDescription`, `text-ui-base` in the secondary
+ink. A call site may not restyle `DialogDescription` (`shadcn/no-restyle`).
+
+`AuthHeader` follows the rule. In a dialog its title is the dialog's
+`DialogTitle`, centred; on a page it is an `h2` with `DialogTitle`'s classes,
+`text-ui-ink text-ui-md font-ui-title`, so the title reads the same in both
+hosts: 14px at 500 in Musubi. The page's own heading above it leads. Both
+hosts' titles break anywhere (`wrap-anywhere`) rather than widen the row, since the title
+carries the host's product name. `DialogTitle`
+(`shared/ui/src/ui/dialog.tsx`) is the one source of those classes; a change
+there is copied to the page's `h2`.
+`musubi/social/tests/components/AuthHeader.browser.test.tsx` fails when the
+two titles' computed font, size, weight, line height, letter spacing or colour
+differ, in light and dark (§11), and the lab's `BothHosts` story draws the two
+on one sheet.
+
+`CheckEmailView` follows the rule. Its heading is `text-ui-base font-medium`,
+its lines `text-ui-sm` with `leading-ui-snug`, and the number a host passes as
+`pairingCode` is `text-ui-xl font-medium leading-ui-tight tabular-nums`. The
+number is the largest text in the view, larger than its heading, because it is
+the one thing the person carries to another screen. It takes tabular figures,
+not the Codes row's `font-mono`: it is digits only, which tabular figures
+already set at one width, and it is read here, never typed or copied here.
+
+`ConfirmLinkPage` follows the rule too. Its `h1` is `text-ui-base font-medium`,
+the step `CheckEmailView`'s heading takes, because the card is the page's whole
+content; its lines `text-ui-sm` with `leading-ui-snug`. The lockout rule under
+the instruction is a Field hint, `text-ui-xs` in the secondary ink, whether
+`Field` draws it (the typed field) or the page does (the numbers); on the
+expired page it is a line like the others. Each number it offers is
+`text-ui-xl font-medium leading-ui-tight tabular-nums` inside its Button, the
+size and figures the waiting screen draws the number in, so the person matches
+like with like. The number picked, repeated in "You picked {n}.", is
+`font-medium tabular-nums` at the line's size. Where recovery asks for the
+number to be typed, the field takes `Input`'s `code` face, mono with wide
+tracking, as the Codes row does: the person checks a typed value character by
+character. Its label is a plain one, as every form field's is (§4). The field
+is one `Input`, not `OtpInput`'s boxes: the boxes are a fixed six, and the
+number runs from one digit to six, a length the page is not told.
+
+## 4. Layout
+
+As built:
+
+- **Sign-in views** (`SignIn`, `Register`, and `RecoveryLoginForm` inside
+  `SignIn`) take the host's width and draw no frame: their `AuthHeader`
+  (below), then one step at a time, each laid out by `ViewStep`
+  (`src/ViewParts.tsx`, internal) for its host:
+  - **In a dialog**: the step's body, a `flex-col gap-4` stack padded 16px
+    (`p-4`) under the header's hairline, with its ways back as links at its
+    foot; then `DialogActions` (`src/DialogActions.tsx`, exported): a
+    `DialogFooter` (a hairline above, 16px in, right-aligned, `gap-2`)
+    holding Cancel (`secondary`) first and the step's one action after it,
+    both `sm`, 32px tall from `md` and 40px below (`max-md:h-10`).
+    At `sm` every pair the package draws fits a 320px sheet's 288px on one
+    line; the widest, Cancel beside a busy "Waiting for your passkey…", is
+    284px in Musubi's type (measured below). The footer wraps
+    rather than scroll sideways should a wider font push a pair past it. A
+    step that commits nothing of its own (an emailed link's wait, `Register`'s
+    no-WebAuthn blocker) has Cancel alone; a done line ("You're all set.")
+    has no footer, since the host closes the dialog; a body in which nothing
+    shows (a step-up sheet given no line and offering no other factor) draws
+    no empty padded band. A step with a `<form>`
+    wraps its footer too, so Enter in a field submits. A tall step scrolls
+    inside the sheet below `md`, footer included.
+  - **On a page**: the same stack with no side padding, 24px under the
+    header (`pt-6`), so `/authorize`'s column sets the width; the step's
+    action spans the column under the body, at Button's own size, and its
+    ways back sit centred under the action. No footer and no Cancel: the
+    page's way back is the title row's.
+
+  `RecoveryLoginForm` draws no title of its own, so the dialog keeps one
+  name. Its chooser's "Use a recovery code" is the step's action; the factors
+  that end in a new passkey sit above it as `outline` Buttons, 40px tall
+  below `md` in a dialog, as the step-up sheet's other factors are.
+  `SignIn`'s "Use a recovery code instead" is the footer's default commit in
+  a dialog and the `secondary` fallback on a page.
+
+  *Measured 2026-11-14 — Button widths in Chromium with Musubi's `App.css`
+  (the SF stack), Vitest browser tier: at `sm`, Cancel 65.6px, "Waiting for
+  your passkey…" 182.5px plus the 20px orb and its 8px gap, "Sign in with
+  your new passkey" 205px, "Use a recovery code instead" 195.2px; at the
+  default size the same three pairs come to 313.8, 309.8 and 299.3px with
+  the 8px gap, past 288px.*
+
+  Each field is `@shared/ui`'s `Field` with a
+  plain label (`labelTreatment="plain"`), 6px above the control. The two
+  labels `Field` does not draw sit 6px above their controls too: `Register`'s
+  Email, a bare `Label` beside its "i", and the span over a row of code boxes
+  (`RecoveryLoginForm`, `TotpView`, `StepUpDialog`, `ChangeEmailForm`), which
+  takes the plain label's classes from `labelVariants()`
+  (`@shared/ui/ui/label`) because six boxes have no one id for a
+  `<label for>`. The span carries an id from `createUniqueId()`, and the boxes
+  name their group by it (`aria-labelledby`), so box N reads "<label> Digit
+  N". `TotpView`'s "Or enter this setup key by
+  hand" is the same span over its key.
+- **Settings panels** (`PasskeysView`, `TotpView`, `SessionsView`) are a
+  `flex-col gap-3` section: a header row with the heading and, on the right,
+  the panel's action (a `size="sm"` Button in `PasskeysView` and `TotpView`,
+  an `outline` Button at the default size in `SessionsView`, each 40px tall
+  below `md`, `max-md:h-10`), which wraps under the heading, 8px below it,
+  when the two do not fit on one line ("Add an authenticator app" at
+  320px); then the list.
+  Each row is `SettingsRow` (internal), one markup for all three panels:
+  `@shared/ui`'s `Card` with `radius="md"` and `padding="sm"` inside its
+  `li`, the card's fill, the hairline edge, 8px corners and 16px inside. A
+  panel is drawn for a host card (Settings' section), so its rows are nested
+  and take the nested corner; a row standing alone on a page would take
+  `Card`'s own 16px: a nested row's corner sits inside the card's, so it is
+  the smaller ([the owner's call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06). A row holds a name,
+  two meta lines ("Added …" or "Created …", then "Last used …", one each, so
+  a long date never wraps into a third) and `outline` `sm` actions. From `md`
+  the actions sit at the row's end beside the words; below `md` they sit
+  under them, 12px down, at the start, 40px tall (`max-md:h-10`), so the
+  words get the card's whole width on a phone. The words give way (`min-w-0
+  flex-1`) and the name breaks inside a word (`wrap-break-word`), so
+  `PasskeysView`'s 64-character name, or `SessionsView`'s device line, wraps
+  and keeps the actions inside the card at 320px. A row in rename swaps its
+  name for `Input` at `size="sm"` with Save and Cancel. `RecoveryCodesView` draws no heading; its host gives it
+  one. Its new codes sit in a well, `Card variant="muted" radius="md"
+  padding="sm"`, two columns of `font-ui-mono`; the "I've saved these
+  codes" `Checkbox` is the drawn 16px box at `size="sm"`, a 44px target
+  below `md` (`touch`) on `@shared/ui`'s one rule for choice controls. `TotpView`'s enrolment step is a
+  `rounded-ui-md` box with the hairline edge and 16px inside at `md` and up,
+  and drops the edge and padding below `md`, so its code boxes take the
+  panel's whole column on a phone (`musubi/social/DESIGN.md` §Responsive
+  layout). It is a step, not a row, so it is no `Card`: `Card` cannot drop
+  its edge below `md`. Its setup key sits on `bg-ui-surface-sunk` at
+  `rounded-ui-md`.
+- **A first load's placeholder** stands for one row whose words take one
+  line each (`RowPlaceholder`, internal): 92px from `md` (three 18px lines
+  in Musubi) and 144px below it, where the 40px actions sit under the words.
+  `Skeleton` takes its height inline, so each width draws its own block. A
+  row whose name wraps is taller than its placeholder. The heights hold in
+  Musubi's type mapping only: a host whose `--ui-text-*` steps carry other
+  leading draws rows of another height, and its placeholder would jump.
+  Musubi's own `ResponsiveSkeleton` draws a block per width the same way;
+  #2261 gives `Skeleton` a phone height so neither has to.
+- **`ChangeEmailForm`** is the same `flex-col gap-3` column: its heading, then
+  one phase at a time. The email phase is a `Field` over a full-width
+  Button; the wait is `CheckEmailView`; the step-up phase opens
+  `StepUpDialog`'s sheet; finishing and done are a single line each.
+- **`CheckEmailView`** is a `flex-col gap-4` column for a step inside a dialog:
+  its `h3`; the sentence in its live region, with any error line 8px under
+  it (`flex-col gap-2`); the line about opening the link; when there is one, the number over its caption
+  (`flex-col gap-1`), unboxed; for sign-up and recovery, once the first wait
+  ends, the junk-mail line; then Resend and "Start again" as
+  full-width `ghost` `sm` Buttons, 40px tall below `md` (`max-md:h-10`).
+  While Resend counts down, its label holds the wait's fill (§12): the
+  button's whole box (`inset-0`) in `bg-ui-surface-sunk`, the ghost button's
+  own hover fill, its leading edge a 2px line in `border-ui-ink-tertiary`,
+  under the label (`-z-10` in the button's own stacking context, `isolate`)
+  and clipped to its corners (`overflow-clip`), placed against the button
+  (`relative`). It sits inside the label, out of the row's flow, so the
+  button keeps one child, its height and the label's one line; the label's
+  words are drawn over it.
+  The junk-mail line arrives above the buttons, not under them: in a sheet
+  anchored to the bottom the buttons stay put, and in a frame that grows
+  downward a tap aimed at Resend as it unlocks lands on the line, never on
+  "Start again".
+- **`ConfirmLinkPage`** is a shared `Card` (`padding="lg"`) holding a
+  `flex-col gap-6` column for a bare route; the host draws the `<main>` around
+  it. Its `h1` and sentences (`gap-2`); then, while it asks, a `<fieldset>`
+  whose `<legend>` is the instruction, then the lockout rule as the
+  fieldset's description (`aria-describedby`), 6px under the legend and 8px
+  over the numbers, as a Field's hint sits nearer what it names, and above
+  them so it is read before a pick (with no rule, the legend sits 8px over
+  the numbers), then the numbers in one column at every width
+  as full-width `outline` Buttons 48px tall (`h-12`), and under them "I didn't
+  ask for this" as a full-width `ghost` `sm` Button, 44px below `md`
+  (`max-md:h-11`); then the line about the number picked, the slow line and
+  the error `Notice`; then Try again or Continue, full-width default `lg`
+  Buttons, 44px below `md`. With `typeNumber`, the numbers give way to a
+  `Field` with a plain label 6px above one `Input` (`size="touch"`,
+  `face="code"`, `fill="ink"`) and the lockout rule as its hint under it,
+  then a full-width default `lg` Confirm, 44px
+  below `md`, above the decline.
+  Left-aligned.
+- **The banner** (`SecurityEventsBanner`) is one `rounded-ui-md` box with
+  the warn border and wash and 12px inside: each event as a headline and a
+  meta line, a footer line, and Acknowledge (`outline`, `sm`) at the right.
+  It is the one message box the package draws by hand: `Notice tone="warn"`
+  would paint the words warn too, and Musubi keeps them in its ink
+  (`musubi/social/DESIGN.md` §Status colours).
+- **Step-up** (`StepUpDialog`) is `@shared/ui`'s `Dialog` with
+  `DialogContent presentation="sheet"` (§8): a bottom sheet as wide as the
+  screen below `md`, a centred card capped at 384px (`md:max-w-sm`) from `md`,
+  the default cap of Musubi's dialogs (`ResponsiveDialogContent`'s
+  `width="sm"`). Its `AuthHeader` holds the title alone, centred, breaking
+  anywhere (`wrap-anywhere`), since it may carry a passkey's name of up to 64
+  characters with no space. Under it, a `ViewStep` as the sign-in views'
+  dialog steps are: the body holds the one line (the warning, or else the
+  reason), the error line, then the other factors as a `flex-col gap-2`
+  column of full-width `outline` Buttons, or the step (the emailed link's
+  wait, the code boxes), then "Use another method", a standalone link
+  centred at the body's foot (§5); the footer holds Cancel and the step's
+  one action. Its code boxes take the body's column: 288px at a 320px
+  viewport, so each box is at least 40px (`musubi/social/DESIGN.md`
+  §Responsive layout, Code boxes). Every button is 40px tall below `md`
+  (`max-md:h-10`).
+- **`AuthHeader`** is the title row of a sign-in or create-account view,
+  and of every dialog the package draws; `SignIn` and `Register` each draw
+  exactly one. In a dialog (`host="dialog"`) it is a `DialogHeader` — 16px
+  padding, a hairline under it — holding the `DialogTitle` alone, centred
+  (`justify-center`, `text-center`), its lines centred as it wraps; the
+  dialog's Cancel is its footer's, never the header's ([the owner's
+  call](https://github.com/englishstreetventures/osn/issues/2045#issuecomment-6843934504),
+  2026-11-13: "cancel in footer", "consistent across the board"). On a page
+  (`host="page"`, `/authorize`) it is a row with no padding or rule (`flex
+  items-center justify-between gap-3`), and the view sets the space below
+  it. The title comes first and wraps; Cancel, when the page gives one, sits
+  at the row's end, `ghost`, `sm`, 40px tall below `md` (`max-md:h-10`), and
+  never shrinks. A
+  dialog holds one `AuthHeader` at a time: Kobalte gives every `DialogTitle`
+  in one dialog the same id, so with two mounted, the dialog loses its name
+  when either goes. A view whose title changes (`SignIn`'s "Recover your
+  account") passes the new `title` to the header it has, and a step inside a
+  view mounts no second one.
+- **Dialogs a view opens itself** — `ProfileOnboarding`'s "Create a new
+  profile" and `RecoveryCodesView`'s "Generate a new set?" — use
+  `@shared/ui`'s `DialogContent` with `presentation="sheet"`, capped at
+  384px from `md` (`md:max-w-sm`) as the step-up sheet is: a bottom sheet
+  below `md`, a centred card from it. Each has an `AuthHeader`, its title
+  centred, then a dialog `ViewStep`: the body and a footer with Cancel
+  first, then the commit ("Generate new set", "Create profile").
+  `CreateProfileForm`, whose one host is that dialog, draws its own step.
+  Every dismiss button in a dialog is `secondary`, so it reads as a way out
+  beside the commit and not as a second commit ([the owner's
+  call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06).
+  A Cancel inside a view that closes no dialog (rename, `TotpView`'s
+  enrolment) stays `ghost`.
+- **`ProfileOnboarding`** is a `Card` titled "Add another profile".
+
+## 5. Parts
+
+The `@shared/ui` parts each view imports, and the Button variants it uses
+besides the default:
+
+| View | Parts | Button variants |
+| --- | --- | --- |
+| `SignIn` | Button, Field, Input, Notice; `AuthHeader`, `ViewStep` | `secondary` (a dialog's Cancel; "Use a recovery code instead" on a page), `link` |
+| `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `AuthHeader`, `ViewStep`; `CheckEmailView` for the wait | `secondary` (a dialog's Cancel) |
+| `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput; `ViewStep`; `CheckEmailView` for the emailed link's wait | `outline`, `secondary` (a dialog's Cancel), `link` |
+| `StepUpDialog` | Button, Dialog, Notice, OtpInput; `AuthHeader`, `ViewStep`; `CheckEmailView` for the emailed link's wait | `outline`, `secondary`, `link` |
+| `AuthHeader` | Button, Dialog (`DialogHeader`, `DialogTitle`) | `ghost` (Cancel on a page, where it switches views and dismisses nothing) |
+| `ViewStep`, `StepLink` (`src/ViewParts.tsx`, internal) | Button; `DialogActions` | `link` |
+| `DialogActions` (`src/DialogActions.tsx`, exported for the host's own dialogs) | Button, Dialog (`DialogFooter`) | `secondary` (a dialog's Cancel, as every dialog's dismiss button) |
+| `PasskeysView` | Button, Card, Input, Notice, Skeleton | `outline`, `ghost` |
+| `TotpView` | Button, Card, Field, Input, Notice, OtpInput, QrCode, Skeleton | `outline`, `ghost` |
+| `RecoveryCodesView` | Button, Card, Checkbox, Dialog, Notice, Skeleton; `AuthHeader`, `ViewStep` | `outline`, `secondary` |
+| `SessionsView` | Button, Card, Notice, Skeleton | `outline` |
+| `SecurityEventsBanner` | Button, Notice | `outline` |
+| `ChangeEmailForm` | Button, Field, Input, Notice; `CheckEmailView` for the new address's link, `StepUpDialog` | — |
+| `CheckEmailView` | Button, Notice | `ghost` |
+| `ConfirmLinkPage` | Button, Card, Field, Input, Notice | `outline`, `ghost` |
+| `CreateProfileForm` | Button, Field, Input, Notice, UsernameInput; `ViewStep` | `secondary` |
+| `ProfileOnboarding` | Button, Card, Dialog; `AuthHeader` | `ghost` |
+| `TurnstileWidget` | Notice (through `LoadFailed`) | — |
+
+**Drawn by hand.** Besides those parts, the views draw these controls
+themselves:
+
+- `InlineAction` (`src/InlineAction.tsx`, exported as `./InlineAction`, so
+  Musubi ends its own error lines with it): the button that ends an
+  error line — "Lost your passkey?" in `SignIn`'s passkey error, "Try again"
+  in a failed load, a settings list's or the verification challenge's. It keeps the line's ink and is underlined, so the action
+  never relies on colour alone, and takes Button's focus ring (§9).
+  `LoadFailed` (`src/LoadFailed.tsx`, internal) is the failed-load line built
+  on it (§7).
+- A `<details>` disclosure, "Signing in somewhere new?", under the list in
+  `PasskeysView`; its `<summary>` takes Button's ring (§9). `@cire/ui`'s
+  `Disclosure` would draw it once it moves into `@shared/ui` (#2262).
+- The `SecurityEventsBanner` box (§4).
+- `CheckEmailView`'s wait fill behind Resend's label (§4, §12). No shared
+  part draws a countdown inside a `Button`; `@shared/ui`'s `Meter` is a
+  `progressbar` with a track and a name, which a screen reader would read
+  beside the label's own seconds.
+
+**Links.** A link standing alone is Button's `link` at `sm` (`StepLink`):
+`text-ui-sm` (13px in Musubi) at 500 in the accent ink, a 32px box with 12px
+sides, underlined only under the pointer, centred (`self-center`) so no
+column edge sits 12px off its words. Each is a way back inside a view, never
+the dialog's Cancel. In a dialog it sits at the foot of the step's body,
+above the footer, 40px tall below `md` as every button in a sheet is; on a
+page, centred under the step's action. They are "Lost your passkey?" (under
+`SignIn`'s field in a dialog, under Continue on a page), "Use another method"
+on the step-up's emailed-link wait and code step, and `RecoveryLoginForm`'s
+"Back to sign in", "Back" and, after a failed enrolment, "Start again".
+`InlineAction`, above, is the
+link that ends an error line. Musubi's rules for both, and for a link inside a
+sentence, are `musubi/social/DESIGN.md` §Links.
+
+## 6. States per view
+
+Each state is named from the view's own code, with the copy it shows.
+
+**A wait.** A button that starts a call shows the wait as Button's `busy`: the
+label in brackets below, ending in "…", the 20px orb before it, focus kept,
+every press and Enter refused (`musubi/social/DESIGN.md` §Busy buttons). Only
+the button that started the call is busy; the view's other actions, its
+Cancel, Back and links among them, are `disabled` meanwhile, so nothing leaves
+the view while a call it started is in flight. Each button's other reasons to be `disabled` apply
+only while it is not busy. Each handler also returns early while its own call
+runs. Buttons named here with no label in brackets show no wait.
+
+**Cancel.** In a dialog Cancel is the footer's, first, on every step but a
+done line; on a page it is `AuthHeader`'s, at the title row's end, when the
+host passes `onCancel`. Either way it is `disabled` while a call the view
+started runs, as above, and calls `onCancel` (the dialog's `onDismiss` in
+`RecoveryLoginForm`) and closes nothing itself; in a dialog, Escape and a
+press outside reach the host's `onOpenChange` instead, which runs the same
+handler only if the host routes it there. A Resend is not such a call: on an
+emailed link's wait, in `RecoveryLoginForm` as on the step-up sheet (§8), every
+way out stays open while it runs, since leaving ends the wait on this side.
+`Register`'s wait holds Cancel while its Resend runs.
+
+**`AuthHeader`** — the title the view passes; on a page, Cancel when the host
+passes `onCancel` and none otherwise.
+
+**`SignIn`** — title "Sign in to {productName}", or "Recover your account"
+in the recovery view, through its one `AuthHeader`; Cancel in a dialog's
+footer, or on a page when the host passes `onCancel` (disabled while the
+passkey call runs).
+
+| State | What shows |
+| --- | --- |
+| Passkey form | "Email or @handle", the Turnstile challenge when a site key is set, "Lost your passkey?", Continue ("Verifying…" while busy) — in a dialog the link sits in the body and Continue in the footer; on a page the link sits under Continue |
+| No WebAuthn | An info `Notice`, "{productName} sign-in needs a passkey or security key, and this browser doesn't support WebAuthn."; "You can either:" and three ways forward; "Use a recovery code instead" (the footer's commit in a dialog, `secondary` on a page) |
+| Recovery | `RecoveryLoginForm` |
+| Signed in | "You're all set." |
+
+While the passkey form shows, a discoverable-credential sign-in runs in the
+background where the browser offers passkey autofill; it shows nothing of its
+own.
+
+**`Register`** — heading "Create your {productName} account".
+
+| State | What shows |
+| --- | --- |
+| No WebAuthn | "Creating an account on {productName} needs a passkey or security key — something this browser doesn't support. …" |
+| Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, "Send verification link" ("Sending…"). When a wait ended because someone took the handle, "That handle was taken while you waited. Choose another." under the handle, which takes focus |
+| Verify | `CheckEmailView` for sign-up: the address, the request's number, the junk-mail line naming `productName` once Resend unlocks, Resend ("Sending…") and "Start again" (back to Details with the fields kept, from the first moment). After the link's reader declines or picks a wrong number the view keeps waiting, as for an address nobody was mailed, and the link's page sends the person back here to "Start again". Its error line is the copy map's sentence for a failed Resend, or "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again." once the request has sent every link it may; once the link expires, "Send a new link" goes back to Details with the fields kept |
+| Passkey | "Add a passkey or security key so you can sign back in. This is required to finish creating your account."; the enrolment's error line; "Add a passkey" ("Waiting for your passkey…") |
+| Done | "You're all set. Loading {productName}…" |
+
+**`RecoveryLoginForm`**
+
+| State | What shows |
+| --- | --- |
+| Choose | "Pick how you'd like to prove this account is yours."; "Email me a link" and "Use your authenticator app" where the browser can run a passkey ceremony and the host passed both enrolment props, otherwise an info `Notice` ("The other ways back in need a passkey ceremony, which this browser can't run.") over a list of ways forward; "Use a recovery code", the step's action; "Back to sign in" |
+| Recovery code | "Email or @handle", "Recovery code"; "Sign in with recovery code" ("Signing in…"); Back |
+| Email, identify | "We'll send a link to the address on the account. Open it on any device to get back in here."; "Email address on the account", the Turnstile challenge; "Send the link" ("Sending…"); Back |
+| Email, waiting | `CheckEmailView` for recovery: "If {address} has an account, a link is on its way.", the request's number, the junk-mail line naming the `productName` `SignIn` passes, once Resend unlocks, Resend after 120 seconds, "Start again" (back to the address, kept, from the first moment; after a decline or a wrong number the view keeps waiting, as for an address with no account); Back. Its error line says "We've sent all the links we can for this request. Use the newest one, or go back and start again." or "We couldn't send a new link just now. Try again in a moment."; once the link expires, "Send a new link" goes back to the address. A reload of the tab returns here, and `SignIn` opens on its recovery view |
+| Authenticator | "Email or @handle", "Code from your authenticator app" and the code boxes; Continue ("Checking…"); Back |
+| Enrol | "Add a passkey to get back in", what a recovery session is; "Add a passkey" ("Waiting for your passkey…", "Try again" after an error), "Start again" after an error |
+| Enrolled | "You're back in"; "Sign in with your new passkey" |
+| Expired | "That recovery session timed out"; "Start again" |
+
+**`StepUpDialog`** — §8.
+
+**A first load.** Each Settings panel shows `@shared/ui`'s `Skeleton` in place
+of what it loads, never a "Loading…" line: one row's block for `PasskeysView`
+(one per passkey its host's read last landed, below) and `SessionsView`
+(every account has a passkey and a session), one for
+`TotpView`'s set-up row, a line's for `RecoveryCodesView`'s count. The region
+that holds the block and what replaces it carries `aria-busy` while the read
+is out: the list's place in `PasskeysView` and `SessionsView`, the count's in
+`RecoveryCodesView`, the status row's in `TotpView` (drawn only while it
+holds something, so an account with no app set up gets no empty slot).
+`PasskeysView` draws one block for each passkey the host's read last landed
+(`SettingsRead.rows`), one when none is known.
+
+`PasskeysView`, `TotpView` and `RecoveryCodesView` read through a
+`SettingsRead` (`src/settings-read.ts`): the host's, when it passes `read`
+(Musubi's page cache, which draws what it last had at once and reads it again
+behind it), or their own. It is plain signals, so a read never joins a host's
+`Suspense` boundary (a loading resource read in a component raises its
+nearest boundary; Musubi's Settings would show its own fallback for the whole
+tab) and never throws a failed read. A read behind rows already shown changes
+nothing on screen. After a write, no view shows a row the write may have
+changed: a rename or a removal writes its outcome at once (the new name, the
+row gone); a write the server refused keeps what was shown; anything else —
+an added passkey, an authenticator added or removed, a new set of recovery
+codes, a write with no answer — forgets what was shown and draws the
+first-load block until the read again lands, so the old set's count, for one,
+is never shown again. An action that acts on what a read shows — Remove and
+Save in `PasskeysView`, Add and Remove in `TotpView`, Generate in
+`RecoveryCodesView` — is busy from its press ("Checking…") while a read is
+out, every other action in the view disabled with it, as a step-up disables
+them; it then acts only on what the read answers, or does nothing when the
+row is gone. While it waits a busy Remove is named "Checking {name}", its
+visible words in its name, and a rename's field and Cancel are held with
+Save. When the read has taken away what the press was for, the panel says so
+in its error line ("That passkey is no longer on your account.", "An
+authenticator app is already set up.", "That authenticator app is no longer
+set up.") and its heading takes focus, so focus never falls to `<body>` with
+the button. `PasskeysView` keeps each row's element across a read, by id, so
+a pressed action keeps focus. `SessionsView` keeps what it showed on a read
+again and disables every row's actions, and the header's, while a list it has
+shown is read again: a session just revoked stays on screen until the read
+lands. `StepUpDialog` reads its `GET /totp/status` by `state`, so opening a
+step-up never swaps its host for the host's fallback.
+
+**`PasskeysView`** — heading "Passkeys" with "Add a passkey". States: loading
+(a row's placeholder for each passkey last landed, one when none is known); failed to load ("Your passkeys didn't load.", §7); the list, each row the passkey's name ("Synced passkey" or
+"Device passkey" when unnamed, "(synced)" when backed up), "Added … · Last
+used …", Rename and Remove, named for a screen reader by the passkey
+("Rename Work laptop", "Remove Work laptop"); a row being renamed (a field,
+Save, Cancel); a removal, which opens the step-up sheet titled "Remove
+{name}?" (§8); a step-up in progress, which disables every row's actions. Under the list, a
+"Signing in somewhere new?" disclosure.
+
+**`TotpView`** — heading "Authenticator app", then "A six-digit code from an
+app on your phone. …". States: loading (a row's placeholder); failed to load ("Your authenticator
+app didn't load.", §7); none set up ("Add an authenticator
+app" in the header); set up (the app's name, or "Authenticator app" when
+unnamed, "Added … · Last used …", Remove, named "Remove {name}"); a removal,
+which opens the step-up sheet titled "Remove {name}?" (§8); setting up ("Scan this with your authenticator app", the QR code,
+"Or enter this setup key by hand", "Name this device (optional)", "Code from
+the app", Confirm ("Checking…"), Cancel); a step-up in progress.
+
+**`RecoveryCodesView`** — the intro "Recovery codes let you sign in if you
+lose every device with your passkey. …". States: first load (a line's
+placeholder, and the button reads "Checking…"); status unread (`LoadFailed`:
+"Your recovery codes didn't load.", the map's sentence where it adds one,
+and Try again; generating still works, and asks first, since an unread
+count may hide codes); no codes (a warn `Notice`, "You don't have any
+recovery codes yet. …"); codes held ("{active} of {total} codes unused · created
+{date}"); the button "Generate recovery codes" or "Generate new codes"
+("Generating…"); new codes on screen ("Save these codes somewhere safe. You
+will not see them again.", the codes, Copy, "Download .txt", "I've saved
+these codes somewhere safe.", Done); the confirm dialog before a new set
+replaces the old ("Generate a new set?", Cancel, "Generate new set"); a
+step-up in progress.
+
+**`SecurityEventsBanner`** — renders nothing until there is an unacknowledged
+event, and nothing if the list cannot be read. With events: one headline per
+event (by kind — "A request to get back into your {productName} account was
+turned down" for a declined recovery link, "A request to confirm a sensitive
+action on your {productName} account was turned down" for a declined step-up
+link — with a general line for a kind it does not know) and its time and device, a footer line, Acknowledge, then a
+step-up.
+
+**`SessionsView`** — heading "Active sessions" with "Sign out everywhere else".
+States: loading (one row's placeholder); failed to load ("Your sessions didn't load.", §7); the list,
+each row the device ("Unknown device" when
+unnamed, "(this device)" on the current one), "Created … · Last used …",
+Sign out, named "Sign out {device}" so it is never one more "Sign out" beside
+the app's own (disabled on the current one).
+
+**`ChangeEmailForm`** — heading "Change email". Phases: new email ("New email",
+"Send a link" ("Sending…")); the wait (`CheckEmailView` for email change: "We
+sent a link to {email}.", the request's number, Resend after 120 seconds,
+"Start again" back to the address (after a decline or a wrong pick the view
+keeps waiting, as for a taken address); its error line says "We've sent all
+the links we can for this request. Use the newest one, or start again." or "We couldn't send a new link just now. Try again in a moment.";
+once the link expires, "Send a new link" sends a new request to the same
+address); step-up ("To change your email, confirm it's you."), once the link is
+confirmed; finishing ("Changing your email…"); done ("Your email is now
+{email}."). A failed complete goes back to the wait with the error line, and
+its poll says whether to step up again or send a new link.
+
+**`CheckEmailView`** — the wait after a flow emails a link. Where the host
+gives no `email`, "your email address" stands for the address, and recovery
+says "If that address has an account, …".
+
+| State | What shows |
+| --- | --- |
+| Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." (recovery and step-up, whose pages ask the person to type it: "Type this number on the page the link opens.") when the host passes one; "Resend in {n}s", disabled, with the wait's fill behind the label emptying as the seconds fall (§12), then "Resend link"; "Start again" when the host passes `onChangeEmail`, from the first moment |
+| Resend unlocked (sign-up, recovery) | As Waiting, and above Resend, from the moment the first wait ends and through every Resend after it: "Can't find it? Look in your junk or spam folder for an email about {productName}." ("Can't find it? Look in your junk or spam folder." with no `productName`). The same words whether or not the address has an account. Outside the live region, so it is never read out, and it moves no focus. It names what the email is about, not its sender: production mails from an address with no display name, and every link email's subject carries the product's name |
+| Sending | "Sending a new link…"; Resend busy, reading "Sending…"; "Start again" disabled; no error line |
+| Sent again | "We sent a new link to {email}." (recovery: "If {email} has an account, a new link is on its way."), ending "Check the number again." when a number shows |
+| Error | The waiting copy, the number kept, and the host's `errorMessage` (or "Something went wrong. Try again in a moment.") under the sentence |
+| Expired | "Your link has expired"; "Ask for a new link to {email}."; no flow line, no number and no junk-mail line; "Send a new link" as the default Button, at once |
+
+**`ConfirmLinkPage`** — the page an emailed link opens. "{address}" is the
+host's `email`, or "this address". Each flow's sentence: sign-up "Confirming
+lets the device that asked finish signing up with {address}."; recovery "…
+back into your account. It also signs out every other device."; step-up "… go
+ahead with something sensitive, such as adding a passkey or deleting the
+account."; email change "Confirming sets {address} as the email of the account
+that asked." Each flow's lockout rule, built from `LINK_LOCKOUT`
+(`src/link-lockout.ts`, the numbers osn-api enforces): sign-up and email change
+"After 3 wrong numbers in a day, links to this address stop for up to a day.";
+recovery and step-up "After 5 wrong numbers in 15 minutes, links like this one
+for this account stop for up to 15 minutes." Fixed copy, the same whatever
+happened: it states the rule, never whether a number was wrong or a lockout
+holds, so the waiting screen can keep answering as for an address nobody was
+mailed. A host that cannot tell the flow — Musubi's card for a link whose id
+names none — passes `showLockoutRule={false}`, and the page states no rule,
+since each flow's differs.
+
+| State | What shows |
+| --- | --- |
+| Ready | "Confirm this email"; the flow's sentence; "Only confirm if you asked for this. If you didn't, choose “I didn't ask for this” below." (step-up: "If you didn't, someone else may be signed in to your account. Choose … below, then sign out your other sessions."); "Pick the number shown on the screen where you started.", the flow's lockout rule under it, and the numbers; "I didn't ask for this" |
+| Ready, typed (`typeNumber`) | As Ready, but "Type the number shown on the screen where you started." labels one field for up to six digits, the flow's lockout rule its hint, and Confirm, disabled until the field holds one to six digits, comes before "I didn't ask for this"; Enter in the field does what Confirm does |
+| Confirming | The same; the control that started the call busy — the number tapped (its digits kept), Confirm ("Confirming…"), "I didn't ask for this" ("Cancelling…") or Try again ("Confirming…" or "Cancelling…", the same attempt again) — and every other one disabled (typed: the field too, still holding the entry); "You picked {n}. Confirming…" or "You typed {n}. Confirming…" after a number; after 10 seconds "This is taking longer than usual. Keep this page open." |
+| Error | The same, the numbers (typed: the field) disabled and Confirm gone, "I didn't ask for this" still open; "You picked {n}." or "You typed {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again, which sends the same attempt, while the decline sends `null` as a new one |
+| Confirmed | "Confirmed"; "Go back to where you started to {finish}. You can close this page.", or "Continue to {finish}." and Continue when the host passes `onContinue` |
+| Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page. If you did ask for it, go back to where you started and choose Start again." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
+| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again." (step-up's ends "If not, go back and ask for a new link.", since its waiting screen learns of the refusal and offers one, and adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions." after the rule below). Then "A wrong number ends a link too." and the flow's lockout rule (none with `showLockoutRule={false}`), in the card and in what the page says aloud. The same for every refusal, a list the page cannot offer included |
+
+**`CreateProfileForm`** — Handle (`UsernameInput`), "Display name (optional)",
+"Create profile" ("Creating…"), Cancel when the host gives `onCancel`.
+
+**`ProfileOnboarding`** — shows only with a session, exactly one profile and
+no earlier dismissal: the card "Add another profile", "Create profile", and
+a dismiss control when `dismissible`.
+
+**`TurnstileWidget`** — renders nothing without a site key; with one, the
+challenge. When it cannot load — the script refused, a load still unfinished
+after 15 seconds, or the challenge's own error — `LoadFailed`'s line: "Couldn't
+load the verification challenge. A content blocker, a browser extension or a
+network that blocks challenges.cloudflare.com can stop it. Turn the blocker
+off for this site, or use another network.", then the host's `alternative`
+(`SignIn`: "Signing in with a recovery code doesn't need this challenge:
+choose “Lost your passkey?”."; `RecoveryLoginForm`: "A recovery code doesn't
+need this challenge: go back and choose “Use a recovery code”."; `Register`
+passes none, having no way round it), then "Try again". Try again loads the script afresh where it failed and
+renders the challenge again, with no wait of its own to show: the line goes,
+and comes back, read out again, if the next attempt fails too. The host's
+submit stays disabled until a token arrives.
+
+## 7. Errors
+
+**The sentence.** Every error a view shows comes from one of two helpers, and
+never from the error itself: no `message`, no code, none of the browser's own
+text (which in Chrome carries a URL).
+
+- `describeAuthError(err, context?)` (`@osn/client`) — one sentence for a
+  server answer or an ended session, read from the error's `status` and
+  `code` and the form the person submitted: `code` (an emailed or app code),
+  `recovery`, `details` (email, handle, date of birth), `passkey` or
+  `new-passkey`. A `429` names the wait without a time ("Too many attempts.
+  Wait a while, then try again."). A `code` call that got no answer asks for
+  a new code ("We couldn't connect. Check your connection, then try again
+  with a new code."), since the server may have taken the one sent and
+  refuses it again as a replay. Two failures the server answers alike read
+  alike, so no line says whether an account exists or which of two inputs was
+  wrong: `Register`'s send never says an email or handle is taken, and
+  `RecoveryLoginForm` names the handle or email and the code together.
+- `describePasskeyError(err, ceremony)` (this package) — one sentence for each
+  way a WebAuthn ceremony fails, read from the error's `name` and the
+  ceremony, `authentication` or `registration`; a server error in the same
+  flow goes on to `describeAuthError` as `passkey` or `new-passkey`. A closed
+  or timed-out prompt reads "That passkey didn't work. Try again." signing in
+  and "The passkey wasn't added. Try again." adding one. `SignIn` and
+  `StepUpDialog` pass `authentication`; `PasskeysView`, `Register` and
+  `RecoveryLoginForm` (whose last step adds a passkey) pass `registration`.
+
+The views add only sentences about their own checks: "Please complete the
+verification challenge below.", "Please enter a valid email address",
+"{productName} is for users 13 and older", "Enter the 6-digit code." in
+`StepUpDialog`, and "A passkey can't be used here." when `StepUpDialog` has no
+ceremony runner — which offers no retry, since none can work.
+
+**The line.** Each error is a `@shared/ui` `Notice`, `tone="danger"`,
+`size="inline"`, `alert`, so it is announced the moment it appears. Each
+action clears its line before it runs, so a second failure mounts it again
+and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
+`<div>`.
+
+- **Under the field it is about**, tied to it: the line has an id and the
+  field names it in `aria-describedby`, whatever the cause, so the field reads
+  the same words for every one. The field is `aria-invalid` only when the
+  input was the problem — a check this side ran, or a `400` or `422` refusal
+  other than the verification check — never for a rate limit, an outage, a
+  closed passkey prompt or an unfinished challenge (`src/error-lines.ts`). A
+  field with a hint names both (`Register`'s date of birth: the hint, then the
+  under-13 line). Fields tied this way: `SignIn`'s identifier; `Register`'s
+  email, handle (the handle-taken line) and date of birth; `RecoveryLoginForm`'s handle or email and recovery
+  code, its email address, and its authenticator step's handle or email;
+  `PasskeysView`'s rename field; `ChangeEmailForm`'s email; `CreateProfileForm`'s
+  handle; and every row of code boxes (below).
+- **Above the action it follows** when no field owns it: `Register`'s send and
+  enrolment, `RecoveryLoginForm`'s recovery-code, send and enrolment steps,
+  `RecoveryCodesView`'s generate, `CreateProfileForm`'s submit, and the
+  factor buttons in `StepUpDialog`.
+- **Under the heading** in `PasskeysView` (add, remove) and `TotpView` (start,
+  remove), and in `SessionsView`; above the `SecurityEventsBanner` box, on
+  the page's ground. Never on the warn wash: danger ink there measures 4.16:1
+  in light, under the 4.5:1 text floor (`musubi/social/DESIGN.md` §Status
+  colours).
+- **Under the code boxes** for a refused code in `RecoveryLoginForm` (both code steps), `TotpView`, `StepUpDialog` (its
+  authenticator step) and `ChangeEmailForm`, tied to the row the same way: the line's id
+  goes to `OtpInput`'s `aria-describedby`, which sets it on every box. The
+  boxes' `aria-invalid` comes from `OtpInput`'s `status`: each view passes
+  `error` only when the line's `FieldError` is `invalid`, so a wait or an
+  outage ties the line without marking the code or painting the boxes' edge
+  red. `RecoveryLoginForm`'s authenticator line is tied to its handle or email
+  as well, since either may be what was refused.
+- **Under its sentence** in `CheckEmailView`, which has no field: the host's
+  `errorMessage`, a sentence from `describeAuthError`, as an alert of its own
+  beside the view's status region. The one exception is an answer, not a
+  failure: `Register` passes its own line when the request has sent every
+  link it may. Resend is the action, and the line goes
+  while it sends, so a second failure mounts it again.
+- **Directly above Try again** in `ConfirmLinkPage`: a fixed line, never the
+  thrown error's text. The page's polite `<output>`, which says its other
+  changes, leaves the line to its own alert. It never says a number was wrong:
+  a refused number shows the expired state, and the typed field is never
+  marked invalid.
+
+**How the tie meets `Field`.** Each field sits in a `Field`, which mints its id
+and draws its label and any hint; the view passes it no `errors`. The control's
+`aria-describedby` joins what `Field` hands it (the hint) with the line's id
+(`describedBy`), and its `aria-invalid` comes from the line's `FieldError`.
+`Field`'s own errors would mark every message invalid, a rate limit and an
+outage included, and draw it as plain red text without the `Notice` mark.
+
+`SignIn`'s passkey error ends with a "Lost your passkey?" button: the
+signing-in sentence names no cause, and recovery is the way in without one.
+The standalone link below Continue stays. Switching to the recovery form
+leaves the sign-in error behind.
+
+The handle field's own lines in `Register` and `CreateProfileForm` ("@x is
+taken", the format rule, "Couldn't check availability") come from
+`@shared/ui`'s `UsernameInput`, which draws them as plain `ui-danger` text
+with no mark. They differ from the `Notice` lines beside them in that one
+respect; `UsernameInput` is shared with `cire/host`, so it keeps its own
+look.
+
+**A failed load.** A list or status a settings view reads — `PasskeysView`,
+`TotpView`, `SessionsView`, `RecoveryCodesView` — that fails to load shows
+`LoadFailed` in its place instead of throwing: a lead in the view's words ("Your passkeys didn't
+load."), the map's sentence only when it adds something (a `429` says to
+wait, status `0` to check the connection, an ended session to sign in), and a
+"Try again" that loads it again, left out once the session has ended. The
+heading stays. `RecoveryCodesView`'s read never throws at all: it carries the
+failure beside the count, so nothing reaches the host's error boundary, the
+generate button stays, and a rotation still asks first. `SecurityEventsBanner`
+fails soft, showing nothing (§6). `TurnstileWidget` draws the same line
+under its challenge, with its own sentences for the lead (§6).
+
+**Toasts are for success only** ("Signed in", "Email verified", "Welcome,
+@{handle}", "Authenticator app added", …). No view raises an error
+toast.
+
+**The verification challenge.** Every call that spends a Turnstile token —
+`SignIn`'s Continue, `Register`'s send, `RecoveryLoginForm`'s
+emailed-code send — asks the widget for a fresh token when it fails: the
+server checks the token before it answers, so a refusal has spent it too.
+Once the call is over the submit stays disabled until the widget hands over a
+fresh one; while the call runs it stays busy, not disabled, though the widget
+has already dropped the spent token. `SignIn` and `RecoveryLoginForm` reset
+after a success as well. `Register` drops the spent
+token after a success instead, since its widget goes with the details step.
+The waiting view's Resend spends no token, so a sign-up runs one challenge
+unless it comes back to the details, which mount a new widget.
+
+A recovery session that runs out is its own state in `RecoveryLoginForm`
+("That recovery session timed out"), not an error line.
+
+## 8. Step-up
+
+`StepUpDialog` asks for a fresh factor before a gated action and hands the
+host a short-lived token through `onToken`.
+
+- **Structure.** A sheet: `@shared/ui`'s `Dialog`, open while mounted, with
+  `DialogContent presentation="sheet"` (§4). The title ("Confirm it's you",
+  or `title`), centred, then one line naming the cause, as the host gives it:
+  the `warning` when there is one, else the `reason` ("To generate recovery
+  codes, confirm it's you."). Nothing else stands between the title and the
+  step but the error line ([the owner's
+  call](https://github.com/englishstreetventures/osn/issues/2045#issuecomment-6843934504),
+  2026-11-13: "one cause line"). The sheet prints `reason` as given, so a
+  host passes the whole sentence. It is named by its title and described by
+  its one line, so a screen reader hears what the action costs, or why it is
+  asked, as the sheet opens. A host that passes neither gets the title alone.
+- **A destructive action** that leads here: the title
+  names the action ("Remove Device passkey?"), `warning` says what it costs
+  ("You'll need another credential to sign in. Confirm it's you to remove
+  it."), and the factor the person picks commits it. No red button.
+- **Factors.** A passkey always ("Use passkey"), the one primary Button. A link
+  to the account's own address ("Email me a link", `outline`, the recovery
+  chooser's words for the same factor) where the
+  ceremony's `purpose` admits it and `passkeyOnly` is not set; with no
+  `purpose` it is not offered, since the link is fixed to one purpose when it
+  is sent. An authenticator app ("Use your authenticator app", `outline`) where the `purpose`
+  admits it, the host passes `totpClient`, and the account has one
+  (`GET /totp/status`; a failed read hides the factor, and so does one still
+  out, read by `state` so the sheet never joins its host's `Suspense`). By `purpose`:
+  `passkey_delete` admits the passkey only; `email_change` the passkey and the
+  emailed link; every other purpose all three; no purpose, the passkey and the
+  authenticator. "Use passkey" is the footer's action, beside Cancel
+  (`secondary`, as every dialog's dismiss button), which comes first; the
+  other factors sit above the footer as `outline` Buttons.
+- **`passkeyOnly`** means the host cannot deliver mail: it removes the emailed
+  link and nothing else, and starts the passkey ceremony as the sheet opens —
+  except when a `warning` is given, where the sheet shows its factors and
+  waits for a press, so the warning is read before the browser's prompt
+  covers it.
+  Its full meaning is in
+  [passkey-primary §What `passkeyOnly` means](../../wiki/osn/passkey-primary.md).
+- **States.** Choosing a factor ("Use passkey" ("Waiting for your passkey…"),
+  "Email me a link" ("Sending…")); waiting for the passkey with
+  `passkeyOnly`, the same busy passkey button, then "Try again" after an
+  error; waiting on the emailed link (`CheckEmailView` for step-up, mounted
+  in the open sheet: "We sent a link to your email address.", the number to
+  type on the link's page, "Resend in {n}s", disabled for 120 seconds, then
+  "Resend link"; then "Use another method", and Cancel alone in the footer,
+  since the wait commits nothing; a link that cannot be sent leaves the
+  factors up with the error's plain sentence); entering an authenticator code
+  ("Code from your authenticator app" and its code boxes, "Use another
+  method", then the footer's Cancel and Confirm ("Checking…")). The
+  authenticator step puts focus in its first box as it
+  opens. Confirm is not disabled for a short code: it answers "Enter the
+  6-digit code.", marked invalid. A check that gets no answer, the client's
+  deadline included, empties the boxes under the map's `code` sentence for no
+  answer, so a second Confirm cannot send a code the server may have spent.
+- **Resend keeps the server's limit.** The 120-second wait is the client's,
+  set because a mailbox gets three resent step-up links a day
+  (`LINK_RESENDS_PER_MAILBOX_MAX`, `osn/api/src/services/auth/constants.ts`)
+  and an account ten step-up links a day. The sheet changes neither.
+- **"Use another method"** goes back to the factor list (with `passkeyOnly`,
+  to the passkey step, without starting the ceremony again), with focus on
+  the factor just left. On the emailed-link wait it ends the request on this
+  side: the poll stops, the claim secret and the number go, and any answer
+  still in flight is dropped; choosing the link again sends a new one, which
+  the server counts. On the code step it clears the code and its error line.
+  It is `disabled` while the code is checked.
+- **Closing.** Cancel, Escape and a press outside the sheet are one action.
+  It is refused while a call the sheet started runs — the passkey, the email
+  send, the code check — as Cancel is `disabled` then (§6). On the emailed
+  link's wait every way out stays open while a Resend runs: leaving ends the
+  request on this side, and the late answer is dropped.
+- **One outcome, after the exit.** The sheet closes itself and hands the host
+  its one outcome, `onToken` or `onCancel`, once its exit has ended, so it
+  leaves as every Musubi dialog does before the host removes it: below `md` it
+  slides down (under reduced motion it fades, on the same pace), from `md` the
+  card fades. If the exit has not ended 300ms after
+  the close (a tab the browser has hidden runs no animation), the outcome goes
+  then; 300ms stays above both exits only while the host keeps
+  `--ui-dur-base` and `--ui-dur-exit` under it. While it closes, its body is
+  `inert` and every action returns early. A host that removes the sheet
+  itself gets neither callback. The cost is the exit: the host's next request
+  starts `--ui-dur-base` (200ms) after the token below `md`, `--ui-dur-exit`
+  (80ms in Musubi) from it, or up to 300ms in a hidden tab, rather than at
+  once. That is the price of the host's `<Show>` not cutting the exit short
+  and of focus going back only once the sheet has gone.
+- **The claim secret and the number** live in memory only, and every answer
+  about the emailed link is checked against the wait it was for, so nothing
+  reaches `onToken` after the person closed the sheet or went back. A status
+  poll still out when the person goes back neither stops nor delays the poll
+  of the wait that follows (`link-poll.ts`).
+- **Who opens it.** `PasskeysView` (`passkey_register` to add,
+  `passkey_delete` to rename or delete), `TotpView` (`totp_enroll`,
+  `totp_disable`), `RecoveryCodesView` (`recovery_generate`), `SecurityEventsBanner` (`security_event_ack`) and
+  `ChangeEmailForm` (`email_change`). Each passes its one line: "To add a
+  passkey, confirm it's you.", "To rename {name}, confirm it's you." (the
+  passkey's name before the rename), "To add an authenticator app, confirm
+  it's you.", "To generate recovery codes, confirm it's you.", "To
+  acknowledge these alerts, confirm it's you." and "To change your email,
+  confirm it's you.". `PasskeysView`'s and `TotpView`'s removals take the
+  title-and-warning form above ("Remove {name}?"; "You'll need another
+  credential to sign in. Confirm it's you to remove it." and "You'll lose it
+  as a way back into your account. Confirm it's you to remove it."), and ask
+  nothing before it: no `window.confirm`. No host passes `passkeyOnly`; the
+  three Settings views hand it on to the sheet.
+
+## 9. Focus
+
+Every focusable element in a view shows a visible focus indicator on
+`:focus-visible`, drawn from `--ui-focus`. The `@shared/ui` parts supply it;
+a control the package draws itself takes the same treatment as `@shared/ui`'s
+Button, `focus-visible:ring-2 focus-visible:ring-ui-focus`. A focus indicator
+appears at once, never animated.
+
+**As built.** The `@shared/ui` parts draw their own ring, and the two
+controls the views draw by hand draw Button's (`focus-visible:ring-2
+focus-visible:ring-ui-focus focus-visible:outline-hidden`): `InlineAction`,
+and the "Signing in somewhere new?" `<summary>` in `PasskeysView`, on a
+`rounded-ui-sm` corner.
+
+**The step-up sheet.** As it opens, focus moves to "Use passkey", the
+footer's action, which the sheet puts it on itself (`onOpenAutoFocus`), since
+the other factors and Cancel come before it in the page; with `passkeyOnly` it
+is the busy passkey button, which keeps focus through the wait. Focus stays inside it while it is open. As it closes, focus
+goes back to the control that had it when the sheet mounted, read before the
+host disables that control, if it is still in the page and focus has not
+already moved to something the host put it on (its next step). After a
+removal no view moves focus yet: it goes back to the row's Remove, which goes
+with its row once the list is read again, so focus falls to the page; and
+`RecoveryCodesView`'s "Generate new set" goes with its closing dialog. Where
+it lands instead is the passkeys flow's (#2052).
+
+`AuthHeader` and `ViewStep` draw no control by hand: Cancel, the actions and
+the links are `@shared/ui` Buttons, with Button's ring. In a dialog the
+header holds no control, so a sign-in or create-account view's first control
+is its first field (`Register`'s "i" beside Email). Where focus goes as that
+dialog opens is the host's: Musubi puts it on the dialog itself, so no
+phone's keyboard rises over the sheet and no "i" takes first focus, and Tab
+reaches the first field (`musubi/social/DESIGN.md` §Focus). "Create a new
+profile" opens on its Handle field; "Generate a new set?" on its Cancel, the
+first control in its footer.
+
+`CheckEmailView` draws no control by hand. Its heading takes focus from code
+when the view appears, and when a send ends with Resend holding focus and the
+wait disabling it (`tabindex="-1"`, so never by Tab); it draws no indicator
+(`focus:outline-none`): it is where focus is put, not a control.
+
+`TurnstileWidget`'s challenge is a group named "Human verification challenge"
+with `tabindex="-1"` and no focus mark; Try again puts focus there as the line
+holding it goes, so focus never falls to the page.
+
+`Register` puts focus on the handle field when a wait ends because the handle
+was taken: the waiting view that held focus is gone, and the handle field is
+where the alert asks the person to act.
+
+`ConfirmLinkPage` draws no control by hand either: its numbers, the decline,
+Try again, Confirm and Continue are `@shared/ui` Buttons, which draw their own
+ring, and its typed field is `@shared/ui`'s `Input`, whose ink fill draws a 2px
+outline 2px off. Its
+`h1` takes focus the same way, on mount and on every change, except that the
+control that started a call keeps focus while it is busy; focus left on a
+choice that disables, or in the typed field after Enter, goes to the `h1`, so
+it never falls to `<body>`.
+
+**Code boxes.** Every row of code boxes that opens its step takes `OtpInput`'s
+`autofocus`, so focus is in box 1 as the step opens. `RecoveryLoginForm`'s
+authenticator step does not, since its handle or email field comes first. A
+refused code (`status` `error`) puts focus back in box 1 in every row. A refusal that says nothing about the code leaves focus where it
+was: on the busy button that sent it, which kept focus through the wait.
+`ChangeEmailForm` does not yet: a refusal that is not about the code, after
+the step-up, leaves focus on the page (#2056).
+
+## 10. Words
+
+**The rule.** The product's name comes from the host through `productName`
+(the prop's TSDoc says so on each view that takes it); the package hard-codes
+no product. One action reads the same in every view, from this glossary; a
+new view takes its words from here, and a new action adds its row here.
+
+| Action | Words | Where |
+| --- | --- | --- |
+| The identifier | "Email or @handle" | `SignIn`, `RecoveryLoginForm`'s recovery-code and authenticator steps; "Email address on the account" where only an address works (`RecoveryLoginForm`'s emailed link), "Email" in `Register` |
+| Add a passkey | "Add a passkey"; its wait "Waiting for your passkey…" | `PasskeysView`'s header, `Register`'s last step, `RecoveryLoginForm`'s enrolment; "passkey or security key" in the copy around it |
+| Use a passkey | "Use passkey" | `StepUpDialog` |
+| Choose the emailed link | "Email me a link" | `RecoveryLoginForm`, `StepUpDialog` |
+| Choose the authenticator | "Use your authenticator app" | `RecoveryLoginForm`, `StepUpDialog` |
+| Choose a recovery code | "Use a recovery code" | `RecoveryLoginForm`; "Use a recovery code instead" on `SignIn`'s no-WebAuthn view |
+| Send a link to a typed address | "Send verification link" (sign-up), "Send the link" (recovery), "Send a link" (email change) | Three actions with three server limits; the end-to-end suite's rate-limit audits (`tools/e2e/tests/flows.test.ts`) tell them apart by these words |
+| Rename a factor | "Rename", named "Rename {name}" | `PasskeysView` |
+| Take a factor off | "Remove", named "Remove {name}"; the step-up sheet titled "Remove {name}?" | `PasskeysView`, `TotpView` |
+| End one session | "Sign out", named "Sign out {device}"; all others "Sign out everywhere else" | `SessionsView` |
+| Leave a dialog or view | "Cancel"; on a page, a host's `cancelLabel` where leaving means something else ("Sign in instead") | `DialogActions`, every dialog's footer; `AuthHeader` on a page (`cancelLabel` there only) |
+| Go back a step | "Back"; to sign-in "Back to sign in"; to the factors "Use another method"; redo "Start again" | `RecoveryLoginForm`, `StepUpDialog`, `CheckEmailView` |
+| Say no to a link | "I didn't ask for this", answered by "Cancelled" | `ConfirmLinkPage` |
+| Try a failed load again | "Try again", never "Retry" | `LoadFailed` in the settings panels, `TurnstileWidget` |
+
+A row's action names its item for a screen reader (`aria-label`), so two rows
+never offer two buttons of one name and the words seen stay the words heard
+first. A wait ends in "…". No error line names a product: each is a sentence
+from §7's helpers or a view's own check.
+
+## 11. Tests
+
+As built:
+
+- **Package tests** — `osn/auth-ui/tests/`, one file per view, each under
+  happy-dom (`// @vitest-environment happy-dom`), plus
+  `webauthn-browser.test.ts`, which runs the real `@simplewebauthn/browser`
+  against a stubbed `navigator.credentials` for registration, authentication
+  and conditional autofill. `passkey-errors.test.ts` drives the same library
+  into each failure and checks the sentence `describePasskeyError` gives. Run
+  `bun run --cwd osn/auth-ui test:run`.
+- **No real-browser tier** in the package. **Lab stories** for
+  `CheckEmailView`, `osn/auth-ui/CheckEmailView` in
+  `tools/lab/src/stories/osn-auth-ui/check-email-view.story.tsx`: one per
+  state (Resend ready with the junk-mail line), every flow, a 320px phone, and the number at rest, on recovery and
+  step-up, across a resend and on a phone; and for `ConfirmLinkPage`,
+  `osn/auth-ui/ConfirmLinkPage` in `confirm-link-page.story.tsx`: one per
+  state, three and five numbers, the decline, step-up's expired page, an
+  opening answer, every flow, a 320px phone, and the typed field ready, confirming, after an error,
+  refused and on a 320px phone; and for `SignIn`, `osn/auth-ui/SignIn` in
+  `sign-in.story.tsx`: the signed-out passkey form in musubi's 384px dialog
+  and in its 320px phone sheet, its "Verifying…" wait and the recovery
+  chooser; and for `StepUpDialog`, `osn/auth-ui/StepUpDialog` in
+  `step-up-dialog.story.tsx`: the real sheet, one story per state (the
+  factors, a reason, a destructive action's warning, the passkey wait and
+  failure, no ceremony runner, `passkeyOnly` waiting and after a failure, with
+  and without an authenticator, the emailed link sending, refused, waiting,
+  expired, replaced, not replaced and at the server's limit, the code step,
+  checking, refused and rate-limited, and a title naming a 64-character
+  passkey), a `Phone` story that frames four of them at 320px, and a
+  playground. A story that cannot find a button it presses says so on the
+  page. And for `AuthHeader`, `osn/auth-ui/AuthHeader` in
+  `auth-header.story.tsx`: in the real sheet, the sign-in and create-account
+  titles alone and centred and a long title, each with a line reading the
+  dialog's accessible name from the page; on a page, the sign-in and
+  create-account headers under a stand-in for the app's name, and Cancel
+  disabled;
+  `BothHosts`, the two hosts' titles on one sheet; four of them at 320px; and
+  a playground. `SignIn` (`sign-in.story.tsx`) and `Register`
+  (`register.story.tsx`) each open in the real sheet, named by their title,
+  and on `/authorize`'s column (`OnAuthorize`), `SignIn` also at 320px. The
+  Settings panels each have a file, drawn in a stand-in for Settings' card
+  (`settings-bench.tsx`, which also holds the shared stubs): `PasskeysView`
+  (two rows, loading, failed, 320px), `TotpView` (none, set up, loading,
+  failed, 320px), `RecoveryCodesView` (codes held, none, checking, status
+  unread, 320px), `SessionsView` (two rows, loading) and
+  `SecurityEventsBanner` (one event, 320px). And for `TurnstileWidget`,
+  `osn/auth-ui/TurnstileWidget` in `turnstile-widget.story.tsx`: a failed
+  load with Try again, with and without a host's `alternative`, against a
+  stand-in `window.turnstile`.
+- **The lockout rule against osn-api.** `tests/link-lockout.contract.test.ts`
+  imports osn-api's `REGISTRATION_LINK_LOCKOUT_*` and `RECOVERY_LOCKOUT_*` and
+  fails when `LINK_LOCKOUT` differs. It runs as the `repo` vitest project
+  (`test:repo`), whose turbo inputs name those two files.
+- **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
+  and `token-contract.browser.test.tsx` hold the mapping the shared parts
+  inside the views render through. Musubi's component tests mock the views
+  (`vi.mock("@osn/auth-ui/…")`) and check how the app wires them. Its browser
+  tests render the real views where layout or paint is the claim:
+  `SecurityStepUp.browser.test.tsx` (the step-up sheet, the rows, the codes
+  and "Generate a new set?"), `LoadingShapes.browser.test.tsx` (Settings'
+  Security fallback against the passkey panel's head and placeholder, and
+  that placeholder against the row that lands, at 320 and 1440px),
+  `ProfileOnboarding.browser.test.tsx` ("Create a new profile" a bottom sheet
+  at 390px and a 384px card at 1440px, its Cancel `secondary`),
+  `CheckEmailView.layout.browser.test.tsx` and
+  `AuthorizeLoading.browser.test.tsx`. The suites that run the real views
+  end to end are the flows
+  `tools/e2e/tests/flows/musubi-passkey.flow.ts` and
+  `tools/e2e/tests/flows/musubi-register-retry.flow.ts`, which take `Register`
+  through `CheckEmailView` and open the link on `ConfirmLinkPage` (a wrong
+  pick, the decline, a failed read and its Try again, and the expired card for
+  a link cut short and for one with an unknown id), and
+  `tools/e2e/tests/flows/musubi-recovery.flow.ts`, which takes
+  `RecoveryLoginForm` through its emailed link, its wait across a reload, the
+  typed number and enrolment. `musubi-passkey`
+  finds the sign-in and create-account dialogs by their titles, "Sign in to
+  Musubi" and "Create your Musubi account". It reads Settings → Security
+  against probes (`securityPanelSurfaces`): each panel heading at
+  `DialogTitle`'s type, a passkey row as a nested `Card` (8px corner, 16px
+  inside, the card's fill), its meta line, its actions 40px tall at 390px,
+  and the `<summary>` taking Button's ring from the keyboard. It takes the
+  step-up's emailed link as far as its wait and back with "Use another
+  method", focus landing on "Email me a link", and removes the
+  authenticator app through the sheet titled "Remove Authenticator app?",
+  described by its warning, with no browser dialog, shot at 390px
+  (`removalSheetSurfaces`). It also
+  checks the error lines in Chromium: a rate-limited sign-in reads the wait sentence, with
+  "Lost your passkey?" inside the line, as the identifier field's accessible
+  description, and with no toast. It also reads the shared parts the views
+  draw, through `tools/e2e/tests/support/musubi-surfaces.ts`, each shot at 390
+  and 1440px in both schemes: on opening the create-account dialog
+  (`registerFieldSurfaces`), "Date of birth" a plain label 6px above its
+  field and described by its hint, and Email's label row 6px above its field;
+  on opening the sign-in dialog (`signInLinkSurfaces`), its title alone and
+  centred, "Email or @handle" a plain label, "Lost your passkey?" a 32px link
+  at 500 in the accent ink, centred under the field and above the footer,
+  underlined only under the pointer, and the footer reading Cancel, then
+  Continue; on the authenticator's removal sheet (`removalSheetSurfaces`), its
+  title alone and centred, one line under it and the footer reading Cancel,
+  then "Use passkey"; with
+  `/login/passkey/begin` held after Continue (`busyButtonSurfaces`), Continue
+  reading "Verifying…", `aria-busy` and `aria-disabled` but not `disabled`,
+  keeping focus, at 50% opacity, with one 20px orb, shot under reduced motion;
+  on `/authorize` before signing in to Pulse (`authorizeSignInSurfaces`),
+  the app's name at the display step over the panel's 14px heading at 500,
+  the panel with no frame, and "Create one" with no padding and one line tall, underlined 2px under, in its sentence's size and
+  weight, then "Create one" pressed, `Register`'s Cancel read as "Sign in
+  instead" and pressed, and sign-in back; with `GET /passkeys` held on Settings → Security
+  (`securityLoadingSurfaces`), the passkey list's own `Skeleton` in a busy
+  region, not Settings' fallback: the sunk well, an 8px corner, the pulse,
+  still under reduced motion, and as tall as the passkey row that replaces
+  it; and on the authenticator setup
+  (`totpSetupSurfaces`), the spans over the setup key and the code boxes in
+  the plain label's look, 6px above them, the boxes a group named "Code from
+  the app" with box 1 focused after the step-up, and the row's width and each
+  box's at 320 and 390px, shot at 320. It holds Register's send and enrol calls, the step-up's
+  passkey begin and the authenticator's confirm (`busyButtonHeld`): "Sending…",
+  "Waiting for your passkey…" (enrolment and step-up) and "Checking…" each busy, not
+  disabled, with focus kept, and Cancel disabled beside them.
+- **Waits in the package tests.** `SignIn.test.tsx` holds Continue busy and
+  not disabled while the passkey prompt is open, though the verification
+  challenge has dropped its spent token. `Register.test.tsx` holds "Send
+  verification link" busy, not disabled, with Cancel disabled and the form's
+  submit sending nothing, and Cancel disabled while the waiting view's Resend
+  sends. The views no
+  flow reaches hold each of their waits the same way, a second press sending
+  nothing: `RecoveryLoginForm.test.tsx` (four, with Back disabled),
+  `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
+  disabled), `ChangeEmailForm.test.tsx` ("Send a link"), `StepUpDialog.test.tsx`
+  ("Email me a link" and the authenticator's Confirm), `CheckEmailView.test.tsx`
+  (Resend, with "Start again" disabled) and
+  `ConfirmLinkPage.test.tsx` (a number, Confirm, the decline and Try again,
+  each with the other choices disabled).
+- **Error lines in the package tests.** Each view's tests plant text in a
+  thrown error's `message` and check it never reaches the screen, check a
+  `429` reads the wait sentence, and check the line is an alert, tied to its
+  field where it has one, with no error toast (`tests/helpers/errors.ts`).
+  Each row of code boxes is found as a group named by its label
+  (`tests/helpers/code.ts`), and a `400` and a `429` for each code check the
+  line is in every box's `aria-describedby`, with every box `aria-invalid` for
+  the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as the
+  authenticator step opens, and on the wait's heading as the emailed link's
+  wait opens.
+- **`AuthHeader` in the package tests** (`AuthHeader.test.tsx`, one case per
+  way it can fail): in a dialog, the dialog named by the title, renamed when
+  the title changes, and still named, by exactly one element, when one header
+  replaces another; the header holding the title alone, and refusing
+  `onCancel` in its type; on a page, a level-2 heading with no dialog; no
+  Cancel without `onCancel`; the host's words for Cancel, and "Cancel" without
+  them or with blank ones; Cancel refused while `cancelDisabled`; and Cancel
+  never submitting a form it sits in.
+- **The dialog footer in the package tests** (`SignIn.test.tsx`,
+  `Register.test.tsx`, `RecoveryLoginForm.test.tsx`, `StepUpDialog.test.tsx`,
+  `ProfileOnboarding.test.tsx`, `RecoveryCodesView.test.tsx`): no button in a
+  dialog's header; the footer reading Cancel, then the step's action, on every
+  step (Cancel alone on a wait); Cancel calling `onCancel` once and never
+  asking the dialog to close; the action still the form's submit, so Enter
+  sends it; Cancel held while a call the view started runs (`SignIn`'s
+  passkey call, `Register`'s send, a recovery code's check), and, in the
+  recovery view, still leaving the dialog; Cancel on the emailed recovery
+  wait ending the wait in this tab's storage; a dialog host refusing
+  `cancelLabel` in its type; and, on a page, "Lost your passkey?" under
+  Continue. `ViewParts.test.tsx` holds that a dialog step with neither
+  Cancel nor an action draws no footer, and one whose body shows nothing
+  draws no body. `RecoveryLoginForm.test.tsx` holds that a recovery answering
+  after the form unmounts starts no session refresh.
+- **The step-up sheet in the package tests** (`StepUpDialog.test.tsx`, one
+  case per way it can fail): named by its title and described by its one
+  line, the warning when there is one, else the reason as given, with none
+  of the old lines; focus on "Use passkey" as it opens; the
+  `passkeyOnly` wait a busy button; Escape refused while the
+  passkey or the code check runs, and Escape on the emailed link's wait
+  dropping a later confirmation; "Use another method" dropping a later
+  confirmation, a late Resend answer and a late new link for an expired one,
+  clearing a refused code, held while the code is checked, and not starting
+  the passkey again with `passkeyOnly`; focus left where the host put it after
+  the token; and, with an exit that never ends, the token handed over within
+  300ms, no second outcome while it closes, and nothing for a host that
+  removed it. happy-dom never ends a Kobalte exit (it reports
+  `animationName` as `""`), so the views' tests that open the sheet set every
+  animation to `none` first, the reduced-motion path (`tests/helpers/motion.ts`).
+  `RecoveryCodesView.test.tsx` opens the sheet from its closing rotation
+  dialog and closes it with Escape. Each view that opens the sheet has a case
+  for its one line (`PasskeysView`, `TotpView`, `RecoveryCodesView`,
+  `SecurityEventsBanner`, `ChangeEmailForm`).
+- **Loading in the package tests.** `PasskeysView`, `TotpView`,
+  `RecoveryCodesView` and `SessionsView` mounted under a `Suspense` whose
+  fallback is the host's show their own placeholder, never the host's, while a
+  read is out, and `StepUpDialog` its factors while `GET /totp/status` is out.
+  `RecoveryCodesView` and `SessionsView` hold the placeholder in a busy region
+  until the first read lands, and `RecoveryCodesView` never shows the old
+  set's count after a new set. `PasskeysView` takes a deleted row off at once
+  and holds a Remove pressed while the list is read again; `SessionsView`
+  disables every action while the list is read again after a revoke.
+  Musubi's `tests/components/SecurityCache.test.tsx` holds the views through
+  its page cache, one case for each way a write could leave a row it may have
+  changed.
+- **The contract and the hosts in the package tests.**
+  `token-contract.test.ts` (§2). `SignIn.test.tsx` and `Register.test.tsx`
+  mount each view in a real `Dialog` with `host="dialog"`: the dialog named
+  by its title through exactly one element, `SignIn`'s renamed "Recover your
+  account" and back; `Register` on a page takes the host's `cancelLabel`
+  ("Sign in instead"), and in a dialog its type refuses one.
+  `PasskeysView.test.tsx` and `TotpView.test.tsx` press Remove: no
+  `window.confirm`, the sheet named "Remove {name}?" and described by its
+  warning, and Cancel removing nothing; each row's actions named by their
+  item. `RecoveryCodesView.test.tsx` fails a status read under a host's
+  `Suspense`: the panel's own line with Try again, no fallback, the generate
+  button kept, and Try again reading the count. `ProfileOnboarding.test.tsx`
+  finds its create dialog by name.
+- **Layout in Musubi's browser tests.**
+  `musubi/social/tests/components/SecurityStepUp.browser.test.tsx` opens the
+  step-up sheet from "Add a passkey" in Settings → Security: at 390px a bottom
+  sheet as wide as the screen with 16px top corners and square bottom ones,
+  focus on "Use passkey", its title alone and centred, its one line "To add
+  a passkey, confirm it's you.", its footer reading Cancel then "Use passkey"
+  on one 40px row, and Escape closing it with focus back on "Add
+  passkey"; at 320px the footer still one row while "Waiting for your
+  passkey…" runs; at 1440px the same footer 32px tall; Resend disabled while
+  the emailed link's wait runs; at 320px the
+  authenticator step's row of code boxes 288px wide with no box under 40px,
+  and every button inside the sheet's padding and at least 40px tall; at
+  1440px a centred 384px card with the row inside its padding, closed by a
+  press on the scrim with focus back on "Add a passkey", and kept open by the
+  same press while the passkey call runs. A sheet whose title names a
+  64-character passkey scrolls nothing sideways at 320 and 1440px. A
+  passkey row reads as a nested `Card` against a probe, at 390 and 1440px in
+  both schemes, its actions 40px tall and under its words at 390 and 32px at
+  1440; with the list held, its placeholder is as tall as the row that
+  replaces it at both widths. New recovery codes sit in a well read against a
+  `Card variant="muted"` probe, with a 16px box in a row at least 44px tall at
+  390px; "Generate a new set?" is a bottom sheet at 390px and a centred 384px
+  card at 1440px, its Cancel painted as a `secondary` Button. Shots at
+  320, 390 and 1440px, light and dark, in `e2e-artifacts/musubi-settings/`.
+  `musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx`
+  renders `CheckEmailView` in Musubi's auth sheet
+  and holds its layout at 320px and 1280px (the long address, the countdown on
+  one line, the 40px and 32px buttons, and the six-digit number at 24px in
+  tabular figures with its label read first), and the wait's fill (§12):
+  inside the label, the button's whole box behind its words, with a 2px
+  leading edge, at both widths, a linear run as long as the wait, half out
+  halfway, empty as the label reads "Resend link", the whole wait again after a
+  Resend from where the wait stands once the send ends, painted in light and
+  dark, and not drawn under reduced motion or forced colours. Its frames, one
+  per second of a 4-second wait in each theme at 320 and 1280px, are written
+  beside the file.
+  `musubi/social/tests/components/ConfirmLinkPage.layout.browser.test.tsx`
+  renders `ConfirmLinkPage` on a bare route and holds, at 320px, five six-digit
+  numbers and a long address with nothing to scroll sideways, and at 320px and
+  1280px the numbers one under another, at least 44px tall in 24px tabular
+  figures, the decline and Try again at 44px below `md`, the error notice above
+  Try again, and the typed field, Confirm and the decline inside the card at
+  44px or more, the field at 16px with an edge of at least 3:1 and a plain
+  label 6px above it.
+  `musubi/social/tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx`
+  renders Musubi's `/verify/:requestId` page itself, and holds its own failed
+  card, its busy Try again and its `Skeleton` placeholder against
+  `ConfirmLinkPage`'s card.
+  `musubi/social/tests/components/AuthHeader.browser.test.tsx` renders
+  `AuthHeader` in Musubi's sheet and in `/authorize`'s column, light and dark:
+  at 320px a long title with no space in its product name, alone in the
+  sheet's header, wraps inside its padding with its lines centred and nothing
+  scrolling sideways, and on the page wraps beside "Sign in instead", which
+  stays 40px tall, unsqueezed and inside the padding; both hosts' titles in
+  the same computed type and colour, 14px at 500; and the page's Cancel drawn
+  as a `ghost` Button, compared with one. Shots at 320px in
+  `e2e-artifacts/musubi-auth-header/`.
+  `musubi/social/tests/components/AuthDialogs.browser.test.tsx` opens Musubi's
+  sign-in and create-account dialogs with the real views at 320, 390 and
+  1440px, light and dark: the title alone in the header and centred in the
+  sheet; the footer reading Cancel, then Continue or "Send verification
+  link", on one row inside the sheet's padding, 40px tall below `md` and 32px
+  from it, Cancel painted as a `secondary` Button; "Lost your passkey?"
+  centred under the field; the recovery chooser's footer at 320px; and each
+  dialog opening with focus on itself, Tab then reaching the first field.
+  Shots in `e2e-artifacts/musubi-dialogs/`.
+
+## 12. Motion
+
+The package has one motion of its own, `CheckEmailView`'s wait fill, below.
+Otherwise a view takes its host's: in Musubi, colour and opacity transitions
+only, beside the two `Button` draws, the orb and the press
+(`musubi/social/DESIGN.md` §Motion). Musubi's §Motion lists the wait fill
+among its exceptions. The host's
+`transition-ui-colors` utility fades colours and leaves the outline out, so a
+control's focus mark lands at once (§9). A view draws five motions from
+`@shared/ui` parts: the press, which scales a `Button` to 0.97 while it is
+held (not while disabled or busy, nor a link inside a sentence); a busy
+button's `Orb`; `Skeleton`, the loading
+placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
+`RecoveryCodesView`, which pulses in opacity; the open and close of `Dialog`,
+in `ProfileOnboarding`, `RecoveryCodesView` and `StepUpDialog`, all three sheets; and the open and close of a
+popover, `Register`'s `InfoPopover` beside the email field. Below `md` the
+three sheets slide up from the bottom edge and back down, as every
+`@shared/ui` sheet does (`musubi/social/DESIGN.md` §Motion, the owner's
+"B: slide up" on #2045); from `md` they are cards, and the cards and the
+popover fade with no scale in Musubi, which maps both scale tokens to 1
+(`musubi/social/DESIGN.md` §Motion); the press does not read those tokens and
+scales in Musubi too. Under reduced motion no button scales, the `Orb` and
+`Skeleton` stand still, a sheet fades in and out with its scrim and does not
+slide, and the cards and the popover show and hide at once. `StepUpDialog`
+hands its host the outcome once its exit has ended (§8), so the host's
+removal never cuts the slide or the fade short. `AuthHeader` adds no motion: a title it
+is given arrives at once, and it shows and hides with the dialog around it. What a skeleton
+stands for, a refused code's line and a step that replaces another arrive at
+once, with no fade (`musubi/social/DESIGN.md` §Motion), and so do a list
+that lands in place of its placeholder, `CheckEmailView`'s junk-mail line and
+`TurnstileWidget`'s failed-load line. Beyond the shared sheet's slide, a view
+never moves a panel, a field or an error across the screen, and never loads an
+animation library. A motion a view needs that the host does not have goes into
+the host's `DESIGN.md` first.
+
+**The wait fill.** While `CheckEmailView`'s Resend counts down, the fill
+behind its label (§4) empties from full to nothing towards the button's
+start, its 2px edge leading, and is gone the moment the label reads "Resend
+link". It tells how far the wait has gone at a glance, where the seconds have
+to be read. A full-height fill, not a bar under the label, is the owner's
+choice for #2289 (2026-11-16).
+
+- **Its timing is the wait's, not a token's.** It runs as long as the wait the
+  host passes (`resendWaitSeconds`, 30 seconds unless the host passes another;
+  `RecoveryLoginForm`, `StepUpDialog` and `ChangeEmailForm` pass 120), and at
+  an even pace (`linear`), so it agrees with the seconds in the label all the
+  way down. No
+  `--ui-dur-*` or `--ui-ease-*` token's job is a countdown, so the curve is
+  the one literal the package keeps, with its reason beside it
+  (`house/no-literal-motion`).
+- **It is timed from the wait's own deadline.** It is a `translate`
+  transition that starts from `@starting-style` (`-translate-x-full`, from
+  `starting:translate-x-0`) each time the label is built: as a wait starts,
+  and again as a send ends, since the busy "Sending…" draws no fill. It
+  slides out rather than scales, so its edge stays 2px wide all the way. Its
+  delay is negative by the part of the wait already gone, so a fill drawn
+  after a send starts part-empty and still empties as Resend unlocks. Each
+  wait after an accepted Resend runs the whole length again.
+- **It says nothing about the address or the server.** It reads only
+  `resendWaitSeconds` and the view's clock, the same for every address,
+  whatever the server did with the link.
+- **It runs past five seconds with no pause control.** WCAG 2.2.2 asks for
+  one on motion that starts by itself, lasts over five seconds and sits beside
+  other content, unless the motion is essential; the `Orb` stops at five
+  seconds for that reason (`musubi/social/DESIGN.md` §The orb). The fill is
+  the wait itself, as the label's seconds are, which change through the whole
+  wait too: it moves only while Resend cannot be pressed, and ends as it can.
+  It takes the exception for essential motion on that ground, the owner's
+  choice for #2289 (2026-11-16).
+- **It is silent and holds no place.** `aria-hidden`, with no text, and out of
+  the row's flow, so the button's accessible name, the live region, focus,
+  the button's height and the label's one line are as they were.
+- **Under reduced motion it is not drawn** (`motion-reduce:hidden`): the
+  seconds in the label carry the wait, as the `Orb` and `Skeleton` stand
+  still there. **In a contrast theme (forced colours) it is not drawn**
+  either (`forced-colors:hidden`): the theme would paint its fill in the
+  page's own colour. Not drawn under reduced motion is the owner's choice for
+  #2289 (2026-11-16), over a still or fading cue.
+- **In an older browser it is not drawn.** Below `@starting-style` (Chrome
+  117, Safari 17.5, Firefox 129; the floor is Chrome 111, Safari 16.4,
+  Firefox 114) the transition never starts and the fill rests at its end,
+  out of the button, which draws nothing. The label still counts.
+
+**Why it has an edge.** At the disabled button's 50% opacity no fill Musubi
+maps reads at a glance: `--ui-surface-sunk` (with `--ui-accent-soft` and
+`--ui-ground-deep`, which Musubi maps to the same `--muted`) measures 1.05:1
+against the sheet in both themes, and the edge tokens, which are not fills,
+reach 1.13:1 (`--ui-hairline-strong`). So the fill keeps the surface it is
+for, the ghost button's hover fill, and its leading edge is a 2px line in
+`--ui-ink-tertiary`, which Musubi gives to ornaments
+(`musubi/social/DESIGN.md` §Ink hierarchy): 1.71:1 against the light sheet
+and 1.90:1 against the dark one, and 1.63:1 and 1.81:1 against the fill
+behind it. The label's seconds carry the wait, and WCAG 1.4.11 asks nothing
+of a disabled control.
+
+| At 50% over the sheet | Light (`#ffffff`) | Dark (`#242424`) |
+| --- | --- | --- |
+| `--ui-surface-sunk` (`#f4f4f4` / `#2b2b2b`) | 1.05:1 | 1.05:1 |
+| `--ui-hairline` (`#ececec` / `#333333`) | 1.09:1 | 1.10:1 |
+| `--ui-hairline-strong` (`#e2e2e2` / `#3a3a3a`) | 1.13:1 | 1.16:1 |
+| `--ui-ink-tertiary`, the edge (`#8d8d8d` / `#7a7a7a`) | 1.71:1 | 1.90:1 |
+
+*Measured 2026-11-16 — Musubi's `App.css` values (`:root` and `.dark`),
+composited at 0.5 over the sheet's `--card`, contrast by the WCAG 2 formula;
+`CheckEmailView.layout.browser.test.tsx` reads the fill and the edge back from
+Chromium as the painted `--ui-surface-sunk` and `--ui-ink-tertiary`.*

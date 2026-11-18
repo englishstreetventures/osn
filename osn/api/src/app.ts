@@ -11,6 +11,7 @@ import type { CoordinationStores } from "./lib/coordination";
 import { createOriginGuard } from "./lib/origin-guard";
 import { createAccountErasureRoutes } from "./routes/account-erasure";
 import { createAccountExportRoutes } from "./routes/account-export";
+import { createArcJwksRoutes } from "./routes/arc-jwks";
 import { createAuthRoutes } from "./routes/auth";
 import type { DevLoginConfig } from "./routes/auth/dev-login";
 import { createGraphRoutes } from "./routes/graph";
@@ -23,6 +24,7 @@ import { createProfileRoutes } from "./routes/profile";
 import { createRecommendationRoutes } from "./routes/recommendations";
 import type { AuthConfig } from "./services/auth";
 import type { CireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
+import type { DeletionAppsConfig } from "./services/deletion-apps";
 
 /**
  * Everything the Elysia composition below references. Built once at boot (Bun
@@ -98,6 +100,8 @@ export interface AppDeps {
   stepUpJtiStore: CoordinationStores["stepUpJtiStore"];
   /** Single-use claims on discoverable passkey challenges. */
   passkeyChallengeClaims: CoordinationStores["passkeyChallengeClaims"];
+  /** Single-use claims on Email Verification API nonces. */
+  emailVerificationNonceClaims: CoordinationStores["emailVerificationNonceClaims"];
   /**
    * The ceremony / pending-state stores, the three lockout counters and the
    * three per-account caps, from the coordination bundle. Spread into the
@@ -107,9 +111,17 @@ export interface AppDeps {
   recoveryLockoutStore: CoordinationStores["recoveryLockoutStore"];
   recoveryOtpLockoutStore: CoordinationStores["recoveryOtpLockoutStore"];
   totpLockoutStore: CoordinationStores["totpLockoutStore"];
+  registrationLinkLockoutStore: CoordinationStores["registrationLinkLockoutStore"];
+  registrationFirstLinkCap: CoordinationStores["registrationFirstLinkCap"];
+  stepUpLinkLockoutStore: CoordinationStores["stepUpLinkLockoutStore"];
   profileSwitchCap: CoordinationStores["profileSwitchCap"];
   emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
-  recoveryEmailBeginCap: CoordinationStores["recoveryEmailBeginCap"];
+  recoveryLinkAddressCap: CoordinationStores["recoveryLinkAddressCap"];
+  recoveryResendCap: CoordinationStores["recoveryResendCap"];
+  recoveryLinkCeiling: CoordinationStores["recoveryLinkCeiling"];
+  registrationSendCap: CoordinationStores["registrationSendCap"];
+  stepUpLinkCeiling: CoordinationStores["stepUpLinkCeiling"];
+  linkResendCap: CoordinationStores["linkResendCap"];
   /** The coordination round trip `GET /health/coordination` runs. */
   healthProbe: CoordinationStores["healthProbe"];
   /** Per-IP limiter in front of it: native where the Worker has the binding. */
@@ -143,12 +155,18 @@ export interface AppDeps {
   devLogin: DevLoginConfig | null;
   /**
    * The back-channel that ends an account's cire organiser sessions on sign
-   * out everywhere else and on revoking cire's connection. Built from
-   * `CIRE_INTERNAL_REVOKE_URL`, `CIRE_INTERNAL_REVOKE_SECRET` and
+   * out everywhere else, on revoking cire's connection and at an account
+   * deletion's soft delete. Built from `CIRE_API_URL`, `CIRE_INTERNAL_REVOKE_SECRET` and
    * `CIRE_OIDC_CLIENT_ID`; with any of them unset or unusable, each such
    * request is skipped with a warning. See `services/cire-organiser-revoke`.
    */
   cireOrganiserRevoke: CireOrganiserRevokeConfig;
+  /**
+   * Where the account deletion's preview, session end and export reach each
+   * app (`PULSE_API_URL`, `ZAP_API_URL`, `CIRE_API_URL`, `OSN_DELETION_ABSENT_APPS`), and the
+   * ARC kid secret their calls carry. See `services/deletion-apps`.
+   */
+  deletionApps: DeletionAppsConfig;
   /**
    * Elysia ahead-of-time handler compilation. AOT uses `new Function(...)`,
    * which workerd forbids ("Code generation from strings disallowed"). The Bun
@@ -185,13 +203,22 @@ export function createApp(deps: AppDeps) {
     accountErasureRateLimiters,
     stepUpJtiStore,
     passkeyChallengeClaims,
+    emailVerificationNonceClaims,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     totpLockoutStore,
+    registrationLinkLockoutStore,
+    registrationFirstLinkCap,
+    stepUpLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
-    recoveryEmailBeginCap,
+    recoveryLinkAddressCap,
+    recoveryResendCap,
+    recoveryLinkCeiling,
+    registrationSendCap,
+    stepUpLinkCeiling,
+    linkResendCap,
     healthProbe,
     healthProbeLimiter,
     clientIpConfig,
@@ -199,6 +226,7 @@ export function createApp(deps: AppDeps) {
     turnstileVerifier,
     devLogin,
     cireOrganiserRevoke,
+    deletionApps,
     aot,
   } = deps;
 
@@ -208,7 +236,22 @@ export function createApp(deps: AppDeps) {
   // AOT on (default). Mirrors cire's Workers app. The flag propagates to the
   // route plugins composed via `.use()` below.
   const base = new Elysia({ aot })
-    .use(cors({ origin: corsOrigins, credentials: true }))
+    // `maxAge` is in seconds. A waiting sign-up tab polls the same URL every few
+    // seconds; a cached preflight halves its requests. A narrowed allow-list
+    // reaches a browser within ten minutes.
+    //
+    // `exposeHeaders` names every response header an app reads across the
+    // origin: the export's file name (`@osn/client`'s `exportAccount`) and a
+    // refused grant's `Retry-After` (`@osn/client`'s renewal pause). The
+    // plugin's default exposes only the names of the request's headers.
+    .use(
+      cors({
+        origin: corsOrigins,
+        credentials: true,
+        maxAge: 600,
+        exposeHeaders: ["Content-Disposition", "Retry-After"],
+      }),
+    )
     .onBeforeHandle(originGuard);
 
   // The per-request observability plugin is gated behind a deps flag: the Bun
@@ -270,13 +313,22 @@ export function createApp(deps: AppDeps) {
     ...authConfig,
     stepUpJtiStore,
     passkeyChallengeClaims,
+    emailVerificationNonceClaims,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     totpLockoutStore,
+    registrationLinkLockoutStore,
+    registrationFirstLinkCap,
+    stepUpLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
-    recoveryEmailBeginCap,
+    recoveryLinkAddressCap,
+    recoveryResendCap,
+    recoveryLinkCeiling,
+    registrationSendCap,
+    stepUpLinkCeiling,
+    linkResendCap,
   };
 
   return withDocs
@@ -301,7 +353,7 @@ export function createApp(deps: AppDeps) {
     .use(
       createOrganisationRoutes(
         sharedAuthConfig,
-        DbLive,
+        dbAndEmailLayer,
         observabilityLayer,
         orgRateLimiter,
         appRuntime,
@@ -336,19 +388,24 @@ export function createApp(deps: AppDeps) {
         cookieConfig,
         clientIpConfig,
         appRuntime,
+        deletionApps,
+        cireOrganiserRevoke,
       ),
     )
     .use(
       createAccountExportRoutes(
         sharedAuthConfig,
+        cookieConfig,
         DbLive,
         observabilityLayer,
         accountExportLimiter,
         accountExportIpLimiter,
         clientIpConfig,
         appRuntime,
+        deletionApps,
       ),
     )
+    .use(createArcJwksRoutes(DbLive, observabilityLayer, appRuntime))
     .use(createInternalAccountRoutes(sharedAuthConfig, DbLive, appRuntime));
 }
 

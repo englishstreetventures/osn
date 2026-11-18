@@ -1,14 +1,35 @@
 // @vitest-environment happy-dom
-import type { PasskeysClient, StepUpClient, StepUpToken } from "@osn/client";
+import {
+  AuthExpiredError,
+  type PasskeysClient,
+  type StepUpClient,
+  type StepUpToken,
+} from "@osn/client";
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
+import { Suspense } from "solid-js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { PasskeysView } from "../src/PasskeysView";
+import { dialogDescription } from "./helpers/dialog";
+import {
+  INPUT,
+  PASSKEY_NOT_ADDED,
+  SERVER,
+  WAIT,
+  alertsText,
+  apiError,
+  ceremonyError,
+} from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Settings → Passkeys view. Covers the orchestration logic that
  * isn't exercised at the service / HTTP layer: list rendering, inline
- * rename, confirm-gated delete, and step-up threading into the delete
+ * rename, removal through the step-up sheet, and step-up threading into the delete
  * call. The `PasskeysClient` + `StepUpClient` are stubbed so we assert
  * on the wire-contract rather than real network calls.
  */
@@ -24,8 +45,9 @@ interface PasskeysStub {
 interface StepUpStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
 }
 
 const makePasskeys = (): PasskeysStub => ({
@@ -39,8 +61,9 @@ const makePasskeys = (): PasskeysStub => ({
 const makeStepUp = (): StepUpStub => ({
   passkeyBegin: vi.fn(),
   passkeyComplete: vi.fn(),
-  otpBegin: vi.fn(),
-  otpComplete: vi.fn(),
+  emailBegin: vi.fn(),
+  emailStatus: vi.fn(),
+  emailResend: vi.fn(),
 });
 
 const asPasskeys = (s: PasskeysStub): PasskeysClient => s as unknown as PasskeysClient;
@@ -110,21 +133,41 @@ const passkeyRows = [
 let pk: PasskeysStub;
 let su: StepUpStub;
 
+const LINK_REQUEST = {
+  requestId: "stepup_0123456789ab",
+  claimSecret: "c".repeat(64),
+  pairingCode: "47",
+  expiresAt: 1_900_000_000,
+};
+
 describe("PasskeysView", () => {
   beforeEach(() => {
     pk = makePasskeys();
     su = makeStepUp();
-    // Confirm dialog defaults to approve — individual tests override.
-    window.confirm = () => true;
   });
 
   afterEach(() => cleanup());
 
+  // A read under a host's Suspense boundary would hand the whole boundary to
+  // the host's fallback; the view shows its own placeholder instead.
+  it("holds its place under a host's Suspense while the list loads", async () => {
+    pk.list.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />
+      </Suspense>
+    ));
+    await waitFor(() => expect(pk.list).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Passkeys" })).toBeTruthy();
+    const region = document.querySelector('[aria-busy="true"]');
+    expect(region?.querySelector('[aria-hidden="true"]')).toBeTruthy();
+  });
+
   it("renders the passkey list with user labels and friendly fallbacks", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
     await waitFor(() => {
       // First row: user-provided label.
@@ -147,13 +190,12 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         runPasskeyCeremony={runPasskeyCeremony}
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Rename$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Rename / })[0]!);
     const input = screen.getByDisplayValue("Work laptop") as HTMLInputElement;
     fireEvent.input(input, { target: { value: "  Primary  " } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
@@ -162,7 +204,6 @@ describe("PasskeysView", () => {
 
     await waitFor(() =>
       expect(pk.rename).toHaveBeenCalledWith({
-        accessToken: "acc",
         id: "pk_aaaaaaaaaaaa",
         label: "Primary",
         stepUpToken: stepUpToken.token,
@@ -180,25 +221,22 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         runPasskeyCeremony={runPasskeyCeremony}
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
     await waitFor(() => screen.getByRole("button", { name: /Use passkey/i }));
-    expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
   });
 
   it("disables save when the draft label is empty / whitespace-only", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Rename$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Rename / })[0]!);
 
     const input = screen.getByDisplayValue("Work laptop") as HTMLInputElement;
     fireEvent.input(input, { target: { value: "   " } });
@@ -206,7 +244,7 @@ describe("PasskeysView", () => {
     expect(save.disabled).toBe(true);
   });
 
-  it("delete flow: confirm → step-up → client.delete with stepUpToken → reload", async () => {
+  it("delete flow: Remove → step-up → client.delete with stepUpToken → reload", async () => {
     pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
     pk.list.mockResolvedValueOnce({ passkeys: [passkeyRows[1]!] });
     pk.delete.mockResolvedValue({ success: true, remaining: 1 });
@@ -216,19 +254,17 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         runPasskeyCeremony={runPasskeyCeremony}
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
 
     await useThePasskeyFactor();
 
     await waitFor(() =>
       expect(pk.delete).toHaveBeenCalledWith({
-        accessToken: "acc",
         id: "pk_aaaaaaaaaaaa",
         stepUpToken: stepUpToken.token,
       }),
@@ -237,53 +273,186 @@ describe("PasskeysView", () => {
     expect(pk.list).toHaveBeenCalledTimes(2);
   });
 
-  it("delete is skipped entirely if the user dismisses confirm()", async () => {
-    pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    window.confirm = () => false;
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
-
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
-
-    // No step-up prompt, no delete call, no reload.
-    expect(su.otpBegin).not.toHaveBeenCalled();
-    expect(pk.delete).not.toHaveBeenCalled();
-  });
-
-  it("surfaces rename errors in a destructive banner", async () => {
-    pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    pk.rename.mockRejectedValue(new Error("Passkey not found"));
+  // The deleted row leaves at once. The list is read again behind the rest,
+  // and a Remove pressed meanwhile is busy until that read lands: acting on a
+  // row the read takes off would run a whole step-up for a passkey that is gone.
+  it("takes a deleted row off at once, and holds a Remove pressed while the list is read again", async () => {
+    let answerReread: (value: unknown) => void = () => {};
+    pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
+    pk.list.mockReturnValueOnce(new Promise((resolve) => (answerReread = resolve)));
+    pk.delete.mockResolvedValue({ success: true, remaining: 1 });
     armPasskeyStepUp(su);
 
     render(() => (
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
+        profileId="prof_1"
+        runPasskeyCeremony={runPasskeyCeremony}
+        runPasskeyRegistration={() => new Promise(() => {})}
+      />
+    ));
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
+    await useThePasskeyFactor();
+    await waitFor(() => expect(pk.list).toHaveBeenCalledTimes(2));
+
+    expect(screen.queryByText("Work laptop")).toBeNull();
+    const remove = screen.getByRole("button", { name: "Remove Synced passkey" });
+    fireEvent.click(remove);
+    expect(remove.getAttribute("aria-busy")).toBe("true");
+    expect(
+      (screen.getByRole("button", { name: "Add a passkey" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // The read again says the passkey is gone: nothing opens.
+    answerReread({ passkeys: [] });
+    await waitFor(() => expect(screen.queryByText("Synced passkey")).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // One step-up ran, for the first removal; none for the second.
+    expect(su.passkeyBegin).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks before a removal in the step-up sheet, named and described by the removal, never window.confirm", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    const confirm = vi.fn(() => true);
+    window.confirm = confirm;
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
         runPasskeyCeremony={runPasskeyCeremony}
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Rename$/ })[0]!);
+    await waitFor(() => screen.getByRole("button", { name: "Remove Work laptop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Work laptop" }));
+
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Remove Work laptop?" }));
+    const described = (sheet.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("You'll need another credential to sign in.");
+    expect(confirm).not.toHaveBeenCalled();
+    // Nothing red commits it: the factor does.
+    expect(screen.queryByRole("button", { name: /^(Remove|Delete)$/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(pk.delete).not.toHaveBeenCalled();
+    expect(su.passkeyBegin).not.toHaveBeenCalled();
+  });
+
+  it("names each row's actions by its passkey, so two rows never share a name", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Remove Work laptop" }));
+    expect(screen.getByRole("button", { name: "Remove Synced passkey" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rename Work laptop" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rename Synced passkey" })).toBeTruthy();
+  });
+
+  it("shows a refused rename under the rename field, tied to it, never the error's text", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    pk.rename.mockRejectedValue(apiError("PLANTED Passkey not found"));
+    armPasskeyStepUp(su);
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        runPasskeyCeremony={runPasskeyCeremony}
+      />
+    ));
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Rename / })[0]!);
     const input = screen.getByDisplayValue("Work laptop") as HTMLInputElement;
     fireEvent.input(input, { target: { value: "New label" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
     // Drive the step-up to actually fire the rename call.
     await useThePasskeyFactor();
 
-    await waitFor(() => expect(screen.getByText(/Passkey not found/)).toBeTruthy());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(INPUT);
+    expect(alertsText()).not.toContain("PLANTED");
+    const field = screen.getByDisplayValue("New label");
+    expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("reads a refused delete as the map's sentence", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    pk.delete.mockRejectedValue(apiError("PLANTED-delete", 429, "rate_limited"));
+    armPasskeyStepUp(su);
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        runPasskeyCeremony={runPasskeyCeremony}
+      />
+    ));
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
+    await useThePasskeyFactor();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(WAIT);
+    expect(alertsText()).not.toContain("PLANTED");
+  });
+
+  describe("a list that fails to load", () => {
+    it("says so with a Try again that reloads it, and keeps the view", async () => {
+      pk.list
+        .mockRejectedValueOnce(apiError("PLANTED-list", 500, "internal_error"))
+        .mockResolvedValueOnce({ passkeys: passkeyRows });
+      render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Your passkeys didn't load.");
+      // The map's 5xx sentence would only repeat the lead beside a Try again.
+      expect(alert.textContent).not.toContain(SERVER);
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(screen.getByRole("heading", { name: "Passkeys" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
+      expect(pk.list).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("names the wait on a 429", async () => {
+      pk.list.mockRejectedValue(apiError("PLANTED-list-429", 429, "rate_limited"));
+      render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(WAIT);
+    });
+
+    // A 401 from the server, or the client's own word that renewal failed.
+    it.each([
+      ["a 401", apiError("PLANTED-list-401", 401, "unauthorized")],
+      ["an AuthExpiredError", new AuthExpiredError({ cause: new Error("PLANTED-expired") })],
+    ])("offers no Try again once the session has ended (%s)", async (_, error) => {
+      pk.list.mockRejectedValue(error);
+      render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Your session has ended. Sign in again.");
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    });
   });
 
   it("hides the Add-passkey button when profileId / runPasskeyRegistration are missing", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
-    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
-    expect(screen.queryByRole("button", { name: /Add passkey/i })).toBeNull();
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
+    expect(screen.queryByRole("button", { name: /Add a passkey/i })).toBeNull();
   });
 
   it("add-passkey flow: step-up → registerBegin(stepUpToken) → browser ceremony → registerComplete → reload", async () => {
@@ -305,8 +474,8 @@ describe("PasskeysView", () => {
     });
     pk.registerBegin.mockResolvedValue({ challenge: "chal" });
     pk.registerComplete.mockResolvedValue({ passkeyId: "pk_ccccccccccccc" });
-    su.otpBegin.mockResolvedValue({ sent: true });
-    su.otpComplete.mockResolvedValue(stepUpToken);
+    su.emailBegin.mockResolvedValue(LINK_REQUEST);
+    su.emailStatus.mockResolvedValue({ status: "complete", token: stepUpToken });
 
     const runRegistration = vi.fn().mockResolvedValue({ id: "cred_abc" });
 
@@ -314,64 +483,64 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         profileId="prof_123"
         runPasskeyRegistration={runRegistration}
       />
     ));
 
-    await waitFor(() => screen.getByRole("button", { name: /Add passkey/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
 
     // Step-up dialog — use OTP factor.
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
-    fireEvent.input(codeInput, { target: { value: "123456" } });
-    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // The link is confirmed elsewhere; coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
 
     await waitFor(() =>
       expect(pk.registerBegin).toHaveBeenCalledWith({
-        accessToken: "acc",
         profileId: "prof_123",
         stepUpToken: stepUpToken.token,
       }),
     );
     expect(runRegistration).toHaveBeenCalledWith({ challenge: "chal" });
-    expect(pk.registerComplete).toHaveBeenCalledWith({
-      accessToken: "acc",
-      profileId: "prof_123",
-      attestation: { id: "cred_abc" },
-    });
+    await waitFor(() =>
+      expect(pk.registerComplete).toHaveBeenCalledWith({
+        profileId: "prof_123",
+        attestation: { id: "cred_abc" },
+      }),
+    );
     // Reload after add.
     await waitFor(() => expect(pk.list).toHaveBeenCalledTimes(2));
   });
 
-  it("surfaces add-passkey errors in a destructive banner", async () => {
+  it("reads a refused add as the adding sentence, never the error's text", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    pk.registerBegin.mockRejectedValue(new Error("Attestation rejected"));
-    su.otpBegin.mockResolvedValue({ sent: true });
-    su.otpComplete.mockResolvedValue(stepUpToken);
+    pk.registerBegin.mockRejectedValue(apiError("PLANTED Attestation rejected"));
+    su.emailBegin.mockResolvedValue(LINK_REQUEST);
+    su.emailStatus.mockResolvedValue({ status: "complete", token: stepUpToken });
 
     render(() => (
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         profileId="prof_123"
         runPasskeyRegistration={vi.fn()}
       />
     ));
 
-    await waitFor(() => screen.getByRole("button", { name: /Add passkey/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
-    fireEvent.input(codeInput, { target: { value: "123456" } });
-    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // The link is confirmed elsewhere; coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
 
-    await waitFor(() => expect(screen.getByText(/Attestation rejected/)).toBeTruthy());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("We couldn't add that passkey. Try again.");
+    expect(alertsText()).not.toContain("PLANTED");
     expect(pk.registerComplete).not.toHaveBeenCalled();
   });
 
@@ -382,33 +551,37 @@ describe("PasskeysView", () => {
   it("re-enables Add passkey after the browser ceremony is cancelled", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
     pk.registerBegin.mockResolvedValue({ challenge: "chal" });
-    su.otpBegin.mockResolvedValue({ sent: true });
-    su.otpComplete.mockResolvedValue(stepUpToken);
-    const runRegistration = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+    su.emailBegin.mockResolvedValue(LINK_REQUEST);
+    su.emailStatus.mockResolvedValue({ status: "complete", token: stepUpToken });
+    const runRegistration = vi
+      .fn()
+      .mockRejectedValue(ceremonyError("NotAllowedError", "PLANTED-add-ceremony"));
 
     render(() => (
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         profileId="prof_123"
         runPasskeyRegistration={runRegistration}
       />
     ));
 
-    await waitFor(() => screen.getByRole("button", { name: /Add passkey/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
-    fireEvent.input(codeInput, { target: { value: "123456" } });
-    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // The link is confirmed elsewhere; coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
 
-    await waitFor(() => expect(screen.getByText(/NotAllowedError/)).toBeTruthy());
+    // The adding ceremony's sentence, not the signing-in one.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(PASSKEY_NOT_ADDED);
+    expect(alertsText()).not.toContain("PLANTED");
     expect(pk.registerComplete).not.toHaveBeenCalled();
     // finally-block cleanup: the Add button must be clickable again.
     const addButton = screen.getByRole("button", {
-      name: /Add passkey/i,
+      name: /Add a passkey/i,
     }) as HTMLButtonElement;
     await waitFor(() => expect(addButton.disabled).toBe(false));
   });
@@ -422,59 +595,55 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         profileId="prof_123"
         runPasskeyRegistration={vi.fn()}
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
     // "Use passkey" is the dialog-is-open signal: it is the one factor every
     // ceremony offers.
     await waitFor(() => screen.getByRole("button", { name: /Use passkey/i }));
 
     const addButton = screen.getByRole("button", {
-      name: /Add passkey/i,
+      name: /Add a passkey/i,
     }) as HTMLButtonElement;
     expect(addButton.disabled).toBe(true);
   });
 
-  // passkeyOnly: in the cire organiser portal email is degraded, so the
-  // step-up dialog must not offer the OTP factor (it would never arrive).
-  // The dialog should auto-run the passkey ceremony instead.
-  it("passkeyOnly: delete uses the passkey ceremony, never OTP", async () => {
+  // passkeyOnly: a host that cannot deliver mail. A removal still waits for
+  // the person to press the passkey factor under its warning.
+  it("passkeyOnly: a removal waits for the passkey press and offers no link", async () => {
     pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
     pk.list.mockResolvedValueOnce({ passkeys: [passkeyRows[1]!] });
     pk.delete.mockResolvedValue({ success: true, remaining: 1 });
-    su.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
-    su.passkeyComplete.mockResolvedValue(stepUpToken);
-    const runCeremony = vi.fn().mockResolvedValue({ id: "cred_su" });
+    armPasskeyStepUp(su);
+    const runCeremony = vi.fn().mockResolvedValue(assertion);
 
     render(() => (
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         passkeyOnly
         runPasskeyCeremony={runCeremony}
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getByRole("button", { name: "Remove Work laptop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Work laptop" }));
+    await waitFor(() => screen.getByRole("dialog", { name: "Remove Work laptop?" }));
+    expect(runCeremony).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
 
-    // No OTP affordance; passkey ceremony runs automatically.
-    await waitFor(() => expect(runCeremony).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+    await useThePasskeyFactor();
     await waitFor(() =>
       expect(pk.delete).toHaveBeenCalledWith({
-        accessToken: "acc",
         id: "pk_aaaaaaaaaaaa",
         stepUpToken: stepUpToken.token,
       }),
     );
-    expect(su.otpBegin).not.toHaveBeenCalled();
+    expect(su.emailBegin).not.toHaveBeenCalled();
   });
 
   // While a step-up is in flight, every Rename / Delete button on the
@@ -482,19 +651,42 @@ describe("PasskeysView", () => {
   it("locks every Rename/Delete button while a step-up is in flight (S-L1)", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
 
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
     // Step-up dialog open — every Rename + Delete button on the list rows
     // must be disabled.
     await waitFor(() => screen.getByRole("button", { name: /Use passkey/i }));
-    const renameButtons = screen.getAllByRole("button", { name: /^Rename$/ });
-    const deleteButtons = screen.getAllByRole("button", { name: /^Delete$/ });
+    const renameButtons = screen.getAllByRole("button", { name: /^Rename / });
+    const deleteButtons = screen.getAllByRole("button", { name: /^Remove / });
     for (const b of [...renameButtons, ...deleteButtons]) {
       expect((b as HTMLButtonElement).disabled).toBe(true);
     }
+  });
+  // Every sheet the view opens says why, in one line under its title.
+  it("says why on the sheet: adding a passkey, and renaming the one being renamed", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        profileId="prof_123"
+        runPasskeyRegistration={vi.fn()}
+      />
+    ));
+    await waitFor(() => screen.getByRole("button", { name: "Add a passkey" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
+    expect(await dialogDescription("Confirm it's you")).toBe("To add a passkey, confirm it's you.");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename Work laptop" }));
+    fireEvent.input(screen.getByDisplayValue("Work laptop"), { target: { value: "Primary" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    // The passkey as it is named now, not the name just typed.
+    expect(await dialogDescription("Confirm it's you")).toBe(
+      "To rename Work laptop, confirm it's you.",
+    );
   });
 });

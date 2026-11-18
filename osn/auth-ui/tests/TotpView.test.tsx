@@ -7,7 +7,18 @@ vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+import { toast } from "@shared/toast";
+import { Suspense } from "solid-js";
+
 import { TotpView } from "../src/TotpView";
+import { enterCode, expectTied } from "./helpers/code";
+import { dialogDescription } from "./helpers/dialog";
+import { CODE, WAIT, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Settings → Authenticator app. The orchestration is what is covered here:
@@ -26,8 +37,9 @@ interface TotpStub {
 interface StepUpStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
   totpComplete: ReturnType<typeof vi.fn>;
 }
 
@@ -65,7 +77,6 @@ function mount() {
     <TotpView
       client={asTotp(totp)}
       stepUpClient={asStepUp(su)}
-      accessToken="acc"
       runPasskeyCeremony={async () => assertion}
     />
   ));
@@ -95,11 +106,11 @@ beforeEach(() => {
   su = {
     passkeyBegin: vi.fn().mockResolvedValue({ options: { challenge: "abc" } }),
     passkeyComplete: vi.fn().mockResolvedValue({ token: "stpup_x", expiresIn: 300 }),
-    otpBegin: vi.fn(),
-    otpComplete: vi.fn(),
+    emailBegin: vi.fn(),
+    emailStatus: vi.fn(),
+    emailResend: vi.fn(),
     totpComplete: vi.fn(),
   };
-  window.confirm = () => true;
 });
 
 afterEach(() => cleanup());
@@ -109,14 +120,14 @@ describe("TotpView", () => {
     totp.status.mockResolvedValue(notEnrolled);
     mount();
     expect(await screen.findByRole("button", { name: /Add an authenticator app/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Remove$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
   });
 
   it("shows the credential and a remove action when one is enrolled", async () => {
     totp.status.mockResolvedValue(isEnrolled);
     mount();
     await waitFor(() => expect(screen.getByText("iPhone")).toBeTruthy());
-    expect(screen.getByRole("button", { name: /^Remove$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Remove / })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Add an authenticator app/i })).toBeNull();
   });
 
@@ -130,9 +141,18 @@ describe("TotpView", () => {
 
     await waitFor(() =>
       expect(totp.enrollBegin).toHaveBeenCalledWith({
-        accessToken: "acc",
         stepUpToken: "stpup_x",
       }),
+    );
+  });
+
+  // The sheet says why, in one line under its title.
+  it("says why on the sheet before an authenticator is added", async () => {
+    totp.status.mockResolvedValue(notEnrolled);
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Add an authenticator app/i }));
+    expect(await dialogDescription("Confirm it's you")).toBe(
+      "To add an authenticator app, confirm it's you.",
     );
   });
 
@@ -170,7 +190,6 @@ describe("TotpView", () => {
 
     await waitFor(() =>
       expect(totp.enrollComplete).toHaveBeenCalledWith({
-        accessToken: "acc",
         code: "123456",
         label: undefined,
       }),
@@ -182,22 +201,97 @@ describe("TotpView", () => {
     await waitFor(() => expect(screen.getByText("iPhone")).toBeTruthy());
   });
 
-  it("keeps the panel on a wrong code so the user can retype it", async () => {
+  it.each([
+    ["a 400", apiError("PLANTED-totp-confirm"), CODE, "true"],
+    ["a 429", apiError("PLANTED-totp-confirm-429", 429, "rate_limited"), WAIT, null],
+  ] as const)(
+    "keeps the panel on a refused code (%s), the line tied to the boxes",
+    async (_, error, sentence, invalid) => {
+      totp.status.mockResolvedValue(notEnrolled);
+      totp.enrollBegin.mockResolvedValue({ otpauthUri: URI, totpSecret: SECRET });
+      totp.enrollComplete.mockRejectedValue(error);
+      vi.mocked(toast.error).mockClear();
+      mount();
+
+      fireEvent.click(await screen.findByRole("button", { name: /Add an authenticator app/i }));
+      await passStepUp();
+      await waitFor(() => screen.getByText(SECRET));
+      // The group is named by the label above it.
+      const boxes = await enterCode("Code from the app", "000000");
+      fireEvent.click(screen.getByRole("button", { name: /^Confirm$/i }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(toast.error).not.toHaveBeenCalled();
+      expectTied(boxes, alert.id, invalid);
+      // The user has already scanned; taking the QR away would force a restart.
+      expect(screen.getByText(SECRET)).toBeTruthy();
+    },
+  );
+
+  // A read under a host's Suspense boundary would hand the whole boundary to
+  // the host's fallback; the view shows its own placeholder instead.
+  it("holds its place under a host's Suspense while the status loads", async () => {
+    totp.status.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <TotpView
+          client={asTotp(totp)}
+          stepUpClient={asStepUp(su)}
+          runPasskeyCeremony={async () => assertion}
+        />
+      </Suspense>
+    ));
+    await waitFor(() => expect(totp.status).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Authenticator app" })).toBeTruthy();
+    const region = document.querySelector('[aria-busy="true"]');
+    expect(region?.querySelector('[aria-hidden="true"]')).toBeTruthy();
+  });
+
+  it("reads a refused start as the map's sentence, with no error toast", async () => {
     totp.status.mockResolvedValue(notEnrolled);
-    totp.enrollBegin.mockResolvedValue({ otpauthUri: URI, totpSecret: SECRET });
-    totp.enrollComplete.mockRejectedValue(new Error("That code didn't work"));
+    totp.enrollBegin.mockRejectedValue(apiError("PLANTED-totp-begin", 429, "rate_limited"));
+    vi.mocked(toast.error).mockClear();
     mount();
 
     fireEvent.click(await screen.findByRole("button", { name: /Add an authenticator app/i }));
     await passStepUp();
-    await waitFor(() => screen.getByText(SECRET));
-    typeCode("000000");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/i }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/didn't work/);
-    // The user has already scanned; taking the QR away would force a restart.
-    expect(screen.getByText(SECRET)).toBeTruthy();
+    expect(alert.textContent).toContain(WAIT);
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  describe("a status that fails to load", () => {
+    it("says so with a Try again that reloads it", async () => {
+      totp.status
+        .mockRejectedValueOnce(apiError("PLANTED-status", 503, "temporarily_unavailable"))
+        .mockResolvedValueOnce(notEnrolled);
+      mount();
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Your authenticator app didn't load.");
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(screen.getByRole("heading", { name: "Authenticator app" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await screen.findByRole("button", { name: /Add an authenticator app/i });
+      expect(totp.status).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("says to check the connection when the request never arrived", async () => {
+      totp.status.mockRejectedValue(apiError("PLANTED-status-0", 0, "network"));
+      mount();
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(
+        "We couldn't connect. Check your connection and try again.",
+      );
+    });
   });
 
   it("drops the secret when the user cancels enrolment", async () => {
@@ -227,39 +321,56 @@ describe("TotpView", () => {
 
     await waitFor(() =>
       expect(totp.enrollComplete).toHaveBeenCalledWith({
-        accessToken: "acc",
         code: "123456",
         label: "Pixel",
       }),
     );
   });
 
-  it("gates removal behind a confirmation and a step-up", async () => {
+  it("gates removal behind the step-up sheet", async () => {
     totp.status.mockResolvedValueOnce(isEnrolled).mockResolvedValue(notEnrolled);
     totp.disable.mockResolvedValue({ disabled: true });
     mount();
 
-    await waitFor(() => screen.getByRole("button", { name: /^Remove$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^Remove$/i }));
+    await waitFor(() => screen.getByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove / }));
     await passStepUp();
 
-    await waitFor(() =>
-      expect(totp.disable).toHaveBeenCalledWith({ accessToken: "acc", stepUpToken: "stpup_x" }),
-    );
+    await waitFor(() => expect(totp.disable).toHaveBeenCalledWith({ stepUpToken: "stpup_x" }));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /Add an authenticator app/i })).toBeTruthy(),
     );
   });
 
-  it("does not start a removal the user declined", async () => {
+  it("asks before a removal in the step-up sheet, named and described by the removal, never window.confirm", async () => {
     totp.status.mockResolvedValue(isEnrolled);
-    window.confirm = () => false;
+    const confirm = vi.fn(() => true);
+    window.confirm = confirm;
     mount();
 
-    await waitFor(() => screen.getByRole("button", { name: /^Remove$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^Remove$/i }));
+    await waitFor(() => screen.getByRole("button", { name: "Remove iPhone" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove iPhone" }));
 
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Remove iPhone?" }));
+    const described = (sheet.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("You'll lose it as a way back into your account.");
+    expect(confirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(su.passkeyBegin).not.toHaveBeenCalled();
     expect(totp.disable).not.toHaveBeenCalled();
+  });
+
+  it("names an unnamed app's removal after the app", async () => {
+    totp.status.mockResolvedValue({ ...isEnrolled, label: null });
+    mount();
+    const remove = await waitFor(() =>
+      screen.getByRole("button", { name: "Remove Authenticator app" }),
+    );
+    expect(remove.textContent).toBe("Remove");
   });
 });

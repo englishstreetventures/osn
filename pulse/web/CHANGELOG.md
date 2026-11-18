@@ -1,5 +1,340 @@
 # @osn/pulse
 
+## 0.24.100
+
+### Patch Changes
+
+- @pulse/api@0.29.8
+
+## 0.24.99
+
+### Patch Changes
+
+- Updated dependencies [2aca4d6]
+  - @pulse/api@0.29.7
+
+## 0.24.98
+
+### Patch Changes
+
+- 9ea44d7: The privacy notices and terms say what deleting a Musubi account does: it is deleted once 7 days have passed, usually within a day of the date shown, and can be kept until then by signing in and choosing Keep my account; its handles are held for 30 days by a keyed hash; each app deletes what it holds except what others still rely on. Musubi's notice and terms name only what Settings can do (download your data, disconnect an app, delete your account), and a test fails when either names an action Settings has no control for. A Cire wedding deleted with the account is said to wait for any payment still settling. Pulse's notice says what happens to RSVPs and hosted events. The two marketing sites say where an account is deleted, and links inside the Musubi marketing site's legal text are underlined.
+
+## 0.24.97
+
+### Patch Changes
+
+- 1806e46: Cut unit tests whose behaviour a named E2E step or another test was seen to catch under a mutation, and delete the unused `EventList` and `EventCard` components and the unused tab helpers.
+
+## 0.24.96
+
+### Patch Changes
+
+- db8c428: `Checkbox`, `RadioGroup` and `Switch` draw on one rule: the control sits on its words' first line whatever their length, 8px from them, at prose leading; a chosen radio's 8px dot sits in the centre of its 16px circle; options are 8px apart in a column and 16px in a row; keyboard focus is the house outline, 2px off. `align` is gone (every control sits on the first line). `RadioGroup` and `Checkbox` take `touch`: below `md` each row is a 44px target and the space between options stays even, with nothing around it moving. `RadioGroupItem` takes a `description`. Musubi's deletion flow and the recovery-codes box use `touch` in place of their own row classes; Pulse's attendance setting puts each option's line under its words, and Pulse maps `--ui-choice-edge` to its `--subtle`, so an unchosen radio's edge clears 3:1 (it was 1.10–1.31:1 on `--input`, an edge nobody could see on a dark card); Pulse's and Musubi's contract tests hold the choice edge at 3:1 on every ground in both themes.
+- Updated dependencies [db8c428]
+- Updated dependencies [db8c428]
+  - @shared/ui@0.18.0
+  - @shared/design-tokens@0.10.0
+  - @pulse/api@0.29.6
+
+## 0.24.95
+
+### Patch Changes
+
+- @pulse/api@0.29.5
+
+## 0.24.94
+
+### Patch Changes
+
+- Updated dependencies [f040da3]
+  - @shared/design-tokens@0.9.1
+  - @shared/rp-auth@0.2.16
+  - @shared/toast@0.3.16
+  - @pulse/api@0.29.4
+  - @shared/ui@0.17.1
+
+## 0.24.93
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- Updated dependencies [5347e06]
+  - @pulse/api@0.29.3
+
+## 0.24.92
+
+### Patch Changes
+
+- Updated dependencies [7b90b0c]
+  - @shared/ui@0.17.1
+
+## 0.24.91
+
+### Patch Changes
+
+- @pulse/api@0.29.2
+
+## 0.24.90
+
+### Patch Changes
+
+- @pulse/api@0.29.1
+
+## 0.24.89
+
+### Patch Changes
+
+- da04fab: A `Dialog` sheet slides. Below `md`, `DialogContent presentation="sheet"` rises from its own height below the bottom edge over `--ui-dur-slow` and falls back over `--ui-dur-base`, both on the new `--ui-ease-sheet` token (`cubic-bezier(0.32, 0.72, 0, 1)`), at full opacity and unscaled, with its scrim fading on the same pace; closed part-way up or reopened part-way down it turns round from where it is. It moves by CSS transitions through two new utilities, `animate-sheet-in` and `animate-sheet-out`, beside two keyframes that move nothing and tell Kobalte how long to keep a closing sheet mounted. Under reduced motion it does not slide: it fades in and out with its scrim, in place, on the same pace and curve, with no transform on any frame; a new `sheet-hidden` utility holds where a sheet starts and ends, its own height below the edge or, under reduced motion, in place and transparent. At `md` and up, and with `presentation="centred"`, nothing changes. `DialogOverlay` takes the same optional `presentation`. Every sheet changes with it: Musubi's dialogs below `md`, `@osn/auth-ui`'s step-up, "Generate a new set?" and "Create a new profile", and pulse's share sheet. Musubi's, pulse's and `@osn/auth-ui`'s design documents say so; the lab adds a `DialogSheetSlide` story and lists the new curve.
+- Updated dependencies [da04fab]
+  - @shared/design-tokens@0.9.0
+  - @shared/ui@0.17.0
+
+## 0.24.88
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+  - @pulse/api@0.29.0
+
+## 0.24.87
+
+### Patch Changes
+
+- @pulse/api@0.28.25
+
+## 0.24.86
+
+### Patch Changes
+
+- @pulse/api@0.28.24
+
+## 0.24.85
+
+### Patch Changes
+
+- Updated dependencies [c34015f]
+  - @pulse/api@0.28.23
+
+## 0.24.84
+
+### Patch Changes
+
+- @pulse/api@0.28.22
+
+## 0.24.83
+
+### Patch Changes
+
+- Updated dependencies [ed7813d]
+  - @shared/ui@0.16.0
+
+## 0.24.82
+
+### Patch Changes
+
+- @pulse/api@0.28.21
+
+## 0.24.81
+
+### Patch Changes
+
+- Updated dependencies [90c891b]
+  - @shared/design-tokens@0.8.0
+  - @shared/ui@0.15.3
+
+## 0.24.80
+
+### Patch Changes
+
+- @pulse/api@0.28.20
+
+## 0.24.79
+
+### Patch Changes
+
+- Updated dependencies [d60b6ce]
+  - @shared/toast@0.3.15
+
+## 0.24.78
+
+### Patch Changes
+
+- Updated dependencies [6dd5ff4]
+  - @shared/ui@0.15.2
+
+## 0.24.77
+
+### Patch Changes
+
+- Updated dependencies [8397b84]
+  - @shared/toast@0.3.14
+
+## 0.24.76
+
+### Patch Changes
+
+- Updated dependencies [2035748]
+- Updated dependencies [2035748]
+  - @shared/design-tokens@0.7.0
+  - @shared/ui@0.15.1
+
+## 0.24.75
+
+### Patch Changes
+
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @shared/ui@0.15.0
+
+## 0.24.74
+
+### Patch Changes
+
+- 5bc7db4: `DialogTitle` reads its weight from the design-token contract's title-weight role, `--ui-weight-title`, through the utility `font-ui-title`, as `Badge` does, and falls back to 600, the `font-semibold` it carried before. The token's comments in `tokens.css` and `index.ts` name both parts that read it. No app maps the token, so pulse's three dialogs, Musubi's and the auth views draw their titles exactly as before; a snapshot of the title's computed style written before the change still passes, and pulse's browser tests check 600 under pulse's own stylesheet. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+  An app that wants its overlays to fade without scaling sets `--ui-scale-enter` and `--ui-scale-exit` to 1. Every Kobalte overlay then changes only its opacity; `Modal`'s exit scale stops too, while its rise and sink stay, and its entry keeps its own `scale(0.98)`, so it still grows as it opens. No component changed for this: the browser tests now prove it, and the design-token wiki page describes it. Default motion is unchanged.
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/design-tokens@0.6.1
+  - @shared/ui@0.14.0
+
+## 0.24.73
+
+### Patch Changes
+
+- @pulse/api@0.28.19
+
+## 0.24.72
+
+### Patch Changes
+
+- @pulse/api@0.28.18
+
+## 0.24.71
+
+### Patch Changes
+
+- @pulse/api@0.28.17
+
+## 0.24.70
+
+### Patch Changes
+
+- 3c0e6f5: An explore event card that is not featured shows its time, title, venue, host and footer whole on a phone. Below 768px its media column is 112px instead of 180px, and the live tag inside it reads "Live"; from 768px up the media column and the live tag are as before. At every width the time, venue and host lines wrap instead of running past the card, the time keeps its AM or PM on the same line, the venue and neighbourhood read as one line of text with a `·` between them in place of the drawn dot, each `·` stays with the word before it so no line starts with one, the clock, pin and avatar sit on their line's first line, and the footer wraps with the status kept flush right. The title still stops at two lines with an ellipsis.
+
+## 0.24.69
+
+### Patch Changes
+
+- @pulse/api@0.28.16
+
+## 0.24.68
+
+### Patch Changes
+
+- @pulse/api@0.28.15
+
+## 0.24.67
+
+### Patch Changes
+
+- 2c2906f: A title weight in the token contract, and `Badge` reads it.
+
+  - `@shared/design-tokens`: new role token `--ui-weight-title`, the weight a shared part sets a short title or a tag in, read through the utility `font-ui-title` (`--font-weight-ui-title` in `@theme inline`). It falls back to 600. `CONTRACT_SCALAR_TOKENS.fontWeight` lists it, and the agrees test fails if `tokens.css` does not alias it. The README's contract table gains it, with the `field` and `sheet` radius roles it was missing.
+  - `@shared/ui`: `Badge`'s label reads `font-ui-title` in place of `font-semibold`, so an app sets its weight once with `--ui-weight-title`. No app maps it, so every badge still draws at 600. `Badge`'s props refuse `innerHTML`, `innerText` and `textContent` (`SafeProps`). `Badge` carries no focus classes: a label takes no focus, so it draws no ring and removes no outline. A frozen snapshot of the unmapped badge's computed style, written before the change, holds pulse's look.
+  - `@tools/lab`: `Badges` shows both treatments and gains a treatment control; new `BadgeWeights` shows every badge unmapped and under `--ui-weight-title: 500`, captioned with the computed weight. The theming story's unmapped column also clears the weight token.
+  - `@pulse/web`: the token-contract browser test checks pulse's three badges compute 600 under its own stylesheet.
+
+- Updated dependencies [2c2906f]
+- Updated dependencies [3424e05]
+- Updated dependencies [ae53236]
+  - @shared/design-tokens@0.6.0
+  - @shared/ui@0.13.0
+
+## 0.24.66
+
+### Patch Changes
+
+- b0971b3: The explore page fits a phone with no sideways scroll. Below 768px the header's brand row wraps to three lines (brand and actions, the search from gutter to gutter, then the tabs) and scrolls with the page instead of pinning; the hero's stats sit under the headline; the gutters are 16px; and the create form's start and end times stack. From 768px up the row stays one line, and the search grows to its 360px cap, gives way first when the row is short, and ends a cut placeholder in an ellipsis. The search field gains an accessible name and shows focus with a 2px outline in `--ui-focus`, which forced-colours mode keeps; its unbound ⌘K hint is gone. The active tab carries `aria-current="page"`, and its underline is the ember (`--pulse-accent-strong`), which clears 3:1 on the light background. The greeting's date wraps on a narrow phone with its separator, and "View all" keeps its chevron on its line. The header's tabs and search box fade only their colours, so the focus mark shows at once, and the brand mark's and live dots' pulses hold still under reduced motion.
+
+## 0.24.65
+
+### Patch Changes
+
+- Updated dependencies [3abdb2b]
+- Updated dependencies [bceeafe]
+- Updated dependencies [4ce452e]
+  - @shared/ui@0.12.0
+
+## 0.24.64
+
+### Patch Changes
+
+- Updated dependencies [e71aee5]
+  - @shared/design-tokens@0.5.0
+  - @shared/ui@0.11.1
+
+## 0.24.63
+
+### Patch Changes
+
+- f2c7a76: Every written motion value left in these packages states its reason, so `house/no-literal-motion` and `scripts/check-motion-literals.ts` pass: `Modal`'s keyword easings, the toast's curves and spinner, pulse's onboarding rings, pin and their staggers, its live and brand pulses, and the landing sites' hovers and reveals, which have no motion tokens. Pulse's own motion now reads the token of its job: the calendar's reminder buttons, the onboarding chips and the explore card lift on `--ui-dur-fast` (120ms), the onboarding step and the header's "Create new event" button and label on `--ui-dur-base` (200ms), and the onboarding progress fill on `--ui-dur-slow`, all on `--ui-ease-out`. The explore card animates `border-color`, `translate` and `box-shadow` by name rather than `transition-all`.
+- Updated dependencies [f2c7a76]
+  - @shared/ui@0.11.1
+  - @shared/toast@0.3.13
+
+## 0.24.62
+
+### Patch Changes
+
+- Updated dependencies [d3fe597]
+  - @shared/design-tokens@0.4.0
+  - @shared/ui@0.11.0
+
+## 0.24.61
+
+### Patch Changes
+
+- @pulse/api@0.28.14
+
+## 0.24.60
+
+### Patch Changes
+
+- Updated dependencies [c687234]
+  - @pulse/api@0.28.13
+
+## 0.24.59
+
+### Patch Changes
+
+- 3a4615b: Docs now describe the code as it stands. `musubi/social/DESIGN.md` says ghost and link buttons are pills, default button labels are 14px, and success and warn are allowed within named uses with their contrast measured; it adds focus, motion, the token contract and how Musubi hosts `@osn/auth-ui`, and lists where the code does not meet a rule yet. A new `osn/auth-ui/DESIGN.md` states the `ui-*` contract the package is held to and how its views stand against it, focus included. The `@pulse/web` README names its one backend, the two ways the app reaches it, the third parties the browser calls, and its OIDC sign-in. No source changes; Musubi's token-contract browser test now holds the default Button label at 14px.
+
+## 0.24.58
+
+### Patch Changes
+
+- 6c81633: A browser test checks that the app's stylesheet keeps `Button`'s keyboard-focus outline in a contrast theme (forced colours). `@musubi/social`'s `typecheck` also checks its tests. No runtime change.
+- Updated dependencies [6c81633]
+  - @shared/ui@0.10.3
+
 ## 0.24.57
 
 ### Patch Changes

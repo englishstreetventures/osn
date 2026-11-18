@@ -1,4 +1,6 @@
+import { proseLinkClass } from "@cire/ui/button";
 import Loading from "@cire/ui/loading";
+import { LEGAL_ENTITY } from "@shared/legal";
 import type { SignalKind } from "@shared/realtime";
 import type { SignalEvent } from "@shared/realtime/client";
 import { useTopic } from "@shared/realtime/solid";
@@ -41,6 +43,7 @@ import { moduleDef } from "../lib/module-nav";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/preferences";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
+import { takeRemovalCode } from "../lib/removal-code";
 import { markRunSheetStale } from "../lib/run-sheet-store";
 import {
   clearStripeConnectParam,
@@ -68,8 +71,10 @@ import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm"
 import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
 import PanelLoading from "./PanelLoading";
+import RemovalDone from "./RemovalDone";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
+import { OwnerOnlyNote } from "./WeddingExport";
 import WeddingList from "./WeddingList";
 
 /**
@@ -86,6 +91,10 @@ const CommandPalette = lazy(() => import("./CommandPalette"));
  *  loads the same chunk. Split out so an organiser who never opens it never
  *  pays for it. */
 const RunSheetView = lazy(() => import("./RunSheetView"));
+
+/** "Remove my Cire data": a screen a host opens once in the life of their
+ *  account, so it is a chunk of its own, fetched when they open it. */
+const RemoveCireData = lazy(() => import("./RemoveCireData"));
 
 /**
  * How long after the last check the portal asks the API again, when the tab
@@ -207,7 +216,12 @@ function WeddingDashboard(props: {
     <Show
       when={surfaces().canOpenDashboard}
       fallback={
-        <RunSheetSeat weddingId={props.weddingId} wedding={props.wedding} onLeft={props.onLeft} />
+        <RunSheetSeat
+          weddingId={props.weddingId}
+          wedding={props.wedding}
+          onLeft={props.onLeft}
+          askedForExport={props.module() === "settings" && props.sub() === "export"}
+        />
       }
     >
       <WeddingCacheScope weddingId={props.weddingId}>
@@ -267,8 +281,18 @@ function WeddingCacheScope(props: ParentProps<{ weddingId: string }>) {
  *  the run sheet — narrowed by the API to what their scope allows — is the one
  *  thing they read. It holds rows, so it opens the wedding's cache scope as the
  *  dashboard does, and they are released when the seat closes. Below Gold the
- *  run sheet says it is not available, without asking the API. */
-function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLeft: () => void }) {
+ *  run sheet says it is not available, without asking the API.
+ *
+ *  The whole-wedding download's address is handed out beyond the portal, so a
+ *  helper can arrive on it. The seat has no Settings to show it in; it says
+ *  over the run sheet that only an owner can download the wedding. */
+function RunSheetSeat(props: {
+  weddingId: string;
+  wedding: WeddingSummary;
+  onLeft: () => void;
+  /** The address names Settings → Export. */
+  askedForExport: boolean;
+}) {
   return (
     <WeddingCacheScope weddingId={props.weddingId}>
       <div class="flex flex-col gap-6" data-testid="run-sheet-seat">
@@ -283,6 +307,9 @@ function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLef
           </div>
           <hr class="gilt-rule opacity-60" />
         </header>
+        <Show when={props.askedForExport}>
+          <OwnerOnlyNote />
+        </Show>
         <Suspense fallback={<PanelLoading />}>
           <RunSheetView
             weddingId={props.weddingId}
@@ -303,7 +330,26 @@ function initialRoute(): DashboardRoute {
   return parseRoute(window.location.hash);
 }
 
-function Dashboard() {
+/**
+ * Run `show` once no modal dialog is open, waiting for each to close in turn.
+ * Every portal dialog is `@shared/ui`'s `Modal`, opened with `showModal()`, so
+ * an open `<dialog>` is a modal one.
+ */
+function whenNoModalOpen(show: () => void): void {
+  const open = document.querySelector("dialog[open]");
+  if (!open) {
+    show();
+    return;
+  }
+  open.addEventListener("close", () => whenNoModalOpen(show), { once: true });
+}
+
+function Dashboard(props: {
+  /** The code Musubi sent the person back with, taken from the address on the way in. */
+  removalCode: string | undefined;
+  /** The person removed their Cire data: their sessions are gone. */
+  onRemoved: () => void;
+}) {
   const auth = useAuth();
   const { authFetch, logout, session } = auth;
   // Locally-tracked weddings so a freshly-created one shows up without a
@@ -542,6 +588,8 @@ function Dashboard() {
   // is the source of truth for render; the listener just mirrors external hash
   // changes back into it (it never writes the hash, so no feedback loop).
   function onHashChange() {
+    // A code typed or pasted into the address goes as it does on the way in.
+    takeRemovalCode();
     setRouteSignal(parseRoute(window.location.hash));
   }
   onMount(() => {
@@ -568,18 +616,23 @@ function Dashboard() {
   // anything. Every move is a moment to ask.
   createEffect(on(route, recheckIfDue, { defer: true }));
 
-  function selectView(next: "weddings" | "security") {
-    if (next === "security")
+  function selectView(next: "weddings" | "security" | "remove-data") {
+    if (next === "weddings") setRoute(LIST_ROUTE, "push");
+    else
       setRoute(
         {
-          view: "security",
+          view: next,
           weddingId: null,
           module: DEFAULT_MODULE,
           sub: defaultSub(DEFAULT_MODULE),
         },
         "push",
       );
-    else setRoute(LIST_ROUTE, "push");
+  }
+
+  /** "Remove my Cire data" opens a wedding's Settings view: its download, or its owners. */
+  function openWeddingSettings(weddingId: string, sub: "export" | "hosts") {
+    setRoute({ view: "weddings", weddingId, module: "settings", sub }, "push");
   }
 
   function selectWedding(wedding: WeddingSummary) {
@@ -866,8 +919,10 @@ function Dashboard() {
    * Back from Stripe.
    *
    * The tier is raised by the webhook, not by this page, so all this does is
-   * ask what happened and refresh the list once it has. The params are
-   * stripped the moment they are read: `setRoute` rebuilds the URL as
+   * ask what happened and refresh the list once it has. Each settled status
+   * ends the poll with its own message; `pending` (and a legacy `mismatch`),
+   * a purchase not found and a failed read keep it going until the last
+   * attempt. The params are stripped the moment they are read: `setRoute` rebuilds the URL as
    * `pathname + search + hash` on every hash write and the login bounce carries
    * `search` through, so leaving them would re-run this on every later
    * navigation, refresh and bookmark.
@@ -935,6 +990,43 @@ function Dashboard() {
           if (!cancelled) toast.error("That payment did not go through. Nothing was charged.");
           return;
         }
+        if (
+          state?.status === "refunding" ||
+          state?.status === "auto_refunded" ||
+          state?.status === "refund_failed"
+        ) {
+          // Paid, and the API could not upgrade the wedding, so it is giving
+          // the money back on its own. Pinned, because the receipt is gone
+          // from the URL and nothing else in the portal says it again. A plain
+          // identifier in the markup, so Solid builds the nodes once and no
+          // effect outlives them.
+          // Held while a modal dialog is open: a toast raised over one is
+          // inert, painted and never announced (`wiki/shared/toast.md`
+          // §topLayer), and this is the only notice of the refund.
+          const contact = LEGAL_ENTITY.contactEmail;
+          whenNoModalOpen(() => {
+            if (cancelled) return;
+            toast.error(
+              <span>
+                Your payment could not upgrade this wedding, so we are refunding it in full.
+                Questions? Write to us at{" "}
+                <a href={`mailto:${contact}`} class={proseLinkClass()}>
+                  {contact}
+                </a>
+                .
+              </span>,
+              { duration: Number.POSITIVE_INFINITY, dismissible: true },
+            );
+          });
+          return;
+        }
+        if (state?.status === "refunded") {
+          // A person refunded it — an operator lowering the wedding with
+          // `grant-tier.ts --lower` — so the poll meets it on a return URL
+          // opened again.
+          toast.info("That purchase was refunded, so it no longer applies to this wedding.");
+          return;
+        }
         // No sleep after the final attempt — there is nothing left to wait
         // for, and sleeping there adds a full backoff to the one path where
         // the webhook is genuinely slow.
@@ -965,7 +1057,24 @@ function Dashboard() {
 
   /** What the top bar names when no wedding is open. With one open, the
    *  switcher names it instead and this is unused. */
-  const sectionLabel = () => (view() === "security" ? "Security" : "All weddings");
+  const sectionLabel = () =>
+    view() === "security"
+      ? "Security"
+      : view() === "remove-data"
+        ? "Your Cire data"
+        : "All weddings";
+
+  /**
+   * The code the address carried on the way in, for the removal screen's
+   * first mount only: a screen opened again after Cancel reads what is kept,
+   * which Cancel cleared.
+   */
+  let arrivedCode = props.removalCode;
+  const takeArrivedCode = () => {
+    const code = arrivedCode;
+    arrivedCode = undefined;
+    return code;
+  };
 
   return (
     <AuthContext.Provider value={watchedAuth}>
@@ -983,6 +1092,7 @@ function Dashboard() {
               onWedding={selectWedding}
               onAll={backToList}
               onSecurity={() => selectView("security")}
+              onRemoveData={() => selectView("remove-data")}
               onSignOut={() => void signOut()}
               onOpenPalette={() => setPalette(true)}
             />
@@ -1013,6 +1123,18 @@ function Dashboard() {
             <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
               <Show when={view() === "security"}>
                 <SecurityPanel />
+              </Show>
+
+              <Show when={view() === "remove-data"}>
+                <Suspense fallback={<PanelLoading />}>
+                  <RemoveCireData
+                    code={takeArrivedCode()}
+                    canOpen={(weddingId) => weddings()?.some((w) => w.id === weddingId) ?? false}
+                    onOpen={openWeddingSettings}
+                    onCancel={backToList}
+                    onDone={props.onRemoved}
+                  />
+                </Suspense>
               </Show>
 
               <Show when={view() === "weddings"}>
@@ -1107,12 +1229,22 @@ export default function OrganiserApp() {
   // Back after sign-out must not bring the signed-in page back from the
   // back/forward cache; see `lib/bfcache.ts`.
   onMount(() => onCleanup(reloadOnRestore()));
+  // Once the person has removed their Cire data, their sessions are gone: the
+  // dashboard, which would ask the API again and be sent to sign in, gives way
+  // to the page that says so.
+  const [removed, setRemoved] = createSignal(false);
+  // Before the session is known: a sign-in bounce copies the address into
+  // `/login/?returnTo=…`, so the code Musubi sent back is kept and taken out
+  // of the address first (`lib/removal-code.ts`).
+  const removalCode = takeRemovalCode();
 
   return (
     <AuthProvider config={{ apiBase: CIRE_API_URL }}>
-      <RequireAuth>
-        <Dashboard />
-      </RequireAuth>
+      <Show when={!removed()} fallback={<RemovalDone />}>
+        <RequireAuth>
+          <Dashboard removalCode={removalCode} onRemoved={() => setRemoved(true)} />
+        </RequireAuth>
+      </Show>
       {/* `topLayer` because this app's dialogs are `showModal()` dialogs
           (`@shared/ui`'s `Modal`), which paint in the top layer — above every
           stacking context, so no `z-index` on the toast container could reach

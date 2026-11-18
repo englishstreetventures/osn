@@ -1,0 +1,193 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/cire-delete-undo",
+    "base_sha": "149af94cf18d7207d0657ed586e117b1affa7f0f",
+    "head_sha": "65fda6200ae34d9cef15d1ab2928db2eb2e56ca6",
+    "generated_at": "2026-11-11T05:58:47.751Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2177,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-10T13:44:49.039Z",
+    "last_ts": "2026-11-11T05:58:41.704Z",
+    "span_seconds": 58433,
+    "active_seconds": 8983,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 63.61726519999998,
+    "tokens": {
+      "input": 1228,
+      "output": 468503,
+      "thinking": 233029,
+      "cache_write_5m": 2460352,
+      "cache_write_1h": 0,
+      "cache_read": 104851333
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1228,
+          "output": 468503,
+          "thinking": 233029,
+          "cache_write_5m": 2460352,
+          "cache_write_1h": 0,
+          "cache_read": 104851333
+        },
+        "usd_equivalent": 63.61726519999998,
+        "messages": 600
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 3
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1228,
+          "output": 468503,
+          "thinking": 233029,
+          "cache_write_5m": 2460352,
+          "cache_write_1h": 0,
+          "cache_read": 104851333
+        },
+        "usd_equivalent": 63.61726519999998,
+        "messages": 603
+      }
+    },
+    "effort": {
+      "xhigh": 530,
+      "high": 70
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 24,
+      "docs": 6,
+      "config": 0,
+      "source": 8
+    },
+    "loc": {
+      "generated": {
+        "added": 45,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1432,
+        "deleted": 20
+      },
+      "docs": {
+        "added": 91,
+        "deleted": 10
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 430,
+        "deleted": 65
+      }
+    },
+    "packages": [
+      "cire/host",
+      "shared/toast",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 8
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 460,
+      "Edit": 106,
+      "Read": 95,
+      "Skill": 18,
+      "Write": 15,
+      "Monitor": 5,
+      "StructuredOutput": 3,
+      "ToolSearch": 3,
+      "TaskStop": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 15,
+      "max_edits_one_file": 10
+    },
+    "skills": {
+      "new-feat": 4,
+      "design-system": 1,
+      "write-wiki": 3,
+      "obsidian:obsidian-markdown": 3,
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "review-design": 1,
+      "prep-pr": 1,
+      "write-pr": 1,
+      "write-issue": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 600,
+      "with_tools": 600,
+      "with_one_tool": 527,
+      "context_median": 172842,
+      "context_p90": 284316
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 13,
+    "located": 5,
+    "acted_on": 1,
+    "paired": 5,
+    "acted_on_paired": 1,
+    "control_changed": 1,
+    "acted_on_by_test": 1,
+    "acted_on_paired_by_test": 1
+  }
+}

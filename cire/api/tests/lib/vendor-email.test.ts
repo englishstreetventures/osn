@@ -1,90 +1,22 @@
 /**
  * Tests for sendClaimInviteEmail — the fail-soft vendor claim-link emailer.
- *
- * Two scenarios:
- * 1. Happy path: stub transport records the send call; assert `to` and `claimUrl`
- *    appear in the call, and the effect succeeds with `true`.
- * 2. Fail-soft: stub transport rejects; assert the effect STILL succeeds
- *    with `false` — a broken transport must never propagate to the caller.
+ * A transport that dies (a defect, not a failure) still leaves the effect
+ * succeeding with `false`. The sent link and a transport that rejects are
+ * checked through the route, in routes/vendors.test.ts.
  */
 
 import { describe, it, expect } from "bun:test";
 
-import { EmailError, EmailService, type SendEmailInput } from "@shared/email";
+import { EmailService, type SendEmailInput } from "@shared/email";
 import { Effect, Exit, Layer } from "effect";
 
 import { sendClaimInviteEmail } from "../../src/lib/vendor-email";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Build a stub EmailService layer that records calls into `calls`. */
-function makeRecordingStub(): {
-  layer: Layer.Layer<EmailService>;
-  calls: SendEmailInput[];
-} {
-  const calls: SendEmailInput[] = [];
-  const layer = Layer.succeed(EmailService, {
-    send: (input: SendEmailInput) =>
-      Effect.sync(() => {
-        calls.push(input);
-      }),
-  });
-  return { layer, calls };
-}
-
-/** Build a stub EmailService layer whose `send` always fails. */
-function makeFailingStub(): Layer.Layer<EmailService> {
-  return Layer.succeed(EmailService, {
-    send: (_input: SendEmailInput) =>
-      Effect.fail(new EmailError({ reason: "api_unreachable", cause: new Error("network gone") })),
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("sendClaimInviteEmail", () => {
-  it("calls send once with the correct to, template, and claimUrl in the data", async () => {
-    const { layer, calls } = makeRecordingStub();
-
-    const exit = await Effect.runPromiseExit(
-      sendClaimInviteEmail({
-        to: "vendor@example.com",
-        claimUrl: "https://host.cireweddings.com/claim/abc123",
-        vendorName: "Amazing Photos Co.",
-      }).pipe(Effect.provide(layer)),
-    );
-
-    expect(Exit.isSuccess(exit) && exit.value).toBe(true);
-    expect(calls).toHaveLength(1);
-    const call = calls[0]!;
-    expect(call.to).toBe("vendor@example.com");
-    expect(call.template).toBe("vendor-claim-invite");
-    // The claimUrl must appear in the template data so the email body can carry it.
-    expect((call.data as { claimUrl: string }).claimUrl).toBe(
-      "https://host.cireweddings.com/claim/abc123",
-    );
-  });
-
-  it("succeeds (fail-soft) even when the transport rejects", async () => {
-    const failLayer = makeFailingStub();
-
-    const exit = await Effect.runPromiseExit(
-      sendClaimInviteEmail({
-        to: "vendor@example.com",
-        claimUrl: "https://host.cireweddings.com/claim/abc123",
-        vendorName: "Amazing Photos Co.",
-      }).pipe(Effect.provide(failLayer)),
-    );
-
-    // The error channel is `never` — a transport failure MUST NOT propagate;
-    // it reports `false` so the caller can say the invite did not go out.
-    expect(Exit.isSuccess(exit) && exit.value === false).toBe(true);
-  });
-
   it("succeeds (fail-soft) when the transport throws a defect", async () => {
     const defectLayer = Layer.succeed(EmailService, {
       send: (_input: SendEmailInput) => Effect.die(new Error("unexpected defect in transport")),

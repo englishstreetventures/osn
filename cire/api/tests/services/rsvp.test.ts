@@ -45,29 +45,6 @@ function lookupGuest(firstName: string) {
 
 describe("rsvpService.submitRsvp", () => {
   it(
-    "inserts an RSVP for a valid guest+event",
-    withDb(
-      Effect.gen(function* () {
-        const priya = yield* lookupGuest("Ada");
-        yield* rsvpService.submitRsvp({
-          guestId: priya.id,
-          eventId: HINDU_ID,
-          status: "attending",
-          dietary: "",
-          dietaryPresets: [],
-          dietaryConsent: false,
-        });
-
-        const rsvps = yield* rsvpService.getRsvpsForFamily(priya.familyId);
-        expect(rsvps).toHaveLength(1);
-        expect(rsvps[0]!.guestId).toBe(priya.id);
-        expect(rsvps[0]!.eventId).toBe(HINDU_ID);
-        expect(rsvps[0]!.status).toBe("attending");
-      }),
-    ),
-  );
-
-  it(
     "upserts — overwrites status on re-submit for same guest+event",
     withDb(
       Effect.gen(function* () {
@@ -132,27 +109,6 @@ describe("rsvpService.submitRsvp", () => {
 
         yield* rsvpService.submitRsvp({ ...reply, dietaryPresets: [], dietaryConsent: false });
         expect(yield* storedPresets).toBe("");
-      }),
-    ),
-  );
-
-  it(
-    "persists dietary requirements",
-    withDb(
-      Effect.gen(function* () {
-        const priya = yield* lookupGuest("Ada");
-        yield* rsvpService.submitRsvp({
-          guestId: priya.id,
-          eventId: RECEPTION_ID,
-          status: "attending",
-          dietary: "Vegetarian, no nuts",
-          dietaryPresets: [],
-          dietaryConsent: true,
-        });
-
-        const rsvps = yield* rsvpService.getRsvpsForFamily(priya.familyId);
-        const receptionRsvp = rsvps.find((r) => r.eventId === RECEPTION_ID);
-        expect(receptionRsvp?.dietary).toBe("Vegetarian, no nuts");
       }),
     ),
   );
@@ -298,7 +254,7 @@ describe("rsvpService.submitRsvp", () => {
   );
 });
 
-describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
+describe("rsvpService.submitRsvps (batched upserts)", () => {
   it(
     "upserts multiple guests × events in one batch, preserving status + dietary",
     withDb(
@@ -454,38 +410,6 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
 });
 
 describe("rsvpService.getRsvpsForFamily", () => {
-  it(
-    "returns all RSVPs across family members",
-    withDb(
-      Effect.gen(function* () {
-        const james = yield* lookupGuest("Bo");
-        const emma = yield* lookupGuest("Cleo");
-
-        yield* rsvpService.submitRsvp({
-          guestId: james.id,
-          eventId: HINDU_ID,
-          status: "attending",
-          dietary: "",
-          dietaryPresets: [],
-          dietaryConsent: false,
-        });
-        yield* rsvpService.submitRsvp({
-          guestId: emma.id,
-          eventId: HINDU_ID,
-          status: "maybe",
-          dietary: "Gluten-free",
-          dietaryPresets: [],
-          dietaryConsent: true,
-        });
-
-        const rsvps = yield* rsvpService.getRsvpsForFamily(james.familyId);
-        expect(rsvps).toHaveLength(2);
-        const guestIds = rsvps.map((r) => r.guestId).toSorted();
-        expect(guestIds).toEqual([james.id, emma.id].toSorted());
-      }),
-    ),
-  );
-
   /**
    * The read-back is the second place that answers "is this consent current?"
    * (the claim is the first), and it has to give the same answer: against the

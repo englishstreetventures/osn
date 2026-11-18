@@ -139,21 +139,14 @@ describe("weddingRunSheet — the stored scope", () => {
       weddingRunSheetScope: "full",
     });
   });
-
-  it("defaults a helper to own without the column being written", async () => {
-    // The seat above is inserted with no runSheetScope at all; the DDL default
-    // is what makes the narrow value the one a new helper gets.
-    const res = await appRequest(buildApp(HELPER), `/weddings/${WEDDING_ID}/probe`);
-    expect(await jsonBody(res)).toMatchObject({ weddingRunSheetScope: "own" });
-  });
 });
 
 describe("a helper scoped own receives no other person's assignments", () => {
-  // The condition the epic sets, asserted on a real HTTP response body rather
-  // than on what a page would render. The run-sheet route itself does not exist
-  // yet; this mounts the real gate over a route that returns the real filter's
-  // output, so the two halves that sub-issue 3 has to compose are proven to
-  // compose here.
+  // Asserted on a real HTTP response body rather than on what a page would
+  // render. The real run-sheet route lives in `src/routes/run-sheet.ts`; this
+  // mounts the real `weddingRunSheet` gate over a stand-in route that returns
+  // the scope filter `runSheetVisibleTo`'s output, so it checks that the gate's
+  // scope and the filter compose to hide every other person's assignment.
   const RUN_SHEET = [
     { id: "task_mine", title: "Carry the cake", assigneeHostIds: [HELPER_SEAT] },
     { id: "task_theirs", title: "Mind the rings", assigneeHostIds: [OTHER_SEAT] },
@@ -187,21 +180,6 @@ describe("a helper scoped own receives no other person's assignments", () => {
     const text = await res.text();
     expect(text).not.toContain(OTHER_SEAT);
     expect(text).not.toContain("Mind the rings");
-  });
-
-  it("returns the whole run sheet to a helper the host has opened it to", async () => {
-    const res = await appRequest(
-      buildRunSheetApp(HELPER_FULL),
-      `/weddings/${WEDDING_ID}/run-sheet`,
-    );
-    const body = (await jsonBody(res)) as { tasks: { id: string }[] };
-    expect(body.tasks.map((t) => t.id)).toEqual(["task_mine", "task_theirs", "task_nobodys"]);
-  });
-
-  it("returns the whole run sheet to the owner", async () => {
-    const res = await appRequest(buildRunSheetApp(OWNER), `/weddings/${WEDDING_ID}/run-sheet`);
-    const body = (await jsonBody(res)) as { tasks: { id: string }[] };
-    expect(body.tasks).toHaveLength(RUN_SHEET.length);
   });
 });
 

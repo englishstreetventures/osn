@@ -1,0 +1,194 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/shared-sortable-settle",
+    "base_sha": "65aad70ada6f9396d023bf874ac6586241bab6b0",
+    "head_sha": "a823a34403667e26aaa162e5c16d54717a3d25ae",
+    "generated_at": "2026-11-10T16:19:12.739Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2176,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "needs:decision",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-10T12:36:37.564Z",
+    "last_ts": "2026-11-10T16:19:04.759Z",
+    "span_seconds": 13347,
+    "active_seconds": 4960,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 31.091980199999995,
+    "tokens": {
+      "input": 728,
+      "output": 292391,
+      "thinking": 147540,
+      "cache_write_5m": 905751,
+      "cache_write_1h": 0,
+      "cache_read": 51781233
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 728,
+          "output": 292391,
+          "thinking": 147540,
+          "cache_write_5m": 905751,
+          "cache_write_1h": 0,
+          "cache_read": 51781233
+        },
+        "usd_equivalent": 31.091980199999995,
+        "messages": 348
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 728,
+          "output": 292391,
+          "thinking": 147540,
+          "cache_write_5m": 905751,
+          "cache_write_1h": 0,
+          "cache_read": 51781233
+        },
+        "usd_equivalent": 31.091980199999995,
+        "messages": 349
+      }
+    },
+    "effort": {
+      "high": 69,
+      "xhigh": 279
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 2,
+      "docs": 2,
+      "config": 0,
+      "source": 3
+    },
+    "loc": {
+      "generated": {
+        "added": 29,
+        "deleted": 0
+      },
+      "test": {
+        "added": 575,
+        "deleted": 2
+      },
+      "docs": {
+        "added": 98,
+        "deleted": 7
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 160,
+        "deleted": 12
+      }
+    },
+    "packages": [
+      "cire/host",
+      "shared/sortable"
+    ],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 263,
+      "Edit": 67,
+      "Read": 60,
+      "Skill": 19,
+      "Write": 12,
+      "StructuredOutput": 3,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 10,
+      "max_edits_one_file": 24
+    },
+    "skills": {
+      "new-feat": 2,
+      "design-system": 2,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "review-design": 1,
+      "stress-plan": 1,
+      "prep-pr": 2,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 348,
+      "with_tools": 348,
+      "with_one_tool": 293,
+      "context_median": 150898,
+      "context_p90": 242800
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 10,
+    "located": 7,
+    "acted_on": 7,
+    "paired": 7,
+    "acted_on_paired": 7,
+    "control_changed": 3,
+    "acted_on_by_test": 1,
+    "acted_on_paired_by_test": 1
+  }
+}

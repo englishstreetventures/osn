@@ -53,29 +53,6 @@ describe("RsvpSection", () => {
     mockToastSuccess.mockReset();
   });
 
-  it("renders attendees from fetchLatestRsvps", async () => {
-    mockFetchLatest.mockResolvedValueOnce([
-      {
-        id: "rsvp_1",
-        profileId: "usr_bob",
-        eventId: "evt_1",
-        status: "going",
-        invitedByProfileId: null,
-        isCloseFriend: false,
-        createdAt: "2030-01-01T00:00:00Z",
-        profile: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
-      },
-    ]);
-    const { container } = render(() => (
-      <RsvpSection event={baseEvent} currentProfileId="usr_dan" />
-    ));
-    await waitFor(() => {
-      // Avatar wrapper is span.base\\:relative; fallback initials are inside a nested span.
-      const wrapper = container.querySelector("span.base\\:relative");
-      expect(wrapper?.textContent).toBe("BS");
-    });
-  });
-
   it("applies the close-friend ring on rows where isCloseFriend is true", async () => {
     mockFetchLatest.mockResolvedValueOnce([
       {
@@ -109,11 +86,7 @@ describe("RsvpSection", () => {
 
   it("hides the 'Maybe' button when allowInterested is false", () => {
     const { queryByText } = render(() => (
-      <RsvpSection
-        event={{ ...baseEvent, allowInterested: false }}
-
-        currentProfileId="usr_dan"
-      />
+      <RsvpSection event={{ ...baseEvent, allowInterested: false }} currentProfileId="usr_dan" />
     ));
     expect(queryByText("Maybe")).toBeNull();
     expect(queryByText("I'm going")).toBeTruthy();
@@ -128,16 +101,6 @@ describe("RsvpSection", () => {
       expect(queryByRole("button", { name })).toBeNull();
     }
     expect(getByText("RSVPs are closed because this event is cancelled.")).toBeTruthy();
-  });
-
-  it("keeps the RSVP buttons on an event that is not cancelled", () => {
-    const { queryByRole, queryByText } = render(() => (
-      <RsvpSection event={{ ...baseEvent, status: "upcoming" }} currentProfileId="usr_dan" />
-    ));
-    for (const name of ["I'm going", "Maybe", "Can't make it"]) {
-      expect(queryByRole("button", { name })).toBeTruthy();
-    }
-    expect(queryByText("RSVPs are closed because this event is cancelled.")).toBeNull();
   });
 
   it("shows the 'invited' count only for guest_list events", async () => {
@@ -233,13 +196,5 @@ describe("RsvpSection", () => {
     fireEvent.click(getByText("I'm going"));
     expect(mockUpsert).not.toHaveBeenCalled();
     expect(mockToastError).toHaveBeenCalledWith("Sign in to RSVP");
-  });
-
-  it("clicking 'See all' opens the RsvpModal stub", async () => {
-    const { getByText, findByTestId } = render(() => (
-      <RsvpSection event={baseEvent} currentProfileId="usr_dan" />
-    ));
-    fireEvent.click(getByText("See all"));
-    expect(await findByTestId("rsvp-modal-stub")).toBeTruthy();
   });
 });

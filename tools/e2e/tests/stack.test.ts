@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { appSpecs, baseEnv, INHERITED_ENV } from "../src/stack";
+import { API_COMMAND, appSpecs, baseEnv, INHERITED_ENV } from "../src/stack";
+
+const REPO_ROOT = join(import.meta.dirname, "..", "..", "..");
 
 describe("baseEnv", () => {
   const shell = {
@@ -57,5 +61,40 @@ describe("appSpecs", () => {
   test("Musubi is the first allowed origin, where osn-api sends an /authorize that needs the user", () => {
     const osn = appSpecs().find((s) => s.name === "osnApi");
     expect(osn?.env["OSN_ORIGIN"]?.split(",")[0]).toBe("http://localhost:1422");
+  });
+
+  // The APIs hold secrets committed to the repository as placeholders, so
+  // nothing another machine sends may reach them. Each package's `src/local.ts`
+  // reads its own variable for the address to listen on; unset, it listens on
+  // every interface. An API package new to the stack needs an entry here. That
+  // each server binds what it reads, the launcher checks on every run
+  // (`apisOnLoopbackAlone` in `src/launcher.ts`).
+  test("every API the stack starts is told to listen on loopback alone", () => {
+    const hostnameVariable: Readonly<Record<string, string>> = {
+      "osn/api": "OSN_LOCAL_HOSTNAME",
+      "pulse/api": "PULSE_LOCAL_HOSTNAME",
+      "cire/api": "CIRE_LOCAL_HOSTNAME",
+    };
+    const apis = appSpecs().filter((s) => s.command === API_COMMAND);
+    expect(apis.map((s) => s.name).toSorted()).toEqual([
+      "cireApi",
+      "cireApiKeyOnly",
+      "osnApi",
+      "osnApiEvt",
+      "pulseApi",
+    ]);
+    for (const spec of apis) {
+      const variable = hostnameVariable[spec.dir];
+      expect(variable, `${spec.dir} has a hostname variable`).toBeDefined();
+      expect(spec.env[variable ?? ""], `${spec.name} ${variable}`).toBe("127.0.0.1");
+      // Code only: a name left in a comment is no read. The `:` keeps a URL's `//`.
+      const code = readFileSync(join(REPO_ROOT, spec.dir, "src", "local.ts"), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1");
+      expect(
+        new RegExp(`\\bprocess\\.env\\.${variable}\\b`).test(code),
+        `${spec.dir}/src/local.ts reads ${variable}`,
+      ).toBe(true);
+    }
   });
 });

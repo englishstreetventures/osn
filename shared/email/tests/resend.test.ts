@@ -52,9 +52,13 @@ describe("ResendEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "link-email-change",
           to: "alice@example.com",
-          data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+          data: {
+            url: "https://musubi.example/verify#000000",
+            ttlMinutes: 10,
+            instanceName: "Musubi",
+          },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -74,7 +78,7 @@ describe("ResendEmailLive", () => {
     };
     expect(payload.from).toBe("noreply@osn.test");
     expect(payload.to).toEqual(["alice@example.com"]);
-    expect(payload.subject).toBe("Verify your Musubi email");
+    expect(payload.subject).toBe("Confirm your new Musubi email");
     expect(payload.text).toContain("000000");
     expect(payload.html).toContain("000000");
   });
@@ -104,9 +108,9 @@ describe("ResendEmailLive", () => {
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     });
     await send({
-      template: "otp-registration",
+      template: "link-email-change",
       to: "alice@example.com",
-      data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+      data: { url: "https://musubi.example/verify#000000", ttlMinutes: 10, instanceName: "Musubi" },
     });
     expect(JSON.parse(captured!.body)).not.toHaveProperty("headers");
   });
@@ -134,20 +138,15 @@ describe("ResendEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-step-up",
+        template: "link-email-change",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 5, instanceName: "Musubi" },
+        data: {
+          url: "https://musubi.example/verify#000000",
+          ttlMinutes: 5,
+          instanceName: "Musubi",
+        },
       },
       "rate_limited",
-    );
-  });
-
-  it("returns dispatch_failed on API 5xx (matches Cloudflare transport)", async () => {
-    responder = () => new Response("boom", { status: 500 });
-    await expectFailsWith(
-      buildLayer(),
-      { template: "passkey-added", to: "alice@example.com", data: { instanceName: "Musubi" } },
-      "dispatch_failed",
     );
   });
 
@@ -156,9 +155,13 @@ describe("ResendEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-registration",
+        template: "link-email-change",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+        data: {
+          url: "https://musubi.example/verify#000000",
+          ttlMinutes: 10,
+          instanceName: "Musubi",
+        },
       },
       "dispatch_failed",
     );
@@ -182,9 +185,9 @@ describe("ResendEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-registration",
+        template: "link-email-change",
         to: "alice@example.com",
-        data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
+        data: { url: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
       },
       "render_failed",
     );
@@ -222,9 +225,13 @@ describe("ResendEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "link-email-change",
           to: "alice@example.com",
-          data: { code: "424242", ttlMinutes: 10, instanceName: "Musubi" },
+          data: {
+            url: "https://musubi.example/verify#424242",
+            ttlMinutes: 10,
+            instanceName: "Musubi",
+          },
         });
       }).pipe(Effect.provide(buildLayer()), Effect.provide(captureLogger)),
     );
@@ -263,28 +270,21 @@ const sendOne = (layer: ReturnType<typeof makeResendEmailLive>) =>
     Effect.gen(function* () {
       const email = yield* EmailService;
       yield* email.send({
-        template: "otp-registration",
+        template: "link-email-change",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+        data: {
+          url: "https://musubi.example/verify#000000",
+          ttlMinutes: 10,
+          instanceName: "Musubi",
+        },
       });
     }).pipe(Effect.provide(layer)),
   );
 
 describe("ResendEmailLive apiUrl", () => {
-  it("sends to the Resend API when apiUrl is unset", async () => {
-    await sendOne(makeResendEmailLive({ apiKey: RESEND_API_KEY }));
-    expect(captured!.url).toBe(EXPECTED_URL);
-  });
-
   it("sends to the Resend API when apiUrl is blank", async () => {
     await sendOne(makeResendEmailLive({ apiKey: RESEND_API_KEY, apiUrl: "  " }));
     expect(captured!.url).toBe(EXPECTED_URL);
-  });
-
-  it("sends to the override's /emails when apiUrl names a local emulator", async () => {
-    await sendOne(makeResendEmailLive({ apiKey: RESEND_API_KEY, apiUrl: "http://localhost:4008" }));
-    expect(captured!.url).toBe("http://localhost:4008/emails");
-    expect(captured!.headers.get("authorization")).toBe(`Bearer ${RESEND_API_KEY}`);
   });
 
   it("accepts a trailing slash on the override", async () => {

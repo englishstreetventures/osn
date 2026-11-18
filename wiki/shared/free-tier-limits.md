@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-18
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -42,9 +42,9 @@ last-reviewed: 2026-11-06
 
 | Dependency | Used by | NOT used by |
 |---|---|---|
-| **Cloudflare Workers** | `osn-api`, **cire-api**, `zap-api`, `cire-invites` (guest SSR), and the site Workers the production stacks deploy: `musubi-landing`, and while staged `cire-host`, `cire-vendor`, `cire-landing`, `osn-social` | the Pages projects |
+| **Cloudflare Workers** | `osn-api`, **cire-api**, `zap-api`, `cire-invites` (guest SSR), and the site Workers the production stacks deploy: `musubi-landing`, `cire-vendor`, `cire-host`, `cire-landing`, `osn-social` | — |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
-| **Cloudflare Pages** | `cire/host`, `cire/vendor`, `cire/landing`, `@musubi/social`, each until its domain moves to its Worker | the Workers |
+| **Cloudflare Pages** | nothing: every production site is a Worker | the Workers |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) and the other bindings in its `wrangler.toml`; **osn-api**'s one-minute limiters, `RL_AUTH_IP_*` and `RL_USER_*` ([[rate-limiting]]) | — |
 | **Cloudflare Durable Objects** | **cire-api** `REALTIME_HUB` (`TopicHub`, realtime push — [[realtime]]); **osn-api** `COORDINATION` (`CoordinationStore`, the limiters longer than a minute, ceremonies, single-use claims and lockouts — [[coordination-store]]) | zap-api |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
@@ -88,9 +88,9 @@ when those files gzip to more than 3 MiB, 3,145,728 bytes
 | cire-api | 2,826,655 B | 2,366,548 B | 319,073 B |
 | zap-api | 1,254,813 B | 1,033,247 B | 1,890,915 B |
 
-Source maps are most of each bundle. Rolldown 1.2.13, which `@alchemy.run/cloudflare@2.0.0-beta.84` bundles with, writes larger maps than 1.2.5 did: against commit bf7a39a5f, each Worker's modules changed by under 1,300 bytes and its maps grew by 70,040 to 148,275 bytes.
+Source maps are most of each bundle. Rolldown 1.2.13, which `@alchemy.run/cloudflare@2.0.0-beta.85` bundles with, as beta.84 did, writes larger maps than 1.2.5 did: against commit bf7a39a5f, each Worker's modules changed by under 1,300 bytes and its maps grew by 70,040 to 148,275 bytes.
 
-*Measured 2026-11-04 at commit 9d512aead (osn-api 2,443,031 B, cire-api 2,676,817 B and zap-api 1,184,106 B at bf7a39a5f, measured the same way) — the sum each stack's K10 test computes (`node:zlib` gzip at its default level, file by file, maps included), in a `git archive` export of each commit installed with `bun install --frozen-lockfile --ignore-scripts`. The test prints it only when it fails, so run an untracked copy of `<stack>/infra/tests/bundle.test.ts` that prints `gzipBytes` in place of its last `expect`, with `bunx --bun vitest run tests/<copy>.test.ts` in `<stack>/infra`; for the maps, sum only the files whose path ends in `.map`.*
+*Measured 2026-11-04 at commit 9d512aead, on `effect` 4.0.7 and Alchemy beta.84, and not measured again on 4.1.2 and beta.85, under which each stack's K10 test passes (osn-api 2,443,031 B, cire-api 2,676,817 B and zap-api 1,184,106 B at bf7a39a5f, measured the same way) — the sum each stack's K10 test computes (`node:zlib` gzip at its default level, file by file, maps included), in a `git archive` export of each commit installed with `bun install --frozen-lockfile --ignore-scripts`. The test prints it only when it fails, so run an untracked copy of `<stack>/infra/tests/bundle.test.ts` that prints `gzipBytes` in place of its last `expect`, with `bunx --bun vitest run tests/<copy>.test.ts` in `<stack>/infra`; for the maps, sum only the files whose path ends in `.map`.*
 
 The guest site's Worker, cire-invites, is a prebuilt upload: the cire stack
 stages its Astro server output with each module's source map
@@ -254,14 +254,15 @@ the amount of data, and that number only grows. Before adding one, work out its
 cost against 100K/day. `scripts/guard-d1-migration-cost.ts` works the cire chain
 out on every pull request — replaying it offline into an in-memory SQLite and
 failing when the estimate passes the budget in
-`scripts/d1-migration-cost-budgets.txt`. The chain is one squashed baseline of
-**96 schema writes** against a line at 192; priced at 27 rows each that is
-about 2,590 written and roughly 38 replays a day, but the price per schema
-write is only pinned to about 22–27, so read the row figure as indicative and
-the schema-write count as exact. Method, calibration and how to re-baseline:
-[[bundle-size-guards]], which also sets out why the "89% / 11%" split above
-cannot be read as a share of one rebuild.
-*Measured 2026-10-02 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+`scripts/d1-migration-cost-budgets.txt`. The chain is **194 schema writes**,
+at its line of 194; priced at 27 rows each that is about 5,240 written and
+roughly 19 replays a day, but the price per schema write is only pinned to
+about 22–27, so read the row figure as indicative and the schema-write count
+as exact. A squash brings it back to its baseline (englishstreetventures/osn#2096).
+Method, calibration and how to re-baseline: [[bundle-size-guards]], which also
+sets out why the "89% / 11%" split above cannot be read as a share of one
+rebuild.
+*Measured 2026-11-06 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
 
 **Seating plan copies have a daily ceiling.** One copy of a seating plan writes
 the plan, up to 100 tables and a seat for every guest seated in it, and D1
@@ -282,8 +283,8 @@ about 4 rows written. The 6-hourly cron deletes the record once it expires,
 (`ROTATED_SESSION_SWEEP_CHUNK` in `osn/api/src/services/auth/constants.ts`), at
 most the tier's chunk count (`OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS`, read by
 `rotatedSweepMaxChunks` in `tokens.ts`). Dev leaves it unset, so 10 chunks:
-5,000 records and about 20,000 rows written a run, 10 of the 50 D1 queries the
-cron's four sweeps share. Staging and production set 100: 50,000 records a
+5,000 records and about 20,000 rows written a run, 10 of the 50 D1 queries
+every sweep of the cron's tick shares (below). Staging and production set 100: 50,000 records a
 run, 100 statements, inside Workers Paid's 1,000 queries per invocation, which
 keeps up with about 2,000 people signed in eight hours a day. On dev's 100,000
 rows a day, eight rows a refresh is about 12,500 refreshes a day, shared with
@@ -292,9 +293,31 @@ everything else on the dev account. A run that ends on a full chunk logs
 
 *Counted from the schema (`osn/db/src/schema/index.ts`, `rotatedSessions`) and the pricing page's rule that each index entry is a row written, on 2026-10-27; not measured.*
 
-**The daily cire cron shares one invocation.** Its eleven jobs (`cire/api/src/index.ts` `scheduled`) all count against the same 50-queries-per-invocation ceiling. Read from the code, a quiet day costs about 11 D1 calls and a busy one 21 or more, before the vendor claim hand-off adds 2 reads plus one write per enquiry, capped at `HANDOFFS_PER_RUN` = 10 (`cire/api/src/services/claim-review.ts`), and the purge of soft-deleted weddings adds 2 reads plus one 6-statement batch per wedding, capped at `MAX_PURGES_PER_RUN` = 3 (`cire/api/src/services/maintenance-sweeps.ts`); a purged wedding with a Standard Stripe account adds one point read and, when no other wedding names the account, one subrequest to Stripe to hand it back, so at most 3 Stripe calls a run. The purge's rows written are the cascade of each wedding it deletes — mostly rows the 1-year guest sweep would delete anyway. The two R2 orphan reconcilers each list at most 1,000 objects in at most 3 `list()` calls a run (`ASSET_LIST_LIMITS` in `cire/api/src/services/asset-reconcile.ts`, `SHEET_LIST_LIMITS` in `cire/api/src/services/sheet-reconcile.ts`), resuming where the last run stopped, and make no D1 call when nothing they listed is old enough to delete. Otherwise `cire-assets` makes one read, of every key its three tables hold, and `cire-sheets` two: one row of `imports`, then one lookup of the keys it listed, sent as one bound parameter of about 65 KB at most. D1 still scans `imports` for that lookup, since no index covers the key columns, and returns one row: the table's row count, for the hold on a halving of rows, and the matching rows' keys as one JSON value, both from that one scan.
+**The osn-api 6-hourly cron shares one invocation.** Its sweeps (`osn/api/src/index.ts` `scheduled`) all count against the same queries-per-invocation ceiling: 50 on Workers Free (dev), 1,000 on Workers Paid. Each sweep's first query runs even when it finds nothing:
 
-*Unverified — estimated from reading the code on 2026-10-01, plus both R2 reconcilers on 2026-10-02, counting a batch as one call; neither reconciler's CPU time has been measured; whether D1 counts a batch as one query or one per statement is to re-check. The measurement is a post-merge follow-up: on dev, soft-delete the seeded wedding and backdate `deleted_at` by 8 days, let the 04:00 UTC cron run, then read `bunx wrangler d1 insights cire-db-dev --time-period=1d --sort-by=writes` with the dev account's credentials.*
+| Sweep | D1 calls a run |
+|---|---|
+| Deletion fan-out (`runFanOutRetrySweep`) | 2 reads (the jobs due, with what each app is sent, and each app's oldest unfinished job), 1 key publish (one batch) when the isolate's key is new, however many jobs and apps call at once, plus per job: on its first pass its claim, which also marks every app the tier does not run as skipped, then one mark per app with an address, the last of them replaced by the failure stamp when any app does not finish. Dev and production give two apps an address (Zap and cire) and declare the other absent (Pulse), so at most 3 per job. At most `OSN_DELETION_FANOUT_MAX_JOBS` jobs (unset: 4) |
+| Hard delete (`runHardDeleteSweep`) | 1 read, plus 2 per account (its claim and its batch; the batch's first statement reads each owned organisation's successor and address for the emails, at no extra call), plus 1 per account whose hard delete fails (the stamp), at most `OSN_DELETION_FANOUT_MAX_JOBS` accounts (unset: 4). A pass stops after three failures in a row, so a cap or an outage costs it at most three more claims and three stamps |
+| OIDC codes (`runExpiredAuthCodeSweep`) | 1 |
+| `rotated_sessions` (`runRotatedSessionSweep`) | 1 up to the tier's cap: 10 where `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS` is unset (dev), 100 where it is set to 100 |
+| `security_events`, `email_changes`, `handle_holds` (`services/retention.ts`) | 1 or 2 each |
+
+A quiet run costs 8 calls. With F fan-out jobs due and H accounts hard-deleted, the worst case on dev and production is 21 + 3F + 2H calls, plus 1 per failed hard delete (at most 3); with the rotated-session cap at 100 it is 111 + 3F + 2H. Dev leaves `OSN_DELETION_FANOUT_MAX_JOBS` unset, so F and H are at most 4: 21 + 12 + 8 + 3 = 44 of its 50. Production sets 50, inside Workers Paid's 1,000: 111 + 150 + 100 + 3 = 364. Each job's fan-out also makes one external subrequest per app with an address (Zap and cire on dev and production, where Pulse has no API), and each hard-deleted account at most two more to the mail provider (its own `account-deleted` email, and one batch of up to 100 ownership notices; a transport with no batch send sends at most 10 notices one by one instead), at most 2F + 2H = 16 of Workers Free's 50. Each of those sends gives up after 10 seconds, so a slow provider costs a pass at most 10 seconds an account.
+
+*Counted from the code on 2026-11-16 (`osn/api/src/services/account-erasure.ts`, `osn/api/src/lib/outbound-arc.ts`, `osn/api/src/index.ts` `scheduled`), a batch as one call; not measured. `osn/api/tests/services/deletion-fanout.test.ts` ("reads each job once…") pins the fan-out's three writes a job on a deployed tier, and `osn/api/tests/lib/outbound-arc.test.ts` ("four first calls at once share one write") the single publish. Whether D1 counts a batch as one query or one per statement is to re-check.*
+
+**The daily cire cron shares one invocation.** Its jobs (`cire/api/src/index.ts` `scheduled`) all count against the same 50-queries-per-invocation ceiling. Read from the code, a quiet day costs about 11 D1 calls and a busy one 21 or more, before the vendor claim hand-off adds 2 reads plus one write per enquiry, capped at `HANDOFFS_PER_RUN` = 10 (`cire/api/src/services/claim-review.ts`), and the purge of soft-deleted weddings adds 2 reads plus one 6-statement batch per wedding, capped at `MAX_PURGES_PER_RUN` = 3 (`cire/api/src/services/maintenance-sweeps.ts`); a purged wedding with a Standard Stripe account adds one point read and, when no other wedding names the account, one subrequest to Stripe to hand it back, so at most 3 Stripe calls a run. The purge's rows written are the cascade of each wedding it deletes — mostly rows the 1-year guest sweep would delete anyway. The two R2 orphan reconcilers each list at most 1,000 objects in at most 3 `list()` calls a run (`ASSET_LIST_LIMITS` in `cire/api/src/services/asset-reconcile.ts`, `SHEET_LIST_LIMITS` in `cire/api/src/services/sheet-reconcile.ts`), resuming where the last run stopped, and make no D1 call when nothing they listed is old enough to delete. Otherwise `cire-assets` makes one read, of every key its three tables hold, and `cire-sheets` two: one row of `imports`, then one lookup of the keys it listed, sent as one bound parameter of about 65 KB at most. D1 still scans `imports` for that lookup, since no index covers the key columns, and returns one row: the table's row count, for the hold on a halving of rows, and the matching rows' keys as one JSON value, both from that one scan. The upgrade reconciliation, which runs wherever there is a `STRIPE_SECRET_KEY`, makes three reads on a day with nothing to finish (its two indexed candidate reads, refund records and stale checkouts, and a count of refunds waiting for a person); with two rows to finish (`RECONCILE_PER_RUN` = 2 in `cire/api/src/services/upgrades.ts`) it makes at most 19 D1 calls and 8 subrequests, or 23 calls and 10 subrequests when a delete or a comp races a grant. Each refund it lands mails the wedding's owners in the same run, which is 4 of those D1 calls (the notice's read, the owners, the email budget and the `owners_notified_at` write) and 2 of the subrequests (osn-api's address lookup and Resend). A day on which that lands beside the busiest figures above can pass the 50-query ceiling.
+
+**One erasure call from osn-api is one cire-api invocation.** `POST /internal/account-deleted` makes at most 1 read of the weddings the person owns, 3 statements for each of at most `MAX_OWNED_WEDDINGS_PER_CALL` = 3 of them, and the 21-statement account batch on the call that finishes: 31 of the 50, counting every statement singly (`cire/api/src/services/account-erasure.ts`). A person who owns more weddings takes one more call per three, since osn-api calls again on its next pass.
+
+**A host's removal of their Cire data is one cire-api invocation a call.** `DELETE /api/organiser/account` makes the organiser session's read and the deletion preview's read (the full list of seats is read only for a refusal, which erases nothing), then one erasure call with the `host` scope: at most 1 read, 3 statements for each of 3 owned weddings and the 19-statement account batch (the account batch less its vendor-listing and guest-link statements), and 3 statements for each owner notice (the wedding's owners, the budget's two writes), one per wedding the person leaves: at most 40 of the 50, counting every statement singly. Its outbound calls are osn-api's verify and cire's own account lookup, sent at once, and for each notice the address lookup, the names and the send: at most 11. A person who owns more weddings is answered `not_finished` and the portal calls again with the same confirmation. `cire/api/tests/routes/organiser-account.test.ts` (C13) holds the worst case at 50 statements or fewer on bun:sqlite.
+
+*Read from the code on 2026-11-18 (`cire/api/src/routes/organiser-account.ts`, `services/account-erasure.ts`, `lib/owner-notice-email.ts`); not measured on D1.*
+
+*Counted on 2026-11-16 by `cire/api/tests/services/account-erasure.test.ts` ("a call at the cap stays inside the 50 D1 queries…"), which records every statement one call runs on bun:sqlite.*
+
+*Unverified — the reconciliation's figures counted from the code on 2026-11-06, a batch as one call, with the refund record and the owners' mail. Earlier figures estimated from reading the code on 2026-10-01, plus both R2 reconcilers on 2026-10-02, counting a batch as one call; neither reconciler's CPU time has been measured; whether D1 counts a batch as one query or one per statement is to re-check. The measurement is a post-merge follow-up: on dev, soft-delete the seeded wedding and backdate `deleted_at` by 8 days, let the 04:00 UTC cron run, then read `bunx wrangler d1 insights cire-db-dev --time-period=1d --sort-by=writes` with the dev account's credentials.*
 
 **User-visible symptom:** 503 / "service unavailable" across the app until the
 daily counter resets at **UTC midnight**, or storage is freed.
@@ -321,7 +344,7 @@ size, 50K databases, 1 TB storage; overage is cheap ($0.001/M read, $1/M written
 
 ## Cloudflare Pages (Free)
 
-**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts the production sites (`cire/host`, `cire/vendor`, `cire/landing`, `@musubi/social`), each until its domain moves to a Worker, and the stale musubi and pulse landing preview projects, which no workflow deploys. musubi landing serves from a production Worker, and each Pages site also runs a staged Worker on a spare host ([[infrastructure-as-code#Production sites]]); a request a site Worker answers from its static assets does not count against the Workers request limit ([Workers static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) — re-verify). The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
+**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts no production site: the projects the sites moved from are deleted, and no workflow deploys to Pages. Every production site serves from a production Worker ([[infrastructure-as-code#Production sites]]); a request a site Worker answers from its static assets does not count against the Workers request limit ([Workers static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) — re-verify). The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -430,8 +453,8 @@ table, don't guess.**
 | **Coordination store** (osn-api's `COORDINATION` Durable Object) failing, or the dev account's Durable Object allowance spent | The auth limiters longer than a minute, the per-account export, deletion and restore limiters, the per-account caps | **fail-CLOSED** — a failed `increment` denies (`createCoordinationRateLimiter`, `shared/coordination/src/client.ts`) | 429 on recovery-code generate and sign-in, emailed-recovery begin, email-change begin, OIDC client registration, account export and deletion | `coordination store call failed` in osn-api's logs; `osn.auth.rate_limited` spike | Wait out a blip; on dev, the 00:00 UTC reset. **Do not** flip to fail-open. |
 | ″ | Ceremony stores and their guess counts | **fail-CLOSED** — a failed call is a `CoordinationError`, answered with a generic 503 (`osn/api/src/services/auth/store-call.ts`) | Passkey sign-in and registration, step-up, recovery, email change, TOTP enrolment, cross-device sign-in and the `/authorize` hand-off answer 503 | `coordination store call failed`; `GET /health/coordination` answers 503 | The user-facing one: restore it first. |
 | ″ | Step-up token guard | **fail-CLOSED** — a failed `claim` refuses the token as "could not be verified" (`osn/api/src/services/auth/step-up.ts`) | Step-up-gated actions refused | `osn.auth.step_up.verified` drop | Same — the posture is intentional. |
-| ″ | Lockout counters (recovery code, emailed recovery code, TOTP) | **fail-CLOSED** — `status` and `recordFailure` answer `"unknown"`; the caller refuses with its generic error and writes no security event (`osn/api/src/lib/coordination/durable.ts`) | Recovery-code sign-in, emailed recovery and TOTP checks refused | `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable"}` | Restore promptly — the owner's own recovery is refused. |
-| **D1** down / over daily rows quota (a daily quota binds the dev account only) | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB`. osn-api's token refresh writes the new session and its rotation record in one batch and reads the record to detect reuse, so a failed write or read fails the grant, keeps the session marker and revokes nothing (`osn/api/src/services/auth/tokens.ts`) | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or move dev to Workers Paid (D1 paid tier). |
+| ″ | Lockout counters (recovery code, emailed recovery link, TOTP) | **fail-CLOSED** — `status` and `recordFailure` answer `"unknown"`; the caller refuses (a recovery link's right number with a 503 that keeps the request; the others with their generic error) and writes no security event (`osn/api/src/lib/coordination/durable.ts`) | Recovery-code sign-in, emailed recovery and TOTP checks refused | `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable"}` | Restore promptly — the owner's own recovery is refused. |
+| **D1** down / over daily rows quota (a daily quota binds the dev account only) | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB`. osn-api's token refresh writes the new session and its rotation record in one batch and reads the record to detect reuse, so a failed write or read fails the grant, keeps the session marker and revokes nothing (`osn/api/src/services/auth/tokens.ts`). Step-up verification reads the token's session family before it claims the token, so a failed read refuses the token unspent and the gate answers 500 (`osn/api/src/services/auth/step-up.ts`) | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or move dev to Workers Paid (D1 paid tier). |
 | **A Worker** over daily request quota (dev account only) | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Wait for the reset, or move dev to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |
 | **Durable Objects** over daily quota (dev account only) | realtime push (`@shared/realtime`): cire-api's `REALTIME_HUB` | **fail-SOFT** — `subscribe()` answers 503, `publish()` logs and counts `result="error"` (`shared/realtime/src/server/subscribe.ts`, `publish.ts`) | Tabs stop receiving push and refetch on focus or next request, as before push existed | DO requests/duration vs the daily line in the dashboard; `realtime subscribe failed` and `realtime publish failed` in the product's logs | Wait for the UTC reset, or upgrade to Workers Paid. |

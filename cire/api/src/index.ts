@@ -18,6 +18,7 @@ import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { oidcConfigFromEnv } from "./lib/oidc";
 import { organiserOriginFrom } from "./lib/organiser-origin";
+import { createOwnerNotices } from "./lib/owner-notice-email";
 import { sendReconcileAlert, type OperatorReconcileAlert } from "./lib/reconcile-alert-email";
 import { registryOutboundLimiters } from "./lib/registry-limiters";
 import { resendEmailConfig } from "./lib/resend-email";
@@ -35,6 +36,7 @@ import {
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
   createOrganiserEmailLookupFromEnv,
+  createRemovalBridgeFromEnv,
   createOrgMembershipResolverFromEnv,
   createProfileDisplayResolverFromEnv,
   createProfileOrgsResolverFromEnv,
@@ -48,6 +50,8 @@ import { sessionService } from "./services/session";
 import { sheetReconcileService } from "./services/sheet-reconcile";
 import { createStripeClientFromEnv } from "./services/stripe";
 import { stripeConnectOAuthFromEnv } from "./services/stripe-connect-oauth";
+import { createUpgradeCatalogue } from "./services/upgrade-catalogue";
+import { createUpgradeService } from "./services/upgrades";
 import { createZapChatClientFromEnv } from "./services/zap-bridge";
 
 // Worker bindings + vars. Mirrors `wrangler.toml` ([[d1_databases]], [[r2_buckets]],
@@ -577,6 +581,14 @@ const handler: ExportedHandler<Env> = {
               arcKeyId: env.CIRE_API_ARC_KEY_ID,
             })) ?? undefined)
           : undefined,
+        // A host's removal of their Cire data: absent the ARC key, its routes
+        // answer 503.
+        accountRemovalBridge:
+          (await createRemovalBridgeFromEnv({
+            osnApiUrl: env.OSN_API_URL,
+            arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+            arcKeyId: env.CIRE_API_ARC_KEY_ID,
+          })) ?? undefined,
         resolveOsnHandleSearch,
         resolveOsnConnectionSearch,
         turnstileVerifier,
@@ -658,8 +670,9 @@ const handler: ExportedHandler<Env> = {
   },
 
   // Cron-triggered daily maintenance and mail. Configured by the single
-  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Twelve
-  // independent jobs share the cron (eleven when the digest has no transport):
+  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Thirteen
+  // independent jobs share the cron (one fewer when the digest has no
+  // transport, and one fewer with no Stripe key):
   //
   //  1. Expired-session sweep — guest logins leave session rows that are never
   //     deleted on the read path, so the table grows unbounded without this. The
@@ -671,7 +684,8 @@ const handler: ExportedHandler<Env> = {
   //  3. Guest-data retention sweep — enforces the published privacy promise
   //     (cire/ui guest-privacy-notice.astro): guest PII (guests/families/rsvps incl. dietary
   //     + consent, plus imports bookkeeping) is deleted 1 year after a wedding's
-  //     final event. Reaps the `cire-sheets` CSVs it orphans (env.SHEETS).
+  //     final event, or 3 years after its creation when the sweep cannot read
+  //     an event's date. Reaps the `cire-sheets` CSVs it orphans (env.SHEETS).
   //  4. `cire-assets` orphan reconciliation — best-effort deletes invite-image
   //     objects under `assets/` referenced by NO live DB row and older than a
   //     7-day grace window. Heavily guarded: aborts and deletes NOTHING if the
@@ -697,12 +711,17 @@ const handler: ExportedHandler<Env> = {
   //     services/sheet-reconcile.ts.
   // 12. Realtime subscribe budget rows of earlier UTC days —
   //     services/realtime.ts.
+  // 13. Upgrade payments a webhook could not finish: a refund Stripe refused,
+  //     and a paid session whose delivery never landed, at most
+  //     RECONCILE_PER_RUN a run — `reconcile` in services/upgrades.ts. Runs
+  //     wherever there is a Stripe key.
   //
   // `CIRE_R2_RECONCILE_DISABLED` leaves out 4 and 11 and nothing else.
   //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
-  // the other and the isolate stays alive until each delete settles. All twelve
-  // share this one invocation's Workers limits (CPU, subrequests, D1 queries).
+  // the other and the isolate stays alive until each delete settles. All
+  // thirteen share this one invocation's Workers limits (CPU, subrequests, D1
+  // queries).
   async scheduled(_event, env, ctx) {
     installWorkersTracing(ctx.tracing);
     if (!env.DB) return;
@@ -897,6 +916,39 @@ const handler: ExportedHandler<Env> = {
           ),
       ),
     );
+
+    // Upgrade payments a webhook could not finish. Gated on the Stripe key
+    // alone, not on the platform webhook's secret: a refund cire owes must
+    // keep being asked for even where upgrades are no longer sold.
+    const upgradeStripe = createStripeClientFromEnv(env);
+    if (upgradeStripe) {
+      // A refund the reconciliation lands is told to the wedding's owners, as
+      // the webhook's is, where cire can send owner mail.
+      const refundNotices =
+        organiserEmailLookup && resendConfig
+          ? createOwnerNotices({
+              lookup: organiserEmailLookup,
+              emailLayer: makeResendEmailLive(resendConfig),
+              portalUrl: organiserOriginFrom(env.WEB_ORIGIN).replace(/\/+$/, ""),
+            })
+          : undefined;
+      const upgrades = createUpgradeService({
+        stripe: upgradeStripe,
+        // `reconcile` prices nothing; the service needs a catalogue to exist.
+        catalogue: createUpgradeCatalogue({ stripe: upgradeStripe, prices: {} }),
+        notifyRefund: refundNotices?.refundIssued,
+      });
+      runSweep(() =>
+        runCire(
+          upgrades.reconcile().pipe(
+            Effect.catchDefect((cause) =>
+              Effect.logError("scheduled upgrade reconcile failed", { cause: String(cause) }),
+            ),
+            Effect.provide(dbLayer),
+          ),
+        ),
+      );
+    }
 
     // Change-log rows older than 90 days. They hold ids and a kind, never a
     // name, but they are still a record of a household's replies.

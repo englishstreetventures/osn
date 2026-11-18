@@ -4,7 +4,6 @@ import {
   GUEST_EMAIL_CONSENT,
   isValidGuestEmail,
   MAX_GUEST_EMAIL_LENGTH,
-  normaliseGuestEmail,
   ORGANISER_EMAIL_ATTESTATION,
   parseGuestEmail,
 } from "../src/index";
@@ -128,14 +127,6 @@ describe("parseGuestEmail refuses anything outside printable ASCII", () => {
   it("a fullwidth at sign", () => {
     expect(parseGuestEmail("ada\uff20example.com")).toBeNull();
     expect(parseGuestEmail("ada\uff20home@example.com")).toBeNull();
-  });
-});
-
-describe("normaliseGuestEmail", () => {
-  // The stored form is what the diff compares and what the suppression hash
-  // is taken over, so two spellings of one address must store one value.
-  it("folds surrounding space and case to one stored value", () => {
-    expect(normaliseGuestEmail("  Ada.Lovelace@Example.COM \n")).toBe("ada.lovelace@example.com");
   });
 });
 

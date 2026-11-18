@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
+import { resetToasts, toast } from "@shared/toast";
 import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -30,6 +31,9 @@ const row = (over: Partial<TaskRow>): TaskRow => ({
 });
 
 afterEach(() => {
+  // A delete waits on its undo toast: end every toast here, so it settles
+  // against this test's mocks and not a later test's.
+  resetToasts();
   cleanup();
 });
 
@@ -330,7 +334,14 @@ describe("ChecklistView — the open wedding's signals", () => {
   /** The organiser's own writes, each on the cached list of two 12-month tasks. */
   const writes: [string, () => void][] = [
     ["a tick", () => fireEvent.click(screen.getByRole("checkbox", { name: /book venue/i }))],
-    ["a delete", () => fireEvent.click(screen.getAllByRole("button", { name: "Delete task" })[0]!)],
+    [
+      "a delete",
+      () => {
+        fireEvent.click(screen.getAllByRole("button", { name: "Delete task" })[0]!);
+        // The DELETE goes once the undo toast has gone.
+        toast.dismiss();
+      },
+    ],
     [
       "a move",
       () => fireEvent.click(screen.getByRole("button", { name: "Move Draft guest list up" })),

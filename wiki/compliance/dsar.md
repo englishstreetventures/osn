@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-18
 ---
 
 # DSAR Runbook
@@ -22,9 +22,11 @@ runbook, two regimes, because the operational steps overlap.
 
 | Channel | Who uses it | Where it lands | SLA |
 |---|---|---|---|
-| `GET /account/export` | The account holder, self-service | `@osn/api` — streams NDJSON | Immediate |
-| `DELETE /account` | The account holder, self-service | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
+| `GET /account/export` | The account holder, self-service: Musubi's Settings → Account → "Download my data", and the screen shown while a deletion is pending | `@osn/api` — streams NDJSON | Immediate |
+| `POST /account/data-link` | The account holder: Musubi's "Send me a link" | `@osn/api` — mails the account's own address a link to the download page, never the data ([[account-deletion#Emails]]) | Immediate |
+| `DELETE /account` | The account holder, self-service: Musubi's Settings → Account → Danger zone ([[account-deletion#The person's side]]) | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
 | `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window | 7 d (account) / 14 d (events) |
+| `DELETE /api/organiser/account` (cire-api, Flow B) | A host removes their Cire data without losing OSN: "Remove my Cire data" in the portal's account menu | `@cire/api` — the account erasure's `host` scope, after a step-up confirmed on Musubi ([[cire-auth#A host removes their Cire data]]) | Immediate |
 | `dsar@osn.example` (planned, alias on landing) | Anyone via email | Identity team inbox | 30 d (GDPR) / 45 d (CCPA) |
 | Postal address (planned, on landing) | Anyone via mail | Identity team inbox | Same |
 | Authorised agent | Third party with notarised authority | Same email + verification | Same; verification adds days, log it |
@@ -50,10 +52,11 @@ runbook, two regimes, because the operational steps overlap.
 Status: **shipped**. `GET /account/export` — bearer +
 `x-step-up-token` (purpose `account_export`) gated, 1 export / 24 h / account,
 streams the NDJSON bundle below. Implementation: `osn/api/src/routes/account-export.ts`
-+ `osn/api/src/services/account-export.ts`; the `pulse.*` / `zap.*` sections are
-fetched over ARC (scope `account:export`) from each app's
-`POST /internal/account-export` and streamed through line-by-line, degrading to a
-`{"degraded":...}` line if a bridge fails. Building Zap's inbound-ARC stack for
++ `osn/api/src/services/account-export.ts`; the `pulse.*`, `zap.*` and `cire.*`
+sections are fetched over ARC (scope `account:export`) from the
+`POST /internal/account-export` of every app in `DELETION_APPS`
+(`osn/api/src/services/deletion-apps.ts`) and streamed through line-by-line,
+degrading to a `{"degraded":...}` line if a bridge fails. Building Zap's inbound-ARC stack for
 this also closed the gap where Zap had no `/internal` ARC surface.
 
 Use `GET /account/export`. The endpoint returns a JSON bundle:
@@ -74,15 +77,17 @@ Use `GET /account/export`. The endpoint returns a JSON bundle:
 - `pulse.events_hosted[]` — events created by the account's profiles.
 - `pulse.close_friends[]`.
 - `zap.chats[]` — chat ids, role, joined-at. **Message content is excluded** because it is E2E-encrypted and we cannot decrypt; the user's local Zap client can export the decrypted history separately.
+- `cire.weddings[]` — fetched via ARC from `@cire/api` (`cire/api/src/routes/internal-account-export.ts`, `services/account-export.ts`): one record for every seat a profile of the account holds on a cire wedding, a soft-deleted wedding's included until its purge. Each has `weddingId`, `name`, `profileId` (the account's own profile holding the seat), `role`, `seatAddedAt`, `seatAddedBy` (the profile that gave the seat, the source of the data, Art. 15(1)(g)), `otherOwners` (a count; other owners are never named, Art. 15(4)), `deletedAt`, `restoreUntil` and `deletedByYou` (filled only where the requester owns the wedding or deleted it: cire never tells a co-host a wedding was deleted), and `download`: for an owner of a live wedding, the host-portal page that downloads the whole wedding, `<organiser origin>/#/w/<weddingId>/settings/export` (null unless the portal is `https:`, or `http:` on a loopback host). The wedding's own data is not in the bundle — guest data is not the owner's personal data ([[#Cire (wedding-invite) data]]), the fan-out gives each app 10 seconds for its whole answer, and NDJSON cannot carry the wedding's pictures — so the owner takes it from that download. The link works only while the account can sign in to cire: a pending deletion ends cire's organiser sessions and `/authorize` refuses the account, so the download comes before the deletion is confirmed. Past 500 seats the section ends with `{"degraded":"cire","reason":"too_many_weddings"}`. Tests: `cire/api/tests/routes/internal-account-export.test.ts`; end to end, `tools/e2e/tests/flows/musubi-step-up-email.flow.ts`.
 - `consents[]` — once consent records ship.
-- `dsar_requests[]` — prior requests for this user.
+- `dsar_requests[]` — once the `dsar_requests` table ships.
 
 **Wire format:**
 
 - **NDJSON envelope** — one JSON object per line, prefixed by a header line `{"version":1,"sections":[...]}` and terminated by `{"end":true}`. This lets the response stream via `ReadableStream` without ever holding the full bundle in memory.
 - **Per-section keyset pagination** — every multi-row section (`security_events`, `sessions`, `connections`, `pulse.rsvps`, `pulse.events_hosted`, `zap.chats`) is fetched in batches of `LIMIT 500` ordered by `id` with `WHERE id > :cursor`. No `OFFSET` (degrades on large tables).
-- **ARC fan-out sub-bundles streamed** — `pulse.*` and `zap.*` sections are fetched via ARC and re-serialised line-by-line into the outer NDJSON; the bridge call uses chunked transfer too.
-- **Memory budget** — ≤32 MB resident per export. A run that exceeds the budget logs a warning + truncates with a tombstone record, so the user gets a partial bundle + a notice rather than an OOM.
+- **ARC fan-out sub-bundles streamed** — `pulse.*`, `zap.*` and `cire.*` sections are fetched via ARC and re-serialised line-by-line into the outer NDJSON; the bridge call uses chunked transfer too.
+- **Memory** — streamed: each osn section is read in keyset pages of 500 and each app's sub-bundle is piped through line by line, so the Worker never holds the whole bundle. There is no size cap and no truncation record.
+- **Apps one after another** — osn-api asks each app in `DELETION_APPS` in turn, 10 s each ([`routes/account-export.ts`](../../osn/api/src/routes/account-export.ts)). An app that fails, or that the tier gives no address, becomes one `{"degraded":"pulse|zap|cire","reason":"..."}` line, so the person sees the gap and can ask again later.
 
 Auth: bearer access token + step-up token. Rate-limit: 1 export per 24 h per account.
 
@@ -94,31 +99,19 @@ Most fields are user-editable in `@musubi/social` (handle change, displayName, a
 
 Status: **shipped**. Two flows:
 
-- **Flow A — full OSN account delete.** `DELETE /account` on osn-api. Soft-deletes the account, fans out to currently-enrolled apps via ARC, hard-deletes after the 7-day grace window via `account-erasure.runHardDeleteSweep`.
-- **Flow B — per-app delete (leave Pulse).** `DELETE /account` on pulse-api. Soft-deletes the user's Pulse-scoped data; hosted public events get a 14-day public-cancellation window (audience-commitment, independent of the account grace) before being hard-deleted. Pulse calls back to osn-api `/internal/app-enrollment/leave` to flip `app_enrollments.left_at`. The OSN account stays alive — the user can keep using Zap / OSN identity.
+- **Flow A — full OSN account delete.** `DELETE /account` on osn-api, from Musubi's Settings. Soft-deletes the account at once; once the 7-day window has passed, the six-hourly cron calls every app over ARC with the person's answers, then hard-deletes the account ([[account-deletion]]).
+- **Flow B — per-app delete.** The OSN account stays. A host removes their Cire data with `DELETE /api/organiser/account` on cire-api, at once ([[#Cire (wedding-invite) data]]); to leave Pulse, `DELETE /account` on pulse-api, whose hosted events are kept 14 days for their guests ([[account-deletion#Leaving one app]]).
 
-Use `DELETE /account`. Two-phase:
+How the flows work — the screens, the soft delete, the seven-day window and its limited session, the fan-out to every app, the hard delete, organisations, handle holds and emails — is in [[account-deletion]]. What a request needs from it:
 
-1. **Soft delete** — sets `accounts.deleted_at`, immediately invalidates all sessions, redacts handles to `deleted_<id>`, blocks new logins. Returns 202.
-2. **Hard delete** after 7 days unless the user re-authenticates (recovery flow). Cascade includes:
-   - All rows in `osn/db` referencing the account (via existing FK cascade or explicit deletes in the deletion service).
-   - ARC fan-out to `@pulse/api/internal/account-deleted` and `@zap/api/internal/account-deleted` — Pulse hard-deletes RSVPs / events / close-friends entries; Zap revokes chat memberships, replaces sender_id with a deletion sentinel in retained ciphertext (we cannot decrypt, but participants can still read).
-   - Backups remain until next rotation cycle (document in privacy notice).
-   - Grafana logs: redacted at write time, no PII to scrub. Trace and metric retention windows handle the rest.
+- **What is erased.** At the hard delete: the account, its profiles, sessions, passkeys, recovery codes, TOTP, app enrolments, connections, blocks, organisation memberships, and OIDC consents and authorization codes; OIDC clients the account registered are disabled and unlinked; each organisation a profile owned passes to another member or is deleted ([[account-deletion#Organisations the person owns]]). In each app, what [[account-deletion#What each app does]] lists.
+- **What is kept, and why.** `security_events` (12 months) and `email_changes` (90 days), with the account id they name, as security records (Art. 6(1)(c)+(f), [[data-map]]); handle holds, keyed hashes with no account id, for 30 days; and what each app reports keeping, which the `account-deleted` email repeats ([[account-deletion#What is kept after the deletion]]). The periods are in [[retention]].
+- **When.** Seven days after the request, the fan-out reaches every app, and the hard delete follows once every app has finished. On a deployed tier that is 6 to 12 hours after the date the person is shown (englishstreetventures/osn#2386), later while an app has not answered; Musubi's privacy notice ([`PrivacyPage.tsx`](../../musubi/social/src/pages/PrivacyPage.tsx)) says "usually within a day of the date we show you".
+- **Cancelling.** Until then the person can keep the account: they sign in to Musubi by passkey or email and choose "Keep my account". Mailbox access alone is enough ([[account-deletion#What happens, in order]]).
+- Backups remain until next rotation cycle (document in privacy notice).
+- Logs: the redacting logger keeps personal data out of log lines at write time ([[shared/observability/overview]]); Workers Logs and traces age out on Cloudflare's own retention ([[retention]]).
 
-Tombstone (deletion sentinel) retained 30 days then purged.
-
-**Fan-out reliability:**
-
-- **`deletion_jobs` table** — one row per soft-delete, with columns `account_id`, `soft_deleted_at`, `hard_delete_at` (= `soft_deleted_at + 7 d`), `pulse_done_at`, `zap_done_at` (`-1` for an app the account was not enrolled in), `reason`, `cancel_session_id` and `purge_started_at`. The hard-delete sweeper refuses to fire until both `*_done_at` columns are non-null.
-- **A cancel never restores an account a purge has begun on.** `POST /account/restore` cancels only inside the grace window. Before a sweep sends its first bridge call, or the hard delete runs, it stamps `purge_started_at`, and only while the job row still exists. The cancel deletes the job it read (the one with the `soft_deleted_at` it read) only while `purge_started_at` is NULL and the window is open, in the same statement, then restores the account and writes its audit event only once no job stands. So a cancel and a purge that meet at the end of the window settle one way: the cancel lands first and the sweep finds no job to purge, or the sweep claims first and the cancel answers `{ cancelled: false }`, as one past the window does. The `account_deletion_cancelled` event's id is derived from the account and the job's `soft_deleted_at`, so a job's cancellation is recorded once: of two cancels of the same job, the second answers `{ cancelled: false }` and writes nothing, and a cancel that read a job the user has since cancelled and asked for again leaves the new job standing. Tests: `osn/api/tests/services/account-erasure.test.ts` (both orders, fan-out and hard delete; two cancels of one job; a cancel of a replaced job) and `osn/api/tests/d1/conditional-writes.test.ts` (both orders of the fan-out, and two cancels of one job, on D1).
-- **Idempotent per-bridge** — `@pulse/api/internal/account-deleted` and `@zap/api/internal/account-deleted` accept the same `accountId` repeatedly; second call is a no-op. The sweeper retries failed bridges every cycle until the row clears.
-- **Parallel fan-out** — `Effect.all([pulseCall, zapCall], { concurrency: "unbounded" })` with a per-bridge timeout of 10 s. A failing bridge does not block the soft-delete (which already returned 202); it just leaves the job row partially complete for the sweeper to retry.
-- **Per-bridge ARC rate-limit budget** — the deletion endpoints must be exempted from the standard ARC rate limit, OR sized to absorb a mass-deletion event without throttling. Pre-merge: agree on a 100 req/s ceiling per bridge with ARC token tagged `scope: "account-deletion"`.
-
-The export path uses the same `Effect.all` parallelism + 10 s per-bridge timeout. A failing bridge during export emits a partial bundle with a `{"degraded":"pulse|zap","reason":"..."}` line so the user can see the gap and re-request later.
-
-#### Cire (wedding-invite) data — cross-DB, no fan-out yet
+#### Cire (wedding-invite) data
 
 Cire runs its **own** Cloudflare D1 + R2, separate from `osn/db` (see
 [[cire]], [[cire-auth]]). The wedding and its guest data are linked to the
@@ -127,25 +120,86 @@ opaque profile-id string with **no cross-DB FK**. A wedding can have several
 owners, each with an `owner` seat. Two consequences:
 
 - **DSAR reachability (Art. 15 / 17 / 20).** A DSAR from the *organiser*
-  reaches their cire data via their `wedding_hosts` seats: export/erasure can
-  query cire's D1 for the weddings they own, the `families` / `guests` /
-  `rsvps` / `seating_plans` / `seating_tables` / `seating_assignments` /
-  `imports` rows under them, and the R2
-  `cire-sheets` CSVs. On a
+  reaches their cire data via their `wedding_hosts` seats. The account export
+  lists every seat (`cire.weddings`, [[#Art. 15 — Right of access]]), and an
+  owner downloads a whole wedding they own from the host portal as one ZIP
+  (`POST /api/organiser/weddings/:weddingId/archive`, the page
+  `#/w/<weddingId>/settings/export`; [[cire-development#CSV exports]]): every
+  CSV the portal offers, households, vendors, the gift list, every seating
+  plan, the wedding's settings and the invitation's words and questions, the
+  schedule and guest list as the import reads them, and the pictures and
+  uploaded spreadsheets in R2 (`cire-assets`, and the `cire-sheets` uploads
+  the couple applied or reverted), with a `manifest.json` naming anything a
+  limit kept out. It is owner-only, never locked by tier, and refuses a
+  soft-deleted wedding as every organiser read does: an owner restores it
+  first. Erasure reaches the `families` / `guests` / `rsvps` /
+  `seating_plans` / `seating_tables` / `seating_assignments` / `imports` rows
+  under the weddings they own, and the R2 `cire-sheets` CSVs. On a
   wedding with another owner, erasing one owner removes their seat and leaves
-  the wedding to the others; the last owner's seat cannot be removed through
-  the API, so erasing a sole owner means erasing the wedding. An owner can now
-  do that themselves: `DELETE /api/organiser/weddings/:weddingId` soft-deletes
-  the wedding at once (hidden from every guest, vendor and co-host), any owner
-  can restore it for 7 days, and the daily purge then hard-deletes it with
-  every child row and its R2 objects — 7 to 8 days after the delete, later if
-  the purge's daily cap or a payment still settling defers it
-  ([[cire-auth#Soft-deleted weddings]], [[retention]]).
-  This needs an ARC bridge to `@cire/api` that mirrors the
-  pulse/zap pattern — **not built yet** (cire/api has no
-  `internal/account-deleted` or export endpoint, and does not carry
-  `@shared/observability`). Until it exists, an operator with cire D1/R2
-  access handles such a DSAR **manually** (logged per [[access-control]]).
+  the wedding to the others. **A wedding never exists without an owner**
+  (owner decision, 2026-11-16): an OSN account cannot be deleted while it is
+  the only owner of a live wedding, and a wedding it alone owns when the
+  deletion reaches cire is deleted. An owner can also delete a wedding
+  themselves: `DELETE /api/organiser/weddings/:weddingId` soft-deletes it at
+  once (hidden from every guest, vendor and co-host), any owner can restore it
+  for 7 days, and the daily purge then hard-deletes it with every child row and
+  its R2 objects — 7 to 8 days after the delete, later if the purge's daily cap
+  or a payment still settling defers it ([[cire-auth#Soft-deleted weddings]],
+  [[retention]]).
+- **OSN account deletion reaches cire** over ARC
+  (`cire/api/src/routes/internal-account-deletion.ts`,
+  `cire/api/src/services/account-erasure.ts`), audience `cire-api`
+  ([[account-deletion#The app contract]]):
+  - *Preview.* Each live wedding a profile of the account alone owns is an
+    open action, `cire:wedding:<id>`, with one choice, `delete`, and no
+    default, so `DELETE /account` answers 409 `open_actions` until the person
+    answers it, chooses "delete everything", adds another owner (the action's
+    link opens the wedding's download page in the host portal, which also
+    offers to add another owner, and the action is then gone) or deletes the
+    wedding. A wedding with another owner is not an action.
+  - *Soft delete.* Only the person's organiser sessions end. The weddings and
+    seats are untouched, so a cancel loses nothing.
+  - *Erasure,* per wedding the account has an owner seat in, one D1 batch:
+    the seats and their `host_rsvp_notices` rows go, and the wedding is
+    soft-deleted in that batch when no owner is left, whatever was answered,
+    since the rules run on the rows as they stand. The purge takes a deleted
+    wedding with no owner at once, money holds still applying
+    ([[retention]]). Then, once per account: seats below owner and the notice
+    rows left; organiser sessions; guest account links (by the account or a
+    profile); `registry_stripe_oauth_states`, `realtime_subscribe_budget` and
+    the `actor:` rows of `owner_notice_budget`; an enquiry the person opened
+    that never reached a chat; and every column that names a profile, cleared
+    as the entries below say (`'deleted'` where the column cannot be NULL, or
+    beside a time that stays or where NULL would say the guest or household
+    wrote it). cire answers `kept: []`, so the `account-deleted` email lists
+    nothing for cire. A wedding the erasure deleted is hidden from every
+    reader at once but stays in cire's database, with its guest data, until
+    the daily purge takes it: at most three weddings a run, and none while an
+    upgrade purchase or gift from the last 14 days is still pending, while any
+    gift on it is disputed, however long that takes, or while a change to it
+    is still writing (`purgeHeld`,
+    `cire/api/src/services/maintenance-sweeps.ts`).
+  - *A host removing their Cire data* and keeping the account
+    ([[cire-auth#A host removes their Cire data]]): the same erasure, at once,
+    for every profile of the account, after a step-up the person confirms on
+    Musubi, and only once each wedding they alone own is answered `delete`.
+    It runs with the `host` scope, which leaves their vendor listing claims and
+    their guest account links as they are; everything else above goes, their
+    organiser sessions included, and the other owners of each wedding they
+    leave are emailed. A wedding left with no owner is deleted at once and the
+    purge takes it, later while a payment for it settles. They can sign in
+    to cire again later and start with no weddings.
+  - A host who cannot sign in to the organiser portal can still ask by email.
+    An operator handles that request by hand, as an erasure request from an
+    organiser, by the same rules as the removal above, which the hosts'
+    privacy notice
+    ([`hosts.astro`](../../cire/landing/src/pages/privacy/hosts.astro), "How
+    long we keep it") promises: tell the person which live weddings they
+    alone own and point them to each one's download; delete none of those
+    until they have added another owner or agreed to its deletion in writing;
+    then remove their seats and notice rows, soft-delete each wedding left
+    with no owner, and clear every column that names one of their profiles as
+    a host.
 - **Co-owners in an owner's export (Art. 15(4)).** An owner's own data
   includes the seats on their weddings, and those name other people: every
   other owner's and co-host's profile id, who added each seat
@@ -159,9 +213,16 @@ owners, each with an `owner` seat. Two consequences:
   co-owner, whose rights Art. 15(4) protects; the co-owner can ask for their
   own. Who added the requester's seat **is** included: it is the source of
   the requester's data (Art. 15(1)(g)), and the portal already shows it to
-  every member. Guest data under the wedding is not the
+  every member. The account export's `cire.weddings` section answers the
+  seats this way on its own. Guest data under the wedding is not the
   owner's personal data, so it is not part of this answer at all: an owner
-  reads and exports it in the portal, as a joint controller.
+  reads and exports it in the portal, as a joint controller, the whole
+  wedding at once from its archive download. The rest of an organiser's
+  answer in the entries below — the replies and changes they wrote or
+  attested, the addresses they attested, the Stripe account they connected,
+  the codes they redeemed, the tasks they hold — is not in the account export
+  yet: an operator answers it by hand with the queries each entry gives
+  (englishstreetventures/osn#2330).
 - **Who connected a wedding's Stripe account (migration
   `20261104040827_registry_stripe_connected_by`).**
   `registry_settings.stripe_connected_by_osn_profile_id` names the owner who
@@ -182,7 +243,10 @@ owners, each with an `owner` seat. Two consequences:
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a
   right is the responsibility of the wedding's owners as **joint
   controllers** (cire is their processor — see [[data-map]]). Route guest
-  requests to an owner and assist as processor.
+  requests to an owner and assist as processor. An owner meets a guest's
+  access request from the wedding's archive download, which holds every row
+  about the guest the portal shows (their guest row, household, invitations,
+  replies, seats and gifts).
 - **Plus-ones (migration 0066).** A plus-one's `guests` row — their name, their
   replies and the link to the guest who brought them
   (`plus_one_of_guest_id`) — holds data another guest supplied, and the
@@ -224,9 +288,9 @@ owners, each with an `owner` seat. Two consequences:
   identifies a co-host (Art. 15(4)). An erasure that nulls the note leaves the
   pair in place; with no text they say nothing about the guest.
   The registry comes with the Gold plan tier, which is sold self-serve, so
-  production can hold these rows. Tracked alongside the rest of the missing cire ARC bridge.
-- **The gift record kept after the sweep.** A year after the last event the
-  sweep deletes the gift rows but keeps, on
+  production can hold these rows.
+- **The gift record kept after the sweep.** When it deletes the guest data
+  ([[retention]] says when), the sweep deletes the gift rows but keeps, on
   `registry_settings.gift_summary_json`, each money gift's amount, currency
   and day, with no name ([[data-map]], [[retention]]). cire cannot tell who
   gave a line (Art. 11(1)), so a guest's access, objection or erasure request
@@ -261,8 +325,8 @@ owners, each with an `owner` seat. Two consequences:
   (see the organiser attribution entry below). An organiser's
   `host_rsvp_notices` rows (their read marker and digest switch, per wedding)
   are part of the organiser's cire data; removing their seat deletes the row,
-  but an OSN account deletion does not reach it, the same orphan as
-  `wedding_hosts` below. See [[cire-rsvp-changes]].
+  and so does an OSN account deletion, with a row that outlived its seat
+  ([[#Cire (wedding-invite) data]]). See [[cire-rsvp-changes]].
 - **Organiser attribution on RSVPs (migrations 0080, 0084).** `rsvps.recorded_by_osn_profile_id`
   and `rsvps.dietary_attested_by_osn_profile_id` name the co-host who last
   wrote a guest's reply and who attested its dietary consent, and
@@ -272,18 +336,18 @@ owners, each with an `owner` seat. Two consequences:
   `note_hidden_by_osn_profile_id`: they identify a co-host (Art. 15(4)), and
   the household sees only that a host wrote. They are the organiser's data in
   an organiser's access request. Erasing the household deletes the rows; an
-  OSN account deletion does not reach the ids, the same orphan as
-  `wedding_hosts` below. Removing a co-host's seat keeps the ids: they are
+  OSN account deletion clears the ids, as an erasure request does (below).
+  Removing a co-host's seat keeps the ids: they are
   the record of who changed a guest's reply and who attested its consent
   (Art. 5(2), 7(1)), held as long as the row they sit on — the reply, or the
   change-log row's 90 days — and swept with it. An erasure request from that
-  organiser nulls them instead, in the same pass that removes the seat:
-  `UPDATE rsvps SET recorded_by_osn_profile_id = NULL WHERE recorded_by_osn_profile_id = ?`,
+  organiser replaces them instead, in the same pass that removes the seat:
+  `UPDATE rsvps SET recorded_by_osn_profile_id = 'deleted' WHERE recorded_by_osn_profile_id = ?`,
   the same for `dietary_attested_by_osn_profile_id`, and
   `UPDATE rsvp_changes SET actor_osn_profile_id = '' WHERE actor_osn_profile_id = ?`
-  — an empty string, not NULL, because a null actor is what marks a
-  household's own change, and the organisers' feed and digest would then show
-  the row. The consent record itself stays, as evidence an organiser attested;
+  — never NULL, because a null writer or attester is what marks the
+  household's own reply or consent, and a null actor its own change, which
+  the organisers' feed and digest would then show. The consent record itself stays, as evidence an organiser attested;
   an emptied change-log row still says an organiser set the status, by its kind.
   An organiser's access request finds these by profile id, not by seat, so a
   co-host whose seat was removed is answered too:
@@ -317,8 +381,9 @@ owners, each with an `owner` seat. Two consequences:
   an operator does it by hand on request. The same hand delete — by
   `(wedding_id, email_hash, guest_id)` — clears an opt-out another household
   made against someone's address the hosts had put on its seat, when the person whose address it is asks. An erasure request from the
-  attesting **organiser** nulls their id in the same pass that removes their
-  seat: `UPDATE guests SET email_attested_by_osn_profile_id = NULL WHERE email_attested_by_osn_profile_id = ?`;
+  attesting **organiser** replaces their id in the same pass that removes their
+  seat: `UPDATE guests SET email_attested_by_osn_profile_id = 'deleted' WHERE email_attested_by_osn_profile_id = ?`
+  (never NULL, which would read as the guest's own consent);
   the address and the rest of its record stay, as evidence an organiser
   attested. A revert never writes the id back: a restored record names its
   attester only while they hold a seat on the wedding.
@@ -339,8 +404,8 @@ owners, each with an `owner` seat. Two consequences:
   an owner removing them, or their own leave — deletes every one of its rows
   through the foreign key (ON DELETE CASCADE) and keeps the tasks, which are the
   wedding's planning record, with their other holders, so no separate step is
-  needed. An OSN account deletion does not reach the seat, so its assignments
-  stay with it, the same orphan as `wedding_hosts` below. Until the first
+  needed. An OSN account deletion removes the seat, so its assignments go
+  with it. Until the first
   cire-api release after the one shipping 0091 reaches production drops it
   (englishstreetventures/osn#1636), `tasks.assigned_host_id` (migration 0087)
   also holds, per task, the seat that held it when 0091 copied it onto
@@ -350,37 +415,18 @@ owners, each with an `owner` seat. Two consequences:
   and removing the seat clears it (ON DELETE SET NULL). See
   [[cire-checklist-tasks#Assignees]].
 
-**Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
-fans OSN-account deletion out into cire. `DELETE /account` and
-`GET /account/export` are live on osn-api, but they fan out only to
-Pulse and Zap over ARC; cire/api exposes no `internal/account-deleted`, so
-erasing an OSN account today **orphans** the wedding + guest data in cire's
-D1/R2. We had two options: (a) build the ARC fan-out into cire now, or (b)
-document an orphan-tolerance rationale and revisit. **We choose (b)** because
-the orphan-tolerance framing is defensible on the merits:
-
-- A wedding is a **jointly-owned record with its own lifecycle** — it
-  belongs as much to the couple's event as to one organiser's OSN login.
-  Tearing it down because one owner deletes their OSN account would destroy
-  the other party's record and every guest's RSVP.
-- Guest data is **organiser-controlled** (cire is processor); the controller
-  obligation to erase it survives the organiser's OSN-account deletion and is
-  discharged through the organiser, not by cascading from OSN identity.
-- The **organiser attribution ids** (`rsvps.recorded_by_osn_profile_id`,
-  `rsvps.dietary_attested_by_osn_profile_id`, `rsvp_changes.actor_osn_profile_id`,
-  `guests.email_attested_by_osn_profile_id`)
-  are a record of what one person did to replies the couple and guests share,
-  kept for the Art. 5(2) and 7(1) evidence in [[dpia/cire-guest-data]]. Once OSN
-  deletes the account, the id is opaque and resolves to no one; the change-log
-  column is gone within 90 days in any case, and the `rsvps` columns go with
-  the reply. The cire bridge below, when built, clears all three on account
-  deletion, as an organiser's erasure request does today.
-
-**Recorded decision.** Orphan-tolerance is the interim position. Its revisit
-trigger — `DELETE /account` landing — **has now fired**, so the choice is
-live: either (i) add a cire ARC bridge so deletion fans out, or (ii) re-affirm
-orphan-tolerance with a privacy-notice disclosure that wedding/guest records
-persist independently of the organiser's OSN account. It is tracked in the list below.
+**OSN account deletion and cire — decision: refuse until the person acts**
+(owner, 2026-11-16: "weddings shouldn't exist without owners"; "Refuse until
+they act"). A wedding belongs to its owners together, so one owner's account
+deletion takes only their seat while another owner remains. A wedding the
+person alone owns is theirs to settle before they go: add another owner, delete
+it, or answer `delete` (or "delete everything"); nothing of it, or of them,
+outlives the account in cire. The organiser attribution ids
+(`rsvps.recorded_by_osn_profile_id`, `rsvps.dietary_attested_by_osn_profile_id`,
+`rsvp_changes.actor_osn_profile_id`, `guests.email_attested_by_osn_profile_id`
+and the rest) are cleared by the erasure as an organiser's erasure request
+clears them; the replies and consent records they sat on stay, as evidence an
+organiser attested ([[dpia/cire-guest-data]]).
 
 **Refusals permitted** under Art. 17(3):
 
@@ -441,16 +487,14 @@ Default position: do the work. Refusals are exceptional and have to survive a DP
 
 ## Project changes required
 
-Tracked with `C-` IDs, all rolled up under  (DSAR runbook):
+Not built yet:
 
 1. `dsar_requests` table for audit log.
 2. `dsar@osn.example` email alias + automated acknowledgement.
 3. Postal address published on `@musubi/landing` legal page.
 4. Internal triage doc with the team rotation.
 5. SLA monitoring (alert when a request is >25 d unresponded).
-6. **Cire DSAR reachability + deletion fan-out** — ARC bridge to `@cire/api`
-   for organiser-scoped export/erasure of cire D1 + R2 data, mirroring the
-   pulse/zap `internal/account-deleted` + export pattern. Until built, cire
-   DSARs are manual. **Decision: orphan-tolerance** for OSN-account deletion
-   (see "Cire data" above) — the revisit is now due, because `DELETE /account`
-   has landed.
+6. **Cire DSAR export** — built: the `cire.weddings` section of
+   `GET /account/export` and the owner's whole-wedding archive
+   ([[#Cire (wedding-invite) data]]). The organiser attribution records listed
+   there are still answered by hand (englishstreetventures/osn#2330).

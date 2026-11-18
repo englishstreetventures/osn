@@ -6,7 +6,7 @@
 // runtime — Miniflare's own Request class, Node's fetch and a streamed body —
 // runs for real in guest-route-parity-wrangler.e2e.ts.
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +17,7 @@ import {
   RELAY_TOKEN_HEADER,
   WORKER_UA_HEADER,
 } from "../guest-route-parity-reference.js";
+import { NODE_WARM_UP_LIMIT_MS, warmUpNode } from "./node-warm-up";
 
 const API = "https://api.cire.example.test";
 const RELAY_PORT = 43_210;
@@ -156,6 +157,18 @@ const ARGS = [
 ];
 
 describe("the reference's command line", () => {
+  /** How long the warm-up's Node start took, in ms, for the failure messages. */
+  let nodeWarmUpMs = 0;
+
+  // Node's first start on a runner is paid here, under a limit of its own, so
+  // each case's 5 s, bun's default, times a warm start.
+  beforeAll(async () => {
+    nodeWarmUpMs = await warmUpNode();
+  }, NODE_WARM_UP_LIMIT_MS);
+
+  const warmUp = (stderr: string) =>
+    `stderr: ${stderr}; Node's warm-up start, before this case, took ${nodeWarmUpMs} ms`;
+
   test.each([
     [
       "no --relay-port",
@@ -165,7 +178,7 @@ describe("the reference's command line", () => {
     ["no PARITY_RELAY_TOKEN", ARGS, {}],
   ] as const)("PF42: %s is a usage error, exit 2, before wrangler is loaded", (_, args, env) => {
     const { status, stderr } = child(CHILD, args, env);
-    expect(status).toBe(2);
+    expect(status, warmUp(stderr)).toBe(2);
     expect(stderr).toContain("usage:");
   });
 
@@ -174,7 +187,7 @@ describe("the reference's command line", () => {
     symlinkSync(CHILD, link);
     // No arguments: the child's own usage error shows its main ran.
     const { status, stderr } = child(link, []);
-    expect(status).toBe(2);
+    expect(status, warmUp(stderr)).toBe(2);
     expect(stderr).toContain("usage:");
   });
 });

@@ -1,0 +1,55 @@
+name: E2E determinism
+
+# Runs the end-to-end suite twice and fails unless both runs wrote the same
+# results.json, byte for byte (`bun run test:e2e:repro`, tools/e2e/src/repro.ts).
+# A flow that records a random or time-shaped value fails here. CI's E2E job
+# runs the suite once, and again only when that run fails, so this is the only
+# place that compares two runs.
+#
+# It runs daily and by hand, never on a pull request, a push or a merge-queue
+# group, so no change pays for the suite twice. A flow that starts recording
+# a value that differs between runs, through a change under tools/e2e or a
+# page that starts a fetch on a timer, is found by the next daily run rather
+# than by the pull request that adds it. It is not a required check.
+on:
+  schedule:
+    # 05:17 UTC daily, off the hour that every scheduled workflow asks for.
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Reads the checkout and uploads an artifact; nothing else.
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    name: E2E determinism
+    # No concurrency group, so no run cancels another. Each job has a runner
+    # of its own, so this and CI's E2E job both take the suite's fixed ports
+    # without meeting.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/e2e-setup
+
+      # Two runs take about 11 minutes (main, 2026-11-11). No retry: a second
+      # chance would hide the difference this job exists to find.
+      - name: E2E flows, twice, results.json compared byte for byte
+        timeout-minutes: 20
+        run: bun run test:e2e:repro
+
+      # Traces, screenshots, results.json and server logs from the second
+      # run, on failure too. repro.ts prints the first line that differs.
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-repro-artifacts
+          path: e2e-artifacts/
+          if-no-files-found: warn
+          retention-days: 14

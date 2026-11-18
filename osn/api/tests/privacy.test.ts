@@ -83,7 +83,7 @@ describe("privacy invariants (P6)", () => {
     it("service-layer register does not expose accountId in its public shape", async () => {
       // The HTTP /register route was removed; the privacy invariant is now
       // asserted directly on the service-level payload that every caller
-      // (including the /register/complete wire path) ultimately reads from.
+      // (including the sign-up status poll's wire path) ultimately reads from.
       const profile = await Effect.runPromise(
         auth.registerProfile("priv1@test.com", "priv1").pipe(Effect.provide(layer)),
       );

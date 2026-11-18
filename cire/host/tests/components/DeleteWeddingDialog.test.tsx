@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -24,8 +24,17 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function open(onDeleted = vi.fn()) {
-  render(() => <DeleteWeddingDialog weddingId="wed_1" slug={SLUG} onDeleted={onDeleted} />);
+const EXPORT_HREF = "#/w/wed_1/settings/export";
+
+function open(onDeleted = vi.fn(), onOpenExport = vi.fn()) {
+  render(() => (
+    <DeleteWeddingDialog
+      weddingId="wed_1"
+      slug={SLUG}
+      onDeleted={onDeleted}
+      exportPage={{ href: EXPORT_HREF, onOpen: onOpenExport }}
+    />
+  ));
   fireEvent.click(screen.getByRole("button", { name: "Delete wedding…" }));
   return { onDeleted, input: screen.getByLabelText(/to confirm/i) as HTMLInputElement };
 }
@@ -49,19 +58,20 @@ describe("DeleteWeddingDialog", () => {
     expect(confirmButton()).toBeEnabled();
   });
 
-  it("sends the typed slug and reports the restore date", async () => {
-    authFetchMock.mockResolvedValueOnce(
-      json({ deleted: true, weddingId: "wed_1", restoreUntil: "2026-10-08T12:00:00.000Z" }),
-    );
-    const { input, onDeleted } = open();
-    fireEvent.input(input, { target: { value: SLUG } });
-    fireEvent.click(confirmButton());
+  // 18. The dialog does not point the owner at the whole-wedding download
+  //     before they delete, or following it leaves them where they were.
+  it("18. points at the whole-wedding download, opened in the dashboard on a plain click", () => {
+    const onOpenExport = vi.fn();
+    open(vi.fn(), onOpenExport);
+    const link = screen.getByRole("link", { name: "Download the whole wedding" });
+    expect(link.getAttribute("href")).toBe(EXPORT_HREF);
 
-    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith("2026-10-08T12:00:00.000Z"));
-    const [url, init] = authFetchMock.mock.calls[0]!;
-    expect(url).toBe("https://api.test/api/organiser/weddings/wed_1");
-    expect(init.method).toBe("DELETE");
-    expect(JSON.parse(init.body)).toEqual({ confirmSlug: SLUG });
+    // `fireEvent` answers false when the click's default was prevented: a
+    // modified click is the browser's to follow, a plain one the dashboard's.
+    expect(fireEvent.click(link, { metaKey: true })).toBe(true);
+    expect(onOpenExport).not.toHaveBeenCalled();
+    expect(fireEvent.click(link)).toBe(false);
+    expect(onOpenExport).toHaveBeenCalledTimes(1);
   });
 
   it.each([

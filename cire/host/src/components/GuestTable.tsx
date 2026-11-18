@@ -20,7 +20,6 @@ import { Switch } from "@shared/ui/ui/switch";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import Ban from "lucide-solid/icons/ban";
 import Copy from "lucide-solid/icons/copy";
-import Download from "lucide-solid/icons/download";
 import Ellipsis from "lucide-solid/icons/ellipsis";
 import Eye from "lucide-solid/icons/eye";
 import RotateCcw from "lucide-solid/icons/rotate-ccw";
@@ -44,7 +43,6 @@ import {
 import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { downloadBlob } from "../lib/download";
 import {
   ensureEventsLoaded,
   type EventRow as CachedEventRow,
@@ -76,6 +74,7 @@ import {
 import { plusOneShort } from "../lib/rsvp-filter";
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
 import { IconButton, TipNote } from "./ActionTip";
+import { CsvExportButton } from "./CsvExportButton";
 import { FilterSearch } from "./FilterField";
 import SectionIntro from "./SectionIntro";
 import { StatusMark } from "./StatusMark";
@@ -373,9 +372,6 @@ export default function GuestTable(props: GuestTableProps) {
   // copy succeeds, so the indicator updates without a reload while the
   // best-effort mark-shared POST settles in the background.
   const [sharedNow, setSharedNow] = createSignal<Set<string>>(new Set());
-  // Which CSV export is in flight (both buttons share the guard so only one
-  // download runs at a time).
-  const [exporting, setExporting] = createSignal<"rsvps" | "guests" | null>(null);
   // Optimistic deactivation overrides keyed by family id, applied over the
   // server's `deactivatedAt` so a confirmed toggle mutes/relabels the row at once
   // while the POST settles. A family id can appear in at most one set; clearing
@@ -587,32 +583,6 @@ export default function GuestTable(props: GuestTableProps) {
       setError("Could not update the household. Is the API running?");
     } finally {
       setTogglingId(null);
-    }
-  }
-
-  /**
-   * Download one of the wedding's CSV exports — the RSVP grid (`rsvps.csv`) or
-   * the guest roster (`guests.csv`). Both are built (and formula-sanitised)
-   * server-side; the response Blob is handed to the shared download helper.
-   * authFetch attaches the OSN access token — the endpoints are gated by
-   * `weddingOwner()`, so only an owner is offered the buttons.
-   */
-  async function exportCsv(kind: "rsvps" | "guests") {
-    if (exporting()) return;
-    setExporting(kind);
-    const label = kind === "rsvps" ? "RSVP" : "Guest list";
-    try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, `/${kind}.csv`)));
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`Export failed (${res.status})`);
-      const blob = await res.blob();
-      downloadBlob(`cire-${kind}-${props.weddingSlug}.csv`, blob);
-      toast.success(`${label} export downloaded`);
-    } catch (err) {
-      if (isAuthExpired(err)) return redirectToLogin();
-      toast.error(`${label} export failed. Try again.`);
-    } finally {
-      setExporting(null);
     }
   }
 
@@ -1204,24 +1174,11 @@ export default function GuestTable(props: GuestTableProps) {
           holdActions={loading()}
           actions={
             <Show when={props.canManage && !error() && (loading() || hasGuests())}>
-              <IconButton
-                variant="bar"
-                size="icon"
-                label={exporting() === "guests" ? "Exporting guests…" : "Download guests (CSV)"}
-                onClick={() => void exportCsv("guests")}
-                disabled={exporting() !== null}
-              >
-                <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
-              </IconButton>
-              <IconButton
-                variant="bar"
-                size="icon"
-                label={exporting() === "rsvps" ? "Exporting RSVPs…" : "Download RSVPs (CSV)"}
-                onClick={() => void exportCsv("rsvps")}
-                disabled={exporting() !== null}
-              >
-                <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
-              </IconButton>
+              <CsvExportButton
+                weddingId={props.weddingId}
+                weddingSlug={props.weddingSlug}
+                kind="guests"
+              />
             </Show>
           }
         />

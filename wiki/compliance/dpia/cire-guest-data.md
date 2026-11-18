@@ -12,7 +12,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-11-18
 ---
 
 # DPIA — Cire guest data (special-category dietary)
@@ -121,7 +121,8 @@ final sign-off now turns only on the residual retention gaps below.
   organiser attests to on their behalf. An organiser-added address was not
   obtained from the guest (Art. 14): the attestation commits the organiser to
   passing on the guest notice, which the portal links under the box, and the
-  invite shows the guest "Your hosts added this" with Change and Remove. The
+  invite shows the guest "Your hosts added this" with Change and Remove, and
+  with Remove alone once the RSVP deadline has passed. The
   household sees only the chosen member's own address, never a list, but
   anyone holding the code who picks that member sees it — the household trust
   model that already shows every member's dietary answers. `guest` therefore
@@ -163,7 +164,9 @@ final sign-off now turns only on the residual retention gaps below.
   **Open:** Art. 26 asks joint controllers for an arrangement setting out each
   one's duties, with its essence available to guests, and Art. 28 asks for the
   processor terms. Neither is written yet: the organiser terms do not name the
-  owners' duties or a point of contact, and the guest notice
+  owners' duties or a point of contact, nor that cire deletes a wedding's guest
+  data three years after its creation when one of its event dates cannot be
+  read, before the wedding if it is planned further out (§3), and the guest notice
   (`cire/ui/src/guest-privacy-notice.astro`, "Who decides what") does not say a
   guest may exercise their rights against any owner.
 - **Scale.** Per-wedding guest counts (tens to low hundreds today; multi-tenant
@@ -444,7 +447,14 @@ final sign-off now turns only on the residual retention gaps below.
   PR #132): `rsvps` (incl. dietary + its consent record), `guests`, `families`,
   and `imports` rows are deleted for any wedding whose final event is >365 days
   past, and the sheets their `imports` rows name are reaped from R2 in the same
-  sweep. A wedding its owners delete is purged whole 7–8 days later (later if
+  sweep. The sweep reads a final event only from Starts and Ends that begin with
+  their date: a wedding with any other value has its guest data deleted 3 years
+  after it was created (`weddings.created_at`), whatever its other events'
+  dates, and a host who fixes the event puts it back on the year rule. A wedding
+  planned more than 3 years ahead with one unreadable event can therefore lose
+  its guest data before a readable event of it, which the owner accepted. Each
+  run logs how many such weddings it keeps while they hold guest data, and how
+  many it deleted by their creation (counts, no id, no date). A wedding its owners delete is purged whole 7–8 days later (later if
   the daily purge cap or a payment still settling defers it): every row by
   cascade, and its sheet and image objects ([[cire-auth#Soft-deleted weddings]]).
 - **What outlives the sweep (2026-10-15).** The sweep leaves the couple a record
@@ -468,10 +478,11 @@ final sign-off now turns only on the residual retention gaps below.
 | Special-category data collected without a valid Art. 9(2)(a) consent affordance | **Low (residual)** | High | **RESOLVED — PR #123.** The RSVP form now shows an explicit, unticked opt-in checkbox once dietary text is entered, the API rejects (422) any non-empty dietary without consent, and a server-stamped consent record (`rsvps.dietary_consent_at` / `dietary_consent_version`) evidences the Art. 9(2)(a) condition. Collection is now lawful. |
 | Dietary free-text reveals more than intended (religion, medical condition) | Medium | Medium | Free-text invites over-disclosure; mitigated by form copy + minimisation guidance, not technically enforceable. |
 | Indefinite retention of guest PII + raw CSVs (incl. across reverts) | High | Medium | Mitigated: the 1-year guest-data sweep (rows and their sheets) and the purge of a deleted wedding (every row, both R2 buckets); a sheet whose delete failed is reaped by the daily `cire-sheets` reconciler within one pass over the bucket ([[retention]]). Residuals: browser copies of public images can live a year, the couple's Stripe Express account and Zap enquiry chats outlive the purge, and while an operator has the reconcilers stopped (a `reconcile/stop` object or `CIRE_R2_RECONCILE_DISABLED`, around a database restore) orphaned sheets wait for them — emailed to the operator daily, 14 days at most by the runbook. |
+| A wedding with an event whose date the sweep cannot read loses its guest data three years after it was created, before a readable event of it still ahead, and loses whatever guest data is added after that at the next daily run | Low | Medium | Both write doors refuse an unreadable Start, so it needs a revert to old rows and a wedding planned more than three years out. The hosts' notice states the rule and that fixing the event's date puts the wedding back on the one-year rule, and the events editor asks the hosts to fix such a date. **Accepted by the owner, 2026-11-18** ([[retention]]). Whether the organiser portal should warn before or after the three years is open as osn#2416. |
 | Guest spreadsheets or invite photos permanently deleted by the daily R2 orphan reconciler while the rows naming them are missing — a bad migration, a wrong bulk delete, a `cire-db` restore — with no versioning or second copy of `cire-sheets` or `cire-assets` to restore from ([[backup-dr]]) | Low | High | Mitigated: only objects R2 says are 7 days old are judged; a failed or empty reference read, a database paired with another environment's bucket, or a lookup that loses its control deletes nothing; at most 500 objects a run; a run whose rows naming the bucket's objects fell by more than half holds, emails the operator, and keeps holding against the earlier count for up to 7 runs; an operator's `reconcile/stop` object stops a reconciler without a deploy, and the restore runbook in [[backup-dr]] sets it first; every delete batch logs a warning. Residuals: no backup of either bucket; a loss under half the rows is not held; a hold lasts 7 runs and a stop relies on an operator acting on the email; an empty table or a total wipe aborts every run with a warning log and sends no email. |
-| Cross-DB deletion orphan — OSN-account deletion does not erase cire guest data | Medium | Medium | No fan-out; orphan-tolerance documented in [[dsar]]. |
+| An organiser's OSN account deletion leaves their data, or a wedding no one owns, in cire | Low | Medium | Mitigated: the account deletion reaches cire over ARC. The account cannot be deleted while it is the only owner of a live wedding it has not answered for: the person adds another owner, deletes the wedding, or chooses to have it deleted. At the erasure cire removes their seats, deletes a wedding left with no owner in the same batch (the purge then takes it, guest data and all), and clears every column that names them; nothing of the person is kept ([[dsar#Cire (wedding-invite) data]]). Residual: a guest's reply or consent record an organiser attested stays with the wedding, unnamed, as the evidence it is. |
 | A guest's gift amount and day outlive the year in the couple's record | Medium | Low | Kept unnamed, with no note or Stripe identifier, a day rather than a time, at most 200 lines a wedding; read only by the wedding's members and mailed to its owners. The couple can still match a line to the payer in their own Stripe account — but they were the recipients and hold that record anyway, so the residual is that cire keeps a copy past the year. Guests are told in the privacy notice; the record goes when the couple delete the wedding. |
-| A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under an attestation that speaks of the plus-one — the household's, or the organiser's for a phone or paper reply — each in its own box and wording, pinned by its own version and to the name the plus-one carries now; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them, and the portal asks an organiser recording a plus-one's dietary answer to pass on cireweddings.com/privacy, which leads to it; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
+| A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under an attestation that speaks of the plus-one — the household's, or the organiser's for a phone or paper reply — each in its own box and wording, pinned by its own version and to the name the plus-one carries now; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them, and the portal asks an organiser recording a plus-one's dietary answer to pass on cireweddings.com/privacy, which leads to it; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household by the guest-data sweep ([[retention]]). |
 | A member's reply attributed to the wrong person on a shared device | Low | Low | Anyone holding the household code can pick any member's name — the household trust model the claim has always had. Mitigated by "Not you?" (clears the member and ends the browser's musubi sign-in), by the invite naming the member answering — the write refuses a reply when the session's member is no longer the one the page showed (409 `member_changed`), so another tab's choice never takes over this tab's answers — and, where account linking is on, by musubi always showing the signed-in account before a link (`prompt=select_account`). There `submitted_via_link` lets the organisers tell "signed in as" from "picked from a list"; where it is off, every attribution is "picked from a list". |
 | One household member relays another adult's dietary consent | Medium | Medium | Existing gap, now visible in the record (which member ticked the box for whom). Accepted: the consent gate is unchanged and the household relays consent on its own word; revisit on request. |
 | A guest's email address used without their agreement — an organiser attests falsely, or one household member gives another's address | Medium | Medium | Every address carries who supplied it and the consent behind it: the guest's own tick, or the attestation of a named owner or editor under a versioned wording that also commits them to passing on the notice. The guest sees a host-added address on the invite, labelled as the hosts', with Remove; Remove stops mail to it for the wedding. Residuals: an attestation is the organiser's word, not proof; an address is never verified, so a mistyped or someone else's address is stored as given until sending adds confirmation. |
@@ -534,9 +545,11 @@ final sign-off now turns only on the residual retention gaps below.
 - **Retention.** The wedding-lifecycle purge (an owner's delete, purged 7–8 days
   later) and the expired-`cire_session` sweeper exist; an R2 lifecycle rule
   that also fires on import revert does not. See [[retention]].
-- **Cross-database deletion.** Resolve the DSAR/deletion path (ARC bridge) or re-affirm
-  orphan-tolerance with a privacy-notice disclosure when `DELETE /account`
-  lands. See [[dsar]].
+- **Cross-database deletion.** Done: the account deletion's fan-out reaches cire
+  over ARC, and an account that alone owns a live wedding must settle it first.
+  The hosts' privacy notice
+  ([`hosts.astro`](../../../cire/landing/src/pages/privacy/hosts.astro), "How long
+  we keep it") says so. See [[dsar#Cire (wedding-invite) data]].
 - **Log redaction.** Cire PII field names + `cire_session` added to the log-redaction
   deny-list now (interim guard); adopt `@shared/observability` in
   `@cire/api` to gain a redacted logger + RED metrics + `/health`. See

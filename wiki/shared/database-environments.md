@@ -18,7 +18,7 @@ related:
   - "[[d1-read-replication]]"
   - "[[cire-development]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-17
 ---
 
 # Database Environments
@@ -31,7 +31,7 @@ drivers** behind a single driver-agnostic Drizzle type:
 | `local` | **bun:sqlite** | Dev machine | `bun run dev` (Bun.serve) + in-memory unit tests |
 | `dev` | **Cloudflare D1** | Deployed, in the dev account (zap and pulse also run a local `wrangler dev --env dev`) | the Alchemy stacks, from `deploy.yml` ([[infrastructure-as-code]]) |
 | `staging` | **Cloudflare D1** | Deployed | `wrangler deploy --env staging` |
-| `production` | **Cloudflare D1** | Deployed | `wrangler deploy --env production` |
+| `production` | **Cloudflare D1** | Deployed | the Alchemy stacks, from `production-release.yml`, which adopt each production database by name and apply its migrations ([[production-deploy#4. Database migrations]]) |
 
 `local` stays on bun:sqlite because it is the cheapest, fastest way to create a
 fresh database per test (`new Database(":memory:")` resolves in microseconds and
@@ -88,13 +88,17 @@ codegen) plus two entry points:
 
 `wrangler.toml` declares one `[[env.<name>.d1_databases]]` binding per
 Wrangler environment: the local one and production (and staging, unused). The db
-package's `db:migrate:*` scripts apply Drizzle-generated migrations to each:
+package's `db:migrate:*` scripts apply Drizzle-generated migrations to the local
+and staging databases:
 
 ```bash
 bun run --cwd zap/db db:migrate:local     # miniflare local D1 (for `wrangler dev`)
 bun run --cwd zap/db db:migrate:staging
-bun run --cwd zap/db db:migrate:prod
 ```
+
+Production's databases are migrated by their stacks, with Alchemy, never by a
+package script: the `[env.production]` blocks name no `migrations_dir`, so
+Wrangler's migrator stops before it reads one ([[production-deploy#4.1 How a production database is migrated]]).
 
 The **dev tier's** databases are not in any `wrangler.toml` and no package
 script migrates them. They live in the dev Cloudflare account, and each product's
@@ -103,8 +107,8 @@ it has not recorded, through the D1 resource's `migrations` prop, and imports
 each seed after them on the first dev deploy and again whenever the seed's file
 changes: `osn-db-dev` (musubi stack, seeded with the cire OIDC client and
 cire-api's ARC key), `cire-db-dev` (cire stack, seeded with the sample wedding)
-and `zap-db-dev` (zap stack, no seed). Alchemy is their only migrator, and it
-keeps its own ledger, `__alchemy_migrations`. See [[infrastructure-as-code#Migrations]].
+and `zap-db-dev` (zap stack, no seed). Alchemy is their only migrator, as it is
+production's, and it keeps its own ledger, `__alchemy_migrations`. See [[infrastructure-as-code#Migrations]].
 
 ## ⚠️ D1 has no interactive transactions
 
@@ -222,8 +226,9 @@ at the top of the file is fine only because `skipLibCheck` skips that package's
 Unit tests use `createTestLayer()` / bun:sqlite `:memory:` exactly as before —
 see [[testing-patterns]]. The async D1 driver path gets one Miniflare-backed
 integration test per service, at `tests/d1/d1-integration.test.ts` (cire's at
-`tests/db/d1-integration.test.ts`). The vitest configs exclude that path, so the
-unit run skips it; run it explicitly:
+`tests/db/d1-integration.test.ts`). The vitest configs exclude that path, and
+cire's `test` script ignores it with `--path-ignore-patterns`, so the unit run
+skips it; run it explicitly:
 
 ```bash
 bun run --cwd zap/api test:d1     # bun test tests/d1/d1-integration.test.ts

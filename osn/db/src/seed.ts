@@ -1,3 +1,4 @@
+import { sql, type SQL } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
 import {
@@ -157,6 +158,24 @@ export function buildSeedUsers(now: Date): NewProfile[] {
 // ---------------------------------------------------------------------------
 // Seed connections
 // ---------------------------------------------------------------------------
+
+/** A seeded profile row, whose `isDefault` can be decided by the insert. */
+type SeedProfileRow = Omit<NewProfile, "isDefault"> & { isDefault?: boolean | SQL<boolean> };
+
+/**
+ * The seed's profiles as written: a seeded default stays plain when its
+ * account already has a default, since an account holds one and its index
+ * refuses a second. A re-seed beside a default someone chose keeps theirs.
+ */
+export function seedProfileRows(now: Date): SeedProfileRow[] {
+  const rows: SeedProfileRow[] = buildSeedUsers(now);
+  for (const row of rows) {
+    if (row.isDefault === true) {
+      row.isDefault = sql<boolean>`(NOT EXISTS (SELECT 1 FROM ${users} WHERE ${users.accountId} = ${row.accountId} AND ${users.isDefault} = 1))`;
+    }
+  }
+  return rows;
+}
 
 /**
  * Builds the social graph.
@@ -365,7 +384,7 @@ const seed = Effect.gen(function* () {
   });
 
   yield* Effect.tryPromise({
-    try: () => db.insert(users).values(buildSeedUsers(now)).onConflictDoNothing(),
+    try: () => db.insert(users).values(seedProfileRows(now)).onConflictDoNothing(),
     catch: (cause) => new SeedError({ cause }),
   });
 

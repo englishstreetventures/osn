@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-18
 ---
 
 # Guards with a threshold
@@ -56,10 +56,19 @@ exactly the class the guard was written for would have landed under the line
 and deployed. The fix was to re-measure against the build as it is now and set
 the headroom to ~11.7 KB, roughly half the mistake.
 
-*Unverified — the method is on record, the date is not. Gzip
-`cire/invites/dist/client/_astro/animate.*.js` from a clean build, or rebuild
-with `stubMotionForSsr()` removed and diff the total. Written into this page
-2026-09-07.*
+*Unverified — the method is on record, the date is not: `motion`'s own client
+chunk, gzipped from a clean build, written into this page 2026-09-07. No app
+depends on `motion` now. Bundling `animate` alone, minified, gave a close
+figure: 20362 bytes.*
+
+*Measured 2026-11-11 in cire/invites — `echo 'export { animate } from "motion";' | bunx --bun esbuild --bundle --minify --format=esm --platform=browser | gzip -nc | wc -c`*
+
+Dropping it from the guest site took **17910 bytes gzip** off the event
+sheet's client chunk (37593 to 19683), the code that samples the spring for
+CSS included. The Worker the guard measures moved from 192575 to 192801
+bytes: the SSR build had stubbed the library out already.
+
+*Measured 2026-11-12 in cire/invites — `bun run build` on a7b0cff35 and on the branch that dropped `motion`, then `gzip -nc dist/client/_astro/EventSheet.*.js | wc -c`; the Worker figure is the guard's own `dist/server gzip total` line*
 
 The corollary is a check, not a rule: **you have not verified a guard until you
 have seen it fire.** Break the input and watch what it does: the non-zero exit,
@@ -85,7 +94,7 @@ stops a deploy or release:
 - **a source map where the app is served publicly**, in either form — a
   `*.map` file (any case), or a `.js`, `.mjs` or `.css` file carrying an inline
   `sourceMappingURL=data:` map. For a `static` app that is anywhere under
-  `dist`, which Pages serves whole; for cire/invites it is `dist/client`, its
+  `dist`, which its site Worker serves whole; for cire/invites it is `dist/client`, its
   Static Assets (maps under `dist/server` are uploaded for symbolication, never
   served). Either form publishes the app's unminified source. This runs before
   anything is measured, so no budget can hide it. A file is read through a
@@ -161,15 +170,16 @@ touching a threshold. In short:
   client-side saving is not room under this budget. Measure it from
   `dist/client/_astro` and report it as that.
 - **`static`** — `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`,
-  `pulse/landing`. All five are `output: "static"`: no Worker, no `dist/server`,
-  no `dist/client` split — they deploy `dist` wholesale to Cloudflare Pages.
+  `pulse/landing`. All five are `output: "static"`: no server code, no
+  `dist/server`, no `dist/client` split — each deploys `dist` wholesale as static
+  assets to its site Worker.
   Measures `dist/_astro/*.js` and `dist/_astro/*.css` **only** — an allowlist,
   not a directory sum, because `dist/_astro/fonts/` holds Google Fonts binaries
   fetched at build time (hashed names, moves whenever Google's metadata moves,
   not a repo change) and `dist` holds one HTML file per page (grows with
   ordinary content). Neither belongs in a guard whose job is catching a library
   that shouldn't have shipped. It separately refuses a source map anywhere
-  under `dist`, in either form, because Pages serves all of it.
+  under `dist`, in either form, because the static assets serve all of it.
 
 > [!warning] Known blind spot: inline `<style>`/`<script>` in the HTML
 > `build.inlineStylesheets: "auto"` is Astro's default and is unset in all
@@ -190,11 +200,11 @@ touching a threshold. In short:
 ### Where it runs, and why twice
 
 Every app's own `build` script chains the guard on with `&&` (`astro build &&
-… guard-bundle-size.sh .`) — that is what runs it on a local build and the
-by-hand cire/invites deploy. It ALSO runs as its own step in `ci.yml`'s
-`build-test` job (one `--all` step covering every app), in `production-release.yml`
-in the `deploy-cire-invites` job and in the `sites` job (one step per site it builds:
-`cire/host`, `cire/vendor`, `cire/landing` and `musubi/landing`), and in the
+… guard-bundle-size.sh .`) — that is what runs it on a local build. It ALSO
+runs as its own step in `ci.yml`'s `build-test` job (one `--all` step covering
+every app), in `production-release.yml`'s `sites` job (one step per guarded app
+it builds: `cire/invites`, `cire/host`, `cire/vendor`, `cire/landing` and
+`musubi/landing`), and in the
 stack jobs in `deploy.yml`, with one step per guarded app each builds: the cire
 stack job for `cire/invites`, `cire/host`, `cire/vendor` and `cire/landing`, the
 musubi stack job for `musubi/landing`, and the pulse stack job for
@@ -205,8 +215,9 @@ without executing the script, so the chained invocation never runs on a cache
 hit — the explicit workflow step is what still checks the artifact that IS on
 disk in that case. Both invocations matter; neither one alone covers both paths.
 
-No workflow deploys `musubi/landing` or `pulse/landing` to production; on dev,
-the musubi and pulse stack jobs build and guard them as above.
+No workflow deploys `pulse/landing` to production; on dev, the pulse stack job
+builds and guards it as above. `musubi/landing` ships to production through the
+musubi stack, from the `sites` job's guarded build.
 
 ### Per-app thresholds — mirrors `scripts/bundle-size-budgets.txt`
 
@@ -226,7 +237,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 366482 B | 378182 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
+| cire/host | static | 393814 B | 405514 B *(re-baselined, englishstreetventures/osn#2385 — see below)* |
 | cire/vendor | static | 99379 B | 103718 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
 | cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -441,6 +452,66 @@ cire/<app>`, on `feat/cire-guest` at `2305bcb13`, rebased onto `origin/main`
 from the commit before `66e039e35`, the one that loads the thread with `lazy()`.
 Chunk sizes are `gzip -9 -n` per file.*
 
+### `cire/host` re-baselined for the disclosure that grows open
+
+`Disclosure` grows its box open instead of jumping, and the module panel's
+`createAutoSize` frame follows that growth instead of animating each frame of
+it (englishstreetventures/osn#2071). The cost is the opening's class strings,
+their CSS rules and the frame's check for a growing `<details>`. No dependency
+is added.
+
+| Build | Measured | Threshold |
+|---|---:|---:|
+| `main` | **377874 B**, 89 files | 378182 B, 308 B of headroom |
+| with the growth | **378318 B**, 89 files (+444) | **390018 B** (+11700) |
+
+*Measured 2026-11-11 — `bun run --cwd cire/host build`, which ends with
+`../../scripts/guard-bundle-size.sh .`, on `feat/cire-disclosure-grows` at
+`57302a7cd`; the `main` figure is the same build with
+`cire/ui/src/disclosure.tsx` and `cire/ui/src/lib/auto-size.ts` taken from
+`origin/main`, which leaves every source the build reads as it is at
+`b0971b3a6`.*
+
+### `cire/host` re-baselined for the dropped row that settles
+
+`@shared/sortable` eases a dropped list row into its slot and keeps the row's
+lifted look until it lands (englishstreetventures/osn#2176). The cost is the
+provider's settle and its settling-row state. No dependency is added. The owner
+chose to raise the row with this change rather than after the other motion work
+(2026-11-11).
+
+| Build | Measured | Threshold |
+|---|---:|---:|
+| `main` | **377989 B**, 89 files | 378182 B, 193 B of headroom |
+| with the settle | **378475 B**, 89 files (+486) | **390175 B** (+11700) |
+
+*Measured 2026-11-11 — `rm -rf cire/host/dist && CLAUDECODE= bun run --cwd
+cire/host build`, which ends with `../../scripts/guard-bundle-size.sh .`, on
+`feat/shared-sortable-settle` at `0af4b5734`, twice; the `main` figure is the
+same build with `shared/sortable/src` taken from `origin/main` `65aad70ad`,
+which leaves every source the build reads as it is there.*
+
+### `cire/host` re-baselined for Remove my Cire data
+
+A host can remove their Cire data from the account menu
+(englishstreetventures/osn#2385). The cost is the removal screen, a `lazy()`
+chunk of 5,695 B fetched only when the screen opens, and the menu item, the done
+page, the code handling and the calls the portal loads at once. No dependency is
+added. Splitting the screen out made the first load 1,870 B smaller than with
+the screen in the main chunk, and added four files to the total.
+
+| Build | Measured | Threshold |
+|---|---:|---:|
+| `main` | **385199 B**, 91 files | 390175 B, 4976 B of headroom |
+| with the removal | **393814 B**, 95 files (+8615) | **405514 B** (+11700) |
+
+*Measured 2026-11-18 — `rm -rf cire/host/dist && CLAUDECODE= bun run --cwd
+cire/host build`, which ends with `../../scripts/guard-bundle-size.sh .`, on
+`feat/cire-remove-my-data` at `78053b3dd`; the `main` figure is the guard's line
+in CI's Build & Test job on `db8c42810`, the branch's base, run 43994079271. The
+chunk figures are `gzip -9` per file from the same build, and the first-load
+comparison is the same build at `f1782495d`, before the split.*
+
 ### `cire/invites` re-baselined after the zod override
 
 The zod security override (englishstreetventures/osn#1744) grew the guest Worker
@@ -594,9 +665,14 @@ guard reads; if the two disagree, it is right and this page is stale.
 
 | Chain | Schema writes now | Line | Priced at 27 | Replays a day (indicative) |
 |---|---:|---:|---:|---:|
-| `cire/db/migrations` | **96** | **192** | 2,592 → 5,184 rows | ~38 now, ~19 at the line |
+| `cire/db/migrations` | **194** | **194** | 5,238 rows | ~19 |
 
-*Measured 2026-10-02 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+*Measured 2026-11-06 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+
+The line is twice the squashed baseline's 96 writes, 192, plus the two writes of
+`platform_refunds`, which landed while the newest migration had not yet
+shipped to production, so the chain could not be squashed first. Bounded until
+englishstreetventures/osn#2096 lands.
 
 The left two columns are exact; the right two move with the constant. The
 chain is one baseline file, one `CREATE` per table and per index, and the line
@@ -725,8 +801,9 @@ warm local bun cache: 879 against 879 in 15.6 s, where the plain
   to keep, the failing guard names one number: set the value line to it and
   put the branch and date in the line's trailing comment. Two raises open at
   once then conflict as text instead of merging to one number. A raise open
-  while the bot lowers the line conflicts too; after the rebase, run the guard
-  again and take the number it names.
+  while the bot lowers the line conflicts too; after the rebase the owner
+  green-lights ([[stacked-prs#Rebasing a stack]]), run the guard again and take
+  the number it names.
 - **Never down in a pull request.** Lowering by hand puts every such branch
   back on the one line that conflicts.
 

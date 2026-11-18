@@ -5,11 +5,11 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
-import config, { READS_REPO, RUNS_ALCHEMY } from "../vitest.config";
+import config, { D1_TIER, READS_REPO, RUNS_ALCHEMY } from "../vitest.config";
 import { ASSET_SITES, SOURCES } from "./support/asset-sites";
 
 /** The Alchemy release whose source this package's builders were checked against. */
-const AUDITED_ALCHEMY = "2.0.0-beta.84";
+const AUDITED_ALCHEMY = "2.0.0-beta.85";
 
 /** Alchemy's core and its Cloudflare provider, released together and pinned at that release. */
 const ALCHEMY_PACKAGES = ["alchemy", "@alchemy.run/cloudflare"];
@@ -148,22 +148,69 @@ describe("pinned Alchemy", () => {
     }
   });
 
-  test("the lockfile resolves no @distilled.cloud/aws and neither of the provider's optional Alchemy peers", () => {
-    // `@distilled.cloud/aws` builds a record of optional values, a schema
-    // Effect 4.0.7 refuses, and the provider reaches it lazily, from an R2
-    // bucket, so a deploy would fail long after start-up checks passed.
-    // `@alchemy.run/frontend-frameworks` depends on it. `@alchemy.run/domain`
-    // is used by no stack, and the dependency review in
-    // wiki/shared/infrastructure-as-code.md covers only what is installed.
+  test("the lockfile resolves every @effect/* package at the Effect version this package pins", () => {
+    // Effect releases `effect` and every `@effect/*` package together, and a
+    // package one release behind can call an export the installed `effect`
+    // no longer has, which fails only when that package's code first runs.
+    const lock = readFileSync(join(repoRoot, "bun.lock"), "utf8");
+    const resolved = [...lock.matchAll(/"(@effect\/[\w.-]+)@([^"]+)"/g)].map(
+      ([, name, version]) => `${name}@${version}`,
+    );
+    expect(resolved.length).toBeGreaterThan(0);
+    expect(
+      new Set(resolved.filter((entry) => !entry.endsWith(`@${own.dependencies?.effect}`))),
+    ).toEqual(new Set());
+  });
+
+  test("the lockfile resolves neither of the provider's optional Alchemy peers", () => {
+    // Both are optional peers of `alchemy` and the provider that no stack
+    // uses, and the dependency review in wiki/shared/infrastructure-as-code.md
+    // covers only what is installed. The AWS SDK the provider installs is
+    // held to what it runs by tests/state-cli.test.ts (SC7, SC8).
     // A resolved copy appears as `"<name>@<version>"`; a peer or optional
     // peer named in another entry's metadata appears without the `@`.
     const lock = readFileSync(join(repoRoot, "bun.lock"), "utf8");
-    const barred = [
-      "@distilled.cloud/aws",
-      "@alchemy.run/frontend-frameworks",
-      "@alchemy.run/domain",
-    ];
+    const barred = ["@alchemy.run/frontend-frameworks", "@alchemy.run/domain"];
     expect(barred.filter((name) => lock.includes(`"${name}@`))).toEqual([]);
+  });
+
+  test("the lockfile resolves one @distilled.cloud/aws, the one the provider pins, and nothing else depends on it", () => {
+    // The AWS SDK's S3 module declares a schema Effect refuses, and
+    // tests/state-cli.test.ts (SC7, SC8) holds what reaches it to the
+    // provider's two multipart-upload operations. A workspace or another
+    // package depending on it would reach the SDK where neither test looks.
+    /** What a lockfile entry or a workspace declares it depends on. */
+    type Declared = {
+      readonly [
+        field in "dependencies" | "devDependencies" | "peerDependencies" | "optionalDependencies"
+      ]?: Readonly<Record<string, string>>;
+    };
+    const lock = Bun.JSONC.parse(readFileSync(join(repoRoot, "bun.lock"), "utf8")) as {
+      readonly workspaces: Readonly<Record<string, Declared>>;
+      readonly packages: Readonly<Record<string, readonly [string, string?, Declared?]>>;
+    };
+    const SDK = "@distilled.cloud/aws";
+    const names = (declared: Declared): string[] =>
+      Object.keys({
+        ...declared.dependencies,
+        ...declared.devDependencies,
+        ...declared.peerDependencies,
+        ...declared.optionalDependencies,
+      });
+    const entries = Object.values(lock.packages);
+    const provider = `@alchemy.run/cloudflare@${AUDITED_ALCHEMY}`;
+    expect(
+      entries.filter(([, , meta]) => names(meta ?? {}).includes(SDK)).map(([id]) => id),
+    ).toEqual([provider]);
+    expect(
+      Object.entries(lock.workspaces)
+        .filter(([, workspace]) => names(workspace).includes(SDK))
+        .map(([dir]) => dir),
+    ).toEqual([]);
+    const pinned = entries.find(([id]) => id === provider)?.[2]?.dependencies?.[SDK];
+    expect(entries.filter(([id]) => id.startsWith(`${SDK}@`)).map(([id]) => id)).toEqual([
+      `${SDK}@${pinned}`,
+    ]);
   });
 
   test("Alchemy's CLI, started in this package or any stack, imports exactly one provider package, @alchemy.run/cloudflare", () => {
@@ -214,9 +261,11 @@ describe("the vitest projects", () => {
     // A file in the package project is cached on this package's files alone,
     // so one that read a workflow or another package from there would pass
     // from the cache after that file changed.
+    // The D1 tier reads the repository too, and is cached on its own inputs (`test:d1`).
     const files = readdirSync(join(packageDir, "tests"), { recursive: true, encoding: "utf8" })
       .filter((path) => path.endsWith(".test.ts"))
-      .map((path) => `tests/${path}`);
+      .map((path) => `tests/${path}`)
+      .filter((file) => !D1_TIER.includes(file));
     const climbs = (file: string): boolean => {
       const source = readFileSync(join(packageDir, file), "utf8");
       const depth = file.split("/").length - 1;
@@ -250,16 +299,45 @@ describe("the vitest projects", () => {
     expect(running.toSorted()).toEqual(RUNS_ALCHEMY.toSorted());
   });
 
-  test("each test file runs in exactly one project: package, repo or alchemy", () => {
+  test("each test file runs in exactly one project: package, repo, alchemy or d1", () => {
     const projects = (config.test?.projects ?? []) as unknown as readonly Project[];
     const byName = Object.fromEntries(projects.map((project) => [project.test.name, project.test]));
-    expect(Object.keys(byName).toSorted()).toEqual(["alchemy", "package", "repo"]);
+    expect(Object.keys(byName).toSorted()).toEqual(["alchemy", "d1", "package", "repo"]);
     expect(byName.package?.include).toEqual(["tests/**/*.test.ts"]);
     expect([...(byName.package?.exclude ?? [])].toSorted()).toEqual(
-      [...READS_REPO, ...RUNS_ALCHEMY].toSorted(),
+      [...READS_REPO, ...RUNS_ALCHEMY, ...D1_TIER].toSorted(),
     );
     expect([...(byName.repo?.include ?? [])].toSorted()).toEqual(READS_REPO.toSorted());
     expect([...(byName.alchemy?.include ?? [])].toSorted()).toEqual(RUNS_ALCHEMY.toSorted());
+    expect([...(byName.d1?.include ?? [])].toSorted()).toEqual(D1_TIER.toSorted());
+  });
+
+  // turbo replays `test:d1` from its cache unless an input changed, so every
+  // file the D1 tier reads outside this package is one.
+  test("the D1 tier runs only under test:d1, and reruns when a migration, a Wrangler config or a stack's migration sources change", () => {
+    expect(own.scripts?.["test:d1"]).toBe("INFRA_D1_TIER=1 bunx --bun vitest run --project d1");
+    const task = (packageTurbo().tasks["test:d1"] ?? {}) as {
+      readonly inputs?: readonly string[];
+      readonly outputs?: readonly string[];
+    };
+    for (const input of [
+      "$TURBO_DEFAULT$",
+      "$TURBO_ROOT$/bun.lock",
+      "$TURBO_ROOT$/patches/**",
+      "$TURBO_ROOT$/cire/db/migrations/**",
+      "$TURBO_ROOT$/cire/db/migrations-archive/**",
+      "$TURBO_ROOT$/osn/db/drizzle/**",
+      "$TURBO_ROOT$/zap/db/drizzle/**",
+      "$TURBO_ROOT$/cire/api/wrangler.toml",
+      "$TURBO_ROOT$/osn/api/wrangler.toml",
+      "$TURBO_ROOT$/zap/api/wrangler.toml",
+      "$TURBO_ROOT$/cire/infra/src/declaration.ts",
+      "$TURBO_ROOT$/musubi/infra/src/declaration.ts",
+      "$TURBO_ROOT$/zap/infra/src/declaration.ts",
+    ]) {
+      expect(task.inputs).toContain(input);
+    }
+    expect(task.outputs).toEqual(["d1-artifacts/**"]);
   });
 });
 

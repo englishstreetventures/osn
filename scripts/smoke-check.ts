@@ -3,20 +3,26 @@
  * Check a Worker straight after its deploy, and roll it back when it answers
  * wrongly.
  *
- * Runs after every Worker deploy: in production-release.yml as the step after
- * each production Worker's `wrangler deploy`, and once per site after each
- * production stack's Alchemy deploy; in deploy.yml (dev) once per surface of
- * a stack, after the Alchemy deploy of that stack:
+ * Runs after every Worker deploy, once per surface of a stack after the
+ * Alchemy deploy of that stack: in production-release.yml on production, in
+ * deploy.yml on dev:
  *
  *   bun run scripts/smoke-check.ts <surface> <tier>
  *
  * A deploy reports success when the upload succeeds, not when the Worker can
  * serve: a missing secret makes osn-api answer 503 on every route while its
  * job goes green. This asks the Worker's own hosts (SMOKE_TARGETS) what a
- * working one answers, every 10 seconds for a minute (or the longer budget
- * SMOKE_BUDGET_MS grants), and calls the deploy healthy once every probe
- * passes in two rounds in a row. On dev every surface is a Worker, the sites
- * included, and each is checked.
+ * working one answers, every 10 seconds for a minute, and calls the deploy
+ * healthy once every probe passes in two rounds in a row. On dev every
+ * surface is a Worker, the sites included, and each is checked.
+ *
+ * A production site whose host PRODUCTION_HOST_HOLDS holds off
+ * (shared/infra/src/production-sites.ts) has no host to ask: its stack
+ * declares the Worker with no custom domain. Its check reads the Worker's
+ * custom domains instead, tried as a deployments read is, and passes only
+ * when the held host is not among them. It probes nothing and rolls nothing
+ * back. It reads custom domains, not zone routes: a route sending the held
+ * host to the Worker is not seen.
  *
  * Two rounds, because no answer here names the version that gave it: a request
  * made the moment the deploy returns can still reach the version before it.
@@ -35,13 +41,12 @@
  * secret values back — a rotated key, a revoked sign-in secret — so when
  * Cloudflare refuses for that reason, this leaves the Worker as it is and asks a
  * person. It reads the Worker's deployments before the first probe, and rolls
- * back only while the newest of them is the one this job made — on production
- * the version named in the output file the deploy step's wrangler wrote, on
- * dev the deployment id scripts/worker-deployments.ts found after the stack
- * deploy — so a deploy made by anything else, before or during the check, is
- * never overwritten. Each read of the deployments is tried up to three times,
+ * back only while the newest of them is the one this job made — the
+ * deployment id scripts/worker-deployments.ts found after the stack deploy —
+ * so a deploy made by anything else, before or during the check, is never
+ * overwritten. Each read of the deployments is tried up to three times,
  * 1 s then 2 s apart, after a network error, a timeout, a 429 or a 5xx; the
- * restore itself is sent once. On dev a Worker the stack deploy left unchanged is never
+ * restore itself is sent once. A Worker the stack deploy left unchanged is never
  * rolled back, and one still serving what an earlier smoke check restored
  * fails at once: the stack's state names code that Worker does not serve, and
  * the next run re-uploads it with --force. An unchanged Worker whose history
@@ -85,15 +90,8 @@
  *   GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT
  *                       name the run in the rollback message.
  *   GITHUB_STEP_SUMMARY receives a line when the check fails.
- * Production only:
- *   WRANGLER_OUTPUT_FILE_PATH
- *                       the file the deploy step's `wrangler deploy` wrote its
- *                       output to (the workflow sets it on both steps). Its
- *                       `deploy` entry names the version this job deployed.
- *                       Unset, as in a hand run, the newest deployment at the
- *                       first read is taken to be this job's.
- * A Worker a stack deploys (every dev surface, and each production site in
- * SMOKE_TARGETS' `productionSite`), each required:
+ * Every surface, each required (a held production site's check reads its hold
+ * and probes nothing):
  *   SMOKE_ORIGIN        the https:// origin of the surface's host, with no
  *                       path, query or trailing slash, from the stack job's
  *                       dev-hosts step on dev and its production-hosts step on
@@ -106,20 +104,19 @@
  *                       when it made none, or `unknown` when it could not
  *                       read the Worker (then the check probes and never rolls
  *                       back).
- * Optional, any tier:
- *   SMOKE_BUDGET_MS     how long to keep asking, in milliseconds, from 60000
- *                       to TIMING.maxBudgetMs (240000); unset or empty, a
- *                       minute. The production stack job sets it, from
- *                       scripts/smoke-budgets.ts, for a site whose release
- *                       attaches a new host. Any other value is a usage
- *                       error.
  *
- * Exit codes: 0 healthy; 1 unhealthy; 2 a usage error, before any request —
+ * Exit codes: 0 healthy, or held and off its Worker; 1 unhealthy, or held and
+ * still on its Worker or unread; 2 a usage error, before any request —
  * nothing is rolled back.
  */
 
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 
+import {
+  HOST_HOLDS_FILE,
+  type HostHold,
+  PRODUCTION_HOST_HOLDS,
+} from "../shared/infra/src/production-sites";
 import type { SurfaceKey } from "./deploy-surfaces";
 
 // ── what each Worker answers ────────────────────────────────────────────────
@@ -156,18 +153,6 @@ export interface Probe {
   readonly bearer?: "INTERNAL_SERVICE_SECRET";
 }
 
-export interface SmokeTarget {
-  /** The Cloudflare Worker this tier's deploy step deploys, by name. */
-  readonly worker: string;
-  /** Where the deploy step runs wrangler, relative to the repository root. */
-  readonly cwd: string;
-  /** The arguments that pick the Worker, exactly as the deploy step passes them. */
-  readonly wrangler: readonly string[];
-  readonly probes: readonly Probe[];
-  /** The host sits behind Cloudflare Access, so probes need a service token. */
-  readonly access?: boolean;
-}
-
 /** The origins a dev target's probes are built from, as the stack job passes them. */
 export interface DevOrigins {
   readonly origin: string;
@@ -189,22 +174,22 @@ export interface DevSmokeTarget {
 }
 
 /**
- * A production site Worker the production stack deploys. Its host depends on
- * the site's mode (shared/infra/src/production-sites.ts), so the stack job
- * passes its origin, as on dev.
+ * A production Worker a production stack deploys, API or site. The stack job
+ * passes the origin of its host (production-hosts), as on dev, and what its
+ * compare found.
  */
-export interface SiteSmokeTarget {
+export interface ProductionSmokeTarget {
   /** The Worker's production script name, which a rollback acts on. */
   readonly worker: string;
-  readonly probes: (origin: string) => readonly Probe[];
+  readonly probes: (origins: DevOrigins) => readonly Probe[];
+  /** The probes need SMOKE_MARKETING_ORIGIN as well as SMOKE_ORIGIN. */
+  readonly needsMarketing: boolean;
 }
 
 interface SmokeTargets {
   readonly dev?: DevSmokeTarget;
-  /** A Worker production-release.yml deploys with Wrangler. */
-  readonly production?: SmokeTarget;
-  /** A site Worker the production stack deploys. */
-  readonly productionSite?: SiteSmokeTarget;
+  /** The Worker a production stack deploys. */
+  readonly production?: ProductionSmokeTarget;
 }
 
 const health = (origin: string): Probe => ({
@@ -287,20 +272,18 @@ function marketingOf(origins: DevOrigins): string {
 }
 
 /**
- * Production hosts come from each Worker's route config (wrangler.toml,
- * wrangler.jsonc), Worker names from the same files, and the marketing origin
- * from the job's PUBLIC_MARKETING_URL; scripts/tests/smoke-targets.test.ts
- * holds them equal. A dev target names no host: the stack job passes the
- * origin its dev-hosts step derives (SMOKE_ORIGIN). Its Worker is the dev
- * script name the stack declares.
+ * No target names a host: the stack job passes the origin its dev-hosts or
+ * production-hosts step derives (SMOKE_ORIGIN, and the guest site's
+ * SMOKE_MARKETING_ORIGIN). Each Worker is the script name the stack declares;
+ * scripts/tests/smoke-targets.test.ts holds the production names to the
+ * Wrangler configs' and the stacks' tests to their declarations.
  */
 export const SMOKE_TARGETS = {
   cire_api: {
     production: {
       worker: "cire-api-production",
-      cwd: "cire/api",
-      wrangler: ["--env", "production"],
-      probes: [cireSession("https://api.cireweddings.com")],
+      probes: ({ origin }) => [cireSession(origin)],
+      needsMarketing: false,
     },
     dev: {
       worker: "cire-api-dev",
@@ -312,9 +295,8 @@ export const SMOKE_TARGETS = {
   cire_invites: {
     production: {
       worker: "cire-invites",
-      cwd: "cire/invites",
-      wrangler: ["--config", "dist/server/wrangler.json"],
-      probes: guestSite("https://invite.cireweddings.com", "https://cireweddings.com"),
+      probes: (origins) => guestSite(origins.origin, marketingOf(origins)),
+      needsMarketing: true,
     },
     dev: {
       worker: "cire-invites-dev",
@@ -326,13 +308,8 @@ export const SMOKE_TARGETS = {
   osn_api: {
     production: {
       worker: "osn-api-production",
-      cwd: "osn/api",
-      wrangler: ["--env", "production"],
-      probes: [
-        health("https://id.musubi.social"),
-        jwks("https://id.musubi.social"),
-        coordination("https://id.musubi.social"),
-      ],
+      probes: ({ origin }) => [health(origin), jwks(origin), coordination(origin)],
+      needsMarketing: false,
     },
     dev: {
       worker: "osn-api-dev",
@@ -344,9 +321,8 @@ export const SMOKE_TARGETS = {
   zap_api: {
     production: {
       worker: "zap-api-production",
-      cwd: "zap/api",
-      wrangler: ["--env", "production"],
-      probes: [health("https://zap.cireweddings.com")],
+      probes: ({ origin }) => [health(origin)],
+      needsMarketing: false,
     },
     dev: {
       worker: "zap-api-dev",
@@ -356,7 +332,11 @@ export const SMOKE_TARGETS = {
     },
   },
   cire_host: {
-    productionSite: { worker: "cire-host", probes: organiserPortal },
+    production: {
+      worker: "cire-host",
+      probes: ({ origin }) => organiserPortal(origin),
+      needsMarketing: false,
+    },
     dev: {
       worker: "cire-host-dev",
       access: true,
@@ -365,7 +345,11 @@ export const SMOKE_TARGETS = {
     },
   },
   cire_vendor: {
-    productionSite: { worker: "cire-vendor", probes: (origin) => [sitePage(origin, "/")] },
+    production: {
+      worker: "cire-vendor",
+      probes: ({ origin }) => [sitePage(origin, "/")],
+      needsMarketing: false,
+    },
     dev: {
       worker: "cire-vendor-dev",
       access: true,
@@ -374,7 +358,11 @@ export const SMOKE_TARGETS = {
     },
   },
   cire_landing: {
-    productionSite: { worker: "cire-landing", probes: (origin) => [sitePage(origin, "/")] },
+    production: {
+      worker: "cire-landing",
+      probes: ({ origin }) => [sitePage(origin, "/")],
+      needsMarketing: false,
+    },
     dev: {
       worker: "cire-landing-dev",
       access: true,
@@ -383,13 +371,14 @@ export const SMOKE_TARGETS = {
     },
   },
   osn_social: {
-    productionSite: {
+    production: {
       worker: "osn-social",
-      probes: (origin) => [
+      probes: ({ origin }) => [
         sitePage(origin, "/"),
         sitePage(origin, "/smoke-check-deep-link"),
         appleAssociation(origin),
       ],
+      needsMarketing: false,
     },
     dev: {
       worker: "osn-social-dev",
@@ -400,7 +389,11 @@ export const SMOKE_TARGETS = {
     },
   },
   musubi_landing: {
-    productionSite: { worker: "musubi-landing", probes: (origin) => [sitePage(origin, "/")] },
+    production: {
+      worker: "musubi-landing",
+      probes: ({ origin }) => [sitePage(origin, "/")],
+      needsMarketing: false,
+    },
     dev: {
       worker: "musubi-landing-dev",
       access: true,
@@ -409,12 +402,13 @@ export const SMOKE_TARGETS = {
     },
   },
   pulse_landing: {
-    productionSite: {
+    production: {
       worker: "pulse-landing",
-      probes: (origin) => [
+      probes: ({ origin }) => [
         sitePage(origin, "/"),
         { url: `${origin}/api/geo`, expects: { kind: "jsonObject" } },
       ],
+      needsMarketing: false,
     },
     dev: {
       worker: "pulse-landing-dev",
@@ -431,16 +425,10 @@ export const SMOKE_TARGETS = {
 
 export type WorkerSurface = keyof typeof SMOKE_TARGETS;
 
-/** The production target for a surface, or undefined when production deploys no Worker for it. */
-export function productionTarget(surface: SurfaceKey): SmokeTarget | undefined {
+/** The production target for a surface, or undefined when no production stack deploys a Worker for it. */
+export function productionTarget(surface: SurfaceKey): ProductionSmokeTarget | undefined {
   const tiers: SmokeTargets = SMOKE_TARGETS[surface];
   return tiers.production;
-}
-
-/** The production site target for a surface, or undefined when no production stack deploys a site Worker for it. */
-export function productionSiteTarget(surface: SurfaceKey): SiteSmokeTarget | undefined {
-  const tiers: SmokeTargets = SMOKE_TARGETS[surface];
-  return tiers.productionSite;
 }
 
 /** The dev target for a surface, or undefined when dev deploys no Worker for it. */
@@ -465,8 +453,7 @@ export type Outcome =
 const PASS: Outcome = { kind: "pass" };
 
 /** Text on one line, at most `max` characters. */
-export const oneLine = (text: string, max = 200) =>
-  text.replaceAll(/\s+/g, " ").trim().slice(0, max);
+const oneLine = (text: string, max = 200) => text.replaceAll(/\s+/g, " ").trim().slice(0, max);
 
 function locationOf(response: Response, base: string): URL | undefined {
   const location = response.headers.get("location");
@@ -652,8 +639,7 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
 
 /**
  * The user agent every check of a deployed host sends: this one, and
- * scripts/site-parity.ts, scripts/guest-route-parity.ts and
- * cire/api/scripts/d1-latency-probe.ts. Cloudflare's Bot Fight Mode answers a
+ * scripts/guest-route-parity.ts and cire/api/scripts/d1-latency-probe.ts. Cloudflare's Bot Fight Mode answers a
  * request from a GitHub runner that carries Bun's own (`Bun/<version>`) with
  * a challenge in the Worker's place; it lets this one through.
  */
@@ -691,15 +677,12 @@ export async function probeOnce(
 
 /**
  * How long the check keeps asking, how often, and how long one request may
- * take. `maxBudgetMs` is the most SMOKE_BUDGET_MS may set, and what
- * scripts/smoke-budgets.ts sets for a site whose release attaches a new host:
- * that host's first certificate takes about two minutes. With every request
- * at its timeout, a check at that budget, its rollback and the re-check end
- * within 366 s, inside the seven minutes each step that sets it allows.
+ * take. With every request at its timeout, a check, its rollback and the
+ * re-check end within 186 s, inside the five minutes each production site's
+ * smoke step allows (SB4 in scripts/tests/smoke-check.test.ts).
  */
 export const TIMING = {
   budgetMs: 60_000,
-  maxBudgetMs: 240_000,
   intervalMs: 10_000,
   requestMs: 10_000,
 } as const;
@@ -708,6 +691,9 @@ const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 
 /** Cloudflare's refusal to restore a version whose secrets have changed since. */
 export const SECRETS_CHANGED = 10_220;
+
+/** Cloudflare's answer for a Worker that does not exist on the account. */
+export const NO_SUCH_WORKER = 10_007;
 
 /** One entry of a Worker's deployment history. */
 export interface Deployment {
@@ -859,82 +845,94 @@ export async function readDeployments(
   };
 }
 
-/**
- * The version a `wrangler deploy` reports in its output file: the last
- * `deploy` entry's `version_id`. Undefined when the file names none.
- */
-export function deployedVersion(ndjson: string): string | undefined {
-  const versions = ndjson.split("\n").flatMap((line) => {
-    try {
-      const entry = JSON.parse(line) as { type?: unknown; version_id?: unknown } | null;
-      return entry?.type === "deploy" && typeof entry.version_id === "string"
-        ? [entry.version_id]
-        : [];
-    } catch {
-      return [];
-    }
-  });
-  return versions.at(-1);
-}
+/** A Worker's custom domains, as `workerDomains` read them. */
+export type WorkerDomains =
+  | { readonly kind: "found"; readonly hosts: readonly string[] }
+  | { readonly kind: "failed"; readonly reason: string };
 
-/** The version named in the deploy step's output file, or why it cannot be read. */
-function readDeployedVersion(path: string): string | { readonly error: string } {
-  try {
-    const version = deployedVersion(readFileSync(path, "utf8"));
-    return version ?? { error: "the deploy step's wrangler output names no deployed version" };
-  } catch {
-    return {
-      error: "the deploy step's wrangler output (WRANGLER_OUTPUT_FILE_PATH) cannot be read",
-    };
-  }
+/**
+ * The custom domains `worker` holds now, sorted: none for a Worker that does
+ * not exist yet. A read is tried again as a deployments read is. The reason
+ * a read failed names the status and Cloudflare's error codes, never its
+ * message.
+ */
+export async function workerDomains(api: Cloudflare, worker: string): Promise<WorkerDomains> {
+  const url = `${CLOUDFLARE_API}/accounts/${api.account}/workers/domains?service=${encodeURIComponent(worker)}`;
+  const attempt = async (): Promise<{
+    readonly answer: WorkerDomains;
+    readonly transient: boolean;
+  }> => {
+    try {
+      const response = await api.fetch(url, {
+        headers: { authorization: `Bearer ${api.token}` },
+        signal: AbortSignal.timeout(TIMING.requestMs),
+      });
+      const envelope = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        errors?: readonly { code?: number; message?: string }[];
+        result?: unknown;
+      };
+      const codes = (envelope.errors ?? []).flatMap((e) =>
+        typeof e.code === "number" ? [e.code] : [],
+      );
+      if (response.ok && envelope.success === true && Array.isArray(envelope.result)) {
+        const hosts = (envelope.result as { hostname?: unknown; service?: unknown }[]).flatMap(
+          (domain) =>
+            domain.service === worker && typeof domain.hostname === "string"
+              ? [domain.hostname]
+              : [],
+        );
+        return {
+          answer: { kind: "found", hosts: [...new Set(hosts)].toSorted() },
+          transient: false,
+        };
+      }
+      if (codes.includes(NO_SUCH_WORKER)) {
+        return { answer: { kind: "found", hosts: [] }, transient: false };
+      }
+      return {
+        answer: {
+          kind: "failed",
+          reason: `Cloudflare answered ${response.status}${codes.length > 0 ? ` (codes ${codes.join(", ")})` : ""}`,
+        },
+        transient: response.status === 429 || response.status >= 500,
+      };
+    } catch {
+      return {
+        answer: { kind: "failed", reason: "no answer from the Cloudflare API" },
+        transient: true,
+      };
+    }
+  };
+  const retry = async (delays: readonly number[]): Promise<WorkerDomains> => {
+    const { answer, transient } = await attempt();
+    const [delay, ...rest] = delays;
+    if (!transient || delay === undefined) return answer;
+    await api.sleep(delay);
+    return retry(rest);
+  };
+  return retry(READ_RETRY_DELAYS_MS);
 }
 
 /**
  * What a rollback would restore, read before the first probe: the newest
- * deployment, which must be this job's, and the version that served at 100%
- * in the newest one before it — the choice `wrangler rollback` makes.
- * `refused` marks a plan that a deploy by something else made unsafe.
+ * deployment, which must be the one this job's stack deploy made, and the
+ * version that served at 100% in the newest one before it — the choice
+ * `wrangler rollback` makes. `refused` marks a plan that a deploy by something
+ * else, or no deploy at all, made unsafe.
  */
 export type RestorePlan =
   | { readonly ok: true; readonly newest: string; readonly version: string }
   | { readonly ok: false; readonly refused: boolean; readonly reason: string };
 
-export function restorePlan(
-  newestFirst: readonly Deployment[],
-  deployed: string | undefined,
-): RestorePlan {
-  const [newest, ...earlier] = newestFirst;
-  if (newest === undefined) {
-    return { ok: false, refused: false, reason: "the Worker has no deployments" };
-  }
-  const serving = newest.versions.find((v) => v.percentage === 100)?.version_id;
-  if (deployed !== undefined && serving !== deployed) {
-    return {
-      ok: false,
-      refused: true,
-      reason: `the newest deployment serves ${serving ?? "a split of versions"}, not ${deployed}, the version this job deployed`,
-    };
-  }
-  const before = earlier
-    .map((deployment) => deployment.versions.find((v) => v.percentage === 100))
-    .find((version) => version !== undefined);
-  return before === undefined
-    ? {
-        ok: false,
-        refused: false,
-        reason: "no earlier version served all traffic — a first deploy has none",
-      }
-    : { ok: true, newest: newest.id, version: before.version_id };
-}
-
 /**
- * What a rollback on dev would restore, read before the first probe, judged by
- * the deployment the stack deploy made (SMOKE_DEPLOYMENT): never a Worker the
+ * What a rollback would restore, read before the first probe, judged by the
+ * deployment the stack deploy made (SMOKE_DEPLOYMENT): never a Worker the
  * deploy left unchanged or could not read, never once another deployment has
  * replaced this run's, and otherwise the version that served at 100% in the
  * newest deployment before it.
  */
-export function devRestorePlan(
+export function restorePlan(
   newestFirst: readonly Deployment[],
   deployment: string,
   worker: string,
@@ -1061,6 +1059,53 @@ export interface SmokeCheckInput {
   readonly now: () => number;
   readonly sleep: (ms: number) => Promise<void>;
   readonly out: (text: string) => void;
+  /** The host holds, PRODUCTION_HOST_HOLDS unless a test passes its own. */
+  readonly holds?: readonly HostHold[];
+}
+
+/**
+ * The check of a production site whose host `hold` holds off its Worker:
+ * there is no host to probe, so it reads the Worker's custom domains and
+ * passes only when the held host is not among them. Never rolls back.
+ */
+async function checkHeld(held: {
+  readonly surface: string;
+  readonly worker: string;
+  readonly hold: HostHold;
+  readonly input: SmokeCheckInput;
+}): Promise<number> {
+  const { surface, worker, hold, input } = held;
+  const label = `${surface} (production)`;
+  const holding = `${hold.host} is held off ${worker} by PRODUCTION_HOST_HOLDS in ${HOST_HOLDS_FILE}`;
+  const summary = (line: string) => {
+    if (input.env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(input.env.GITHUB_STEP_SUMMARY, `- **${label}**: ${line}\n`);
+    }
+  };
+  const fail = (message: string): number => {
+    input.out(annotation("error", `${label}: ${message}`));
+    summary(message);
+    return 1;
+  };
+  const api = cloudflareCredentials(input.env, input.fetch, input.sleep);
+  if (typeof api === "string") {
+    return fail(
+      `${holding}, but ${api}, so the check cannot read that no custom domain of the Worker is that host.`,
+    );
+  }
+  const domains = await workerDomains(api, worker);
+  if (domains.kind === "failed") {
+    return fail(`${holding}, but its custom domains could not be read: ${domains.reason}.`);
+  }
+  if (domains.hosts.includes(hold.host)) {
+    return fail(
+      `${worker} still serves ${hold.host}, which PRODUCTION_HOST_HOLDS in ${HOST_HOLDS_FILE} holds off: take it off the Worker in the Cloudflare dashboard. Nothing was rolled back.`,
+    );
+  }
+  const line = `${holding} (${hold.reason}), and no custom domain of the Worker is that host, so there is nothing to probe.`;
+  input.out(annotation("notice", `${label}: ${line}`));
+  summary(line);
+  return 0;
 }
 
 const isWorkerSurface = (value: string): value is WorkerSurface =>
@@ -1103,19 +1148,14 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   }
   if (tier !== "dev" && tier !== "production")
     return usage(`tier must be dev or production, not '${tier}'`);
+  const budgetMs = TIMING.budgetMs;
 
-  // A longer wait is the stack job's to grant, within bounds: a wait past
-  // the step's time limit would cut off a rollback.
-  const budgetValue = env.SMOKE_BUDGET_MS ?? "";
-  let budgetMs: number = TIMING.budgetMs;
-  if (budgetValue !== "") {
-    const asked = /^[1-9][0-9]*$/.test(budgetValue) ? Number(budgetValue) : Number.NaN;
-    if (Number.isNaN(asked) || asked < TIMING.budgetMs || asked > TIMING.maxBudgetMs) {
-      return usage(
-        `SMOKE_BUDGET_MS must be a whole number of milliseconds from ${TIMING.budgetMs} to ${TIMING.maxBudgetMs}, or empty for ${TIMING.budgetMs}, not '${oneLine(budgetValue, 100)}'`,
-      );
-    }
-    budgetMs = asked;
+  const site = tier === "production" ? productionTarget(surface) : undefined;
+  const holds = input.holds ?? PRODUCTION_HOST_HOLDS;
+  const hold =
+    site === undefined ? undefined : holds.find((candidate) => candidate.site === surface);
+  if (site !== undefined && hold !== undefined) {
+    return checkHeld({ surface, worker: site.worker, hold, input });
   }
 
   // The origins on dev, and the deployment the stack deploy made, are the
@@ -1144,29 +1184,26 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   };
 
   let checked: Checked;
-  let deployment: string | undefined;
-  const site = tier === "production" ? productionSiteTarget(surface) : undefined;
-  if (site !== undefined) {
-    // A site Worker the production stack deployed, on the host its mode
-    // gives it; the stack job passes that origin and what its compare found.
-    const siteOrigin = origin("SMOKE_ORIGIN");
-    if (siteOrigin === undefined) return badOrigin("SMOKE_ORIGIN");
+  let deployment: string;
+  if (tier === "production") {
+    // A Worker a production stack deployed, on its production host; the
+    // stack job passes that origin and what its compare found.
+    if (site === undefined) return usage(`${surface} has no production Worker`);
+    const productionOrigin = origin("SMOKE_ORIGIN");
+    if (productionOrigin === undefined) return badOrigin("SMOKE_ORIGIN");
+    const marketing = site.needsMarketing ? origin("SMOKE_MARKETING_ORIGIN") : undefined;
+    if (site.needsMarketing && marketing === undefined) return badOrigin("SMOKE_MARKETING_ORIGIN");
     const found = readDeployment();
     if (typeof found === "number") return found;
     deployment = found;
     checked = {
       worker: site.worker,
-      probes: site.probes(siteOrigin),
+      probes: site.probes(
+        marketing === undefined
+          ? { origin: productionOrigin }
+          : { origin: productionOrigin, marketing },
+      ),
       access: false,
-      gate: undefined,
-    };
-  } else if (tier === "production") {
-    const target = productionTarget(surface);
-    if (target === undefined) return usage(`${surface} has no production Worker`);
-    checked = {
-      worker: target.worker,
-      probes: target.probes,
-      access: target.access === true,
       gate: undefined,
     };
   } else {
@@ -1205,6 +1242,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   }
 
   const label = `${surface} (${tier})`;
+  const workflow = tier === "production" ? "Production release" : "Deploy";
   const summary = (line: string) => {
     if (env.GITHUB_STEP_SUMMARY) {
       appendFileSync(env.GITHUB_STEP_SUMMARY, `- **${label}**: ${line}\n`);
@@ -1234,7 +1272,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     out(
       annotation(
         "error",
-        `${label}: this run deployed nothing to ${checked.worker}, and its deployment history could not be read (${reason}), so the check cannot tell whether an earlier smoke check restored ${checked.worker}. Not probed and not rolled back; dispatch Deploy to check it again.`,
+        `${label}: this run deployed nothing to ${checked.worker}, and its deployment history could not be read (${reason}), so the check cannot tell whether an earlier smoke check restored ${checked.worker}. Not probed and not rolled back; dispatch ${workflow} to check it again.`,
         "Smoke check failed",
       ),
     );
@@ -1248,11 +1286,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   if (deployment === "unchanged" && typeof api === "string") return unreadableUnchanged(api);
   let plan: RestorePlan | undefined;
   if (typeof api !== "string") {
-    const output = deployment === undefined ? (env.WRANGLER_OUTPUT_FILE_PATH ?? "") : "";
-    const deployed = output === "" ? undefined : readDeployedVersion(output);
-    if (typeof deployed === "object") {
-      plan = { ok: false, refused: false, reason: deployed.error };
-    } else {
+    {
       const deployments = await readDeployments(api, checked.worker);
       if (deployment === "unchanged" && !deployments.ok) {
         return unreadableUnchanged(deployments.reason);
@@ -1262,7 +1296,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
         out(
           annotation(
             "error",
-            `${label}: an earlier smoke check restored ${checked.worker}, and this run deployed nothing over it, so it does not serve what this commit declares. The next run sees that rollback and re-uploads the Worker with --force; dispatch Deploy to run it now.`,
+            `${label}: an earlier smoke check restored ${checked.worker}, and this run deployed nothing over it, so it does not serve what this commit declares. The next run sees that rollback and re-uploads the Worker with --force; dispatch ${workflow} to run it now.`,
             "Smoke check failed",
           ),
         );
@@ -1278,10 +1312,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
           reason: `reading the deployments before the check: ${deployments.reason}`,
         };
       } else {
-        plan =
-          deployment === undefined
-            ? restorePlan(deployments.result, deployed)
-            : devRestorePlan(deployments.result, deployment, checked.worker);
+        plan = restorePlan(deployments.result, deployment, checked.worker);
       }
     }
   }
@@ -1394,17 +1425,14 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const rollback = await rollBack(api, checked.worker, plan, rollbackMessage(env));
   // What the Worker runs now is not known here — a request that timed out may
   // still have landed — so the person is told what to check, and what served
-  // before this deploy when that is known. A rollback by hand of a Worker a
-  // stack deploys (every dev Worker, and the production sites) leaves the
-  // stack's state naming code the Worker does not serve, which no later run
-  // would see, so only a Worker Wrangler deploys is told how to make one.
+  // before this deploy when that is known. Every Worker is a stack's, and a
+  // rollback by hand leaves the stack's state naming code the Worker does not
+  // serve, which no later run would see, so nobody is told how to make one.
   const lookFirst = `Check what ${checked.worker} serves (its Deployments tab) before acting.`;
   const byHand =
     plan?.ok !== true
       ? lookFirst
-      : deployment === undefined
-        ? `${lookFirst} The version that served before this deploy is ${plan.version}; to restore it by hand, run \`bunx wrangler rollback ${plan.version}\` with the Worker's selector.`
-        : `${lookFirst} The version that served before this deploy is ${plan.version}.`;
+      : `${lookFirst} The version that served before this deploy is ${plan.version}.`;
   if (rollback.kind === "refused") {
     out(annotation("error", `Not rolled back: ${rollback.reason}. ${byHand}`, "Rollback refused"));
     summary(`smoke check failed; rollback refused: ${rollback.reason}.`);

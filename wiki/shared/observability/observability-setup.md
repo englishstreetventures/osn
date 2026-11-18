@@ -8,7 +8,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[shared/observability/logging]]"
   - "[[shared/observability/tracing]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-11
 ---
 
 # Observability Setup Runbook
@@ -164,7 +164,7 @@ echo -n "<instance-id>:<api-token>" | base64
 
 ### Debug Logs Appearing in Production
 
-**Symptom:** Verbose debug output (e.g. step-up OTP codes in dev paths) visible in prod logs.
+**Symptom:** Verbose debug output (e.g. the local-only `[dev-link]` lines) visible in prod logs.
 
 **Cause:** The observability layer's minimum log level is `Info` by default. An override or a misconfiguration lets `Debug` entries through.
 

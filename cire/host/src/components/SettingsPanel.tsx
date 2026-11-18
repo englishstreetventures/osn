@@ -8,6 +8,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import type { InAppLink } from "../lib/link-click";
 import { invalidateRegistry, peekCachedRegistry } from "../lib/registry-store";
 import { invalidateTasks } from "../lib/tasks-store";
 import { TIER_LABEL } from "../lib/tiers";
@@ -89,6 +90,9 @@ interface SettingsPanelProps {
   onWeddingDeleted?: (restoreUntil: string) => void;
   /** An owner redeemed an unlock code and the wedding is on `tier` now. */
   onTierRaised?: (tier: PaidTier) => void;
+  /** Settings → Export, where the delete dialog sends an owner for a copy
+   *  first. */
+  exportPage: InAppLink;
 }
 
 /**
@@ -499,7 +503,12 @@ export default function SettingsPanel(props: SettingsPanelProps) {
 
       <Show when={props.canManage && !loading() && !loadError() && props.onWeddingDeleted}>
         {(onDeleted) => (
-          <DeleteWeddingDialog weddingId={props.weddingId} slug={slug()} onDeleted={onDeleted()} />
+          <DeleteWeddingDialog
+            weddingId={props.weddingId}
+            slug={slug()}
+            onDeleted={onDeleted()}
+            exportPage={props.exportPage}
+          />
         )}
       </Show>
     </div>

@@ -143,12 +143,14 @@ export function PulseHero(props: PulseHeroProps) {
         <div class="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <a
             href={ctaHref()}
+            // oxlint-disable-next-line house/no-literal-motion -- a button's hover; this site defines no motion tokens
             class="font-body w-full rounded-full bg-[var(--pulse-accent)] px-7 py-3.5 text-sm font-semibold text-[var(--color-bg)] transition-transform duration-200 hover:scale-103 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"
           >
             {ctaLabel()}
           </a>
           <a
             href={props.howHref}
+            // oxlint-disable-next-line house/no-literal-motion -- a button's hover; this site defines no motion tokens
             class="font-body w-full rounded-full border border-[var(--color-border)] bg-transparent px-7 py-3.5 text-sm font-semibold text-[var(--color-text)] transition-colors duration-200 hover:border-[var(--pulse-accent)] hover:text-[var(--pulse-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"
           >
             How it works

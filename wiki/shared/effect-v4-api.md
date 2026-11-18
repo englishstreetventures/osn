@@ -18,7 +18,7 @@ packages:
   - "@pulse/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Effect v4 API Shapes
@@ -27,6 +27,8 @@ Every v3 form below will not compile, and the v4 form beside it is what to
 write instead. This page exists because the v3 shapes are still what a model
 reaches for from memory and what every pre-2026-09 example on the internet
 shows — knowing that a rename happened is not enough to write the new name.
+`## Changed in 4.1` does the same for the 4.0 forms that the 4.1 release
+removed or reshaped.
 
 Every backend package is on v4. Which packages use Effect, and why the pin is
 exact rather than caret, is in [[contributing#Technology Choices]] — kept there
@@ -121,6 +123,37 @@ Five more, and the first three fail quietly:
   which is what three hand-rolled transforms here existed for.
   `Schema.parseJson(S)` is `Schema.fromJsonString(S)`; `DateFromSelf` is `Date`;
   `Schema.Record({key, value})` is positional, `Schema.Record(key, value)`.
+
+## Changed in 4.1
+
+The repository runs 4.1.2. Its own code needed no edit for it: nothing here
+uses an API 4.1 removed or reshaped. These are the ones a model still writes
+from 4.0 memory:
+
+- **`effect/Crypto` is gone.** Its services are split under `effect/crypto/*`:
+  `SecureRandom` for random bytes and UUIDs, `Digest` for hashing
+  (`Digest.sha256`). Neither is in `BunServices.layer` or
+  `NodeServices.layer` any more; provide one explicitly, with `BunCrypto` or
+  `NodeCrypto` from the platform package or a module's `layerWebCrypto`. An
+  import of `effect/Crypto` fails when the module loads, and a type-check with
+  `skipLibCheck` does not catch it in a dependency's declarations. Alchemy
+  releases before 2.0.0-beta.85 import it and fail to load on 4.1; the
+  repository pins beta.85, which imports `effect/crypto/*`
+  ([[infrastructure-as-code#Dependency review]]).
+- **HTTP request methods are typed `string`.** An exhaustive `switch` over a
+  request's method needs a fallback or a guard with `HttpMethod.isHttpMethod`.
+- **A custom `KeyValueStore.make` store must provide `keys`.**
+- **`fromFileSystem` lives in `effect/sql/MigratorFileSystem`**, not
+  `effect/sql/Migrator`.
+- **`HttpClient.withCookiesRef` takes a `Ref<ReadonlyArray<Cookie>>`**, seeded
+  with `Cookies.mergeIntoArray`.
+
+Unchanged, and worth knowing because a dependency trips on it: a record whose
+values are optional, `Schema.Record(Schema.String, Schema.optional(Schema.String))`,
+still throws when it is built. Use `Schema.UndefinedOr` for the value. The
+AWS SDK the Alchemy provider installs, `@distilled.cloud/aws`, declares one in
+its S3 module and builds each operation's schemas on first use, so only an
+operation that reaches it throws.
 
 ## Logging
 

@@ -8,25 +8,39 @@ pre-commit:
       # vendored anti-slop plugin (oxlintrc.json's jsPlugins) could execute
       # unverified anyway. `&&` is the only way this hook enforces order.
       #
-      # `.agents/**` is third-party skill text, already in oxlintrc.json's
-      # `ignorePatterns`. That alone is not enough here: oxlint does apply
-      # `ignorePatterns` to paths named on the command line, but when every
-      # named path is ignored it answers "No files found to lint" and exits 1,
-      # which blocks the commit. Excluded here so lefthook never names them.
+      # `.agents/**` (third-party skill text), `shared/ui/vendor/**` and
+      # `cire/waves/vendor/**` (vendored upstream source) are already in
+      # oxlintrc.json's `ignorePatterns`. That alone is not enough here: oxlint
+      # does apply `ignorePatterns` to paths named on the command line, but when
+      # every named path is ignored it answers "No files found to lint" and
+      # exits 1, which blocks the commit. Excluded here so lefthook never names them.
+      #
+      # Only the anti-slop tree is verified here, because oxlint executes it.
+      # No commit step runs the orb engine or the wave core: the lab's dev
+      # server, the @shared/ui and @cire/waves browser tests and the lab's
+      # story smoke test do, and CI's build-test and browser jobs run those
+      # beside the job that verifies them.
       exclude:
         - ".agents/**"
+        - "shared/ui/vendor/**"
         - "cire/waves/vendor/**"
-      run: bash scripts/verify-vendored-anti-slop.sh && bunx --bun oxlint -c oxlintrc.json {staged_files}
+      run: bash scripts/verify-vendored.sh tools/oxlint/anti-slop && bunx --bun oxlint -c oxlintrc.json {staged_files}
     format:
       glob: "*.{js,jsx,ts,tsx}"
-      # Vendored upstream source is left byte-identical so re-vendoring a newer
-      # anti-slop is a plain copy, not a copy plus a reformat diff. Third-party
+      # Vendored upstream source (anti-slop, the orb engine, the wave core) is
+      # left byte-identical so a re-vendor is a plain copy, not a copy plus a
+      # reformat diff. Third-party
       # skills under `.agents/**` are stricter still: `skills-lock.json` pins a
       # hash of each folder, which `scripts/check-skills-lock.ts` recomputes, so
       # a reformat here fails that check, and the next install from upstream
       # throws it away.
+      #
+      # `.oxfmtrc.json` ignores both `vendor/**` trees too, but `bun fmt` named
+      # only ignored files exits 2 ("Expected at least one target file"), which
+      # would block the commit; so lefthook never names them.
       exclude:
         - "tools/oxlint/anti-slop/**"
+        - "shared/ui/vendor/**"
         - "cire/waves/vendor/**"
         - ".agents/**"
       run: bun fmt --no-script {staged_files}
@@ -74,43 +88,34 @@ pre-push:
       # command below fails once the date passes. Then repeat the check: if it
       # holds, move the date; if not, remove the flag and its paragraph.
       #
-      # GHSA-vfj7-8cjw-p6xm — braces 3.0.3, stack exhaustion on deeply nested
-      # patterns. Installed via @pulse/web › @solidjs/start 2.0.4 › micromatch
-      # and fast-glob, which only its Vite plugins call (the route scanner and
-      # the server-function scan), at build and dev time, on patterns from
-      # repository config; no deployed build contains braces code. Copies
-      # bundled in vite, tsx and playwright-core are build, dev and test
-      # tooling. Drop when braces > 3.0.3 ships and bun.lock
-      # resolves it, or when @solidjs/start stops depending on micromatch.
-      # DROP AFTER GHSA-vfj7-8cjw-p6xm 2027-01-07
-      #
-      # GHSA-fc5q-39xc-vjpf — picomatch 4.0.7 (<= 4.0.7), ReDoS through
-      # single-branch repeated extglobs; no fixed version is published. Every
-      # path to it is tooling: vite › tinyglobby › fdir and astro ›
-      # @astrojs/internal-helpers (build and dev), vitest (tests), alchemy and
-      # @alchemy.run/cloudflare (deploy), @changesets/cli (release),
-      # @solidjs/start › micromatch and nitro › unstorage › anymatch
-      # (@pulse/web's build), @shadcn/lint (lint). The patterns they match come
-      # from repository config and file paths. One input arrives over the
-      # network: Vite's dev server matches request paths against its
-      # `server.fs` allow and deny lists. It listens on localhost behind
-      # portless, so the request comes from the developer's own browser; with
-      # `--host` (the phone check in wiki/cire/cire-envelope.md) anyone on that
-      # LAN could send a crafted path and stall the dev server, nothing more. On
-      # 2026-11-18 all 19 build outputs (every Worker's dist and .wrangler,
-      # every site's dist, @pulse/web's .output) held no picomatch code: no
-      # `POSIX_REGEX_SOURCE` or `REGEX_NON_SPECIAL_CHARS`, both of which a
-      # minified bundle of picomatch keeps. Drop when picomatch > 4.0.7 ships
-      # and bun.lock resolves it.
-      # DROP AFTER GHSA-fc5q-39xc-vjpf 2027-02-15
-      # The drop is tracked in englishstreetventures/osn#2417.
+      # GHSA-fc5q-39xc-vjpf — picomatch 4.0.7, ReDoS when a pattern holds a
+      # repeated single-branch extglob such as `+(*)`. Every release up to
+      # 4.0.7 is affected and none fixes it; the root `overrides` entry keeps
+      # one copy for every parent. Installed via alchemy and
+      # @alchemy.run/cloudflare (deploy-time bundling and resource selection),
+      # astro and @astrojs/internal-helpers (the asset and content-glob
+      # plugins, `createFilter` in Vite plugins), astro › unstorage › anymatch
+      # (only unstorage's filesystem driver), vite directly and with vitest
+      # through tinyglobby › fdir, @changesets/git and @changesets/config, and
+      # @pulse/web › @solidjs/start › micromatch, directly and through
+      # fast-glob. They run at build, deploy, dev, test and release time, on
+      # patterns from repository config, stack code and the flags our
+      # workflows pass, matched against file paths; none takes a pattern from
+      # a request. No deployed build contains
+      # picomatch code: the osn-api, cire-api, zap-api and pulse-landing
+      # bundles, the cire-invites server and every static site were built and
+      # searched. Copies bundled in @cloudflare/vite-plugin, nitro and
+      # playwright are build, dev and test tooling. Importing
+      # `astro/cache/memory` would put picomatch in a Worker; nothing does.
+      # Drop when picomatch > 4.0.7 ships a fix and the root override moves
+      # to it.
+      # DROP AFTER GHSA-fc5q-39xc-vjpf 2027-01-07
       #
       # Comments stay above `run:`. Inside the folded block a `#` line is part
       # of the command, and the shell would drop every flag after it.
-      # The drop is tracked in englishstreetventures/osn#1381.
+      # The drop is tracked in englishstreetventures/osn#2407.
       run: >
         bun audit --audit-level=high
-        --ignore=GHSA-vfj7-8cjw-p6xm
         --ignore=GHSA-fc5q-39xc-vjpf
     audit-ignores:
       # Fails when an `--ignore` above has no `DROP AFTER` marker, or one whose

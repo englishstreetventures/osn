@@ -1,6 +1,6 @@
 {
   "name": "@musubi/infra",
-  "version": "0.2.9",
+  "version": "0.6.8",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -17,15 +17,17 @@
     "deploy:dev": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes",
     "plan:production": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
     "deploy:production": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes",
-    "plan:guard": "bun run scripts/plan-guard.ts"
+    "migrate:production": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes --force --include OsnDb",
+    "plan:guard": "bun run scripts/plan-guard.ts",
+    "read:live": "bun run scripts/read-live.ts"
   },
   "dependencies": {
-    "@alchemy.run/cloudflare": "2.0.0-beta.84",
-    "@effect/platform-bun": "4.0.7",
-    "@effect/platform-node": "4.0.7",
+    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@effect/platform-bun": "4.1.4",
+    "@effect/platform-node": "4.1.4",
     "@shared/infra": "workspace:*",
-    "alchemy": "2.0.0-beta.84",
-    "effect": "4.0.7"
+    "alchemy": "2.0.0-beta.85",
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",

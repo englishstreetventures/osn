@@ -4,6 +4,7 @@ import { MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { ShellDialogsProvider } from "../../src/components/ShellDialogs";
 import { Sidebar } from "../../src/components/Sidebar";
 
 /**
@@ -84,7 +85,14 @@ function renderSidebar() {
   return render(() => (
     <AuthContext.Provider value={value}>
       <MemoryRouter>
-        <Route path="*" component={Sidebar} />
+        <Route
+          path="*"
+          component={() => (
+            <ShellDialogsProvider>
+              <Sidebar />
+            </ShellDialogsProvider>
+          )}
+        />
       </MemoryRouter>
     </AuthContext.Provider>
   ));
@@ -138,7 +146,14 @@ describe("<Sidebar /> — unauthenticated", () => {
     const result = render(() => (
       <AuthContext.Provider value={value}>
         <MemoryRouter>
-          <Route path="*" component={Sidebar} />
+          <Route
+            path="*"
+            component={() => (
+              <ShellDialogsProvider>
+                <Sidebar />
+              </ShellDialogsProvider>
+            )}
+          />
         </MemoryRouter>
       </AuthContext.Provider>
     ));

@@ -1,12 +1,11 @@
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
-import { readSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { errorResponse, passkeySummary } from "./response-schemas";
 
 export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
-  const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl, cookieConfig } = ctx;
+  const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl } = ctx;
   return (
     new Elysia()
       // -------------------------------------------------------------------------
@@ -88,6 +87,18 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Before the step-up token is read: one minted while the session
+            // was live is not spent once it has ended.
+            const staleErr = await ctx.liveSessionGate(
+              "passkey_rename",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             // Rename is gated by step-up too. Otherwise an XSS-captured
             // access token could swap labels to mislead the user about which
             // credential they're confirming a delete on. Same AMR set as
@@ -122,6 +133,8 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
             // No step-up token presented at all (`step_up_required`). A token
             // that IS presented but fails verification comes back as 400.
             403: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
@@ -152,6 +165,22 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // The caller's own live session, before the step-up token is read:
+            // a session that has ended spends nothing, and the session found
+            // here is the one the sweep below spares. The cookie names it when
+            // it names a live, ordinary row; otherwise the access token's
+            // `osn_sid` binding does (a cross-origin Bearer call, a proxy that
+            // strips cookies, a native client, a stale cookie).
+            const live = await ctx.liveSession(
+              "passkey_delete",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (live.sessionHash === null) {
+              set.status = 409;
+              return live.refusal;
+            }
             const headerToken = headers["x-step-up-token"];
             const stepUpToken = body?.step_up_token ?? headerToken;
             if (!stepUpToken) {
@@ -163,33 +192,11 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
             // construction (last-passkey guard), so requiring one for
             // deletion is the strongest available signal.
             await run(auth.verifyStepUpForPasskeyDelete(profile.accountId, stepUpToken, params.id));
-            // Identify the caller's own session so the sweep below spares
-            // it. The cookie is the cheap path, but only when it names a live
-            // row; otherwise (a cross-origin Bearer call, a proxy that strips
-            // cookies, a native client, a stale cookie) fall back to the
-            // access token's `osn_sid` binding. Before that fallback existed,
-            // a cookieless — but fully authenticated — delete took the "no
-            // self to preserve" branch and logged the account out of every
-            // device.
-            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-            const caller = await run(
-              auth.classifyCallerSession(profile.accountId, claims.profileId, {
-                cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
-                sessionBinding: claims.sessionBinding,
-              }),
-            );
-            // Never let a presented-but-stale binding collapse into the
-            // account-wide session wipe. Fail closed instead.
-            if (caller._tag === "stale") {
-              set.status = 409;
-              return { error: "session_stale", message: "Re-authenticate and try again." };
-            }
-            const currentHash = caller._tag === "resolved" ? caller.sessionHash : null;
             const result = await run(
               auth.deletePasskey(
                 profile.accountId,
                 params.id,
-                currentHash,
+                live.sessionHash,
                 sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
@@ -211,7 +218,7 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
             400: errorResponse,
             401: errorResponse,
             403: errorResponse,
-            // 409 is returned for a presented-but-stale session binding.
+            // `session_stale`: the caller holds no live session.
             409: errorResponse,
             429: errorResponse,
             500: errorResponse,

@@ -20,9 +20,29 @@ import {
   generateEphemeralTotpEncryptionKey,
   importTotpEncryptionKey,
 } from "./lib/totp-secret-crypto";
+import type { AuthConfig } from "./services/auth";
+import { appStepUpReturnConfig } from "./services/auth/app-step-up";
+import {
+  createIssuerNetwork,
+  emulatedIssuerFetch,
+} from "./services/auth/email-verification-network";
 import { cireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
+import { deletionAppsConfig } from "./services/deletion-apps";
 
 export const SERVICE_NAME = "osn-api";
+
+/**
+ * The identity instance's name, as its emails and passkey prompts say it.
+ * Hard-coded until englishstreetventures/osn#1549 lands.
+ */
+export const INSTANCE_NAME = "Musubi";
+
+/** The app origins `OSN_ORIGIN` lists, comma-separated: the WebAuthn origins, the first of them the app. */
+export const appOrigins = (env: { readonly OSN_ORIGIN?: string }): string[] =>
+  (env.OSN_ORIGIN || "http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
 
 /**
  * Every secret + var this composition root reads, named. Nothing else on the
@@ -49,6 +69,11 @@ export type EnvVars = {
   readonly OSN_ACCESS_TOKEN_TTL?: string;
   readonly OSN_REFRESH_TOKEN_TTL?: string;
   readonly OSN_AUTHORIZE_UI_URL?: string;
+  // Sign-up accepts a browser Email Verification API token when truthy; off
+  // when unset. Read by `emailVerificationConfig` below and nowhere else.
+  readonly OSN_EMAIL_VERIFICATION_API?: string;
+  // Local E2E only: a loopback stand-in every verifier request goes to.
+  readonly OSN_EMAIL_VERIFICATION_EMULATOR_URL?: string;
   readonly TRUSTED_PROXY_COUNT?: string;
   readonly OSN_JWT_PRIVATE_KEY?: string;
   readonly OSN_JWT_PUBLIC_KEY?: string;
@@ -65,9 +90,22 @@ export type EnvVars = {
   // The back-channel to cire-api's organiser sessions. Any of the three unset
   // or unusable ⇒ sign out everywhere else and cire's connection revoke skip
   // it, with a warning.
-  readonly CIRE_INTERNAL_REVOKE_URL?: string;
   readonly CIRE_INTERNAL_REVOKE_SECRET?: string;
   readonly CIRE_OIDC_CLIENT_ID?: string;
+  // Where the account deletion reaches each app, and which apps this tier does
+  // not run. Read by `deletionAppsConfig` (services/deletion-apps.ts), which
+  // refuses the boot on a name that is no app.
+  readonly PULSE_API_URL?: string;
+  readonly ZAP_API_URL?: string;
+  // cire-api's origin: where the deletion reaches cire, and where the
+  // organiser-session revoke above is sent.
+  readonly CIRE_API_URL?: string;
+  // cire's organiser portal origin: the one place Musubi may send a person
+  // back to after confirming a cire step-up request. Read by
+  // `appStepUpReturnConfig` (services/auth/app-step-up.ts), which refuses the
+  // boot on a value that is not https (or loopback http on a local run).
+  readonly CIRE_ORGANISER_ORIGIN?: string;
+  readonly OSN_DELETION_ABSENT_APPS?: string;
 };
 
 const isNonLocal = (env: EnvVars): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
@@ -107,6 +145,53 @@ const servesOpenapiDocs = (env: EnvVars): boolean =>
 const DEV_LOGIN_TIERS = new Set<string>(["local", "dev", "development"]);
 const servesDevLogin = (env: EnvVars): boolean =>
   env.OSN_ENV !== undefined && DEV_LOGIN_TIERS.has(env.OSN_ENV);
+
+/** Truthy strings that turn an on/off variable on. Anything else, unset included, is off. */
+const isOn = (raw: string | undefined): boolean =>
+  raw !== undefined && ["true", "1", "yes", "on"].includes(raw.trim().toLowerCase());
+
+/**
+ * `OSN_EMAIL_VERIFICATION_API` — whether sign-up accepts a browser Email
+ * Verification API token. The one place the variable is read: off (absent)
+ * unless it reads true, so a deployed tier is off until its vars say so.
+ *
+ * `OSN_EMAIL_VERIFICATION_EMULATOR_URL` sends every verifier request to a
+ * stand-in issuer instead, for the local E2E stack. A stand-in answers DNS and
+ * holds the keys, so it would let any address verify: it is accepted only when
+ * `OSN_ENV` is exactly `local` and the origin is loopback, and the boot fails
+ * otherwise rather than ignore it. Neither message repeats the value.
+ */
+export function emailVerificationConfig(env: EnvVars): AuthConfig["emailVerification"] {
+  const emulator = env.OSN_EMAIL_VERIFICATION_EMULATOR_URL?.trim() || undefined;
+  if (emulator !== undefined) {
+    if (env.OSN_ENV !== "local") {
+      throw new Error(
+        "OSN_EMAIL_VERIFICATION_EMULATOR_URL is for the local E2E stack only and needs " +
+          'OSN_ENV="local" — unset it.',
+      );
+    }
+    let url: URL | null = null;
+    try {
+      url = new URL(emulator);
+    } catch {
+      url = null;
+    }
+    const loopback =
+      url !== null &&
+      url.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) &&
+      url.pathname === "/";
+    if (!loopback) {
+      throw new Error("OSN_EMAIL_VERIFICATION_EMULATOR_URL must be a loopback http origin.");
+    }
+  }
+  if (!isOn(env.OSN_EMAIL_VERIFICATION_API)) return undefined;
+  return {
+    network: createIssuerNetwork(
+      emulator === undefined ? undefined : emulatedIssuerFetch(emulator),
+    ),
+  };
+}
 
 /**
  * `DEV_LOGIN_RETURN_ORIGINS` — comma-separated origins a dev-login `return_to`
@@ -393,17 +478,13 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
 
   const totpEncryptionKeys = createTotpKeyRing(totpEncryptionKey, totpPreviousEncryptionKey);
 
-  // Hard-coded until englishstreetventures/osn#1549 lands.
-  const instanceName = "Musubi";
+  const instanceName = INSTANCE_NAME;
 
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",
     rpName: env.OSN_RP_NAME || instanceName,
     instanceName,
-    origin: (env.OSN_ORIGIN || "http://localhost:5173")
-      .split(",")
-      .map((o) => o.trim())
-      .filter((o) => o.length > 0),
+    origin: appOrigins(env),
     issuerUrl,
     jwtPrivateKey,
     jwtPublicKey,
@@ -418,6 +499,8 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     // back to `/authorize` on the first configured origin, which is right for
     // local dev and wrong the moment the consent screen lives anywhere else.
     authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL,
+    emailVerification: emailVerificationConfig(env),
+    appStepUpReturn: appStepUpReturnConfig(env),
   };
 
   // Every failed store call, once, after any retry: the store's name, the
@@ -506,13 +589,22 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     accountErasureRateLimiters: minuteLimiters.accountErasureRateLimiters,
     stepUpJtiStore: stores.stepUpJtiStore,
     passkeyChallengeClaims: stores.passkeyChallengeClaims,
+    emailVerificationNonceClaims: stores.emailVerificationNonceClaims,
     ceremonyStores: stores.ceremonyStores,
     recoveryLockoutStore: stores.recoveryLockoutStore,
     recoveryOtpLockoutStore: stores.recoveryOtpLockoutStore,
     totpLockoutStore: stores.totpLockoutStore,
+    registrationLinkLockoutStore: stores.registrationLinkLockoutStore,
+    registrationFirstLinkCap: stores.registrationFirstLinkCap,
+    stepUpLinkLockoutStore: stores.stepUpLinkLockoutStore,
     profileSwitchCap: stores.profileSwitchCap,
     emailChangeBeginCap: stores.emailChangeBeginCap,
-    recoveryEmailBeginCap: stores.recoveryEmailBeginCap,
+    recoveryLinkAddressCap: stores.recoveryLinkAddressCap,
+    recoveryResendCap: stores.recoveryResendCap,
+    recoveryLinkCeiling: stores.recoveryLinkCeiling,
+    registrationSendCap: stores.registrationSendCap,
+    stepUpLinkCeiling: stores.stepUpLinkCeiling,
+    linkResendCap: stores.linkResendCap,
     healthProbe: stores.healthProbe,
     healthProbeLimiter: minuteLimiters.healthProbeLimiter,
     clientIpConfig,
@@ -540,8 +632,12 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
         : null,
     // KEY-OPTIONAL in every tier: cire-api holds the same secret, and until
     // both sides hold it the revoke is skipped (osn-api unset) or refused (cire
-    // unset), each logged. Never a reason to refuse the boot.
+    // unset), each logged. The secret is never a reason to refuse the boot; a
+    // `CIRE_API_URL` the deletion cannot use is (below).
     cireOrganiserRevoke: cireOrganiserRevokeConfig(env),
+    // Throws on a deployed tier without INTERNAL_SERVICE_SECRET, or a name in
+    // OSN_DELETION_ABSENT_APPS that is no app: the Worker answers 503.
+    deletionApps: deletionAppsConfig(env),
     // AOT and the observability plugin co-vary by runtime: both ON for Bun,
     // both OFF for workerd (AOT's `new Function` is forbidden there). The
     // `includeObservabilityPlugin` flag is the single Bun-vs-Workers

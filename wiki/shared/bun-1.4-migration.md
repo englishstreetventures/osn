@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-11-13
 ---
 
 # Bun 1.4 migration
@@ -103,31 +103,22 @@ pause. Silent, and only visible on a run against a board that already has items.
 The wrapper therefore uses `.nothrow()` and rebuilds the message, and two tests
 pin the shape.
 
-### Phase 3 (part) — `Bun.TOML` for the D1 guard
+### Phase 3 (part) — the D1 guard is gone
 
-`scripts/check-d1-database-id.sh` was three greps, each matching a
-`database_id` line. `scripts/check-d1-database-id.ts` parses instead, which
-catches two shapes the greps could not:
-
-- **A named environment with no `[[d1_databases]]` block at all.**
-  `cire/api/wrangler.toml` records in its own comment that named environments do
-  NOT inherit the top-level block. Delete it from `[env.production]` and every
-  `database_id` in the file is still valid while production has no database. A
-  grep for a line that is not there cannot fire.
-- **A `database_id` that is neither placeholder nor empty but not an id** — a
-  database *name* pasted into the wrong field satisfied all three greps.
-
-The bash version advertised "grep only, no bun". That is traded away for the
-real parse, and it costs nothing: both callers — the cire-api jobs in
-`deploy.yml` and `production-release.yml` — run `bun install` first.
+No D1 `database_id` guard exists. The production stacks declare each database by
+name and adopt it, and each stack's parity test holds the `[env.production]`
+D1 binding in the Worker's `wrangler.toml` to that declaration
+([[infrastructure-as-code#The stacks]]). The stacks migrate each database by name
+with Alchemy, so no production step reads that `database_id`; `wrangler d1
+time-travel` and `secret put` with `--env production` read the block
+([[production-deploy#4. Database migrations]]).
 
 ### Two CI bugs found on the way
 
 - **The tests under `scripts/` ran nowhere.** `scripts/` is not a workspace, so
   `turbo test` never reached it, and `test:migration` was declared in the root
   `package.json` and called by no workflow. Renamed `test:scripts`, and the
-  Scripts job runs it — which matters more now the D1 guard's tests gate a
-  deploy.
+  Scripts job runs it.
 - **Both turbo caches were frozen.** They were keyed on `bun.lock`, and
   `actions/cache` will not overwrite an existing key. Each was written once and
   then never again: later runs restored that first snapshot, missed on
@@ -219,7 +210,7 @@ hand-written bash assertion into `bun test`:
 | `validate-changesets.sh` | 122 + 102 |
 | `changeset-required.sh` | 68 + 88 |
 
-`cire-db-seed.sh`, `db-reset.sh`, `ensure-pages-project.sh`
+`cire-db-seed.sh`, `db-reset.sh`
 and `labels.sh` are straight command sequences — shorter under `$`, but there is
 no correctness argument for moving them.
 

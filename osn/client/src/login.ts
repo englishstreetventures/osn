@@ -1,3 +1,5 @@
+import { OsnApiError } from "./api-error";
+import { reach, readJson } from "./auth-fetch";
 import { sessionFetch } from "./session-fetch";
 import { parseTokenResponse, type Session } from "./tokens";
 
@@ -16,9 +18,9 @@ export interface LoginClientConfig {
   issuerUrl: string;
 }
 
-export class LoginError extends Error {
-  constructor(message: string) {
-    super(message);
+export class LoginError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "LoginError";
   }
 }
@@ -48,17 +50,18 @@ type PasskeyBeginBody = { identifier?: string; turnstileToken?: string };
 // login routes carry no cookie and pass straight through — see
 // `./session-fetch.ts`.
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await sessionFetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok) {
-    throw new LoginError(json.error ?? `Request failed: ${res.status}`);
-  }
-  return json;
+  const res = await reach(
+    LoginError,
+    url,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    },
+    sessionFetch,
+  );
+  return readJson<T>(LoginError, res);
 }
 
 export interface LoginClient {

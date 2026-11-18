@@ -1,20 +1,17 @@
 import { DbLive, type Db } from "@pulse/db/service";
+import { arcKidMacSecret } from "@shared/crypto/arc-kid";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
-import {
-  PERMITTED_INBOUND_SCOPES,
-  ServiceKeyMismatchError,
-  registerServiceKey,
-  requireArc,
-  revokeServiceKey,
-} from "../lib/arc-middleware";
+import { requireOsnArc } from "../lib/arc-middleware";
+import { DEFAULT_VERIFICATION, type OsnTokenVerification } from "../lib/jwks";
 import * as accountErasure from "../services/accountErasure";
 import * as accountExport from "../services/accountExport";
 
-const AUDIENCE = "pulse-api";
 const SCOPE_ACCOUNT_ERASE = "account:erase";
 const SCOPE_ACCOUNT_EXPORT = "account:export";
+const SCOPE_DELETION_PREVIEW = "account:deletion-preview";
+const SCOPE_SESSIONS_REVOKE = "account:sessions-revoke";
 
 /**
  * Most profile ids one erasure or export request may name. osn-api sends one
@@ -23,124 +20,106 @@ const SCOPE_ACCOUNT_EXPORT = "account:export";
  */
 export const MAX_ACCOUNT_PROFILE_IDS = 50;
 
-function isTimingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  // Use a constant-time loop in lieu of Buffer.timingSafeEqual to keep
-  // this lib browser-portable. JS strings are immutable so we can hash
-  // both inputs with a simple XOR-accumulate.
-  let mismatch = 0;
-  for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return mismatch === 0;
-}
-
 /**
- * Internal pulse-api endpoints — ARC-gated (account-deleted) and
- * shared-secret-gated (register-service / service-keys/:keyId revoke).
+ * Internal pulse-api endpoints, every one called by osn-api over ARC and
+ * verified against the keys osn-api publishes (`lib/arc-middleware.ts`):
+ * the account deletion's preview, erasure and session end, and the account
+ * export.
  */
-export const createInternalRoutes = (dbLayer: Layer.Layer<Db> = DbLive) => {
+export const createInternalRoutes = (
+  dbLayer: Layer.Layer<Db> = DbLive,
+  verification: OsnTokenVerification = DEFAULT_VERIFICATION,
+) => {
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
+  // INTERNAL_SERVICE_SECRET gates fetching osn-api's keys (a made-up kid is
+  // refused before any fetch); one shorter than 32 characters is treated as
+  // absent and gates nothing. Read per request: on workerd `process.env` is
+  // filled only inside a handler.
+  const osnArc = () => ({
+    osnIssuer: verification.issuer,
+    kidSecret: arcKidMacSecret(process.env.INTERNAL_SERVICE_SECRET),
+  });
   return (
     new Elysia({ prefix: "/internal" })
       // ------------------------------------------------------------------
-      // ARC public-key registration. Mirrors osn-api's
-      // /graph/internal/register-service. osn-api calls this on startup with
-      // the shared INTERNAL_SERVICE_SECRET to register the outbound key it
-      // will use when fanning out a deletion to Pulse.
+      // ARC-gated `/internal/account-deletion-preview` — called by osn-api
+      // when the person previews, or asks for, their account's deletion:
+      // what Pulse holds that needs an answer (`previewDeletion`).
       // ------------------------------------------------------------------
       .post(
-        "/register-service",
+        "/account-deletion-preview",
         async ({ body, headers, set }) => {
-          const secret = process.env.INTERNAL_SERVICE_SECRET;
-          if (!secret) {
-            set.status = 501;
-            return { error: "Service registration is disabled on this instance" };
-          }
-          if (!isTimingSafeEqual(headers["authorization"] ?? "", `Bearer ${secret}`)) {
-            set.status = 401;
+          if (
+            !(await requireOsnArc(headers.authorization, set, osnArc(), SCOPE_DELETION_PREVIEW))
+          ) {
             return { error: "Unauthorized" };
           }
-
-          const requestedScopes = body.allowedScopes
-            .split(",")
-            .map((s) => s.trim().toLowerCase())
-            .filter(Boolean);
-          const invalid = requestedScopes.filter((s) => !PERMITTED_INBOUND_SCOPES.has(s));
-          if (invalid.length > 0) {
-            set.status = 400;
-            return { error: `Unknown scopes: ${invalid.join(", ")}` };
-          }
-
           try {
-            await registerServiceKey({
-              serviceId: body.serviceId,
-              keyId: body.keyId,
-              publicKeyJwk: body.publicKeyJwk,
-              allowedScopes: body.allowedScopes,
-              expiresAt: body.expiresAt,
-            });
-            return { ok: true };
-          } catch (e) {
-            if (e instanceof ServiceKeyMismatchError) {
-              set.status = 409;
-              return { error: "kid_serviceid_mismatch" };
-            }
-            set.status = 400;
-            return { error: "Invalid public key JWK" };
+            const openActions = await runtime.runPromise(
+              accountErasure.previewDeletion(body.profileIds, body.deletesAt),
+            );
+            return { openActions };
+          } catch {
+            set.status = 500;
+            return { error: "internal_error" };
           }
         },
         {
           body: t.Object({
-            serviceId: t.String({ minLength: 1 }),
-            keyId: t.String({ minLength: 1 }),
-            publicKeyJwk: t.String({ minLength: 1 }),
-            allowedScopes: t.String({ minLength: 1 }),
-            expiresAt: t.Optional(t.Number()),
+            profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_ACCOUNT_PROFILE_IDS }),
+            deletesAt: t.Integer({ minimum: 0 }),
           }),
         },
       )
-      .delete(
-        "/service-keys/:keyId",
-        ({ params, headers, set }) => {
-          const secret = process.env.INTERNAL_SERVICE_SECRET;
-          if (!secret) {
-            set.status = 501;
-            return { error: "Service registration is disabled on this instance" };
-          }
-          if (!isTimingSafeEqual(headers["authorization"] ?? "", `Bearer ${secret}`)) {
-            set.status = 401;
+      // ------------------------------------------------------------------
+      // ARC-gated `/internal/account-sessions/revoke` — called by osn-api
+      // when the person asks for their account's deletion: ends every Pulse
+      // web session of their profiles.
+      // ------------------------------------------------------------------
+      .post(
+        "/account-sessions/revoke",
+        async ({ body, headers, set }) => {
+          if (!(await requireOsnArc(headers.authorization, set, osnArc(), SCOPE_SESSIONS_REVOKE))) {
             return { error: "Unauthorized" };
           }
-          revokeServiceKey(params.keyId);
-          return { ok: true };
+          try {
+            const revoked = await runtime.runPromise(
+              accountErasure.revokeWebSessions(body.profileIds),
+            );
+            return { revoked };
+          } catch {
+            set.status = 500;
+            return { error: "internal_error" };
+          }
         },
-        { params: t.Object({ keyId: t.String({ minLength: 1 }) }) },
+        {
+          body: t.Object({
+            profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_ACCOUNT_PROFILE_IDS }),
+          }),
+        },
       )
       // ------------------------------------------------------------------
-      // ARC-gated `/internal/account-deleted` — called by osn-api when
-      // fanning out a full-account deletion. Hard-deletes Pulse data for
-      // the supplied profile IDs (no grace; osn-api already enforced its
-      // own 7-day window before fanning out).
+      // ARC-gated `/internal/account-deleted` — called by osn-api once the
+      // account's 7-day window has passed, with the person's answers to
+      // Pulse's actions. Erases Pulse's data of the profiles and answers what
+      // Pulse keeps (`purgeAccount`). Pulse keeps nothing a person may ask
+      // about by email, so osn-api sends it no email address.
       // ------------------------------------------------------------------
       .post(
         "/account-deleted",
         async ({ body, headers, set }) => {
-          const caller = await requireArc(
-            headers.authorization,
-            set,
-            AUDIENCE,
-            SCOPE_ACCOUNT_ERASE,
-          );
-          if (!caller) return { error: "Unauthorized" };
+          if (!(await requireOsnArc(headers.authorization, set, osnArc(), SCOPE_ACCOUNT_ERASE))) {
+            return { error: "Unauthorized" };
+          }
           try {
             const result = await runtime.runPromise(
-              accountErasure.purgeAccount(body.accountId, body.profileIds) as Effect.Effect<
-                { purged: number },
-                accountErasure.PulseErasureDbError,
-                Db
-              >,
+              accountErasure.purgeAccount(body.accountId, body.profileIds, {
+                answers: body.choices ?? {},
+                deleteEverything: body.deleteEverything ?? false,
+              }),
             );
-            return { ok: true as const, purged: result.purged };
+            return { kept: result.kept };
           } catch {
             set.status = 500;
             return { error: "internal_error" };
@@ -150,6 +129,14 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<Db> = DbLive) => {
           body: t.Object({
             accountId: t.String({ minLength: 1 }),
             profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_ACCOUNT_PROFILE_IDS }),
+            choices: t.Optional(
+              t.Record(
+                t.String({ maxLength: 128 }),
+                t.Object({ choice: t.String({ maxLength: 32 }) }),
+                { maxProperties: 500 },
+              ),
+            ),
+            deleteEverything: t.Optional(t.Boolean()),
           }),
         },
       )
@@ -163,13 +150,9 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<Db> = DbLive) => {
       .post(
         "/account-export",
         async ({ body, headers, set }) => {
-          const caller = await requireArc(
-            headers.authorization,
-            set,
-            AUDIENCE,
-            SCOPE_ACCOUNT_EXPORT,
-          );
-          if (!caller) return { error: "Unauthorized" };
+          if (!(await requireOsnArc(headers.authorization, set, osnArc(), SCOPE_ACCOUNT_EXPORT))) {
+            return { error: "Unauthorized" };
+          }
           try {
             const lines = await runtime.runPromise(
               accountExport.collectExport(body.profile_ids) as Effect.Effect<

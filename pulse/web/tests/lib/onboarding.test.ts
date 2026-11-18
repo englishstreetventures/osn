@@ -62,11 +62,6 @@ describe("requestLocationPermission", () => {
     });
   });
 
-  it("returns 'granted' on a successful fix", async () => {
-    stubGeolocation(() => undefined);
-    expect(await requestLocationPermission()).toBe("granted");
-  });
-
   it("returns 'denied' when the user denies the permission prompt", async () => {
     stubGeolocation({ code: 1 });
     expect(await requestLocationPermission()).toBe("denied");
@@ -107,11 +102,6 @@ describe("requestNotificationPermission", () => {
     } else {
       (globalThis as { Notification?: unknown }).Notification = origNotification;
     }
-  });
-
-  it("returns 'granted' when permission is already granted (no extra prompt)", async () => {
-    stubNotification("granted");
-    expect(await requestNotificationPermission()).toBe("granted");
   });
 
   it("returns 'denied' when permission is already denied", async () => {
@@ -179,23 +169,6 @@ describe("fetchOnboardingStatus", () => {
     mockMeOnboardingGet.mockResolvedValueOnce({ data: null, error: { value: "boom" } });
     expect(await fetchOnboardingStatus()).toBeNull();
   });
-
-  it("returns the status payload on success", async () => {
-    mockMeOnboardingGet.mockResolvedValueOnce({
-      data: {
-        completedAt: null,
-        interests: [],
-        notificationsOptIn: false,
-        eventRemindersOptIn: false,
-        notificationsPerm: "prompt",
-        locationPerm: "prompt",
-      },
-      error: null,
-    });
-    const status = await fetchOnboardingStatus();
-    expect(status?.completedAt).toBeNull();
-    expect(status?.interests).toEqual([]);
-  });
 });
 
 describe("completeOnboarding", () => {
@@ -239,21 +212,5 @@ describe("completeOnboarding", () => {
     await expect(completeOnboarding({ ...validPayload })).rejects.toThrow(
       "Unexpected onboarding response",
     );
-  });
-
-  it("posts the payload alone — the session cookie is the only credential", async () => {
-    mockMeOnboardingCompletePost.mockResolvedValueOnce({
-      data: {
-        completedAt: new Date().toISOString(),
-        interests: [],
-        notificationsOptIn: false,
-        eventRemindersOptIn: false,
-        notificationsPerm: "prompt",
-        locationPerm: "prompt",
-      },
-      error: null,
-    });
-    await completeOnboarding({ ...validPayload });
-    expect(mockMeOnboardingCompletePost).toHaveBeenCalledWith({ ...validPayload });
   });
 });

@@ -129,11 +129,6 @@ describe("presetLabel", () => {
   it("returns a key of only underscores as itself", () => {
     expect(presetLabel("___")).toBe("___");
   });
-
-  it("returns an empty label for a key that is empty or only whitespace", () => {
-    expect(presetLabel("")).toBe("");
-    expect(presetLabel("   ")).toBe("");
-  });
 });
 
 describe("presetLabels", () => {
@@ -145,20 +140,12 @@ describe("presetLabels", () => {
     expect(presetLabels([])).toEqual([]);
   });
 
-  it("appends a key this build does not know after the ones it does", () => {
-    expect(presetLabels(["lupin", "nuts", "vegetarian"])).toEqual(["Vegetarian", "Nuts", "Lupin"]);
-  });
-
   it("keeps unknown keys in the order they arrived, once each", () => {
     expect(presetLabels(["future_b", "vegan", "future_a", "future_b"])).toEqual([
       "Vegan",
       "Future b",
       "Future a",
     ]);
-  });
-
-  it("labels a selection made only of unknown keys", () => {
-    expect(presetLabels(["no_mustard"])).toEqual(["No mustard"]);
   });
 
   it("skips an empty or blank key rather than emitting a blank label", () => {

@@ -1,15 +1,16 @@
 import { it, expect, describe } from "@effect/vitest";
-import { rotatedSessions, sessions } from "@osn/db/schema";
+import { rotatedSessions, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { and, eq, lte } from "drizzle-orm";
 import { Effect, Fiber, Layer, Logger } from "effect";
 import { TestClock } from "effect/testing";
 import { afterEach, beforeAll, vi } from "vitest";
 
-import { sessionStatusUnknown } from "../../../src/lib/grant-failure";
+import { ROTATION_RACE_MESSAGE, sessionStatusUnknown } from "../../../src/lib/grant-failure";
 import * as metrics from "../../../src/metrics";
 import { createAuthService } from "../../../src/services/auth";
 import {
+  RECOVERY_TOKEN_AUDIENCE,
   ROTATED_SESSION_SWEEP_CHUNK,
   ROTATED_SESSION_SWEEP_MAX_CHUNKS,
   ROTATED_SESSION_SWEEP_PAUSE_MS,
@@ -57,6 +58,240 @@ const signIn = (email: string, handle: string) =>
     );
     return { profile, refreshToken: tokens.refreshToken };
   });
+
+/** Adds a non-default profile to the account. */
+const addProfile = (accountId: string, handle: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const id = "usr_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const ts = new Date();
+    yield* Effect.promise(() =>
+      db.insert(users).values({
+        id,
+        accountId,
+        handle,
+        displayName: null,
+        avatarUrl: null,
+        isDefault: false,
+        createdAt: ts,
+        updatedAt: ts,
+      }),
+    );
+    return id;
+  });
+
+/** The unverified payload of a JWT. */
+const payloadOf = (jwt: string): Record<string, unknown> =>
+  JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString("utf8")) as Record<
+    string,
+    unknown
+  >;
+
+describe("refreshTokens: the profile a grant names", () => {
+  it.effect("F20: mints for a profile the account owns, bound to the rotated session", () =>
+    Effect.gen(function* () {
+      const { profile, refreshToken } = yield* signIn("named@example.com", "named");
+      const second = yield* addProfile(profile.accountId, "named2");
+
+      const next = yield* auth.refreshTokens(refreshToken, second);
+
+      const claims = yield* auth.verifyAccessToken(next.accessToken);
+      expect(claims.profileId).toBe(second);
+      const bound = yield* auth.resolveSessionByBinding(
+        profile.accountId,
+        second,
+        claims.sessionBinding!,
+      );
+      expect(bound).toBe(hashSessionToken(next.refreshToken));
+    }).pipe(Effect.provide(createTestLayerWithSqlite().layer)),
+  );
+
+  it.effect("F21: a grant naming no profile mints for the default profile", () =>
+    Effect.gen(function* () {
+      const { profile, refreshToken } = yield* signIn("own@example.com", "own");
+      yield* addProfile(profile.accountId, "own2");
+
+      const next = yield* auth.refreshTokens(refreshToken);
+
+      const claims = yield* auth.verifyAccessToken(next.accessToken);
+      expect(claims.profileId).toBe(profile.id);
+    }).pipe(Effect.provide(createTestLayerWithSqlite().layer)),
+  );
+
+  /**
+   * The grant was refused before anything rotated: the old session is still
+   * there under its own id, no rotation record names it, and it renews.
+   */
+  const rotatedNothing = (
+    sqlite: ReturnType<typeof createTestLayerWithSqlite>["sqlite"],
+    refreshToken: string,
+    renewAs?: string,
+  ) =>
+    Effect.gen(function* () {
+      const oldHash = hashSessionToken(refreshToken);
+      expect(sqlite.query("SELECT id FROM sessions WHERE id = ?").all(oldHash)).toHaveLength(1);
+      expect(sqlite.query("SELECT token_hash FROM rotated_sessions").all()).toEqual([]);
+      yield* auth.refreshTokens(refreshToken, renewAs);
+    });
+
+  it.effect("refuses another account's profile, and rotates nothing", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const { refreshToken } = yield* signIn("own-f@example.com", "ownf");
+      const stranger = yield* auth.registerProfile("stranger@example.com", "stranger");
+
+      const error = yield* Effect.flip(auth.refreshTokens(refreshToken, stranger.id));
+
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Invalid or expired session");
+      // Counted apart from a dead cookie: the cookie is live, the grant refused.
+      expect(metrics.classifyError(error)).toBe("forbidden");
+      expect(sessionStatusUnknown(error)).toBe(false);
+      yield* rotatedNothing(sqlite, refreshToken);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("refuses a profile the account has deleted, and rotates nothing", () => {
+    const { layer, db, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const { profile, refreshToken } = yield* signIn("own-d@example.com", "ownd");
+      const gone = yield* addProfile(profile.accountId, "ownd2");
+      yield* Effect.promise(() => db.delete(users).where(eq(users.id, gone)));
+
+      const error = yield* Effect.flip(auth.refreshTokens(refreshToken, gone));
+
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Invalid or expired session");
+      yield* rotatedNothing(sqlite, refreshToken);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("refuses a restricted recovery session another account's profile", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const user = yield* auth.registerProfile("foreign-rs@example.com", "foreignrs");
+      const stranger = yield* auth.registerProfile("stranger-rs@example.com", "strangerrs");
+      const restricted = yield* auth.issueRecoverySession(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+        "otp",
+      );
+
+      const error = yield* Effect.flip(auth.refreshTokens(restricted.refreshToken, stranger.id));
+
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Invalid or expired session");
+      yield* rotatedNothing(sqlite, restricted.refreshToken);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect(
+    "refuses a replaced cancel handle a grant naming no profile, and rotates nothing",
+    () => {
+      const { layer, sqlite } = createTestLayerWithSqlite();
+      return Effect.gen(function* () {
+        const { profile, refreshToken } = yield* signIn("replaced@example.com", "replaced");
+        sqlite.run("UPDATE sessions SET replaced_at = ? WHERE id = ?", [
+          Math.floor(Date.now() / 1000),
+          hashSessionToken(refreshToken),
+        ]);
+
+        const error = yield* Effect.flip(auth.refreshTokens(refreshToken));
+
+        expect(error._tag).toBe("AuthError");
+        expect(error.message).toBe("Invalid or expired session");
+        expect(metrics.classifyError(error)).toBe("forbidden");
+        expect(sessionStatusUnknown(error)).toBe(false);
+        yield* rotatedNothing(sqlite, refreshToken, profile.id);
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.effect("sends the same statements for another account's profile as for a missing one", () => {
+    // Equal work for both, so neither the answer nor its cost tells whether
+    // a profile id exists on another account.
+    const { layer, captured } = createCapturingTestLayer();
+    return Effect.gen(function* () {
+      const { refreshToken } = yield* signIn("reads@example.com", "reads");
+      const stranger = yield* auth.registerProfile("reads-other@example.com", "readsother");
+
+      captured.length = 0;
+      yield* Effect.flip(auth.refreshTokens(refreshToken, stranger.id));
+      const foreign = captured.map((statement) => statement.sql);
+      captured.length = 0;
+      yield* Effect.flip(auth.refreshTokens(refreshToken, "usr_000000000000"));
+      const missing = captured.map((statement) => statement.sql);
+
+      expect(foreign.some((sql) => /from "users"/.test(sql))).toBe(true);
+      expect(foreign).toEqual(missing);
+    }).pipe(Effect.provide(layer));
+  });
+
+  /** The statements of a rotation, in the order `refreshTokens` runs them. */
+  const ROTATION_STEPS: ReadonlyArray<{ readonly step: string; readonly pattern: RegExp }> = [
+    { step: "insert of the new session", pattern: /^insert into "sessions"/ },
+    { step: "rotation record", pattern: /^insert into "rotated_sessions"/ },
+    { step: "swap", pattern: /^delete from "sessions"/ },
+  ];
+
+  for (const { step, pattern } of ROTATION_STEPS) {
+    it.live(`hands out no token for a profile deleted while the grant is at its ${step}`, () => {
+      const { db, sqlite, email } = createTestLayerWithSqlite();
+      const queries = holdQueries(db);
+      const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
+      return Effect.gen(function* () {
+        const { profile, refreshToken } = yield* signIn("mid-delete@example.com", "middelete");
+        const second = yield* addProfile(profile.accountId, "middelete2");
+
+        const held = queries.hold(pattern);
+        const grant = yield* Effect.forkChild(
+          Effect.result(auth.refreshTokens(refreshToken, second)),
+        );
+        yield* Effect.promise(() => held.reached);
+        sqlite.run("DELETE FROM users WHERE id = ?", [second]);
+        held.release();
+        const outcome = yield* Fiber.join(grant);
+
+        expect(outcome._tag).toBe("Failure");
+        if (outcome._tag === "Failure") {
+          expect(outcome.failure.message).toBe(ROTATION_RACE_MESSAGE);
+        }
+        const left = sqlite
+          .query("SELECT id FROM sessions WHERE account_id = ?")
+          .all(profile.accountId) as { id: string }[];
+        expect(left.map((row) => row.id)).toEqual([hashSessionToken(refreshToken)]);
+        expect(sqlite.query("SELECT token_hash FROM rotated_sessions").all()).toEqual([]);
+        // The retry reads the profile gone, and is refused.
+        const retry = yield* Effect.flip(auth.refreshTokens(refreshToken, second));
+        expect(retry.message).toBe("Invalid or expired session");
+      }).pipe(Effect.provide(layer));
+    });
+  }
+
+  it.effect("F22: a restricted recovery session ignores the profile it names", () =>
+    Effect.gen(function* () {
+      const user = yield* auth.registerProfile("named-rs@example.com", "namedrs");
+      const second = yield* addProfile(user.accountId, "namedrs2");
+      const restricted = yield* auth.issueRecoverySession(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+        "otp",
+      );
+
+      const next = yield* auth.refreshTokens(restricted.refreshToken, second);
+
+      const payload = payloadOf(next.accessToken);
+      expect(payload["sub"]).toBe(user.id);
+      expect(payload["aud"]).toBe(RECOVERY_TOKEN_AUDIENCE);
+    }).pipe(Effect.provide(createTestLayerWithSqlite().layer)),
+  );
+});
 
 describe("refreshTokens: the rotation record", () => {
   it.effect("writes one row for the rotated-out token, in its family, for a refresh TTL", () => {

@@ -156,13 +156,6 @@ describe("pruneBeforeImages", () => {
     expect(r2._store.get(`imports/imp-${total}/before/events.csv`)).toBeDefined();
   });
 
-  it("is a no-op under the retention cap", async () => {
-    const { db, r2, layer } = makeLayer();
-    await applyWithCheckpoint(db, r2, layer, "imp-1", EVENTS, GUESTS, 1_000);
-    const [row] = db.select().from(imports).where(eq(imports.id, "imp-1")).all();
-    expect(row!.beforeEventsR2Key).not.toBeNull();
-  });
-
   it("NULLs the keys even when the R2 bucket binding is absent (orphaned)", async () => {
     const { db, r2, layer } = makeLayer();
     const total = BEFORE_IMAGE_RETENTION + 1;

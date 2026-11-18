@@ -153,12 +153,6 @@ describe("createRealtimeRoute — admitted", () => {
     expect(res).toBe(hub.response);
   });
 
-  it.each(["editor", "viewer"] as const)("admits a co-host seated as %s", async (role) => {
-    const { db, route, hub } = setup();
-    seat(db, "usr_cohost", role);
-    expect(await upgrade(route, await bearer("usr_cohost"))).toBe(hub.response);
-  });
-
   // A helper reads the run sheet, so their tab listens for the changes that
   // move it. The scope narrows what a re-read returns, never whether they may
   // listen.

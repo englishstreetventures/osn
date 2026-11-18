@@ -5,13 +5,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * Guard for the D1-vs-bun:sqlite rows-affected trap (S-fix, PR #318).
+ * Guard for the D1-vs-bun:sqlite rows-affected trap.
  *
  * D1 reports affected rows under `meta.changes`; bun:sqlite reports `.changes`
  * at the top level and some drivers use `.rowsAffected`. Reading any of those
- * directly worked in tests (bun:sqlite) but returned 0 in production (D1) — a
- * bug that silently signed every user out at first refresh and broke passkey
- * rename. The fix routes every affected-row read through `rowsChanged()` here.
+ * directly works in tests (bun:sqlite) and returns 0 in production (D1), which
+ * turns a compare-and-swap gate such as refresh rotation into always-fail.
+ * Every affected-row read goes through `rowsChanged()` in this package.
  *
  * CI runs tests on bun:sqlite, so it can NEVER reproduce the D1 mismatch — a new
  * direct `.changes` / `.rowsAffected` read would pass every test and only fail

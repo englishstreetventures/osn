@@ -113,3 +113,54 @@ test("the CLI exits 1 and names every tracked file with a finding", async () => 
   expect(stderr).not.toContain("tests/db.test.ts");
   expect(stderr).not.toContain("untracked/");
 });
+
+test("the CLI reads what a workflow passes on to a tracked Alchemy script, and every tracked env file", async () => {
+  const repo = join(scratch, "passed-on");
+  const files: Record<string, string> = {
+    "package.json": JSON.stringify({ name: "root", scripts: {} }),
+    "shared/infra/package.json": JSON.stringify({
+      name: "infra",
+      scripts: {
+        "state:bootstrap":
+          "CI=true DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare",
+      },
+    }),
+    ".github/workflows/w.yml": [
+      "on: workflow_dispatch",
+      "jobs:",
+      "  a:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: bun run --cwd shared/infra state:bootstrap --force",
+      "",
+    ].join("\n"),
+    "shared/infra/.env.development": "ALCHEMY_LOG_LEVEL=debug\n",
+    "untracked/.env": "ALCHEMY_LOG_LEVEL=debug\n",
+  };
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(repo, path)), { recursive: true });
+    writeFileSync(join(repo, path), text);
+  }
+  mkdirSync(join(repo, "scripts"));
+  copyFileSync(SCRIPT, join(repo, "scripts/check-alchemy-usage.ts"));
+  const tracked = Object.keys(files).filter((path) => !path.startsWith("untracked/"));
+  for (const args of [
+    ["init", "-q"],
+    ["add", "--", ...tracked],
+  ]) {
+    expect(spawnSync("git", args, { cwd: repo }).status).toBe(0);
+  }
+
+  const { exitCode, stdout, stderr } = await runCli(
+    join(repo, "scripts/check-alchemy-usage.ts"),
+    {},
+  );
+
+  expect(exitCode).toBe(1);
+  expect(stdout).toBe("check-alchemy-usage: 2 finding(s).\n");
+  expect(stderr).toContain(
+    ".github/workflows/w.yml jobs.a.steps[0]: `state bootstrap --force` redeploys a state store that is serving",
+  );
+  expect(stderr).toContain("shared/infra/.env.development: ALCHEMY_LOG_LEVEL");
+  expect(stderr).not.toContain("untracked/");
+});

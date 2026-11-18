@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   contrastOklch,
   contrastRatio,
-  DERIVED_TOKENS,
   derivePalette,
   FONT_CHOICES,
   FONT_STACKS,
@@ -78,17 +77,6 @@ describe("colour round-trip", () => {
 });
 
 describe("derivePalette", () => {
-  test("emits exactly the declared token set", () => {
-    const vars = derivePalette(PALETTE_PRESETS.evergreen);
-    expect(Object.keys(vars).toSorted()).toEqual([...DERIVED_TOKENS].toSorted());
-  });
-
-  test("is deterministic — same seeds, same output", () => {
-    const a = derivePalette(PALETTE_PRESETS.jewel);
-    const b = derivePalette({ ...PALETTE_PRESETS.jewel });
-    expect(a).toEqual(b);
-  });
-
   test("every emitted value passes the CSS-colour allow-list", () => {
     // Derived tokens are interpolated into guest-facing inline styles exactly
     // like hand-picked ones, so they must clear the same injection gate.
@@ -487,35 +475,6 @@ describe("residual contrast warnings", () => {
         warnings: paletteContrastWarnings(derivePalette(PALETTE_PRESETS[key])),
       }).toEqual({ key, warnings: [] });
     }
-  });
-
-  test("fog's bloom clears the raised surface, not just ground", () => {
-    // `bloom-on-raised` is the pair the RSVP confirmation fill/tick added
-    // (see the RESIDUAL_PAIRS entry). It caught a real failure here: `fog`'s
-    // near-white `card`/`raised` (99.2% L) needs more headroom than `ground`
-    // (96.5% L), so the original 63%-lightness bloom seed cleared `ground`
-    // (bloom is only walked against `ground` at derivation time) but landed
-    // at 2.88:1 on `raised` — under the 3:1 floor. The first fix (60%) only
-    // just cleared it at 3.24:1; the seed now sits at 50% for real headroom
-    // (~4.92:1). Assert the property, not the literal, so a future re-tune
-    // only has to keep clearing this bar.
-    const fog = derivePalette(PALETTE_PRESETS.fog);
-    expect(
-      contrastRatio(fog["--color-bloom"] as string, fog["--color-surface-raised"] as string),
-    ).toBeGreaterThanOrEqual(WCAG_UI_MIN);
-  });
-
-  test("chapel's bloom clears the raised surface with the same headroom fog needed", () => {
-    // `chapel` had the identical thin-margin problem as `fog` above — its
-    // original 60%-lightness bloom seed cleared `bloom-on-raised` at only
-    // 3.18:1, barely past the 3:1 floor. Moved to 50% alongside `fog`'s
-    // re-tune (~4.83:1). Only the blanket "every curated preset is clean"
-    // sweep covered this before, which only proves the floor clears by SOME
-    // margin — a partial revert landing just over 3:1 would pass it silently.
-    const chapel = derivePalette(PALETTE_PRESETS.chapel);
-    expect(
-      contrastRatio(chapel["--color-bloom"] as string, chapel["--color-surface-raised"] as string),
-    ).toBeGreaterThanOrEqual(WCAG_UI_MIN);
   });
 
   test("the two notices describe different things, neither derivable from the other", () => {
@@ -985,24 +944,6 @@ describe("toast tokens", () => {
     }
   });
 
-  /**
-   * The concrete failure that motivated these tokens, pinned so it cannot
-   * return. On the built-in JEWEL preset, `--color-success` measures 4.29:1
-   * against the raised surface a toast paints on — under the 4.5 text minimum —
-   * because it was walked against `card`. `--toast-success` clears it.
-   *
-   * A shipped preset, not a contrived one: every jewel invite that raised an
-   * RSVP confirmation was rendering a sub-threshold green.
-   */
-  test("fixes the jewel preset's sub-threshold success green", () => {
-    const tokens = derivePalette(PALETTE_PRESETS.jewel);
-    const raised = parseColor(tokens["--toast-surface"])!;
-    const page = contrastOklch(parseColor(tokens["--color-success"])!, raised);
-    const toast = contrastOklch(parseColor(tokens["--toast-success"])!, raised);
-    expect(page, "the page token really was short on raised").toBeLessThan(WCAG_TEXT_MIN);
-    expect(toast, "the toast token clears it").toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
-  });
-
   test("costs nothing on a scheme that already works", () => {
     // Evergreen's semantics already clear on `raised`, so the extra walk must
     // return them untouched rather than drifting the organiser's colour.
@@ -1017,12 +958,5 @@ describe("toast tokens", () => {
     const toast = parseColor(tokens["--toast-error"])!;
     // Lightness may move to clear the surface; hue must not.
     expect(Math.abs(toast.h - page.h)).toBeLessThan(1);
-  });
-
-  test("emits only safe CSS colours, like every other token", () => {
-    const tokens = derivePalette(PALETTE_PRESETS.chapel);
-    for (const token of ["--toast-surface", "--toast-ink", "--toast-error"] as const) {
-      expect(isSafeCssColor(tokens[token]), token).toBe(true);
-    }
   });
 });

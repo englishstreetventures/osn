@@ -1,6 +1,6 @@
 /**
  * The repository patches the Alchemy Cloudflare provider's asset upload
- * (`patches/@alchemy.run%2Fcloudflare@2.0.0-beta.84.patch`) so every file
+ * (`patches/@alchemy.run%2Fcloudflare@2.0.0-beta.85.patch`) so every file
  * uploads with the content type Wrangler gives it: workers-shared's
  * `getContentType`, which is mime 4.0.7's type with `; charset=utf-8` added to
  * any `text/*` type without one, and `application/null` — which Cloudflare

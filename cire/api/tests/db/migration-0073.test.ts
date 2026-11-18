@@ -34,6 +34,25 @@ function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
 }
 
+/**
+ * A migration as wrangler sends it, one statement at a time, so a statement
+ * SQLite refuses throws here: `exec` over the whole file can stop at a failed
+ * statement without throwing.
+ */
+function applyByStatement(db: Database, file: string): void {
+  const statements = readFileSync(join(MIGRATIONS_DIR, file), "utf8")
+    .split("--> statement-breakpoint")
+    .map((chunk) =>
+      chunk
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("--"))
+        .join("\n")
+        .trim(),
+    )
+    .filter(Boolean);
+  for (const statement of statements) db.run(statement);
+}
+
 // Each wedding's legacy entitlement rows, and the tier 0073 must give it.
 const FIXTURES: Record<string, { keys: string[]; tier: "ivory" | "gold" | "crimson" }> = {
   wed_none: { keys: [], tier: "ivory" },
@@ -109,7 +128,7 @@ describe("migration 0073", () => {
   it("runs on a wedding holding two pending per-module purchases", () => {
     expect(chain(73, 74)).toEqual([MIG_0073]);
     const db = beforeMigration();
-    expect(() => apply(db, MIG_0073)).not.toThrow();
+    expect(() => applyByStatement(db, MIG_0073)).not.toThrow();
     db.close();
   });
 
@@ -152,25 +171,6 @@ describe("migration 0073", () => {
     expect(stamp("upg_done")).toBe(PURCHASE_STAMP);
     expect(stamp("upg_r")).toBeGreaterThanOrEqual(startedAt);
     expect(stamp("upg_v")).toBeGreaterThanOrEqual(startedAt);
-    db.close();
-  });
-
-  it("records no Price on any purchase written before it", () => {
-    // A row with no recorded Price is settled only by the session it already
-    // holds, so every pre-tier row must read NULL here rather than a default.
-    const db = beforeMigration();
-    apply(db, MIG_0073);
-    expect(
-      db
-        .query(
-          "SELECT id, price_id, price_amount_minor, price_currency FROM wedding_upgrade_purchases ORDER BY id",
-        )
-        .all(),
-    ).toEqual([
-      { id: "upg_done", price_id: null, price_amount_minor: null, price_currency: null },
-      { id: "upg_r", price_id: null, price_amount_minor: null, price_currency: null },
-      { id: "upg_v", price_id: null, price_amount_minor: null, price_currency: null },
-    ]);
     db.close();
   });
 

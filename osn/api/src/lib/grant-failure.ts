@@ -1,19 +1,22 @@
 /**
- * Does a failed `POST /token` prove the caller's session cookie is dead?
+ * Does a failed `POST /token` leave the caller's session cookie in doubt?
  *
  * The `osn_has_session` marker is a cache of "a session cookie exists in this
  * browser", and a fresh tab with no local account state consults nothing else
- * before deciding whether to attempt a grant at all. So only evidence that the
- * COOKIE is dead may retract it. Two failures say nothing of the kind:
+ * before deciding whether to attempt a grant at all. Every refusal retracts it
+ * except two failures that say nothing about the cookie:
  *
  *   - `DatabaseError` — a storage blip. Evidence about the request.
  *   - the CAS-lost `AuthError` from `refreshTokens` — a concurrent grant of the
- *     same token rotated it out first. PR #289 established this as expected
- *     under concurrent tabs, and the winning grant already set a fresh cookie.
+ *     same token rotated it out first, which concurrent tabs do, and the
+ *     winning grant already set a fresh cookie.
  *
- * Retracting on either turns a transient 400 into a permanent signed-out state
- * for exactly the cold-start population the marker exists to serve (S-M2). The
- * server already knows the difference; this is the predicate that keeps it.
+ * Retracting on either turns a transient 400 into a signed-out state for
+ * exactly the cold-start population the marker exists to serve. The server
+ * already knows the difference; this is the predicate that keeps it. A grant
+ * refused for what it asked — a profile the cookie's account does not own, a
+ * replaced handle naming none — retracts though the cookie is live: the page
+ * that sent it signs out, and a cold load should show that too.
  */
 
 /**

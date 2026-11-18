@@ -19,7 +19,7 @@ import {
   seatingTables,
   weddingHosts,
 } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { eq, sql as rawSql } from "drizzle-orm";
 import { Deferred, Effect, Exit, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -51,7 +51,8 @@ import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
 
-const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const YEAR_MS = 365 * DAY_MS;
 
 /**
  * In-memory delete-only R2 stub recording every key passed to `.delete()`.
@@ -312,6 +313,79 @@ function makeGiftedWedding(
   });
 }
 
+/** An event's Start and End, stored exactly as given. */
+interface StoredTimes {
+  startAt: string;
+  endAt: string;
+}
+
+/**
+ * A wedding with one household and one guest, whose events hold `times` as
+ * given — including values neither write door accepts, which a stored row or a
+ * revert can still hold. {@link makeWedding} stores dated events only.
+ */
+function makeWeddingWithTimes(
+  db: TestDb,
+  times: readonly StoredTimes[],
+  /** When the wedding was created; now by default. */
+  createdAt: Date = new Date(),
+): { weddingId: string; familyId: string; guestId: string } {
+  const now = new Date();
+  const weddingId = `wed_${crypto.randomUUID()}`;
+  const familyId = crypto.randomUUID();
+  const guestId = crypto.randomUUID();
+  insertWedding(db, {
+    id: weddingId,
+    slug: `slug-${weddingId}`,
+    displayName: "Test Wedding",
+    createdAt,
+    updatedAt: createdAt,
+    owners: ["usr_test"],
+  });
+  db.insert(families)
+    .values({
+      id: familyId,
+      weddingId,
+      publicId: `PUB-${weddingId}`,
+      familyName: "Smith",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(guests)
+    .values({
+      id: guestId,
+      familyId,
+      firstName: "Alex",
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  times.forEach(({ startAt, endAt }, i) => {
+    db.insert(events)
+      .values({
+        id: `${weddingId}-ev-${i}`,
+        weddingId,
+        slug: `${weddingId}-ev-${i}`,
+        name: `Event ${i}`,
+        startAt,
+        endAt,
+        timezone: "Australia/Sydney",
+      })
+      .run();
+  });
+  return { weddingId, familyId, guestId };
+}
+
+/** Each captured line saying the sweep kept weddings it cannot date. */
+const undatedLines = (logs: string): string[] =>
+  logs.split("\n").filter((line) => line.includes("whose event dates it cannot read"));
+
+/** Each captured line saying the sweep deleted weddings it cannot date, by their creation. */
+const createdBoundLines = (logs: string): string[] =>
+  logs.split("\n").filter((line) => line.includes("three years after they were created"));
+
 const guestCount = (db: TestDb, guestId: string): number =>
   db.select().from(guests).where(eq(guests.id, guestId)).all().length;
 
@@ -552,7 +626,7 @@ describe("retentionService.sweepExpiredGuestData", () => {
     ),
   );
 
-  it("takes the longest-overdue weddings first when the cohort is over the per-run cap, and the rest on the next run", async () => {
+  it("takes the longest-overdue weddings first when the cohort is over the per-run cap, and the rest on the next run, then a wedding due by its creation, ahead of a wedding it cannot date, which it still counts", async () => {
     const db = freshDb();
     const now = new Date("2026-06-17T04:00:00.000Z");
     const day = 24 * 60 * 60 * 1000;
@@ -574,21 +648,82 @@ describe("retentionService.sweepExpiredGuestData", () => {
     );
     const newest = seeded[0]!;
     const oldest = seeded[seeded.length - 1]!;
-
-    expect(await runOn(db, retentionService.sweepExpiredGuestData(now))).toBe(
-      MAX_WEDDINGS_PER_SWEEP,
+    // No event of this wedding can be dated, so it has no final event to sort
+    // by. It must not take a due wedding's place under the cap, and the count
+    // must still include it while the due weddings fill every place.
+    makeWeddingWithTimes(db, [{ startAt: "TBD by the couple", endAt: "" }]);
+    // No event of this one can be dated either, but it was created more than
+    // three years before the run, so it is due — after every wedding the year
+    // rule makes due.
+    const byCreation = makeWeddingWithTimes(
+      db,
+      [{ startAt: "TBD by the couple", endAt: "" }],
+      new Date("2022-01-01T00:00:00.000Z"),
     );
+
+    let firstRun: number | undefined;
+    const logs = await captureLogs(async () => {
+      firstRun = await runOn(db, retentionService.sweepExpiredGuestData(now));
+    });
+    expect(firstRun).toBe(MAX_WEDDINGS_PER_SWEEP);
+    expect(undatedLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
+    // Every wedding this run deleted was due by the year rule.
+    expect(createdBoundLines(logs)).toEqual([]);
     // The one wedding the cap left behind is the most recent, not an
     // arbitrary one.
     expect({
       newest: guestCount(db, newest.guestId),
       oldest: guestCount(db, oldest.guestId),
-    }).toEqual({ newest: 1, oldest: 0 });
+      byCreation: guestCount(db, byCreation.guestId),
+    }).toEqual({ newest: 1, oldest: 0, byCreation: 1 });
 
     // The swept weddings keep their events, but hold nothing left to delete,
     // so they no longer fill the cohort: the next run reaches the newest.
-    expect(await runOn(db, retentionService.sweepExpiredGuestData(now))).toBe(1);
+    expect(await runOn(db, retentionService.sweepExpiredGuestData(now))).toBe(2);
     expect(guestCount(db, newest.guestId)).toBe(0);
+    expect(guestCount(db, byCreation.guestId)).toBe(0);
+  });
+
+  it("takes the weddings due by their creation oldest first, after the weddings the year rule makes due, when the cap leaves room for one", async () => {
+    const db = freshDb();
+    const now = new Date("2026-06-17T04:00:00.000Z");
+    const day = 24 * 60 * 60 * 1000;
+    const start = Date.parse("2023-01-01T00:00:00.000Z");
+    // One place fewer than the cap for the year rule's weddings, so a single
+    // place is left for the two weddings due by their creation.
+    const dated = await runOn(
+      db,
+      Effect.gen(function* () {
+        const out = [];
+        for (let i = 0; i < MAX_WEDDINGS_PER_SWEEP - 1; i++) {
+          const date = new Date(start + i * day).toISOString().slice(0, 10);
+          out.push(yield* makeWedding({ eventDates: [date] }));
+        }
+        return out;
+      }),
+    );
+    // The newer one is inserted first, so row order cannot stand in for the
+    // ORDER BY.
+    const newer = makeWeddingWithTimes(
+      db,
+      [{ startAt: "TBD by the couple", endAt: "" }],
+      new Date("2022-01-01T00:00:00.000Z"),
+    );
+    const older = makeWeddingWithTimes(
+      db,
+      [{ startAt: "TBD by the couple", endAt: "" }],
+      new Date("2021-01-01T00:00:00.000Z"),
+    );
+
+    expect(await runOn(db, retentionService.sweepExpiredGuestData(now))).toBe(
+      MAX_WEDDINGS_PER_SWEEP,
+    );
+
+    expect(dated.filter((w) => guestCount(db, w.guestId) > 0)).toEqual([]);
+    expect({
+      older: guestCount(db, older.guestId),
+      newer: guestCount(db, newer.guestId),
+    }).toEqual({ older: 0, newer: 1 });
   });
 
   it("counts and logs a sweep whose cohort read fails", async () => {
@@ -612,6 +747,211 @@ describe("retentionService.sweepExpiredGuestData", () => {
     expect(logs).toContain("guest-data retention sweep failed");
     expect(await counterValue(CIRE_METRICS.guestDataSwept, { result: "error" })).toBe(before + 1);
   });
+
+  // The sweep compares stored Starts and Ends as text against a `YYYY-MM-DD`
+  // cutoff, which is exact only for a value that begins with its date. A
+  // stored row can hold any text, and a revert can restore one. Each row below
+  // seeds one wedding with a dated event
+  // long past and one event the sweep cannot date, on a day with nothing else
+  // due: the wedding is kept, counted in one warning line, and neither its id
+  // nor the stored value reaches the log. The values are distinctive so the
+  // log check cannot pass or fail on unrelated text.
+  const PAST = { startAt: "2025-03-01T10:00:00+11:00", endAt: "2025-03-01T12:00:00+11:00" };
+  it.each([
+    {
+      shape: "a Start that sorts after every date",
+      odd: { startAt: "TBD by the couple", endAt: "" },
+      stored: ["TBD by the couple"],
+    },
+    {
+      shape: "a Start that sorts before every cutoff",
+      odd: { startAt: "1st Nov 2026 at Wattle Grove", endAt: "" },
+      stored: ["1st Nov 2026 at Wattle Grove"],
+    },
+    { shape: "a blank Start and End", odd: { startAt: "", endAt: "" }, stored: [] },
+    {
+      shape: "a dated Start and an End that sorts after every date",
+      odd: { startAt: "2025-04-01T10:00:00+11:00", endAt: "late, after the speeches" },
+      stored: ["late, after the speeches"],
+    },
+    {
+      shape: "a dated Start and an End that sorts before every cutoff",
+      odd: { startAt: "2025-04-01T10:00:00+11:00", endAt: "1st Nov 2026 at Wattle Grove" },
+      stored: ["1st Nov 2026 at Wattle Grove"],
+    },
+    {
+      shape: "a Start whose date follows a space",
+      odd: { startAt: " 2025-04-01T10:00:00+11:00", endAt: "" },
+      stored: [],
+    },
+  ])("keeps and counts a wedding with one event holding $shape", async ({ odd, stored }) => {
+    const db = freshDb();
+    const { weddingId, guestId } = makeWeddingWithTimes(db, [PAST, odd]);
+
+    const logs = await captureLogs(() =>
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+    );
+
+    expect(guestCount(db, guestId)).toBe(1);
+    expect(undatedLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
+    for (const secret of [weddingId, ...stored]) expect(logs).not.toContain(secret);
+  });
+
+  it("keeps and counts a young wedding it cannot date even when a readable event is still ahead", async () => {
+    // The readable event does not decide when its guest data goes: the event
+    // it cannot date puts it on the three years from its creation, so it is
+    // kept for that, and counted with the rest.
+    const db = freshDb();
+    const { guestId } = makeWeddingWithTimes(db, [
+      { startAt: "2027-01-10T10:00:00+11:00", endAt: "" },
+      { startAt: "TBD by the couple", endAt: "" },
+    ]);
+
+    const logs = await captureLogs(() =>
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+    );
+
+    expect(guestCount(db, guestId)).toBe(1);
+    expect(undatedLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
+  });
+
+  it("does not count a wedding it cannot date that holds no guest data", async () => {
+    // Nothing is left to delete, so nothing is being kept.
+    const db = freshDb();
+    const { familyId } = makeWeddingWithTimes(db, [{ startAt: "TBD by the couple", endAt: "" }]);
+    db.delete(families).where(eq(families.id, familyId)).run();
+
+    const logs = await captureLogs(() =>
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+    );
+
+    expect(undatedLines(logs)).toEqual([]);
+  });
+
+  // A wedding with an event the sweep cannot date has no final event to count a
+  // year from. Its guest data goes three years after the wedding was created
+  // instead, whatever its readable dates say.
+  it("deletes a wedding it cannot date three years after it was created, and keeps and counts younger ones", async () => {
+    const db = freshDb();
+    // Swept on 2026-06-17: three years and a day.
+    const createdAt = new Date("2023-06-16T04:00:00.000Z");
+    const old = makeWeddingWithTimes(db, [{ startAt: "TBD by the couple", endAt: "" }], createdAt);
+    const youngAt = [
+      // Two years and eleven months.
+      new Date("2023-07-17T04:00:00.000Z"),
+      // An hour short of three calendar years, though more than 1,095 days:
+      // the years are calendar years, so the anniversary is never early.
+      new Date("2023-06-17T05:00:00.000Z"),
+      // Three calendar years to the second: kept until the next run.
+      new Date("2023-06-17T04:00:00.000Z"),
+    ];
+    const young = youngAt.map((at) =>
+      makeWeddingWithTimes(db, [{ startAt: "TBD by the couple", endAt: "" }], at),
+    );
+    // Due by the year rule in the same run, so the line below counts only the
+    // weddings deleted by their creation, not every wedding the run deleted.
+    const dated = await runOn(db, makeWedding({ eventDates: ["2025-03-01"] }));
+
+    const logs = await captureLogs(() =>
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+    );
+
+    expect(guestCount(db, old.guestId)).toBe(0);
+    expect(guestCount(db, dated.guestId)).toBe(0);
+    expect(young.map((w) => guestCount(db, w.guestId))).toEqual([1, 1, 1]);
+    // The kept count is the young ones alone; the deleted one has its own line.
+    expect(undatedLines(logs)).toEqual([expect.stringContaining('"weddings":3')]);
+    expect(createdBoundLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
+    // Counts only: no id, no stored value, no creation date in any form.
+    for (const secret of [
+      old.weddingId,
+      ...young.map((w) => w.weddingId),
+      "TBD by the couple",
+      createdAt.toISOString().slice(0, 10),
+      String(Math.floor(createdAt.getTime() / 1000)),
+    ]) {
+      expect(logs).not.toContain(secret);
+    }
+  });
+
+  // The owner's rule: one event the sweep cannot date puts the whole wedding on
+  // the three years from its creation, whatever its readable events say. A
+  // wedding planned more than three years ahead can therefore lose its guest
+  // data before its readable event, which the owner accepted.
+  it.each([
+    {
+      shape: "a readable event a year and more past",
+      readable: { startAt: "2025-03-01T10:00:00+11:00", endAt: "2025-03-01T12:00:00+11:00" },
+    },
+    {
+      shape: "a readable event three months past",
+      readable: { startAt: "2026-03-14T10:00:00+11:00", endAt: "2026-03-14T12:00:00+11:00" },
+    },
+    {
+      shape: "a readable event still to come",
+      readable: { startAt: "2027-01-10T10:00:00+11:00", endAt: "" },
+    },
+  ])(
+    "deletes a wedding created four years before the run with an event it cannot date and $shape",
+    async ({ readable }) => {
+      const db = freshDb();
+      const { guestId } = makeWeddingWithTimes(
+        db,
+        [readable, { startAt: "TBD by the couple", endAt: "" }],
+        new Date(SWEEP_AT.getTime() - 4 * YEAR_MS),
+      );
+
+      const logs = await captureLogs(() =>
+        runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+      );
+
+      expect(guestCount(db, guestId)).toBe(0);
+      expect(createdBoundLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
+    },
+  );
+
+  it("keeps a wedding created four years before the run whose dates all read, its final event two months past", async () => {
+    // The three years from creation applies only to a wedding with an event the
+    // sweep cannot date; this one is on the year rule alone.
+    const db = freshDb();
+    const { guestId } = makeWeddingWithTimes(
+      db,
+      [{ startAt: "2026-04-15T10:00:00+10:00", endAt: "2026-04-15T12:00:00+10:00" }],
+      new Date(SWEEP_AT.getTime() - 4 * YEAR_MS),
+    );
+
+    const logs = await captureLogs(() =>
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+    );
+
+    expect(guestCount(db, guestId)).toBe(1);
+    expect(undatedLines(logs)).toEqual([]);
+    expect(createdBoundLines(logs)).toEqual([]);
+  });
+
+  // `created_at` holds epoch seconds. A value that does not read as seconds
+  // says nothing about when the wedding was created, so it keeps the wedding.
+  it.each([
+    { shape: "milliseconds", stored: Date.parse("2022-01-01T00:00:00.000Z") },
+    { shape: "text", stored: "2022-01-01" },
+  ])(
+    "keeps and counts a wedding it cannot date whose stored creation time is in $shape",
+    async ({ stored }) => {
+      const db = freshDb();
+      const { weddingId, guestId } = makeWeddingWithTimes(db, [
+        { startAt: "TBD by the couple", endAt: "" },
+      ]);
+      db.run(rawSql`update ${weddings} set created_at = ${stored} where id = ${weddingId}`);
+
+      const logs = await captureLogs(() =>
+        runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+      );
+
+      expect(guestCount(db, guestId)).toBe(1);
+      expect(undatedLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
+      expect(createdBoundLines(logs)).toEqual([]);
+    },
+  );
 
   it(
     "removes the dietary free-text and consent records along with the rsvp row",
@@ -1335,7 +1675,7 @@ describe("the parting gift summary", () => {
         const notice = seen[0]?.[0];
         expect(notice?.weddingId).toBe(weddingId);
         expect(notice?.ownerOsnProfileIds).toEqual(["usr_test"]);
-        expect(notice?.finalEventOn).toBe("2025-05-10");
+        expect(notice?.retainedFrom).toEqual({ rule: "final-event", on: "2025-05-10" });
         expect(notice?.summary.contributions.count).toBe(1);
         // The notice carries aggregates only, same as the stored summary.
         const asText = JSON.stringify(notice);
@@ -1611,14 +1951,21 @@ describe("the parting gift summary", () => {
     const stamp = new Date("2025-05-11T00:00:00.000Z");
     const seen: GiftSummaryNotice[] = [];
 
-    const { statements, closedId, openEndedId } = await Effect.runPromise(
+    const { statements, closedId, openEndedId, undatableId } = await Effect.runPromise(
       Effect.gen(function* () {
         const closed = yield* makeWedding({ eventDates: ["2025-03-01", "2025-05-10"] });
         // The last event has no stated end, so its start is its effective end.
         const openEnded = yield* makeWedding({
           eventDates: ["2025-02-01", { date: "2025-04-20", openEnded: true }],
         });
-        for (const { weddingId, familyId } of [closed, openEnded]) {
+        // No event it can date, created more than three years before the run:
+        // due by its creation, in the same read and the same statements.
+        const undatable = makeWeddingWithTimes(
+          db,
+          [{ startAt: "TBD by the couple", endAt: "" }],
+          new Date("2023-01-15T00:00:00.000Z"),
+        );
+        for (const { weddingId, familyId } of [closed, openEnded, undatable]) {
           db.insert(registrySettings)
             .values({ weddingId, published: true, createdAt: stamp, updatedAt: stamp })
             .run();
@@ -1650,10 +1997,15 @@ describe("the parting gift summary", () => {
           statements: recorded,
           closedId: closed.weddingId,
           openEndedId: openEnded.weddingId,
+          undatableId: undatable.weddingId,
         };
       }).pipe(Effect.provideService(DbService, db)),
     );
 
+    // Every statement the sweep runs, counted on the code before the bound by
+    // creation: it rides on the same read and the same batched writes, so the
+    // daily cron's query budget does not move.
+    expect(statements).toHaveLength(16);
     // Any read naming the table counts, a join as much as a FROM. The seat
     // delete names `events` too — it reaches the seats through their events —
     // but as the scope of a write, so it is counted on its own.
@@ -1668,9 +2020,10 @@ describe("the parting gift summary", () => {
       'delete from "seating_assignments" where ',
     ]);
 
-    const finalEventOn = new Map(seen.map((n) => [n.weddingId, n.finalEventOn]));
-    expect(finalEventOn.get(closedId)).toBe("2025-05-10");
-    expect(finalEventOn.get(openEndedId)).toBe("2025-04-20");
+    const retainedFrom = new Map(seen.map((n) => [n.weddingId, n.retainedFrom]));
+    expect(retainedFrom.get(closedId)).toEqual({ rule: "final-event", on: "2025-05-10" });
+    expect(retainedFrom.get(openEndedId)).toEqual({ rule: "final-event", on: "2025-04-20" });
+    expect(retainedFrom.get(undatableId)).toEqual({ rule: "created", on: "2023-01-15" });
   });
 
   it("stores no summary while the delete does not commit, and counts each gift once when it does", async () => {
@@ -1724,13 +2077,14 @@ describe("the parting gift summary", () => {
   it("holds back the whole cohort when its gifts cannot be read", async () => {
     const db = freshDb();
     // Both inside the 30-day hold-back: due on 2026-06-01 and 2026-06-05.
-    const gifted = await runOn(db, makeGiftedWedding("2025-06-01"));
+    const gifted = await runOn(db, makeGiftedWedding("2025-06-01", { withImport: true }));
     const plain = await runOn(db, makeWedding({ eventDates: ["2025-06-05"] }));
     const before = await written("read_failed");
     const fault = failStatements(db, (sql) => sql.includes('from "registry_contributions"'));
+    const sheets = createDeleteStub();
 
     const logs = await captureLogs(() =>
-      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT, { sheets })),
     );
 
     expect(fault.failed()).toBe(1);
@@ -1740,6 +2094,8 @@ describe("the parting gift summary", () => {
     expect(await written("read_failed")).toBe(before + 2);
     expect(guestCount(db, gifted.guestId)).toBe(1);
     expect(guestCount(db, plain.guestId)).toBe(1);
+    // Nothing was deleted, so no sheet is reaped either.
+    expect(sheets.deleted.size).toBe(0);
   });
 
   it("keeps the summary and deletes on time when the owners cannot be read", async () => {
@@ -2386,6 +2742,72 @@ describe("the gift summary hold-back ceiling", () => {
     expect(logs).not.toContain(pastCeiling.weddingId);
     expect(await written("abandoned")).toBe(before + 1);
   });
+
+  it.each([
+    {
+      shape: "no event it can date",
+      // Its retention date is three years after it was created: 2023-06-17
+      // for a run on 2026-06-17. On the 30th day past that it is still held
+      // for its record; a day later it is not.
+      onCeiling: { createdAt: "2023-05-18T04:00:00.000Z", dated: [] },
+      pastCeiling: { createdAt: "2023-05-17T04:00:00.000Z", dated: [] },
+    },
+    {
+      shape: "a readable event three months past",
+      // The readable event does not move its retention date, which is still
+      // three years after its creation: the 30 days count from there alone.
+      onCeiling: { createdAt: "2023-05-18T04:00:00.000Z", dated: ["2026-03-14"] },
+      pastCeiling: { createdAt: "2023-05-17T04:00:00.000Z", dated: ["2026-03-14"] },
+    },
+  ])(
+    "counts the 30 days from the three years of a wedding it cannot date, with $shape",
+    async ({ onCeiling: onCeilingAt, pastCeiling: pastCeilingAt }) => {
+      const db = freshDb();
+      const undatableGifted = async ({
+        createdAt,
+        dated,
+      }: {
+        createdAt: string;
+        dated: readonly string[];
+      }) => {
+        const wedding = makeWeddingWithTimes(
+          db,
+          [
+            { startAt: "TBD by the couple", endAt: "" },
+            ...dated.map((day) => ({
+              startAt: `${day}T10:00:00+11:00`,
+              endAt: `${day}T12:00:00+11:00`,
+            })),
+          ],
+          new Date(createdAt),
+        );
+        db.insert(registrySettings)
+          .values({
+            weddingId: wedding.weddingId,
+            published: true,
+            createdAt: GIFT_STAMP,
+            updatedAt: GIFT_STAMP,
+          })
+          .run();
+        await runOn(db, addGift(wedding.weddingId, wedding.familyId));
+        return wedding;
+      };
+      const onCeiling = await undatableGifted(onCeilingAt);
+      const pastCeiling = await undatableGifted(pastCeilingAt);
+      const before = await written("abandoned");
+      failStatements(db, (sql) => sql.includes('from "registry_contributions"'));
+
+      const logs = await captureLogs(() =>
+        runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+      );
+
+      expect(guestCount(db, onCeiling.guestId)).toBe(1);
+      expect(guestCount(db, pastCeiling.guestId)).toBe(0);
+      expect(storedSummary(db, pastCeiling.weddingId)).toBeNull();
+      expect(logs).toContain("deleted past the 30-day hold-back");
+      expect(await written("abandoned")).toBe(before + 1);
+    },
+  );
 
   it("deletes a wedding past the ceiling without its summary when the batch with the summary fails", async () => {
     const db = freshDb();

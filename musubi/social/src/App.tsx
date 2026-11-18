@@ -1,11 +1,24 @@
-import { AuthProvider } from "@osn/client/solid";
+import { AuthProvider, useAuth } from "@osn/client/solid";
 import { Toaster } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
 import { Route, Router, useLocation } from "@solidjs/router";
-import { createSignal, lazy, onCleanup, onMount, Show } from "solid-js";
+import {
+  createSignal,
+  lazy,
+  onCleanup,
+  onMount,
+  Show,
+  Suspense,
+  type Component,
+  type JSX,
+} from "solid-js";
 
 import { AccountBanners } from "./components/AccountBanners";
-import { OSN_ISSUER_URL } from "./lib/auth";
+import { DeletionWindowFrame } from "./components/DeletionWindowFrame";
+import { PageErrorBoundary } from "./components/PageErrorBoundary";
+import { ShellDialogsProvider, useShellDialogs } from "./components/ShellDialogs";
+import { RailFrame, TopBarFrame } from "./components/ShellFrame";
+import { osnAuth } from "./lib/auth";
 
 import "./App.css";
 
@@ -16,23 +29,71 @@ const MobileChrome = lazy(() =>
   import("./components/MobileChrome").then((m) => ({ default: m.MobileChrome })),
 );
 
+type Shell = {
+  component: Component;
+  frame: Component<{ failed: boolean }>;
+  /** Resolves once everything the shell waits for before it draws is in. */
+  load: (loadDialogs: () => Promise<void>) => Promise<void>;
+};
+
+/**
+ * Each shell: what it draws, the frame that holds its place, and what it waits
+ * for before it draws, which is its own chunk and the shell dialogs' (through
+ * `loadDialogs`). `Reserved` awaits a shell's `load` and nothing besides it.
+ * The browser tests await the same `load` (`tests/test-support/shell-chunks.ts`)
+ * before they look for a shell, so a load added here reaches their waits too.
+ */
+export const shells = {
+  rail: {
+    component: Sidebar,
+    frame: RailFrame,
+    load: (loadDialogs) => Promise.all([Sidebar.preload(), loadDialogs()]).then(() => undefined),
+  },
+  topBar: {
+    component: MobileChrome,
+    frame: TopBarFrame,
+    load: (loadDialogs) =>
+      Promise.all([MobileChrome.preload(), loadDialogs()]).then(() => undefined),
+  },
+} satisfies Record<string, Shell>;
+
+// Shell-only too: the signed-out and failed-profiles notices.
+const ShellNotices = lazy(() =>
+  import("./components/ShellNotices").then((m) => ({ default: m.ShellNotices })),
+);
+
+// What a session pending deletion sees instead of the shell. It reaches the
+// step-up ceremony, so it is fetched only by such a session; `WindowScreen`
+// holds its place meanwhile.
+const DeletionWindow = lazy(() => import("./components/DeletionWindow"));
+
+// The data pages' modules are imported in one place each: the page and its
+// route's preload share the chunk, and no new import site splits the entry.
+const connectionsModule = () => import("./pages/ConnectionsPage");
+const discoverModule = () => import("./pages/DiscoverPage");
+const organisationsModule = () => import("./pages/OrganisationsPage");
+const orgDetailModule = () => import("./pages/OrgDetailPage");
+
 const ConnectionsPage = lazy(() =>
-  import("./pages/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })),
+  connectionsModule().then((m) => ({ default: m.ConnectionsPage })),
 );
-const DiscoverPage = lazy(() =>
-  import("./pages/DiscoverPage").then((m) => ({ default: m.DiscoverPage })),
-);
+const DiscoverPage = lazy(() => discoverModule().then((m) => ({ default: m.DiscoverPage })));
 const SearchPage = lazy(() =>
   import("./pages/SearchPage").then((m) => ({ default: m.SearchPage })),
 );
 const OrganisationsPage = lazy(() =>
-  import("./pages/OrganisationsPage").then((m) => ({ default: m.OrganisationsPage })),
+  organisationsModule().then((m) => ({ default: m.OrganisationsPage })),
 );
-const OrgDetailPage = lazy(() =>
-  import("./pages/OrgDetailPage").then((m) => ({ default: m.OrgDetailPage })),
-);
+const OrgDetailPage = lazy(() => orgDetailModule().then((m) => ({ default: m.OrgDetailPage })));
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+const DeleteAccountPage = lazy(() =>
+  import("./pages/DeleteAccountPage").then((m) => ({ default: m.DeleteAccountPage })),
+);
+// An app's step-up request, which the app sends the person to in the same tab.
+const ConfirmRequestPage = lazy(() =>
+  import("./pages/ConfirmRequestPage").then((m) => ({ default: m.ConfirmRequestPage })),
 );
 const AuthorizePage = lazy(() =>
   import("./pages/AuthorizePage").then((m) => ({ default: m.AuthorizePage })),
@@ -41,64 +102,167 @@ const PrivacyPage = lazy(() =>
   import("./pages/PrivacyPage").then((m) => ({ default: m.PrivacyPage })),
 );
 const TermsPage = lazy(() => import("./pages/TermsPage").then((m) => ({ default: m.TermsPage })));
+const VerifyEmailLinkPage = lazy(() =>
+  import("./pages/VerifyEmailLinkPage").then((m) => ({ default: m.VerifyEmailLinkPage })),
+);
 
 /**
  * The consent screen runs bare: no navigation out of the flow, nothing to
- * click but the decision itself.
+ * click but the decision itself. So does the page an emailed link opens,
+ * `/verify/<request id>`, which is matched by its prefix.
  */
 const BARE_ROUTES = new Set(["/authorize"]);
+const BARE_PREFIXES = ["/verify/"];
 
 /**
  * Bare routes also run outside `AuthProvider`. Mounting it bootstraps a
  * session — `POST /token`, which rotates the refresh session — and then lists
  * profiles; the consent screen reads neither, since `/authorize/context`
- * already carries both. It mounts its own provider around the sign-in island
+ * already carries both, and the emailed-link page signs nobody in. It mounts its own provider around the sign-in island
  * when a ceremony is actually needed.
  */
-function Layout(props: { children?: import("solid-js").JSX.Element }) {
+export function Layout(props: { children?: JSX.Element }) {
   const location = useLocation();
   // Normalise a trailing slash before the lookup: the router matches
   // `/authorize/` to the consent route, but an exact-string `BARE_ROUTES` miss
   // would render it inside the full app shell — sidebar nav mid-consent and an
   // AuthProvider mount that rotates the refresh session.
-  const bare = () => BARE_ROUTES.has(location.pathname.replace(/(.)\/$/, "$1"));
+  const bare = () => {
+    const path = location.pathname.replace(/(.)\/$/, "$1");
+    return BARE_ROUTES.has(path) || BARE_PREFIXES.some((prefix) => path.startsWith(prefix));
+  };
   const isMobile = useIsMobile();
   return (
     <div class="px-safe flex h-dvh flex-col overflow-hidden md:flex-row">
       <Show
         when={bare()}
         fallback={
-          <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
-            {/* Mount only the active shell: one chunk fetched, one
-                shell hydrating, and a single mounted auth-dialog surface at
-                any width. The CSS hidden classes on each shell remain
-                as a paint-level fallback around the breakpoint flip. */}
-            <Show when={isMobile()} fallback={<Sidebar />}>
-              <MobileChrome />
-            </Show>
-            {/* Inside the scroll column, above the page: the layout is a row on
-                desktop, so a sibling of `Content` would land beside the rail
-                rather than over the page. Renders nothing until a session
-                exists, and nothing at all on a bare route. */}
-            <Content padForMobileNav>
-              <AccountBanners />
-              {props.children}
-            </Content>
+          <AuthProvider auth={osnAuth}>
+            <AppShell isMobile={isMobile()}>{props.children}</AppShell>
           </AuthProvider>
         }
       >
-        <Content>{props.children}</Content>
+        <Content>
+          <PageErrorBoundary>{props.children}</PageErrorBoundary>
+        </Content>
       </Show>
       <Toaster
         position={isMobile() ? "top-center" : "bottom-right"}
         style={
           isMobile()
-            ? // Clear the mobile top bar (3rem) plus the notch inset.
-              { top: "calc(3rem + env(safe-area-inset-top, 0px) + 8px)" }
+            ? // Under the phone top bar and the notch inset, one step clear.
+              { top: "calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + var(--spacing) * 2)" }
             : undefined
         }
       />
     </div>
+  );
+}
+
+/**
+ * The shell and the page, or, for a session whose account is pending
+ * deletion, the window screen in their place. Nothing of the shell mounts
+ * then — the rail or the top bar, the shell's dialogs, `ShellNotices` and its
+ * page cache, `AccountBanners`, the page — so no request goes out that the
+ * pending session would be refused, and a route's preload reads nothing.
+ */
+function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
+  const { pendingDeletion } = useAuth();
+  return (
+    <>
+      <Show when={pendingDeletion()}>
+        <Content>
+          <WindowScreen />
+        </Content>
+      </Show>
+      <Show when={!pendingDeletion()}>
+        <Shell isMobile={props.isMobile}>{props.children}</Shell>
+      </Show>
+    </>
+  );
+}
+
+function Shell(props: { isMobile: boolean; children?: JSX.Element }) {
+  return (
+    <ShellDialogsProvider>
+      {/* Mount only the active shell: one chunk fetched, one shell hydrating.
+          The dialogs sit above this switch, so one open across a crossing
+          stays open. The CSS hidden classes on each shell remain as a
+          paint-level fallback around the breakpoint flip. */}
+      <Show when={props.isMobile} fallback={<Reserved shell={shells.rail} />}>
+        <Reserved shell={shells.topBar} />
+      </Show>
+      {/* Inside the scroll column, above the page: the layout is a row on
+          desktop, so a sibling of `Content` would land beside the rail
+          rather than over the page. `ShellNotices` draws only once the
+          runtime has ended a session or the profile list has failed, and
+          keeps the page cache bound to the session meanwhile;
+          `AccountBanners` renders nothing until a session exists. Neither
+          renders on a bare route. */}
+      <Content padForMobileNav>
+        <ShellNotices />
+        <AccountBanners />
+        <PageErrorBoundary>{props.children}</PageErrorBoundary>
+      </Content>
+    </ShellDialogsProvider>
+  );
+}
+
+/**
+ * The window screen, once its chunk is in. Until then it draws the screen's
+ * frame, the loading screen's own shape, so nothing moves when the screen
+ * lands; if the chunk fails, the frame stays and says to reload, as a
+ * shell's frame does (`Reserved`).
+ */
+function WindowScreen() {
+  const [state, setState] = createSignal<"loading" | "ready" | "failed">("loading");
+  DeletionWindow.preload().then(
+    () => setState("ready"),
+    () => setState("failed"),
+  );
+  return (
+    <Show
+      when={state() === "ready"}
+      fallback={<DeletionWindowFrame failed={state() === "failed"} />}
+    >
+      <Suspense>
+        <DeletionWindow />
+      </Suspense>
+    </Show>
+  );
+}
+
+/**
+ * Draws a shell's frame until the shell can draw itself, so the page beside
+ * it never moves when the shell's chunk lands.
+ *
+ * The shell shows once its `load` has resolved: its own chunk and the
+ * dialogs' chunks are in. A shell drawn earlier would offer a Sign in that
+ * cannot open yet. By then `lazy()` holds the module, so the shell renders at
+ * once, with no resource and nothing to suspend. A `Suspense` fallback would
+ * not do: the shell reads the session and profile resources, and a boundary
+ * above it would put the frame back on every refetch.
+ *
+ * The dialogs load through the provider's `load`, not their bare chunk: a
+ * load that succeeds after an earlier failure is what mounts them. Wait on
+ * nothing outside the shell's `load`; the browser tests wait on it too, and a
+ * load they cannot see falls back to `waitFor`'s one second.
+ *
+ * If a load fails (offline, or a chunk renamed by a deploy since the page
+ * loaded) the frame stays and says to reload. The rejection is handled here,
+ * so the page beside it keeps working.
+ */
+function Reserved(props: { shell: Shell }) {
+  const dialogs = useShellDialogs();
+  const [state, setState] = createSignal<"loading" | "ready" | "failed">("loading");
+  props.shell.load(dialogs.load).then(
+    () => setState("ready"),
+    () => setState("failed"),
+  );
+  return (
+    <Show when={state() === "ready"} fallback={<props.shell.frame failed={state() === "failed"} />}>
+      <props.shell.component />
+    </Show>
   );
 }
 
@@ -117,7 +281,7 @@ function useIsMobile() {
   return isMobile;
 }
 
-function Content(props: { children?: import("solid-js").JSX.Element; padForMobileNav?: boolean }) {
+function Content(props: { children?: JSX.Element; padForMobileNav?: boolean }) {
   return (
     <div
       class={clsx(
@@ -130,17 +294,55 @@ function Content(props: { children?: import("solid-js").JSX.Element; padForMobil
   );
 }
 
+/**
+ * Starts a page's reads on the page cache before the page shows, from the
+ * page's own module. The router calls a route's `preload` when a link to it is
+ * hovered (at rest 20ms), focused or touched, and as it is navigated to. A
+ * read starts only for rows not yet landed; signed out, none does. A module
+ * that fails to load starts nothing; the page's own load says so.
+ */
+function preloadFrom<M>(load: () => Promise<M>, start: (module: M) => void) {
+  load().then(start, () => undefined);
+}
+
 export default function App() {
   return (
     <Router root={Layout}>
-      <Route path="/" component={ConnectionsPage} />
-      <Route path="/connections" component={ConnectionsPage} />
+      <Route
+        path="/"
+        component={ConnectionsPage}
+        preload={() => preloadFrom(connectionsModule, (m) => m.preloadConnections())}
+      />
+      <Route
+        path="/connections"
+        component={ConnectionsPage}
+        preload={() => preloadFrom(connectionsModule, (m) => m.preloadConnections())}
+      />
       <Route path="/search" component={SearchPage} />
-      <Route path="/discover" component={DiscoverPage} />
-      <Route path="/organisations" component={OrganisationsPage} />
-      <Route path="/organisations/:id" component={OrgDetailPage} />
+      <Route
+        path="/discover"
+        component={DiscoverPage}
+        preload={() => preloadFrom(discoverModule, (m) => m.preloadDiscover())}
+      />
+      <Route
+        path="/organisations"
+        component={OrganisationsPage}
+        preload={() => preloadFrom(organisationsModule, (m) => m.preloadOrganisations())}
+      />
+      <Route
+        path="/organisations/:handle"
+        component={OrgDetailPage}
+        preload={({ params }) => {
+          const handle = params.handle;
+          if (!handle) return;
+          preloadFrom(orgDetailModule, (m) => m.preloadOrganisation(handle));
+        }}
+      />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/settings/delete-account" component={DeleteAccountPage} />
+      <Route path="/confirm/:requestId" component={ConfirmRequestPage} />
       <Route path="/authorize" component={AuthorizePage} />
+      <Route path="/verify/:requestId" component={VerifyEmailLinkPage} />
       {/* Reachable signed-out on purpose: a notice you can only read once you have
           already handed over your data is not a notice. */}
       <Route path="/privacy" component={PrivacyPage} />

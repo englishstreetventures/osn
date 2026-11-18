@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { decodeOriginTrialToken, ORIGIN_TRIAL_TOKENS } from "@cire/build-tools/origin-trial";
 import { PRODUCTION_API_ORIGIN, retargetHeaders } from "@cire/build-tools/tier-headers";
 import { describe, expect, it } from "vitest";
 
@@ -35,7 +36,7 @@ function sources(policy: string, directive: string): string[] | undefined {
 }
 
 /**
- * `public/_headers` is served by Cloudflare Pages' asset layer, so nothing in
+ * `public/_headers` is served by the static-asset layer, so nothing in
  * the app can assert these at runtime — this file is the only guard against a
  * directive being dropped or the enforced policy quietly drifting from the
  * origins the portal actually talks to. Mirrors `cire/vendor`'s equivalent.
@@ -89,6 +90,28 @@ describe("_headers", () => {
     );
     expect(csp).toContain("report-uri https://api.cireweddings.com/api/csp-report");
     expect(csp).toContain("report-to csp-endpoint");
+  });
+
+  it("sends the WebMCP origin-trial tokens on every path, and no other", () => {
+    // `Origin-Trial` is a Chrome trial token, public by design: one for
+    // cireweddings.com and one for the dev zone, which Cloudflare sends as one
+    // header with the values joined by a comma. The portal registers WebMCP
+    // tools; it has no use for the HTMLInCanvas trial, whose tokens would
+    // enable a feature on a page that never calls it.
+    const webmcp = [ORIGIN_TRIAL_TOKENS.webmcp, ORIGIN_TRIAL_TOKENS.webmcpDev];
+    expect(headerValues(wildcardBlock, "Origin-Trial")).toEqual(webmcp);
+    expect(headerValues(contents, "Origin-Trial")).toEqual(webmcp);
+    for (const token of webmcp) expect(decodeOriginTrialToken(token).feature).toBe("WebMCP");
+  });
+
+  it("leaves the origin-trial tokens alone when the build points the file at another tier", () => {
+    // Only the cire-api origin is rewritten. Each token is bound to its own
+    // zone and Chrome ignores it elsewhere, so a rewrite would only corrupt it.
+    const dev = retargetHeaders(contents, "https://api.dev.cireweddings.com");
+    expect(headerValues(dev, "Origin-Trial")).toEqual([
+      ORIGIN_TRIAL_TOKENS.webmcp,
+      ORIGIN_TRIAL_TOKENS.webmcpDev,
+    ]);
   });
 
   it("keeps the inline theme-boot script and critical CSS running", () => {

@@ -1,14 +1,24 @@
 import { it, expect, describe } from "@effect/vitest";
-import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
+import { sessions } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import { makeLogEmailLive } from "@shared/email";
+import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
 import { createDurableJtiStore } from "../../src/lib/coordination/durable";
 import * as metrics from "../../src/metrics";
 import { createAuthService } from "../../src/services/auth";
+import { createInMemoryJtiStore } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
-import { createTestLayer } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
+import { stepUpThroughService } from "../helpers/step-up-link";
+import { mintingSession, mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * Step-up tokens must:
@@ -28,19 +38,12 @@ beforeAll(async () => {
   auth = createAuthService(config);
 });
 
-/** Fresh email recorder + merged test layer. Replaces the old sendEmail callback. */
+/** Fresh email recorder + merged test layer. */
 function makeEmailCapture() {
   const email = makeLogEmailLive();
   return {
     layer: Layer.merge(createTestLayer(), email.layer),
-    latest: (): string | undefined => {
-      const all = email.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/step-up code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => email.recorded(),
   };
 }
 
@@ -50,18 +53,16 @@ const registered = (email: string, handle: string) =>
     return profile;
   });
 
-describe("step-up OTP ceremony", () => {
+describe("step-up by emailed link", () => {
   it.effect("begin + complete mints a token that /recovery/generate accepts", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-otp@example.com", "suotp");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      expect(cap.latest()).toMatch(/^\d{6}$/);
-
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "recovery_generate",
+        cap.recorded,
       );
       expect(stepUpToken).toMatch(/^eyJ/);
 
@@ -76,11 +77,11 @@ describe("step-up OTP ceremony", () => {
       const alice = yield* registered("su-cross-a@example.com", "sucrossa");
       const bob = yield* registered("su-cross-b@example.com", "sucrossb");
 
-      yield* auth.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         alice.accountId,
-        cap.latest()!,
         "recovery_generate",
+        cap.recorded,
       );
 
       // Alice's token must NOT pass when Bob is the caller.
@@ -95,11 +96,11 @@ describe("step-up OTP ceremony", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-replay@example.com", "sureplay");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "recovery_generate",
+        cap.recorded,
       );
 
       // First verification succeeds.
@@ -126,11 +127,11 @@ describe("step-up OTP ceremony", () => {
       const verified = vi.spyOn(metrics, "metricStepUpVerified");
       return Effect.gen(function* () {
         const profile = yield* guarded.registerProfile("su-jti-down@example.com", "sujtidown");
-        yield* guarded.beginStepUpOtp(profile.accountId);
-        const { stepUpToken } = yield* guarded.completeStepUpOtp(
+        const stepUpToken = yield* stepUpThroughService(
+          guarded,
           profile.accountId,
-          cap.latest()!,
           "recovery_generate",
+          cap.recorded,
         );
 
         const err = yield* Effect.flip(
@@ -147,15 +148,6 @@ describe("step-up OTP ceremony", () => {
     },
   );
 
-  it.effect("expired / wrong code is rejected with a generic error", () =>
-    Effect.gen(function* () {
-      const profile = yield* registered("su-expire@example.com", "suexpire");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const err = yield* Effect.flip(auth.completeStepUpOtp(profile.accountId, "000000"));
-      expect(err._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("amr-not-allowed is enforced by the verifier", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -166,11 +158,11 @@ describe("step-up OTP ceremony", () => {
         ...config,
         recoveryGenerateAllowedAmr: ["webauthn"],
       });
-      yield* strictAuth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* strictAuth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        strictAuth,
         profile.accountId,
-        cap.latest()!,
         "recovery_generate",
+        cap.recorded,
       );
       const err = yield* Effect.flip(
         strictAuth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
@@ -186,9 +178,13 @@ describe("step-up OTP ceremony", () => {
   // forge a step-up token whose `exp` is well past the 30s window (but
   // otherwise valid: correct iss/aud/sub/amr/jti) so the assertion is
   // deterministic without a 31s sleep.
-  it.effect("expired token is rejected (beyond clockTolerance)", () =>
-    Effect.gen(function* () {
+  it.effect("expired token is rejected (beyond clockTolerance)", () => {
+    const verified = vi.spyOn(metrics, "metricStepUpVerified");
+    return Effect.gen(function* () {
       const profile = yield* registered("su-expiry@example.com", "suexpiry");
+      // A live minting session and the gate's own purpose, so expiry is the
+      // only check left that can refuse it.
+      const { familyId } = yield* mintingSession(profile.accountId);
       const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
       const nowSec = Math.floor(Date.now() / 1000);
       const expired = yield* Effect.tryPromise(() =>
@@ -197,6 +193,8 @@ describe("step-up OTP ceremony", () => {
           aud: "osn-step-up",
           amr: ["otp"],
           jti: crypto.randomUUID(),
+          purpose: "recovery_generate",
+          osn_fam: familyId,
         })
           .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
           .setIssuer(config.issuerUrl)
@@ -208,26 +206,13 @@ describe("step-up OTP ceremony", () => {
       const err = yield* Effect.flip(
         auth.verifyStepUpForRecoveryGenerate(profile.accountId, expired),
       );
-      expect(err._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect(
-    "T-M2: begin fails with AuthError (not EmailError) when email transport rejects",
-    () => {
-      const failingEmailLayer = Layer.succeed(EmailService, {
-        send: () =>
-          Effect.fail(new EmailError({ reason: "dispatch_failed", cause: "simulated failure" })),
-      });
-      const layer = Layer.merge(createTestLayer(), failingEmailLayer);
-      return Effect.gen(function* () {
-        const profile = yield* registered("su-fail-email@example.com", "sufailmail");
-        const err = yield* Effect.flip(auth.beginStepUpOtp(profile.accountId));
-        expect(err._tag).toBe("AuthError");
-        expect(err.message).toContain("dispatch_failed");
-      }).pipe(Effect.provide(layer));
-    },
-  );
+      expect(err.message).toBe("Invalid step-up token");
+      expect(verified.mock.calls.map(([result]) => result)).toEqual(["invalid"]);
+    }).pipe(
+      Effect.provide(createTestLayer()),
+      Effect.ensuring(Effect.sync(() => verified.mockRestore())),
+    );
+  });
 });
 
 // The verifier accepts a token for a clock tolerance past its `exp`, so the
@@ -250,7 +235,8 @@ describe("a used step-up token stays used for as long as it verifies", () => {
           `su-late-${name.length}@example.com`,
           `sulate${name.length}`,
         );
-        const token = yield* svc.issueStepUpToken(
+        const token = yield* mintStepUpToken(
+          svc,
           profile.accountId,
           "passkey",
           "recovery_generate",
@@ -285,8 +271,7 @@ describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-rec-nop@example.com", "surecnop");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, cap.latest()!);
+      const stepUpToken = yield* mintStepUpToken(auth, profile.accountId, "otp");
       const err = yield* Effect.flip(
         auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
       );
@@ -298,11 +283,11 @@ describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-rec-cross@example.com", "sureccross");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "email_change",
+        cap.recorded,
       );
       const err = yield* Effect.flip(
         auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
@@ -317,11 +302,11 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-del@example.com", "sudel");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "account_delete",
+        cap.recorded,
       );
       // Accepting the token must also CONSUME its jti, so a replay fails.
       // Asserting the replay proves both halves at once — a bare success
@@ -339,10 +324,9 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-del-noplan@example.com", "sudelnop");
-      yield* auth.beginStepUpOtp(profile.accountId);
       // Minted without a purpose — still valid for the legacy passkey gates,
       // but the account-delete verifier must refuse it.
-      const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, cap.latest()!);
+      const stepUpToken = yield* mintStepUpToken(auth, profile.accountId, "otp");
       const err = yield* Effect.flip(
         auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
       );
@@ -354,11 +338,11 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-del-cross@example.com", "sudelcross");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "pulse_app_delete",
+        cap.recorded,
       );
       const err = yield* Effect.flip(
         auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
@@ -376,13 +360,17 @@ describe("verifyStepUpForExternalPurpose", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-ext@example.com", "suext");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "pulse_app_delete",
+        cap.recorded,
       );
-      const result = yield* auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete");
+      const result = yield* auth.verifyStepUpForExternalPurpose(
+        stepUpToken,
+        "pulse_app_delete",
+        profile.id,
+      );
       expect(result.accountId).toBe(profile.accountId);
     }).pipe(Effect.provide(cap.layer));
   });
@@ -391,16 +379,274 @@ describe("verifyStepUpForExternalPurpose", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-ext-x@example.com", "suextx");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "account_delete",
+        cap.recorded,
       );
       const err = yield* Effect.flip(
-        auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete"),
+        auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete", profile.id),
       );
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(cap.layer));
+  });
+});
+
+// A step-up token names the session family that minted it, and every gate
+// refuses it once that family has no live, unrestricted, unexpired session —
+// before the token's single-use id is claimed, so a refusal spends nothing.
+// Each test names the edit to the verifier's lookup that turns it red.
+describe("a step-up token is bound to the session family that minted it", () => {
+  /** A service whose single-use guard records every id it is asked to claim. */
+  const recording = () => {
+    const claimed: string[] = [];
+    const store = createInMemoryJtiStore();
+    const svc = createAuthService({
+      ...config,
+      stepUpJtiStore: {
+        consume: (jti, ttlMs) => {
+          claimed.push(jti);
+          return store.consume(jti, ttlMs);
+        },
+      },
+    });
+    return { svc, claimed };
+  };
+
+  const nowSec = () => Math.floor(Date.now() / 1000);
+
+  /** A session row of `accountId` in family `familyId`, shaped by `row`. */
+  const insertSession = (
+    accountId: string,
+    familyId: string,
+    row: Partial<typeof sessions.$inferInsert> = {},
+  ) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db.insert(sessions).values({
+          id: crypto.randomUUID().replace(/-/g, "").repeat(2),
+          accountId,
+          familyId,
+          expiresAt: nowSec() + 3600,
+          createdAt: nowSec(),
+          authenticatedAt: nowSec(),
+          lastUsedAt: nowSec(),
+          ...row,
+        }),
+      );
+    });
+
+  it.effect("refuses a token whose family's only session is restricted, and spends nothing", () => {
+    // Red on dropping `restricted_until IS NULL` from the lookup. A restricted
+    // recovery session may enrol a passkey and nothing else.
+    const { svc } = recording();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-r@example.com", "bindr");
+      const familyId = "sfam_bindrestr1";
+      yield* insertSession(profile.accountId, familyId, {
+        expiresAt: nowSec() + 900,
+        restrictedUntil: nowSec() + 900,
+        restrictedAmr: "otp",
+      });
+      const token = yield* svc.issueStepUpToken(
+        { accountId: profile.accountId, familyId },
+        "otp",
+        "recovery_generate",
+      );
+      let outcomes: string[] = [];
+      const verified = vi.spyOn(metrics, "metricStepUpVerified");
+      const refused = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            outcomes = verified.mock.calls.map(([result]) => result);
+            verified.mockRestore();
+          }),
+        ),
+      );
+      expect(refused.message).toBe("Invalid step-up token");
+      expect(outcomes).toEqual(["session_ended"]);
+
+      // Lifting the restriction makes the family live: the same token now
+      // verifies, so the refusal did not claim its single-use id.
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db
+          .update(sessions)
+          .set({ restrictedUntil: null, restrictedAmr: null })
+          .where(eq(sessions.familyId, familyId)),
+      );
+      yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.effect(
+    "refuses a token whose family's only session is past its expiry, and spends nothing",
+    () => {
+      // Red on dropping `expires_at > now` from the lookup. Nothing deletes a
+      // row the moment it lapses.
+      const { svc } = recording();
+      return Effect.gen(function* () {
+        const profile = yield* svc.registerProfile("bind-x@example.com", "bindx");
+        const familyId = "sfam_bindexpir1";
+        yield* insertSession(profile.accountId, familyId, { expiresAt: nowSec() - 1 });
+        const token = yield* svc.issueStepUpToken(
+          { accountId: profile.accountId, familyId },
+          "otp",
+          "recovery_generate",
+        );
+        const refused = yield* Effect.flip(
+          svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+        );
+        expect(refused.message).toBe("Invalid step-up token");
+
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .update(sessions)
+            .set({ expiresAt: nowSec() + 3600 })
+            .where(eq(sessions.familyId, familyId)),
+        );
+        yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+      }).pipe(Effect.provide(createTestLayer()));
+    },
+  );
+
+  it.effect("refuses a token that names no family, and claims nothing", () => {
+    // Red on reading a missing `osn_fam` as allowed: a token minted before
+    // the claim existed, or by anything but this service's mints.
+    const { svc, claimed } = recording();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-n@example.com", "bindn");
+      yield* mintingSession(profile.accountId);
+      const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
+      const unbound = yield* Effect.tryPromise(() =>
+        new SignJWT({
+          sub: profile.accountId,
+          aud: "osn-step-up",
+          amr: ["otp"],
+          jti: crypto.randomUUID(),
+          purpose: "recovery_generate",
+        })
+          .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
+          .setIssuer(config.issuerUrl)
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(config.jwtPrivateKey),
+      );
+      let outcomes: string[] = [];
+      const verified = vi.spyOn(metrics, "metricStepUpVerified");
+      const refused = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(profile.accountId, unbound),
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            outcomes = verified.mock.calls.map(([result]) => result);
+            verified.mockRestore();
+          }),
+        ),
+      );
+      expect(refused.message).toBe("Invalid step-up token");
+      expect(outcomes).toEqual(["invalid"]);
+      expect(claimed).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.effect("refuses a token whose family is another account's, and claims nothing", () => {
+    // Red on dropping `account_id = sub` from the lookup: a live family of
+    // one account must not carry another account's token.
+    const { svc, claimed } = recording();
+    return Effect.gen(function* () {
+      const mine = yield* svc.registerProfile("bind-a@example.com", "binda");
+      const theirs = yield* svc.registerProfile("bind-b@example.com", "bindb");
+      const { familyId } = yield* mintingSession(theirs.accountId);
+      const token = yield* svc.issueStepUpToken(
+        { accountId: mine.accountId, familyId },
+        "otp",
+        "recovery_generate",
+      );
+      const refused = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(mine.accountId, token),
+      );
+      expect(refused.message).toBe("Invalid step-up token");
+      expect(claimed).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.effect("refuses a used token as session_ended once its family has ended", () => {
+    // Red on moving the family check after the claim: the replay would then
+    // count as `jti_replay`. A used token's family ending before it is
+    // presented again is a refusal of the session, and spends nothing more.
+    const { svc } = recording();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-u@example.com", "bindu");
+      const minting = yield* mintingSession(profile.accountId);
+      const token = yield* svc.issueStepUpToken(minting, "otp", "recovery_generate");
+      yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db.delete(sessions).where(eq(sessions.familyId, minting.familyId)),
+      );
+
+      let outcomes: string[] = [];
+      const verified = vi.spyOn(metrics, "metricStepUpVerified");
+      const refused = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            outcomes = verified.mock.calls.map(([result]) => result);
+            verified.mockRestore();
+          }),
+        ),
+      );
+      expect(refused.message).toBe("Invalid step-up token");
+      expect(outcomes).toEqual(["session_ended"]);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.effect("finds the family through its own index, not the account's", () => {
+    // Red on a lookup the family index cannot serve — the index gone, or the
+    // family no longer an equality in the WHERE — which would walk the
+    // account's sessions, up to the cap, on every spend.
+    const { svc } = recording();
+    const { layer, db, captured } = createCapturingTestLayer();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-i@example.com", "bindi");
+      const token = yield* mintStepUpToken(svc, profile.accountId, "otp", "recovery_generate");
+      captured.length = 0;
+      yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+
+      const lookup = captured.find((statement) => /"family_id" = \?/.test(statement.sql));
+      expect(lookup).toBeDefined();
+      const plan = (
+        db.$client
+          .query(`EXPLAIN QUERY PLAN ${lookup!.sql}`)
+          .all(...(lookup!.params as never[])) as Array<{ detail: string }>
+      ).map((row) => row.detail);
+      expect(plan).toEqual([
+        expect.stringMatching(/^SEARCH sessions USING INDEX sessions_family_idx /),
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("fails, claiming nothing, when the family cannot be read", () => {
+    // Red on checking the family after the claim, or on reading a failed
+    // lookup as a live family.
+    const { svc, claimed } = recording();
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-f@example.com", "bindf");
+      const token = yield* mintStepUpToken(svc, profile.accountId, "otp", "recovery_generate");
+      sqlite.run("DROP TABLE sessions");
+      const failed = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+      );
+      expect(failed._tag).toBe("DatabaseError");
+      expect(claimed).toEqual([]);
+    }).pipe(Effect.provide(layer));
   });
 });

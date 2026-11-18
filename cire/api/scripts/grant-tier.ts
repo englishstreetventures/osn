@@ -22,6 +22,12 @@
  * lowering means a delivery landing between the two statements finds the
  * purchase already refunded. Apply all of it in one `--command`.
  *
+ * A checkout still open when the wedding is lowered settles on its own: a
+ * from-Gold Crimson page paid after a lowering below Gold is refunded, never
+ * granted, and any other page paid grants the tier it sold. Expire the
+ * wedding's open Checkout Session in the Stripe dashboard first if neither is
+ * wanted.
+ *
  * Production: from `cire/api`, apply the printed SQL with `wrangler d1 execute
  * cire-db --env production --remote --command "<sql>"`, naming the env as every
  * production D1 command in the deploy runbook does. It is a prod D1 write,

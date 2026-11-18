@@ -34,7 +34,7 @@ describe("TIER_ACCOUNTS", () => {
     for (const name of accountSecrets("production")) expect(dev).not.toContain(name);
   });
 
-  test("each Environment is forbidden the other tier's credentials and the retired dev ones, and nothing it must hold", () => {
+  test("each Environment is forbidden the other tier's credentials and the retired ones, and nothing it must hold", () => {
     expect(forbiddenCredentials("dev")).toEqual([
       "CLOUDFLARE_ACCOUNT_ID",
       "CLOUDFLARE_API_TOKEN",
@@ -46,6 +46,7 @@ describe("TIER_ACCOUNTS", () => {
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN",
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
       "CLOUDFLARE_DEV_ACCOUNT_ID",
+      "CLOUDFLARE_PAGES_DNS_TOKEN",
     ]);
     // A name both forbidden and expected would fail the check whether or not
     // the Environment held it.
@@ -58,24 +59,18 @@ describe("TIER_ACCOUNTS", () => {
     }
   });
 
-  test("I4: the dev read-only token is classified, required in dev and forbidden in production", () => {
-    // free-tier-ceiling-alert.yml's dev job fails every night without it.
-    expect(knownCredentials()).toContain("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY");
-    expect(requiredCredentials("dev")).toEqual(
-      [...accountSecrets("dev"), "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY"].toSorted(),
-    );
-    expect(forbiddenCredentials("production")).toContain(
-      "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
-    );
-  });
-
-  test("the Pages and DNS token is classified, required in production and forbidden in dev", () => {
-    // A flip release moves a site's domain off its Pages project with it.
-    expect(knownCredentials()).toContain("CLOUDFLARE_PAGES_DNS_TOKEN");
-    expect(requiredCredentials("production")).toEqual(
-      [...accountSecrets("production"), "CLOUDFLARE_PAGES_DNS_TOKEN"].toSorted(),
-    );
-    expect(forbiddenCredentials("dev")).toContain("CLOUDFLARE_PAGES_DNS_TOKEN");
+  test("the retired Pages and DNS token is no workflow's to read, required nowhere and forbidden in both Environments", () => {
+    expect(knownCredentials()).not.toContain("CLOUDFLARE_PAGES_DNS_TOKEN");
+    expect(requiredCredentials("production")).toEqual([...accountSecrets("production")]);
+    for (const tier of TIERS) {
+      expect({
+        tier,
+        forbidden: forbiddenCredentials(tier).includes("CLOUDFLARE_PAGES_DNS_TOKEN"),
+      }).toEqual({
+        tier,
+        forbidden: true,
+      });
+    }
   });
 });
 

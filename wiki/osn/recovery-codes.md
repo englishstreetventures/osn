@@ -13,7 +13,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-17
 ---
 # Recovery Codes
 
@@ -28,7 +28,7 @@ credential itself is [[totp]].
 | Path | Endpoint | Ends in |
 |---|---|---|
 | Recovery code | `POST /login/recovery/complete` | an **ordinary** session |
-| Emailed code | `POST /login/recovery/email/{begin,complete}` | a **restricted** recovery session |
+| Emailed link | `POST /login/recovery/email/begin`, then the tab's poll `…/:requestId/status` once the link is confirmed ([[email-links]]) | a **restricted** recovery session |
 | Authenticator app | `POST /login/recovery/totp/complete` | a **restricted** recovery session |
 
 The split matters. A recovery code is a 64-bit secret the user was handed once
@@ -171,9 +171,11 @@ POST /recovery/generate
   Rate limited: 10/hour/IP (recoveryGenerate)
 ```
 
+**Live session.** Before it looks at the step-up token, the route refuses a caller that holds no live, unrestricted, unexpired session of the account with `409 { error: "session_stale" }`. The refusal spends nothing: the step-up token stays unused and the codes stay as they are. See [[sessions]] §Access-token session binding.
+
 Step-up gated (M-PK1): a stolen access token on its own must not be able to burn the account's codes. Run the ceremony first (`[[step-up]]`) and pass the token it mints. Allowed factors default to `["webauthn", "otp"]`.
 
-**Purpose-bound.** The token must carry `purpose: "recovery_generate"`. Generating destroys the whole existing set, so a token minted for another ceremony — an email change, a passkey delete — must not be replayable here. Callers pass `purpose` to `/step-up/passkey/complete` or `/step-up/otp/complete`; a purposeless token is refused with `step_up_required`. See `[[step-up]]`.
+**Purpose-bound.** The token must carry `purpose: "recovery_generate"`. Generating destroys the whole existing set, so a token minted for another ceremony — an email change, a passkey delete — must not be replayable here. Callers pass `purpose` to `/step-up/passkey/complete` or `/step-up/totp/complete`, or to `/step-up/email/begin`, which fixes it for the link; a purposeless token is refused with `step_up_required`. See `[[step-up]]`.
 
 Wire field is `recoveryCodes` (not `codes`) so the redaction deny-list entry matches. Emits `osn.auth.session.security_invalidation{trigger="recovery_code_generate"}` on every successful generate so out-of-band regeneration is visible in the existing session-invalidation dashboard.
 
@@ -189,20 +191,19 @@ GET /recovery/status
 
 **No step-up.** The response carries counts only, never a code, and gating it would be circular — this answer is what tells a user whether starting a ceremony is worth it. It is still account-scoped, so an anonymous read returns 401. `generatedAt` is `max(created_at)` over the set (unix seconds); generation replaces the whole set atomically, so the newest row dates the set as a whole.
 
-> [!warning] `generatedAt` is not monotonic — never cache "this account has codes"
-> It is `null` whenever the account has **zero rows**, however it got there, and
-> generation is not the only thing that deletes them. Scheduling an account
-> deletion wipes every recovery code at the start of the seven-day grace window
-> (`osn/api/src/services/account-erasure.ts`, alongside passkeys and TOTP), and
-> cancelling inside that window restores the account without re-minting them. A
-> live account can therefore go from a timestamp back to `null`, and it does so
-> on exactly the account that most needs prompting. A client that latches "has
-> codes" on a first non-null read silences itself there forever.
+> [!warning] Never cache "this account has codes"
+> `generatedAt` is `null` whenever the account has **zero rows**. Only
+> generation deletes the rows of a live account, and it inserts the new set in
+> the same batch. Scheduling an account deletion keeps every code through the
+> seven-day window, so the person can sign in with one and cancel; the hard
+> delete deletes them with the account
+> (`osn/api/src/services/account-erasure.ts`, with passkeys and TOTP).
 >
-> Separately, `active` can be `0` while `generatedAt` is set: nothing re-mints
-> after the tenth code is consumed.
+> `active` can be `0` while `generatedAt` is set: nothing re-mints after the
+> tenth code is consumed. Another device can use a code or replace the set at
+> any time, so a client that latches "has codes" on one read goes stale.
 
-Both `/recovery/generate` and `/recovery/status` set `Cache-Control: no-store` as the first statement of the handler (RFC 6749 §5.1, RFC 6750 §5.3) — for `/recovery/status` this used to run after the DB read, so the 401/429 paths never got it; it now runs first (tracker#467, tracker#469). See `[[shared/backend-patterns]]` §Cache-Control on Authenticated Routes.
+Both `/recovery/generate` and `/recovery/status` set `Cache-Control: no-store` as the first statement of the handler (RFC 6749 §5.1, RFC 6750 §5.3), so the 401 and 429 answers carry it too. See `[[shared/backend-patterns]]` §Cache-Control on Authenticated Routes.
 
 ```
 POST /login/recovery/complete
@@ -214,7 +215,7 @@ POST /login/recovery/complete
 On success the server:
 1. Marks the consumed row's `used_at` — the row is kept for audit.
 2. **Revokes every session on the account** in the same transaction. The fresh session issued by the login step is the only one standing afterwards. Emits `osn.auth.session.security_invalidation{trigger="recovery_code_consume"}`.
-3. Sets the HttpOnly session cookie (C3) and returns the access token in the body.
+3. Ends the device session the request's own cookie named, if it carried one — another account's included — then sets the HttpOnly session cookie (C3) and returns the access token in the body ([[sessions#Endpoints]]).
 
 All failure modes — unknown identifier, bad code, used code — surface as `{ error: "invalid_request" }` with no distinguishing detail. Both the known-identifier + wrong-code branch and the unknown-identifier branch run the same DB + SHA-256 work, so latency does not reveal whether the user exists. Recovery login is the "lost device" escape hatch; see `[[passkey-primary]]` for the broader login model.
 
@@ -236,7 +237,7 @@ Step-up gates `/recovery/generate`, but a compromised session with inbox access 
 1. **Audit row — generate.** Every `generateRecoveryCodesForAccount` call inserts a `security_events` row (kind `"recovery_code_generate"`) in the same transaction as the code swap. If the audit write fails, the codes don't commit either.
 2. **Audit row — consume.** Every successful `consumeRecoveryCode` inserts a `security_events` row (kind `"recovery_code_consume"`) in the same transaction as the sessions wipe. Failed consume attempts (wrong code, unknown identifier) do NOT record — only genuine takeovers.
 3. **Email notification.** Both kinds fire a best-effort email. Dispatch runs through `forkBackground` (`osn/api/src/lib/background.ts`) with a 10 s `Effect.timeout`, so mailer health does not affect user-visible request latency. `forkBackground`, not a bare `Effect.forkDetach`: on workerd a promise never handed to `ExecutionContext.waitUntil` may not run at all once the response is returned — see [[backend-patterns#Background work must reach waitUntil]]. Failure is reported via `osn.auth.security_event.notified{result=failed}` and never rolls back the primary action.
-4. **In-app banner.** `GET /account/security-events` surfaces still-unacknowledged rows (newest first, `limit 50`, backed by a partial index over `WHERE acknowledged_at IS NULL`). Dismissal happens via `POST /account/security-events/:id/ack` or the bulk `POST /account/security-events/ack-all`, **both gated by a fresh step-up token** — an XSS-captured access token cannot silently clear the banner, because the banner exists to warn about that compromise. Ack is idempotent; ack-all returns the number of rows dismissed. UI in `@osn/auth-ui/SecurityEventsBanner` (opens `StepUpDialog` on "Acknowledge", then POSTs to `ack-all`); SDK in `@osn/client/security-events.ts`.
+4. **In-app banner.** `GET /account/security-events` surfaces still-unacknowledged rows (newest first: the newest 50, plus every `email_changed` row still inside its 7-day hold so it cannot page out; backed by a partial index over `WHERE acknowledged_at IS NULL`). Dismissal happens via `POST /account/security-events/:id/ack` or the bulk `POST /account/security-events/ack-all`, **both gated by a fresh step-up token** — an XSS-captured access token cannot silently clear the banner, because the banner exists to warn about that compromise. Ack is idempotent; ack-all returns the number of rows dismissed. An `email_changed` row cannot be dismissed for 7 days after the change: acknowledging it alone answers 403 `email_change_held` with `holdEndsAt`, and ack-all leaves it in place ([[step-up#Threat model]]). UI in `@osn/auth-ui/SecurityEventsBanner` (opens `StepUpDialog` on "Acknowledge", then POSTs to `ack-all`); SDK in `@osn/client/security-events.ts`.
 
    Where that banner mounts is the host application's choice, and `@musubi/social` mounts it in the **application shell** — every route once a session exists, not the Settings page alone. A channel that survives email filtering is worth little behind a page the user has no reason to open. See [[social#Account-health banners]]. The component renders nothing rather than throwing when the list cannot be read, because a Solid resource rethrows on read and shell code has no page-sized blast radius.
 
@@ -246,12 +247,12 @@ Migration: `osn/db/drizzle/0006_security_events.sql`.
 
 ## Client
 
-`createRecoveryClient({ issuerUrl })` in `@osn/client`:
+`createRecoveryClient({ issuerUrl, authFetch })` in `@osn/client`. The two authenticated calls send through `authFetch`, the page runtime's, which supplies and renews the access token ([[sessions#Renewal in the browser]]):
 
 ```ts
-await client.generateRecoveryCodes({ accessToken, stepUpToken });  // → { codes }
-await client.getRecoveryCodesStatus({ accessToken });  // → { active, total, generatedAt }
-await client.loginWithRecoveryCode({ identifier, code });  // → { session, profile }
+await client.generateRecoveryCodes({ stepUpToken });  // resolves to { codes }
+await client.getRecoveryCodesStatus();  // resolves to { active, total, generatedAt }
+await client.loginWithRecoveryCode({ identifier, code });  // resolves to { session, profile }
 ```
 
 `stepUpToken` is optional in the type only so the call compiles in hosts that thread it separately; omit it and the server answers 403.
@@ -260,14 +261,14 @@ await client.loginWithRecoveryCode({ identifier, code });  // → { session, pro
 
 `RecoveryCodesView` (`@osn/auth-ui/RecoveryCodesView`) is the settings surface. It:
 
-- reads `GET /recovery/status` on mount, and again once the user dismisses a fresh set, and says outright when the account has **no** codes — the failure mode this view exists to catch is a user who never made any;
+- reads `GET /recovery/status` on mount, or through the `read` its host hands it (Musubi's page cache, which draws the last count at once and reads it again behind it), and again as soon as a new set is generated, behind the codes on screen; it says outright when the account has **no** codes — the failure mode this view exists to catch is a user who never made any. A failed read is never a count: it says so in the count's place, with Try again;
 - runs the step-up ceremony through `StepUpDialog` before generating, with `purpose="recovery_generate"`, and passes the minted token straight to generate;
 - confirms before rotating an existing set (the previous codes die immediately), and treats an **unreadable** count as "might have codes" so a failed status read never skips the warning;
-- holds the generate button until the first status read settles — before that the view cannot tell a first set from a rotation — and **says so while it waits** (2026-07-30): a pulse skeleton reserves the status line's height so nothing shifts when the count lands, and the button reads "Checking…". Held-and-silent read as broken on a slow link, which is the opposite of what a panel about account recovery wants to convey;
+- holds the generate button until the first status read settles — before that the view cannot tell a first set from a rotation — and **says so while it waits**: `@shared/ui`'s `Skeleton` reserves the status line's height so nothing shifts when the count lands, inside a region marked `aria-busy`, and the button reads "Checking…". The read is plain signals, so it never joins the host's `Suspense` boundary. A new set forgets the old count at once, so the old set's count is never shown again; until the new count lands the line holds the same placeholder. Pressed while a remembered count is read again, Generate is busy ("Checking…") until the read lands, then warns or steps up by what it says. Held-and-silent read as broken on a slow link, which is the opposite of what a panel about account recovery wants to convey;
 - shows the codes once with copy + `.txt` download, and gates the Done button on an explicit "I've saved these" checkbox. The file is named after the product the view is rendered for (`recoveryCodesFileName`: "Musubi" → `musubi-recovery-codes.txt`), so somebody who keeps codes for several services can tell the files apart;
 - fails soft on a status read error — the count goes unknown, generation still works.
 
-Props: `client`, `stepUpClient`, `accessToken`, `productName` (the name the download is filed under; `@osn/auth-ui` names no product of its own), plus optional `runPasskeyCeremony` (kept caller-side so `@osn/auth-ui` doesn't depend on `@simplewebauthn/browser`), `totpClient`, `passkeyOnly`, `onSaved`.
+Props: `client`, `stepUpClient`, `productName` (the name the download is filed under; `@osn/auth-ui` names no product of its own), plus optional `runPasskeyCeremony` (kept caller-side so `@osn/auth-ui` doesn't depend on `@simplewebauthn/browser`), `totpClient`, `passkeyOnly`, `onSaved`, `read` (a `SettingsRead` of the status, [[frontend-patterns#Page data: one cache, keyed by the session]]).
 
 Mounted in `musubi/social/src/components/SecuritySection.tsx` — Settings → Security, under the passkey list. cire's portal mounts none of the auth-ui views; its `SecurityPanel` links to Musubi instead.
 
@@ -312,7 +313,7 @@ Redaction deny-list adds `recoveryCode`, `recovery_code`, `recoveryCodes`, `reco
 
 - **Threshold / window:** 5 failed attempts → 15-minute lockout (`RECOVERY_LOCKOUT_THRESHOLD` / `RECOVERY_LOCKOUT_MS` in `osn/api/src/lib/recovery-lockout-store.ts`).
 - **Both "wrong code" and "already-used code" count** as failures.
-- **Every refusal costs the same.** An identifier that names nobody, a locked account, a counter that cannot be read, and a wrong code all make the lockout lookup, the conditional consume (`UPDATE … RETURNING`), the classification `SELECT` and the failure record: two coordination-store calls and two `recovery_codes` statements of the same shape. The branches that must not touch the account's codes or counter run the statements against a fresh sentinel account id that matches no row, and the store calls at the caller's probe key ([[account-recovery-factors]] §"The oracle moves to `complete`"). All answer the **same generic `Invalid request`**, so a locked account is indistinguishable from a wrong code or from no account.
+- **Every refusal costs the same.** An identifier that names nobody, a locked account, a counter that cannot be read, and a wrong code all make the lockout lookup, the conditional consume (`UPDATE … RETURNING`), the classification `SELECT` and the failure record: two coordination-store calls and two `recovery_codes` statements of the same shape. The branches that must not touch the account's codes or counter run the statements against a fresh sentinel account id that matches no row, and the store calls at the caller's probe key ([[account-recovery-factors]] §"Every branch costs the same"). All answer the **same generic `Invalid request`**, so a locked account is indistinguishable from a wrong code or from no account.
 - **Audit + reset:** crossing the threshold writes a `recovery_code_lockout` security-event row (surfaced in the in-app banner) after the refusal has answered, so the answer does not wait on an insert only a real account makes, and emits `osn.auth.recovery.lockout{result}`. A successful consume takes back the failures the lookup on the way in counted, after it answers, when there are any (`result="reset"`); with none counted there is nothing to clear and no call. A failure recorded after that lookup, before or after the answer, stands and expires with its window.
 - **Store:** a `RecoveryLockoutStore` (`osn/api/src/lib/recovery-lockout-store.ts`) — in memory on the Bun dev server; on a deployed Worker a counter on the coordination store (`recovery_lockout`), one object per account, each failure one atomic `increment` in a 15-minute window ([[coordination-store]]). **Fails closed**: a counter that cannot be read or written answers `"unknown"`, and the consume refuses with the same generic `Invalid request` without touching the code and writes no security event; a failed count records `osn.auth.recovery.lockout{result="unavailable"}`.
 

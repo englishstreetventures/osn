@@ -1,0 +1,210 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/account-deletion-app-contract",
+    "base_sha": "ecfaa482fcd0d9db8f12b7c98b59fa09a8cf7f07",
+    "head_sha": "e069e3fa04ee0581827c50d02f1066cfd7ff597e",
+    "generated_at": "2026-11-15T12:20:53.772Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2300,
+    "type": null,
+    "labels": [
+      "product:osn-core",
+      "complexity:8",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 8,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-15T06:29:31.944Z",
+    "last_ts": "2026-11-15T12:20:41.063Z",
+    "span_seconds": 21069,
+    "active_seconds": 12213,
+    "compactions": 1
+  },
+  "spend": {
+    "usd_equivalent": 196.5104412,
+    "tokens": {
+      "input": 2130,
+      "output": 1017823,
+      "thinking": 408209,
+      "cache_write_5m": 4440102,
+      "cache_write_1h": 0,
+      "cache_read": 384862378
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 2130,
+          "output": 1017823,
+          "thinking": 408209,
+          "cache_write_5m": 4440102,
+          "cache_write_1h": 0,
+          "cache_read": 384862378
+        },
+        "usd_equivalent": 196.5104412,
+        "messages": 1040
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 2130,
+          "output": 1017823,
+          "thinking": 408209,
+          "cache_write_5m": 4440102,
+          "cache_write_1h": 0,
+          "cache_read": 384862378
+        },
+        "usd_equivalent": 196.5104412,
+        "messages": 1041
+      }
+    },
+    "effort": {
+      "xhigh": 749,
+      "high": 291
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 6,
+      "test": 46,
+      "docs": 12,
+      "config": 4,
+      "source": 36
+    },
+    "loc": {
+      "generated": {
+        "added": 64,
+        "deleted": 0
+      },
+      "test": {
+        "added": 4203,
+        "deleted": 862
+      },
+      "docs": {
+        "added": 196,
+        "deleted": 68
+      },
+      "config": {
+        "added": 146,
+        "deleted": 34
+      },
+      "source": {
+        "added": 3104,
+        "deleted": 1176
+      }
+    },
+    "packages": [
+      "musubi/infra",
+      "osn/api",
+      "osn/client",
+      "osn/db",
+      "pulse/api",
+      "shared/crypto",
+      "shared/infra",
+      "shared/observability",
+      "shared/openapi",
+      "shared/osn-auth-client",
+      "tools/e2e",
+      "zap/api",
+      "zap/db"
+    ],
+    "touches_migration": true,
+    "commits": 27
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 914,
+      "Read": 92,
+      "Write": 34,
+      "Edit": 30,
+      "Skill": 16,
+      "SubagentHandback": 9,
+      "Agent": 6,
+      "SendMessage": 5,
+      "ToolSearch": 3,
+      "Monitor": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 19
+    },
+    "skills": {
+      "new-feat": 1,
+      "write-issue": 2,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "write-wiki": 3,
+      "obsidian:obsidian-markdown": 2,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-state": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 4,
+      "implementer": 1
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 1040,
+      "with_tools": 1033,
+      "with_one_tool": 973,
+      "context_median": 280764,
+      "context_p90": 787331
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 12,
+    "located": 5,
+    "acted_on": 4,
+    "paired": 5,
+    "acted_on_paired": 4,
+    "control_changed": 1,
+    "acted_on_by_test": 1,
+    "acted_on_paired_by_test": 1
+  }
+}

@@ -17,7 +17,7 @@ export type Check = (typeof CHECKS)[number];
 // merge base with main to compare against.
 async function argvOf($: EngineInterface, check: Check, root: string) {
   if (check.name === "lint") {
-    return ["bash", "-c", "bash scripts/verify-vendored-anti-slop.sh && bun run lint"];
+    return ["bash", "-c", "bash scripts/verify-vendored.sh tools/oxlint/anti-slop && bun run lint"];
   }
   if (check.name === "fmt:check") return ["bun", "run", "fmt:check"];
   const base = await git($, root, "merge-base", MAIN, "HEAD");

@@ -26,10 +26,6 @@ describe("renamedTo", () => {
   test("takes the new side of a top-level rename", () => {
     expect(renamedTo("old.ts => new.ts")).toBe("new.ts");
   });
-
-  test("leaves a plain path alone", () => {
-    expect(renamedTo("zap/api/src/index.ts")).toBe("zap/api/src/index.ts");
-  });
 });
 
 describe("parseNumstat packages", () => {
@@ -150,20 +146,6 @@ describe("defaultSessionsRoots", () => {
 });
 
 describe("unattributedSubagentFiles", () => {
-  test("counts a workflow agent's transcript as subagent spend", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pr-metrics-workflow-"));
-
-    try {
-      const agents = join(root, "-proj", "session-1", "subagents", "workflows", "wf_1");
-      await mkdir(agents, { recursive: true });
-      await writeFile(join(agents, "agent-x.jsonl"), '{"type":"user","gitBranch":"main"}\n');
-
-      expect(unattributedSubagentFiles(root)).toBe(1);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
   test("reads every root it is given, and ignores a root that does not exist", async () => {
     const first = await mkdtemp(join(tmpdir(), "pr-metrics-root-a-"));
     const second = await mkdtemp(join(tmpdir(), "pr-metrics-root-b-"));

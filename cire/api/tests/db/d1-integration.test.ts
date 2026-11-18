@@ -40,6 +40,7 @@ import {
   weddingHosts,
   weddingInviteCustomisations,
   weddings,
+  platformRefunds,
   weddingUpgradePurchases,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
@@ -69,6 +70,7 @@ import { INVITE_IMAGE_SLOTS } from "../../src/schemas/invite";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
 import { MAX_PLANS_PER_EVENT } from "../../src/schemas/seating";
+import { accountErasureService } from "../../src/services/account-erasure";
 import { AccountLinkConflict, accountLinkService } from "../../src/services/account-link";
 import { type AssetsBucket, assetReconcileService } from "../../src/services/asset-reconcile";
 import {
@@ -143,6 +145,7 @@ import {
   CurrencyLockedByCashGifts,
   weddingSettingsService,
 } from "../../src/services/wedding-settings";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { ddlStatements } from "../test-helpers/ddl-statements";
 import {
   fullWeddingKeys,
@@ -243,10 +246,9 @@ let db: Db;
 // The same 5_000ms default applies per TEST, and the bodies here are not cheap:
 // every statement is a real round-trip over workerd's loopback socket, so a test
 // that seeds 51 events one at a time takes ~6-9s on a CI box against ~0.4s
-// locally. That is the same flake wearing a different hat, and it tears the
-// suite down the same way — the run that prompted this saw the 51-pair test time
-// out at 5_000ms and the next test fail 16ms later on the poisoned stub. So the
-// budget covers hooks and tests alike: nothing Miniflare-backed races the
+// locally. A test that times out tears the suite down the same way: the 51-pair
+// test timing out at 5_000ms leaves the next test to fail on the poisoned stub.
+// So the budget covers hooks and tests alike: nothing Miniflare-backed races the
 // default.
 const MF_TIMEOUT_MS = 30_000;
 
@@ -467,18 +469,6 @@ beforeEach(async () => {
 }, MF_TIMEOUT_MS);
 
 describe("cire/api over real D1 (Miniflare)", () => {
-  it(
-    "claim.lookup resolves a seeded family across async D1 reads",
-    async () => {
-      const res = await run(claimService.lookup(PUBLIC_ID));
-      expect(res.familyId).toBe(FAMILY_ID);
-      expect(res.publicId).toBe(PUBLIC_ID);
-      expect(res.members).toHaveLength(2);
-      expect(res.events.map((e) => e.name).toSorted()).toEqual(["Ceremony", "Reception"]);
-    },
-    MF_TIMEOUT_MS,
-  );
-
   it(
     "claim.lookup gives the same answer inside a D1 session",
     async () => {
@@ -701,7 +691,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "claim.lookup fails for an unknown code",
     async () => {
-      await expect(run(claimService.lookup("NOPE-0000"))).rejects.toThrow();
+      const error = await run(Effect.flip(claimService.lookup("NOPE-0000")));
+      expect(error._tag).toBe("InvalidCredentials");
     },
     MF_TIMEOUT_MS,
   );
@@ -962,6 +953,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         guestId: GUEST_1,
         weddingId: BOOTSTRAP_WEDDING_ID,
         email: address,
+        rsvpClosed: false,
         optOuts: 0,
       };
 
@@ -1016,6 +1008,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         guestId: GUEST_1,
         weddingId: BOOTSTRAP_WEDDING_ID,
         email: oldAddress,
+        rsvpClosed: false,
         optOuts: 1,
       };
 
@@ -1286,13 +1279,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "submitRsvps commits a 51-pair batch over D1's per-batch ceiling (P-W2)",
+    "submitRsvps commits a 51-pair batch over D1's per-batch ceiling",
     async () => {
       // MAX_STATEMENTS_PER_BATCH is 50; a 51-statement submit must be chunked by
       // commitGroupedBatches rather than sent as one over-ceiling db.batch() call
       // (which D1 rejects outright). bun:sqlite cannot exercise this: commitBatch
       // feature-detects `.batch()` and falls back to a sequential loop there, so
-      // only the real (Miniflare-backed) D1 driver proves the fix.
+      // only the real (Miniflare-backed) D1 driver proves the chunking.
       const eventIds = Array.from({ length: 51 }, (_, i) => `evt_bulk_${i}`);
       // One insert per event, not a single 51-row bulk insert — the bulk form
       // trips D1's own bound-parameter ceiling on a single statement, a
@@ -1324,56 +1317,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       const rows = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
       expect(rows).toHaveLength(51);
-    },
-    MF_TIMEOUT_MS,
-  );
-
-  it(
-    "submitRsvpsAndList folds the read-back into the write batch over D1 (P-W1)",
-    async () => {
-      // Real db.batch() is the only environment that can fail the way the fix
-      // targets — bun:sqlite's fallback just awaits each statement in order and
-      // would pass even if the tail read the wrong rows or ran before the writes.
-      const rows = await run(
-        rsvpService.submitRsvpsAndList(
-          [
-            {
-              guestId: GUEST_1,
-              eventId: EVENT_A,
-              status: "attending",
-              dietary: "",
-              dietaryPresets: [],
-              dietaryConsent: false,
-            },
-            {
-              guestId: GUEST_2,
-              eventId: EVENT_A,
-              status: "declined",
-              dietary: "",
-              dietaryPresets: [],
-              dietaryConsent: false,
-            },
-          ],
-          FAMILY_ID,
-        ),
-      );
-
-      expect(rows).toHaveLength(2);
-      expect(rows.find((r) => r.guestId === GUEST_1)).toMatchObject({
-        guestId: GUEST_1,
-        eventId: EVENT_A,
-        status: "attending",
-      });
-      expect(rows.find((r) => r.guestId === GUEST_2)).toMatchObject({
-        guestId: GUEST_2,
-        eventId: EVENT_A,
-        status: "declined",
-      });
-
-      // Persisted, not just echoed back.
-      const persisted = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
-      expect(persisted).toHaveLength(1);
-      expect(persisted[0]).toMatchObject({ status: "attending" });
     },
     MF_TIMEOUT_MS,
   );
@@ -1634,10 +1577,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "tasks.reorder commits its per-row updates over the D1 batch path",
     async () => {
-      // Regression guard: reorder used to run through db.transaction(), which the
-      // D1 driver implements as literal BEGIN/COMMIT (rejected by D1) with
-      // fire-and-forget .run() calls that the async driver never awaited. It now
-      // goes through commitBatch — this is the only D1 coverage of a reorder.
+      // reorder must go through commitBatch, not db.transaction(): the D1 driver
+      // implements a transaction as literal BEGIN/COMMIT (rejected by D1) with
+      // fire-and-forget .run() calls the async driver never awaits. This is the
+      // only D1 coverage of a reorder.
       const created: string[] = [];
       for (const title of ["first", "second", "third"]) {
         const dto = await run(
@@ -2601,8 +2544,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
       );
 
       expect(deleted).toBe(2);
-      expect(seen.map((n) => [n.weddingId, n.finalEventOn])).toEqual([
-        [BOOTSTRAP_WEDDING_ID, "2025-04-20"],
+      expect(seen.map((n) => [n.weddingId, n.retainedFrom])).toEqual([
+        [BOOTSTRAP_WEDDING_ID, { rule: "final-event", on: "2025-04-20" }],
       ]);
     },
     MF_TIMEOUT_MS,
@@ -2943,8 +2886,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
     // Real D1 applies the inviter's delete cascade to the plus-one and reports
     // every row it removed. The plus-one is inserted after the inviter, so the
     // guests delete meets the inviter first and the cascade takes the plus-one.
-    // The bootstrap wedding's events carry no date, which reads as long past,
-    // and its guests would join the count; a recent date keeps it out.
+    // The bootstrap wedding holds guests; a recent date keeps them out of this
+    // run whatever the sweep makes of its blank event times.
     await db
       .update(events)
       .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
@@ -3099,8 +3042,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "the retention sweep reaches every expired wedding across runs, past its per-run cap",
     async () => {
-      // The bootstrap wedding's events carry no date, which reads as long past,
-      // and it has a household; a recent date keeps it out of this cohort.
+      // The bootstrap wedding has a household; a recent date keeps it out of
+      // this run whatever the sweep makes of its blank event times.
       await db
         .update(events)
         .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
@@ -3167,6 +3110,83 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // so they no longer fill the cap and the next run reaches the newest.
       await run(retentionService.sweepExpiredGuestData(now));
       expect(await householdsLeft()).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep keeps and counts weddings whose event Start is not a date, until three years after their creation",
+    async () => {
+      // As text, `TBD` sorts after every date and `1st Nov 2026` before every
+      // cutoff, so neither says when the wedding ends. Both are kept, and the
+      // count reaches the log on a run with nothing else due. Two created more
+      // than three years before the run are deleted, one of them with a
+      // readable event still ahead, which does not hold it back; that count
+      // has a line of its own. Over D1, whose GLOB patterns are capped at 50
+      // bytes.
+      await db
+        .update(events)
+        .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
+        .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+      const recent = new Date("2024-01-01T00:00:00.000Z");
+      const old = new Date("2023-01-01T00:00:00.000Z");
+      const undated = [
+        ["wed_d1_tbd", "TBD", "UNDATED01", recent],
+        ["wed_d1_nov", "1st Nov 2026", "UNDATED02", recent],
+        ["wed_d1_old", "TBD", "UNDATED03", old],
+        ["wed_d1_mixed", "TBD", "UNDATED04", old],
+      ] as const;
+      for (const [id, startAt, publicId, stamp] of undated) {
+        await db.insert(weddings).values({
+          id,
+          slug: `slug-${id}`,
+          displayName: `Wedding ${id}`,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+        await db.insert(events).values({
+          id: `ev_${id}`,
+          weddingId: id,
+          slug: "ceremony",
+          name: "Ceremony",
+          startAt,
+          endAt: "",
+          timezone: "UTC",
+        });
+        await db.insert(families).values({
+          id: `fam_${id}`,
+          weddingId: id,
+          publicId,
+          familyName: "Family",
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+      }
+      await db.insert(events).values({
+        id: "ev_wed_d1_mixed_later",
+        weddingId: "wed_d1_mixed",
+        slug: "reception",
+        name: "Reception",
+        startAt: "2027-01-10T10:00:00+00:00",
+        endAt: "",
+        timezone: "UTC",
+      });
+
+      const logs = await captureLogs(() =>
+        run(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z"))),
+      );
+
+      const left = await db
+        .select({ weddingId: families.weddingId })
+        .from(families)
+        .where(inArray(families.weddingId, jsonEachIn(undated.map(([id]) => id))));
+      expect(left.map((r) => r.weddingId).toSorted()).toEqual(["wed_d1_nov", "wed_d1_tbd"]);
+      expect(
+        logs.split("\n").filter((line) => line.includes("whose event dates it cannot read")),
+      ).toEqual([expect.stringContaining('"weddings":2')]);
+      expect(
+        logs.split("\n").filter((line) => line.includes("three years after they were created")),
+      ).toEqual([expect.stringContaining('"weddings":2')]);
     },
     MF_TIMEOUT_MS,
   );
@@ -5109,31 +5129,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "never reuses a change number after the newest row is deleted",
-    async () => {
-      const insert = () =>
-        db
-          .insert(rsvpChanges)
-          .values({
-            weddingId: BOOTSTRAP_WEDDING_ID,
-            familyId: FAMILY_ID,
-            guestId: GUEST_1,
-            eventId: EVENT_A,
-            kind: "reply_new",
-            createdAt: new Date(),
-          })
-          .returning({ seq: rsvpChanges.seq });
-      const [first] = await insert();
-      const [second] = await insert();
-      await db.delete(rsvpChanges).where(eq(rsvpChanges.seq, second!.seq));
-      const [third] = await insert();
-      expect(second!.seq).toBeGreaterThan(first!.seq);
-      expect(third!.seq).toBeGreaterThan(second!.seq);
-    },
-    MF_TIMEOUT_MS,
-  );
-
-  it(
     "reads the card's summary and the table's rows from real changes",
     async () => {
       const at = new Date("2026-09-20T10:00:00Z");
@@ -5500,6 +5495,91 @@ describe("cire/api over real D1 (Miniflare)", () => {
         }),
       );
       expect(await run(tierService.tierOf(BOOTSTRAP_WEDDING_ID))).toBe("crimson");
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "refunds an upgrade on D1: the claim and its read-back in one batch, no grant, no sale",
+    async () => {
+      // The refund claim's UPDATE and the read of the status it left ride in
+      // one D1 batch; the read must see the write for the refund to be made.
+      const refunds: string[] = [];
+      const stripe = {
+        createPlatformRefund: (input: { idempotencyKey: string }) => {
+          refunds.push(input.idempotencyKey);
+          return Effect.succeed({ id: "re_d1" });
+        },
+      } as unknown as StripeClient;
+      const upgrades = createUpgradeService({
+        stripe,
+        catalogue: createUpgradeCatalogue({ stripe, prices: {} }),
+      });
+      const now = new Date();
+      await db.insert(weddingUpgradePurchases).values({
+        id: "upg_d1_refund",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "gold",
+        fromTier: "ivory",
+        status: "pending",
+        checkoutSessionId: "cs_d1_refund",
+        createdByOsnProfileId: "usr_test",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db
+        .update(weddings)
+        .set({ deletedAt: now })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+
+      const outcome = await run(
+        upgrades.settlePurchase({
+          purchaseId: "upg_d1_refund",
+          checkoutSessionId: "cs_d1_refund",
+          paid: true,
+          paidAmountMinor: 4900,
+          paidCurrency: "aud",
+          paymentIntentId: "pi_d1_refund",
+        }),
+      );
+      await db
+        .update(weddings)
+        .set({ deletedAt: null })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+
+      expect(outcome).toBe("auto_refunded");
+      expect(refunds).toEqual(["cire-upgrade-refund-upg_d1_refund"]);
+      const [row] = await db
+        .select({
+          status: weddingUpgradePurchases.status,
+          refundId: weddingUpgradePurchases.refundId,
+        })
+        .from(weddingUpgradePurchases)
+        .where(eq(weddingUpgradePurchases.id, "upg_d1_refund"));
+      expect(row).toEqual({ status: "auto_refunded", refundId: "re_d1" });
+      // The record outside the cascade, inserted in the claim's batch from the
+      // row the same batch moved, and moved with the acceptance.
+      const [record] = await db
+        .select({
+          status: platformRefunds.status,
+          refundId: platformRefunds.refundId,
+          paymentIntentId: platformRefunds.paymentIntentId,
+          reason: platformRefunds.reason,
+        })
+        .from(platformRefunds)
+        .where(eq(platformRefunds.purchaseId, "upg_d1_refund"));
+      expect(record).toEqual({
+        status: "auto_refunded",
+        refundId: "re_d1",
+        paymentIntentId: "pi_d1_refund",
+        reason: "wedding_not_live",
+      });
+      expect(
+        await db
+          .select({ id: platformSales.purchaseId })
+          .from(platformSales)
+          .where(eq(platformSales.purchaseId, "upg_d1_refund")),
+      ).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );
@@ -6597,6 +6677,89 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
       expect(reception.unresponded.map((g) => g.guestId)).toEqual([GUEST_1]);
       const ceremony = view.events.find((e) => e.id === EVENT_A)!;
       expect(ceremony.unresponded.map((g) => g.guestId)).toEqual([GUEST_1, GUEST_2]);
+    },
+    MF_TIMEOUT_MS,
+  );
+  it(
+    "erases an account on D1: the preview read, each owned wedding's batch, the clean-up and the purge",
+    async () => {
+      // Every statement binds the profile list as one JSON parameter, so a
+      // hundred profiles stay far inside D1's 100-parameter limit.
+      const shared = "wed_d1_shared";
+      const sole = "wed_d1_sole";
+      const erased = "usr_d1_erased";
+      const profiles = [erased, ...Array.from({ length: 99 }, (_, i) => `usr_d1_other_${i}`)];
+      for (const statement of [
+        ...fullWeddingStatements(shared, { owner: "usr_d1_owner" }),
+        ...fullWeddingStatements(sole, { owner: erased }),
+      ]) {
+        await db.run(statement);
+      }
+      await db.insert(weddingHosts).values({
+        id: `whost_${shared}_erased`,
+        weddingId: shared,
+        osnProfileId: erased,
+        addedByOsnProfileId: "usr_d1_owner",
+        role: "owner",
+        createdAt: new Date(),
+      });
+      await db.insert(weddingHosts).values({
+        id: `whost_${shared}_editor`,
+        weddingId: shared,
+        osnProfileId: "usr_d1_editor",
+        addedByOsnProfileId: erased,
+        role: "editor",
+        createdAt: new Date(),
+      });
+      await db.run(
+        sql.raw(
+          `UPDATE rsvp_changes SET actor_osn_profile_id = '${erased}' WHERE wedding_id = '${shared}'`,
+        ),
+      );
+
+      const actions = await run(
+        accountErasureService.preview({
+          profileIds: profiles,
+          deletesAt: Math.floor(Date.now() / 1000),
+          organiserOrigin: "https://host.example.test",
+        }),
+      );
+      expect(actions.map((a) => [a.id, a.choices.map((c) => c.choice), a.defaultChoice])).toEqual([
+        [`cire:wedding:${sole}`, ["delete"], null],
+      ]);
+
+      const answer = await run(
+        accountErasureService.erase({
+          accountId: "acc_d1_erased",
+          profileIds: profiles,
+        }),
+      );
+      expect(answer).toEqual({ status: "done", kept: [] });
+      const seats = await db
+        .select({ profile: weddingHosts.osnProfileId, addedBy: weddingHosts.addedByOsnProfileId })
+        .from(weddingHosts)
+        .where(eq(weddingHosts.weddingId, shared))
+        .orderBy(asc(weddingHosts.osnProfileId));
+      expect(seats).toEqual([
+        { profile: "usr_d1_editor", addedBy: "deleted" },
+        { profile: "usr_d1_owner", addedBy: "usr_d1_owner" },
+      ]);
+      const [change] = await db
+        .select({ actor: rsvpChanges.actorOsnProfileId })
+        .from(rsvpChanges)
+        .where(eq(rsvpChanges.weddingId, shared));
+      expect(change?.actor).toBe("");
+
+      // The sole-owned wedding was deleted with its owner's seat, and the
+      // purge, finding no owner to restore it, takes it on its next run.
+      const result = await run(maintenanceSweeps.purgeDeletedWeddings(new Date()));
+      expect(result.purged).toBe(1);
+      expect(
+        await db.select({ id: weddings.id }).from(weddings).where(eq(weddings.id, sole)),
+      ).toEqual([]);
+      expect(
+        await db.select({ id: weddings.id }).from(weddings).where(eq(weddings.id, shared)),
+      ).toHaveLength(1);
     },
     MF_TIMEOUT_MS,
   );

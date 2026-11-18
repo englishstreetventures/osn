@@ -11,10 +11,12 @@
  *   bun run scripts/production-sites-artifact.ts <download directory>
  *
  * It refuses the artifact, copying nothing, unless every entry in it is
- * `production-sites.txt`, a directory on the way to a site's build
- * directory, or a file or directory inside one: the `SITE_BUILDS`
- * directories of the sites PRODUCTION_SITE_MODES does not turn off, the ones
- * the `sites` job uploads. A symbolic link anywhere, or anything that is
+ * `production-sites.txt`, a directory on the way to a build directory, or a
+ * file or directory inside one: the guest site's Worker build
+ * (`PREBUILT_WORKER_BUILDS`) and the `SITE_BUILDS` directories of the sites
+ * PRODUCTION_SITE_MODES does not turn off, the ones the `sites` job uploads.
+ * The guest site's server modules run on Cloudflare, never in a job: the
+ * cire stack uploads them byte for byte. A symbolic link anywhere, or anything that is
  * neither a file nor a directory, is refused too. So whatever the build
  * steps wrote into the artifact, only files the sites serve reach the
  * checkout, never a script, a package or a workflow a later step runs.
@@ -29,6 +31,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from "n
 import { dirname, join } from "node:path";
 
 import {
+  PREBUILT_WORKER_BUILDS,
   PRODUCTION_SITE_MODES,
   SITE_BUILDS,
   SITE_SURFACES,
@@ -38,9 +41,12 @@ import {
 export const LIST_FILE = "production-sites.txt";
 
 /** The build directories the artifact may hold, from the repository root. */
-export const SITE_DIRECTORIES: readonly string[] = SITE_SURFACES.filter(
-  (site) => PRODUCTION_SITE_MODES[site] !== "off",
-).map((site) => SITE_BUILDS[site].directory);
+export const SITE_DIRECTORIES: readonly string[] = [
+  ...Object.values(PREBUILT_WORKER_BUILDS).map((build) => build.directory),
+  ...SITE_SURFACES.filter((site) => PRODUCTION_SITE_MODES[site] !== "off").map(
+    (site) => SITE_BUILDS[site].directory,
+  ),
+];
 
 export interface ArtifactEntry {
   /** The path from the artifact's root, `/`-separated. */

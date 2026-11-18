@@ -1032,6 +1032,12 @@ describe("RegistryView — gifts received", () => {
     // The day of the sweep, not either end of the gift range.
     expect(screen.getByText(/we deleted your guests' details/)).toHaveTextContent("2026");
     expect(screen.getByText(/we deleted your guests' details/)).toHaveTextContent("17");
+    // The record names no period, since it cannot know which rule applied; the
+    // hosts' notice, one click away, states both.
+    expect(screen.getByRole("link", { name: /our privacy notice/ })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/\/privacy\/hosts\/$/),
+    );
   });
 
   it("puts the first gift's date first and the last gift's date last", async () => {
@@ -1293,7 +1299,11 @@ describe("RegistryView — gift log export", () => {
       <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} canManage />
     ));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Download gifts/i }));
+    // The portal's download button: its word beside its icon.
+    const download = await screen.findByRole("button", { name: "Download gifts CSV" });
+    expect(download.textContent).toBe("Download gifts CSV");
+    expect(download.querySelector("svg")).not.toBeNull();
+    fireEvent.click(download);
 
     await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
     expect(String(authFetch.mock.calls[0]![0])).toContain(

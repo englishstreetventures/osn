@@ -18,20 +18,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const captured = vi.hoisted(() => ({
   report: undefined as ((count: number) => void) | undefined,
-  eventsToken: undefined as string | undefined,
-  promptToken: undefined as string | undefined,
+  promptProfile: undefined as string | undefined,
 }));
 
 vi.mock("../../src/components/SecurityEventsBannerMount", () => ({
-  default: (props: { accessToken: string; onVisibleCountChange?: (count: number) => void }) => {
+  default: (props: { onVisibleCountChange?: (count: number) => void }) => {
     captured.report = props.onVisibleCountChange;
-    captured.eventsToken = props.accessToken;
     return <div data-testid="events" />;
   },
 }));
 vi.mock("../../src/components/RecoveryCodesPrompt", () => ({
-  RecoveryCodesPrompt: (props: { accessToken: string }) => {
-    captured.promptToken = props.accessToken;
+  RecoveryCodesPrompt: (props: { profileId: string }) => {
+    captured.promptProfile = props.profileId;
     return <div data-testid="prompt" />;
   },
 }));
@@ -41,13 +39,12 @@ import AccountBannerStack from "../../src/components/AccountBannerStack";
 afterEach(() => {
   cleanup();
   captured.report = undefined;
-  captured.eventsToken = undefined;
-  captured.promptToken = undefined;
+  captured.promptProfile = undefined;
 });
 
 describe("<AccountBannerStack />", () => {
   it("withholds the prompt until the event count settles", () => {
-    render(() => <AccountBannerStack accessToken="tkn" />);
+    render(() => <AccountBannerStack profileId="prof_1" />);
 
     // Nothing has reported yet. Rendering the prompt now would flash it in and
     // then pull it when an event lands.
@@ -56,27 +53,27 @@ describe("<AccountBannerStack />", () => {
   });
 
   it("shows the prompt once the events banner settles with nothing", () => {
-    render(() => <AccountBannerStack accessToken="tkn" />);
+    render(() => <AccountBannerStack profileId="prof_1" />);
     captured.report?.(0);
     expect(screen.getByTestId("prompt")).toBeTruthy();
   });
 
   it("suppresses the prompt while a security event is unacknowledged", () => {
-    render(() => <AccountBannerStack accessToken="tkn" />);
+    render(() => <AccountBannerStack profileId="prof_1" />);
     captured.report?.(2);
     expect(screen.getByTestId("events")).toBeTruthy();
     expect(screen.queryByTestId("prompt")).toBeNull();
   });
 
   it("shows the prompt after the events are acknowledged", () => {
-    render(() => <AccountBannerStack accessToken="tkn" />);
+    render(() => <AccountBannerStack profileId="prof_1" />);
     captured.report?.(2);
     captured.report?.(0);
     expect(screen.getByTestId("prompt")).toBeTruthy();
   });
 
   it("takes up no vertical space while neither banner has anything to say", () => {
-    const { container } = render(() => <AccountBannerStack accessToken="tkn" />);
+    const { container } = render(() => <AccountBannerStack profileId="prof_1" />);
     captured.report?.(0);
 
     // The container carries horizontal padding only; the banner that renders
@@ -89,16 +86,15 @@ describe("<AccountBannerStack />", () => {
   });
 
   it("gives the events banner its spacing only when it is showing", () => {
-    render(() => <AccountBannerStack accessToken="tkn" />);
+    render(() => <AccountBannerStack profileId="prof_1" />);
     captured.report?.(1);
     const eventsSlot = screen.getByTestId("events").parentElement as HTMLElement;
     expect(eventsSlot.className).toMatch(/(^|\s)pt-6(\s|$)/);
   });
 
-  it("hands both banners the signed-in access token", () => {
-    render(() => <AccountBannerStack accessToken="tkn" />);
+  it("hands the recovery prompt the signed-in profile", () => {
+    render(() => <AccountBannerStack profileId="prof_1" />);
     captured.report?.(0);
-    expect(captured.eventsToken).toBe("tkn");
-    expect(captured.promptToken).toBe("tkn");
+    expect(captured.promptProfile).toBe("prof_1");
   });
 });

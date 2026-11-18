@@ -110,3 +110,45 @@ export function renderCrossDeviceLogin({ instanceName: name }: InstanceNameData)
   );
   return { subject: `A new device signed in to your ${name} account`, text, html };
 }
+
+/** The address the account was just changed to. The renderer masks it. */
+export interface EmailChangedData extends InstanceNameData {
+  readonly newEmail: string;
+}
+
+/**
+ * The first character of the local part, then `•••`, then the domain:
+ * `a•••@example.com`. Control and format characters go first (`EmailSchema`
+ * admits them), so a bidi override or a zero-width character cannot reorder or
+ * hide what the recipient reads.
+ */
+const maskEmail = (address: string): string => {
+  const clean = address.replace(/[\p{Cc}\p{Cf}]/gu, "");
+  const at = clean.lastIndexOf("@");
+  if (at === -1) return "•••";
+  const first = Array.from(clean.slice(0, at))[0] ?? "";
+  return `${first}•••@${clean.slice(at + 1)}`;
+};
+
+/**
+ * Sent to the address an email change replaced, after the change commits: the
+ * one inbox the change takes away from the account. It names the new address
+ * masked, and the subject names none of it, since the log transport logs
+ * subjects. Every step it suggests is one the account allows: an email change
+ * keeps the session that made it, so the reader signs that out before changing
+ * the address back, and the change back can be refused while the change cap
+ * (two a week), the begin cap (three a day) or the hold after a recovery
+ * (three days) lasts. After a recovery, only a passkey from before the change
+ * can step up for it, so an owner without one may have no way back alone.
+ */
+export function renderEmailChanged({
+  newEmail,
+  instanceName: name,
+}: EmailChangedData): RenderedEmail {
+  const masked = maskEmail(newEmail);
+  const text = `The email address on your ${name} account was just changed to ${masked}. Sign-in codes and security notices for the account now go to that address, and sessions on other devices were signed out.\n\nIf that was you, no further action is needed.\n\nIf this wasn't you: sign in with a passkey you held before this change and sign out every other session, or sign in with a recovery code, which signs out every session. Then change the email back. The account can refuse that for up to a week after recent email changes, for a day after repeated attempts, or for three days after a recovery, and without a passkey from before this change it may not let you change it back yourself.`;
+  const html = wrap(
+    `<h2>The email on your ${esc(name)} account was changed</h2><p>The email address on your ${esc(name)} account was just changed to ${esc(masked).replaceAll("•", "&bull;")}. Sign-in codes and security notices for the account now go to that address, and sessions on other devices were signed out.</p><p>If that was you, no further action is needed.</p><p>If this wasn't you: sign in with a passkey you held before this change and sign out every other session, or sign in with a recovery code, which signs out every session. Then change the email back. The account can refuse that for up to a week after recent email changes, for a day after repeated attempts, or for three days after a recovery, and without a passkey from before this change it may not let you change it back yourself.</p>`,
+  );
+  return { subject: `The email on your ${name} account was changed`, text, html };
+}

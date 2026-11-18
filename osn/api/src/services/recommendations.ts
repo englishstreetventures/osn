@@ -1134,7 +1134,7 @@ export function createRecommendationService() {
           // Candidates who share an organisation with the caller. A self-join
           // rather than "read my orgs, then read their members": the caller's
           // org ids would be a second round trip on the critical path of a
-          // keystroke, and `org_members_profile_idx` / `org_members_org_idx`
+          // keystroke, and `org_members_profile_idx` / `org_members_succession_idx`
           // serve both sides of this in one.
           Effect.tryPromise({
             try: () =>

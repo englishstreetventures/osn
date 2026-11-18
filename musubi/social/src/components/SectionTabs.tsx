@@ -56,9 +56,10 @@ export function SectionTabs<T extends string>(props: SectionTabsProps<T>): JSX.E
             type="button"
             // `max-md:min-h-11` is the 44px touch target; above that breakpoint
             // the bar is pointed at with a cursor and the extra height only
-            // pads the rule it sits on.
+            // pads the rule it sits on. The row scrolls sideways, which clips
+            // anything drawn outside a tab, so the focus ring sits inside it.
             class={clsx(
-              "text-body border-b-2 px-3 pb-2.5 font-medium transition-colors max-md:min-h-11",
+              "text-body border-b-2 px-3 pb-2.5 font-medium transition-ui-colors focus-visible:-outline-offset-2 max-md:min-h-11",
               props.current === tab.value
                 ? "border-foreground text-foreground"
                 : "text-muted-foreground hover:text-foreground border-transparent",

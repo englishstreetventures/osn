@@ -23,6 +23,7 @@ import { decideCapability, LISTEN_CAPABILITY } from "../middleware/wedding-role"
 import { weddingSeat } from "../middleware/wedding-seat";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody, UpdateRunSheetScopeBody } from "../schemas/host";
+import { DELETED_PROFILE } from "../services/account-erasure";
 import { hostsService } from "../services/hosts";
 import type {
   HostNotFound,
@@ -73,7 +74,8 @@ interface HostSeatDto extends HostPersonDto {
   hostId: string;
   role: WeddingRole;
   createdAt: number;
-  addedByOsnProfileId: string;
+  /** Absent when the account that created the seat was erased. */
+  addedByOsnProfileId?: string;
   addedByHandle?: string;
   /** How far into the run sheet the seat sees. On a helper's seat only: it is
    *  a helper's setting, and no other role's (see {@link helperScope}). */
@@ -174,9 +176,17 @@ export const createOrganiserHostsReadRoutes = (
                   ? yield* Effect.tryPromise({
                       // Resolve the ADDERS' handles too, so the panel can name
                       // who created each seat rather than printing a profile id.
+                      // A seat whose adder's account was erased names no one,
+                      // and nothing is asked about it.
                       try: () =>
                         resolveOsnProfileDisplays([
-                          ...new Set(hosts.flatMap((h) => [h.osnProfileId, h.addedByOsnProfileId])),
+                          ...new Set(
+                            hosts.flatMap((h) =>
+                              h.addedByOsnProfileId === DELETED_PROFILE
+                                ? [h.osnProfileId]
+                                : [h.osnProfileId, h.addedByOsnProfileId],
+                            ),
+                          ),
                         ]),
                       catch: () => null,
                     }).pipe(Effect.orElseSucceed(() => null))
@@ -193,7 +203,11 @@ export const createOrganiserHostsReadRoutes = (
                       // Attribution: any of a wedding's equal owners may seat
                       // someone, so each owner needs to see which seats another
                       // owner created. Same handle-then-id fallback as below.
-                      addedByOsnProfileId: h.addedByOsnProfileId,
+                      // Left out when its adder's account was erased.
+                      addedByOsnProfileId:
+                        h.addedByOsnProfileId === DELETED_PROFILE
+                          ? undefined
+                          : h.addedByOsnProfileId,
                       ...helperScope(h),
                     };
                     // Handle is the display value; profileId stays as the

@@ -11,6 +11,15 @@ function createTestLayer() {
   return createOsnAuthLive(config).pipe(Layer.provide(createEphemeralStorage()));
 }
 
+/**
+ * An unsigned access token named `name`, for one profile: renewal files a
+ * token under the profile its `sub` names, so every token here names the same.
+ */
+const tok = (name: string) => {
+  const enc = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, "");
+  return `${enc({ alg: "none" })}.${enc({ sub: "usr_service00001", name })}.sig`;
+};
+
 it.effect("logout clears the persisted session", () =>
   Effect.gen(function* () {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
@@ -62,20 +71,20 @@ it.effect("authFetch attaches Authorization and returns the 200 response directl
 
     const auth = yield* OsnAuth;
     yield* auth.setSession({
-      accessToken: "acc_live",
+      accessToken: tok("live"),
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
     });
 
-    const res = yield* auth.authFetch("https://api.example.com/thing");
+    const res = yield* auth.authFetch("https://osn.example.com/api/thing");
     expect(res.status).toBe(200);
 
     // Exactly one call, with the expected Authorization header.
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0]!;
     const headers = new Headers(init?.headers);
-    expect(headers.get("authorization")).toBe("Bearer acc_live");
+    expect(headers.get("authorization")).toBe(`Bearer ${tok("live")}`);
 
     vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
@@ -91,7 +100,7 @@ it.effect("authFetch silent-refreshes on 401 and retries once", () =>
         if (url.endsWith("/token")) {
           return Promise.resolve(
             mockResponse(200, {
-              access_token: "acc_refreshed",
+              access_token: tok("refreshed"),
               token_type: "Bearer",
               expires_in: 300,
               scope: "openid profile",
@@ -107,20 +116,20 @@ it.effect("authFetch silent-refreshes on 401 and retries once", () =>
 
     const auth = yield* OsnAuth;
     yield* auth.setSession({
-      accessToken: "acc_stale",
+      accessToken: tok("stale"),
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
     });
 
-    const res = yield* auth.authFetch("https://api.example.com/thing");
+    const res = yield* auth.authFetch("https://osn.example.com/api/thing");
     expect(res.status).toBe(200);
     expect(callCount).toBe(2);
 
     // The retry should use the refreshed access token.
     const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!;
     const headers = new Headers(lastCall[1]?.headers);
-    expect(headers.get("authorization")).toBe("Bearer acc_refreshed");
+    expect(headers.get("authorization")).toBe(`Bearer ${tok("refreshed")}`);
 
     vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
@@ -141,13 +150,13 @@ it.effect("authFetch surfaces AuthExpiredError when refresh fails", () =>
 
     const auth = yield* OsnAuth;
     yield* auth.setSession({
-      accessToken: "acc_stale",
+      accessToken: tok("stale"),
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
     });
 
-    const err = yield* Effect.flip(auth.authFetch("https://api.example.com/thing"));
+    const err = yield* Effect.flip(auth.authFetch("https://osn.example.com/api/thing"));
     expect(err._tag).toBe("AuthExpiredError");
 
     // Cached session should be cleared — the next getSession returns null.
@@ -161,7 +170,7 @@ it.effect("authFetch surfaces AuthExpiredError when refresh fails", () =>
 it.effect("authFetch fails with AuthExpiredError when there is no session", () =>
   Effect.gen(function* () {
     const auth = yield* OsnAuth;
-    const err = yield* Effect.flip(auth.authFetch("https://api.example.com/thing"));
+    const err = yield* Effect.flip(auth.authFetch("https://osn.example.com/api/thing"));
     expect(err._tag).toBe("AuthExpiredError");
   }).pipe(Effect.provide(createTestLayer())),
 );
@@ -183,7 +192,7 @@ it.effect("authFetch dedupes concurrent refreshes — only ONE /token roundtrip 
             setTimeout(() => {
               resolve(
                 mockResponse(200, {
-                  access_token: "acc_refreshed",
+                  access_token: tok("refreshed"),
                   token_type: "Bearer",
                   expires_in: 300,
                   scope: "openid profile",
@@ -212,7 +221,7 @@ it.effect("authFetch dedupes concurrent refreshes — only ONE /token roundtrip 
             setTimeout(() => {
               resolve(
                 mockResponse(200, {
-                  access_token: "acc_refreshed",
+                  access_token: tok("refreshed"),
                   token_type: "Bearer",
                   expires_in: 300,
                   scope: "openid profile",
@@ -223,7 +232,7 @@ it.effect("authFetch dedupes concurrent refreshes — only ONE /token roundtrip 
         }
         // Respond 200 only if the call is using the refreshed token.
         return Promise.resolve(
-          bearer.includes("acc_refreshed") ? mockResponse(200, { ok: true }) : mockResponse(401),
+          bearer.includes(tok("refreshed")) ? mockResponse(200, { ok: true }) : mockResponse(401),
         );
       });
     vi.stubGlobal("fetch", mockWithRetry);
@@ -231,7 +240,7 @@ it.effect("authFetch dedupes concurrent refreshes — only ONE /token roundtrip 
 
     const auth = yield* OsnAuth;
     yield* auth.setSession({
-      accessToken: "acc_stale",
+      accessToken: tok("stale"),
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
@@ -241,9 +250,9 @@ it.effect("authFetch dedupes concurrent refreshes — only ONE /token roundtrip 
     // trigger the refresh path. With single-flight, only ONE /token call fires.
     const [r1, r2, r3] = yield* Effect.all(
       [
-        auth.authFetch("https://api.example.com/a"),
-        auth.authFetch("https://api.example.com/b"),
-        auth.authFetch("https://api.example.com/c"),
+        auth.authFetch("https://osn.example.com/api/a"),
+        auth.authFetch("https://osn.example.com/api/b"),
+        auth.authFetch("https://osn.example.com/api/c"),
       ],
       { concurrency: "unbounded" },
     );

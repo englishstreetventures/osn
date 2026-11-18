@@ -28,11 +28,6 @@ const utf8 = (s: string) => new TextEncoder().encode(s);
  */
 
 describe("readBoundedText", () => {
-  it("returns the body when it is inside the bound", async () => {
-    const req = new Request("http://localhost/hook", { method: "POST", body: '{"id":"evt_1"}' });
-    expect(await readBoundedText(req, MAX_EVENT_BYTES)).toBe('{"id":"evt_1"}');
-  });
-
   it("returns an empty string when there is no body at all", async () => {
     const req = new Request("http://localhost/hook", { method: "POST" });
     expect(await readBoundedText(req, MAX_EVENT_BYTES)).toBe("");

@@ -27,6 +27,10 @@ import type {
   DeletionPhase,
   DeletionRequestResult,
   EmailChangeStep,
+  EmailLinkConfirmOutcome,
+  EmailLinkFlow,
+  EmailLinkSendResult,
+  EmailVerificationTokenOutcome,
   GraphBlockAction,
   GraphConnectionAction,
   OidcAuthorizeResult,
@@ -70,7 +74,6 @@ export const OSN_METRICS = {
   authLoginDuration: "osn.auth.login.duration",
   authTokenRefresh: "osn.auth.token.refresh",
   authHandleCheck: "osn.auth.handle.check",
-  authOtpSent: "osn.auth.otp.sent",
   authRateLimited: "osn.auth.rate_limited",
   authTurnstileRejected: "osn.auth.turnstile.rejected",
   authSessionRotations: "osn.auth.session.rotations",
@@ -82,8 +85,11 @@ export const OSN_METRICS = {
   retentionRowsDeleted: "osn.retention.rows_deleted",
   retentionCycleDuration: "osn.retention.cycle.duration",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
+  authSessionStaleRefused: "osn.auth.session.stale_refused",
   authCireSessionRevocations: "osn.auth.cire_session.revocations",
+  authAppStepUpRequests: "osn.auth.app_step_up.requests",
   authRecoveryLockout: "osn.auth.recovery.lockout",
+  authStepUpLockout: "osn.auth.step_up.lockout",
   authRecoveryEmailBegin: "osn.auth.recovery.email_begin",
   authRecoveryCooldown: "osn.auth.recovery.cooldown",
   authRecoveryDisown: "osn.auth.recovery.disown",
@@ -110,6 +116,9 @@ export const OSN_METRICS = {
   authPasskeyLoginDiscoverable: "osn.auth.passkey.login_discoverable",
   authCrossDeviceAttempts: "osn.auth.cross_device.attempts",
   authCrossDeviceDuration: "osn.auth.cross_device.duration",
+  authEmailLinkConfirmations: "osn.auth.email_link.confirmations",
+  authEmailLinkSends: "osn.auth.email_link.sends",
+  authEmailVerificationTokens: "osn.auth.email_verification.tokens",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   orgOps: "osn.org.operations",
@@ -124,7 +133,10 @@ export const OSN_METRICS = {
   accountDeletionCompleted: "osn.account.deletion.completed",
   accountDeletionDuration: "osn.account.deletion.duration",
   accountDeletionFanout: "osn.account.deletion.fanout",
-  accountDeletionFanoutPendingAge: "osn.account.deletion.fanout_pending_age",
+  accountDeletionFanoutOldestAge: "osn.account.deletion.fanout_oldest_age",
+  accountDeletionAppPreview: "osn.account.deletion.app_preview",
+  accountDeletionAppSessionsEnded: "osn.account.deletion.app_sessions_ended",
+  accountDeletionOrganisation: "osn.account.deletion.organisation",
   // App enrollments
   appEnrollmentJoined: "osn.account.app_enrollment.joined",
   appEnrollmentLeft: "osn.account.app_enrollment.left",
@@ -142,7 +154,9 @@ type RegisterAttrs = { step: RegisterStep; result: Result };
 type LoginAttrs = { method: AuthMethod; result: Result };
 type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
-type OtpSentAttrs = { purpose: "registration" | "step_up" | "email_change" | "recovery" };
+type EmailLinkConfirmAttrs = { outcome: EmailLinkConfirmOutcome };
+type EmailLinkSendAttrs = { flow: EmailLinkFlow; result: EmailLinkSendResult };
+type EmailVerificationTokenAttrs = { outcome: EmailVerificationTokenOutcome };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 /** Turnstile-gated endpoints. Bounded literal union — never a raw path. */
 type AuthTurnstileEndpoint = "register_begin" | "passkey_login_begin" | "recovery_email_begin";
@@ -196,10 +210,22 @@ const authHandleCheck = createCounter<HandleCheckAttrs>({
   unit: "{check}",
 });
 
-const authOtpSent = createCounter<OtpSentAttrs>({
-  name: OSN_METRICS.authOtpSent,
-  description: "OTP codes successfully sent",
+const authEmailLinkConfirmations = createCounter<EmailLinkConfirmAttrs>({
+  name: OSN_METRICS.authEmailLinkConfirmations,
+  description: "Emailed-link confirms by what they did to the request",
+  unit: "{confirm}",
+});
+
+const authEmailLinkSends = createCounter<EmailLinkSendAttrs>({
+  name: OSN_METRICS.authEmailLinkSends,
+  description: "Emailed links by flow: sent, held back by a per-address cap, or failed",
   unit: "{message}",
+});
+
+const authEmailVerificationTokens = createCounter<EmailVerificationTokenAttrs>({
+  name: OSN_METRICS.authEmailVerificationTokens,
+  description: "Browser Email Verification API tokens sent with a sign-up, by what became of them",
+  unit: "{token}",
 });
 
 const authRateLimited = createCounter<AuthRateLimitAttrs>({
@@ -274,7 +300,7 @@ type SafeErrorSummary = {
  * annotations. Only `_tag` and `message` are kept — both are hardcoded
  * strings in the codebase, never user input.
  */
-const safeErrorSummary = (err: unknown): SafeErrorSummary => {
+export const safeErrorSummary = (err: unknown): SafeErrorSummary => {
   if (!err || typeof err !== "object") return { error: String(err) };
   const tag = (err as { _tag?: unknown })._tag;
   const msg = (err as { message?: unknown }).message;
@@ -439,9 +465,32 @@ export const withGraphBlockOp =
 export const metricAuthHandleCheck = (result: "available" | "taken" | "invalid"): void =>
   authHandleCheck.inc({ result });
 
-export const metricAuthOtpSent = (
-  purpose: "registration" | "step_up" | "email_change" | "recovery",
-): void => authOtpSent.inc({ purpose });
+export const metricEmailLinkSend = (flow: EmailLinkFlow, result: EmailLinkSendResult): void =>
+  authEmailLinkSends.inc({ flow, result });
+
+export const metricEmailVerificationToken = (outcome: EmailVerificationTokenOutcome): void =>
+  authEmailVerificationTokens.inc({ outcome });
+
+/**
+ * Wraps an emailed-link confirm: span `auth.email_link.confirm`, a count of
+ * what the confirm did, and an error log on a store failure. The outcome is
+ * read off the effect's own answer through `outcomeOf`.
+ */
+export const withEmailLinkConfirm =
+  <A>(outcomeOf: (answer: A) => EmailLinkConfirmOutcome) =>
+  <E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      Effect.tap((answer) =>
+        Effect.sync(() => authEmailLinkConfirmations.inc({ outcome: outcomeOf(answer) })),
+      ),
+      Effect.tapError((e) =>
+        Effect.logError("auth.email_link operation failed", {
+          step: "confirm",
+          ...safeErrorSummary(e),
+        }),
+      ),
+      Effect.withSpan("auth.email_link.confirm"),
+    );
 
 export const withOrgOp =
   (action: OrgAction) =>
@@ -567,6 +616,16 @@ export const withSessionRotation = <A, E, Ctx>(
     ),
   );
 
+/**
+ * A token grant the route refuses for a `profile_id` that is no profile id,
+ * before it reads the cookie: counted on the refresh counter as
+ * `validation_error`. Nothing rotated, and no cookie was verified, so it is
+ * not `forbidden`, which counts refusals of a live cookie's grant.
+ */
+export const metricAuthTokenRefreshMalformed = (): void => {
+  authTokenRefresh.inc({ result: "validation_error" });
+};
+
 export const metricSessionReuseDetected = (): void => authSessionReuseDetected.inc({});
 
 export const metricSessionRotationRace = (): void => authSessionRotationRace.inc({});
@@ -576,12 +635,68 @@ export const metricSessionFamilyRevoked = (): void => authSessionFamilyRevoked.i
 export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationTrigger): void =>
   authSessionSecurityInvalidation.inc({ trigger });
 
+/**
+ * The routes that refuse a caller holding no live session (`liveSession` and
+ * `liveSessionGate`, `lib/live-session.ts`), each by its own name: the route's
+ * rate-limit endpoint where it has one of its own, and a name of its own where
+ * two routes share a limiter (`security_event_ack_all`,
+ * `session_revoke_others`) or the route has none in the auth set
+ * (`account_export`).
+ */
+export type LiveSessionGateEndpoint =
+  | "step_up_passkey_begin"
+  | "step_up_passkey_complete"
+  | "step_up_email_begin"
+  | "step_up_email_status"
+  | "step_up_email_resend"
+  | "step_up_totp_complete"
+  | "step_up_request_read"
+  | "step_up_request_confirm"
+  | "recovery_generate"
+  | "email_change_begin"
+  | "email_change_resend"
+  | "email_change_complete"
+  | "profile_switch"
+  | "cross_device_approve"
+  | "totp_enroll_begin"
+  | "totp_enroll_complete"
+  | "passkey_register_begin"
+  | "oidc_client_create"
+  | "passkey_rename"
+  | "passkey_delete"
+  | "totp_disable"
+  | "security_event_ack"
+  | "security_event_ack_all"
+  | "account_delete"
+  | "account_restore"
+  | "account_export"
+  | "account_data_link"
+  | "session_revoke"
+  | "session_revoke_others"
+  | "oidc_connections_revoke";
+type SessionStaleRefusedAttrs = { endpoint: LiveSessionGateEndpoint };
+
+const authSessionStaleRefused = createCounter<SessionStaleRefusedAttrs>({
+  name: OSN_METRICS.authSessionStaleRefused,
+  description:
+    "Bearer calls refused 409 session_stale because the caller holds no live, ordinary session",
+  unit: "{refusal}",
+});
+
+/** Records one `session_stale` refusal by the live-session gate. */
+export const metricSessionStaleRefused = (endpoint: LiveSessionGateEndpoint): void =>
+  authSessionStaleRefused.inc({ endpoint });
+
 // ---------------------------------------------------------------------------
 // cire organiser-session revocation (back-channel to cire-api)
 // ---------------------------------------------------------------------------
 
 /** What made osn-api end the account's cire organiser sessions. */
-export type CireSessionRevokeTrigger = "sign_out_everywhere" | "connection_revoked";
+export type CireSessionRevokeTrigger =
+  | "sign_out_everywhere"
+  | "connection_revoked"
+  /** The account asked for its deletion: its cire sessions end at the soft delete. */
+  | "account_deletion";
 /**
  * One request's outcome: `ok` (cire answered 2xx), `rejected` (any other
  * status, a redirect included), `timeout`, `error` (unreachable, or the
@@ -604,6 +719,25 @@ export const metricCireSessionRevocation = (
   trigger: CireSessionRevokeTrigger,
   result: CireSessionRevokeResult,
 ): void => authCireSessionRevocations.inc({ trigger, result });
+
+// ---------------------------------------------------------------------------
+// App step-up requests (services/auth/app-step-up.ts)
+// ---------------------------------------------------------------------------
+
+/** Which step of an app's step-up request: begun by the app, confirmed on Musubi, verified by the app. */
+export type AppStepUpStage = "begin" | "confirm" | "verify";
+/** `ok`, `refused` (any answer that was not ok), or `error` (a store or database fault). */
+export type AppStepUpResult = "ok" | "refused" | "error";
+type AppStepUpAttrs = { stage: AppStepUpStage; result: AppStepUpResult };
+
+const authAppStepUpRequests = createCounter<AppStepUpAttrs>({
+  name: OSN_METRICS.authAppStepUpRequests,
+  description: "App step-up requests begun, confirmed and verified, by outcome",
+  unit: "{request}",
+});
+
+export const metricAppStepUpRequest = (stage: AppStepUpStage, result: AppStepUpResult): void =>
+  authAppStepUpRequests.inc({ stage, result });
 
 // ---------------------------------------------------------------------------
 // Ceremony / pending-state stores
@@ -659,7 +793,11 @@ export const metricCoordinationStoreOp = (attrs: CoordinationStoreOpAttrs): void
 // ---------------------------------------------------------------------------
 
 /** A table a retention sweep deletes expired rows from. */
-export type RetentionTable = "rotated_sessions";
+export type RetentionTable =
+  | "rotated_sessions"
+  | "security_events"
+  | "email_changes"
+  | "handle_holds";
 
 type RetentionAttrs = { table: RetentionTable };
 
@@ -698,7 +836,7 @@ type RecoveryLockoutAttrs = { result: "recorded" | "locked" | "reset" | "unavail
 
 const authRecoveryLockout = createCounter<RecoveryLockoutAttrs>({
   name: OSN_METRICS.authRecoveryLockout,
-  description: "Recovery-code per-account lockout events by outcome",
+  description: "Recovery-code and email-recovery per-account lockout events by outcome",
   unit: "{event}",
 });
 
@@ -706,25 +844,35 @@ export const metricRecoveryLockout = (result: RecoveryLockoutAttrs["result"]): v
   authRecoveryLockout.inc({ result });
 
 /**
- * Outcome of `POST /login/recovery/email/begin`.
+ * Step-up links' per-account lockout: a wrong typed number counted
+ * (`recorded`), the count at or past the threshold or a right number refused
+ * while it holds (`locked`), and a counter that could not be read or written
+ * (`unavailable`).
+ */
+type StepUpLockoutAttrs = { result: "recorded" | "locked" | "unavailable" };
+
+const authStepUpLockout = createCounter<StepUpLockoutAttrs>({
+  name: OSN_METRICS.authStepUpLockout,
+  description: "Step-up link per-account lockout events by outcome",
+  unit: "{event}",
+});
+
+export const metricStepUpLockout = (result: StepUpLockoutAttrs["result"]): void =>
+  authStepUpLockout.inc({ result });
+
+/**
+ * Outcome of `POST /login/recovery/email/begin`: whether the address named an
+ * account (`resolved`) or not.
  *
- * The endpoint answers an identical 202 on all three, by design — which is
- * exactly why it needs a counter. Without one the per-account flood cap is
- * invisible: nothing in a log or a status code distinguishes a capped request
- * from a delivered one, so an inbox under attack looks the same as an idle
- * endpoint.
+ * The endpoint answers an identical 202 on both, by design — which is exactly
+ * why it needs a counter. Whether a link then went out, or was held back by
+ * the lockout or a cap, is `osn.auth.email_link.sends{flow="recovery"}`,
+ * counted in the send that runs after the answer.
  *
  * Aggregate counts only. The submitted identifier, the resolved account and the
- * code itself appear nowhere near this.
- *
- * `capped` also covers a cap backend that could not be reached: the
- * coordination-store limiter answers `false` on a failed call (fail-closed),
- * and the limiter contract gives the caller no way to tell that from a real
- * cap. A sustained `capped` rate with no matching inbox complaint is the tell;
- * correlate with `osn.coordination.store.operations` errors on
- * `auth.recovery_email_begin_cap` rather than reading this alone.
+ * link itself appear nowhere near this.
  */
-type RecoveryEmailBeginAttrs = { result: "sent" | "capped" | "unknown_identifier" };
+type RecoveryEmailBeginAttrs = { result: "resolved" | "unknown_identifier" };
 
 const authRecoveryEmailBegin = createCounter<RecoveryEmailBeginAttrs>({
   name: OSN_METRICS.authRecoveryEmailBegin,
@@ -1230,7 +1378,18 @@ type DeletionCompletedAttrs = {
 };
 type DeletionDurationAttrs = { phase: DeletionPhase; result: "ok" | "error" };
 type DeletionFanoutAttrs = { service: DeletionFanoutService; result: DeletionFanoutResult };
-type DeletionFanoutPendingAgeAttrs = { service: DeletionFanoutService };
+type DeletionFanoutOldestAgeAttrs = { service: DeletionFanoutService };
+/** One app's answer to a deletion preview, or to the soft delete's session end. */
+type DeletionAppCallAttrs = {
+  service: DeletionFanoutService;
+  result: DeletionFanoutResult;
+};
+/**
+ * What a hard delete did with an organisation the erased account owned:
+ * passed it to another member, or deleted it.
+ */
+export type DeletionOrganisationOutcome = "transferred" | "deleted";
+type DeletionOrganisationAttrs = { outcome: DeletionOrganisationOutcome };
 type AppEnrollmentJoinedAttrs = { app: AppEnrollmentApp };
 type AppEnrollmentLeftAttrs = { app: AppEnrollmentApp; result: Result };
 
@@ -1259,13 +1418,31 @@ const accountDeletionFanout = createCounter<DeletionFanoutAttrs>({
   unit: "{call}",
 });
 
-const accountDeletionFanoutPendingAge = createHistogram<DeletionFanoutPendingAgeAttrs>({
-  name: OSN_METRICS.accountDeletionFanoutPendingAge,
+const accountDeletionFanoutOldestAge = createHistogram<DeletionFanoutOldestAgeAttrs>({
+  name: OSN_METRICS.accountDeletionFanoutOldestAge,
   description:
-    "Age (seconds) of unfinished fan-out jobs at sweeper scan time — early warning for a stuck bridge",
+    "Seconds since the oldest deletion job an app has not finished became due, recorded per app on every fan-out sweep; 0 when none",
   unit: "s",
-  // Minute-scale buckets — these jobs are background-retried, not request-path latency.
-  boundaries: [60, 300, 900, 1800, 3600, 7200, 14400, 43200, 86400],
+  // Hours to the month a deletion must finish within.
+  boundaries: [0, 3600, 21600, 43200, 86400, 172800, 604800, 1209600, 2592000],
+});
+
+const accountDeletionAppPreview = createCounter<DeletionAppCallAttrs>({
+  name: OSN_METRICS.accountDeletionAppPreview,
+  description: "Each app's answer to a deletion preview: ok, timeout, error, or skipped",
+  unit: "{call}",
+});
+
+const accountDeletionAppSessionsEnded = createCounter<DeletionAppCallAttrs>({
+  name: OSN_METRICS.accountDeletionAppSessionsEnded,
+  description: "Each app's answer when the soft delete ends the person's sessions there",
+  unit: "{call}",
+});
+
+const accountDeletionOrganisation = createCounter<DeletionOrganisationAttrs>({
+  name: OSN_METRICS.accountDeletionOrganisation,
+  description: "Organisations an erased account owned, passed on or deleted at its hard delete",
+  unit: "{organisation}",
 });
 
 const appEnrollmentJoined = createCounter<AppEnrollmentJoinedAttrs>({
@@ -1302,10 +1479,25 @@ export const metricAccountDeletionFanout = (
   result: DeletionFanoutResult,
 ): void => accountDeletionFanout.inc({ service, result });
 
-export const metricAccountDeletionFanoutPendingAge = (
+export const metricAccountDeletionFanoutOldestAge = (
   service: DeletionFanoutService,
   ageSeconds: number,
-): void => accountDeletionFanoutPendingAge.record(ageSeconds, { service });
+): void => accountDeletionFanoutOldestAge.record(ageSeconds, { service });
+
+export const metricAccountDeletionAppPreview = (
+  service: DeletionFanoutService,
+  result: DeletionFanoutResult,
+): void => accountDeletionAppPreview.inc({ service, result });
+
+export const metricAccountDeletionAppSessionsEnded = (
+  service: DeletionFanoutService,
+  result: DeletionFanoutResult,
+): void => accountDeletionAppSessionsEnded.inc({ service, result });
+
+export const metricAccountDeletionOrganisation = (
+  outcome: DeletionOrganisationOutcome,
+  count: number,
+): void => accountDeletionOrganisation.add(count, { outcome });
 
 export const metricAppEnrollmentJoined = (app: AppEnrollmentApp): void =>
   appEnrollmentJoined.inc({ app });

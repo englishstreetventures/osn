@@ -200,7 +200,7 @@ describe("checkout", () => {
   });
 
   it("waits out a young pending nonce and replaces a stale one", async () => {
-    const h = await createHarness();
+    const h = await createHarness({ tuning: { checkoutWaitMs: 10 } });
     const customer = await run(h.storage.ensureCustomer("org_1", h.now()));
     await run(
       h.storage.claimCheckout({

@@ -14,7 +14,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
   - "[[social-graph]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-18
 ---
 
 # Cire auth model
@@ -179,7 +179,7 @@ Two routes the organiser portal calls sit outside these gates:
 | Action                                                                                            | Owner | Editor | Viewer | Helper    | Gate                            |
 | ------------------------------------------------------------------------------------------------- | ----- | ------ | ------ | --------- | ------------------------------- |
 | View guests / events / RSVPs dashboard, `GET /settings`, `GET /invite` and `GET /invite/image/:slot`, `GET /hosts` | ✅    | ✅     | ✅     | ❌        | `weddingMember()`               |
-| Download the CSV exports (`rsvps.csv`, `guests.csv`, `events.csv`, `gifts.csv`, `budget.csv`, `tasks.csv`, `seating.csv`, `export/*.csv`) and read `module-rows` | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
+| Download the CSV exports (`rsvps.csv`, `guests.csv`, `events.csv`, `gifts.csv`, `budget.csv`, `tasks.csv`, `seating.csv`, `export/*.csv`) and read `module-rows`; download the whole wedding (`POST /archive`) | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
 | Preview the invite (`POST /preview-code`)                                                         | ✅    | ✅     | ✅     | ❌        | `weddingMember()`               |
 | Unseen RSVP changes (`GET /rsvp-changes`, `GET /rsvp-changes/rows`) and marking them seen (`POST /rsvp-changes/seen` — writes only the caller's own read marker) | ✅ | ✅ | ✅ | ❌ | `weddingMember()` |
 | The caller's own daily RSVP digest switch (`PUT /rsvp-changes/digest`) — only the owner and editors are sent the digest | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` |
@@ -223,7 +223,7 @@ A wedding can have more than one owner, and they are **equals**: there is no "re
 | --- | --- | --- |
 | Only an owner seats anyone, at any role, or changes a role | `weddingOwner()` on `POST /hosts` and `PUT …/role` | **403** `forbidden` (before the handle is resolved) |
 | No one is seated who has a block with the owner adding them, either way round. Only that owner is checked: owners can be seated without their consent, so checking every owner would tell one owner whether two other people have a block | osn-api `GET /graph/internal/either-blocked` (`graph:read`), asked by `POST /hosts` between the handle lookup and the `INSERT` | **404** `No OSN account with that handle`, the same answer as an unknown handle; **409** `already_host` when the person already holds a seat; **502** when osn-api fails, answers with an error or an unreadable body, or takes longer than 5 s; **503** when no check is configured |
-| A wedding always keeps at least one owner — no removal or demotion of its last owner, the caller's own included | the writing `UPDATE` / `DELETE` itself, in `hostsService.setRole()` / `remove()` | **409** `last_owner` |
+| A wedding always keeps at least one owner — no removal or demotion of its last owner, the caller's own included. The one writer outside these routes, an OSN account's erasure, soft-deletes in the same batch any wedding its removal leaves with no owner ([osn-api's ARC calls](#osn-apis-arc-calls-account-deletion)), so no live wedding is ever without one | the writing `UPDATE` / `DELETE` itself, in `hostsService.setRole()` / `remove()` | **409** `last_owner` |
 | At most `MAX_HOSTS_PER_WEDDING` = 50 seats, owners counted — every seat stays on the list, where any owner can see it and remove it. A role change adds no seat, so it is never capped | the writing `INSERT` itself | **409** `host_cap_reached` |
 | No more people than the tier allows, counting every seat below owner and every owner beyond the first two — on an add, and when one owner moves another below owner. An owner stepping down from their own seat is always allowed. See [[cire-entitlements#People limit]] | the writing `INSERT` / `UPDATE` itself | **409** `people_limit_reached` with `{ used, limit, tier }` |
 
@@ -233,7 +233,7 @@ Each guard sits **inside the statement that writes**, as a `WHERE` that counts t
 
 **Owners are told when ownership changes.** Every owner, the one who acted included, is emailed when someone is added or promoted to owner, when an owner is removed or demoted (a step-down, and an owner leaving through `DELETE /hosts/me`, included), and when the wedding is deleted — the delete notice carries the restore deadline. Each email names who acted, so a change made from a session someone else is using reaches the real owner too. The person removed or demoted is emailed as well, unless the owner who removed them seated them less than a day before: any owner can seat any OSN user without asking, and mailing that seat would let an owner send Cire mail, carrying a wedding name they wrote, to anyone. A new owner is not emailed for the same reason. One email per distinct address, in one Resend batch call, sent after the write commits (through `waitUntil`) and never able to fail the request. A refused change and a co-host's change send nothing.
 
-The emails are budgeted per UTC day — 30 per wedding and 30 per acting owner, counted per email because one notice reaches every owner — in D1 (`owner_notice_budget`, migration 0081), so the cap holds across Worker isolates and a fresh wedding does not reset the actor's count. A delete notice spends only the actor's budget, so spending the wedding's first cannot hide a delete. The budget protects the Resend allowance the platform's sign-in codes share. No notice goes out unless the deployment has both the ARC key (for the address lookup) and `RESEND_API_KEY`. Code: [`lib/owner-notice-email.ts`](../../cire/api/src/lib/owner-notice-email.ts); templates `wedding-owner-change` and `wedding-delete-started` ([[email]]).
+The emails are budgeted per UTC day — 30 per wedding and 30 per acting owner, counted per email because one notice reaches every owner — in D1 (`owner_notice_budget`, migration 0081), so the cap holds across Worker isolates and a fresh wedding does not reset the actor's count. A delete notice spends only the actor's budget, so spending the wedding's first cannot hide a delete; an upgrade-refund notice, which has no actor, spends a budget of its own for the wedding (`refund:<wedding id>`, 30 a day), so refunds cannot use up the budget an owner change is told from, nor owner changes leave a refund untold. The budget protects the Resend allowance the platform's sign-in codes share. No notice goes out unless the deployment has both the ARC key (for the address lookup) and `RESEND_API_KEY`. Code: [`lib/owner-notice-email.ts`](../../cire/api/src/lib/owner-notice-email.ts); templates `wedding-owner-change`, `wedding-delete-started` and `upgrade-refund` ([[email]]).
 
 **Mail meant for "the owner" goes to every owner**: the daily RSVP digest (every owner and editor, [[cire-rsvp-changes]]) and the retention sweep's parting gift summary, which is sent once per distinct address so two owners sharing an inbox get it once, each send isolated so one bounce costs no other owner their copy.
 
@@ -264,9 +264,11 @@ The emails are budgeted per UTC day — 30 per wedding and 30 per acting owner, 
 | Vendor enquiry list, thread, reply, quote; the daily hand-off of buffered enquiries once an operator confirms a claim | the enquiry reads, `claimReviewService.sweep` | left out / **404**; a buffered enquiry stays buffered and is not sent to Zap until a restore |
 | RSVP digest, gift-summary mail, change claims | their own reads | skipped |
 
-Guests are never told a wedding was deleted. The wedding list returns a deleted wedding only to its **owners**, in a separate `deleted` array with its `restoreUntil`, and never among the weddings that can be opened; every other seat loses it at once. Stripe's deliveries still settle into a deleted wedding by design, so a gift or an upgrade paid during the window is there after a restore. Which routes reach a wedding is enforced by `cire/api/tests/routes/soft-deleted-wedding.test.ts`; the rule for new code is in [[cire-development]].
+Guests are never told a wedding was deleted. The wedding list returns a deleted wedding only to its **owners**, in a separate `deleted` array with its `restoreUntil`, and never among the weddings that can be opened; every other seat loses it at once. Stripe's deliveries still settle a gift into a deleted wedding by design, so a gift paid during the window is there after a restore; an upgrade paid for a deleted wedding is refunded automatically instead ([[cire-upgrades#Taking money and granting nothing]]). Which routes reach a wedding is enforced by `cire/api/tests/routes/soft-deleted-wedding.test.ts`; the rule for new code is in [[cire-development]].
 
-**The purge.** The daily cron hard-deletes a wedding once `deleted_at` is past the 7 days — so 7 to 8 days after the delete, later if the per-run cap of 3 or a money hold defers it — with every child row by FK cascade and the sheet and image objects those rows name. It holds a wedding back while a purchase or gift is `pending` and under 14 days old, while any gift is `disputed`, and while a change is mid-apply. `platform_sales` has no foreign key and survives. See [[retention]].
+**End to end.** `cire-checklist-holders` deletes a wedding seeded for it from Settings, with a mistyped link name first, finds it under "Recently deleted" with its row marked deleted, and restores it ([`cire-checklist-holders.flow.ts`](../../tools/e2e/tests/flows/cire-checklist-holders.flow.ts), [[testing-patterns#The end-to-end suite]]).
+
+**The purge.** The daily cron hard-deletes a wedding once `deleted_at` is past the 7 days — so 7 to 8 days after the delete, later if the per-run cap of 3 or a money hold defers it — with every child row by FK cascade and the sheet and image objects those rows name. It holds a wedding back while a purchase or gift is `pending` and under 14 days old, while any gift is `disputed`, and while a change is mid-apply. A refund cire still owes for an upgrade does not hold it: its record, `platform_refunds`, is outside the cascade, and the daily reconciliation completes it from there. `platform_sales` has no foreign key and survives. See [[retention]].
 
 > [!warning]
 > Rolling the cire-api Worker back past the release that added soft delete keeps the `deleted_at` column but drops every read that honours it: every soft-deleted wedding becomes visible to its guests, co-hosts and vendors again, and nothing purges it. Before such a rollback, restore or purge every row with `deleted_at IS NOT NULL`, or do not roll back. The same line is in [[production-deploy]].
@@ -302,6 +304,7 @@ The organiser portal decides every role-driven affordance in one place, `cire/ho
 | The module write surfaces, and marking a household sent when its message is copied          | ✅    | ✅     | ❌     | ❌     | `weddingEditor()` |
 | The add-someone form, the role dropdown and the remove control on another person's row       | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
 | The CSV download buttons — guests, RSVPs, events, gifts, and the import's current-rows export | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
+| The whole-wedding download on Settings › Export; others see a note that only an owner can, a helper over the run sheet | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
 | Stepping down, from the dropdown on the caller's own row (no remove there)                  | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
 | The "Sees:" dropdown on a helper's row — their own tasks or the whole run sheet; widening asks first | ✅ | ❌ | ❌ | ❌ | `weddingOwner()` |
 | The same scope as a read-only "Sees:" line on a helper's row                                 | ❌    | ✅     | ✅     | ❌     | `weddingMember()` |
@@ -373,6 +376,72 @@ The same rule is why `GET /api/auth/session` answers **200 `{signedIn: false}`**
 
 Both predicates guard the `String(err)` call. It throws on a null-prototype object, and they run inside `catch` blocks, so an unguarded throw there swaps a recoverable expiry for an unhandled rejection. Pinned by `cire/host/tests/lib/api.test.ts` and `osn/client/tests/errors.test.ts`; the latter builds a **real** FiberFailure rather than a hand-written string, so an Effect upgrade that changes the printout fails a test instead of a redirect.
 
+## osn-api's ARC calls (account deletion)
+
+cire-api takes three calls from osn-api, all server-to-server and authenticated
+by an ARC token alone ([[arc-tokens#osn-api as issuer — published outbound keys]]):
+`POST /internal/account-deletion-preview` (scope `account:deletion-preview`) and
+`POST /internal/account-deleted` (scope `account:erase`), in
+[`cire/api/src/routes/internal-account-deletion.ts`](../../cire/api/src/routes/internal-account-deletion.ts),
+and `POST /internal/account-export` (scope `account:export`), in
+[`cire/api/src/routes/internal-account-export.ts`](../../cire/api/src/routes/internal-account-export.ts).
+[`cire/api/src/lib/osn-arc.ts`](../../cire/api/src/lib/osn-arc.ts) admits a token
+only when `iss` is `osn-api`, `aud` is `cire-api`, its scope holds the route's,
+and its signature checks against the key osn-api published at
+`<OSN_ISSUER_URL>/.well-known/arc-jwks.json`, the issuer cire already pins for
+organiser tokens; anything else is **401** before the body is read. cire-api
+holds no kid secret, since the value osn-api keys its kid MACs with is also the
+bearer of service-key registration, so a made-up kid costs one fetch of that
+public key set, then the shared key cache remembers it as unknown for 30 s.
+All three sit before the CSRF origin guard and carry no rate limit, as on
+Pulse's and Zap's receivers, and each asks for its own scope, so a token for
+one opens neither other. What they do is in
+[[dsar#Cire (wedding-invite) data]]: the preview lists each live wedding the
+account alone owns as an action that must be answered `delete`, the
+erasure removes the account's seats, deleting a wedding left with no owner in
+the same batch, and clears everything that names the person, and the export
+answers the account's seats as the `cire.weddings` section of its account
+export ([[dsar#Art. 15 — Right of access]]). A seat whose adder was erased
+lists no adder in `GET /hosts`.
+
+Ending the person's organiser sessions at the soft delete is not an ARC call:
+osn-api uses the bearer-secret revoke below
+([[sessions#Sign out everywhere else reaches cire]]).
+
+## A host removes their Cire data
+
+A host can remove their Cire data and keep their Musubi account: "Remove my
+Cire data" in the portal's account menu (`#/remove-data`). It needs the
+organiser session and a step-up, which the portal cannot run (it holds no
+OSN token, and passkeys are bound to Musubi's origin), so the step-up runs on
+Musubi through an app step-up request ([[step-up#App step-up requests]]).
+Three routes in
+[`cire/api/src/routes/organiser-account.ts`](../../cire/api/src/routes/organiser-account.ts),
+each behind `osnAuth` and one per-user limiter (10 a minute), the two writes
+behind the origin guard:
+
+| Route | What |
+|---|---|
+| `POST /api/organiser/account/removal/confirmation` | Asks osn-api to begin a request for the signed-in profile, returning to `<portal>/#/remove-data`, bound to the hash of a fresh secret; sets the removal cookie (`<request id>.<secret>`, HttpOnly, `SameSite=Lax`, 15 minutes: as long as the request can still be spent; `__Host-cire_removal`, Secure, over HTTPS, so no other cireweddings.com origin can set it; `cire_removal` on the http local stack) and answers the request id. The portal then sends the person to Musubi's `/confirm/<id>` in the same tab, and Musubi sends them back with a code |
+| `POST /api/organiser/account/removal/preview` | Every wedding the person holds a seat on, with its role, whether they alone own it (the deletion preview's own rule) and whether it is already deleted, and the actions their answers must cover. With the code and the cookie, every profile of the account, from osn-api's verify; without, the signed-in profile's |
+| `DELETE /api/organiser/account` | Body `{ code, choices?, deleteEverything? }`, with the cookie. In order: osn-api verifies the request (403 `confirmation_required` when it refuses or either half is missing; 503 when it cannot be reached); its account must be the one cire's own lookup finds for the signed-in profile; each wedding the account alone owns needs `delete` or `deleteEverything` (409 `open_actions` with the fresh list). Then one call of the account erasure with the `host` scope ([[dsar#Cire (wedding-invite) data]]): every seat of every profile goes, a wedding left with no owner is deleted in the same batch, and the person's organiser sessions end, vendor portal included. Their vendor listing claims and guest account links stay. Answers 200 `done`, clearing both cookies, or 202 `not_finished` past three owned weddings, when the portal calls again with the same code |
+
+The other owners of each wedding the person leaves are emailed that they
+left (`wedding-owner-change`, as one who stepped down), naming the profile
+whose owner seat went on that wedding and no other, so no email tells them two
+profiles are one person, and spending the wedding's notice budget only, so no
+budget row names the person afterwards. The person's organiser sessions end
+only once no owner seat of theirs is left: a call answering `not_finished`
+leaves them signed in to call again.
+The person can sign in to cire again later and starts with no weddings.
+
+Someone holding a stolen organiser cookie can ask for a confirmation in
+their own browser, but the code goes to whoever confirms on Musubi; the
+binding secret stays in the browser that asked. Tests:
+`cire/api/tests/routes/organiser-account.test.ts`,
+`cire/api/tests/services/account-removal.test.ts`; end to end,
+`tools/e2e/tests/flows/cire-remove-my-data.flow.ts`.
+
 ## No overlap
 
 The two middlewares never run on the same route **except the account-link POST below**, and even there they are not a privilege ladder. `sessionAuth()` gates guest routes (`/api/rsvp`); `osnAuth()` (+ the role gates) gates `/api/organiser/*`. Outside the linking POST there is no route that accepts either credential, no privilege ladder from guest session to organiser, and no shared token format.
@@ -393,7 +462,7 @@ An invitee may **optionally** attach their seat to a real OSN/Pulse account so t
 
 **The member step ("Who are you?").** A claim code proves a household, not a person, so every guest household's session also names **which member** is at the keyboard (`sessions.member_guest_id`, migration 0075). Only the musubi link box beside the step waits on `cire.account-linking` ([[feature-flags]]), with one exception: a wedding listed in the `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` secret (comma-separated wedding ids; unset ⇒ no wedding listed, [[production-deploy]]) gets the step, attribution, `member_required` and "Answered by" only while account linking is on for the household (the flag on and the ARC bridge configured, `isAccountLinkingOn`); with it off, that household's payload carries no `member` and no `submittedBy`, `POST /api/claim/member` answers **404**, and its replies and plus-one changes need no member and record no sender, even from a session that chose one earlier (`memberStepOn` in [`account-linking.ts`](../../cire/api/src/lib/account-linking.ts)). A host preview has no member step. `POST /api/claim/member { guestId }` sets it — the guest must belong to the session's own guest household (else **403 `not_household_member`**) and must not be a plus-one (**403 `plus_one_seat`**); it answers 200 with the member and the household's `accountLink` state for that member, which is `{ enabled: false }`, naming no musubi account, while the flag is off for the household. `DELETE /api/claim/member` clears it ("Not you?"): 204, or **500** when the write fails, so the page never shows a member cleared that a reload would bring back. Both share the restore's limiter and sit behind the origin guard. A household with one non-plus-one member is chosen for on claim and on restore. The choice is the guest's word, backed only by the household code — the household trust model the claim has always had; a musubi link makes it stronger, never certain.
 
-**The member's own email address.** The claim payload, the restore and the `POST /api/claim/member` answer carry `member.email` — `{ address, source }`, the chosen member's stored address and whether the guest or the hosts gave it — when the member has one, and never another member's. `PUT /api/claim/member/email { memberGuestId, email, consentVersion }` stores the chosen member's own address under the guest's consent, and when it replaces an address the hosts added, records that one as the seat's opt-out (`guest_corrected`); `DELETE /api/claim/member/email { memberGuestId }` removes it and records the seat's opt-out on the suppression list: for the wedding when the hosts added it (`guest_removed`), for this seat alone when the guest gave it themselves (`guest_removed_own`), so typing an address and removing it cannot block it for another seat. Both act on the session's member only and refuse, in this order: a host preview (**403 `not_a_guest`**), a wedding without the member step as above (**404**), no member chosen (**409 `member_required`**), a body naming a member other than the session's (**409 `member_changed`**); then `PUT` refuses an address that is not one (**400 `invalid_email`**), a consent version that is not the current one (**422 `email_consent_outdated`**), and, from a seat that already holds 10 opt-outs, any address but one that seat withdrew itself (**429 `too_many_changes`**). They share the restore's limiter and sit behind the origin guard. See [[data-map]].
+**The member's own email address.** The claim payload, the restore and the `POST /api/claim/member` answer carry `member.email` — `{ address, source }`, the chosen member's stored address and whether the guest or the hosts gave it — when the member has one, and never another member's. `PUT /api/claim/member/email { memberGuestId, email, consentVersion }` stores the chosen member's own address under the guest's consent, and when it replaces an address the hosts added, records that one as the seat's opt-out (`guest_corrected`); `DELETE /api/claim/member/email { memberGuestId }` removes it and records the seat's opt-out on the suppression list: for the wedding when the hosts added it (`guest_removed`), for this seat alone when the guest gave it themselves (`guest_removed_own`), so typing an address and removing it cannot block it for another seat. Both act on the session's member only and refuse, in this order: a host preview (**403 `not_a_guest`**), a wedding without the member step as above (**404**), no member chosen (**409 `member_required`**), a body naming a member other than the session's (**409 `member_changed`**); then `PUT` refuses, once the wedding's RSVP deadline has passed, any address but one this seat removed itself (**403 `rsvp_closed`**; `DELETE` stays open, see [[cire-rsvp-deadline]]), then an address that is not one (**400 `invalid_email`**), a consent version that is not the current one (**422 `email_consent_outdated`**), and, from a seat that already holds 10 opt-outs, any address but one that seat withdrew itself (**429 `too_many_changes`**). They share the restore's limiter and sit behind the origin guard. See [[data-map]].
 
 With the step on, `POST /api/rsvp` refuses a household of two or more members with no member chosen (**409 `member_required`**), and a save whose `memberGuestId` — the member the page showed as answering — is not the session's member (**409 `member_changed`**: "Not you?" and a new choice in another tab must not put this tab's answers under someone it never showed; a page that sends none is taken as before), and stamps every reply with its sender (`rsvps.submitted_by_guest_id`) and every change-log row with `rsvp_changes.actor_guest_id`; plus-one writes record the actor too. `submitted_via_link` is set only while `cire.account-linking` is on for the household and the request also carried the musubi sign-in the member is linked to: a link the household can neither see nor manage, with the box off, never vouches for a reply. An organiser's write clears the stamp. The claim payload carries `member` and `rsvps[].submittedBy` ("Answered by" on the invite) wherever the step is on. A page that holds no member when the server wants one — "Not you?" in another tab, a guest the organiser removed, a page loaded before the API sent `member`, or, in an excluded wedding, a payload whose flag read timed out while the write's did not — meets the 409 (`member_required` or `member_changed`) and shows the step from the members it already holds. Metrics: `cire.household_member.chosen{source: picked | auto_single}`, `cire.household_member.cleared`, and `cire.rsvp.blocked{reason: member_required}`; spans `cire.claim.chooseMember`, `cire.claim.clearMember`, `cire.session.setMember`, `cire.accountLink.memberMatch`. No guest, family, profile or account id in any attribute.
 
@@ -432,7 +501,7 @@ Organisers see the same stamp: `GET /api/organiser/weddings/:id/rsvps` gives eac
 
 ## CSRF origin guard
 
-**Both** cookies carry auth state — `cire_session` since the beginning, `cire_org_session` since the OIDC swap — so cire needs CSRF defence beyond `SameSite=Lax`, and the organiser surface now needs it as much as the guest one (before the swap it was Bearer-only and therefore CSRF-immune by construction). A root-level Elysia `onBeforeHandle` (`cire/api/src/lib/origin-guard.ts`, mounted in `createApp` before the route factories) validates the `Origin` header on **every state-changing method** (POST/PUT/PATCH/DELETE) against the same allowlist CORS echoes (derived from `WEB_ORIGIN`). Missing or mismatched Origin → **403** with a bounded `cire.origin_guard.rejections{reason}` metric (`missing | mismatch`). These sit outside the guard, and no browser session authenticates any of them. Mounted before it: the CSP violation collector, the internal session-revoke back-channel, the RSVP digest's one-click stop link ([[cire-rsvp-changes]]), and `POST /api/invite/resolve`, the guest site's server-side invite lookup — a Worker fetch carries no `Origin`, and the route reads public invite data with no cookie and no write. Exempt by exact path: the two Stripe webhook paths (`/api/stripe/webhook`, `/api/stripe/platform-webhook`) are exempt by exact path, because Stripe sends no `Origin` and each route checks its own signature. Every other state-changing request is checked. An empty allowlist (local dev) disables the guard.
+**Both** cookies carry auth state — `cire_session` since the beginning, `cire_org_session` since the OIDC swap — so cire needs CSRF defence beyond `SameSite=Lax`, and the organiser surface now needs it as much as the guest one (before the swap it was Bearer-only and therefore CSRF-immune by construction). A root-level Elysia `onBeforeHandle` (`cire/api/src/lib/origin-guard.ts`, mounted in `createApp` before the route factories) validates the `Origin` header on **every state-changing method** (POST/PUT/PATCH/DELETE) against the same allowlist CORS echoes (derived from `WEB_ORIGIN`). A missing or mismatched Origin gets **403** with a bounded `cire.origin_guard.rejections{reason}` metric (`missing | mismatch`). These sit outside the guard, and no browser session authenticates any of them. Mounted before it: the CSP violation collector, the internal session-revoke back-channel, osn-api's two account-deletion calls ([osn-api's ARC calls](#osn-apis-arc-calls-account-deletion)), the RSVP digest's one-click stop link ([[cire-rsvp-changes]]), and `POST /api/invite/resolve`, the guest site's server-side invite lookup — a Worker fetch carries no `Origin`, and the route reads public invite data with no cookie and no write. Exempt by exact path: the two Stripe webhook paths (`/api/stripe/webhook`, `/api/stripe/platform-webhook`) are exempt by exact path, because Stripe sends no `Origin` and each route checks its own signature. Every other state-changing request is checked. An empty allowlist (local dev) disables the guard.
 
 **The CORS preflight allows `GET, POST, PUT, PATCH, DELETE, OPTIONS`** — the `methods` list in the `cors()` call in [`cire/api/src/app.ts`](../../cire/api/src/app.ts): every method a route answers, and never `*`. The portals call the API cross-origin with credentials, so each non-GET call is preflighted and the browser refuses any method the list leaves out. CORS matches the request's `Origin` by exact membership in the same allowlist the guard uses, through a function passed as `origin`: a plain string list would go through `@elysiajs/cors`'s own matcher, which strips everything up to `://` and consults a plain object's inherited keys. [`cire/api/tests/app.test.ts`](../../cire/api/tests/app.test.ts) sends a PATCH preflight from every origin in both tiers' committed `WEB_ORIGIN`, checks that an unlisted or near-miss origin gets no `Access-Control-Allow-Origin`, and fails unless the list names exactly the methods the mounted routes answer. [`cire/api/tests/lib/origin-guard.test.ts`](../../cire/api/tests/lib/origin-guard.test.ts) checks the guard refuses a PATCH, PUT or DELETE to an organiser route whose `Origin` is missing or unlisted.
 

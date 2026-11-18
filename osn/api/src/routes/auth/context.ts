@@ -20,7 +20,9 @@ import { type Effect, Layer } from "effect";
 import { resolveAccessTokenPrincipal, resolveRecoveryTokenPrincipal } from "../../lib/auth-derive";
 import { forkBackground } from "../../lib/background";
 import type { CookieSessionConfig } from "../../lib/cookie-session";
+import { createLiveSessionCheck } from "../../lib/live-session";
 import { publicError } from "../../lib/public-error";
+import { createSessionReplacer } from "../../lib/replace-session";
 import { makeAppRunner, type AppRuntime } from "../../lib/route-runtime";
 import { deriveUaLabel } from "../../lib/ua-label";
 import {
@@ -215,6 +217,16 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     return null;
   }
 
+  // The live-session check (`lib/live-session.ts`): `liveSession` answers
+  // the caller's live, ordinary session or the 409 body; `liveSessionGate`
+  // only the yes or no.
+  const { liveSession, liveSessionGate } = createLiveSessionCheck({ auth, run, cookieConfig });
+
+  // Every route that sets a new session cookie (`lib/replace-session.ts`):
+  // ends the family of the session the request's cookie named, then answers
+  // the cookies that carry the new one.
+  const { replaceSession } = createSessionReplacer({ auth, run, cookieConfig });
+
   /**
    * Starts ending the account's cire organiser sessions, in the background:
    * the request answers without waiting for cire-api, and on workerd the
@@ -243,7 +255,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
    * refresh re-issues the access token for the account's default profile while
    * the UI still holds a stale `activeProfileId` (Bug B: organiser "Add
    * passkey" returned 401 unauthorized). New users enroll their first passkey
-   * using the token issued by `/register/complete`; existing users add more
+   * using the token the completing sign-up status poll issues; existing users add more
    * with a normal session access token.
    */
   type Principal =
@@ -271,13 +283,25 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
    * everyday enrolment must never come back marked `restricted`, or it would
    * skip its own step-up gate. Two verifications on the recovery path is the
    * price, and that path runs once per account recovery.
+   *
+   * A recovery token resolves its profile even while the account's deletion
+   * is pending: recovery deletes every session of the account and ends in an
+   * enrolment, so without it a person who can reach only their mailbox could
+   * never sign in again to cancel. The enrolment lifts the restriction, and
+   * the session's next refresh is a pending-deletion one. An ordinary token
+   * resolves through `findProfileById`, which finds no profile of such an
+   * account.
    */
   async function resolvePasskeyEnrollPrincipal(authHeader: string | undefined): Promise<Principal> {
     const claims = await resolveAccessTokenPrincipal(auth, authHeader);
     const recoveryClaims = claims ? null : await resolveRecoveryTokenPrincipal(auth, authHeader);
     const resolved = claims ?? recoveryClaims;
     if (!resolved) return { unauthorized: true };
-    const profile = await run(auth.findProfileById(resolved.profileId));
+    const profile = await run(
+      claims
+        ? auth.findProfileById(resolved.profileId)
+        : auth.findProfileByIdIncludingTombstoned(resolved.profileId),
+    );
     if (!profile) return { unauthorized: true };
     return {
       unauthorized: false,
@@ -301,6 +325,9 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     rl,
     rateLimit,
     turnstileGate,
+    liveSession,
+    liveSessionGate,
+    replaceSession,
     resolvePasskeyEnrollPrincipal,
     cireOrganiserRevoke,
     forkCireOrganiserRevoke,

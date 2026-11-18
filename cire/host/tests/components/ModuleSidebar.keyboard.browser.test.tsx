@@ -18,7 +18,10 @@ import "../../src/styles/global.css";
 
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
-vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
+vi.mock("@shared/toast", () => ({
+  toast: { success: () => {}, error: () => {}, info: () => {} },
+  toasts: () => [],
+}));
 vi.mock("../../src/lib/touch-feedback", () => ({ haptic: () => {} }));
 
 import ModuleSidebar from "../../src/components/ModuleSidebar";

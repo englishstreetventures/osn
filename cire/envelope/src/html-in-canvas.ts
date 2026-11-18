@@ -1,6 +1,6 @@
 /**
  * The HTML-in-Canvas API (WICG `html-in-canvas`), as Chromium 156 behind
- * `CanvasDrawElement` and Chrome 157 by default expose it. TypeScript's DOM
+ * `CanvasDrawElement`, and Chrome under an origin trial, expose it. TypeScript's DOM
  * library has none of it yet. Only the names this package calls are declared,
  * each optional, because a browser without the API is the common case and
  * every caller tests for the name first. Types a caller casts to, not global

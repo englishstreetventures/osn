@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-14
 ---
 
 # Component Lab
@@ -32,19 +32,20 @@ the decisions behind it.
 ## The catalogue
 
 `shared/ui` → **Everything** is every component `@shared/ui` exports on one page, each
-with its import path — the "what do we already have" view. Six sibling groups
-carry the variants and states, and all seven stories live together in
+with its import path — the "what do we already have" view. Seven sibling groups
+carry the variants and states, and all eight story files live together in
 `tools/lab/src/stories/shared-ui/`:
 
 | Sidebar title | File | Covers |
 | --- | --- | --- |
 | `shared/ui` | `overview.story.tsx` | Everything, one state each |
-| `shared/ui/Button` | `button.story.tsx` | All variants, all sizes, live playground |
-| `shared/ui/display` | `display.story.tsx` | Badge, Avatar, Card |
-| `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select (every size, the ink fill on three guest palettes, the chevron), Field, Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput |
-| `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat |
+| `shared/ui/Button` | `button.story.tsx` | `Variants`; `Inline` (a link inside a sentence at two type sizes, beside a standalone link, and a narrow paragraph whose `<a>` wraps, to Tab onto); `Busy` (every labelled variant and size busy, and a button that starts a two-second wait when pressed: from the keyboard it stays at full strength, ring and all, while it waits); `Press` (hold the mouse or Space on a button: every variant, `sm`, `lg`, `icon` and a link wearing `buttonVariants` scale to 0.97, while disabled, busy, `aria-disabled` and a link inside a sentence do not); `Playground` (label, variant, size, disabled, busy — busy only at a size that takes it) |
+| `shared/ui/display` | `display.story.tsx` | Badge (`Badges`, every variant in both treatments, with a playground; `BadgeWeights`, every badge with `--ui-weight-title: initial` on its column, the contract default whatever the lab's stylesheet maps, and under `--ui-weight-title: 500`, each column captioned with the weight the browser computed), Avatar, Card (`CardTitleWeights`: a card with `--ui-weight-title: initial` on its wrapper, the contract default whatever the lab's stylesheet maps, beside one at 500, each captioned with the weight the browser computed) |
+| `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select (every size, the ink fill on three guest palettes, the chevron), Field (`Fields` in the default label; `PlainLabels`, the sign-up form in the plain label beside the default; `FieldPlayground`, every combination of treatment, hint, errors and hidden label), Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput (`Otp` with a column, label and autofocus to set; `OtpStates`, each state named by its label, the error described by an inline alert; `OtpNarrow`, 212, 260, 300 and 400px columns) |
+| `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat, Skeleton (`Skeletons`, each `standsFor` value at its sizes; `SkeletonGrounds`, each one on the page and inside a `Card`, to judge in both themes; `SkeletonInPlace`, Musubi's placeholders inside `aria-busy` regions; `SkeletonPlayground`) |
 | `shared/ui/data` | `data.story.tsx` | Table, Meter |
-| `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu (the default look; `MenuItems` and `MenuItemsCireDark`/`MenuItemsCireLight` open on load with every row kind — radio, check, switch, link, disabled — in the default and the accent variant under cire's mapping), Popover, InfoPopover, Tooltip, Tabs |
+| `shared/ui/Orb` | `orb.story.tsx` | `States` (the nine states at 64 and 20px on the page's ground, ink in the text colour, so it follows the light · dark toggle), `InButtons` (the 20px orb inside a `Button` of each variant at full strength, to judge its ink, and the nine states in the default one; a busy `Button` draws it dimmed, in `shared/ui/Button` → `Busy`), `Playground` (state, size) |
+| `shared/ui/overlays` | `overlays.story.tsx` | Dialog (`DialogStory` lends `initial` for the title's size and weight and both scale tokens, so it draws the contract default whatever the lab's stylesheet maps; `DialogTitleWeight` sets `--ui-weight-title` from a control, `unmapped` lending `initial`; `DialogFadeOnly` sets both scale tokens to 1, as card or, at `md` and up, sheet; `DialogSheetSlide` opens the sheet, which slides up and down below `md`, or fades in place under reduced motion; each lends its tokens to `<body>`, where the panel portals), Modal, DropdownMenu (the default look; `MenuItems` and `MenuItemsCireDark`/`MenuItemsCireLight` open on load with every row kind — radio, check, switch, link, disabled — in the default and the accent variant under cire's mapping), Popover, InfoPopover, Tooltip, Tabs |
 
 A second group, `design-system/*`, is the token contract ([[design-tokens]]) as
 something to look at. Five files in `tools/lab/src/stories/design-system/`, plus
@@ -77,7 +78,24 @@ The sidebar title comes from each file's `meta.title`, not from its path, so
 moving a story does not move its row. The other two component layers —
 `@osn/auth-ui` and `@cire/ui`, see [[component-library]] — get stories as each
 component is added or changed, under [[#Stories for auth and cire components]].
-So far, in `tools/lab/src/stories/cire-ui/`:
+So far, in `tools/lab/src/stories/osn-auth-ui/`:
+
+| Sidebar title | File | Covers |
+| --- | --- | --- |
+| `osn/auth-ui/AuthHeader` | `auth-header.story.tsx` | The title row of the sign-in and create-account views, and of every dialog the package draws, in both hosts, with no view mounted. Dialog stories open the real sheet (`DialogContent presentation="sheet"`, 384px from `md`) over a button that opens it again, the title alone and centred, and the sheet's body reads the dialog's accessible name from the page: `InDialog` ("Sign in to Musubi"), `InDialogRegister`, `LongTitle` (a long product name wrapping, each line centred). Page stories draw the header in `/authorize`'s column under a stand-in for the app's name: `OnPage` (no Cancel), `OnPageWithCancel` (`cancelLabel` "Sign in instead", `ghost`), `CancelDisabled` (the view's call under way). `BothHosts`: the dialog host's title in the sheet's header and the page host's in its body, so a drift between `DialogTitle`'s classes and the page `h2`'s shows on one screen; `Phone` (`InDialog`, `LongTitle`, `OnPage` and `OnPageWithCancel`, each the lab bare in a 320 × 640 frame, loaded on a press); `Playground` (host, title; on a page, Cancel, its words, disabled; a dialog header renders only inside its sheet, a page header only outside one). Light and dark through the lab's toggle |
+| `osn/auth-ui/CheckEmailView` | `check-email-view.story.tsx` | One story per state in a `Card` the width of musubi's auth dialog, which paints the dialog's own `ui-surface`, with a stub Resend that settles after 600 ms: `WaitingBeforeResend` (the 30-second countdown), `WaitingResendReady` (the junk-mail line naming "Musubi"; press Resend for "Sending a new link…", then "We sent a new link"), `Expired`, `ErrorShown`; `EveryFlow` (sign-up, recovery's hedged sentence, step-up with no address and no "Use a different email", email change); `Phone` (two 320px frames with a long address); `WithPairingCode` (the number "47" under the line about the link, with "Pick this number…"); `TypedPairingCode` (recovery's and step-up's caption, "Type this number…"); `WithPairingCodeResendReady` (a host whose Resend begins a new request each time, settling with the next number from a fixed run, so the old number shows while sending and the new one after, with "Check the number again."); `PhoneWithPairingCode` (the six-digit number beside a long address, and recovery's error state keeping its number, in 320px frames); `Playground` (flow, status, address, wait, error, the change button, the number). Light and dark through the lab's own toggle, since musubi's mapping is the lab's |
+| `osn/auth-ui/ConfirmLinkPage` | `confirm-link-page.story.tsx` | One story per state in the host route's column, padded as `AuthorizePage`'s `<main>` is (`max-w-md px-6`, a 400px card), with fixed example numbers. The page keeps its own state, so each story past `Ready` taps the first number, or presses "I didn't ask for this", once after mount through an unexported wrapper; the confirm calls are stubs. `Ready` (three numbers; tap one for "You picked … Confirming…", then "Confirmed" after 600 ms), `ReadyFiveNumbers` (five of six digits), `Confirming` (never answers; every choice disabled, the slow line after 10 seconds), `Confirmed`, `ConfirmedWithContinue`, `Expired`, `ExpiredStepUp` (step-up's expired page with its warning to sign out the other sessions), `ErrorRetry` (the first call throws; Try again sends the same number and confirms, and "I didn't ask for this", still open, cancels instead), `Declined` (sign-up and step-up), `OpensConfirmed` (`initialOutcome` confirmed and expired, no numbers); `TypedNumber`, `TypedNumberConfirming`, `TypedNumberErrorRetry`, `TypedNumberExpired` and `TypedNumberPhone` (the `typeNumber` field recovery and step-up use, ready, while a call runs, after a throw with Try again, refused, and on a 320px phone; the states past ready type a number and press Confirm after mount); `EveryPurpose` (each flow before and after the tap); `Phone` (full screen: three cards in a 320px column padded as the host pads, five six-digit numbers beside a long address); `Playground` (flow, address, the list of numbers, typing instead of picking, what the call answers, continue here — only the last four start a fresh page). Light and dark through the lab's toggle |
+| `osn/auth-ui/PasskeysView` | `passkeys-view.story.tsx` | The passkey panel in a stand-in for Settings' card (`settings-bench.tsx`, which also holds the stubs the Settings stories share): `List` (a named passkey and an unnamed synced one; Remove opens the step-up sheet titled with the name, which holds), `Loading`, `LoadFailed`, `Phone` (the card's column on a 320px screen). Light and dark through the lab's toggle |
+| `osn/auth-ui/RecoveryCodesView` | `recovery-codes-view.story.tsx` | In the Settings card: `CodesHeld` (Generate new codes asks first, in a sheet), `NoCodes` (the warn notice), `Checking`, `StatusUnread` (the failed-load line with Try again), `Phone` |
+| `osn/auth-ui/Register` | `register.story.tsx` | `Default`: the details step in the real sheet, named by its title; `OnAuthorize`: the page host in `/authorize`'s column, Cancel reading "Sign in instead". The registration client's every call but the handle check never answers |
+| `osn/auth-ui/SecurityEventsBanner` | `security-events-banner.story.tsx` | `Events` (a declined recovery link; Acknowledge opens the step-up sheet, which holds) and `Phone` (288px) |
+| `osn/auth-ui/SessionsView` | `sessions-view.story.tsx` | In the Settings card: `List` (this device and one other) and `Loading` |
+| `osn/auth-ui/SignIn` | `sign-in.story.tsx` | `SignIn` with the props musubi passes it, bar `turnstileSiteKey` and `onSuccess`. The session is `AuthContext.Provider` with a fixed signed-out value, and the login, recovery and registration clients and `runPasskeyRegistration` are stubs whose every call never answers. `Default`: the real sheet (a bottom sheet below `md`; narrow the window to see it), named "Sign in to Musubi" by the view's centred title — the `Email or @handle` field with "Lost your passkey?" under it, then the footer's Cancel and Continue. Continue holds at "Verifying…"; "Lost your passkey?" renames the sheet "Recover your account" and opens the recovery chooser. `OnAuthorize`: the page host in `/authorize`'s column, unframed, with no Cancel. `Phone`: the page host in a 320px screen's 272px column. Headless, with no WebAuthn, each renders the view that says the browser lacks it. Light and dark through the lab's toggle |
+| `osn/auth-ui/StepUpDialog` | `step-up-dialog.story.tsx` | The real sheet, which portals to `<body>` and covers the lab; each story opens it over a button that opens it again. The clients are stubs: a call a story waits on never answers, one it shows the answer to answers with a placeholder, and a story past the first step presses the sheet's buttons once after it opens. `Factors` (all three, "Use passkey" the footer's action beside Cancel; it closes with a token), `WithReason` (the one line under the title), `DestructiveWarning` (a destructive action: "Remove Device passkey?" and its warning, the passkey only), `LongPasskeyName` (the same title naming a passkey of 64 characters with no space, which breaks inside the word), `PasskeyWaiting`, `PasskeyFailed`, `NoCeremony`, `PasskeyOnlyWaiting`, `PasskeyOnlyRetry`, `PasskeyOnlyWithAuthenticator`, `EmailSending`, `EmailSendFailed`, `EmailWaiting` (the number, "Resend in 120s", "Use another method"), `EmailExpired`, `EmailResent` (the expired link replaced: a new number and "a new link"), `EmailResendFailed` (the new link not sent), `EmailLimit` (the live wait's Resend refused at the server's limit, which shows only after the 120 seconds Resend waits), `Code`, `CodeChecking`, `CodeRefused`, `CodeRateLimited`; `Phone` (`Factors`, `EmailWaiting`, `Code` and `LongPasskeyName`, each the lab itself bare in a 320 × 640 frame, loaded on a press, since the sheet face needs a screen under 768px); `Playground` (purpose, `passkeyOnly`, an authenticator, what the passkey prompt does, title, reason, warning). A driven story that cannot find a button it presses says so in a line under the opener, so a renamed label never leaves a story showing an earlier state under its title. Light and dark through the lab's toggle |
+| `osn/auth-ui/TotpView` | `totp-view.story.tsx` | In the Settings card: `NoneSetUp`, `SetUp` (one app as a nested row; Remove opens the sheet titled "Remove iPhone?"), `Loading`, `LoadFailed`, `Phone` |
+| `osn/auth-ui/TurnstileWidget` | `turnstile-widget.story.tsx` | The challenge that cannot load, in a `Card` the width of musubi's auth dialog, against a stand-in `window.turnstile` whose challenge reports an error (the lab loads nothing from Cloudflare) and is put back when the story goes: `FailedToLoad` (Register's line: the causes and Try again, which passes on the next attempt), `FailedWithAlternative` (sign-in's line with its recovery-code sentence; fails twice, so the line comes back and is read out again). Each shows the token a host would hold. Light and dark through the lab's toggle |
+
+And in `tools/lab/src/stories/cire-ui/`:
 
 | Sidebar title | File | Covers |
 | --- | --- | --- |
@@ -87,7 +105,7 @@ So far, in `tools/lab/src/stories/cire-ui/`:
 | `cire/ui/Eyebrow` | `eyebrow.story.tsx` | Both tones in a card and over a heading, captioned with the painted letter-spacing and colour; the label as each element `as` renders |
 | `cire/ui/MessageThread` | `message-thread.story.tsx` | One story per state, with the portals' motion tokens on the panel: `Thread` (the couple's side on the page: segments across a week, runs on each side, the reply box), `InCard` (the vendor's side in a card), `LongMessages` (typed line breaks and a long link), `TimeShown` (the newest message tapped), `InfoMenu` (a message right-clicked, with cire's mapping lent to `<body>` because the menu portals there), `Undelivered`, `Empty`, `LoadingAndError`, `Reply` (type to bring the send button in; a failed send's error) |
 | `cire/ui/FileInput` | `file-input.story.tsx` | One story per state: `Empty`, `FileChosen`, `Focused` (rendered focused, one theme at a time) and `Disabled`, in cire's light and dark mapping |
-| `cire/ui/SegmentedTabs` | `segmented-tabs.story.tsx` | Each meaning in cire's dark and light mapping, with the host portal's spring, lip, lift and glass edge set on the panel: `TwoItems` (`current`, the vendor's views), `FiveItems` (`tabs`, a hidden section's eye), `Icons` (with icons, and icon-only), `Radio` (one choice refused), `Counts` (counts and a "New" mark, scrolling sideways in a narrow box), `Marks` (an RSVP reply filter as radios with counts, then as a phone draws it: the replies as their dots, "All" keeping its word); each strip works, so the glass can be watched sliding |
+| `cire/ui/SegmentedTabs` | `segmented-tabs.story.tsx` | Each meaning in cire's dark and light mapping, with the host portal's glide, lip, lift and glass edge set on the panel: `TwoItems` (`current`, the vendor's views), `FiveItems` (`tabs`, a hidden section's eye), `Icons` (with icons, and icon-only), `Radio` (one choice refused), `Counts` (counts and a "New" mark, scrolling sideways in a narrow box), `Marks` (an RSVP reply filter as radios with counts, then as a phone draws it: the replies as their dots, "All" keeping its word); each strip works, so the glass can be watched gliding |
 | `cire/ui/PersonAvatar` | `person-avatar.story.tsx` | `Photo` (a drawn fixture in `tools/lab/public/fixtures/`, shown when the lab is served over https), `FailedBlank`, `FailedInitial` (captioned with each letter's painted size and weight), `Ring` (three faces and a count), `Trigger` (live: point at it and Tab to it), each in cire's dark and light mapping |
 | `cire/ui/Prose link` | `prose-link.story.tsx` | `proseLinkClass` in each tone inside a sentence, captioned with the painted colour and underline; each tone wrapping in a 10rem paragraph; the accent tone inside a warn and an accent `Notice`; the focus ring by Tab |
 | `cire/ui/SignInPanel` | `sign-in-panel.story.tsx` | The sign-in page's body in its card on both ramps, with a stub sign-in that never leaves the page: `Idle`, `Connecting` (press it to see "Connecting to musubi…" hold), `Declined`, `Failed`, `Unavailable` and `UnknownMarker` |
@@ -140,10 +158,13 @@ one per state. They live in the lab, not beside the component, for two reasons.
 Their fixtures stay out of app source, and cire's mutation run, which mutates
 every file under a cire package's `src/`, never sees them.
 
-- **Packages.** `tools/lab` depends on `@shared/ui` alone until a story needs
-  more. Add each workspace package a story imports with
-  `bun add <package>@workspace:* --cwd tools/lab`, `@osn/client` included for a
-  fixture.
+- **Packages.** `tools/lab` depends on the workspace packages its stories
+  import: `@shared/ui`, `@cire/ui`, `@osn/auth-ui`, `@osn/client`,
+  `@shared/color` and `@shared/design-tokens` today. Add each new one a story
+  imports with `bun add '<package>@workspace:*' --cwd tools/lab`. The quotes keep
+  zsh from reading `*` as a file glob. `bun add` also rewrites any workspace
+  `version` line in `bun.lock` that lags its `package.json`; keep only the line
+  for the package you added.
 - **cire's colours.** Wrap the component in an element whose `style` is
   `cireStyle("dark")` or `cireStyle("light")`, from
   `tools/lab/src/stories/cire-ui/cire-mapping.ts`: one wrapper per ramp. That
@@ -153,7 +174,12 @@ every file under a cire package's `src/`, never sees them.
   such as cire's `font-body`, renders in the lab's defaults: judge it in the
   app.
 - **A session.** Pass stub client objects as props where the component takes
-  them: objects in the story file that return fixed data, never a real client.
+  them: objects in the story file, or in a non-story module beside it that
+  several stories share (as `osn-auth-ui/settings-bench.tsx` does), never a
+  real client. A stub returns fixed
+  data where the story shows what comes after the answer, and a promise that
+  never settles where it shows the wait, or where the story never answers
+  that call at all.
   Every token a fixture carries is an obvious placeholder, such as
   `"fixture-access-token"`, never one copied from a real session: a story
   file is public, and nothing scans it for secrets.
@@ -200,9 +226,18 @@ workspace's `src/` (permanent bench). Both are found.
 **The lab imports `musubi/social/src/App.css` rather than copying tokens.** That
 file is the source of truth for `--background`, the `.dark` block and the `base:`
 variant every `@shared/ui` class is written against. A second copy drifts. The cost
-is that Musubi's look is the lab's default. A story with its own design language
-sets the `--ui-*` contract inline on a wrapper instead of importing its own CSS
-([[#Stories for auth and cire components]]).
+is that Musubi's look is the lab's default, base rules included: every story
+inherits Musubi's hairline on a bare `border`, its 2px `--ui-focus` outline on
+`:focus-visible`, and its `transition-ui-colors` utility, which `tools/lab/src/lab.css`
+does not define again. Its contract block reaches every story too: shared
+dialog and card titles draw at 14px and 500, and every Kobalte overlay fades
+with no scale, as in Musubi. A story that shows the contract's default lends
+`initial` for the tokens it needs, as `DialogStory` does. A story with its own
+design language sets the `--ui-*` contract inline on a wrapper instead of
+importing its own CSS ([[#Stories for auth and cire components]]); cire's
+`cireStyle()` also lends `initial` for the title weight and both scale tokens,
+which cire leaves unmapped, so a cire subtree draws cire's 600 and 0.96 and
+not Musubi's.
 
 **No iframe.** Stories render in the same document as the chrome. Hot reload
 stays instant and the code stays small; the trade is isolation — a story that

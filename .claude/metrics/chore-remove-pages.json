@@ -1,0 +1,180 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "chore/remove-pages",
+    "base_sha": "c848c4387a7d9e22e92273d2ab6b3f7e47879da9",
+    "head_sha": "45e052ab7ccc8658a8e6aee44bf45c956dc03c8d",
+    "generated_at": "2026-11-10T17:22:34.064Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1787,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:8"
+    ]
+  },
+  "complexity": {
+    "declared": 8,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 3,
+    "first_ts": "2026-11-10T13:03:13.931Z",
+    "last_ts": "2026-11-10T17:22:26.944Z",
+    "span_seconds": 15553,
+    "active_seconds": 3346,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 55.51301680000001,
+    "tokens": {
+      "input": 712,
+      "output": 286293,
+      "thinking": 128153,
+      "cache_write_5m": 2430752,
+      "cache_write_1h": 2522,
+      "cache_read": 94567259
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 706,
+          "output": 285183,
+          "thinking": 128153,
+          "cache_write_5m": 2430752,
+          "cache_write_1h": 0,
+          "cache_read": 93590605
+        },
+        "usd_equivalent": 55.29648600000001,
+        "messages": 344
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 6,
+          "output": 1110,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 2522,
+          "cache_read": 976654
+        },
+        "usd_equivalent": 0.21653079999999997,
+        "messages": 3
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 18,
+          "output": 3174,
+          "thinking": 1407,
+          "cache_write_5m": 147482,
+          "cache_write_1h": 2522,
+          "cache_read": 1173071
+        },
+        "usd_equivalent": 1.0738356,
+        "messages": 9
+      },
+      "subagent": {
+        "tokens": {
+          "input": 694,
+          "output": 283119,
+          "thinking": 126746,
+          "cache_write_5m": 2283270,
+          "cache_write_1h": 0,
+          "cache_read": 93394188
+        },
+        "usd_equivalent": 54.43918120000001,
+        "messages": 338
+      }
+    },
+    "effort": {
+      "medium": 9,
+      "xhigh": 211,
+      "high": 127
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 11,
+      "docs": 10,
+      "config": 4,
+      "source": 12
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 64,
+        "deleted": 3522
+      },
+      "docs": {
+        "added": 94,
+        "deleted": 347
+      },
+      "config": {
+        "added": 18,
+        "deleted": 625
+      },
+      "source": {
+        "added": 39,
+        "deleted": 2764
+      }
+    },
+    "packages": [
+      "shared/infra"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 1,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 314,
+      "Read": 29,
+      "Write": 28,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "Grep": 4,
+      "Skill": 4,
+      "StructuredOutput": 2,
+      "SendMessage": 1,
+      "TaskStop": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {
+      "review-performance": 1,
+      "review-security": 1,
+      "review-tests": 1,
+      "review-docs": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 3
+    },
+    "requests": {
+      "main": 9,
+      "subagent": 338,
+      "with_tools": 339,
+      "with_one_tool": 296,
+      "context_median": 160610,
+      "context_p90": 676179
+    }
+  },
+  "review": null
+}

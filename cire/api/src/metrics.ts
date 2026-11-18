@@ -153,6 +153,20 @@ export const CIRE_METRICS = {
   // Deleted weddings past their window that a purge run left for a later one
   // because of its per-run cap — the backlog, recorded once per run.
   weddingPurgeBacklog: "cire.wedding.purge.backlog",
+  // osn-api's account deletion: each preview it asked for, each erasure call,
+  // and what each erasure did to a wedding the person was seated on.
+  accountDeletionPreviews: "cire.account_deletion.previews",
+  accountDeletionErasures: "cire.account_deletion.erasures",
+  accountDeletionWeddings: "cire.account_deletion.weddings",
+  // A host removing their own Cire data and keeping their Musubi account:
+  // each removal request, by how it ended.
+  accountRemovalRequests: "cire.account_removal.requests",
+  // osn-api's account export: each call for a person's cire section.
+  accountExportRequests: "cire.account_export.requests",
+  // The whole-wedding archive: each download, and what became of each file
+  // the wedding holds in R2.
+  weddingArchiveDownloads: "cire.wedding.archive.downloads",
+  weddingArchiveFiles: "cire.wedding.archive.files",
   // The email to a wedding's owners when one is removed or demoted, or the
   // wedding is deleted: one count per notice, not per recipient.
   ownerNotice: "cire.owner_notice.dispatched",
@@ -303,8 +317,38 @@ export type WeddingRestoredResult =
   | "not_found"
   | "error";
 type WeddingPurgedResult = "ok" | "held" | "error";
+/** How an account-deletion preview from osn-api ended. */
+export type AccountDeletionPreviewResult = "ok" | "error";
+/** How an account erasure call from osn-api ended: all done, part done (osn-api calls again), or failed. */
+export type AccountDeletionErasureResult = "done" | "not_finished" | "error";
+/** What an erasure did to one wedding the person owned: deleted, no other
+ *  owner being left, or only their seat removed, another owner remaining. */
+export type AccountDeletionWeddingOutcome = "deleted" | "seat_removed";
+/**
+ * How a host's request to remove their Cire data ended: all removed, part
+ * removed (the portal asks again), refused for an unanswered wedding, refused
+ * for want of a confirmation from Musubi, osn-api unavailable, or failed.
+ */
+export type AccountRemovalResult =
+  | "done"
+  | "not_finished"
+  | "open_actions"
+  | "confirmation_required"
+  | "unavailable"
+  | "error";
+/** How osn-api's account-export call for a person's cire section ended. */
+export type AccountExportResult = "ok" | "error";
+/** How a whole-wedding archive download ended: written to its end, or failed. */
+export type WeddingArchiveDownloadResult = "ok" | "error";
+/** What became of one R2 object an archive tried to hold. */
+export type WeddingArchiveFileStatus =
+  | "included"
+  | "over_limit"
+  | "missing"
+  | "unreadable"
+  | "unavailable";
 /** Which owner notice was attempted. */
-export type OwnerNoticeKind = "owner_change" | "delete_started";
+export type OwnerNoticeKind = "owner_change" | "delete_started" | "upgrade_refund" | "owner_left";
 /** How an owner notice ended: mailed, nobody to mail, held by the per-wedding
  *  throttle, or the lookup or send failed. */
 export type OwnerNoticeResult = "sent" | "no_recipients" | "throttled" | "failed";
@@ -561,6 +605,7 @@ type GuestEmailBlockReason =
   | "member_changed"
   | "invalid"
   | "consent_outdated"
+  | "deadline"
   | "too_many_changes"
   | "attestation_required"
   | "attestation_stale";
@@ -675,14 +720,13 @@ type UpgradeCheckoutStartedAttrs = {
  *  row for — on a platform endpoint shared with whatever else the account does,
  *  that is a normal outcome rather than an error. `unpaid` should be zero while
  *  sessions are card-only; a non-zero count means that restriction slipped.
- *  `defect` is a paid purchase whose product maps to no tier: the delivery is
- *  answered 500 so Stripe retries it, and every count is a customer who paid
- *  and holds nothing until someone looks. `mismatch` is a payment whose amount
- *  or currency is not the Price the purchase opened at, or one priced from a
- *  tier the wedding no longer holds: acknowledged, nothing granted, and every
- *  count is money a person has to refund or apply by hand. `refunded` is a
- *  redelivery for a purchase an operator has taken back, which grants
- *  nothing. */
+ *  `auto_refunded` is a paid checkout cire could not grant — the product names
+ *  no tier, the wedding was deleted, or it already held the tier — whose
+ *  payment Stripe has accepted to refund. `refund_failed` is one refund
+ *  attempt Stripe refused or could not take, counted on every attempt, or a
+ *  refund the bank later returned: every count is a customer owed money until
+ *  a retry or a person returns it. `refunded` is a delivery for a purchase a
+ *  person has refunded, which grants nothing. */
 type UpgradeSettleOutcome =
   | "granted"
   | "replayed"
@@ -690,9 +734,9 @@ type UpgradeSettleOutcome =
   | "failed"
   | "expired"
   | "unknown"
-  | "defect"
-  | "mismatch"
-  | "refunded";
+  | "refunded"
+  | "auto_refunded"
+  | "refund_failed";
 type UpgradePurchaseSettledAttrs = {
   tier: UpgradeTier;
   outcome: UpgradeSettleOutcome;
@@ -802,6 +846,13 @@ type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type WeddingDeletedAttrs = { result: WeddingDeletedResult };
 type WeddingRestoredAttrs = { result: WeddingRestoredResult };
 type WeddingPurgedAttrs = { result: WeddingPurgedResult };
+type AccountDeletionPreviewAttrs = { result: AccountDeletionPreviewResult };
+type AccountDeletionErasureAttrs = { result: AccountDeletionErasureResult };
+type AccountDeletionWeddingAttrs = { outcome: AccountDeletionWeddingOutcome };
+type AccountRemovalAttrs = { result: AccountRemovalResult };
+type AccountExportAttrs = { result: AccountExportResult };
+type WeddingArchiveDownloadAttrs = { result: WeddingArchiveDownloadResult };
+type WeddingArchiveFileAttrs = { status: WeddingArchiveFileStatus };
 type OwnerNoticeAttrs = { kind: OwnerNoticeKind; result: OwnerNoticeResult };
 type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent; account: StripeUnmatchedAccount };
 type StripeOAuthAttrs = { outcome: StripeOAuthOutcome };
@@ -881,7 +932,7 @@ const organiserSessionRevoked = createCounter<OrganiserSessionRevokedAttrs>({
 const guestDataSwept = createCounter<GuestDataSweptAttrs>({
   name: CIRE_METRICS.guestDataSwept,
   description:
-    "Guest rows deleted by the scheduled retention sweep (1 year after a wedding's final event) — increment is the row count, so the sum tracks reclaimed guest records",
+    "Guest rows deleted by the scheduled retention sweep (1 year after a wedding's final event, or 3 years after its creation when an event's date cannot be read) — increment is the row count, so the sum tracks reclaimed guest records",
   unit: "{guest}",
 });
 
@@ -1291,6 +1342,50 @@ const weddingPurged = createCounter<WeddingPurgedAttrs>({
   unit: "{wedding}",
 });
 
+const accountDeletionPreviews = createCounter<AccountDeletionPreviewAttrs>({
+  name: CIRE_METRICS.accountDeletionPreviews,
+  description: "osn-api's account-deletion previews answered, by outcome",
+  unit: "{preview}",
+});
+
+const accountDeletionErasures = createCounter<AccountDeletionErasureAttrs>({
+  name: CIRE_METRICS.accountDeletionErasures,
+  description: "osn-api's account erasure calls, by outcome",
+  unit: "{call}",
+});
+
+const accountDeletionWeddings = createCounter<AccountDeletionWeddingAttrs>({
+  name: CIRE_METRICS.accountDeletionWeddings,
+  description: "Weddings an erased account owned, by what the erasure did to each",
+  unit: "{wedding}",
+});
+
+const accountRemovalRequests = createCounter<AccountRemovalAttrs>({
+  name: CIRE_METRICS.accountRemovalRequests,
+  description:
+    "Hosts' requests to remove their Cire data and keep their Musubi account, by outcome",
+  unit: "{request}",
+});
+
+const accountExportRequests = createCounter<AccountExportAttrs>({
+  name: CIRE_METRICS.accountExportRequests,
+  description: "osn-api's account-export calls for a person's cire section, by outcome",
+  unit: "{call}",
+});
+
+const weddingArchiveDownloads = createCounter<WeddingArchiveDownloadAttrs>({
+  name: CIRE_METRICS.weddingArchiveDownloads,
+  description: "Whole-wedding archive downloads, written to their end or failed",
+  unit: "{download}",
+});
+
+const weddingArchiveFiles = createCounter<WeddingArchiveFileAttrs>({
+  name: CIRE_METRICS.weddingArchiveFiles,
+  description:
+    "R2 objects a whole-wedding archive tried to hold: included, kept out by a limit, missing, unreadable, or with no bucket bound",
+  unit: "{file}",
+});
+
 const weddingPurgeBacklog = createHistogram<Record<never, never>>({
   name: CIRE_METRICS.weddingPurgeBacklog,
   description:
@@ -1677,6 +1772,27 @@ export const metricWeddingRestored = (result: WeddingRestoredResult): void =>
 export const metricWeddingPurged = (result: WeddingPurgedResult, count: number): void => {
   if (count > 0) weddingPurged.add(count, { result });
 };
+
+export const metricAccountDeletionPreview = (result: AccountDeletionPreviewResult): void =>
+  accountDeletionPreviews.inc({ result });
+
+export const metricAccountDeletionErasure = (result: AccountDeletionErasureResult): void =>
+  accountDeletionErasures.inc({ result });
+
+export const metricAccountDeletionWedding = (outcome: AccountDeletionWeddingOutcome): void =>
+  accountDeletionWeddings.inc({ outcome });
+
+export const metricAccountRemoval = (result: AccountRemovalResult): void =>
+  accountRemovalRequests.inc({ result });
+
+export const metricAccountExport = (result: AccountExportResult): void =>
+  accountExportRequests.inc({ result });
+
+export const metricWeddingArchiveDownload = (result: WeddingArchiveDownloadResult): void =>
+  weddingArchiveDownloads.inc({ result });
+
+export const metricWeddingArchiveFile = (status: WeddingArchiveFileStatus): void =>
+  weddingArchiveFiles.inc({ status });
 
 /** The purge backlog one run left behind, recorded every run (zero included). */
 export const metricWeddingPurgeBacklog = (due: number): void => weddingPurgeBacklog.record(due, {});

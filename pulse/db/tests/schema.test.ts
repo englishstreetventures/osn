@@ -107,7 +107,7 @@ describe("event_rsvps schema", () => {
     expect(row!.status).toBe("going");
   });
 
-  it("declares the (event_id, status) composite index (P-I2)", () => {
+  it("declares the (event_id, status) composite index", () => {
     const { indexes } = getTableConfig(schema.eventRsvps);
     const indexNames = new Set(indexes.map((i) => i.config.name));
     expect(indexNames.has("event_rsvps_event_status_idx")).toBe(true);

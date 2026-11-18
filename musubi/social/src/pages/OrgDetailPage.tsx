@@ -1,52 +1,83 @@
-import { useAuth } from "@osn/client/solid";
+import { AuthHeader } from "@osn/auth-ui/AuthHeader";
+import { DialogActions } from "@osn/auth-ui/DialogActions";
+import { describeAuthError, OrgClientError, type OrgMember } from "@osn/client";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Badge } from "@shared/ui/ui/badge";
 import { Button } from "@shared/ui/ui/button";
-import { Dialog, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Card } from "@shared/ui/ui/card";
+import { Chip } from "@shared/ui/ui/chip";
+import { Dialog, DialogDescription } from "@shared/ui/ui/dialog";
+import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
-import { useParams, useNavigate } from "@solidjs/router";
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { useParams, useNavigate, useSearchParams } from "@solidjs/router";
+import { createResource, createSignal, For, Show } from "solid-js";
 
+import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
+import { formatDay } from "../lib/account-deletion";
 import { orgClient } from "../lib/api";
+import { scopeMark } from "../lib/page-cache";
+import {
+  myOrganisations,
+  organisationDetail,
+  organisationMembers,
+  suggestions,
+} from "../lib/page-data";
+import { usePageTitle } from "../lib/page-title";
+import { createRowActions } from "../lib/row-actions";
 import { safeAvatarUrl } from "../lib/utils";
 
-/** The two halves packed into the memoised `"<token>|<id>"` resource key. */
-type OrgResourceKey = { token: string; id: string };
+/** A member's role as the roster shows it: a label set as written, so in sentence case. */
+const ROLE_LABEL = {
+  admin: "Admin",
+  member: "Member",
+} satisfies Record<OrgMember["role"], string>;
 
-function parseKey(key: string): OrgResourceKey {
-  const sep = key.indexOf("|");
-  return { token: key.slice(0, sep), id: key.slice(sep + 1) };
+/** The HTTP status a failed request carried, when it got as far as a response. */
+function statusOf(error: unknown): number | undefined {
+  return error instanceof OrgClientError ? error.status : undefined;
+}
+
+/** A load that failed for a reason other than the ones the page names. */
+function LoadFailure(props: { message: string }) {
+  return (
+    <Notice tone="danger" size="inline" alert>
+      {props.message} Reload and try again.
+    </Notice>
+  );
+}
+
+/** The route's preload: the organisation and its roster. */
+export function preloadOrganisation(handle: string): void {
+  organisationDetail.preload(handle);
+  organisationMembers.preload(handle);
 }
 
 export function OrgDetailPage() {
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ handle: string }>();
   const navigate = useNavigate();
-  const { session } = useAuth();
-  const token = () => session()?.accessToken ?? "";
 
-  // Stable memoised source key. Returning a fresh object per read
-  // makes Solid's === equality check always fail, triggering a refetch
-  // on every signal tick. A string key is referentially stable per
-  // (token, id) pair so the resource only refetches when one changes.
-  const resourceKey = createMemo(() => {
-    const t = token();
-    const id = params.id;
-    return t && id ? `${t}|${id}` : false;
-  });
+  // Both through the page cache, by handle: an organisation shown again draws
+  // at once and is read again behind it. The page stays mounted when only the
+  // handle changes; each handle has its own entry, so a state or an error
+  // never belongs to the organisation before.
+  const handleArgs = (): [string] | undefined => (params.handle ? [params.handle] : undefined);
+  const org = organisationDetail.use(handleArgs);
+  const members = organisationMembers.use(handleArgs);
 
-  const [org, { refetch: refetchOrg }] = createResource(resourceKey, (key) => {
-    const { token: keyToken, id } = parseKey(key as string);
-    return orgClient.getOrg(keyToken, id);
-  });
-
-  const [members, { refetch: refetchMembers }] = createResource(resourceKey, (key) => {
-    const { token: keyToken, id } = parseKey(key as string);
-    return orgClient.listMembers(keyToken, id);
-  });
+  // What shows is chosen by `state`: a failed read throws when read, so values
+  // are read only once one has landed. A roster read by a non-member answers
+  // 403: the organisation is public, its member list is not.
+  const landed = (state: string) => state === "ready" || state === "refreshing";
+  const orgReady = () => (landed(org.state) ? org() : undefined);
+  const memberRows = () => (landed(members.state) ? members()?.members : undefined);
+  // The page's `h1`: the organisation's name, or the section's while it loads
+  // or when it could not be loaded.
+  usePageTitle(() => orgReady()?.name ?? "Organisations");
 
   const [showEdit, setShowEdit] = createSignal(false);
   const [editName, setEditName] = createSignal("");
@@ -54,7 +85,7 @@ export function OrgDetailPage() {
   const [saving, setSaving] = createSignal(false);
 
   function openEdit() {
-    const o = org();
+    const o = orgReady();
     if (o) {
       setEditName(o.name);
       setEditDesc(o.description ?? "");
@@ -64,192 +95,403 @@ export function OrgDetailPage() {
 
   async function handleSave(e: Event) {
     e.preventDefault();
+    if (saving()) return;
     setSaving(true);
+    const handle = params.handle;
     try {
-      await orgClient.updateOrg(token(), params.id, {
+      const mark = scopeMark();
+      const { organisation } = await orgClient.updateOrg(handle, {
         name: editName(),
         description: editDesc() || undefined,
       });
       toast.success("Organisation updated");
       setShowEdit(false);
-      refetchOrg();
+      organisationDetail.update([handle], () => organisation, mark);
+      // The list shows the new name at once and reads itself again when next shown.
+      myOrganisations.update(
+        [],
+        (value) => ({
+          ...value,
+          organisations: value.organisations.map((o) => (o.handle === handle ? organisation : o)),
+        }),
+        mark,
+      );
+      myOrganisations.invalidate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update");
+      toast.error(`Couldn't save the organisation. ${describeAuthError(err)}`);
     } finally {
       setSaving(false);
     }
   }
 
+  // Delete asks first, in the app's dialog: Cancel, then a red Delete.
+  const [confirmDelete, setConfirmDelete] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
+
   async function handleDelete() {
-    if (!confirm("Delete this organisation? This cannot be undone.")) return;
+    if (deleting()) return;
+    setDeleting(true);
+    const handle = params.handle;
     try {
-      await orgClient.deleteOrg(token(), params.id);
+      const mark = scopeMark();
+      await orgClient.deleteOrg(handle);
       toast.success("Organisation deleted");
       navigate("/organisations");
+      // Gone from the list at once; a link back to it is a first load, which
+      // answers that it is not found.
+      organisationDetail.drop(handle);
+      organisationMembers.drop(handle);
+      myOrganisations.update(
+        [],
+        (value) => ({
+          ...value,
+          organisations: value.organisations.filter((o) => o.handle !== handle),
+        }),
+        mark,
+      );
+      myOrganisations.invalidate();
+      suggestions.invalidate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete");
+      toast.error(`Couldn't delete the organisation. ${describeAuthError(err)}`);
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
     }
   }
 
-  async function removeMember(profileId: string, handle: string) {
+  // `?decline=1`: the "you now own" email's link. The owner may hand back an
+  // organisation that came to them by succession, within 30 days. The link
+  // alone shows nothing: the card appears only when the server says this
+  // caller may decline it now, so a link cannot tell a stranger they own it.
+  const [search] = useSearchParams();
+  const [declineStanding] = createResource(
+    () => (search.decline === "1" ? params.handle : null),
+    (handle) => orgClient.declineOwnershipStatus(handle),
+  );
+  // Read by state, not by calling the resource: a call in flight would raise
+  // the nearest Suspense, and a call after a refusal would throw.
+  const offerDecline = () => declineStanding.state === "ready" && !declineRefused();
+  const declineUntil = () =>
+    declineStanding.state === "ready"
+      ? formatDay(Date.parse(declineStanding.latest.declineUntil) / 1_000)
+      : "";
+  const [declining, setDeclining] = createSignal(false);
+  /** A press of Decline was refused: the card gives way to the closed line. */
+  const [declineRefused, setDeclineRefused] = createSignal(false);
+  // 403 or 409, read or pressed: the link is for someone else, or its 30 days
+  // have passed. Either way the same line, in one look, and no card.
+  const declineClosed = () => {
+    if (declineRefused()) return true;
+    if (declineStanding.state !== "errored") return false;
+    const status = statusOf(declineStanding.error);
+    return status === 403 || status === 409;
+  };
+
+  async function handleDecline() {
+    if (declining()) return;
+    setDeclining(true);
+    const handle = params.handle;
     try {
-      await orgClient.removeMember(token(), params.id, profileId);
-      toast.success(`Removed @${handle}`);
-      refetchMembers();
+      const mark = scopeMark();
+      const { outcome } = await orgClient.declineOwnership(handle);
+      toast.success(outcome === "deleted" ? "Organisation deleted" : "Organisation passed on");
+      navigate("/organisations");
+      // Either way the person is no longer in it: gone from their list at once.
+      organisationDetail.drop(handle);
+      organisationMembers.drop(handle);
+      myOrganisations.update(
+        [],
+        (value) => ({
+          ...value,
+          organisations: value.organisations.filter((o) => o.handle !== handle),
+        }),
+        mark,
+      );
+      myOrganisations.invalidate();
+      suggestions.invalidate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove member");
+      // 403: not the owner. 409: created here, or received over 30 days ago.
+      const status = statusOf(err);
+      if (status === 403 || status === 409) setDeclineRefused(true);
+      else toast.error(`Couldn't decline the organisation. ${describeAuthError(err)}`);
+    } finally {
+      setDeclining(false);
     }
+  }
+
+  const actions = createRowActions();
+
+  function removeMember(profileHandle: string) {
+    const handle = params.handle;
+    return actions.run(
+      `remove:${profileHandle}`,
+      members,
+      (roster) => roster.members.some((member) => member.handle === profileHandle),
+      async (mark) => {
+        try {
+          await orgClient.removeMember(handle, profileHandle);
+          toast.success(`Removed @${profileHandle}`);
+          organisationMembers.update(
+            [handle],
+            (roster) => ({
+              ...roster,
+              members: roster.members.filter((member) => member.handle !== profileHandle),
+            }),
+            mark,
+          );
+          suggestions.invalidate();
+        } catch (err) {
+          toast.error(`Couldn't remove @${profileHandle}. ${describeAuthError(err)}`);
+        }
+      },
+    );
   }
 
   return (
     <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
-      <Show
-        when={!org.loading && org()}
-        fallback={
-          <div class="flex flex-col gap-3">
-            <div class="bg-muted/50 h-8 w-48 animate-pulse rounded" />
-            <div class="bg-muted/50 h-5 w-64 animate-pulse rounded" />
-          </div>
-        }
-      >
-        {(orgData) => (
-          <>
-            {/* Header */}
-            <div class="mb-8 flex flex-wrap items-start justify-between gap-3">
-              <div class="flex items-center gap-4">
-                <Avatar class="h-14 w-14">
-                  <Show when={safeAvatarUrl(orgData().avatarUrl)}>
-                    {(url) => (
-                      <AvatarImage
-                        src={url()}
-                        alt={orgData().name}
-                        referrerpolicy="no-referrer"
-                        loading="lazy"
-                      />
-                    )}
-                  </Show>
-                  <AvatarFallback>{orgData().name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <h1 class="text-foreground text-display font-medium">{orgData().name}</h1>
-                  <p class="text-muted-foreground text-body">@{orgData().handle}</p>
-                  <Show when={orgData().description}>
-                    <p class="text-muted-foreground text-body mt-1">{orgData().description}</p>
-                  </Show>
+      <div aria-busy={org.busy || undefined}>
+        <Show
+          when={orgReady()}
+          fallback={
+            <Show
+              when={org.state === "errored"}
+              fallback={
+                <div class="flex flex-col gap-3">
+                  <Skeleton standsFor="line" width={48} height={8} />
+                  <Skeleton standsFor="line" width={64} height={5} />
                 </div>
-              </div>
-              <div class="flex gap-1.5">
-                <Button variant="secondary" size="sm" class="max-md:h-10" onClick={openEdit}>
-                  Edit
-                </Button>
-                <Button variant="ghostDanger" size="sm" class="max-md:h-10" onClick={handleDelete}>
-                  Delete
-                </Button>
-              </div>
-            </div>
-
-            {/* Members */}
-            <div>
-              <div class="mb-3 flex items-center justify-between">
-                <h2 class="text-foreground text-title font-medium">Members</h2>
-              </div>
+              }
+            >
+              {/* No organisation to title the page: the section's own head. */}
+              <h1 class="text-foreground text-display mb-6 font-medium">Organisations</h1>
               <Show
-                when={!members.loading}
-                fallback={
-                  <div class="flex flex-col gap-2">
-                    {Array.from({ length: 2 }, () => (
-                      <div class="bg-muted/50 h-12 animate-pulse rounded-lg" />
-                    ))}
-                  </div>
-                }
+                when={statusOf(org.error) === 404}
+                fallback={<LoadFailure message="This organisation could not be loaded." />}
               >
-                <div class="flex flex-col gap-1">
-                  <For each={members()?.members}>
-                    {(member) => (
-                      <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
-                        <Avatar class="h-8 w-8">
-                          <Show when={safeAvatarUrl(member.profile.avatarUrl)}>
-                            {(url) => (
-                              <AvatarImage
-                                src={url()}
-                                alt={member.profile.handle}
-                                referrerpolicy="no-referrer"
-                                loading="lazy"
-                              />
-                            )}
-                          </Show>
-                          <AvatarFallback>
-                            {member.profile.handle.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">
-                            {member.profile.displayName || `@${member.profile.handle}`}
-                          </p>
-                          <Show when={member.profile.displayName}>
-                            <p class="text-subtle text-meta">@{member.profile.handle}</p>
-                          </Show>
-                        </div>
-                        <Badge variant="secondary">{member.role}</Badge>
-                        <Show when={member.role !== "admin"}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            class="h-7 max-md:h-10"
-                            onClick={() => removeMember(member.profile.id, member.profile.handle)}
-                          >
-                            Remove
-                          </Button>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
-                </div>
+                <EmptyNote>Organisation not found.</EmptyNote>
               </Show>
-            </div>
-          </>
-        )}
-      </Show>
+            </Show>
+          }
+        >
+          {(orgData) => (
+            <>
+              {/* Header */}
+              <div class="mb-8 flex flex-wrap items-start justify-between gap-3">
+                <div class="flex min-w-0 items-center gap-4">
+                  <Avatar class="h-14 w-14">
+                    <Show when={safeAvatarUrl(orgData().avatarUrl)}>
+                      {(url) => (
+                        <AvatarImage
+                          src={url()}
+                          alt={orgData().name}
+                          referrerpolicy="no-referrer"
+                          loading="lazy"
+                        />
+                      )}
+                    </Show>
+                    <AvatarFallback>{orgData().name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  {/* Its admins wrote the name, so it breaks anywhere. */}
+                  <div class="min-w-0">
+                    <h1 class="text-foreground text-display font-medium wrap-anywhere">
+                      {orgData().name}
+                    </h1>
+                    <p class="text-muted-foreground text-body">@{orgData().handle}</p>
+                    <Show when={orgData().description}>
+                      <p class="text-muted-foreground text-body mt-1">{orgData().description}</p>
+                    </Show>
+                  </div>
+                </div>
+                <div class="flex gap-1.5">
+                  <Button variant="secondary" size="sm" class="max-md:h-10" onClick={openEdit}>
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghostDanger"
+                    size="sm"
+                    class="max-md:h-10"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+
+              <Show when={declineClosed()}>
+                <Notice tone="info" size="sm" class="mb-8" alert={declineRefused()}>
+                  You can no longer decline this organisation here. If you own it, you can still
+                  delete it.
+                </Notice>
+              </Show>
+              <Show when={offerDecline()}>
+                <Card padding="md" class="mb-8 flex flex-col gap-3">
+                  <h2 class="text-foreground text-title font-medium">
+                    This organisation passed to you
+                  </h2>
+                  <p class="text-muted-foreground text-body">
+                    It is yours because its owner deleted their account, or the member before you
+                    declined it. You can decline it until {declineUntil()}.
+                  </p>
+                  <p class="text-muted-foreground text-body">
+                    If you decline, it passes to its next admin or member, or is deleted if there is
+                    none, and you leave it.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    class="self-start max-md:h-10"
+                    busy={declining()}
+                    onClick={() => void handleDecline()}
+                  >
+                    {declining() ? "Declining…" : "Decline"}
+                  </Button>
+                </Card>
+              </Show>
+
+              {/* Members */}
+              <div>
+                <div class="mb-3 flex items-center justify-between">
+                  <h2 class="text-foreground text-title font-medium">Members</h2>
+                </div>
+                <Show
+                  when={members.state !== "errored"}
+                  fallback={
+                    <Show
+                      when={statusOf(members.error) === 403}
+                      fallback={<LoadFailure message="Members could not be loaded." />}
+                    >
+                      <EmptyNote size="section">
+                        Only members can see who belongs to this organisation.
+                      </EmptyNote>
+                    </Show>
+                  }
+                >
+                  <div aria-busy={members.busy || undefined}>
+                    <Show
+                      when={memberRows()}
+                      fallback={
+                        // As many rows as the last roster landed, one when
+                        // nothing is known. A member row with Remove: 56px,
+                        // and 60px below `md`, where the button takes the
+                        // touch height. An admin's row has no Remove, and is
+                        // 56px at both widths.
+                        <div class="flex flex-col gap-1">
+                          {Array.from({ length: members.rows }, () => (
+                            <ResponsiveSkeleton height={14} phoneHeight={15} />
+                          ))}
+                        </div>
+                      }
+                    >
+                      <div class="flex flex-col gap-1">
+                        <For each={memberRows()}>
+                          {(member) => (
+                            <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
+                              {/* Initials only: a roster row carries no avatar. */}
+                              <Avatar class="h-8 w-8">
+                                <AvatarFallback>
+                                  {member.handle.slice(0, 2).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div class="min-w-0 flex-1">
+                                <p class="text-foreground text-title truncate font-medium">
+                                  {member.displayName || `@${member.handle}`}
+                                </p>
+                                <Show when={member.displayName}>
+                                  <p class="text-muted-foreground text-meta truncate">
+                                    @{member.handle}
+                                  </p>
+                                </Show>
+                              </div>
+                              <Chip variant="outline" treatment="tag">
+                                {ROLE_LABEL[member.role]}
+                              </Chip>
+                              <Show when={member.role !== "admin"}>
+                                <Button
+                                  variant="ghostDanger"
+                                  size="sm"
+                                  class="h-7 max-md:h-10"
+                                  aria-label={`${actions.busy(`remove:${member.handle}`) ? "Removing" : "Remove"} @${member.handle}`}
+                                  busy={actions.busy(`remove:${member.handle}`)}
+                                  onClick={() => removeMember(member.handle)}
+                                >
+                                  {actions.busy(`remove:${member.handle}`) ? "Removing…" : "Remove"}
+                                </Button>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+              </div>
+            </>
+          )}
+        </Show>
+      </div>
+
+      {/* Delete's confirmation: a confirmation dialog in the form dialog's
+          shape, its commit red. Closed only by Cancel, the scrim or Escape
+          while nothing runs. */}
+      <Dialog
+        open={confirmDelete()}
+        onOpenChange={(open) => {
+          if (!open && !deleting()) setConfirmDelete(false);
+        }}
+      >
+        <ResponsiveDialogContent>
+          <AuthHeader host="dialog" title="Delete this organisation?" />
+          <div class="p-4">
+            <DialogDescription>This cannot be undone.</DialogDescription>
+          </div>
+          <DialogActions onCancel={() => setConfirmDelete(false)} cancelDisabled={deleting()}>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              class="max-md:h-10"
+              busy={deleting()}
+              onClick={() => void handleDelete()}
+            >
+              {deleting() ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogActions>
+        </ResponsiveDialogContent>
+      </Dialog>
 
       {/* Edit dialog */}
       <Dialog open={showEdit()} onOpenChange={setShowEdit}>
-        <ResponsiveDialogContent class="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Edit organisation</DialogTitle>
-          </DialogHeader>
-          <form class="flex flex-col gap-4 pt-2" onSubmit={handleSave}>
-            <div class="flex flex-col gap-1.5">
-              <Label for="edit-name">Name</Label>
-              <Input
-                id="edit-name"
-                value={editName()}
-                onInput={(e) => setEditName(e.currentTarget.value)}
-                required
-              />
+        <ResponsiveDialogContent>
+          <AuthHeader host="dialog" title="Edit organisation" />
+          {/* The footer sits inside the form, so Enter in a field still submits. */}
+          <form onSubmit={handleSave}>
+            <div class="flex flex-col gap-4 p-4">
+              <Field labelTreatment="plain" label="Name">
+                {(field) => (
+                  <Input
+                    {...field}
+                    value={editName()}
+                    onInput={(e) => setEditName(e.currentTarget.value)}
+                    required
+                  />
+                )}
+              </Field>
+              <Field labelTreatment="plain" label="Description">
+                {(field) => (
+                  <Textarea
+                    {...field}
+                    value={editDesc()}
+                    onInput={(e) => setEditDesc(e.currentTarget.value)}
+                    rows={2}
+                  />
+                )}
+              </Field>
             </div>
-            <div class="flex flex-col gap-1.5">
-              <Label for="edit-desc">Description</Label>
-              <Textarea
-                id="edit-desc"
-                value={editDesc()}
-                onInput={(e) => setEditDesc(e.currentTarget.value)}
-                rows={2}
-              />
-            </div>
-            <div class="flex justify-end gap-2 pt-1">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                class="max-md:h-10"
-                onClick={() => setShowEdit(false)}
-              >
-                Cancel
+            <DialogActions onCancel={() => setShowEdit(false)} cancelDisabled={saving()}>
+              <Button type="submit" size="sm" class="max-md:h-10" busy={saving()}>
+                {saving() ? "Saving…" : "Save"}
               </Button>
-              <Button type="submit" size="sm" class="max-md:h-10" disabled={saving()}>
-                {saving() ? "Saving..." : "Save"}
-              </Button>
-            </div>
+            </DialogActions>
           </form>
         </ResponsiveDialogContent>
       </Dialog>

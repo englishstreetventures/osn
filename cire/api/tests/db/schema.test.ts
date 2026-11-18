@@ -7,9 +7,9 @@ import { eq, sql } from "drizzle-orm";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 
 // Constraint-behaviour tests for the schema (uniques, FKs, cascades,
-// defaults). Runs on the primary setup.ts DDL mirror — the mini-mirror DDL
-// that used to live here was a fourth lockstep surface and is gone; the
-// mirror itself is pinned to the migration chain by ddl-lockstep.test.ts.
+// defaults). Runs on the primary setup.ts DDL mirror, which
+// ddl-lockstep.test.ts pins to the migration chain. Keep DDL out of this file:
+// a mirror here would be a fourth lockstep surface.
 function makeDb() {
   const db = createDb();
   seedBootstrapWedding(db);

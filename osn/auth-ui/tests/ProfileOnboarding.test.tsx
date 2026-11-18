@@ -82,7 +82,26 @@ describe("ProfileOnboarding", () => {
     fireEvent.click(screen.getByText("Create profile"));
 
     await waitFor(() => {
-      expect(screen.getByText("Create a new profile")).toBeTruthy();
+      expect(screen.getByRole("dialog", { name: "Create a new profile" })).toBeTruthy();
     });
+    // The form's Cancel is the dialog's dismiss button. Its `secondary` paint
+    // and the sheet's placement take a real browser: musubi's
+    // `ProfileOnboarding.browser.test.tsx` holds both.
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel.closest("[role=dialog]")).toBeTruthy();
+  });
+
+  // The header holds the title alone; Cancel leads the footer pair, which
+  // sits inside the form, so Enter in a field submits.
+  it("puts Cancel first in the create dialog's footer, inside its form", async () => {
+    render(() => <ProfileOnboarding />);
+    fireEvent.click(screen.getByText("Create profile"));
+    const title = await screen.findByRole("heading", { name: "Create a new profile" });
+    expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+    const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+    const create = [...cancel.parentElement!.querySelectorAll("button")];
+    expect(create.map((b) => b.textContent)).toEqual(["Cancel", "Create profile"]);
+    expect(create[1]!.form).not.toBeNull();
+    expect(create[1]!.form).toBe(screen.getByLabelText("Handle").closest("form"));
   });
 });

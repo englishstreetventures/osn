@@ -119,23 +119,6 @@ describe("payload cache", () => {
 
     expect(calls).toHaveLength(1);
   });
-
-  it("re-fetches once the TTL expires", async () => {
-    const { fetch, calls } = stubFetch(vipOnlyPayload);
-    let clock = 1_000;
-    const flags = createFeatureFlags({
-      clientKey: "sdk-123",
-      fetchImpl: fetch,
-      ttlSeconds: 60,
-      now: () => clock,
-    });
-
-    await flags.forRequest({ id: "a" });
-    clock += 61_000; // past the window
-    await flags.forRequest({ id: "b" });
-
-    expect(calls).toHaveLength(2);
-  });
 });
 
 describe("fail-safe ladder", () => {

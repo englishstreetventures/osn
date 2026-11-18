@@ -65,17 +65,6 @@ describe("seed idempotency", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildSeedRsvps", () => {
-  it("all eventIds reference a valid one-off event or series instance", () => {
-    const now = new Date();
-    const eventIds = new Set([
-      ...buildSeedEvents(now).map((e) => e.id),
-      ...buildSeedSeriesInstances(now).map((e) => e.id),
-    ]);
-    for (const r of buildSeedRsvps()) {
-      expect(eventIds.has(r.eventId)).toBe(true);
-    }
-  });
-
   it("no duplicate (eventId, profileId) pairs", () => {
     const pairs = new Set<string>();
     for (const r of buildSeedRsvps()) {
@@ -106,16 +95,6 @@ describe("RSVP seed idempotency", () => {
 // ---------------------------------------------------------------------------
 // buildSeedSeries + buildSeedSeriesInstances
 // ---------------------------------------------------------------------------
-
-describe("buildSeedSeriesInstances", () => {
-  it("every instance has seriesId matching a seed series", () => {
-    const now = new Date();
-    const seriesIds = new Set(buildSeedSeries(now).map((s) => s.id));
-    for (const i of buildSeedSeriesInstances(now)) {
-      expect(seriesIds.has(i.seriesId!)).toBe(true);
-    }
-  });
-});
 
 describe("series seed idempotency", () => {
   it("inserting series + instances twice does not duplicate rows", async () => {

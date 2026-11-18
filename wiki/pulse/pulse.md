@@ -15,7 +15,8 @@ related:
   - "[[venues]]"
   - "[[event-access]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-05
+  - "[[account-deletion]]"
+last-reviewed: 2026-11-18
 ---
 
 # Pulse
@@ -182,6 +183,18 @@ Benefits:
 
 See [[s2s-patterns]] for the full cross-service architecture.
 
+### Account deletion
+
+pulse-api takes ARC calls from osn-api only, verified against the keys osn-api publishes ([[arc-tokens#osn-api as issuer — published outbound keys]]); it keeps no key registry and has no `register-service` route. For an OSN account deletion ([[account-deletion#The app contract]]):
+
+| Route | Scope | What it does |
+|---|---|---|
+| `POST /internal/account-deletion-preview` | `account:deletion-preview` | `{ profileIds, deletesAt }`: the upcoming events the person hosts, grouped in one read of at most 101 rows: one action per series and per other event, soonest first, or one `pulse:events:all` past 100. Choices `cancel` (default: cancelled, `host_left`, and kept 14 days for its guests) and `delete`. |
+| `POST /internal/account-sessions/revoke` | `account:sessions-revoke` | `{ profileIds }`: ends the person's web sessions when the deletion is asked for. |
+| `POST /internal/account-deleted` | `account:erase` | At the end of the window, with the answers ([`services/accountErasure.ts`](../../pulse/api/src/services/accountErasure.ts), `purgeAccount`): each upcoming hosted event takes its own answer, else its series', else `pulse:events:all`'s, else `cancel`, and every one is deleted under `deleteEverything`; a kept event leaves its series. Finished and cancelled events, the person's series, RSVPs, close friends, messages sent, Pulse profile, onboarding and web sessions go. Each write checks the event when it runs: one a guest's visit marked finished since the read is deleted, one cancelled since keeps that cancellation. Answers one kept item, read back from the events as written: how many events stay and the date the last is deleted. A repeat, or a second call that overlaps the first, writes nothing more and answers the same. The body carries no email address. |
+
+A leave-Pulse cancel unschedules the host's events only while its leave job still stands, before it deletes that job; the account erasure deletes the job in the batch that keeps events for their guests, so a cancel never puts those back.
+
 ### Close Friends UI
 
 Close-friend indicators use shared UI tokens from `pulse/web/src/lib/ui.ts`:
@@ -209,9 +222,14 @@ Beyond 1000 guests, events belong to a future verified-organisation tier (Pulse 
 bun run --cwd pulse/api test:run   # Run Pulse API tests once
 bun run --cwd pulse/db test:run    # Run Pulse DB tests once
 bun run --cwd pulse/api test       # Watch mode
+bun run --cwd pulse/web test:run   # Pulse web unit tier
+bun run --cwd pulse/web test:browser  # Pulse web real-Chromium tier
+bun run --cwd tools/e2e e2e pulse-event-rsvp  # The Pulse end-to-end flow
 ```
 
 Route tests use `createEventsRoutes(createTestLayer())` in `beforeEach` for full isolation.
+
+The web app's screens are proved end to end by `pulse-event-rsvp` ([[testing-patterns#The end-to-end suite]]), on its host's and guest's sign-ins: onboarding (the host skips, the guest walks all six steps), the explore page's layout, search, chips and More filters, creating events through the form (open, guest-list and private), an RSVP from a shared link with its counts and guest list, the calendar, a refused RSVP on a guest-list event, a private event hidden from a stranger, cancelling events and a series, and the attendance setting; each write is read back from pulse-api's database. A web unit test stays only for what that flow cannot reach: refusals and role gates, error and denied-permission paths, the venue pages (no production code writes a venue, so the suite seeds none), close friends and the map.
 
 ## Related
 

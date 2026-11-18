@@ -98,7 +98,7 @@ export default function WeddingList(props: {
                         for". Scale, so it costs no layout. */}
                     <span
                       aria-hidden="true"
-                      class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
+                      class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-fast) ease-(--ease-out) group-hover:scale-y-100"
                     />
                     <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
                       {wedding.displayName}
@@ -110,11 +110,11 @@ export default function WeddingList(props: {
                     <span class="text-text-muted text-ui-xs tracking-ui-widest mt-1 uppercase">
                       {wedding.slug}
                     </span>
-                    <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm transition-ui-colors mt-2 flex items-center gap-2 duration-(--dur-base) ease-(--ease-out)">
+                    <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm transition-ui-colors mt-2 flex items-center gap-2 duration-(--dur-fast) ease-(--ease-out)">
                       Open dashboard
                       <span
                         aria-hidden="true"
-                        class="transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:translate-x-1"
+                        class="transition-transform duration-(--dur-fast) ease-(--ease-out) group-hover:translate-x-1"
                       >
                         →
                       </span>

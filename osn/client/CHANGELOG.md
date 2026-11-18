@@ -1,5 +1,188 @@
 # @osn/client
 
+## 4.3.0
+
+### Minor Changes
+
+- 5742a4e: An app whose own pages cannot run a step-up asks for one through Musubi: an app step-up request. osn-api adds the purpose `cire_app_delete` (spent by `cire-api` alone), `POST /internal/step-up/requests` to begin a request bound to the hash of a secret the app's cookie holds in the asking browser, `GET /step-up/requests/:id` and `POST /step-up/requests/:id/confirm` for Musubi's confirm page, and a request form of `/internal/step-up/verify` that spends nothing and answers the account and every profile of it. The return address is pinned to `CIRE_ORGANISER_ORIGIN`, which the musubi stack sets. `@osn/client` adds `createAppStepUpClient`; `@osn/auth-ui`'s step-up sheet offers its three factors for the new purpose. Musubi adds `/confirm/:requestId`, and follows an app's `http:` link to this machine, which osn-api forwards from a local run only. New counter `osn.auth.app_step_up.requests`; two step-up limiters join the rate-limit endpoint list. The musubi stack registers cire-api's dev key with `step-up:verify`.
+
+## 4.2.0
+
+### Minor Changes
+
+- db8c428: Account deletion gets its emails and the calls its screens need.
+
+  - `@shared/email`: five templates — `account-deletion-scheduled`, `account-deletion-cancelled`, `account-deleted`, `organisation-ownership-received` and `account-data-link`. Text another party wrote is escaped and never in a subject; every one names an organisation by its handle only. Every template draws its button through one helper, `emailButton`: the recovery, step-up and email-change links' buttons take 6px corners at the text's own weight, as every other button already did.
+  - `@osn/api`: `DELETE /account` mails the scheduled notice (the date, how to keep the account and download the data, and what each answer does, from the request's own preview); `POST /account/restore` mails the cancelled one. The hard delete reads the address, the held handles and what each app kept before its batch, and once the batch has removed the account mails the old address and each organisation's new owner, side by side, each send giving up after 10 seconds (at most 10 ownership notices one by one on a transport with no batch send); a pass whose batch removed nothing mails nothing. The cron and the local sweeper provide the email transport to it; local sweeps run on the app's runtime and skip a tick while a pass runs. New `POST /account/data-link` mails the account a link to its download page (per IP, then three a day per account). New `POST /organisations/:handle/decline-ownership`: a member who received an organisation by succession may hand it back within 30 days; it passes on as the hard delete would pass it, or is deleted, and the decliner leaves it in the same batch, the next owner mailed. `GET` on the same path answers whether the caller may decline it, and until when, with the same refusals, and writes nothing. `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation. The deletion preview's organisation actions carry `candidates`, the members a successor answer may name, read beside the organisations at most 50 an organisation. CORS exposes `Content-Disposition` and `Retry-After`. The local Bun server keys its per-address limiters on a sent `cf-connecting-ip` when `OSN_E2E_CLIENT_ADDRESS=1`, which only the E2E stack sets.
+  - `@osn/db`: `organisations.owner_inherited_at` (migration `20261116094005_organisation_owner_inherited_at`), NULL for every existing row.
+  - `@osn/client`: a 401 after a renewal that minted a pending-deletion token reaches the caller and ends nothing; `onSessionChange` gains `pending-deletion`; `isPendingDeletionToken`. The Solid provider gains `pendingDeletion` and `renewSession`, and lists no profiles for a pending-deletion session. `deleteAccount` throws `AccountDeletionRefusedError` with the open actions, fresh preview or refused action; new `exportAccount`, `sendDataLink`, `declineOwnership` and `declineOwnershipStatus`.
+  - `@shared/observability`: `OrgAction` gains `decline_ownership`; the auth rate-limit endpoint union gains `account_data_link`.
+  - `@tools/lab`: the auth-ui stories' hand-built auth contexts carry `pendingDeletion` and `renewSession`.
+  - `@shared/design-tokens`: a contract colour, `--ui-choice-edge`, for the edge of an unchosen radio, checkbox or switch track, owing 3:1. It falls back to `--ui-hairline-strong`, so an app that does not map it looks as before, and the conformance check measures it unmapped as that token, under that token's waiver (`COLOR_FALLBACKS`, `colorFallback`).
+  - `@shared/ui`: `RadioGroup`'s circle, `Checkbox`'s box, `Switch`'s track and the unticked native box draw their edge in `--ui-choice-edge`.
+  - `@osn/auth-ui`: `InlineAction`, the underlined button that ends an error line, is exported as `@osn/auth-ui/InlineAction`.
+  - `@musubi/infra`: the dev stack's env check lists `OSN_E2E_CLIENT_ADDRESS` as left unset on dev: only the Bun dev server reads it, for the E2E suite.
+
+## 4.1.2
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+## 4.1.1
+
+### Patch Changes
+
+- 4deee2c: `POST /profiles/delete` answers with `default_profile_id`, the account's default profile once the deleted one is gone; when the deleted profile was the default, or the account had none, the oldest remaining profile becomes the default. A delete removes nothing when its profile is the account's last at the moment it writes, and an account keeps exactly one default whichever profile write lands first; `POST /profiles/:profileId/default` answers `400` when the profile is gone by the time it writes. `POST /token` refuses an empty or malformed `profile_id` as it refuses a profile the account does not own, before it reads the cookie, and counts it as `validation_error` on `osn.auth.token.refresh`. The dev-tier sign-in puts its fixed profile back as a plain profile where its account already has a default. `@osn/db` adds a partial unique index, `users_one_default_per_account`; its migration first leaves each account exactly one default, its oldest. The local seed leaves a seeded default plain where its account already has another; new export `seedProfileRows`. `@osn/client` names a profile in every `POST /token` grant from a page that holds an account: deleting the active profile makes active a profile the page holds a token for, or else that default, and an answer that names none leaves the deleted profile active, whose next grant is refused. A token a renewal or a switch brings back for a profile the page has deleted is not kept. New export: `decodeDeleteProfileResponse`.
+
+## 4.1.0
+
+### Minor Changes
+
+- 582649a: Account deletion reaches every app through one contract. `GET /account/deletion-preview` asks each app (`POST /internal/account-deletion-preview`) what it holds beside the organisations the account owns, and names any app it could not check; `DELETE /account` takes `delete_everything`, answers 409 `could_not_check` while an app cannot be asked and 409 `stale_choices` for an answer to an app action the fresh preview does not list, and stores app answers on the job. Once the window has passed, the fan-out sends every app (`POST /internal/account-deleted`) the person's answers to its actions and the delete-everything flag, and their email address only to an app whose entry says it receives it (neither Pulse nor Zap), for every account, a job written with the old `-1` marks included, and stores what each app kept in `deletion_jobs.app_outcomes`. The preview and the session end carry no account id. The fan-out reads each job once, marks a skipped app in its claim, counts an app done only when its own write set the mark, and stamps any job whose fan-out fails (`fanout_failed_at`), which is then read after the others. A deletion of everything stores no answers, and two triggers on `deletion_jobs` refuse the pair; the preview and erasure timeouts are part of the deletion's app settings; `OSN_DELETION_FANOUT_MAX_JOBS` caps the jobs and hard deletes per run; an app is skipped only on a local run without its URL or where `OSN_DELETION_ABSENT_APPS` declares it, a deployed tier with neither holds the deletion, and an app URL that is not `https:` (or, locally, `http:` to a loopback host) fails the boot. The soft delete ends the person's Pulse web sessions. `osn.account.deletion.fanout_oldest_age` records each app's oldest unfinished job.
+
+  osn-api publishes each isolate's outbound ARC public key in `arc_outbound_keys` and serves the set at `GET /.well-known/arc-jwks.json`; the registration it pushed to each app is gone. Each call signs with the key it published, and concurrent first calls share one write of it. A deployed osn-api needs `INTERNAL_SERVICE_SECRET`; when it is at least 32 characters long, a key derived from it MACs the outbound key ids. `@osn/client`'s deletion preview carries each app's actions and `could_not_check`, and `deleteAccount` takes `deleteEverything`.
+
+## 4.0.1
+
+### Patch Changes
+
+- 9172b9c: `POST /token` mints for a named `profile_id` only when the session's account owns it, and answers any other named profile with `400 invalid_grant` before it mints or rotates anything; the client ends the session on that answer. A grant naming no profile mints for the default profile. `@osn/client` changes only comments.
+
+## 4.0.0
+
+### Major Changes
+
+- 3437d4a: `cancelAccountDeletion` now takes `{ stepUpToken }`, a step-up token for the new purpose `account_restore`, and sends it as `step_up_token`: `POST /account/restore` refuses a cancel without one. Any live session of the account may call it. `StepUpPurpose` gains `account_restore`.
+
+  `deleteAccount` takes optional `choices` (`{ action, choice, successorProfileId? }`), the answers to the open actions the new `getAccountDeletionPreview` lists: each organisation a profile of the account owns, who would take it over, and the choices it allows. New types `AccountDeletionChoice`, `AccountDeletionOpenAction` and `AccountDeletionPreview`.
+
+## 3.5.0
+
+### Minor Changes
+
+- 0d8f467: Starting a Musubi sign-up again for the same address from a new tab of the same browser, or after closing the waiting tab, mails the link at once. `@osn/api`'s `POST /register/begin` answers a `retireSecret` beside the claim secret, for a free, taken or held address alike, stored only as a SHA-256 hash. It can only end its request: no status poll, Resend, candidates read or confirm accepts it. Begin's `previous` is `{ requestId, retireSecret }`, never the claim secret, and it retires the earlier request only when that request is for the address this begin is for; a wrong secret, the claim secret, an unknown request or another address retires nothing, at the same one store read and with the same answer. `@osn/client`'s `BegunRegistration` carries `retireSecret`, `PreviousRegistration` is `{ requestId, retireSecret }`, and the status poll and Resend take a `RegistrationClaim`. `@osn/auth-ui`'s `Register` keeps the claim secret in the tab's `sessionStorage` as before, and shares the live request's id, retire secret and expiry with the browser's other tabs in `localStorage` (`osn.signup.live`), nothing about the address; a tab that begins sends it as `previous`. The tab's own left request (`osn.signup.previous`, in its `sessionStorage`) carries the retire secret and the address it was for, and is sent first for that address. The entry goes when its request ends or expires, and no tab removes another tab's entry; a begin refused with a 4xx other than 429 is not sent with the same `previous` again. Only sign-up's requests carry a retire secret. `@shared/observability` redacts `retireSecret` in logs.
+
+## 3.4.2
+
+### Patch Changes
+
+- fe8f780: `describeAuthError(err, "code")` gives its own sentence for a call that got no answer (status `0`): "We couldn't connect. Check your connection, then try again with a new code." The server may have taken the code before the answer was lost, and it refuses the same code again as a replay that counts toward the lockout. `StepUpDialog` empties its code boxes on such a failure, the step-up deadline included, so a second Confirm sends nothing until a new code is typed.
+- fe8f780: Every `StepUpClient` call now ends at `STEP_UP_DEADLINE_MS` (15 s, exported) while the page is in the foreground: the token renewal `authFetch` makes first, the request, its 401 retry and the body read included. A call still waiting at the deadline is aborted and rejects with a `StepUpError` at status `0`, which `describeAuthError` reads as the connection sentence, so a step-up screen that holds its ways out while a call runs gets them back. A normal answer, a refusal and a session rejection are unchanged.
+
+## 3.4.1
+
+### Patch Changes
+
+- 45c409b: `@osn/api` answers the tab that began a sign-up, recovery or email change alike whatever the link's reader does: a decline, a wrong number, or a right one the account's lockout refuses ends the request (`declined` or `ended`) and keeps it until its expiry, its poll answering `pending` with the number and its Resend `sent` with nothing mailed, as for an address nobody was mailed; wrong link secrets there no longer end the request, and every one past the fifth is refused unread. A begin's first sign-up link counts against a per-mailbox restart window (ten an hour, `registration_restart`) when the begin carried `previous` or a sign-up to the mailbox was declined in the hour before; a plain first begin always mails. Step-up writes a `step_up_link_declined` security event on a decline and a `step_up_link_lockout` event when wrong numbers lock its links, with the `osn.auth.step_up.lockout` counter. Recovery's per-address link allowance keys an IPv6 client by its /64. `@shared/rate-limit` adds `clientNetwork`. `@shared/observability` adds the two event kinds. `@osn/auth-ui`'s waiting screen's way back reads "Start again" from the first moment, the link page's refusal and "Cancelled" copy sends a sign-up, recovery or email change back to it, and the security banner names a turned-down step-up request; `@osn/client` knows the kind. `@musubi/social`'s layout test and `@tools/lab`'s story name "Start again".
+
+## 3.4.0
+
+### Minor Changes
+
+- f052448: Step-up and email change confirm by an emailed link in place of the six-digit code. `POST /step-up/email/begin` (Bearer, `{ purpose }`) mails a link to the account's own address for that one purpose and answers a request id, a claim secret and a number; whoever opens the link types the number, and the tab that began, signed in as the same account, polls `POST /step-up/email/:requestId/status` and gets a step-up token for that purpose, once (`amr: ["otp"]`, the emailed factor, so never accepted at `passkey_delete`). `POST /account/email/begin` mails a link to the new address and answers the same shape whether or not another account holds it; its status answers `confirmed` once the link is picked, and `POST /account/email/:requestId/complete` with a step-up token for `email_change` moves the account and revokes its other sessions. `/step-up/otp/*` and `/account/email/complete` are gone, with the code store, templates and dev log line.
+
+  `@osn/api` counts wrong typed step-up numbers on a per-account lockout (five in 15 minutes: no step-up link mailed, a right number refused), counts wrong email-change picks on the per-address link lockout sign-up uses, caps step-up links at 10 a day per account and Resends of both at 3 a day per mailbox (`+tag` and Gmail dots folded). `@osn/client` replaces `otpBegin`/`otpComplete` with `emailBegin`, `emailStatus` and `emailResend`, and gives the account client `changeEmailStatus`, `changeEmailResend` and a request-based `changeEmailComplete`; `emailLinkPurpose` knows step-up and email-change links. `@osn/auth-ui`'s `StepUpDialog` offers "Use email instead" under the passkey and waits on the link with `CheckEmailView` (no purpose, no email factor); `ChangeEmailForm` waits on the new address's link, then steps up and completes. `@musubi/social` asks for the number typed on a step-up link's page. `@shared/email` replaces `otp-step-up` and `otp-email-change` with `link-step-up` and `link-email-change`. `@shared/observability` adds the two flows, their routes and the `resend` steps. `@osn/db` updates a schema comment.
+
+## 3.3.0
+
+### Minor Changes
+
+- 0821963: Sign-up can accept a browser Email Verification API token, behind the osn-api flag `OSN_EMAIL_VERIFICATION_API` (off unless it reads true). With it on, `POST /register/email-verification-nonce` hands the sign-up form a nonce, `Register` adds the hidden `email-verification-token` field, and a begin whose token verifies confirms a free address at once: no email, no number to match, and the first status poll makes the account before the passkey step. A taken or held address, and every token that fails a check, takes the emailed link path unchanged. `@osn/client` gains `emailVerificationNonce()` and the begin fields `emailVerificationToken` and `nonceSecret`; `@shared/observability` gains `EmailVerificationTokenOutcome` and redacts both fields.
+
+## 3.2.0
+
+### Minor Changes
+
+- cbd32bd: Email account recovery uses an emailed link in place of the six-digit code. `POST /login/recovery/email/begin` answers every address alike with a request id, a claim secret and a pairing number (202), and mails `<frontend origin>/verify/<request id>#<link secret>` to an account's address. Whoever opens the link types the number the waiting screen shows (a blind guess is right 1 time in 100; a wrong number ends the request) or turns it down; confirming signs nobody in. The tab that began polls `POST /login/recovery/email/:requestId/status` with its claim secret and gets the restricted recovery session (passkey enrolment only), once; `POST /login/recovery/email/:requestId/resend` sends another link for the same request. `/login/recovery/email/complete` is gone.
+
+  `@osn/api` gives each emailed-link flow a pairing mode (sign-up picks among five candidates; recovery types the number), refuses a malformed pick like any other refusal, counts wrong typed numbers on the account's recovery lockout (five in 15 minutes) and wrong link secrets only on their request, records a `recovery_link_declined` security event, and caps recovery links at 3 a day per account and client address, 3 Resends a day per account and 20 links a day per account in all; the pending recovery-code store and its cap go. `@osn/client` replaces `emailRecoveryComplete` with `emailRecoveryStatus` and `emailRecoveryResend`, all sent through `reach` so `describeAuthError` reads what they throw, `emailRecoveryBegin` answers the request, and `emailLinkPurpose` knows recovery links. `@osn/auth-ui`'s `RecoveryLoginForm` waits on the link with `CheckEmailView`, survives a reload in the tab's `sessionStorage` (never the number), and `@osn/auth-ui/pending-recovery` exports `hasPendingRecovery`, with no component in it, so a page can ask without loading `SignIn`; `SignIn` opens on its recovery view when one is pending; `createLinkPoll` is the shared poll loop; `SignIn` and `RecoveryLoginForm` ask phones not to capitalise a typed identifier (`autocapitalize="none"`); the security banner names a turned-down recovery request. `@musubi/social` reopens sign-in for a pending recovery and asks for the number typed on a recovery link's page. `@shared/email` replaces `otp-recovery` with `link-recovery`. `@shared/observability` adds the recovery flow, its routes, the `email_resend` step and the `recovery_link_declined` event kind.
+
+- 9d193fe: Sign-up proves the address with an emailed link in place of the six-digit code. `POST /register/begin` answers a request id, a claim secret and a pairing number, and mails `<frontend origin>/verify/<request id>#<link secret>`; the link's page reads the candidates (`POST /email-link/:requestId/candidates`) and confirms (`POST /email-link/:requestId/confirm`) with the number picked, since the confirm step requires the number shown on the waiting screen; "I didn't ask for this" ends the request and answers `declined`, again when repeated. Confirming never signs anyone in: the tab that began polls `POST /register/:requestId/status` with its claim secret, which answers the number while it waits, and gets the account and session once; `POST /register/:requestId/resend` sends another link for the same request. `/register/complete` is gone.
+
+  `@osn/api` adds the shared email-link challenge for every flow that emails a link, the `email_link` ceremony store, the `registration_link_lockout` counter, keyed on the address as typed (lowercased), and the `registrationSendCap` limiter, keyed on the address's mailbox key (`mailboxKey`: `+tag` cut, Gmail dots dropped), which feeds no stored or mailed address. `POST /register/begin` holds `previous` to the request-id and secret patterns the status and resend routes use. A begin for an address another live sign-up holds sends nothing; its Resend parks the sign-up and sends the link once that sign-up has ended, unless an account has the address or the handle by then: every sign-up link's send checks both first. `@osn/client` replaces `completeRegistration` with `registrationStatus` and `resendRegistrationLink`, and adds `createEmailLinkClient` and `emailLinkPurpose`. `@osn/auth-ui`'s `Register` waits on the link with `CheckEmailView`, survives a reload in the tab's `sessionStorage` (the number is never stored; the first poll after a reload brings it back), and `@osn/auth-ui/pending-sign-up` exports `hasPendingSignUp`, with no component in it, so a page can ask without loading `Register`. `@musubi/social` serves the link's page at `/verify/:requestId` with `ConfirmLinkPage`. `@shared/email` replaces `otp-registration` with `link-registration`. `@shared/observability` adds the email-link metric attributes and redacts the link and claim secrets and the pairing values. `@osn/client`'s `EmailLinkError` is an `OsnApiError`, and the link calls and the status poll send through `reach`, so `describeAuthError` reads what they throw. `registerProfile` stores the address lower-cased. `@musubi/social`'s Try again on a failed `/authorize` or `/verify/:requestId` card is busy while it reads again.
+
+## 3.1.1
+
+### Patch Changes
+
+- bc18a2b: A late answer for a session that was replaced or ended no longer changes the page's session; such calls reject with `AuthExpiredError`, and a refused `refreshSession` ends the session.
+
+## 3.1.0
+
+### Minor Changes
+
+- e71aee5: Errors read as plain sentences, in the place they are about.
+
+  - `@osn/auth-ui`: every view shows a sentence from `describeAuthError` or `describePasskeyError`, never an error's own text, in an inline danger `Notice` with `role="alert"` — under the field it is about (tied by `aria-describedby`, `aria-invalid` only when the input was refused) or above the action it follows. No error toasts. `SignIn`'s passkey error carries "Lost your passkey?"; `Register`'s age hint reads "You must be 13 or older to create an account."; `TurnstileWidget` says "Reload and try again". A failed passkey, authenticator or session list says it didn't load, with Try again, instead of throwing. Every call that spends a Turnstile token asks for a fresh one when it is refused. `Register` drops a spent token with its widget instead of running a challenge nobody uses, and its code step mounts a widget of its own for "Resend code" once the countdown ends. `ChangeEmailForm` and `StepUpDialog` group each field under a `Label`, and their raw inputs turn red when refused. `InlineAction` draws Button's focus ring. `SecurityEventsBanner`'s error line sits above its box, on the page.
+  - `@osn/client`: `useAuth()` gains `profilesError` and `refetchProfiles`. A profile list that fails keeps the last list instead of throwing on read; when no session exists any longer, however it went, the list and its error go, and one that settles after that is dropped. Adopting a first session lists the profiles once, not twice; adopting one over another drops the old account's list first. The provider treats a session that failed to load as none, so reading it throws nowhere inside the provider.
+  - `@musubi/social`: the shell says "You've been signed out." with Sign in when the session ends, and "Your profiles didn't load." with Try again when the list fails. A page that throws while rendering shows "This page didn't load." with Try again inside the shell instead of blanking the app. `/authorize` reads its failures from the copy map. Every failed-load and error line, on `/authorize`, Connected apps and an organisation's page included, is a danger `Notice`, apart from the shell frame's own load-failure line. Connected apps' revoke and an organisation's save, delete and member removal name what failed, then the copy map's sentence. The signed-out notice's Sign in opens the shell's sign-in dialog once its chunk has loaded.
+  - `@shared/design-tokens`: `checkContractConformance` takes an optional `pairs` list to measure in place of the contract's own.
+
+## 3.0.0
+
+### Major Changes
+
+- c06ee7a: A page's session now outlives its access token. `createOsnAuthRuntime({ issuerUrl })` builds the page's one auth service, and its `authFetch` sends the active profile's token and renews it: before the token expires, and once on a 401. Only a refusal ends the session: the stored account is cleared, `AuthProvider` goes to signed out, and the call rejects with `AuthExpiredError`. A grant whose body names a lost rotation race or a storage error is retried once. A renewal that cannot reach the issuer, or is rate limited, keeps the session: the request goes out with the token in hand while it is valid, otherwise the call rejects with `TokenRefreshError`, and renewal then pauses (the issuer's `Retry-After`, or 2 s doubling to 30 s) so no call in the pause sends a grant. Access tokens, the ID token and scopes stay in the page's memory: the stored account holds only whether a session is held, the active profile and a random id for the sign-in, so no script that reads storage finds a token. A reload rebuilds the session from the cookie, naming the profile the page was on; an account stored with tokens by an older client is rewritten without them on its first read, and no token is ever read from storage; a reload whose grant is refused forgets the stored account. Each tab renews for itself. The stored account carries a random id per sign-in on the device, and a tab ends its session, with no request, as soon as another tab signs out or a new sign-in replaces the stored account (`checkStoredAccount`, which the runtime runs on every `storage` event for the key, and before every `authFetch`). `authFetch` rejects a request that fails or is aborted with what `fetch` gave, and refuses a URL off the issuer's origin with a `TypeError` before anything is sent. The clients pass an abort and the session rejections (`AuthExpiredError`, `TokenRefreshError`, `ActiveProfileResetError`, `StorageError`) through unchanged, and turn a failed request into their own `OsnApiError` at status `0`.
+
+  `POST /token` takes an optional `profile_id`, and renewal names the active profile in it: the issuer mints for that profile when the session's account owns it, and for the default profile otherwise, so renewal is one request and spends no profile switch. A grant that comes back for the default profile means the account does not own the active one: the default profile becomes active and the call rejects with `ActiveProfileResetError`. A restricted recovery session ignores the field.
+
+  Breaking: `AuthProvider` takes `auth` (the runtime) in place of `config` and `storage`. `decodeAccountSession` is gone; `decodeStoredAccount` reads the stored account, typed `StoredAccount`; `OsnAuthService` gains `checkStoredAccount`, and `ACCOUNT_SESSION_KEY` names the storage key. Every authenticated client (`createGraphClient`, `createOrgClient`, `createRecommendationClient`, `createSessionsClient`, `createSecurityEventsClient`, `createConnectionsClient`, `createPasskeysClient`, `createTotpClient`, `createStepUpClient`, `createRecoveryClient`, `createAccountClient`) takes `{ issuerUrl, authFetch }`, and no method takes an access token. `GraphProvider` and `OrgProvider` are removed. The `@osn/auth-ui` views (`SessionsView`, `PasskeysView`, `TotpView`, `RecoveryCodesView`, `SecurityEventsBanner`, `ChangeEmailForm`, `StepUpDialog`) drop the `accessToken` prop.
+
+  Musubi builds one runtime, `osnAuth`, hands it to both of its providers and builds every authenticated client with its `authFetch`. Settings, connections, organisations, discovery and search keep working past five minutes, and a refused renewal shows the signed-out page. Musubi's built `_headers` now carries a `script-src` (the app, its two inline scripts by hash, and Turnstile when the build has a sitekey) and a `connect-src` (the app and the issuer it was built for): scripts run only from those sources, and `fetch`, XHR, WebSocket and `sendBeacon` reach only the app and the issuer. Images, frames, styles and navigation stay unrestricted, so the policy does not stop a script sending data off the page.
+
+## 2.20.1
+
+### Patch Changes
+
+- c687234: Every workspace that uses Effect runs `effect` 4.1.2, with `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
+  `@effect/vitest` at 4.1.2 and the root overrides for
+  `@effect/platform-node-shared` and `@effect/sql-d1` with them. The stacks run
+  `alchemy` and `@alchemy.run/cloudflare` 2.0.0-beta.85, which loads on Effect
+  4.1 unpatched; the provider's patch, carried to beta.85, keeps the D1 import
+  the stacks ran on beta.84 and the content types Wrangler uploads assets with.
+  beta.85 deploys state store version 8, which beta.84 cannot use, so a tier's
+  store cannot go back once it is upgraded.
+
+  The production plan guard reads beta.85's console lines
+  (`[hh:mm:ss.mmm] INFO: …`), and `messageOf()` reads no logfmt record.
+  `@shared/infra`'s tests hold the AWS SDK the provider installs,
+  `@distilled.cloud/aws`, to listing and aborting an R2 bucket's multipart
+  uploads, and run both under Bun. `RETIRED_STAGING_HOSTS` is gone from
+  `@shared/infra`, and `domainRefusals()` takes `(changes, unflip)`: a site's
+  Worker gives up only its current spare host without an `unflip` naming the
+  site.
+
+## 2.20.0
+
+### Minor Changes
+
+- ff7a76f: Every `@osn/client` REST client's error now extends `OsnApiError` and carries the response's HTTP `status` (`0` when no response arrived) and the server's `error` code. A non-JSON error page, or a success whose body is not JSON, throws the client's own error instead of a `SyntaxError` or `null`; a failed `fetch` throws it at status `0`, and a caller's own abort still passes through. `ProfileManagementError`, an Effect tagged error rather than an `OsnApiError`, carries `status` and `code` as optional fields. New `describeAuthError(err, context?)` in `@osn/client`, which reads either, and `describePasskeyError(err, ceremony)` in `@osn/auth-ui`, whose caller names the WebAuthn ceremony that failed, turn a failure into one plain sentence that never shows the error's message, the code or the browser's text.
+
+## 2.19.0
+
+### Minor Changes
+
+- 3f628a0: The organisations client matches osn-api's organisation routes. `OrgSummary` drops `id` and `ownerId`, and `OrgMember` is the flat roster row `{ handle, displayName, role, joinedAt }`. `getOrg` returns `{ organisation }`, and `createOrg` and `updateOrg` return `{ ok, organisation }`, as their routes send them. Every method takes an organisation handle and, for a member, a profile handle; `addMember` posts to `/organisations/:handle/members/:profileHandle` with `{ role }`. `OrgClientError` carries the response's HTTP `status`. A contract test holds the client to `shared/openapi/osn.json`.
+
+  Musubi's organisation page opens again at `/organisations/:handle`: it reads the organisation from `getOrg`'s body, lists members by handle with initials (the roster carries no avatar), removes a member by handle, and says "Organisation not found." for a missing organisation and "Only members can see who belongs to this organisation." when the roster is refused. Any other failed load says so in a red line that asks the reader to reload. Saving the organisation and removing a member update the page from the response without reloading it, and each Remove button is named for its member. Every empty state in the app is one component, `EmptyNote`, which screen readers announce.
+
 ## 2.18.12
 
 ### Patch Changes

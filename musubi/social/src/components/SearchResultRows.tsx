@@ -7,10 +7,14 @@ import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
+import { Chip } from "@shared/ui/ui/chip";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
 
+import { describeActionError } from "../lib/action-error";
 import { graphClient } from "../lib/api";
+import { invalidatePages } from "../lib/page-cache";
+import { PAGE_DATA } from "../lib/page-names";
 import type { SearchController } from "../lib/search";
 import { safeAvatarUrl } from "../lib/utils";
 
@@ -19,10 +23,12 @@ import { safeAvatarUrl } from "../lib/utils";
  * than in each surface so the rail dropdown and the `/search` page can never
  * drift on what a row does.
  */
-export function useSearchActions(token: () => string, controller: SearchController) {
+export function useSearchActions(controller: SearchController) {
   const [pending, setPending] = createSignal<Set<string>>(new Set());
 
+  /** Runs `run` for `handle` unless one is already running for it. */
   function withPending(handle: string, run: () => Promise<void>) {
+    if (pending().has(handle)) return;
     setPending((prev) => new Set(prev).add(handle));
     void run().finally(() =>
       setPending((prev) => {
@@ -36,11 +42,13 @@ export function useSearchActions(token: () => string, controller: SearchControll
   function connect(handle: string) {
     withPending(handle, async () => {
       try {
-        await graphClient.sendConnectionRequest(token(), handle);
+        await graphClient.sendConnectionRequest(handle);
         controller.setConnectionStatus(handle, "pending_sent");
         toast.success(`Request sent to @${handle}`);
+        // The pages these change, by name: the shell does not load their queries.
+        invalidatePages(PAGE_DATA.sentRequests, PAGE_DATA.suggestions);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to send request");
+        toast.error(describeActionError(err, "Failed to send request"));
       }
     });
   }
@@ -48,11 +56,12 @@ export function useSearchActions(token: () => string, controller: SearchControll
   function accept(handle: string) {
     withPending(handle, async () => {
       try {
-        await graphClient.acceptConnection(token(), handle);
+        await graphClient.acceptConnection(handle);
         controller.setConnectionStatus(handle, "connected");
         toast.success(`You and @${handle} are connected`);
+        invalidatePages(PAGE_DATA.pendingRequests, PAGE_DATA.connections, PAGE_DATA.suggestions);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to accept request");
+        toast.error(describeActionError(err, "Failed to accept request"));
       }
     });
   }
@@ -82,9 +91,12 @@ function ResultAvatar(props: { url: string | null; label: string; size: string }
   );
 }
 
-/** The label for a person row's affordance, given the caller's state with them. */
+/**
+ * The label for a person row's affordance, given the caller's state with them.
+ * While its request runs it names the wait.
+ */
 function actionLabel(status: SearchConnectionState, busy: boolean): string {
-  if (busy) return "…";
+  if (busy) return status === "pending_received" ? "Accepting…" : "Sending…";
   switch (status) {
     case "connected":
       return "Connected";
@@ -124,7 +136,7 @@ function PersonAction(props: {
         <span
           class={clsx(
             "text-meta shrink-0",
-            actionable() ? "text-foreground font-medium" : "text-subtle",
+            actionable() ? "text-foreground font-medium" : "text-muted-foreground",
           )}
         >
           {label()}
@@ -133,8 +145,8 @@ function PersonAction(props: {
     >
       <Button
         size="sm"
-        class="h-7 shrink-0 max-md:h-9"
-        disabled={props.busy}
+        class="h-7 shrink-0 max-md:h-10"
+        busy={props.busy}
         onClick={() => (props.status === "none" ? props.onConnect() : props.onAccept())}
       >
         {label()}
@@ -157,11 +169,11 @@ export function PersonRow(props: {
     <>
       <ResultAvatar url={props.person.avatarUrl} label={props.person.handle} size="h-8 w-8" />
       <div class="min-w-0 flex-1">
-        <p class="text-foreground text-body truncate font-medium">
+        <p class="text-foreground text-title truncate font-medium">
           {props.person.displayName || `@${props.person.handle}`}
         </p>
         <Show when={props.person.displayName}>
-          <p class="text-subtle text-meta truncate">@{props.person.handle}</p>
+          <p class="text-muted-foreground text-meta truncate">@{props.person.handle}</p>
         </Show>
       </div>
       <PersonAction
@@ -184,11 +196,13 @@ export function OrganisationRow(props: { organisation: OrganisationSearchResult 
         size="h-8 w-8 rounded-md"
       />
       <div class="min-w-0 flex-1">
-        <p class="text-foreground text-body truncate font-medium">{props.organisation.name}</p>
-        <p class="text-subtle text-meta truncate">@{props.organisation.handle}</p>
+        <p class="text-foreground text-title truncate font-medium">{props.organisation.name}</p>
+        <p class="text-muted-foreground text-meta truncate">@{props.organisation.handle}</p>
       </div>
       <Show when={props.organisation.isMember}>
-        <span class="text-subtle text-meta shrink-0">Member</span>
+        <Chip variant="outline" treatment="tag" class="shrink-0">
+          Member
+        </Chip>
       </Show>
     </>
   );

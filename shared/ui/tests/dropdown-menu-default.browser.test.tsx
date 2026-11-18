@@ -7,15 +7,22 @@
  * variant and the checkbox, radio and link items, so it runs on the code
  * before that change as well as after it. That is the point of keeping it
  * apart: a literal copied wrong would otherwise never be seen passing against
- * the code it claims to describe. One thing differs from that code, and only
- * in a contrast theme: a focused row and a focused pill trigger draw an
- * outline there, because the theme drops the fill and the ring that mark
- * focus everywhere else.
+ * the code it claims to describe. Three things differ from that code. In a
+ * contrast theme a focused row and a focused pill trigger draw an outline,
+ * because the theme drops the fill and the ring that mark focus everywhere
+ * else. The panel's motion moved to the shared tokens, growing from its
+ * trigger, so its class string names `zoom-in`, `zoom-out` and Kobalte's
+ * origin; `overlay-motion.browser.test.tsx` holds what those do. And the
+ * separator draws no border of its own: it is an `<hr>`, which keeps
+ * preflight's 1px top border in the panel's ink, and that border painted over
+ * the hairline fill wherever an app's base styles left its colour alone. In a
+ * contrast theme, which drops the fill, the border comes back for the theme
+ * to paint.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
-import { commands, userEvent } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 
 import {
   DropdownMenu,
@@ -44,6 +51,9 @@ afterEach(async () => {
 /** Long enough for the opening animation to settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
 
+/** Gitignored; a rerun of this file draws them again. */
+const shot = (name: string) => `__screenshots__/dropdown-menu-default.browser.test.tsx/${name}.png`;
+
 function AccountMenu() {
   return (
     <DropdownMenu>
@@ -71,9 +81,12 @@ describe("the default menu", () => {
   it("renders exactly the classes it rendered before the accent variant", async () => {
     render(() => <AccountMenu />);
     await openByKeyboard();
+    // The panel's motion is the one deliberate change since: it grows from its
+    // trigger, and its zoom reads the shared scale tokens (`zoom-in`,
+    // `zoom-out`) rather than a 0.95 of its own.
     expect(screen.getByRole("menu").getAttribute("class")).toBe(
       "base:bg-ui-surface-raised base:text-ui-ink base:border-ui-hairline base:z-50 base:min-w-32 base:rounded-ui-md base:border base:p-1 base:shadow-md base:outline-none " +
-        "base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out-95 base:data-[expanded]:zoom-in-95 w-52",
+        "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out base:data-[expanded]:zoom-in w-52",
     );
     expect(screen.getByRole("menuitem", { name: "Switch profile" }).getAttribute("class")).toBe(
       "base:relative base:flex base:cursor-pointer base:select-none base:items-center base:rounded-ui-sm base:px-2 base:py-1.5 base:text-ui-base base:outline-none " +
@@ -87,13 +100,17 @@ describe("the default menu", () => {
       "base:px-2 base:py-1.5 base:text-ui-base base:text-ui-ink base:font-semibold",
     );
     expect(screen.getByRole("separator").getAttribute("class")).toBe(
-      "base:bg-ui-hairline base:-mx-1 base:my-1 base:h-px",
+      "base:bg-ui-hairline base:-mx-1 base:my-1 base:h-px base:border-0 base:forced-colors:border-t",
     );
   });
 
   it("paints what those classes paint", async () => {
     render(() => <AccountMenu />);
     await openByKeyboard();
+    // Drawn before anything is asserted, so a failing run leaves its picture.
+    // One shot: the panel is a fixed-width portal, so the page's width does
+    // not change it.
+    await page.screenshot({ path: shot("separator"), element: screen.getByRole("menu") });
     const panel = getComputedStyle(screen.getByRole("menu"));
     expect(panel.paddingTop).toBe("4px");
     expect(panel.borderTopWidth).toBe("1px");
@@ -116,6 +133,10 @@ describe("the default menu", () => {
     expect(getComputedStyle(screen.getByText("Profiles")).fontWeight).toBe("600");
     const rule = getComputedStyle(screen.getByRole("separator"));
     expect([rule.height, rule.marginLeft]).toEqual(["1px", "-4px"]);
+    // The line is the hairline fill alone: `--ui-hairline` in the test
+    // palette, with no border over it.
+    expect(rule.borderTopWidth).toBe("0px");
+    expect(rule.backgroundColor).toBe("rgb(220, 220, 228)");
   });
 
   it("portals to the document's body, and claims no top layer, with no modal open", async () => {
@@ -151,6 +172,16 @@ describe("the default menu in a contrast theme", () => {
     expect(getComputedStyle(screen.getByRole("menuitem", { name: "Archived" })).outlineStyle).toBe(
       "none",
     );
+  });
+
+  it("draws the separator as a top border, where the theme drops its fill", async () => {
+    await emulateMedia({ forcedColors: "active" });
+    render(() => <AccountMenu />);
+    await openByKeyboard();
+    await page.screenshot({ path: shot("separator-forced"), element: screen.getByRole("menu") });
+    const rule = getComputedStyle(screen.getByRole("separator"));
+    expect(rule.borderTopWidth).toBe("1px");
+    expect(rule.height).toBe("1px");
   });
 
   it("outlines a pill trigger reached from the keyboard, where the theme drops its ring", async () => {

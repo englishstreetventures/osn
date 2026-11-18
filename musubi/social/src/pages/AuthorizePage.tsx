@@ -1,7 +1,12 @@
+import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import type { AuthorizeContext, PublicProfile } from "@osn/client";
-import { AuthorizeError } from "@osn/client";
+import { AuthorizeError, describeAuthError } from "@osn/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
+import { Chip } from "@shared/ui/ui/chip";
+import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { useSearchParams } from "@solidjs/router";
 import {
   createMemo,
@@ -16,6 +21,7 @@ import {
   Switch,
 } from "solid-js";
 
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { PRODUCT_NAME } from "../lib/auth";
 import { authorizeClient } from "../lib/authorize";
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
@@ -162,6 +168,12 @@ export function AuthorizePage() {
   // is what stops the sign-in screen looping, since the URL still says
   // `login` / `create` afterwards.
   const [signedInHere, setSignedInHere] = createSignal(false);
+  // Which half of the sign-in panel leads; its loading placeholder takes the
+  // same shape, so nothing jumps when the panel's code lands.
+  // A sign-up this tab was waiting on before a reload leads too, so its
+  // waiting view resumes and a link confirmed meanwhile finishes here.
+  const panelMode = (): "register" | "signIn" =>
+    (reason() === "create" || hasPendingSignUp()) && !signedInHere() ? "register" : "signIn";
   // `reason=select_account`: the app wants the person at the keyboard to say
   // which account this is, because the browser may be shared. The account
   // screen leads until they press Continue — or until they sign in on this
@@ -214,12 +226,13 @@ export function AuthorizePage() {
   /**
    * A context failure the request survives — rate limiting, or the network.
    * Retryable, so it gets a message and a button rather than the spinner it
-   * would otherwise sit behind for ever.
+   * would otherwise sit behind for ever. The copy map's sentence, never the
+   * error's own text.
    */
   const loadError = createMemo(() => {
     const err = context.error;
     if (!err || (err instanceof AuthorizeError && err.terminal)) return null;
-    return err instanceof Error && err.message ? err.message : "Something went wrong.";
+    return describeAuthError(err);
   });
 
   // `<Switch>` asks each `Match` in turn, so this is the one tracked value the
@@ -239,6 +252,26 @@ export function AuthorizePage() {
     if (showPicker()) return "picker";
     return "consent";
   });
+
+  // Set by the error card's Try again. A failed load keeps `context.error`
+  // until the next try settles, so the card stays up through a retry. Its
+  // alert speaks the first failure as it appears; each later one is said
+  // through the live region, because the alert's text does not change.
+  const [retried, setRetried] = createSignal(false);
+
+  const announcement = () => {
+    const now = screen();
+    if (now !== "error") return SCREEN_ANNOUNCEMENT[now];
+    if (context.loading) return SCREEN_ANNOUNCEMENT.loading;
+    return retried() ? loadError() : null;
+  };
+
+  // Try again is busy while the load runs: it keeps focus and refuses a press.
+  function retryLoad() {
+    if (context.loading) return;
+    setRetried(true);
+    void refetch();
+  }
 
   /** A retryable failure — the request survives, the page does not restart. */
   function softFail(message: string) {
@@ -290,7 +323,7 @@ export function AuthorizePage() {
           return;
         }
       }
-      softFail(err instanceof Error ? err.message : "Something went wrong. Try again.");
+      softFail(describeAuthError(err));
     }
   }
 
@@ -341,7 +374,7 @@ export function AuthorizePage() {
           `aria-live="polite"`), which is the semantic element for a value the
           page computes rather than one the user typed. */}
       <output class="sr-only" aria-live="polite">
-        {SCREEN_ANNOUNCEMENT[screen()]}
+        {announcement()}
       </output>
       <Switch>
         <Match when={screen() === "loading"}>
@@ -349,26 +382,28 @@ export function AuthorizePage() {
         </Match>
 
         <Match when={screen() === "dead"}>
-          <div class="border-border rounded-card border p-6 text-center">
+          <Card padding="lg" class="flex flex-col gap-2">
             <h1 class="text-foreground text-title font-medium">{deadMessage()}</h1>
-            <p class="text-muted-foreground text-body mt-2">
+            <p class="text-muted-foreground text-body">
               <Show when={clientName()} fallback="Go back to the app you came from and try again.">
                 {(name) => <>Go back to {name()} and start again.</>}
               </Show>
             </p>
-          </div>
+          </Card>
         </Match>
 
         <Match when={screen() === "error"}>
-          <div class="border-border rounded-card border p-6 text-center">
-            <h1 class="text-foreground text-title font-medium">Could not load this request</h1>
-            <p class="text-muted-foreground text-body mt-2" role="alert">
-              {loadError()}
-            </p>
-            <Button class="mt-4" onClick={() => void refetch()}>
-              Try again
+          <Card padding="lg" class="flex flex-col gap-6">
+            <div class="flex flex-col gap-2">
+              <h1 class="text-foreground text-title font-medium">Could not load this request</h1>
+              <Notice tone="danger" size="inline" alert>
+                {loadError()}
+              </Notice>
+            </div>
+            <Button size="lg" class="w-full max-md:h-11" busy={context.loading} onClick={retryLoad}>
+              {context.loading ? "Checking…" : "Try again"}
             </Button>
-          </div>
+          </Card>
         </Match>
 
         <Match when={screen() === "redirecting"}>
@@ -387,10 +422,10 @@ export function AuthorizePage() {
               Sign in with the account you want to use.
             </p>
           </Show>
-          <div class="border-border rounded-card mt-4 border p-1">
-            <Suspense
-              fallback={<p class="text-muted-foreground text-body p-4 text-center">Loading…</p>}
-            >
+          {/* Unframed: the panel's own header leads it, 24px under the
+              client card. */}
+          <div class="mt-6">
+            <Suspense fallback={<SignInLoading mode={panelMode()} />}>
               {/* `reason` is advisory — it only picks which half of the panel
                   leads. The server re-derives every requirement at decision
                   time, so a tampered value widens nothing.
@@ -403,10 +438,7 @@ export function AuthorizePage() {
                   someone who has just made one, which reads as the flow having thrown
                   the new account away. Once a ceremony has happened on this
                   page, the way forward is signing in. */}
-              <AuthorizeSignIn
-                initialMode={reason() === "create" && !signedInHere() ? "register" : "signIn"}
-                onSuccess={() => void afterSignIn()}
-              />
+              <AuthorizeSignIn initialMode={panelMode()} onSuccess={() => void afterSignIn()} />
             </Suspense>
           </div>
           <Show when={switching()}>
@@ -429,7 +461,7 @@ export function AuthorizePage() {
 
         <Match when={screen() === "account"}>
           <ClientCard context={ctx()} />
-          <h2 class="text-foreground text-body mt-6 mb-2 font-medium">Signed in as</h2>
+          <h2 class="text-foreground text-title mt-6 mb-2 font-medium">Signed in as</h2>
           <Show when={profiles().length > 1}>
             <p class="text-muted-foreground text-meta mb-2">
               {clientName()} will see the profile you pick, and only that one.
@@ -453,7 +485,7 @@ export function AuthorizePage() {
                   <button
                     type="button"
                     aria-pressed={profile.id === selectedId()}
-                    class="border-border hover:bg-muted aria-pressed:border-foreground focus-visible:ring-ui-focus flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                    class="border-border hover:bg-muted aria-pressed:border-foreground focus-visible:ring-ui-focus transition-ui-colors flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left focus-visible:ring-2 focus-visible:outline-hidden"
                     onClick={() => setChosenId(profile.id)}
                   >
                     <ProfileRow profile={profile} />
@@ -494,9 +526,9 @@ export function AuthorizePage() {
           </div>
           <Show when={notice()}>
             {(message) => (
-              <p class="text-destructive text-body mt-4" role="alert">
+              <Notice tone="danger" size="inline" alert class="mt-4">
                 {message()}
-              </p>
+              </Notice>
             )}
           </Show>
         </Match>
@@ -511,7 +543,7 @@ export function AuthorizePage() {
               {(profile) => (
                 <button
                   type="button"
-                  class="border-border hover:bg-muted flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors"
+                  class="border-border hover:bg-muted transition-ui-colors flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left"
                   onClick={() => {
                     setChosenId(profile.id);
                     setPickerOpen(false);
@@ -519,10 +551,10 @@ export function AuthorizePage() {
                 >
                   <ProfileAvatar profile={profile} />
                   <div class="flex min-w-0 flex-col">
-                    <span class="text-foreground text-body truncate font-medium">
+                    <span class="text-foreground text-title truncate font-medium">
                       {profile.displayName || `@${profile.handle}`}
                     </span>
-                    <span class="text-subtle text-meta truncate">@{profile.handle}</span>
+                    <span class="text-muted-foreground text-meta truncate">@{profile.handle}</span>
                   </div>
                 </button>
               )}
@@ -555,11 +587,13 @@ export function AuthorizePage() {
           <ul class="mt-6 flex flex-col gap-3">
             <For each={ctx()?.scopes ?? []}>
               {(scope) => (
-                <li class="border-border rounded-card border p-3">
-                  <p class="text-foreground text-body font-medium">{scopeLabel(scope)}</p>
-                  <Show when={scopeDetail(scope)}>
-                    {(detail) => <p class="text-muted-foreground text-meta mt-1">{detail()}</p>}
-                  </Show>
+                <li>
+                  <Card padding="sm">
+                    <p class="text-foreground text-body font-medium">{scopeLabel(scope)}</p>
+                    <Show when={scopeDetail(scope)}>
+                      {(detail) => <p class="text-muted-foreground text-meta mt-1">{detail()}</p>}
+                    </Show>
+                  </Card>
                 </li>
               )}
             </For>
@@ -570,10 +604,10 @@ export function AuthorizePage() {
               <div class="border-border mt-6 flex items-center gap-3 rounded-lg border px-3 py-2.5">
                 <ProfileAvatar profile={profile()} />
                 <div class="flex min-w-0 flex-1 flex-col">
-                  <span class="text-foreground text-body truncate font-medium">
+                  <span class="text-foreground text-title truncate font-medium">
                     {profile().displayName || `@${profile().handle}`}
                   </span>
-                  <span class="text-subtle text-meta truncate">@{profile().handle}</span>
+                  <span class="text-muted-foreground text-meta truncate">@{profile().handle}</span>
                 </div>
                 <Show when={profiles().length > 1}>
                   <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>
@@ -586,9 +620,9 @@ export function AuthorizePage() {
 
           <Show when={notice()}>
             {(message) => (
-              <p class="text-destructive text-body mt-4" role="alert">
+              <Notice tone="danger" size="inline" alert class="mt-4">
                 {message()}
-              </p>
+              </Notice>
             )}
           </Show>
 
@@ -609,7 +643,7 @@ export function AuthorizePage() {
               Cancel
             </Button>
           </div>
-          <p class="text-subtle text-meta mt-3 text-center">
+          <p class="text-muted-foreground text-meta mt-3 text-center">
             You can undo this later in your {PRODUCT_NAME} settings.
           </p>
         </Match>
@@ -623,10 +657,10 @@ function ProfileRow(props: { profile: PublicProfile }) {
     <>
       <ProfileAvatar profile={props.profile} />
       <div class="flex min-w-0 flex-col">
-        <span class="text-foreground text-body truncate font-medium">
+        <span class="text-foreground text-title truncate font-medium">
           {props.profile.displayName || `@${props.profile.handle}`}
         </span>
-        <span class="text-subtle text-meta truncate">@{props.profile.handle}</span>
+        <span class="text-muted-foreground text-meta truncate">@{props.profile.handle}</span>
       </div>
     </>
   );
@@ -664,7 +698,10 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
           />
         )}
       </Show>
-      <h1 class="text-foreground text-title font-medium">{client()?.name}</h1>
+      {/* The app's name leads the screen, over the panel's 14px heading. It
+          is the app's own words, so it breaks anywhere rather than widen the
+          column, and the checks under it stay in view. */}
+      <h1 class="text-foreground text-display font-medium wrap-anywhere">{client()?.name}</h1>
       <p class="text-muted-foreground text-body mt-1">wants to use your {PRODUCT_NAME} account</p>
       {/* Verifiable identity signal. The name above is self-asserted and can
           impersonate a first-party app; the redirect host is what the client
@@ -673,10 +710,12 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
       <Show
         when={client()?.firstParty}
         fallback={
-          <p class="text-muted-foreground text-caption mt-3 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
-            <span class="border-border text-muted-foreground rounded-full border px-2 py-0.5 font-medium">
-              Third-party app
-            </span>
+          <p class="text-muted-foreground text-meta mt-3 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
+            {/* The word at 500, as the consent screen's other marker is: it
+                stands beside a name the app chose for itself. */}
+            <Chip variant="outline" treatment="tag">
+              <span class="font-medium">Third-party app</span>
+            </Chip>
             <Show when={client()?.redirectDomain}>
               {(domain) => (
                 <span>
@@ -687,8 +726,81 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
           </p>
         }
       >
-        <p class="text-caption text-success mt-3 font-medium">Verified by {PRODUCT_NAME}</p>
+        <p class="text-meta text-success mt-3 font-medium">Verified by {PRODUCT_NAME}</p>
       </Show>
     </div>
   );
 }
+
+/**
+ * The sign-in panel's place while its code loads, in the shape of the half
+ * that leads: sign-in's heading, its one labelled field, Continue and "Lost
+ * your passkey?", then the "Create one" line under the panel; or sign-up's
+ * heading beside "Sign in instead", its four labelled fields and the button.
+ * Words that wrap stay words, so they wrap where the panel's do: the heading,
+ * in `AuthHeader`'s page classes, and the date of birth's hint. Labels, fields
+ * and buttons, which never wrap, are blocks, each the height the panel draws
+ * it (a 14px label; the email's is 16px, the height of the button beside it).
+ * "Sign in instead" is 40px tall below `md` and 32px from it, so it gets a
+ * block for each. A Suspense fallback goes when the panel lands, and nothing
+ * holds both, so this wrapper carries `aria-busy`.
+ */
+function SignInLoading(props: { mode: "register" | "signIn" }) {
+  const register = () => props.mode === "register";
+  const fields = () =>
+    register()
+      ? [
+          { label: 4, hint: false },
+          { label: 3.5, hint: false },
+          { label: 3.5, hint: true },
+          { label: 3.5, hint: false },
+        ]
+      : [{ label: 3.5, hint: false }];
+  return (
+    <div aria-busy="true">
+      <div class="flex items-center justify-between gap-3">
+        {/* `AuthHeader`'s page title, class for class. */}
+        <h2 class="text-ui-ink text-ui-md font-ui-title wrap-anywhere">
+          {register() ? `Create your ${PRODUCT_NAME} account` : `Sign in to ${PRODUCT_NAME}`}
+        </h2>
+        <Show when={register()}>
+          {/* "Sign in instead", as wide as the button, so the heading wraps as it does. */}
+          <ResponsiveSkeleton
+            standsFor="control"
+            width={SIGN_IN_INSTEAD_WIDTH}
+            height={8}
+            phoneHeight={10}
+            class="shrink-0"
+          />
+        </Show>
+      </div>
+      <div class="flex flex-col gap-4 pt-6">
+        <For each={fields()}>
+          {(field) => (
+            <div class="flex flex-col gap-1.5">
+              <Skeleton standsFor="line" width={28} height={field.label} />
+              <Skeleton standsFor="field" height={9} />
+              <Show when={field.hint}>
+                <p class="font-ui-body text-ui-ink-secondary text-ui-xs leading-ui-snug">
+                  You must be 13 or older to create an account.
+                </p>
+              </Show>
+            </div>
+          )}
+        </For>
+        <Skeleton standsFor="control" height={9} />
+        <Show when={!register()}>
+          <Skeleton standsFor="control" width={35} height={8} class="self-center" />
+        </Show>
+      </div>
+      <Show when={!register()}>
+        <div class="mt-6">
+          <Skeleton standsFor="line" width={40} height={4.5} class="mx-auto" />
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+/** "Sign in instead" as a `ghost` `sm` Button draws it, in spacing steps. */
+const SIGN_IN_INSTEAD_WIDTH = 29;

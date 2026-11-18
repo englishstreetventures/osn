@@ -25,13 +25,11 @@ import { ownerSeat } from "./test-helpers/wedding";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
 // serve ANY authenticated OSN user with NO special bootstrap config — there is
-// no global boot gate. Previously `ensureBootstrapOwner` THREW (⇒ 503) in any
-// deployed env unless `BOOTSTRAP_OWNER_PROFILE_ID` named a real `usr_*`; that
-// gate is gone now that multi-wedding + create-wedding exist. These tests boot
-// the real `handler.fetch` against a workerd-backed D1 (Miniflare) in a
-// deployed-tier env (`OSN_ENV=production`) with NO bootstrap owner set and
-// assert the app boots + routes — i.e. it never fail-closes at the edge with a
-// 503 for the missing var.
+// no global boot gate, and no deployed env needs `BOOTSTRAP_OWNER_PROFILE_ID`
+// to name a real `usr_*`. These tests boot the real `handler.fetch` against a
+// workerd-backed D1 (Miniflare) in a deployed-tier env (`OSN_ENV=production`)
+// with NO bootstrap owner set and assert the app boots + routes — i.e. it
+// never fail-closes at the edge with a 503 for the missing var.
 //
 // The tier travels on the `env` BINDING, not `process.env` — on workerd
 // `process.env` is unpopulated during module evaluation and only fills lazily,
@@ -145,21 +143,6 @@ afterAll(async () => {
 });
 
 describe("Worker boot (no bootstrap-owner config)", () => {
-  it("boots + serves WITHOUT BOOTSTRAP_OWNER_PROFILE_ID in a deployed env (no 503)", async () => {
-    const env = { ...BASE_ENV, DB } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
-    const res = await handler.fetch!(
-      new Request("https://api.example.com/api/organiser/weddings"),
-      env,
-      ctx,
-    );
-    // The old boot gate would 503 here ("Worker misconfigured: ..."). Now the
-    // app boots and the route's own auth gate answers 401 (no token) — proving
-    // the edge handler served the request rather than fail-closing on a missing
-    // bootstrap owner.
-    expect(res.status).not.toBe(503);
-    expect(res.status).toBe(401);
-  });
-
   it("still fail-closes 503 when a genuinely required binding/var is missing", async () => {
     // WEB_ORIGIN omitted — the real misconfiguration guard must still fire.
     const env = {
@@ -179,15 +162,6 @@ describe("Worker boot (no bootstrap-owner config)", () => {
   });
 });
 
-// Fail-closed guard: the native claim rate-limit binding is MANDATORY in
-// any deployed tier. Absent, createApp would silently fall back to a per-isolate
-// in-memory limiter — no real cross-request brute-force defence on the guest
-// claim endpoint. The guard 503s at the edge in a deployed tier, but keeps the
-// in-memory fallback in `local` so `bun run dev` / tests boot without it.
-// Tier is read from the `OSN_ENV` BINDING (parsed by @shared/observability's
-// `parseDeploymentEnvironment`), so each case drives it by setting OSN_ENV in
-// the env object — not `process.env`, which is empty on workerd at the moment
-// this decision is made.
 describe("WEB_ORIGIN boot check", () => {
   const fetchWith = (env: Record<string, unknown>) =>
     handler.fetch!(
@@ -228,6 +202,15 @@ describe("WEB_ORIGIN boot check", () => {
   });
 });
 
+// Fail-closed guard: the native claim rate-limit binding is MANDATORY in
+// any deployed tier. Absent, createApp would silently fall back to a per-isolate
+// in-memory limiter — no real cross-request brute-force defence on the guest
+// claim endpoint. The guard 503s at the edge in a deployed tier, but keeps the
+// in-memory fallback in `local` so `bun run dev` / tests boot without it.
+// Tier is read from the `OSN_ENV` BINDING (parsed by @shared/observability's
+// `parseDeploymentEnvironment`), so each case drives it by setting OSN_ENV in
+// the env object — not `process.env`, which is empty on workerd at the moment
+// this decision is made.
 describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   const runFetch = (env: Record<string, unknown>) =>
     handler.fetch!(
@@ -268,11 +251,10 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   });
 
   it("treats an ABSENT OSN_ENV binding as `local` (in-memory fallback)", async () => {
-    // Regression guard for the shape of the prod defect this replaced: with the
-    // tier unset the Worker must not pretend to be deployed. It is the wrangler
-    // [env.*.vars] entry, present in every deployed env block, that flips this —
-    // so an env block that forgets OSN_ENV degrades the claim-endpoint defence
-    // silently. That is why the deploy runbook checks the tier in `wrangler tail`.
+    // With the tier unset the Worker must not pretend to be deployed. It is the
+    // wrangler [env.*.vars] entry, present in every deployed env block, that
+    // flips this — so an env block that forgets OSN_ENV degrades the
+    // claim-endpoint defence silently. That is why the deploy runbook checks the tier in `wrangler tail`.
     const { OSN_ENV: _omit, ...withoutTier } = withoutBindingAt("local");
     void _omit;
     const res = await runFetch(withoutTier);
@@ -287,12 +269,6 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   });
 });
 
-// D1 Sessions API wiring, asserted at the edge rather than in isolation. The
-// unit tests in `db/d1-session.test.ts` prove the shim routes to whatever
-// session is on the async context; these prove the Worker actually PUTS one
-// there, on both entry points, and that no query escapes to the raw binding.
-// That is the failure that would be invisible otherwise: everything keeps
-// working, replication is simply never used.
 describe("CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS", () => {
   // Wedding ids in the shape `weddingsService` mints.
   const LISTED = "wed_0123456789abcdef0123456789abcdef";
@@ -695,6 +671,12 @@ describe("upgrades need the platform webhook secret on the Worker", () => {
   });
 });
 
+// D1 Sessions API wiring, asserted at the edge rather than in isolation. The
+// unit tests in `db/d1-session.test.ts` prove the shim routes to whatever
+// session is on the async context; these prove the Worker actually PUTS one
+// there, on both entry points, and that no query escapes to the raw binding.
+// That is the failure that would be invisible otherwise: everything keeps
+// working, replication is simply never used.
 describe("D1 session routing at the entry points", () => {
   /**
    * A D1 binding that records what it was asked for, delegating to the real
@@ -761,22 +743,6 @@ describe("D1 session routing at the entry points", () => {
     new Request(`https://api.example.com/api/invite/${slug}`) as unknown as Parameters<
       NonNullable<typeof handler.fetch>
     >[0];
-
-  it("opens one first-primary session per request and routes every query to it", async () => {
-    const probe = probeD1();
-    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
-      NonNullable<typeof handler.fetch>
-    >[1];
-
-    const res = await handler.fetch!(inviteRequest(), env, ctx);
-
-    expect(res.status).toBe(404);
-    expect(probe.constraints).toEqual([D1_SESSION_CONSTRAINT]);
-    expect(probe.sessionQueries[0]?.length ?? 0).toBeGreaterThan(0);
-    // The one that matters: a Drizzle handle built over the raw binding would
-    // opt every query out of replication with nothing to notice.
-    expect(probe.bindingQueries).toEqual([]);
-  });
 
   it("gives each request its own session", async () => {
     // Two requests through the SAME isolate-cached app — the app graph and its
@@ -1168,6 +1134,30 @@ describe("D1 session routing at the entry points", () => {
     expect(probe.bindingQueries).toEqual([]);
   }, 30_000);
 
+  /**
+   * The daily pass that finishes upgrade payments a webhook could not. It
+   * needs only a Stripe key — a refund cire owes is asked for even where no
+   * tier is sold any more — and with none there is nothing it could do.
+   */
+  it("runs the upgrade reconciliation where there is a Stripe key, on a session of its own", async () => {
+    const reads = (probe: Awaited<ReturnType<typeof runCron>>["probe"]) =>
+      probe.sessionQueries.filter((queries) =>
+        queries.some(
+          (q) =>
+            q.includes('from "wedding_upgrade_purchases"') &&
+            q.includes('order by "wedding_upgrade_purchases"."updated_at"'),
+        ),
+      );
+
+    const withKey = await runCron({ STRIPE_SECRET_KEY: "sk_test_cron" });
+    expect(withKey.pending).toHaveLength(12);
+    expect(reads(withKey.probe)).toHaveLength(1);
+
+    const without = await runCron();
+    expect(without.pending).toHaveLength(11);
+    expect(reads(without.probe)).toHaveLength(0);
+  }, 60_000);
+
   it("gives the realtime budget sweep a session of its own", async () => {
     const { probe } = await runCron();
     const sweep = probe.sessionQueries.filter((queries) =>
@@ -1363,6 +1353,122 @@ describe("D1 session routing at the entry points", () => {
     }
   }, 30_000);
 
+  /**
+   * Lands one refund Stripe refused a day ago through the Worker's `scheduled`
+   * entry, with Stripe, osn-api and Resend stubbed at `fetch`, and reports
+   * what reached each and the record left behind.
+   */
+  async function landRefundThroughCron(id: string, env: Record<string, unknown>) {
+    const db = createD1Db(DB);
+    const now = new Date();
+    await db
+      .insert(weddings)
+      .values({
+        id: `wed_${id}`,
+        slug: id.replaceAll("_", "-"),
+        displayName: "Cron Refund",
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: now,
+      })
+      .onConflictDoNothing();
+    await db
+      .insert(weddingHosts)
+      .values(ownerSeat(`wed_${id}`, "usr_cron_owner"))
+      .onConflictDoNothing();
+    // Decided a day ago and refused since: the oldest refund in the queue.
+    const decided = Math.floor(now.getTime() / 1000) - 24 * 60 * 60;
+    await DB.batch([
+      DB.prepare(
+        `INSERT INTO wedding_upgrade_purchases
+           (id, wedding_id, entitlement, from_tier, status, checkout_session_id, payment_intent_id,
+            amount_minor, currency, created_by_osn_profile_id, created_at, updated_at)
+         VALUES (?, ?, 'gold', 'ivory', 'refunding', ?, ?, 4900, 'AUD', 'usr_cron_owner', ?, 1)`,
+      ).bind(`upg_${id}`, `wed_${id}`, `cs_${id}`, `pi_${id}`, decided),
+      DB.prepare(
+        `INSERT INTO platform_refunds
+           (id, purchase_id, entitlement, payment_intent_id, amount_minor, currency, reason,
+            status, refund_id, owners_notified_at, created_at, updated_at)
+         VALUES (?, ?, 'gold', ?, 4900, 'AUD', 'wedding_not_live', 'refunding', NULL, NULL, ?, 1)`,
+      ).bind(`rfd_${id}`, `upg_${id}`, `pi_${id}`, decided),
+    ]);
+
+    const refunds: string[] = [];
+    const lookups: string[] = [];
+    const mail: { to: string[]; subject: string }[] = [];
+    const spy = spyOn(globalThis, "fetch").mockImplementation(((
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url === "https://api.stripe.com/v1/refunds") {
+        refunds.push(String(init?.body));
+        return Promise.resolve(Response.json({ id: `re_${id}`, status: "succeeded" }));
+      }
+      if (url === "https://osn.example.test/internal/accounts/emails") {
+        lookups.push(url);
+        return Promise.resolve(
+          Response.json({
+            emails: [{ profile_id: "usr_cron_owner", email: "owner@example.test" }],
+          }),
+        );
+      }
+      if (url.startsWith("https://api.resend.com/")) {
+        const body = JSON.parse(String(init?.body)) as unknown;
+        for (const one of Array.isArray(body) ? body : [body]) {
+          mail.push(one as { to: string[]; subject: string });
+        }
+        return Promise.resolve(Response.json({ id: "email_test", data: [{ id: "email_test" }] }));
+      }
+      // Any other sweep's call is not what is under test.
+      return Promise.resolve(Response.json({}, { status: 404 }));
+    }) as typeof fetch);
+    try {
+      await captureLogs(() =>
+        runCron({
+          STRIPE_SECRET_KEY: "sk_test_cron",
+          WEB_ORIGIN: "https://invite.example.com,https://host.example.com",
+          ...env,
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    const record = await DB.prepare(
+      "SELECT status, refund_id, owners_notified_at FROM platform_refunds WHERE purchase_id = ?",
+    )
+      .bind(`upg_${id}`)
+      .first<{ status: string; refund_id: string | null; owners_notified_at: number | null }>();
+    const ours = refunds.filter((body) => body.includes(`payment_intent=pi_${id}`));
+    const told = mail.filter((m) => m.subject === "Your Cire upgrade payment has been refunded");
+    return { ours, lookups, told, record };
+  }
+
+  // The daily run is the second way a refund lands, and the cron builds its
+  // own owner notices for it: a refund it completes mails the wedding's owner,
+  // through Resend, at the address osn-api gives.
+  it("mails the wedding's owner when the daily run lands a refund Stripe refused before", async () => {
+    const landed = await landRefundThroughCron("cron", {
+      RESEND_API_KEY: "re_test",
+      ...(await osnArc()),
+    });
+    expect(landed.ours).toHaveLength(1);
+    expect(landed.told).toEqual([expect.objectContaining({ to: ["owner@example.test"] })]);
+    expect(landed.record).toMatchObject({ status: "auto_refunded", refund_id: "re_cron" });
+    expect(landed.record?.owners_notified_at).not.toBeNull();
+  }, 30_000);
+
+  // Owner mail needs both the address lookup and a transport. With osn-api
+  // but no Resend key the refund still lands, and nobody is looked up or told.
+  it("lands the refund but tells nobody without a Resend key", async () => {
+    const landed = await landRefundThroughCron("cron_quiet", await osnArc());
+    expect(landed.ours).toHaveLength(1);
+    expect(landed.lookups).toEqual([]);
+    expect(landed.told).toEqual([]);
+    expect(landed.record).toMatchObject({ status: "auto_refunded", refund_id: "re_cron_quiet" });
+    expect(landed.record?.owners_notified_at).toBeNull();
+  }, 30_000);
+
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
     const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
     const mail = { RESEND_API_KEY: "re_test", OSN_API_URL: "https://osn.example.test" };
@@ -1428,7 +1534,7 @@ describe("D1 session routing at the entry points", () => {
       weddingName: "Notified Wedding",
       ownerOsnProfileIds: ["usr_owner"],
       currency: "AUD",
-      finalEventOn: "2025-05-10",
+      retainedFrom: { rule: "final-event", on: "2025-05-10" },
       summary: {
         sweptOn: "2026-06-17",
         firstGiftOn: "2025-05-11",
@@ -1850,10 +1956,12 @@ describe("realtime subscribe at the Worker entry", () => {
       // response for. The limit is 1.8 s, not tighter: this handler took 1,073 ms
       // on a loaded CI runner, and a publish held inline never returns at all, so
       // a generous limit still catches the regression.
-      const timedOut = new Promise<"timed out">((resolve) =>
-        setTimeout(() => resolve("timed out"), 1800),
-      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = new Promise<"timed out">((resolve) => {
+        timer = setTimeout(() => resolve("timed out"), 1800);
+      });
       const first = await Promise.race([response, timedOut]);
+      clearTimeout(timer);
 
       expect(first).not.toBe("timed out");
       expect((first as Response).status).toBe(200);

@@ -107,8 +107,10 @@ export function buildClearSessionMarkerCookie(config: CookieSessionConfig): stri
 /**
  * Session cookie + marker, for the `set-cookie` response header.
  *
- * Every route that establishes a session must set BOTH, so the marker never
- * disagrees with the cookie it describes.
+ * Every route that establishes a session must set BOTH, so no response sets
+ * the cookie without its marker. A later response can still retract the
+ * marker alone: `/token` does when it refuses the cookie it was sent, which a
+ * sign-in may already have replaced, and the next renewal sets it again.
  */
 export function buildSessionCookies(token: string, config: CookieSessionConfig): string[] {
   return [buildSessionCookie(token, config), buildSessionMarkerCookie(config)];

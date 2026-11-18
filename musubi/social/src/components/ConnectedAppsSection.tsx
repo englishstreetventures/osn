@@ -1,9 +1,15 @@
+import { describeAuthError } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { Card } from "@shared/ui/ui/card";
+import { Notice } from "@shared/ui/ui/notice";
+import { createSignal, For, Show } from "solid-js";
 
 import { PRODUCT_NAME } from "../lib/auth";
 import { connectionsClient } from "../lib/authClients";
+import { connectedApps } from "../lib/page-data";
 import { safeAvatarUrl } from "../lib/utils";
+import { AppRowsLoading } from "./AppRowsLoading";
+import { EmptyNote } from "./EmptyNote";
 
 /**
  * Settings → Connected apps. Lists the relying parties this account has
@@ -11,23 +17,38 @@ import { safeAvatarUrl } from "../lib/utils";
  *
  * This is the user-facing half of the `/oidc/connections` API and the control
  * GDPR Art. 7(3) requires — "revoking must be as easy as granting". It replaced
- * a hardcoded, non-functional Pulse/Zap list.
+ * a hardcoded, non-functional Pulse/Zap list. Its lead paragraph is the
+ * page's (`SettingsPage`), so its words show while this section's code loads.
  */
-export function ConnectedAppsSection(props: { accessToken: string }) {
-  const [connections, { refetch }] = createResource(() =>
-    connectionsClient.list({ accessToken: props.accessToken }).then((r) => r.connections),
-  );
+export function ConnectedAppsSection() {
+  // Through the page cache: the tab shown again draws its last list at once
+  // and reads it again behind it.
+  const connections = connectedApps.use(() => []);
+  /**
+   * The list once a read has landed, kept on screen while it is read again
+   * (so a busy Revoke stays where it was), and nothing before the first read
+   * lands or after one fails. It reads `state` first: a failed read throws
+   * when read, which would end the page in its error boundary.
+   */
+  const list = () => {
+    const state = connections.state;
+    return state === "ready" || state === "refreshing" ? connections() : undefined;
+  };
   const [revoking, setRevoking] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
 
   async function revoke(clientId: string) {
+    if (revoking() === clientId) return;
     setError(null);
     setRevoking(clientId);
     try {
-      await connectionsClient.revoke({ accessToken: props.accessToken, clientId });
-      await refetch();
+      // Nothing is revoked for an app the read in flight has taken off.
+      const shown = await connections.settled();
+      if (!shown?.some((app) => app.clientId === clientId)) return;
+      await connectionsClient.revoke({ clientId });
+      await connectedApps.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't revoke this app");
+      setError(`Couldn't revoke this app. ${describeAuthError(e)}`);
     } finally {
       setRevoking(null);
     }
@@ -37,71 +58,74 @@ export function ConnectedAppsSection(props: { accessToken: string }) {
 
   return (
     <div class="flex flex-col gap-4">
-      <p class="text-muted-foreground text-body">
-        Apps you have signed in to with your {PRODUCT_NAME} account. Revoking removes an app's
-        access; it will ask for your consent again the next time you sign in there.
-      </p>
-
       <Show when={error()}>
-        <p class="text-destructive text-meta" role="alert">
+        <Notice tone="danger" size="inline" alert>
           {error()}
-        </p>
+        </Notice>
       </Show>
 
-      <Show when={connections.error}>
-        <p class="text-destructive text-meta" role="alert">
-          Couldn't load your connected apps. Reload and try again.
-        </p>
-      </Show>
-
-      <Show when={!connections.loading} fallback={<p class="text-subtle text-meta">Loading…</p>}>
-        <Show
-          when={(connections() ?? []).length > 0}
-          fallback={
-            <p class="text-subtle text-meta">
-              You haven't connected any apps to your {PRODUCT_NAME} account yet.
-            </p>
-          }
-        >
-          <div class="flex flex-col gap-2">
-            <For each={connections()}>
-              {(conn) => (
-                <div class="border-border rounded-card flex items-center justify-between gap-3 border px-4 py-3">
-                  <div class="flex min-w-0 items-center gap-3">
-                    <Show when={safeAvatarUrl(conn.logoUrl)}>
-                      {(url) => (
-                        <img
-                          src={url()}
-                          alt=""
-                          class="border-border h-8 w-8 shrink-0 rounded-lg border object-cover"
-                          referrerpolicy="no-referrer"
-                        />
-                      )}
-                    </Show>
-                    <div class="min-w-0">
-                      <p class="text-foreground text-title truncate font-medium">
-                        {conn.clientName ?? "Unknown app"}
-                      </p>
-                      <p class="text-subtle text-meta truncate">
-                        Access: {scopesOf(conn.scope).join(", ") || "—"}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    class="h-7 shrink-0"
-                    disabled={revoking() === conn.clientId}
-                    onClick={() => void revoke(conn.clientId)}
-                  >
-                    {revoking() === conn.clientId ? "Revoking…" : "Revoke"}
-                  </Button>
-                </div>
-              )}
-            </For>
-          </div>
+      {/* The list's place: as many apps' placeholders as it last landed until
+          the first read lands, the failure, or the list. */}
+      <div aria-busy={connections.busy || undefined}>
+        <Show when={connections.state === "errored"}>
+          <Notice tone="danger" size="inline" alert>
+            Couldn't load your connected apps. Reload and try again.
+          </Notice>
         </Show>
-      </Show>
+        <Show when={connections.busy && list() === undefined && connections.state !== "errored"}>
+          <AppRowsLoading count={connections.rows} />
+        </Show>
+        <Show when={list()}>
+          {(apps) => (
+            <Show
+              when={apps().length > 0}
+              fallback={
+                <EmptyNote size="section">
+                  You haven't connected any apps to your {PRODUCT_NAME} account yet.
+                </EmptyNote>
+              }
+            >
+              <div class="flex flex-col gap-2">
+                <For each={apps()}>
+                  {(conn) => (
+                    <Card radius="md" padding="sm" class="flex items-center justify-between gap-3">
+                      <div class="flex min-w-0 items-center gap-3">
+                        <Show when={safeAvatarUrl(conn.logoUrl)}>
+                          {(url) => (
+                            <img
+                              src={url()}
+                              alt=""
+                              class="border-border h-8 w-8 shrink-0 rounded-lg border object-cover"
+                              referrerpolicy="no-referrer"
+                            />
+                          )}
+                        </Show>
+                        <div class="min-w-0">
+                          <p class="text-foreground text-title truncate font-medium">
+                            {conn.clientName ?? "Unknown app"}
+                          </p>
+                          <p class="text-muted-foreground text-meta truncate">
+                            Access: {scopesOf(conn.scope).join(", ") || "—"}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        class="h-7 shrink-0 max-md:h-10"
+                        busy={revoking() === conn.clientId}
+                        onClick={() => void revoke(conn.clientId)}
+                      >
+                        {revoking() === conn.clientId ? "Revoking…" : "Revoke"}
+                      </Button>
+                    </Card>
+                  )}
+                </For>
+              </div>
+            </Show>
+          )}
+        </Show>
+      </div>
     </div>
   );
 }

@@ -58,7 +58,13 @@ import type {
 import { hashGuestEmail, sha256Hex, suppressedAmong } from "./email-suppression";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
-import { sameRunOfShow } from "./guest-event-validation";
+import {
+  HELD_EVENT_FIELDS,
+  HELD_EVENT_RULES,
+  refusedEventFields,
+  sameRunOfShow,
+} from "./guest-event-validation";
+import type { HeldEventField } from "./guest-event-validation";
 import { resolvePinUrl } from "./pinterest-resolve";
 import { runOfShowColumn, runOfShowFrom, runOfShowStatements } from "./run-of-show";
 import { seatingLoss, seatingLossWarning } from "./seating";
@@ -108,6 +114,15 @@ export class ImportError extends Data.TaggedError("ImportError")<{
 export class StaleDesiredState extends Data.TaggedError("StaleDesiredState")<{
   /** How many desired rows or attendance names failed to resolve (never the values). */
   readonly unresolved: number;
+}> {}
+
+/**
+ * An editor save sets an event field to a value its rule refuses, or adds an
+ * event that holds one (see {@link DiffOptions.holdChangedEventFields}).
+ */
+export class InvalidEventFields extends Data.TaggedError("InvalidEventFields")<{
+  /** Which fields, never their values. */
+  readonly fields: readonly HeldEventField[];
 }> {}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -262,6 +277,17 @@ export interface DiffOptions {
    * {@link EmailMode}. Omitted, `"upload"`.
    */
   readonly emails?: EmailMode;
+  /**
+   * Hold the name, Start, End and timezone of each desired event to their rules
+   * (`refusedEventFields`) where the event is new or the field differs from the
+   * value stored on the event it updates, and refuse the plan with
+   * {@link InvalidEventFields} otherwise. A field left as stored passes, so a row
+   * saved before the rules never keeps its wedding from saving. The editor front
+   * door passes `true`; a sheet's parser holds every row to the rules itself, and
+   * a revert restores what was stored. A guests-scoped change writes no event,
+   * so it holds only the name of an event it adds: attendance is linked by name.
+   */
+  readonly holdChangedEventFields?: boolean;
 }
 
 /**
@@ -531,8 +557,11 @@ interface ExistingEvent {
    *  the diff did not read it. */
   readonly runOfShow?: string | null;
   /** When it starts and on which clock, so a task linked to it can keep the
-   *  time it last had if the change removes it. */
+   *  time it last had if the change removes it. With `name` and `endAt`, also
+   *  what {@link DiffOptions.holdChangedEventFields} compares a desired event
+   *  with. */
   readonly startAt?: string;
+  readonly endAt?: string;
   readonly timezone?: string;
 }
 
@@ -596,7 +625,7 @@ export function diffAgainstDb(
   parsedFamilies: readonly DesiredFamily[],
   weddingId: string,
   options: DiffOptions = {},
-): Effect.Effect<ImportPlan, StaleDesiredState, DbService> {
+): Effect.Effect<ImportPlan, StaleDesiredState | InvalidEventFields, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     // Default: manage only import-created rows (leave hand-added rows intact).
@@ -665,6 +694,7 @@ export function diffAgainstDb(
               ),
               runOfShow: statesRunOfShow ? runOfShowColumn : sql<string | null>`NULL`,
               startAt: events.startAt,
+              endAt: events.endAt,
               timezone: events.timezone,
             })
             .from(events)
@@ -687,6 +717,9 @@ export function diffAgainstDb(
     const matchedEventIds = new Set<string>();
     /** One line per updated event that would lose its venue name or description. */
     const clearWarnings: string[] = [];
+    /** The held event fields this change sets to a value their rule refuses. */
+    const refusedFields = new Set<HeldEventField>();
+    const holdFields = options.holdChangedEventFields === true;
 
     if (manageEvents) {
       for (const parsed of parsedEvents) {
@@ -699,6 +732,11 @@ export function diffAgainstDb(
         if (parsed.id !== undefined && !byId) unresolvedIds += 1;
         const candidate = byId ?? (matchByName ? existingEventByNorm.get(norm) : undefined);
         const existing = candidate && !matchedEventIds.has(candidate.id) ? candidate : undefined;
+        // An update is compared with the row it matched, so a field left as
+        // stored passes; a create, with nothing, so every field is held.
+        if (holdFields) {
+          for (const field of refusedEventFields(parsed, existing)) refusedFields.add(field);
+        }
         if (existing) {
           const stored = runOfShowFrom(existing.runOfShow);
           eventUpdates.push({ id: existing.id, event: withoutUnchangedRunOfShow(parsed, stored) });
@@ -729,6 +767,15 @@ export function diffAgainstDb(
       for (const existing of existingEvents) {
         eventIdByNorm.set(normaliseName(existing.name), existing.id);
         matchedEventIds.add(existing.id);
+      }
+      // Nothing here writes an event, so of the held fields only the name of
+      // an event the draft adds is held: attendance is linked by name. One the
+      // draft loaded carries its stored name, checked against the live one below.
+      if (
+        holdFields &&
+        parsedEvents.some((e) => e.id === undefined && !HELD_EVENT_RULES.name(e.name))
+      ) {
+        refusedFields.add("name");
       }
       // On the id-authoritative door the desired events are the ones the draft
       // was loaded with, and its attendance names them by the names they had
@@ -1157,6 +1204,13 @@ export function diffAgainstDb(
     }
     if (!matchByName && unresolvedIds > 0) {
       return yield* Effect.fail(new StaleDesiredState({ unresolved: unresolvedIds }));
+    }
+    // After the stale refusal: a stale draft's "changed" fields may be changes
+    // someone else made since, and reloading is what the editor must be told.
+    if (refusedFields.size > 0) {
+      return yield* Effect.fail(
+        new InvalidEventFields({ fields: HELD_EVENT_FIELDS.filter((f) => refusedFields.has(f)) }),
+      );
     }
 
     // ── Event links ─────────────────────────────────────────────────────────

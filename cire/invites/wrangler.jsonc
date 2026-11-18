@@ -5,9 +5,10 @@
   // file). The invite route (`/<slug>`) + bare-domain redirect (`/`) are
   // server-rendered per request; legal pages prerender to static assets.
   //
-  // Deploy: `wrangler deploy` from `cire/invites` (config below is picked up; the
-  // adapter merges its generated `main`/`assets` into it). See
-  // production-release.yml, and deploy.yml for the dev Worker.
+  // Deploy: the cire Alchemy stack uploads the build on both tiers
+  // (`cire_invites` in cire/infra/src/declaration.ts); nothing runs
+  // `wrangler deploy` here. cire/infra/tests/parity.test.ts holds the stack's
+  // route, flags and observability to this file.
   "name": "cire-invites",
   "compatibility_date": "2026-04-15",
   "compatibility_flags": ["nodejs_compat"],
@@ -34,7 +35,7 @@
   // (Domain reshuffle 2026-07-16: the apex `cireweddings.com` now serves the
   // marketing landing site; guest invites moved to the `invite.` subdomain,
   // organisers to `host.`.) `custom_domain: true` auto-provisions DNS + edge
-  // cert because the zone lives in this Cloudflare account. Applied only by
-  // `wrangler deploy` (no named env).
+  // cert because the zone lives in this Cloudflare account. The cire stack's
+  // production declaration serves the same domain.
   "routes": [{ "pattern": "invite.cireweddings.com", "custom_domain": true }],
 }

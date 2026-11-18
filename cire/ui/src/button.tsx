@@ -189,9 +189,8 @@ const VARIANT = {
     "base:aria-expanded:border-ui-accent base:aria-expanded:text-ui-accent-ink",
   /**
    * The portals' icon button that stands alone in a page's chrome — the RSVP
-   * page's reply key and download, the guest list's downloads, Add household
-   * on a narrow panel, the getting-started guide's Dismiss — and the top
-   * bar's ⌘K pill.
+   * page's reply key and, on a phone, its download, Add household on a narrow
+   * panel, the getting-started guide's Dismiss — and the top bar's ⌘K pill.
    *
    * At rest `quiet`'s look: a hairline on the portals' ground, the secondary
    * ink. Under the pointer the ground lifts to the surface at 60%, as a

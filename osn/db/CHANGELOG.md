@@ -1,5 +1,143 @@
 # @osn/db
 
+## 0.29.0
+
+### Minor Changes
+
+- db8c428: Account deletion gets its emails and the calls its screens need.
+
+  - `@shared/email`: five templates — `account-deletion-scheduled`, `account-deletion-cancelled`, `account-deleted`, `organisation-ownership-received` and `account-data-link`. Text another party wrote is escaped and never in a subject; every one names an organisation by its handle only. Every template draws its button through one helper, `emailButton`: the recovery, step-up and email-change links' buttons take 6px corners at the text's own weight, as every other button already did.
+  - `@osn/api`: `DELETE /account` mails the scheduled notice (the date, how to keep the account and download the data, and what each answer does, from the request's own preview); `POST /account/restore` mails the cancelled one. The hard delete reads the address, the held handles and what each app kept before its batch, and once the batch has removed the account mails the old address and each organisation's new owner, side by side, each send giving up after 10 seconds (at most 10 ownership notices one by one on a transport with no batch send); a pass whose batch removed nothing mails nothing. The cron and the local sweeper provide the email transport to it; local sweeps run on the app's runtime and skip a tick while a pass runs. New `POST /account/data-link` mails the account a link to its download page (per IP, then three a day per account). New `POST /organisations/:handle/decline-ownership`: a member who received an organisation by succession may hand it back within 30 days; it passes on as the hard delete would pass it, or is deleted, and the decliner leaves it in the same batch, the next owner mailed. `GET` on the same path answers whether the caller may decline it, and until when, with the same refusals, and writes nothing. `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation. The deletion preview's organisation actions carry `candidates`, the members a successor answer may name, read beside the organisations at most 50 an organisation. CORS exposes `Content-Disposition` and `Retry-After`. The local Bun server keys its per-address limiters on a sent `cf-connecting-ip` when `OSN_E2E_CLIENT_ADDRESS=1`, which only the E2E stack sets.
+  - `@osn/db`: `organisations.owner_inherited_at` (migration `20261116094005_organisation_owner_inherited_at`), NULL for every existing row.
+  - `@osn/client`: a 401 after a renewal that minted a pending-deletion token reaches the caller and ends nothing; `onSessionChange` gains `pending-deletion`; `isPendingDeletionToken`. The Solid provider gains `pendingDeletion` and `renewSession`, and lists no profiles for a pending-deletion session. `deleteAccount` throws `AccountDeletionRefusedError` with the open actions, fresh preview or refused action; new `exportAccount`, `sendDataLink`, `declineOwnership` and `declineOwnershipStatus`.
+  - `@shared/observability`: `OrgAction` gains `decline_ownership`; the auth rate-limit endpoint union gains `account_data_link`.
+  - `@tools/lab`: the auth-ui stories' hand-built auth contexts carry `pendingDeletion` and `renewSession`.
+  - `@shared/design-tokens`: a contract colour, `--ui-choice-edge`, for the edge of an unchosen radio, checkbox or switch track, owing 3:1. It falls back to `--ui-hairline-strong`, so an app that does not map it looks as before, and the conformance check measures it unmapped as that token, under that token's waiver (`COLOR_FALLBACKS`, `colorFallback`).
+  - `@shared/ui`: `RadioGroup`'s circle, `Checkbox`'s box, `Switch`'s track and the unticked native box draw their edge in `--ui-choice-edge`.
+  - `@osn/auth-ui`: `InlineAction`, the underlined button that ends an error line, is exported as `@osn/auth-ui/InlineAction`.
+  - `@musubi/infra`: the dev stack's env check lists `OSN_E2E_CLIENT_ADDRESS` as left unset on dev: only the Bun dev server reads it, for the E2E suite.
+
+## 0.28.3
+
+### Patch Changes
+
+- Updated dependencies [adec70d]
+  - @shared/db-utils@0.9.5
+
+## 0.28.2
+
+### Patch Changes
+
+- f040da3: Tests only: cases that a kept sibling already fails on are removed, each checked by breaking the source and watching both fail. Toast and dev-urls gain one case each, and four Toaster cases move to fake timers so they can fail on what they name.
+
+## 0.28.1
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- Updated dependencies [5347e06]
+  - @shared/db-utils@0.9.4
+
+## 0.28.0
+
+### Minor Changes
+
+- 05ca2d8: The account deletion reaches cire: cire is the third app in `DELETION_APPS` (audience `cire-api`), with `deletion_jobs.cire_done_at`, which reads as pending on a row written before the column. osn-api reads cire-api's origin from `CIRE_API_URL`, renamed from `CIRE_INTERNAL_REVOKE_URL`, for both the deletion and the organiser-session revoke; on a deployed tier a value that is not `https:` now refuses the boot. The musubi stack sets it on dev and production, and the dev URLs set it locally. `DELETE /account` ends the person's cire organiser sessions through that revoke (trigger `account_deletion`) when it schedules a deletion. No app is sent the person's email address any more: `receivesEmail` and the `email` field of `POST /internal/account-deleted` are gone. `DeletionFanoutService` gains `cire`.
+
+## 0.27.1
+
+### Patch Changes
+
+- 4deee2c: `POST /profiles/delete` answers with `default_profile_id`, the account's default profile once the deleted one is gone; when the deleted profile was the default, or the account had none, the oldest remaining profile becomes the default. A delete removes nothing when its profile is the account's last at the moment it writes, and an account keeps exactly one default whichever profile write lands first; `POST /profiles/:profileId/default` answers `400` when the profile is gone by the time it writes. `POST /token` refuses an empty or malformed `profile_id` as it refuses a profile the account does not own, before it reads the cookie, and counts it as `validation_error` on `osn.auth.token.refresh`. The dev-tier sign-in puts its fixed profile back as a plain profile where its account already has a default. `@osn/db` adds a partial unique index, `users_one_default_per_account`; its migration first leaves each account exactly one default, its oldest. The local seed leaves a seeded default plain where its account already has another; new export `seedProfileRows`. `@osn/client` names a profile in every `POST /token` grant from a page that holds an account: deleting the active profile makes active a profile the page holds a token for, or else that default, and an answer that names none leaves the deleted profile active, whose next grant is refused. A token a renewal or a switch brings back for a profile the page has deleted is not kept. New export: `decodeDeleteProfileResponse`.
+
+## 0.27.0
+
+### Minor Changes
+
+- 582649a: Account deletion reaches every app through one contract. `GET /account/deletion-preview` asks each app (`POST /internal/account-deletion-preview`) what it holds beside the organisations the account owns, and names any app it could not check; `DELETE /account` takes `delete_everything`, answers 409 `could_not_check` while an app cannot be asked and 409 `stale_choices` for an answer to an app action the fresh preview does not list, and stores app answers on the job. Once the window has passed, the fan-out sends every app (`POST /internal/account-deleted`) the person's answers to its actions and the delete-everything flag, and their email address only to an app whose entry says it receives it (neither Pulse nor Zap), for every account, a job written with the old `-1` marks included, and stores what each app kept in `deletion_jobs.app_outcomes`. The preview and the session end carry no account id. The fan-out reads each job once, marks a skipped app in its claim, counts an app done only when its own write set the mark, and stamps any job whose fan-out fails (`fanout_failed_at`), which is then read after the others. A deletion of everything stores no answers, and two triggers on `deletion_jobs` refuse the pair; the preview and erasure timeouts are part of the deletion's app settings; `OSN_DELETION_FANOUT_MAX_JOBS` caps the jobs and hard deletes per run; an app is skipped only on a local run without its URL or where `OSN_DELETION_ABSENT_APPS` declares it, a deployed tier with neither holds the deletion, and an app URL that is not `https:` (or, locally, `http:` to a loopback host) fails the boot. The soft delete ends the person's Pulse web sessions. `osn.account.deletion.fanout_oldest_age` records each app's oldest unfinished job.
+
+  osn-api publishes each isolate's outbound ARC public key in `arc_outbound_keys` and serves the set at `GET /.well-known/arc-jwks.json`; the registration it pushed to each app is gone. Each call signs with the key it published, and concurrent first calls share one write of it. A deployed osn-api needs `INTERNAL_SERVICE_SECRET`; when it is at least 32 characters long, a key derived from it MACs the outbound key ids. `@osn/client`'s deletion preview carries each app's actions and `could_not_check`, and `deleteAccount` takes `deleteEverything`.
+
+## 0.26.0
+
+### Minor Changes
+
+- 3437d4a: Add the schema account erasure needs to be undone and to hold handles. New table `handle_holds` (`handle`, a keyed hash and the primary key; `account_id`, set while the deletion is pending; `release_at`; `created_at`), indexed on `account_id` and `release_at`, with two CHECKs: a row has an account or a release, never both and never neither, and its handle is 64 characters. `deletion_jobs` gains `restore` (what a cancel puts back), `choices` (the person's answers for owned organisations), `hard_delete_failed_at` and `job_id` (a random id naming the job). `security_events` gains `security_events_created_at_idx` for the retention sweep. `organisation_members`' `org_members_org_idx` becomes `org_members_succession_idx` on (`organisation_id`, `role`, `created_at`, `id`), the order the hard delete picks a successor in; a read on the organisation alone uses its prefix. One migration, `20261115054558_account_erasure_restore.sql`; every new column is nullable and the new table starts empty. The test-schema emitter (`@osn/db/testing`) now writes CHECK constraints.
+
+## 0.25.9
+
+### Patch Changes
+
+- 2dc810a: A sign-in on the browser holding the cancel handle of an account scheduled for deletion keeps that session live, so the account can still cancel, and marks it replaced in the new nullable `sessions.replaced_at` column; a token of it rotated out past the grace window still counts as reuse and ends it. A replaced session renews only for a profile its own account owns, whatever becomes of the deletion, and `/authorize` reads it as no session. An unmarked session of an account scheduled for deletion is refused a named profile its account does not own, and a renewal that read a session unmarked rotates nothing once a mark lands.
+
+## 0.25.8
+
+### Patch Changes
+
+- 6e75a5f: Alchemy is the migrator of every production database. `flattenMigrations()` writes production's extra files (refusing placeholders for archived names, and the freeze of Wrangler's `d1_migrations`) and `migrationFiles()` lists them; `retainedD1Props()` names the `__alchemy_migrations` table; `read:live` reads each migrated database's ledger through D1's `/query`, keeping counts only, and the plan guard refuses a ledger Alchemy could not convert or would replay from, and a frozen ledger whose trigger is gone (`readLedger()`, `countLedger()`, `judgeLedger()`). The musubi and zap stacks declare `osn-db-prod` and `zap-db-prod` with their migrations, and `migrate:production` deploys each database alone before the release's deploy. The `[env.production]` D1 blocks of `osn/api` and `zap/api` name no `migrations_dir`, and `osn/db` and `zap/db` drop `db:migrate:prod`. `bun run --cwd shared/infra test:d1` proves the conversion on local copies of each database.
+
+## 0.25.7
+
+### Patch Changes
+
+- f052448: Step-up and email change confirm by an emailed link in place of the six-digit code. `POST /step-up/email/begin` (Bearer, `{ purpose }`) mails a link to the account's own address for that one purpose and answers a request id, a claim secret and a number; whoever opens the link types the number, and the tab that began, signed in as the same account, polls `POST /step-up/email/:requestId/status` and gets a step-up token for that purpose, once (`amr: ["otp"]`, the emailed factor, so never accepted at `passkey_delete`). `POST /account/email/begin` mails a link to the new address and answers the same shape whether or not another account holds it; its status answers `confirmed` once the link is picked, and `POST /account/email/:requestId/complete` with a step-up token for `email_change` moves the account and revokes its other sessions. `/step-up/otp/*` and `/account/email/complete` are gone, with the code store, templates and dev log line.
+
+  `@osn/api` counts wrong typed step-up numbers on a per-account lockout (five in 15 minutes: no step-up link mailed, a right number refused), counts wrong email-change picks on the per-address link lockout sign-up uses, caps step-up links at 10 a day per account and Resends of both at 3 a day per mailbox (`+tag` and Gmail dots folded). `@osn/client` replaces `otpBegin`/`otpComplete` with `emailBegin`, `emailStatus` and `emailResend`, and gives the account client `changeEmailStatus`, `changeEmailResend` and a request-based `changeEmailComplete`; `emailLinkPurpose` knows step-up and email-change links. `@osn/auth-ui`'s `StepUpDialog` offers "Use email instead" under the passkey and waits on the link with `CheckEmailView` (no purpose, no email factor); `ChangeEmailForm` waits on the new address's link, then steps up and completes. `@musubi/social` asks for the number typed on a step-up link's page. `@shared/email` replaces `otp-step-up` and `otp-email-change` with `link-step-up` and `link-email-change`. `@shared/observability` adds the two flows, their routes and the `resend` steps. `@osn/db` updates a schema comment.
+
+## 0.25.6
+
+### Patch Changes
+
+- 12b4731: Sign-in and recovery find an account by its email address or handle in any case. `normaliseIdentifier` trims the identifier, strips any leading `@` and lower-cases it, and every lookup and store key in passkey sign-in, recovery-code sign-in, and email and authenticator-code recovery starts from that one string, so `Alice@X.com` and `@Alice` reach the account stored as `alice@x.com` and `alice`, and a ceremony begun in one case finishes in another. An email lookup matches the address as typed or lower-cased in one statement, preferring the row stored as typed, and reaches the account's default profile. `resolveIdentifier` treats an identifier longer than 255 characters as naming nobody and looks nothing up, and an identified passkey sign-in that finds no challenge runs the same credential lookup as one that does before it refuses. `registerProfile` stores the email lower-cased. The identity database refuses an email holding a capital A to Z: a migration adds two triggers, one on insert and one on update of `email`, and changes no stored row. `@osn/db/testing` and `db:push` add the same triggers.
+
+## 0.25.5
+
+### Patch Changes
+
+- 73043c4: The identity database refuses an organisation member role other than `admin` or `member`. A migration adds two triggers, one on insert and one on update, and stops without changing anything if a stored row already holds another role; its header gives the recovery. `@osn/db/testing` adds the same triggers to every test database, and `db:push` adds them to the local database after `drizzle-kit push`. `@osn/api` gains a Miniflare D1 test of the refusals over the real migration chain. The pulse and zap lockstep tests name their own package in a comment.
+
+## 0.25.4
+
+### Patch Changes
+
+- c687234: Every workspace that uses Effect runs `effect` 4.1.2, with `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
+  `@effect/vitest` at 4.1.2 and the root overrides for
+  `@effect/platform-node-shared` and `@effect/sql-d1` with them. The stacks run
+  `alchemy` and `@alchemy.run/cloudflare` 2.0.0-beta.85, which loads on Effect
+  4.1 unpatched; the provider's patch, carried to beta.85, keeps the D1 import
+  the stacks ran on beta.84 and the content types Wrangler uploads assets with.
+  beta.85 deploys state store version 8, which beta.84 cannot use, so a tier's
+  store cannot go back once it is upgraded.
+
+  The production plan guard reads beta.85's console lines
+  (`[hh:mm:ss.mmm] INFO: …`), and `messageOf()` reads no logfmt record.
+  `@shared/infra`'s tests hold the AWS SDK the provider installs,
+  `@distilled.cloud/aws`, to listing and aborting an R2 bucket's multipart
+  uploads, and run both under Bun. `RETIRED_STAGING_HOSTS` is gone from
+  `@shared/infra`, and `domainRefusals()` takes `(changes, unflip)`: a site's
+  Worker gives up only its current spare host without an `unflip` naming the
+  site.
+
+- Updated dependencies [c687234]
+  - @shared/db-utils@0.9.3
+
 ## 0.25.3
 
 ### Patch Changes

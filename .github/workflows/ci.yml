@@ -33,6 +33,61 @@ permissions:
 # commits still on it.
 
 jobs:
+  # Whether this change is prose alone: wiki pages, docs, READMEs, changesets
+  # (scripts/docs-only.sh says which markdown counts, and why). When it is,
+  # every job that builds, tests or boots the stack is skipped, which the `CI`
+  # gate counts as passed: it fails only on a failed or cancelled need. Lint &
+  # Format, Scripts and the Secret scan run on every change, and so does this.
+  #
+  # The diff is against what the change lands on: a pull request's merge
+  # commit against its first parent, the base it was merged with; a
+  # merge-queue group against the queue's base, so a group whose earlier
+  # entries carry code runs everything; a push against the commit it
+  # replaced. It names both sides of a rename, so code moved under wiki/ is
+  # still code. The classifier is the base's copy, as the secret scan takes
+  # its scanner from main, so a change cannot classify itself with an edited
+  # one. A diff that cannot be computed, or a base with no classifier, runs
+  # everything.
+  changes:
+    name: Detect a prose-only change
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.classify.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Classify the changed files
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          case "$EVENT" in
+            pull_request) base=$(git rev-parse HEAD^1) || base="" ;;
+            merge_group) base=$QUEUE_BASE ;;
+            push) base=$BEFORE ;;
+            *) base="" ;;
+          esac
+          if [ -n "$base" ] && ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base" || base=""
+          fi
+          if [ -n "$base" ] &&
+            git show "$base:scripts/docs-only.sh" > "$RUNNER_TEMP/docs-only.sh" 2>/dev/null &&
+            changed=$(git diff --no-renames --name-only "$base" HEAD); then
+            printf '%s\n' "$changed"
+            docs_only=$(printf '%s\n' "$changed" | bash "$RUNNER_TEMP/docs-only.sh")
+          else
+            echo "::notice::No diff or no classifier at '$base'; every job runs."
+            docs_only=false
+          fi
+          echo "Prose only: $docs_only"
+          echo "docs-only=$docs_only" >> "$GITHUB_OUTPUT"
+
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
@@ -54,7 +109,7 @@ jobs:
       # copy has to come before oxlint actually runs it, hence first step
       # after checkout, before install.
       - name: Verify vendored anti-slop matches its checksums
-        run: bash scripts/verify-vendored-anti-slop.sh
+        run: bash scripts/verify-vendored.sh tools/oxlint/anti-slop
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -148,6 +203,8 @@ jobs:
 
   typecheck:
     name: Type Check
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -209,6 +266,8 @@ jobs:
 
   build-test:
     name: Build & Test
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-build-test', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -392,6 +451,8 @@ jobs:
   # files run.
   cire-api-tests:
     name: Unit tests (@cire/api)
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-cire-api-tests', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -443,9 +504,8 @@ jobs:
   # D1. `@shared/billing`'s tests/d1/storage.test.ts runs its storage
   # contract on D1. The vitest packages EXCLUDE that path, so their unit
   # tests never reach them — they import `bun:test` and boot a real workerd, neither
-  # of which vitest can load. cire/api runs a bare `bun test`, which takes
-  # no exclude and discovers recursively, so its copy also runs in the
-  # `cire-api-tests` job; that is pre-existing and harmless. The D1 files are
+  # of which vitest can load. cire/api's `test` script leaves its copy out
+  # with `--path-ignore-patterns`, so only this job runs it. The D1 files are
   # the only coverage of the ASYNCHRONOUS D1 driver that dev/staging/prod
   # actually run on, and going unrun let zap's rot into a stale fixture that
   # had been failing silently. Serial by necessity — concurrent Miniflare
@@ -455,6 +515,8 @@ jobs:
   # package with a build step, so it needs no Build.
   d1:
     name: D1 integration tests
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-d1', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -477,12 +539,15 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
+            ${{ runner.os }}-bun-
 
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
+      # The whole tree: @shared/infra's D1 tier converts local copies of the
+      # production databases with the installed Alchemy provider, from the
+      # stacks' own migration sources.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Restore turbo cache
         uses: actions/cache/restore@v4
@@ -509,6 +574,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # Each production database's move to Alchemy's migrator, proved on local
+      # D1 (shared/infra/tests/d1/ledger-conversion.test.ts): per database,
+      # the ledger counts before and after, and every write the move sent.
+      # On failure too; a cached run restores the file (shared/infra/turbo.json
+      # declares it as the task's output), and a rerun writes the same bytes.
+      - name: Upload the production ledger conversion record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledger-conversion
+          path: shared/infra/d1-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Save turbo cache
         if: github.event_name != 'merge_group'
         uses: actions/cache/save@v4
@@ -531,10 +610,14 @@ jobs:
   # checks, before it runs, that turbo found the number of packages it names.
   browser:
     name: Browser tests (${{ matrix.leg }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-browser-{1}', github.event_name == 'pull_request' && github.ref || github.run_id, matrix.leg) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+    # Room for the setup, about three minutes, and the test step's 21: two
+    # runs of the leg at their ten-minute limit.
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -595,8 +678,7 @@ jobs:
       # log to read because a job's logs only appear once it ends. So the halves
       # are separate steps, so a stall names which half stalled; each is
       # bounded, so a stall is a red X in ten minutes; and the download half is
-      # cached on the lockfile. The system libraries are not cacheable (apt
-      # writes into the image, not the workspace) and are reinstalled each run.
+      # cached on the lockfile.
       #
       # Restore only: the E2E job installs the same revision and saves this key.
       # Only chromium is installed — the tier pins a single instance.
@@ -607,6 +689,35 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
+
+      # The system half is cached too: the image has Chromium's libraries, and
+      # what `install-deps` still downloads is a few font packages (21.9 MB)
+      # from the runner's apt mirror. On 2026-11-06 that mirror sent them at
+      # about 40 KB/s, the step ran out its ten minutes, and the merge queue
+      # ejected the group. scripts/install-chromium-system-libraries.sh puts
+      # into apt's archive only the packages in ~/.cache/chromium-apt whose
+      # SHA-256 apt's signed index names, and retries an attempt that stalls.
+      #
+      # The key names the runner image and the Playwright version, which
+      # together decide the packages `install-deps` fetches. No restore-keys:
+      # a run restores the set saved for its own image and version or none.
+      # The key is one line of [A-Za-z0-9._-], whatever the command prints, and
+      # no version line fails the step. Restore only, as above: the E2E job
+      # saves this key.
+      - name: Key Chromium's system packages
+        id: chromium-apt-key
+        working-directory: cire/host
+        run: |
+          version=$(bunx --no-install playwright --version | sed -n 's/^Version \([0-9][0-9A-Za-z.-]*\)$/\1/p')
+          test -n "$version" || { echo "::error::playwright --version printed no 'Version <n>' line"; exit 1; }
+          key="$RUNNER_OS-chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-$version"
+          echo "key=$(printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Chromium's system packages
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/chromium-apt
+          key: ${{ steps.chromium-apt-key.outputs.key }}
 
       # Both installs run from `cire/host`, and the working directory is the
       # whole point. `playwright` is a devDependency of each package with a
@@ -625,7 +736,7 @@ jobs:
       - name: Install Chromium's system libraries
         timeout-minutes: 10
         working-directory: cire/host
-        run: bunx --no-install playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/install-chromium-system-libraries.sh" "$HOME/.cache/chromium-apt"
 
       - name: Install Chromium for browser tests
         timeout-minutes: 10
@@ -640,11 +751,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-browser-${{ matrix.leg }}-
 
+      # The leg runs once; when that run fails, scripts/test-with-retry.sh
+      # runs the same turbo command once more, on every event, so a test that
+      # fails only sometimes does not drop a pull request from the merge
+      # queue. turbo replays each package that passed from its cache, so only
+      # a failed package runs again, in a new Chromium page: never the failed
+      # test again inside the page it failed in, which starts from what the
+      # first run left there. A pass on the second run is a flake: the step
+      # passes with a warning and a summary naming what failed. The slowest leg
+      # takes about 2.5 minutes (165 s at most in 18 runs, 2026-11-13); each
+      # run is cut at ten.
       - name: Browser tests
         shell: bash
+        timeout-minutes: 21
         run: |
           # shellcheck disable=SC2086 # FILTERS holds several flags.
-          bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser
+          bash scripts/test-with-retry.sh 2 600 "Browser tests ($LEG)" bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser
 
       - name: Save turbo cache
         if: github.event_name != 'merge_group'
@@ -659,10 +781,11 @@ jobs:
     # The backstop under this job's own checks. Without it the job's ceiling
     # is GitHub's six hours — and because the aggregate `ci` job `needs` it,
     # and `CI` is a required check, a wedged runner here holds the merge gate
-    # open for that long. Five minutes is generous: the job does a checkout,
-    # a shasum, `bun test ./scripts/` and the relay's 13 s idle-timeout test,
-    # with no install.
-    timeout-minutes: 5
+    # open for that long. Fourteen minutes holds the test step's eleven (two
+    # runs of `bun test ./scripts/` at their five-minute limit, the second only
+    # when the first fails), the relay test's two, and a checkout, a shasum and
+    # two shell tests, with no install.
+    timeout-minutes: 14
     steps:
       # Two commits deep so a pull request's merge commit has its base,
       # `HEAD^1`, for the migration order check below.
@@ -684,21 +807,38 @@ jobs:
       # edited or a re-vendor that forgot the pin. Both are invisible to
       # `shasum -c`, because regenerating the manifest certifies whatever the
       # tree now holds.
-      - name: Verify vendored anti-slop matches its checksums
+      #
+      # Every tree `scripts/vendored-trees.txt` lists is checked: anti-slop and
+      # the orb engine in `@shared/ui`. The list is a file of its own rather
+      # than a search for SHA256SUMS files, so a branch that deletes a tree's
+      # manifest cannot also take the tree out of the check; the guard refuses
+      # a listed tree with no manifest. An empty list fails the step.
+      # The browser-test job runs the orb engine in parallel with this one, not
+      # after it; the lint job's own anti-slop check is the one that orders.
+      - name: Verify vendored trees match their checksums
         if: github.event_name != 'pull_request'
-        run: bash scripts/verify-vendored-anti-slop.sh
+        run: |
+          trees=$(grep -v -e '^#' -e '^$' scripts/vendored-trees.txt || true)
+          [ -n "$trees" ] || { echo "scripts/vendored-trees.txt lists no tree" >&2; exit 1; }
+          for tree in $trees; do
+            bash scripts/verify-vendored.sh "$tree"
+          done
 
       # `actions/checkout` clones at depth 1, so the base commit has to be
       # fetched before the guard can read it. One `--depth=1` fetch of that
       # single commit is enough: the guard diffs two trees, which needs no
       # common ancestor between them.
-      - name: Verify vendored anti-slop matches its checksums and pin
+      - name: Verify vendored trees match their checksums and pins
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          bash scripts/verify-vendored-anti-slop.sh "$BASE_SHA"
+          trees=$(grep -v -e '^#' -e '^$' scripts/vendored-trees.txt || true)
+          [ -n "$trees" ] || { echo "scripts/vendored-trees.txt lists no tree" >&2; exit 1; }
+          for tree in $trees; do
+            bash scripts/verify-vendored.sh "$tree" "$BASE_SHA"
+          done
 
       # The guard's own tests, beside the run that uses it. They exercise it in
       # throwaway git repos rather than this checkout — one case exports
@@ -706,8 +846,8 @@ jobs:
       # guard list the whole repo instead of the vendored subtree and blocked
       # every local commit; others build a base and a head commit to drive the
       # pin half. They run on every event, unlike the pin half itself.
-      - name: Test the vendored anti-slop guard
-        run: bash scripts/tests/verify-vendored-anti-slop.test.sh
+      - name: Test the vendored-tree guard
+        run: bash scripts/tests/verify-vendored.test.sh
 
       # release.yml's commit step runs only on main, after a merge, so this is
       # the one place its staging and message choice are seen to work before
@@ -723,7 +863,9 @@ jobs:
       # another can merge after it: the dev tier then applies it after main's
       # files, while a database built from zero, or a daily release catching
       # up, applies everything in name order. Both orders must apply and leave
-      # one schema. On a pull request the files it adds are those on its merge
+      # one schema. In the directories Alchemy migrates (cire, osn, zap) a new
+      # file must also sort after every file on the base, since Alchemy (from
+      # 2.0.0-beta.86) refuses a migration that sorts before one it applied. On a pull request the files it adds are those on its merge
       # commit's second side (`HEAD^1` is the base it merges into); in the merge
       # queue they are everything since the queue's base. No install: the
       # script imports bun:sqlite and sibling scripts only.
@@ -767,8 +909,16 @@ jobs:
       # test, which runs in the next step. The CLI tests of the guest route
       # comparison spawn its Node child, scripts/guest-route-parity-reference.js,
       # on the Node the runner ships, with a stand-in for wrangler.
+      #
+      # The files run once; when that run fails, scripts/test-with-retry.sh
+      # runs them all once more, on every event, so a test that fails only
+      # sometimes does not drop a pull request from the merge queue. A pass on
+      # the second run is a flake: the step passes with a warning and a
+      # summary naming what failed in the first. A run takes about a minute
+      # (57 s at most in 18 runs, 2026-11-13); each is cut at five.
       - name: Test the scripts
-        run: bun run test:scripts
+        timeout-minutes: 11
+        run: bash scripts/test-with-retry.sh 2 300 Scripts bun run test:scripts
 
       # scripts/tests/guest-route-parity-relay-idle.slow.ts: the guest route
       # comparison's relay still answers after a cire-api call that takes
@@ -813,10 +963,10 @@ jobs:
       # lefthook.yml: it fails once a `--ignore` in the `audit` command has
       # outlived its `# DROP AFTER <GHSA id> <YYYY-MM-DD>` marker, or when the
       # command or the keys around it change shape. It reads the file only. It
-      # does not run `bun audit`, which runs nowhere but the local pre-push
-      # hook, so a push with `--no-verify` or from a machine without lefthook
-      # is not audited. Invoked by path for the reason given at the D1 guard
-      # below.
+      # does not run `bun audit`, which runs in the local pre-push hook and,
+      # against main once a day, in main-audit.yml, so a push with
+      # `--no-verify` or from a machine without lefthook is not audited before
+      # it merges. Invoked by path for the reason given at the D1 guard below.
       - name: Check audit ignores are marked and bounded
         run: bun run scripts/check-audit-ignores.ts
 
@@ -851,8 +1001,19 @@ jobs:
       - name: Check Worker configs redact query strings
         run: bun run scripts/check-trace-redaction.ts
 
+      # The motion-literal guard's tests run in "Test the scripts"; this runs
+      # it against the committed stylesheets and Astro files, which oxlint
+      # never parses, so house/no-literal-motion cannot see them. It reports a
+      # written duration, delay or easing where a motion token belongs, using
+      # the rule's own matcher (scripts/lib/motion-literals.ts). No install:
+      # the script reads files with Bun built-ins.
+      - name: Check stylesheets and Astro files for literal motion
+        run: bun run scripts/check-motion-literals.ts
+
   openapi-freshness:
     name: OpenAPI Freshness
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -886,11 +1047,16 @@ jobs:
         run: git diff --exit-code shared/openapi/
 
   # The end-to-end suite (`tools/e2e`): boots osn-api, pulse-api, cire-api and
-  # five frontends on their PORTLESS=0 ports, drives Chromium through each
-  # product's flows, and runs the whole thing twice so a results.json that
-  # differs between runs fails here rather than in someone's review. Not in the
-  # `ci` aggregator's `needs` yet, so it reports without gating merges while it
-  # earns trust; promote it once it has a record of staying green.
+  # five frontends on their PORTLESS=0 ports and drives Chromium through each
+  # product's flows, once. A failed run is run again whole, on a fresh stack:
+  # a pass on the second run passes the job with a warning and both runs'
+  # artifacts, so a flake shows without costing another push. Whether
+  # results.json comes out the same twice is the E2E determinism job's check
+  # (.github/workflows/e2e-repro.yml), which runs daily and by hand, never on a
+  # pull request or a push, so no change runs the suite twice.
+  # Not in the `ci` aggregator's `needs` yet, so it reports without gating
+  # merges while it earns trust; promote it once it has a record of staying
+  # green.
   e2e:
     name: E2E
     concurrency:
@@ -898,63 +1064,37 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # Not one of `ci`'s needs, so nothing reads its result on a merge-queue
     # group, and the push to main that follows runs it on the same commit.
-    if: github.event_name != 'merge_group'
+    needs: changes
+    if: github.event_name != 'merge_group' && needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Room for the setup and two whole runs of the flows at their limit.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
-      # Playwright's runner runs under Node; the launcher and the APIs under Bun.
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/e2e-setup
+
+      # One run takes about five and a half minutes (11 min for two on main,
+      # 2026-11-11); each is cut at twelve. scripts/e2e-with-retry.sh says why
+      # the retry is the whole run and never one flow, and moves the failed
+      # run's artifacts to e2e-artifacts-attempt-1/ before the next run clears
+      # e2e-artifacts/.
+      - name: E2E flows, and the whole run once more if it fails
+        timeout-minutes: 26
+        run: bash scripts/e2e-with-retry.sh 2 720 bun run test:e2e
+
+      # The failed first run's traces, screenshots, results.json and server
+      # logs, when the suite ran a second time. Nothing to upload otherwise.
+      - name: Upload the failed first run's E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          node-version: 24
+          name: e2e-artifacts-attempt-1
+          path: e2e-artifacts-attempt-1/
+          if-no-files-found: ignore
+          retention-days: 14
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
-
-      # The same cache and the same two bounded halves as the `browser` job,
-      # for the same reasons (see the comments there). Run from
-      # `tools/e2e`, whose pinned `@playwright/test` decides which Chromium
-      # revision gets installed. The two jobs share one cache key, so that pin
-      # and every workspace's `playwright` stay on one version, or one job
-      # downloads its own revision on every run.
-      - name: Cache Chromium
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install Chromium's system libraries
-        timeout-minutes: 10
-        working-directory: tools/e2e
-        run: bunx --no-install playwright install-deps chromium
-
-      - name: Install Chromium
-        timeout-minutes: 10
-        working-directory: tools/e2e
-        run: bunx --no-install playwright install chromium
-
-      - name: E2E flows, twice, results.json compared byte for byte
-        timeout-minutes: 15
-        run: bun run test:e2e:repro
-
-      # Traces, screenshots, results.json and server logs from the second run,
+      # Traces, screenshots, results.json and server logs from the last run,
       # on failure too: a red run is exactly when a reviewer needs them.
       - name: Upload E2E artifacts
         if: always()
@@ -975,6 +1115,8 @@ jobs:
   # schemas and verdicts they end with to e2e-artifacts/migrations/.
   migration-flow:
     name: Migration workflow
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-migration-flow', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -1019,9 +1161,13 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
-    # Bounded: one checkout, one pinned gitleaks download, a bare clone and a
-    # scan. Ten minutes is the backstop, not an estimate.
+    # Bounded: one checkout, one pinned gitleaks tarball (cached, or downloaded
+    # with retries), a bare clone and a scan. Ten minutes is the backstop, not
+    # an estimate.
     timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
     steps:
       # Full history, so the base commit of a pull request is present and the
       # policy file on origin/main can be read.
@@ -1029,15 +1175,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install gitleaks 8.30.1
-        env:
-          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      # The release tarball, kept under its version and SHA-256, so most runs
+      # download nothing: on 2026-11-09 GitHub's release download answered 504
+      # twice, and one of those ejected a merge-queue group.
+      - name: Restore gitleaks
+        id: gitleaks-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/gitleaks
+          key: gitleaks-${{ env.GITLEAKS_VERSION }}-linux_x64-${{ env.GITLEAKS_SHA256 }}
+
+      # scripts/install-gitleaks.sh downloads the tarball when the cache has
+      # none, retrying any failed download, a 404 included, for up to two
+      # minutes. It checks the SHA-256 on every run, cached or downloaded,
+      # before it unpacks anything, and deletes a tarball that fails.
+      - name: Install gitleaks ${{ env.GITLEAKS_VERSION }}
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
-            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
-          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          bash scripts/install-gitleaks.sh "$HOME/.cache/gitleaks" "$RUNNER_TEMP"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Only a tarball that passed its SHA-256 is here to save. A merge-queue
+      # group saves nothing: no later run can restore from its ref.
+      - name: Save gitleaks
+        if: github.event_name != 'merge_group' && steps.gitleaks-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/gitleaks
+          key: ${{ steps.gitleaks-cache.outputs.cache-primary-key }}
 
       - name: Test the secret scan
         run: bash scripts/tests/secret-scan.test.sh
@@ -1080,7 +1244,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, secrets]
+    needs: [changes, lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, secrets]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

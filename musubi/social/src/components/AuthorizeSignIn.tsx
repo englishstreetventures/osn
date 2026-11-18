@@ -1,9 +1,10 @@
 import { Register } from "@osn/auth-ui/Register";
 import { SignIn } from "@osn/auth-ui/SignIn";
 import { AuthProvider } from "@osn/client/solid";
+import { Button } from "@shared/ui/ui/button";
 import { createSignal, Show } from "solid-js";
 
-import { OSN_ISSUER_URL, PRODUCT_NAME, TURNSTILE_SITEKEY } from "../lib/auth";
+import { osnAuth, PRODUCT_NAME, TURNSTILE_SITEKEY } from "../lib/auth";
 import { loginClient, recoveryClient, registrationClient } from "../lib/authClients";
 import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-deferred";
 
@@ -15,8 +16,9 @@ import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-def
  * list the consent screen never reads (`GET /authorize/context` already
  * carries both). Neither belongs on the signed-in path, which is the common
  * one, so the provider is mounted here rather than around the route: the
- * Effect runtime and the WebAuthn code load only when a ceremony is actually
- * required.
+ * session load and the WebAuthn code run only when a ceremony is actually
+ * required. It takes the page's one auth runtime, as the shell's provider does,
+ * so the two share one session cache and one `/token` grant.
  *
  * Both halves of "who are you" live here. A visitor sent by an app they have
  * never used may not have a Musubi account at all, and until this screen offered
@@ -33,12 +35,13 @@ export function AuthorizeSignIn(props: {
   const [mode, setMode] = createSignal<"signIn" | "register">(props.initialMode ?? "signIn");
 
   return (
-    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
+    <AuthProvider auth={osnAuth}>
       <Show
         when={mode() === "register"}
         fallback={
           <>
             <SignIn
+              host="page"
               registrationClient={registrationClient}
               runPasskeyRegistration={runPasskeyRegistrationDeferred}
               client={loginClient}
@@ -47,15 +50,16 @@ export function AuthorizeSignIn(props: {
               productName={PRODUCT_NAME}
               onSuccess={() => props.onSuccess()}
             />
-            <p class="text-muted-foreground text-body px-4 pb-4 text-center">
+            <p class="text-muted-foreground text-body mt-6 text-center">
               No account yet?{" "}
-              <button
+              <Button
+                variant="link"
+                size="inline"
                 type="button"
-                class="text-foreground font-medium underline underline-offset-2"
                 onClick={() => setMode("register")}
               >
                 Create one
-              </button>
+              </Button>
             </p>
           </>
         }
@@ -64,9 +68,11 @@ export function AuthorizeSignIn(props: {
             which is exactly what the parked request is waiting for — so the
             new account carries straight on to consent, no second sign-in. */}
         <Register
+          host="page"
           client={registrationClient}
           turnstileSiteKey={TURNSTILE_SITEKEY}
           productName={PRODUCT_NAME}
+          cancelLabel="Sign in instead"
           onCancel={() => setMode("signIn")}
           onSuccess={() => props.onSuccess()}
         />

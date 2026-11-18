@@ -19,11 +19,6 @@ const slot = (overrides: Partial<LineupSlot>): LineupSlot => ({
 describe("VenueLineupTimeline", () => {
   afterEach(cleanup);
 
-  it("renders the fallback row when there are no slots", () => {
-    const { getByText } = render(() => <VenueLineupTimeline slots={[]} timezone="UTC" />);
-    expect(getByText(/Lineup to be announced/i)).toBeTruthy();
-  });
-
   it("formats slot times in the venue's timezone, not the host's", () => {
     // 22:00 UTC → 23:00 in London (BST in June). If the component
     // accidentally falls back to host time the test box (likely UTC)

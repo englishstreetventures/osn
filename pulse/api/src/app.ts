@@ -150,8 +150,8 @@ export function createApp(options: AppOptions = {}) {
               "/",
               "/health",
               "/ready",
-              "/internal/register-service",
-              "/internal/service-keys/:keyId",
+              "/internal/account-deletion-preview",
+              "/internal/account-sessions/revoke",
               "/internal/account-deleted",
               "/internal/account-export",
             ],
@@ -200,7 +200,7 @@ export function createApp(options: AppOptions = {}) {
     .use(createCloseFriendsRoutes(dbLayer, verification, undefined, write.close_friend_mutate))
     .use(createOnboardingRoutes(dbLayer, verification))
     .use(createAccountRoutes(dbLayer, verification))
-    .use(createInternalRoutes(dbLayer));
+    .use(createInternalRoutes(dbLayer, verification));
 }
 
 export type App = ReturnType<typeof createApp>;

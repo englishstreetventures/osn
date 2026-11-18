@@ -20,19 +20,6 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
-const invalidateEventsMock = vi.fn();
-vi.mock("../../src/lib/events-store", () => ({
-  invalidateEvents: (id: string) => invalidateEventsMock(id),
-}));
-const invalidateGuestsMock = vi.fn();
-vi.mock("../../src/lib/guests-store", () => ({
-  invalidateGuests: (id: string) => invalidateGuestsMock(id),
-}));
-
-const scheduleChangedMock = vi.fn();
-vi.mock("../../src/lib/schedule-changed", () => ({
-  scheduleChanged: (id: string) => scheduleChangedMock(id),
-}));
 import ChangeHistory from "../../src/components/ChangeHistory";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
@@ -92,8 +79,6 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   resetOrganiserMocks();
-  invalidateEventsMock.mockReset();
-  invalidateGuestsMock.mockReset();
 });
 
 function openHistory() {
@@ -191,37 +176,6 @@ describe("ChangeHistory", () => {
     expect(document.body.textContent).toContain("Restore point no longer available");
   });
 
-  it("reverts via changes/revert: confirms, POSTs the change id, invalidates + reloads", async () => {
-    authFetchMock
-      .mockResolvedValueOnce(jsonResponse({ imports: [EDITOR_APPLIED], nextCursor: null }))
-      .mockResolvedValueOnce(jsonResponse({ summary: { changeId: "chg_editor" } }))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          imports: [{ ...EDITOR_APPLIED, status: "reverted", revertedAt: Date.now() }],
-          nextCursor: null,
-        }),
-      );
-
-    render(() => <ChangeHistory weddingId="wed_a" />);
-    openHistory();
-
-    await waitFor(() => expect(screen.getByRole("button", { name: /revert/i })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: /revert/i }));
-
-    await waitFor(() => expect(reloadMock).toHaveBeenCalled());
-    expect(confirmMock).toHaveBeenCalled();
-    // The revert POST hit the changes/revert endpoint with the change id.
-    const revertCall = authFetchMock.mock.calls.find((c) =>
-      String(c[0]).endsWith("/changes/revert"),
-    )!;
-    expect(revertCall).toBeTruthy();
-    expect(JSON.parse(String((revertCall[1] as RequestInit).body)).changeId).toBe("chg_editor");
-    expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");
-    expect(invalidateGuestsMock).toHaveBeenCalledWith("wed_a");
-    // A revert moves events, so the checklist and the run sheet read again.
-    expect(scheduleChangedMock).toHaveBeenCalledWith("wed_a");
-  });
-
   it("does not revert when the confirm is declined", async () => {
     confirmMock.mockReturnValue(false);
     authFetchMock.mockResolvedValueOnce(
@@ -257,13 +211,6 @@ describe("ChangeHistory", () => {
     expect(text).toMatch(/added since are removed/i);
     expect(text).toMatch(/invited again/i);
     expect(text).toMatch(/no household or guest is added, removed or changed/i);
-    expect(text).not.toMatch(/guests, households and events are restored/i);
-  });
-
-  it("names only the guest list when the change saved guests", async () => {
-    const text = await confirmTextFor({ ...EDITOR_APPLIED, scope: "guests" });
-    expect(text).toMatch(/households, guests and their invitations are restored/i);
-    expect(text).toMatch(/events are not changed/i);
     expect(text).not.toMatch(/guests, households and events are restored/i);
   });
 

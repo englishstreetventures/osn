@@ -370,12 +370,9 @@ run_guard() {
     # the measured reading it was set from).
     #
     # The headroom is deliberately SMALLER than the mistake this guard exists
-    # to catch. `motion` costs 21261 bytes gzip in cire/invites' MINIFIED SSR
-    # build — measured, not assumed: that is the size of its own
-    # already-minified client vendor chunk
-    # (`dist/client/_astro/animate.*.js`), and rebuilding with
-    # `stubMotionForSsr()` removed moves that app's server total by the same
-    # ~21.4 KB. A threshold of "measured plus one whole library" can never
+    # to catch. `motion` costs 21261 bytes gzip MINIFIED — measured, not
+    # assumed; wiki/conventions/bundle-size-guards.md has the method and a
+    # check to re-run. A threshold of "measured plus one whole library" can never
     # trip on one library, which is exactly backwards — cire/invites' own
     # history is the cautionary tale: its old threshold budgeted 47657 bytes,
     # motion's cost back when that build was UNMINIFIED, so a fresh library

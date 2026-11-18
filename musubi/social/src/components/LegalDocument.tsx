@@ -1,4 +1,7 @@
+import { Notice } from "@shared/ui/ui/notice";
 import type { JSX } from "solid-js";
+
+import { usePageTitle } from "../lib/page-title";
 
 /**
  * Shell for the two legal routes. They are the only pages in this app that are
@@ -20,17 +23,21 @@ export function LegalDocument(props: {
   draft: boolean;
   children?: JSX.Element;
 }): JSX.Element {
+  usePageTitle(() => props.title);
   return (
-    <article class="prose-legal mx-auto w-full max-w-2xl px-6 py-12">
+    <article class="mx-auto w-full max-w-2xl px-6 py-12">
+      {/* Warn is ink only inside a `Notice` (DESIGN.md §Status colours). */}
       {props.draft && (
-        <p class="border-warn/40 bg-warn/10 mb-8 rounded border p-3 text-sm">
-          <strong>Draft</strong> — this notice is not final. Some details of the operator are still
-          to be confirmed, and this banner disappears once they are.
-        </p>
+        <Notice tone="warn" size="sm" class="mb-8">
+          <strong class="font-medium">Draft</strong> — this notice is not final. Some details of the
+          operator are still to be confirmed, and this banner disappears once they are.
+        </Notice>
       )}
-      <h1 class="mb-1 text-2xl font-semibold">{props.title}</h1>
-      <p class="text-muted-foreground mb-8 text-sm">Last updated: {props.updated}</p>
-      {props.children}
+      <h1 class="text-foreground text-display mb-1 font-medium">{props.title}</h1>
+      <p class="text-muted-foreground text-body mb-8">Last updated: {props.updated}</p>
+      {/* The prose rules reach the body alone; the page head above is a page
+          title and its subtitle, on the app's scale. */}
+      <div class="prose-legal">{props.children}</div>
     </article>
   );
 }

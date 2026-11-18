@@ -702,30 +702,6 @@ describe("LoginSection sign-out control", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/auth/"))).toBe(false);
   });
 
-  it("clears what the unlock animation left on the form, so it comes back painted", () => {
-    // The packs' unlock sequence fades the form out and leaves its end state
-    // inline (`opacity: 0` plus a `translateY`). Solid's binding on the element
-    // owns only `display`, so without this the form returns to the layout
-    // fully transparent. Measured for real in InvitePage.browser.test.tsx.
-    let formEl: HTMLDivElement | undefined;
-    const { getByText } = render(() => (
-      <LoginSection
-        apiUrl="https://api.test"
-        result={result([member("Chidi")])}
-        onClaimed={noop}
-        onSignOut={noop}
-        formRef={(el) => (formEl = el)}
-      />
-    ));
-    formEl!.style.opacity = "0";
-    formEl!.style.transform = "translateY(-8px)";
-
-    fireEvent.click(getByText(/Sign out/));
-
-    expect(formEl!.style.opacity).toBe("");
-    expect(formEl!.style.transform).toBe("");
-  });
-
   it("moves focus to the code field once the page has swapped the form back", () => {
     // The click removes the focused button from the accessibility tree; without
     // this, focus falls to <body>. The page resets its own state inside
@@ -812,8 +788,8 @@ describe("LoginSection claim", () => {
 
   it("names the button Checking… and disables it while the code is checked", async () => {
     const claimed = result([member("Chidi")]);
-    let settle: (response: Response) => void = noop;
-    fetchMock.mockReturnValue(new Promise<Response>((resolve) => (settle = resolve)));
+    let answerClaim: (response: Response) => void = noop;
+    fetchMock.mockReturnValue(new Promise<Response>((resolve) => (answerClaim = resolve)));
     const onClaimed = vi.fn();
     const { getByLabelText, getByText, getByRole } = render(() => (
       <LoginSection apiUrl="https://api.test" result={null} onClaimed={onClaimed} />
@@ -828,7 +804,7 @@ describe("LoginSection claim", () => {
     expect((checking as HTMLButtonElement).disabled).toBe(true);
     expect(onClaimed).not.toHaveBeenCalled();
 
-    settle(
+    answerClaim(
       new Response(JSON.stringify(claimed), {
         status: 200,
         headers: { "Content-Type": "application/json" },

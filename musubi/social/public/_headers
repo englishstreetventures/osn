@@ -4,6 +4,8 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Origin-Trial: AqTqmLMcrKr8+PFVA23imFcvHCFMBd6YMZ/iBXRhxn58k+6P4bZux3kvpdoF//5ocQVlda6/bSRSYTOqAZrU9QcAAABgeyJvcmlnaW4iOiJodHRwczovL211c3ViaS5zb2NpYWw6NDQzIiwiZmVhdHVyZSI6IkVtYWlsVmVyaWZpY2F0aW9uUHJvdG9jb2wiLCJleHBpcnkiOjE4MDM5NDU2MDB9
+  Origin-Trial: AlgDNUjOD5hsebFoLN9W5MENa1D7oJSKEu8SlUBqCSghgodoCNbD00URgV6acrBP75SEHB7lQhs7HkAJfFAkXQUAAAB2eyJvcmlnaW4iOiJodHRwczovL211c3ViaS5lc3YudG9vbHM6NDQzIiwiZmVhdHVyZSI6IkVtYWlsVmVyaWZpY2F0aW9uUHJvdG9jb2wiLCJleHBpcnkiOjE4MDM5NDU2MDAsImlzU3ViZG9tYWluIjp0cnVlfQ==
 
 # Framing is the one thing a consent screen must never allow, so it is covered
 # twice (frame-ancestors + X-Frame-Options). object-src/base-uri/form-action are
@@ -11,14 +13,33 @@
 # submits forms to its own origin (the consent decision goes to the issuer over
 # fetch, not a form POST), so these cost nothing and shrink the injection surface.
 #
-# No script-src/connect-src yet: the app fetches the OSN issuer, whose origin
-# differs per environment, and a wrong connect-src breaks sign-in outright. Those
-# two need a build-time policy generated from VITE_OSN_ISSUER_URL against the
-# emitted bundle.
+# The build appends script-src and connect-src to the policy above
+# (`contentSecurityPolicy` in vite.config.ts): script-src 'self', a sha256 hash
+# for each inline script in the built index.html, and Turnstile's host when the
+# build carries a sitekey; connect-src 'self' and the issuer the build calls
+# (VITE_OSN_ISSUER_URL). The issuer differs per tier and the hashes follow the
+# HTML, so neither is written here, and the build fails if this line already
+# sets either directive.
+#
+# The two Origin-Trial lines enrol Musubi in Chrome's Email Verification
+# Protocol trial, so Chrome fills the sign-up form's email-verification-token
+# field. Both tokens are first-party:
+# - the first is for https://musubi.social, that exact origin (production);
+# - the second is for the dev Musubi host, https://musubi.esv.tools, with its
+#   subdomains. It names the host itself: a token for the parent zone,
+#   https://esv.tools, shows as valid in DevTools yet Chrome fills no
+#   verification token under it. A new DEV_DOMAIN needs a new token.
+# Chrome ignores a token whose origin does not match the page, so each tier
+# carries the other's harmlessly. The two lines go out as one header, the
+# values joined by a comma, a form Chrome reads. Both tokens expire on
+# 2027-03-02; the trial may end sooner, with the rollout of the Chrome release
+# after 160. Their renewal or removal is recorded in
+# wiki/osn/email-verification-api.md, and tests/origin-trial.test.ts fails 14
+# days before either expires.
 
 # Apple requires the App Site Association file to be served as JSON, and the
-# file has no extension, so Pages would otherwise guess and send it as
-# application/octet-stream. The global `X-Content-Type-Options: nosniff` above
+# file has no extension, so the static-asset layer would otherwise guess and
+# send it as application/octet-stream. The global `X-Content-Type-Options: nosniff` above
 # turns that guess into a hard failure rather than a lucky sniff, and the only
 # symptom is that native passkeys quietly never work — the association just
 # never forms. Pin the type here.

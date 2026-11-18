@@ -29,20 +29,17 @@ import SecurityEventsBannerMount from "./SecurityEventsBannerMount";
  * that knows whether its status read cleared it to render, so it carries its
  * own.
  */
-export default function AccountBannerStack(props: { accessToken: string }) {
+export default function AccountBannerStack(props: { profileId: string }) {
   const [eventCount, setEventCount] = createSignal<number | null>(null);
   const showingEvents = () => (eventCount() ?? 0) > 0;
 
   return (
     <div class="mx-auto w-full max-w-2xl px-4 md:px-8">
       <div class={clsx(showingEvents() && "pt-6 md:pt-8")}>
-        <SecurityEventsBannerMount
-          accessToken={props.accessToken}
-          onVisibleCountChange={setEventCount}
-        />
+        <SecurityEventsBannerMount onVisibleCountChange={setEventCount} />
       </div>
       <Show when={eventCount() === 0}>
-        <RecoveryCodesPrompt accessToken={props.accessToken} />
+        <RecoveryCodesPrompt profileId={props.profileId} />
       </Show>
     </div>
   );

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 
 import type { D1Database as DrizzleD1 } from "@cloudflare/workers-types";
 import { createD1Db } from "@shared/db-utils";
-import { chatMembers, chats, messages } from "@zap/db/schema";
+import { chatMembers, chats, messages, zapAccountPurges } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
 import { createSchemaSql } from "@zap/db/testing";
 import { eq, sql } from "drizzle-orm";
@@ -10,6 +10,7 @@ import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
 import { MAX_CHAT_MEMBERS } from "../../src/lib/limits";
+import { DELETED_SENDER, purgeAccount } from "../../src/services/accountErasure";
 import {
   addMember,
   createChat,
@@ -18,6 +19,7 @@ import {
   removeMember,
   updateChat,
 } from "../../src/services/chats";
+import type { ConsentDenied } from "../../src/services/consent";
 import { resetConsentGate, setConsentGate } from "../../src/services/consent";
 import { listMessages, sendMessage } from "../../src/services/messages";
 import { holdQueries } from "../helpers/held-query";
@@ -63,7 +65,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // FK-safe truncate keeps each test isolated on the shared D1.
-  for (const table of [messages, chatMembers, chats]) {
+  for (const table of [messages, chatMembers, chats, zapAccountPurges]) {
     await rawDb.delete(table);
   }
   // Restore the real ARC-backed gate so a test that stubs it can't leak.
@@ -83,11 +85,18 @@ describe("zap/api over real D1 (Miniflare)", () => {
 
   it("sendMessage then listMessages persists via the async driver", async () => {
     // A DM is exactly two people, so the second member is required — a bare
-    // `{ type: "dm" }` now fails `InvalidDmMembership`. createChat then graph-gates every
-    // member, fail-closed, so the consent gate has to be stubbed open (this suite
-    // is about the async D1 driver, not the graph).
+    // `{ type: "dm" }` fails `InvalidDmMembership`. createChat then graph-gates
+    // every member, fail-closed, so the consent gate has to be stubbed open here
+    // (the fail-closed case below covers the gate on D1).
     setConsentGate(() => Promise.resolve(true));
     const chat = await run(createChat({ type: "dm", memberProfileIds: [BOB] }, ALICE));
+    // The DM lands exactly two member rows: the creator and the other member.
+    const members = await rawDb
+      .select({ profileId: chatMembers.profileId })
+      .from(chatMembers)
+      .where(eq(chatMembers.chatId, chat.id));
+    expect(members.map((m) => m.profileId).toSorted()).toEqual([ALICE, BOB]);
+
     const sent = await run(
       sendMessage(chat.id, ALICE, { ciphertext: "deadbeef", nonce: "nonce123" }),
     );
@@ -98,11 +107,25 @@ describe("zap/api over real D1 (Miniflare)", () => {
     expect(msgs[0]!.ciphertext).toBe("deadbeef");
   });
 
+  // A gate that throws is the OSN graph unreachable. The create is refused
+  // before any insert, so no chat and no member row is left behind.
+  it("createChat fails closed when the consent gate throws, leaving no rows, over async D1", async () => {
+    setConsentGate(() => Promise.reject(new Error("graph down")));
+    const refused = await run(
+      Effect.flip(createChat({ type: "dm", memberProfileIds: [BOB] }, ALICE)),
+    );
+    expect(refused._tag).toBe("ConsentDenied");
+    expect((refused as ConsentDenied).reason).toBe("graph_unreachable");
+    expect(await rawDb.select({ id: chats.id }).from(chats)).toHaveLength(0);
+    expect(await rawDb.select({ id: chatMembers.id }).from(chatMembers)).toHaveLength(0);
+  });
+
   it("rejects a message from a non-member over async D1", async () => {
     const chat = await run(createChat({ type: "group", title: "Private" }, ALICE));
-    await expect(
-      run(sendMessage(chat.id, BOB, { ciphertext: "ff", nonce: "n" })),
-    ).rejects.toThrow();
+    const refused = await run(
+      Effect.flip(sendMessage(chat.id, BOB, { ciphertext: "ff", nonce: "n" })),
+    );
+    expect(refused._tag).toBe("NotChatMember");
   });
 
   // The removal answers from its delete's change count, which D1 reports under
@@ -174,5 +197,69 @@ describe("zap/api over real D1 (Miniflare)", () => {
       .from(chatMembers)
       .where(eq(chatMembers.chatId, chat.id));
     expect(members).toHaveLength(MAX_CHAT_MEMBERS);
+  });
+
+  it("erases an account in one batch on D1's foreign keys", async () => {
+    // A chat only the account is in goes, messages first; a chat it shares
+    // stays, without its name on what it sent.
+    const now = new Date();
+    await rawDb.insert(chats).values([
+      {
+        id: "chat_alone",
+        type: "group",
+        class: "c2c",
+        createdByProfileId: "usr_gone",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "chat_shared",
+        type: "dm",
+        class: "c2c",
+        createdByProfileId: "usr_gone",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await rawDb.insert(chatMembers).values([
+      { id: "cmem_1", chatId: "chat_alone", profileId: "usr_gone", role: "admin", joinedAt: now },
+      { id: "cmem_2", chatId: "chat_shared", profileId: "usr_gone", role: "member", joinedAt: now },
+      {
+        id: "cmem_3",
+        chatId: "chat_shared",
+        profileId: "usr_stays",
+        role: "member",
+        joinedAt: now,
+      },
+    ]);
+    await rawDb.insert(messages).values([
+      {
+        id: "msg_1",
+        chatId: "chat_alone",
+        senderProfileId: "usr_gone",
+        ciphertext: "a",
+        nonce: "n",
+        createdAt: now,
+      },
+      {
+        id: "msg_2",
+        chatId: "chat_shared",
+        senderProfileId: "usr_gone",
+        ciphertext: "b",
+        nonce: "n",
+        createdAt: now,
+      },
+    ]);
+
+    const result = await run(purgeAccount("acc_gone", ["usr_gone"]));
+
+    expect(result.kept).toHaveLength(1);
+    expect((await rawDb.select({ id: chats.id }).from(chats)).map((c) => c.id)).toEqual([
+      "chat_shared",
+    ]);
+    expect(
+      await rawDb.select({ id: messages.id, sender: messages.senderProfileId }).from(messages),
+    ).toEqual([{ id: "msg_2", sender: DELETED_SENDER }]);
+    expect((await run(purgeAccount("acc_gone", ["usr_gone"]))).alreadyProcessed).toBe(true);
   });
 });

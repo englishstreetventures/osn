@@ -1,10 +1,11 @@
 /**
  * The radio group, measured where it is painted, in both of its boxes.
  *
- * `drawn` is pulse's: a visually hidden input beside a painted circle, held at
- * the values Kobalte's part drew, because pulse must not move. `native` is
- * cire's: the browser's own radio when chosen, a drawn ring when not. Both are
- * native inputs sharing one name, so the keyboard is the platform's.
+ * `drawn` is Musubi's and pulse's: a visually hidden input beside a painted
+ * circle, on the rule all choice controls share
+ * (`choice-geometry.browser.test.tsx`). `native` is cire's: the browser's own
+ * radio when chosen, a drawn ring when not. Both are native inputs sharing one
+ * name, so the keyboard is the platform's.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -99,41 +100,46 @@ describe("RadioGroup, either box", () => {
   }
 });
 
-describe("RadioGroup, drawn (pulse's circle, which must not move)", () => {
-  it("rings the circle in the focus colour when its input takes keyboard focus", async () => {
+describe("RadioGroup, drawn (Musubi's and pulse's circle)", () => {
+  it("outlines the circle in the focus colour when its input takes keyboard focus", async () => {
     render(() => <Choice />);
     const circle = circleOf("Email");
-    expect(getComputedStyle(circle).boxShadow).toBe("none");
+    expect(getComputedStyle(circle).outlineStyle).toBe("none");
     await userEvent.tab();
     expect(document.activeElement).toBe(radio("Email"));
-    expect(getComputedStyle(circle).boxShadow).toContain(FOCUS);
-    expect(getComputedStyle(circleOf("SMS")).boxShadow).toBe("none");
+    const s = getComputedStyle(circle);
+    expect([s.outlineStyle, s.outlineWidth, s.outlineOffset, s.outlineColor]).toEqual([
+      "solid",
+      "2px",
+      "2px",
+      FOCUS,
+    ]);
+    expect(getComputedStyle(circleOf("SMS")).outlineStyle).toBe("none");
   });
 
-  it("paints no ring after a pointer click, which focuses the input too", async () => {
+  it("paints no outline after a pointer click, which focuses the input too", async () => {
     render(() => <Choice />);
     await userEvent.click(screen.getByText("SMS"));
     expect(document.activeElement).toBe(radio("SMS"));
-    expect(getComputedStyle(circleOf("SMS")).boxShadow).toBe("none");
+    expect(getComputedStyle(circleOf("SMS")).outlineStyle).toBe("none");
   });
 
-  it("draws today's circle, dot and gaps", () => {
+  it("draws its circle, dot and gaps", () => {
     render(() => <Choice />);
     const off = getComputedStyle(circleOf("SMS"));
     expect([off.width, off.height]).toEqual(["16px", "16px"]);
     expect(off.borderTopColor).toBe(HAIRLINE_STRONG);
     expect(off.backgroundColor).toBe(GROUND);
     expect(getComputedStyle(circleOf("Email")).borderTopColor).toBe(ACCENT);
-    const dot = circleOf("Email").firstElementChild as HTMLElement;
-    const after = getComputedStyle(dot, "::after");
-    expect([after.width, after.height, after.backgroundColor]).toEqual(["10px", "10px", ACCENT]);
+    const dot = getComputedStyle(circleOf("Email").firstElementChild as HTMLElement);
+    expect([dot.width, dot.height, dot.backgroundColor]).toEqual(["8px", "8px", ACCENT]);
     expect(circleOf("SMS").firstElementChild).toBeNull();
-    // 4px from circle to word; 8px between items.
+    // 8px from circle to word, as a box's; 16px between items in a row.
     const word = screen.getByText("SMS");
     expect(word.getBoundingClientRect().left - circleOf("SMS").getBoundingClientRect().right).toBe(
-      4,
+      8,
     );
-    expect(getComputedStyle(screen.getByRole("radiogroup")).columnGap).toBe("8px");
+    expect(getComputedStyle(screen.getByRole("radiogroup")).columnGap).toBe("16px");
   });
 
   it("keeps 8px between radios in a column, and fades a disabled circle to half", () => {
@@ -142,15 +148,11 @@ describe("RadioGroup, drawn (pulse's circle, which must not move)", () => {
     expect(getComputedStyle(circleOf("SMS")).opacity).toBe("0.5");
   });
 
-  it("sets a label that wraps, with align start, at prose leading, on a first line the circle fits", () => {
+  it("sets a label that wraps at prose leading, on a first line the circle fits", () => {
     render(() => (
       <div style={{ width: "160px", "line-height": "1" }}>
         <RadioGroup size="sm" value="" aria-label="Scope">
-          <RadioGroupItem
-            value="a"
-            align="start"
-            label="Only the events this guest is invited to"
-          />
+          <RadioGroupItem value="a" label="Only the events this guest is invited to" />
         </RadioGroup>
       </div>
     ));
@@ -233,15 +235,11 @@ describe("RadioGroup's own wiring", () => {
     expect(font("Small one")).toBeLessThan(font("Medium one"));
   });
 
-  it("centres a radio on its label's first line with align start", () => {
+  it("centres a radio on its label's first line", () => {
     render(() => (
       <div style={{ width: "160px", "line-height": "1" }}>
         <RadioGroup box="native" size="sm" value="" aria-label="Scope">
-          <RadioGroupItem
-            value="a"
-            align="start"
-            label="Only the events this guest is invited to"
-          />
+          <RadioGroupItem value="a" label="Only the events this guest is invited to" />
         </RadioGroup>
       </div>
     ));

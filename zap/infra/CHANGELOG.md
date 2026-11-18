@@ -1,5 +1,153 @@
 # @zap/infra
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [731488c]
+  - @shared/infra@0.10.3
+
+## 0.3.2
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- Updated dependencies [5347e06]
+- Updated dependencies [5347e06]
+  - @shared/infra@0.10.2
+
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+  - @shared/infra@0.10.1
+
+## 0.3.0
+
+### Minor Changes
+
+- 6e75a5f: Alchemy is the migrator of every production database. `flattenMigrations()` writes production's extra files (refusing placeholders for archived names, and the freeze of Wrangler's `d1_migrations`) and `migrationFiles()` lists them; `retainedD1Props()` names the `__alchemy_migrations` table; `read:live` reads each migrated database's ledger through D1's `/query`, keeping counts only, and the plan guard refuses a ledger Alchemy could not convert or would replay from, and a frozen ledger whose trigger is gone (`readLedger()`, `countLedger()`, `judgeLedger()`). The musubi and zap stacks declare `osn-db-prod` and `zap-db-prod` with their migrations, and `migrate:production` deploys each database alone before the release's deploy. The `[env.production]` D1 blocks of `osn/api` and `zap/api` name no `migrations_dir`, and `osn/db` and `zap/db` drop `db:migrate:prod`. `bun run --cwd shared/infra test:d1` proves the conversion on local copies of each database.
+
+### Patch Changes
+
+- Updated dependencies [6e75a5f]
+  - @shared/infra@0.10.0
+
+## 0.2.0
+
+### Minor Changes
+
+- b5ff9b9: The production API Workers deploy through the Alchemy stacks. The musubi stack declares osn-api and its database on production, and the new zap production stack declares zap-api and its database; each adopts the existing Worker, database and Durable Object class by name, and a release migrates the database with Wrangler before the deploy.
+
+  - `@shared/infra`: `apiWorker()` adopts a production Worker under its own name only; production secrets stay on the Worker (`source: "worker"` in the inventory), and the patched provider keeps every live secret an upload does not name. A new live read (`readProductionLive()`, `runReadLiveCli()`) gives the plan guard each adopted resource's live settings and secret names, and checks after a deploy that no secret went. The plan guard refuses creating a database or bucket, creating an API Worker that does not exist live, unbinding a Durable Object, and a release whose Worker lacks a required secret.
+  - `@musubi/infra`, `@zap/infra`: `read:live` reads what the stack's adopted resources hold live; zap gains `plan:production`, `deploy:production` and `plan:guard`.
+  - `@osn/api`, `@zap/api`: no hand-deploy script; production deploys only through the release workflow.
+
+### Patch Changes
+
+- Updated dependencies [b5ff9b9]
+  - @shared/infra@0.9.0
+
+## 0.1.24
+
+### Patch Changes
+
+- Updated dependencies [630cf31]
+  - @shared/infra@0.8.0
+
+## 0.1.23
+
+### Patch Changes
+
+- Updated dependencies [0821963]
+  - @shared/infra@0.7.6
+
+## 0.1.22
+
+### Patch Changes
+
+- Updated dependencies [6c2f518]
+  - @shared/infra@0.7.5
+
+## 0.1.21
+
+### Patch Changes
+
+- Updated dependencies [6c209aa]
+  - @shared/infra@0.7.4
+
+## 0.1.20
+
+### Patch Changes
+
+- Updated dependencies [ab6810e]
+  - @shared/infra@0.7.3
+
+## 0.1.19
+
+### Patch Changes
+
+- Updated dependencies [df9b5d9]
+  - @shared/infra@0.7.2
+
+## 0.1.18
+
+### Patch Changes
+
+- c687234: Every workspace that uses Effect runs `effect` 4.1.2, with `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
+  `@effect/vitest` at 4.1.2 and the root overrides for
+  `@effect/platform-node-shared` and `@effect/sql-d1` with them. The stacks run
+  `alchemy` and `@alchemy.run/cloudflare` 2.0.0-beta.85, which loads on Effect
+  4.1 unpatched; the provider's patch, carried to beta.85, keeps the D1 import
+  the stacks ran on beta.84 and the content types Wrangler uploads assets with.
+  beta.85 deploys state store version 8, which beta.84 cannot use, so a tier's
+  store cannot go back once it is upgraded.
+
+  The production plan guard reads beta.85's console lines
+  (`[hh:mm:ss.mmm] INFO: …`), and `messageOf()` reads no logfmt record.
+  `@shared/infra`'s tests hold the AWS SDK the provider installs,
+  `@distilled.cloud/aws`, to listing and aborting an R2 bucket's multipart
+  uploads, and run both under Bun. `RETIRED_STAGING_HOSTS` is gone from
+  `@shared/infra`, and `domainRefusals()` takes `(changes, unflip)`: a site's
+  Worker gives up only its current spare host without an `unflip` naming the
+  site.
+
+- Updated dependencies [c687234]
+  - @shared/infra@0.7.1
+
+## 0.1.17
+
+### Patch Changes
+
+- Updated dependencies [d3b719a]
+- Updated dependencies [aeab4d4]
+  - @shared/infra@0.7.0
+
+## 0.1.16
+
+### Patch Changes
+
+- Updated dependencies [a28e017]
+  - @shared/infra@0.6.9
+
 ## 0.1.15
 
 ### Patch Changes

@@ -51,7 +51,7 @@ function notice(overrides: Partial<GiftSummaryNotice> = {}): GiftSummaryNotice {
     weddingName: "Ada and Bo",
     ownerOsnProfileIds: ["usr_owner1"],
     currency: "AUD",
-    finalEventOn: "2025-08-20",
+    retainedFrom: { rule: "final-event", on: "2025-08-20" },
     summary: {
       sweptOn: "2026-08-25",
       firstGiftOn: "2025-06-01",

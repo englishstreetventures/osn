@@ -7,14 +7,20 @@ exactly what they build, table for table and index for index;
 
 **Nothing applies them.** `wrangler d1 migrations apply` reads `migrations_dir`
 from `cire/api/wrangler.toml`, which points at `../db/migrations` and not at
-this directory. A deployed database that applied them holds their names in its
-`d1_migrations` ledger, which is why the baseline keeps the name
-`0001_initial.sql`: wrangler skips it there.
+this directory. Production applied them, so its ledger holds their names, which
+is why the baseline keeps the name `0001_initial.sql`: a migrator skips it there.
+The cire stack, production's migrator, hands Alchemy a refusing placeholder
+under each of these names, never the file itself, so a ledger that holds the
+name converts and a database that lacks it fails rather than run archived SQL
+(`wiki/shared/infrastructure-as-code.md` §Migrations).
 
 ## What reads them
 
-- `scripts/cire-db-migrate.ts`, behind every `db:migrate:*` script, compares a
-  target database's ledger against these names before it applies anything. A
+- The cire stack's production migrations (`CIRE_DB_PRODUCTION_MIGRATIONS` in
+  `cire/infra/src/declaration.ts`) and the release's ledger check, which refuses
+  a production ledger missing any of these names.
+- `scripts/cire-db-migrate.ts`, behind `db:push` and `db:migrate:local`, compares a
+  local database's ledger against these names before it applies anything. A
   database that applied part of this chain must have applied all of it from
   the start of its chain (`CHAIN_STARTS` in that script) to the newest file
   here; otherwise wrangler would skip the baseline and the rest of the chain
@@ -34,7 +40,7 @@ this directory. A deployed database that applied them holds their names in its
   migrations go in `../migrations`, one timestamped file each, written by
   `db:generate`.
 - **Never edit one.** They ran against production; the record is what it is.
-- **Never delete one.** The ledger check and the baseline test both read the
-  whole archive.
+- **Never delete one.** The ledger checks, the production stack and the baseline
+  test all read the whole archive, and production's ledger names each one.
 
 How to squash, and when: `cire/db/README.md`.

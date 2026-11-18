@@ -20,9 +20,9 @@ import {
   type CireOrganiserRevokeConfig,
 } from "../../src/services/cire-organiser-revoke";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { settledHandle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
+import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 const CIRE_URL = "https://cire-api.test";
@@ -107,26 +107,7 @@ function setup(cire: CireOrganiserRevokeConfig = CONFIGURED) {
 
   /** Registers an account; returns its cookie, access token, account id and profile id. */
   async function register(emailAddress: string, handle: string) {
-    await settledHandle(
-      app,
-      new Request("http://localhost/register/begin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: emailAddress, handle, birthdate: "1990-01-01" }),
-      }),
-    );
-    const code = email
-      .recorded()
-      .toReversed()
-      .map((m) => m.text.match(/code is: (\d{6})/)?.[1])
-      .find((c) => c !== undefined);
-    const res = await app.handle(
-      new Request("http://localhost/register/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: emailAddress, code }),
-      }),
-    );
+    const res = await registeredResponse(app, () => email.recorded(), emailAddress, handle);
     const body = (await res.json()) as { session: { access_token: string } };
     const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
     expect(cookie).toContain("osn_session=");
@@ -275,34 +256,42 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
     expect(h.codeIds()).toEqual(["code_bob"]);
   });
 
-  it.each([
-    [
-      "no Authorization header",
-      (cookie: string) =>
-        new Request("http://localhost/sessions/revoke-all-other", {
-          method: "POST",
-          headers: { Cookie: cookie },
-        }),
-      401,
-    ],
-    [
-      "no session cookie",
-      (_cookie: string, accessToken: string) =>
-        new Request("http://localhost/sessions/revoke-all-other", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-      400,
-    ],
-  ] as const)("sends nothing to cire for a request with %s", async (_, build, status) => {
+  it("sends nothing to cire for a request with no Authorization header", async () => {
     const h = setup();
     const ada = await h.register("ada@example.com", "ada");
     h.grantConsent(ada.accountId, ada.profileId, CIRE_CLIENT_ID);
     const calls = fakeCire();
 
-    const res = await h.send(build(ada.cookie, ada.accessToken));
+    const res = await h.send(
+      new Request("http://localhost/sessions/revoke-all-other", {
+        method: "POST",
+        headers: { Cookie: ada.cookie },
+      }),
+    );
 
-    expect(res.status).toBe(status);
+    expect(res.status).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  it("sends nothing to cire for a token whose session has ended", async () => {
+    // The session check refuses before the OSN revoke, so nothing reaches cire.
+    const h = setup();
+    const ada = await h.register("ada@example.com", "ada");
+    h.grantConsent(ada.accountId, ada.profileId, CIRE_CLIENT_ID);
+    const calls = fakeCire();
+    const out = await h.send(
+      new Request("http://localhost/logout", { method: "POST", headers: { Cookie: ada.cookie } }),
+    );
+    expect(out.status).toBe(200);
+
+    const res = await h.send(
+      new Request("http://localhost/sessions/revoke-all-other", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${ada.accessToken}` },
+      }),
+    );
+
+    expect(res.status).toBe(409);
     expect(calls).toEqual([]);
   });
 
@@ -418,11 +407,11 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
   });
 
   it.each([
-    ["the URL is unset", "CIRE_INTERNAL_REVOKE_URL", { CIRE_INTERNAL_REVOKE_URL: undefined }],
+    ["the URL is unset", "CIRE_API_URL", { CIRE_API_URL: undefined }],
     [
       "the URL is plain HTTP to another machine",
-      "CIRE_INTERNAL_REVOKE_URL",
-      { CIRE_INTERNAL_REVOKE_URL: "http://cire-api.test" },
+      "CIRE_API_URL",
+      { CIRE_API_URL: "http://cire-api.test" },
     ],
     [
       "the secret is unset",
@@ -439,7 +428,7 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
   ] as const)("skips cire with a warning when %s", async (_, missing, override) => {
     const h = setup(
       cireOrganiserRevokeConfig({
-        CIRE_INTERNAL_REVOKE_URL: CIRE_URL,
+        CIRE_API_URL: CIRE_URL,
         CIRE_INTERNAL_REVOKE_SECRET: SECRET,
         CIRE_OIDC_CLIENT_ID: CIRE_CLIENT_ID,
         ...override,
@@ -466,7 +455,7 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
   ])("posts to the revoke path of a URL given %s", async (_, given) => {
     const h = setup(
       cireOrganiserRevokeConfig({
-        CIRE_INTERNAL_REVOKE_URL: given,
+        CIRE_API_URL: given,
         CIRE_INTERNAL_REVOKE_SECRET: SECRET,
         CIRE_OIDC_CLIENT_ID: CIRE_CLIENT_ID,
       }),

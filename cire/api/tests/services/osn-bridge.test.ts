@@ -13,10 +13,12 @@ import {
   createArcConnectionSearchResolver,
   createArcOrgMembershipResolver,
   createArcProfileOrgsResolver,
+  createArcRemovalBridge,
   createBlockCheckFromEnv,
   createConnectionSearchResolverFromEnv,
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
+  createRemovalBridgeFromEnv,
 } from "../../src/services/osn-bridge";
 import type {
   OsnAccountResolution,
@@ -326,22 +328,14 @@ describe("createAccountResolverFromEnv", () => {
 
   // A PRESENT-but-INVALID ARC key must be treated EXACTLY like an absent one:
   // the builder returns null (⇒ feature disabled, POST answers 503) and NEVER
-  // throws. A throw here propagated out of the Worker setup path and 500'd every
-  // authenticated request (the production dashboard login-loop incident).
+  // throws. A throw here would propagate out of the Worker setup path and
+  // answer 500 to every authenticated request.
   it.each([
     ["non-JSON garbage", "{not-json"],
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    let resolve: unknown;
-    expect(async () => {
-      resolve = await createAccountResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
-    resolve = await createAccountResolverFromEnv({
+    const resolve = await createAccountResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
       arcKeyId: "kid-env",
@@ -549,15 +543,20 @@ describe("createArcBlockCheck", () => {
   });
 
   it("starts each call's time bound afresh", async () => {
+    const signals: (AbortSignal | null | undefined)[] = [];
     globalThis.fetch = mockFetch(async (_url, init) => {
-      if (init?.signal?.aborted) throw init.signal.reason;
+      signals.push(init?.signal);
       return new Response(JSON.stringify({ blocked: false }), { status: 200 });
     });
     const check = createArcBlockCheck(await config(20));
 
     expect(await check("usr_a", "usr_b")).toBe(false);
-    await Bun.sleep(60);
     expect(await check("usr_a", "usr_b")).toBe(false);
+    // A bound made once would hand both calls the one signal, spent 20 ms in.
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).not.toBe(signals[0]);
   });
 });
 
@@ -637,13 +636,6 @@ describe("createHandleResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    expect(async () => {
-      await createHandleResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
     const resolve = await createHandleResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
@@ -813,13 +805,6 @@ describe("createHandleSearchResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    expect(async () => {
-      await createHandleSearchResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
     const resolve = await createHandleSearchResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
@@ -1017,13 +1002,6 @@ describe("createConnectionSearchResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    expect(async () => {
-      await createConnectionSearchResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
     const resolve = await createConnectionSearchResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
@@ -1207,5 +1185,127 @@ describe("createArcOrgMembershipResolver", () => {
       arcKeyId: "kid-1",
     });
     expect(await resolve("org_1", "usr_x")).toBeNull();
+  });
+});
+
+describe("createArcRemovalBridge", () => {
+  // The only code that turns osn-api's answers into cire's 403-or-503 choice
+  // for a host's removal of their Cire data: a 5xx must throw (503, nothing
+  // lost), a refusal must answer, never the other way round.
+  async function bridge() {
+    const { privateKey } = await testKeyMaterial();
+    return createArcRemovalBridge({
+      osnApiUrl: "https://osn.example/",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+  }
+  const sent: { url: string; auth: string | null; body: unknown }[] = [];
+  const answer = (status: number, body: unknown) => {
+    globalThis.fetch = mockFetch(async (url: string | URL | Request, init?: RequestInit) => {
+      sent.push({
+        url: String(url),
+        auth: new Headers(init?.headers).get("authorization"),
+        body: JSON.parse(String(init?.body)),
+      });
+      return new Response(JSON.stringify(body), { status });
+    });
+  };
+  const begin = {
+    profileId: "usr_1",
+    binding: "b".repeat(64),
+    returnTo: "https://host.example/#/remove-data",
+  };
+  const verify = { profileId: "usr_1", requestId: "req_1", binding: "b".repeat(64), code: "c" };
+
+  it("begins a request for cire's purpose over ARC with the step-up scope, and maps each answer", async () => {
+    const b = await bridge();
+    sent.length = 0;
+    answer(200, { request_id: "req_1" });
+    expect(await b.begin(begin)).toEqual({ ok: true, requestId: "req_1" });
+    expect(sent[0]?.url).toBe("https://osn.example/internal/step-up/requests");
+    expect(sent[0]?.body).toEqual({
+      purpose: "cire_app_delete",
+      profile_id: "usr_1",
+      binding: "b".repeat(64),
+      return_to: "https://host.example/#/remove-data",
+    });
+    const payload = JSON.parse(
+      Buffer.from(sent[0]!.auth!.slice("ARC ".length).split(".")[1]!, "base64url").toString("utf8"),
+    ) as { scope?: string };
+    expect(payload.scope).toBe("step-up:verify");
+
+    answer(404, { error: "not_found" });
+    expect(await b.begin(begin)).toEqual({ ok: false, reason: "not_found" });
+    answer(400, { error: "return_to_refused" });
+    expect(await b.begin(begin)).toEqual({ ok: false, reason: "refused" });
+    answer(503, { error: "unavailable" });
+    await expect(b.begin(begin)).rejects.toThrow();
+    for (const body of [{}, { request_id: "" }, { request_id: 5 }]) {
+      answer(200, body);
+      await expect(b.begin(begin)).rejects.toThrow();
+    }
+  });
+
+  it("verifies a request and maps a refusal to an answer, a fault or a bad shape to a throw", async () => {
+    const b = await bridge();
+    sent.length = 0;
+    answer(200, { ok: true, account_id: "acc_1", profile_ids: ["usr_1", "usr_2"] });
+    expect(await b.verify(verify)).toEqual({
+      ok: true,
+      accountId: "acc_1",
+      profileIds: ["usr_1", "usr_2"],
+    });
+    expect(sent[0]?.url).toBe("https://osn.example/internal/step-up/verify");
+    expect(sent[0]?.body).toEqual({
+      purpose: "cire_app_delete",
+      profile_id: "usr_1",
+      request: { id: "req_1", binding: "b".repeat(64), code: "c" },
+    });
+
+    answer(200, { ok: false, reason: "invalid" });
+    expect(await b.verify(verify)).toEqual({ ok: false });
+    answer(401, { error: "Unauthorized" });
+    expect(await b.verify(verify)).toEqual({ ok: false });
+    for (const body of [
+      { ok: true, account_id: "acc_1", profile_ids: [1] },
+      { ok: true, account_id: "acc_1", profile_ids: ["usr_1", 2] },
+      { ok: true, account_id: 5, profile_ids: ["usr_1"] },
+    ]) {
+      answer(200, body);
+      await expect(b.verify(verify)).rejects.toThrow();
+    }
+    answer(500, { error: "internal_error" });
+    await expect(b.verify(verify)).rejects.toThrow();
+  });
+
+  it("is absent with any piece of its env missing", async () => {
+    const { jwk } = await testKeyMaterial();
+    for (const env of [
+      { arcPrivateKeyJwk: jwk, arcKeyId: "kid-1" },
+      { osnApiUrl: "https://osn.example", arcKeyId: "kid-1" },
+      { osnApiUrl: "https://osn.example", arcPrivateKeyJwk: jwk },
+      { osnApiUrl: "https://osn.example", arcPrivateKeyJwk: "not a key", arcKeyId: "kid-1" },
+    ]) {
+      expect(await createRemovalBridgeFromEnv(env)).toBeNull();
+    }
+    expect(
+      await createRemovalBridgeFromEnv({
+        osnApiUrl: "https://osn.example",
+        arcPrivateKeyJwk: jwk,
+        arcKeyId: "kid-1",
+      }),
+    ).not.toBeNull();
+  });
+
+  it("bounds the account lookup in time when the caller passes no signal", async () => {
+    const b = await bridge();
+    let signal: AbortSignal | null | undefined;
+    globalThis.fetch = mockFetch(async (_url: string | URL | Request, init?: RequestInit) => {
+      signal = init?.signal;
+      return new Response(JSON.stringify({ accountId: "acc_1" }), { status: 200 });
+    });
+    expect(await b.resolveAccount("usr_1")).toEqual({ ok: true, accountId: "acc_1" });
+    expect(signal).toBeInstanceOf(AbortSignal);
   });
 });

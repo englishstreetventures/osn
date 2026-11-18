@@ -1,5 +1,157 @@
 # @shared/osn-auth-client
 
+## 0.5.7
+
+### Patch Changes
+
+- @shared/crypto@0.15.7
+
+## 0.5.6
+
+### Patch Changes
+
+- @shared/crypto@0.15.6
+
+## 0.5.5
+
+### Patch Changes
+
+- adec70d: Tests only: cases a kept sibling already fails on are removed, each checked by breaking the source and watching both fail, and the observability Worker import walk now follows multi-line exports. Tests that could not fail now can, and realtime and email tests that waited on the real clock run on the test clock.
+- Updated dependencies [adec70d]
+  - @shared/crypto@0.15.5
+
+## 0.5.4
+
+### Patch Changes
+
+- @shared/crypto@0.15.4
+
+## 0.5.3
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- Updated dependencies [5347e06]
+  - @shared/crypto@0.15.3
+
+## 0.5.2
+
+### Patch Changes
+
+- @shared/crypto@0.15.2
+
+## 0.5.1
+
+### Patch Changes
+
+- @shared/crypto@0.15.1
+
+## 0.5.0
+
+### Minor Changes
+
+- 582649a: `@shared/osn-auth-client/arc` verifies an ARC token osn-api sent an app against the keys osn-api publishes, refusing a token from another issuer, for a scope the app does not let osn-api use, or whose kid fails its MAC, before fetching anything. `@shared/crypto/arc-kid` mints and checks those key ids under a MAC key derived from the secret with HKDF-SHA-256, never the secret itself, and derives none from a secret under 32 characters; a dev deploy refuses an `INTERNAL_SERVICE_SECRET` that short; `@shared/crypto/arc-metrics` is a Worker-safe export of the ARC metrics. `DeletionRequestResult` gains `could_not_check` and `stale_choices`. The musubi stack gives osn-api Zap's address on dev and production and declares Pulse absent.
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+  - @shared/crypto@0.15.0
+
+## 0.4.73
+
+### Patch Changes
+
+- @shared/crypto@0.14.35
+
+## 0.4.72
+
+### Patch Changes
+
+- @shared/crypto@0.14.34
+
+## 0.4.71
+
+### Patch Changes
+
+- @shared/crypto@0.14.33
+
+## 0.4.70
+
+### Patch Changes
+
+- @shared/crypto@0.14.32
+
+## 0.4.69
+
+### Patch Changes
+
+- @shared/crypto@0.14.31
+
+## 0.4.68
+
+### Patch Changes
+
+- @shared/crypto@0.14.30
+
+## 0.4.67
+
+### Patch Changes
+
+- @shared/crypto@0.14.29
+
+## 0.4.66
+
+### Patch Changes
+
+- @shared/crypto@0.14.28
+
+## 0.4.65
+
+### Patch Changes
+
+- @shared/crypto@0.14.27
+
+## 0.4.64
+
+### Patch Changes
+
+- @shared/crypto@0.14.26
+
+## 0.4.63
+
+### Patch Changes
+
+- @shared/crypto@0.14.25
+
+## 0.4.62
+
+### Patch Changes
+
+- @shared/crypto@0.14.24
+
+## 0.4.61
+
+### Patch Changes
+
+- Updated dependencies [c687234]
+  - @shared/crypto@0.14.23
+
 ## 0.4.60
 
 ### Patch Changes

@@ -11,7 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-18
 ---
 
 # GDPR + UK GDPR
@@ -30,16 +30,16 @@ becomes the controller; we process on its instruction).
 | Art. 5(1)(b) — Purpose limitation | Use data only for the declared purpose | OK in code; not documented | [[data-map]] |
 | Art. 5(1)(c) — Data minimisation | Collect only what is needed | OK — no email duplication, accountId never leaves auth boundary, IPs are HMAC-peppered hashes, metric attrs bounded; cire's guest invite and gift pages send `X-Robots-Tag: noindex, nofollow`, so a couple's names and photo stay out of search indexes | [[identity-model]], [[sessions]], [[shared/observability/overview]], [[cire-invite-builder]] |
 | Art. 5(1)(d) — Accuracy | Let users correct their data | Profile rename + handle update in `@musubi/social`; email change ceremony in `@osn/api`. **Gap** — no rectification API for non-self-service fields | [[identity-model]] |
-| Art. 5(1)(e) — Storage limitation | Don't keep data forever | **Gap** — no documented retention schedule | [[retention]] |
+| Art. 5(1)(e) — Storage limitation | Don't keep data forever | **Partial** — the schedule is [[retention]], and osn-api's sweeps for security events, email changes and handle holds run; Pulse event archival, Zap message expiry and the DSAR request log are not built | [[retention]] |
 | Art. 5(1)(f) — Integrity + confidentiality | Encryption, access control, hashing, redaction | Strong: passkey-primary, ES256 access tokens, SHA-256 hashed sessions / OTP / recovery codes / CDL secrets, Argon2 not in scope (no passwords), TLS at edge, log redaction deny-list, CSP, CORS, Origin guard | Most `wiki/systems/` pages |
 | Art. 6 — Lawful basis | Document the basis for each purpose | **Gap** — not documented per purpose | [[data-map]] |
 | Art. 7 — Conditions for consent | Where consent is the basis (cookies, marketing, geocoder), record it and let users withdraw | **Gap** — Photon geocoder sends keystrokes without consent | Fix the geocoder leak; add consent-record table when first consent surface ships |
 | Art. 9 — Special-category data | Extra protections for health / orientation / political views / etc. | **Indirect risk** — Pulse events can reveal these (Pride parade, AA meeting). Treat all event metadata as special-category in privacy notice. | [[event-access]] |
-| Art. 12–15 — Right of access | Let users see what we hold | **Gap** — no `GET /account/export` | [[dsar]] |
+| Art. 12–15 — Right of access | Let users see what we hold | **Shipped** — `GET /account/export`, step-up gated, one a day, NDJSON with the `pulse.*`, `zap.*` and `cire.*` sections fetched over ARC | [[dsar]] |
 | Art. 16 — Right of rectification | Edit incorrect data | Partial — see Art. 5(1)(d) | [[identity-model]] |
-| Art. 17 — Right of erasure ("right to be forgotten") | Delete user + cascade across services | **Gap** — `deleteProfile` exists; no `DELETE /account` that fans out to Pulse RSVPs, Zap chat membership, security events, sessions, security_events, recovery_codes, passkeys | [[dsar]] |
+| Art. 17 — Right of erasure ("right to be forgotten") | Delete user + cascade across services | **Shipped** — `DELETE /account` from Musubi's Settings: a 7-day window the person can cancel, then a fan-out to Pulse, Zap and cire and the hard delete; `security_events` (12 months) and `email_changes` (90 days) kept under Art. 6(1)(c)+(f). Leaving one app: Pulse's leave route, cire's "Remove my Cire data" | [[dsar]], [[account-deletion]] |
 | Art. 18 — Right to restriction | Suspend processing pending dispute | **Gap** — no "freeze account" admin tool | Future |
-| Art. 20 — Right to data portability | Machine-readable export | **Gap** — same endpoint as Art. 15 in JSON satisfies this | [[dsar]] |
+| Art. 20 — Right to data portability | Machine-readable export | **Shipped** — the Art. 15 export; direct transmission to another controller is not offered | [[dsar]] |
 | Art. 21 — Right to object | Stop processing for direct marketing / legitimate-interest purposes | Today: no marketing email, no LI-based processing. Stay this way OR add an objection record. | — |
 | Art. 22 — Automated decision-making | No solely-automated decisions with legal / similarly significant effect | Recs / discovery rank but don't gatekeep access to a service. **Risk** — DSA-driven content demotion is a "restriction" with significant effect; needs human-review path. | [[dsa]] |
 | Art. 24 — Controller responsibility | Implement appropriate measures | Wiki + skills | This page |
@@ -58,9 +58,9 @@ becomes the controller; we process on its instruction).
 Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `area:compliance`. The
 high-impact ones, in priority order:
 
-1. **Account-level data export endpoint** — `GET /account/export` (auth + step-up gated). JSON bundle including: account row, all profiles, social-graph edges, blocks, RSVPs (via Pulse ARC fan-out), chat membership (via Zap ARC fan-out), security events, sessions metadata, recovery-code usage history. Streaming JSON (multi-MB plausible). Rate-limited 1/day/account. Owner: Identity team.
+1. **Account-level data export endpoint** — built: `GET /account/export` ([[dsar#Art. 15 — Right of access]]).
 
-2. **Account-level erasure endpoint** — `DELETE /account` (auth + step-up gated, second confirmation, 7-day soft-delete window, then hard delete). Cascades via ARC to Pulse + Zap. Replaces user-visible profile rows with a deletion tombstone (`deleted_account_<id>` placeholder so RSVP histories remain queryable for the host without naming the deleted user).
+2. **Account-level erasure endpoint** — built: `DELETE /account`, which reaches every app in `DELETION_APPS` (Pulse, Zap, cire) over ARC once the 7-day window closes ([[account-deletion]], [[dsar#Art. 17 — Right of erasure]]).
 
 3. **Photon geocoder keystroke leak** — proxy through `@pulse/api` so Photon never sees the user IP, debounce server-side, and add a one-time consent dialog on first use ("Location lookups are sent to Photon, an open-source geocoder, to convert what you type into coordinates").
 
@@ -70,7 +70,7 @@ high-impact ones, in priority order:
 
 6. **DSAR runbook** — an operational doc that covers ID verification, the 30-day clock, the unverified-request response, the "manifestly unfounded" denial path, and where to log requests for audit. See [[dsar]].
 
-7. **Retention enforcement** — schedule documented + tested deletes for: dev OTP/magic store sweep, security_events older than 12 months, sessions older than 30 days (already auto-expire), Grafana logs (already 50 GB rolling), Pulse RSVPs of cancelled events, deletion tombstones older than 30 days. Cron job in `osn/api` or sidecar. See [[retention]].
+7. **Retention enforcement** — schedule documented + tested deletes for: dev OTP/magic store sweep, security_events older than 12 months, sessions older than 30 days (already auto-expire), Grafana logs (already 50 GB rolling), Pulse RSVPs of cancelled events. Built for osn-api: `security_events` past 12 months, `email_changes` past 90 days and released handle holds, on its 6-hourly cron. See [[retention]].
 
 8. **DPIA template + filings** — one for Pulse event special-category exposure, one for Zap M3 org-chat transcripts (before M3 ships), one for Zap M4 locality channels (before M4 ships), and the **cire guest-data DPIA** ([[dpia/cire-guest-data]]) **filed with the cire merge — the gating dietary-consent affordance (the dietary consent gate) shipped PR #123; sign-off now turns only on the residual retention items**.
 

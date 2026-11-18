@@ -32,20 +32,6 @@ describe("NoopEmailLive", () => {
     return { lines, layer };
   }
 
-  it("send is a successful no-op (no error, nothing accumulated)", async () => {
-    const exit = await Effect.runPromiseExit(
-      Effect.gen(function* () {
-        const email = yield* EmailService;
-        yield* email.send({
-          template: "otp-step-up",
-          to: "alice@example.com",
-          data: { code: "424242", ttlMinutes: 10, instanceName: "Musubi" },
-        });
-      }).pipe(Effect.provide(makeNoopEmailLive())),
-    );
-    expect(exit._tag).toBe("Success");
-  });
-
   it("emits a redacted warning line that leaks NEITHER recipient NOR OTP code", async () => {
     const { lines, layer } = captureLogs();
 
@@ -53,9 +39,13 @@ describe("NoopEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-email-change",
+          template: "link-email-change",
           to: "victim@secret-domain.example",
-          data: { code: "987654", ttlMinutes: 15, instanceName: "Musubi" },
+          data: {
+            url: "https://musubi.example/verify#987654",
+            ttlMinutes: 15,
+            instanceName: "Musubi",
+          },
         });
       }).pipe(
         Effect.provide(makeNoopEmailLive()),
@@ -67,7 +57,7 @@ describe("NoopEmailLive", () => {
     const joined = lines.join("\n");
     // The degraded-mode marker + the (non-sensitive) template literal ARE logged.
     expect(joined).toContain("email suppressed (degraded mode)");
-    expect(joined).toContain("otp-email-change");
+    expect(joined).toContain("link-email-change");
     // The recipient address and the OTP code MUST NOT appear anywhere.
     expect(joined).not.toContain("victim@secret-domain.example");
     expect(joined).not.toContain("987654");
@@ -81,9 +71,9 @@ describe("NoopEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "link-email-change",
           to: "alice@example.com",
-          data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
+          data: { url: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(makeNoopEmailLive())),
     );

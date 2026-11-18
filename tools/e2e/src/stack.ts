@@ -3,7 +3,8 @@
  * environment, and how the launcher knows each one is ready.
  *
  * The frontends run their own package's `dev:app` script, exactly what
- * `PORTLESS=0 bun run dev` runs. The APIs run their `src/local.ts` entry — what
+ * `PORTLESS=0 bun run dev` runs, except Musubi, which runs as it deploys: built,
+ * and served with its `_headers` (below). The APIs run their `src/local.ts` entry — what
  * `dev:app` runs, minus `--watch` — directly, because the clock preload and
  * `--no-env-file` are Bun flags, and `BUN_OPTIONS` breaks `bun run <script>`.
  * `dev-env` adds nothing without `PORTLESS_URL`, so every sibling origin is set
@@ -25,10 +26,24 @@ import {
   PORTS,
   PULSE_OIDC,
   REPO_ROOT,
+  TURNSTILE_TEST_SITEKEY,
+  STRIPE_CONNECT_WEBHOOK_SECRET,
+  STRIPE_PLATFORM_WEBHOOK_SECRET,
   type AppName,
 } from "./config";
+import type { CireArcKey } from "./seed";
+import { STRIPE_STANDIN_GOLD_PRICE } from "./stripe";
 
 export const CLOCK_MODULE = resolve(import.meta.dirname, "clock.mjs");
+
+/** The repository's Wrangler, which serves Musubi's build. */
+const WRANGLER = resolve(REPO_ROOT, "node_modules/.bin/wrangler");
+
+/** Where Wrangler finds Musubi's build and how it serves it. */
+export const MUSUBI_WRANGLER_CONFIG = resolve(
+  import.meta.dirname,
+  "../musubi-social.wrangler.jsonc",
+);
 
 /** `@cire/vendor`'s dev origin (`DEV_APPS`). Not booted; cire-api is told it. */
 export const VENDOR_PORTAL_ORIGIN = "http://localhost:4326";
@@ -67,6 +82,8 @@ export interface AppSpec {
   readonly name: AppName;
   /** Package directory, relative to the repository root. */
   readonly dir: string;
+  /** Run to completion, in `dir` with `env`, before `command` starts; a failure stops the run. */
+  readonly build?: readonly string[];
   readonly command: readonly string[];
   /** Polled until it answers with any status below 500: the server is listening and serving. */
   readonly readyUrl: string;
@@ -108,8 +125,33 @@ export function baseEnv(
   };
 }
 
-/** Boot order matters: pulse-api registers its service key with osn-api once, at start. */
-export function appSpecs(): AppSpec[] {
+/**
+ * Where every API listens, as the stand-ins do: the secrets the stack hands
+ * the APIs are committed placeholders, so no other machine may reach them.
+ * Clients still name `localhost`, which reaches it.
+ */
+const API_HOSTNAME = "127.0.0.1";
+
+/** The Stripe key both cire-apis hold. Not a real key: it only ever reaches the stand-in. */
+const CIRE_STRIPE_KEY = "e2e-placeholder-no-stripe-account";
+
+/** cire-api's three site origins, in the order `local.ts` reads them. */
+const CIRE_WEB_ORIGINS = [ORIGINS.cireInvites, ORIGINS.cireHost, VENDOR_PORTAL_ORIGIN].join(",");
+
+/**
+ * Boot order matters: pulse-api registers its service key with osn-api once, at
+ * start. `cireArc` is cire-api's ARC key, which `seedOsn` registered with
+ * osn-api; without it cire-api finds no owner's address and mails no owner.
+ */
+export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
+  // cire-api's way to the owners' addresses: osn-api, over ARC, with the key
+  // `seedOsn` registered. None without the key.
+  const ownerAddresses: Record<string, string> = {};
+  if (cireArc) {
+    ownerAddresses.OSN_API_URL = ORIGINS.osnApi;
+    ownerAddresses.CIRE_API_ARC_KEY_ID = cireArc.keyId;
+    ownerAddresses.CIRE_API_ARC_PRIVATE_KEY = cireArc.privateJwk;
+  }
   return [
     {
       name: "osnApi",
@@ -118,6 +160,7 @@ export function appSpecs(): AppSpec[] {
       readyUrl: `${ORIGINS.osnApi}/.well-known/jwks.json`,
       env: {
         PORT: String(PORTS.osnApi),
+        OSN_LOCAL_HOSTNAME: API_HOSTNAME,
         OSN_ENV: "local",
         OSN_DATABASE_URL: DB_FILES.osn,
         OSN_ISSUER_URL: ORIGINS.osnApi,
@@ -136,11 +179,49 @@ export function appSpecs(): AppSpec[] {
         // owns cire's sample wedding, and is sent back to the portal after.
         DEV_LOGIN_SECRET,
         DEV_LOGIN_RETURN_ORIGINS: ORIGINS.cireHost,
-        // Sign out everywhere else, and revoking cire's connection, end the
-        // account's cire organiser sessions through this cire-api.
-        CIRE_INTERNAL_REVOKE_URL: ORIGINS.cireApi,
+        // Sign out everywhere else, revoking cire's connection and an
+        // account's deletion end its cire organiser sessions through this
+        // cire-api, and the deletion's preview and erasure reach it here.
+        CIRE_API_URL: ORIGINS.cireApi,
         CIRE_INTERNAL_REVOKE_SECRET,
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
+        // `musubi-account-deletion` moves its deletion job past its window
+        // and waits for the sweeps (`osn/api/src/local.ts`): every 2 s here,
+        // not 6 h. A pass finds nothing to do unless a job is due, and no
+        // other flow writes one.
+        OSN_DELETION_SWEEPER_INTERVAL_MS: "2000",
+        // Keeps the client address a request sends, so `musubi-account-deletion`
+        // (`callOsnApiFrom`) spends its own limiter windows.
+        OSN_E2E_CLIENT_ADDRESS: "1",
+      },
+    },
+    {
+      // A second osn-api that takes browser Email Verification API tokens,
+      // with its own database and limiter windows. Musubi reaches it only in
+      // the flows that call `throughEmailVerificationApi`. Its verifier
+      // resolves and fetches through the issuer stand-in (`src/issuer.ts`);
+      // its mail goes to the same Resend stand-in as the first's.
+      name: "osnApiEvt",
+      dir: "osn/api",
+      command: API_COMMAND,
+      readyUrl: `${ORIGINS.osnApiEvt}/.well-known/jwks.json`,
+      env: {
+        PORT: String(PORTS.osnApiEvt),
+        OSN_LOCAL_HOSTNAME: API_HOSTNAME,
+        OSN_ENV: "local",
+        OSN_DATABASE_URL: DB_FILES.osnEvt,
+        OSN_ISSUER_URL: ORIGINS.osnApiEvt,
+        OSN_RP_ID: "localhost",
+        OSN_RP_NAME: "Musubi",
+        // Musubi first: the token's audience is the first origin's.
+        OSN_ORIGIN: ORIGINS.musubi,
+        OSN_CORS_ORIGIN: ORIGINS.musubi,
+        INTERNAL_SERVICE_SECRET,
+        RESEND_API_KEY: E2E_RESEND_KEY,
+        RESEND_API_URL: ORIGINS.mail,
+        OSN_EMAIL_FROM: "Musubi <no-reply@e2e.test>",
+        OSN_EMAIL_VERIFICATION_API: "on",
+        OSN_EMAIL_VERIFICATION_EMULATOR_URL: `http://127.0.0.1:${PORTS.issuer}`,
       },
     },
     {
@@ -150,6 +231,7 @@ export function appSpecs(): AppSpec[] {
       readyUrl: `${ORIGINS.pulseApi}/`,
       env: {
         PORT: String(PORTS.pulseApi),
+        PULSE_LOCAL_HOSTNAME: API_HOSTNAME,
         OSN_ENV: "local",
         PULSE_DATABASE_URL: DB_FILES.pulse,
         OSN_API_URL: ORIGINS.osnApi,
@@ -170,6 +252,7 @@ export function appSpecs(): AppSpec[] {
       readyUrl: `${ORIGINS.cireApi}/`,
       env: {
         PORT: String(PORTS.cireApi),
+        CIRE_LOCAL_HOSTNAME: API_HOSTNAME,
         CIRE_LOCAL_DB_PATH: DB_FILES.cire,
         CIRE_E2E_RSVP_DEADLINE: CIRE_RSVP_DEADLINE,
         // Adds the gift-list wedding (`CIRE_GIFT_LIST`) to cire-api's seed.
@@ -182,43 +265,92 @@ export function appSpecs(): AppSpec[] {
         // Guest site, organiser portal, vendor portal — the order `local.ts`
         // reads them in. The vendor portal is not in the stack; naming its
         // dev origin keeps cire-api from minting production vendor links.
-        WEB_ORIGIN: [ORIGINS.cireInvites, ORIGINS.cireHost, VENDOR_PORTAL_ORIGIN].join(","),
+        WEB_ORIGIN: CIRE_WEB_ORIGINS,
         // Organiser sign-in through osn-api, as a first-party client.
         OSN_ISSUER_URL: ORIGINS.osnApi,
         OSN_JWKS_URL: `${ORIGINS.osnApi}/.well-known/jwks.json`,
         CIRE_API_ORIGIN: ORIGINS.cireApi,
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
         CIRE_OIDC_CLIENT_SECRET: CIRE_OIDC.secret,
-        // A Stripe key and no Connect webhook secret: a deployment that could
-        // open a payment page but never record the gift, so cire-api must offer
-        // guests no money at all. The gift-list flows check that it does not.
-        // Not a real key, and it only ever reaches the Stripe stand-in
-        // (`src/stripe.ts`), which every Stripe call goes to. The one flow
-        // that reaches the Stripe routes (`cire-registry-money`) calls it only
-        // to connect an account the owner already has, through OAuth; its
-        // other steps are refused before a Stripe call or read cire's rows.
-        STRIPE_SECRET_KEY: "e2e-placeholder-no-stripe-account",
+        // A Stripe key and the Connect webhook's secret: guests may give
+        // money, and a gift is recorded when the signed event the flow
+        // delivers arrives. The key only ever reaches the Stripe stand-in
+        // (`src/stripe.ts`), which every Stripe call goes to: the OAuth
+        // connect, a guest's gift (`cire-registry-money`), and an upgrade's
+        // Checkout and refund (`cire-checklist-starter`).
+        STRIPE_SECRET_KEY: CIRE_STRIPE_KEY,
         STRIPE_API_URL: ORIGINS.stripe,
         STRIPE_CONNECT_URL: ORIGINS.stripe,
+        STRIPE_WEBHOOK_SECRET: STRIPE_CONNECT_WEBHOOK_SECRET,
         // A client id of the right shape, which only the stand-in ever sees:
         // with it and CIRE_API_ORIGIN, the portal offers "Connect a Stripe
         // account you already have".
         STRIPE_CONNECT_CLIENT_ID: "ca_e2eStandIn",
-        // A Gold Price beside that key, and no platform webhook secret: a
-        // deployment that means to sell a tier but could never grant one, so
-        // cire-api mounts no upgrade route. The checklist flow checks that the
-        // portal offers no payment. Not a real Price; nothing reads it there.
-        STRIPE_UPGRADE_PRICE_GOLD: "price_e2e_placeholder_gold",
+        // A Gold Price and the platform webhook's secret: the stack sells Gold,
+        // and grants it when the signed `checkout.session.completed` the flow
+        // delivers arrives. No Crimson Price, so nothing sells Crimson.
+        STRIPE_UPGRADE_PRICE_GOLD: STRIPE_STANDIN_GOLD_PRICE.id,
+        STRIPE_PLATFORM_WEBHOOK_SECRET,
+        // Owner notices (an automatic refund's among them): mail to the
+        // stand-in, and each owner's address from osn-api over ARC.
+        RESEND_API_KEY: E2E_RESEND_KEY,
+        RESEND_API_URL: ORIGINS.mail,
+        ...ownerAddresses,
         // What osn-api presents to end organiser sessions; the same value as its own.
         CIRE_INTERNAL_REVOKE_SECRET,
       },
     },
     {
+      // A second cire-api with the Stripe key and no Connect webhook secret:
+      // a deployment that could open a gift's payment page but never record
+      // the gift, so it must offer guests no money at all. Its own database,
+      // seeded with the gift-list wedding, and its own limiter windows. The
+      // browser reaches it only in the flows that call `throughKeyOnlyCireApi`
+      // (`cire-registry-claimed`, `cire-registry-preview`), which check that
+      // it offers none. Nothing else: no organiser sign-in, owner mail or
+      // client address, which neither flow needs.
+      name: "cireApiKeyOnly",
+      dir: "cire/api",
+      command: API_COMMAND,
+      readyUrl: `${ORIGINS.cireApiKeyOnly}/`,
+      env: {
+        PORT: String(PORTS.cireApiKeyOnly),
+        CIRE_LOCAL_HOSTNAME: API_HOSTNAME,
+        CIRE_LOCAL_DB_PATH: DB_FILES.cireKeyOnly,
+        CIRE_E2E_REGISTRY: "1",
+        WEB_ORIGIN: CIRE_WEB_ORIGINS,
+        STRIPE_SECRET_KEY: CIRE_STRIPE_KEY,
+        STRIPE_API_URL: ORIGINS.stripe,
+        STRIPE_CONNECT_URL: ORIGINS.stripe,
+      },
+    },
+    {
+      // Built, then served by Wrangler's asset server with the build's
+      // `_headers` applied, as the deployed Worker serves it: every Musubi
+      // page in the flows runs under the Content-Security-Policy that ships.
+      // The dev server sends no such header. The build carries Turnstile's
+      // test sitekey, so the sign-in and registration forms load the widget as
+      // the deployed tiers do; osn-api holds no secret and checks nothing, as
+      // on dev, and the fixtures stand in for Turnstile at its real URLs.
       name: "musubi",
       dir: "musubi/social",
-      command: ["bun", "run", "dev:app"],
+      build: ["bun", "run", "build"],
+      command: [
+        WRANGLER,
+        "dev",
+        "--config",
+        MUSUBI_WRANGLER_CONFIG,
+        "--port",
+        String(PORTS.musubi),
+        "--ip",
+        "localhost",
+        "--show-interactive-dev-session=false",
+      ],
       readyUrl: `${ORIGINS.musubi}/`,
-      env: { PORT: String(PORTS.musubi), VITE_OSN_ISSUER_URL: ORIGINS.osnApi },
+      env: {
+        VITE_OSN_ISSUER_URL: ORIGINS.osnApi,
+        VITE_TURNSTILE_SITEKEY: TURNSTILE_TEST_SITEKEY,
+      },
     },
     {
       name: "pulseWeb",
@@ -253,6 +385,9 @@ export function appSpecs(): AppSpec[] {
         PUBLIC_CIRE_API_URL: ORIGINS.cireApi,
         PUBLIC_CIRE_WEB_URL: ORIGINS.cireInvites,
         PUBLIC_MARKETING_URL: ORIGINS.cireLanding,
+        // Where "Remove my Cire data" sends the person to confirm: this
+        // stack's Musubi.
+        PUBLIC_OSN_ACCOUNT_URL: ORIGINS.musubi,
       },
     },
     {

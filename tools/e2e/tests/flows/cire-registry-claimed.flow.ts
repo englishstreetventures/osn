@@ -6,12 +6,15 @@
  * and the household's own read answers 200. Signing out on the invitation
  * locks the list again and removes the household's session.
  *
- * The couple also have a cash fund, and their own settings take money. This
- * stack's cire-api has a Stripe key and no Connect webhook secret: it could
- * open a payment page but never record the gift, so the list offers neither
- * the money form nor the fund. The flow reads the fund's row and the couple's
- * Stripe-ready settings from the database first, so the fund's absence is the
- * deployment's doing, not a seed that lacks one.
+ * The couple also have a cash fund, and their own settings take money. The
+ * flow's browser talks to the stack's second cire-api (`throughKeyOnlyCireApi`),
+ * which has a Stripe key and no Connect webhook secret: it could open a
+ * payment page but never record the gift, so the list offers neither the money
+ * form nor the fund. The flow reads the fund's row and the couple's
+ * Stripe-ready settings from that server's database first, so the fund's
+ * absence is the deployment's doing, not a seed that lacks one. The guest
+ * site's server render reads the first cire-api, which seeds the same wedding;
+ * nothing it renders depends on whether a server takes money.
  *
  * The wedding is on Gold, so the invitation downloads the band's own module
  * and its display helpers once the list read answers, and never the client
@@ -39,11 +42,14 @@ import {
   onSuiteClock,
   queryOne,
   test,
+  throughKeyOnlyCireApi,
 } from "../support/fixtures";
 
-const LIST_URL = `${ORIGINS.cireApi}/api/invite/${CIRE_GIFT_LIST.slug}/registry`;
+// Where the browser's cire-api requests land, and where Playwright reports them.
+const API = ORIGINS.cireApiKeyOnly;
+const LIST_URL = `${API}/api/invite/${CIRE_GIFT_LIST.slug}/registry`;
 const MINE_URL = `${LIST_URL}/mine`;
-const CLAIM_URL = `${ORIGINS.cireApi}/api/claim`;
+const CLAIM_URL = `${API}/api/claim`;
 
 /** Resolves with the first `method` request to exactly `url`; `…/registry` is a prefix of `…/registry/mine`. */
 function responseTo(page: Page, method: string, url: string) {
@@ -51,6 +57,7 @@ function responseTo(page: Page, method: string, url: string) {
 }
 
 test("cire-registry-claimed", async ({ page, context, flow }) => {
+  await throughKeyOnlyCireApi(context);
   const paths = guestSitePaths(page);
   // Where the invitation's requests start: the gift page before it imports
   // the gift-list client itself.
@@ -113,14 +120,14 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
   flow.check(
     "band read the list",
     true,
-    flow.saw(`GET cire-api /api/invite/${CIRE_GIFT_LIST.slug}/registry 200`),
+    flow.saw(`GET cire-api-key-only /api/invite/${CIRE_GIFT_LIST.slug}/registry 200`),
   );
   // A Gold wedding with a published list: its guests download the band. These
   // also hold the two paths, so a renamed module fails here rather than letting
   // `cire-rsvp-after-deadline`, where an Ivory guest must request neither, pass
   // on a path nothing serves.
   const tier = queryOne<{ tier: string }>(
-    DB_FILES.cire,
+    DB_FILES.cireKeyOnly,
     `SELECT tier FROM weddings WHERE slug = ?`,
     CIRE_GIFT_LIST.slug,
   );
@@ -175,7 +182,7 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
   // The couple's side is ready to take money, and the fund is theirs. Read
   // first, so what follows cannot pass on a seed with no fund in it.
   const fund = queryOne<{ title: string; description: string; kind: string }>(
-    DB_FILES.cire,
+    DB_FILES.cireKeyOnly,
     `SELECT title, description, kind FROM registry_items WHERE id = ?`,
     CIRE_GIFT_LIST.fund.id,
   );
@@ -183,7 +190,7 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
   flow.check("the fund's words", CIRE_GIFT_LIST.fund.description, fund?.description ?? "");
   flow.check("the fund is a cash fund", "cash_fund", fund?.kind ?? "");
   const money = queryOne<{ ready: number }>(
-    DB_FILES.cire,
+    DB_FILES.cireKeyOnly,
     `SELECT (s.cash_gifts_enabled = 1 AND s.stripe_charges_enabled = 1
              AND s.stripe_account_id IS NOT NULL
              AND upper(s.stripe_default_currency) = upper(w.currency)) AS ready
@@ -201,7 +208,7 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
   // The stack is the one these labels name: cire-api logs this warning only
   // when it holds a Stripe key and no webhook secret, once, when it builds the
   // app. With no key at all the checks above would pass too, and say nothing.
-  const cireApiLog = readFileSync(resolve(LOG_DIR, "cireApi.log"), "utf8");
+  const cireApiLog = readFileSync(resolve(LOG_DIR, "cireApiKeyOnly.log"), "utf8");
   flow.check(
     "cire-api warned once of a Stripe key with no webhook secret",
     1,
@@ -210,7 +217,7 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
   );
 
   const sessions = queryOne<{ n: number; created_at: number }>(
-    DB_FILES.cire,
+    DB_FILES.cireKeyOnly,
     `SELECT count(*) AS n, max(s.created_at) AS created_at FROM sessions s
        JOIN families f ON f.id = s.family_id
       WHERE f.public_id = ?`,
@@ -226,7 +233,7 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
     await other.goto(`${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_GIFT_LIST.slug}`);
     const signOut = other.getByRole("button", { name: /Sign out$/ });
     await expect(signOut).toBeVisible({ timeout: 60_000 });
-    const out = responseTo(other, "POST", `${ORIGINS.cireApi}/api/claim/signout`);
+    const out = responseTo(other, "POST", `${API}/api/claim/signout`);
     await signOut.click();
     const outStatus = (await out).status();
     await expect(other.getByLabel("Invitation code")).toBeVisible();
@@ -242,7 +249,7 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
   flow.check("gift data on the page after sign-out", "none", signedOut.leaked);
 
   const left = queryOne<{ n: number }>(
-    DB_FILES.cire,
+    DB_FILES.cireKeyOnly,
     `SELECT count(*) AS n FROM sessions s
        JOIN families f ON f.id = s.family_id
       WHERE f.public_id = ?`,

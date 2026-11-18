@@ -52,6 +52,42 @@ export async function resolveRecoveryTokenPrincipal(
 }
 
 /**
+ * The caller of a route an account may reach while its deletion is pending:
+ * an ordinary access token (`osn-access`, tried first), or the access token of
+ * a session of an account whose deletion is pending (`osn-pending-deletion`),
+ * with `pendingDeletion` saying which. Null for no token and for any other
+ * audience.
+ *
+ * Only the deletion-status, export, restore and delete routes may call it,
+ * and the step-up routes, for the step-ups export and restore need. A caller
+ * given `pendingDeletion: true` reads the profile with
+ * `findProfileByIdIncludingTombstoned` and refuses the token when the account
+ * is no longer pending deletion; given `false`, it resolves the profile as
+ * every other route does.
+ */
+export async function resolveAccountWindowPrincipal(
+  auth: AuthService,
+  authHeader: string | undefined,
+): Promise<{
+  profileId: string;
+  email: string;
+  handle: string;
+  displayName: string | null;
+  sessionBinding: string | null;
+  pendingDeletion: boolean;
+} | null> {
+  const ordinary = await resolveAccessTokenPrincipal(auth, authHeader);
+  if (ordinary) return { ...ordinary, pendingDeletion: false };
+  if (!authHeader || !/^Bearer\s+/i.test(authHeader)) return null;
+  const token = authHeader.replace(/^Bearer\s+/i, "");
+  const result = await Effect.runPromise(
+    Effect.result(auth.verifyPendingDeletionAccessToken(token)),
+  );
+  if (result._tag === "Success") return { ...result.success, pendingDeletion: true };
+  return null;
+}
+
+/**
  * Resolves the accountId from a Bearer access token. Returns null if auth
  * fails. Wraps resolveAccessTokenPrincipal + DB lookup.
  */

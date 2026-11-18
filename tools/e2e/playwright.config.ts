@@ -15,8 +15,10 @@ export default defineConfig({
   testDir: "./tests/flows",
   testMatch: "*.flow.ts",
   outputDir: TRACE_DIR,
-  // Serial and never retried: flows share the stack's in-memory rate limiters,
-  // and a retry would turn a flake into a pass instead of a red run.
+  // Serial and never retried within a run: flows share the stack's in-memory
+  // rate limiters and seeded state, which a flow's first try has already spent
+  // by the time a retry would start. CI reruns a failed run whole, on a fresh
+  // stack, and flags a pass on the second run (scripts/e2e-with-retry.sh).
   workers: 1,
   fullyParallel: false,
   retries: 0,

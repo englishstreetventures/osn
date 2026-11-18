@@ -33,7 +33,7 @@
 
 import { contrastOklch, type Oklch, oklchToRgb, parseColor, rgbToOklch } from "@shared/color";
 
-import { contrastPairs, WCAG_TEXT, WCAG_UI } from "./index";
+import { colorFallback, contrastPairs, WCAG_TEXT, WCAG_UI } from "./index";
 
 /** One scope of the cascade to evaluate — a theme, essentially. */
 export interface ConformanceScope {
@@ -78,6 +78,13 @@ export interface ConformanceOptions {
    * that draws a control boundary falls back to this package's neutral grey.
    */
   waived?: Readonly<Record<string, string>>;
+  /**
+   * The pairs to measure, in place of the contract's own
+   * ({@link contrastPairs}). For a pair an app adds on top of the contract —
+   * a fill drawn as ink where the app uses it so, say — measured on the
+   * grounds where the app draws it.
+   */
+  pairs?: readonly { fg: string; bg: string; min: number }[];
 }
 
 export interface ConformanceFailure {
@@ -206,18 +213,23 @@ function over(fg: Oklch, bg: Oklch): Oklch {
  * each is an afternoon.
  */
 export function checkContractConformance(options: ConformanceOptions): ConformanceFailure[] {
-  const { css, scopes, waived = {} } = options;
+  const { css, scopes, waived = {}, pairs = contrastPairs() } = options;
   const failures: ConformanceFailure[] = [];
 
   for (const scope of scopes) {
     const decls = collect(css, scope.selectors);
 
-    for (const { fg, bg, min } of contrastPairs()) {
-      const skip = waived[fg] ?? waived[bg];
+    // A token the app left unmapped that falls back to another is drawn in
+    // that one: measure it as that one, under its waiver.
+    const drawnAs = (token: string): string =>
+      decls.has(token) ? token : (colorFallback(token) ?? token);
+
+    for (const { fg, bg, min } of pairs) {
+      const skip = waived[fg] ?? waived[bg] ?? waived[drawnAs(fg)] ?? waived[drawnAs(bg)];
       if (skip !== undefined) continue;
 
-      const fgRaw = decls.get(fg);
-      const bgRaw = decls.get(bg);
+      const fgRaw = decls.get(drawnAs(fg));
+      const bgRaw = decls.get(drawnAs(bg));
 
       for (const [token, raw] of [
         [fg, fgRaw],

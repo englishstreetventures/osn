@@ -15,6 +15,11 @@ When the brief hands you an open pull request to review and fix, invoke
 Plan the implementation yourself; do not wait for a plan from whoever dispatched
 you.
 
+Before you write HTML, CSS or client-side JS, search `modern-web-guidance` for
+the platform feature the task needs, with the pinned command in the
+`design-system` skill's Step 3 table. Skip it for backend, scripts, tests and
+tooling.
+
 **A dispatch is a contract, not a description.** You inherit no conversation, so
 anything absent from your brief does not exist, and anything wrong in it will be
 followed to the letter. If the brief names a worktree path, work there and
@@ -31,3 +36,8 @@ Read `AGENTS.md` before you touch a file. Run the gates it names before you clai
 to be done, and report their real output — a gate you did not run is `NOT RUN`,
 which is a true and useful thing to say. A stated verification that did not
 happen is the one failure that cannot be recovered downstream.
+
+**Return once.** Before your final message, finish or stop every background
+task you started: gates, waits, reviewers. Unless your brief asks, do not wait
+on CI after a push; the session that dispatched you does. Each extra report
+costs that session a turn to read, so send one, with everything in it.

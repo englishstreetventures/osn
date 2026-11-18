@@ -1,0 +1,681 @@
+import { StepUpDialog } from "@osn/auth-ui/StepUpDialog";
+import type { StepUpClient } from "@osn/client";
+import { AuthContext } from "@osn/client/solid";
+import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
+import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
+import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
+
+import "../../src/App.css";
+
+/**
+ * The step-up sheet in Settings → Security, in a real browser.
+ *
+ * "Add a passkey" mounts `StepUpDialog`, which is `@shared/ui`'s `Dialog` with
+ * `presentation="sheet"`: a bottom sheet as wide as the screen below `md`, a
+ * centred 384px card above. Its authenticator-code step is a row of six
+ * `OtpInput` boxes inside the sheet's 16px padding, so at 320px the row is
+ * 288px and each box at least 40px (`DESIGN.md` §Responsive layout, Code
+ * boxes). Widths, the focus hand-back, Escape and a press outside the sheet
+ * take a real browser.
+ *
+ * The factories are written literally: the shared-factory idiom in
+ * `test-support/` does not resolve in the browser project.
+ */
+
+// The passkey's name; one case sets it to the longest name the field takes.
+// `holdList` keeps the passkey list's read out until `releaseList`; `stepUp`
+// lets the passkey factor answer, so a step-up hands over its token; `codes`
+// is how many recovery codes the account holds.
+const fixture = vi.hoisted(() => ({
+  label: "Work laptop",
+  lastUsedAt: 1_700_005_000 as number | null,
+  holdList: false,
+  releaseList: () => {},
+  stepUp: false,
+  codes: 10,
+}));
+
+vi.mock("@osn/auth-ui/ProfileOnboarding", () => ({ ProfileOnboarding: () => null }));
+vi.mock("../../src/lib/authClients", () => ({
+  accountClient: {},
+  registrationClient: { checkHandle: () => Promise.resolve({ available: true }) },
+  passkeysClient: {
+    list: async () => {
+      if (fixture.holdList) await new Promise<void>((r) => (fixture.releaseList = r));
+      return {
+        passkeys: [
+          {
+            id: "pk_aaaaaaaaaaaa",
+            label: fixture.label,
+            aaguid: null,
+            transports: null,
+            backupEligible: false,
+            backupState: false,
+            createdAt: 1_700_000_000,
+            lastUsedAt: fixture.lastUsedAt,
+          },
+        ],
+      };
+    },
+  },
+  // The emailed link's wait: the request answers, and its status never does.
+  // The passkey's begin never answers, so "Use passkey" holds its wait.
+  stepUpClient: {
+    passkeyBegin: () =>
+      fixture.stepUp ? Promise.resolve({ options: { challenge: "abc" } }) : new Promise(() => {}),
+    passkeyComplete: () => Promise.resolve({ token: "stpup_x", expiresIn: 300 }),
+    emailBegin: () =>
+      Promise.resolve({
+        requestId: "stepup_0123456789ab",
+        claimSecret: "c".repeat(64),
+        pairingCode: "47",
+        expiresAt: 1_900_000_000,
+      }),
+    emailStatus: () => new Promise(() => {}),
+  },
+  // Enrolled, so the step-up offers the authenticator, whose step is the code row.
+  totpClient: { status: () => Promise.resolve({ enrolled: true }) },
+  recoveryClient: {
+    getRecoveryCodesStatus: () =>
+      Promise.resolve({ active: fixture.codes, total: fixture.codes, generatedAt: null }),
+    generateRecoveryCodes: () =>
+      Promise.resolve({
+        codes: Array.from({ length: 10 }, (_, i) => `abcd-efgh-ijkl-${String(i).padStart(4, "0")}`),
+      }),
+  },
+}));
+vi.mock("../../src/lib/webauthn-ceremony", () => ({
+  runPasskeyCeremony: () => Promise.resolve({ id: "cred", rawId: "cred" }),
+}));
+vi.mock("../../src/lib/webauthn-registration", () => ({ runPasskeyRegistration: () => {} }));
+
+import { SettingsPage } from "../../src/pages/SettingsPage";
+
+/** Relative to this file: the repository's `e2e-artifacts/`. */
+const SHOTS = "../../../../e2e-artifacts/musubi-settings";
+
+/** An unsigned access token carrying the `sub` claim the page reads. */
+const ACCESS_TOKEN = `header.${btoa(JSON.stringify({ sub: "prof_1" }))}.signature`;
+
+function authValue() {
+  const session = { accessToken: ACCESS_TOKEN, idToken: null, expiresAt: 0, scopes: [] };
+  const resource = <T,>(value: T) =>
+    Object.assign(() => value, {
+      state: "ready",
+      loading: false,
+      error: undefined,
+      latest: value,
+      refetch: () => {},
+      mutate: () => {},
+    });
+  return {
+    session: resource(session),
+    profiles: resource([]),
+    activeProfileId: () => null,
+  };
+}
+
+/** Settings → Security, drawn. */
+function renderSecurity() {
+  const history = createMemoryHistory();
+  history.set({ value: "/settings#security" });
+  render(() => (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mocked AuthContext
+    <AuthContext.Provider value={authValue() as any}>
+      <MemoryRouter history={history}>
+        <Route path="/settings" component={SettingsPage} />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  ));
+}
+
+/** Settings → Security, then "Add a passkey": the step-up sheet, and the button that opened it. */
+async function openSheet() {
+  renderSecurity();
+  const opener = await waitFor(() => screen.getByRole("button", { name: "Add a passkey" }));
+  await userEvent.click(opener);
+  const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Confirm it's you" }));
+  return { sheet, opener };
+}
+
+/** The sheet's authenticator-code step: its row of boxes. */
+async function openCodeStep() {
+  const { sheet } = await openSheet();
+  await userEvent.click(
+    await waitFor(() => within(sheet).getByRole("button", { name: "Use your authenticator app" })),
+  );
+  const row = await waitFor(() =>
+    within(sheet).getByRole("group", { name: "Code from your authenticator app" }),
+  );
+  return { sheet, row };
+}
+
+/** The Settings card that holds `el`: the ancestor `main` holds directly. */
+function settingsCard(el: HTMLElement): HTMLElement {
+  let node = el;
+  while (node.parentElement && node.parentElement.tagName !== "MAIN") node = node.parentElement;
+  return node;
+}
+
+beforeAll(async () => {
+  document.documentElement.classList.remove("dark");
+  // The Security tab is a lazy chunk; load it under the hook's budget, so each
+  // test waits only for the swap.
+  await import("../../src/components/SecuritySection");
+});
+
+afterEach(() => {
+  cleanup();
+  document.documentElement.classList.remove("dark");
+  fixture.label = "Work laptop";
+  fixture.lastUsedAt = 1_700_005_000;
+  fixture.holdList = false;
+  fixture.stepUp = false;
+  fixture.codes = 10;
+});
+
+/**
+ * Each shot is taken in its own render with the theme set before it, never by
+ * flipping the theme on a drawn page: the buttons' colour transitions would be
+ * caught half way. Shots wait for every animation on the page that ends: the
+ * card's entry fade (`--ui-dur-fast`) or, below `md`, the sheet's rise
+ * (`--ui-dur-slow`), and its scrim's. One that never ends, such as a busy
+ * button's orb, is left running, and so is the fill behind the emailed link's
+ * "Resend in …s", which ends only with the wait. A read of where a sheet sits
+ * waits too, since below `md` it starts its own height below the bottom edge.
+ */
+async function settle() {
+  const ending = document
+    .getAnimations()
+    .filter((a) => Number.isFinite(a.effect?.getComputedTiming().endTime ?? 0))
+    .filter((a) => !waitFill(a));
+  await Promise.all(ending.map((a) => a.finished.catch(() => {})));
+}
+
+/** The emailed link's wait fill: a transition inside Resend while it counts down. */
+function waitFill(animation: Animation): boolean {
+  const target = (animation.effect as KeyframeEffect | null)?.target;
+  return target?.closest("button")?.textContent?.startsWith("Resend in") ?? false;
+}
+
+/** A computed colour as sRGB bytes, whatever space the browser wrote it in. */
+function rgb(color: string): number[] {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const context = canvas.getContext("2d")!;
+  context.fillStyle = color;
+  context.fillRect(0, 0, 1, 1);
+  return [...context.getImageData(0, 0, 1, 1).data];
+}
+
+/** The scrim behind `sheet`, which Kobalte draws just before it. */
+function scrimOf(sheet: HTMLElement): HTMLElement {
+  const scrim = sheet.previousElementSibling;
+  if (!(scrim instanceof HTMLElement) || getComputedStyle(scrim).position !== "fixed") {
+    throw new Error("no scrim before the sheet");
+  }
+  return scrim;
+}
+
+/** The names of the buttons in the footer the sheet's Cancel sits in, in order. */
+function footerRow(sheet: HTMLElement): string[] {
+  const cancel = within(sheet).getByRole("button", { name: "Cancel" });
+  return [...cancel.parentElement!.querySelectorAll("button")].map((b) => b.textContent ?? "");
+}
+
+/**
+ * The sheet's one layout (`osn/auth-ui/DESIGN.md` §8): the title alone in
+ * the header, centred; one line under it naming the cause, which is the
+ * sheet's description; the footer's buttons each `tall`, on one row, inside
+ * the sheet's 16px padding.
+ */
+function expectSheetLayout(sheet: HTMLElement, tall: number) {
+  const title = within(sheet).getByRole("heading", { level: 2 });
+  expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+  expect(getComputedStyle(title).textAlign).toBe("center");
+  const box = sheet.getBoundingClientRect();
+  const text = textBox(title);
+  expect(Math.abs(text.left + text.width / 2 - (box.left + box.width / 2))).toBeLessThanOrEqual(1);
+  const described = (sheet.getAttribute("aria-describedby") ?? "")
+    .split(" ")
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ");
+  expect(described).toBe("To add a passkey, confirm it's you.");
+  expect(sheet.textContent).not.toMatch(/Re-authenticate|fresh authentication|Choose a method/);
+  const cancel = within(sheet).getByRole("button", { name: "Cancel" });
+  const row = [...cancel.parentElement!.querySelectorAll("button")];
+  for (const button of row) {
+    const rect = button.getBoundingClientRect();
+    expect(rect.height).toBeCloseTo(tall, 0);
+    expect(rect.top).toBeCloseTo(row[0]!.getBoundingClientRect().top, 0);
+    expect(rect.right).toBeLessThanOrEqual(box.right - 16 + 0.5);
+  }
+  expect(sheet.scrollWidth).toBeLessThanOrEqual(sheet.clientWidth);
+}
+
+/** The box the words of `element` take, line boxes and all, not the element's. */
+function textBox(element: Element): DOMRect {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  return range.getBoundingClientRect();
+}
+
+describe("the step-up sheet in Settings → Security", () => {
+  it.each(["light", "dark"])(
+    "is a bottom sheet at 390px that takes focus and gives it back on Escape (%s)",
+    async (theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.viewport(390, 844);
+      const { sheet, opener } = await openSheet();
+      await settle();
+      const box = sheet.getBoundingClientRect();
+      expect(box.left).toBeCloseTo(0, 1);
+      expect(box.width).toBeCloseTo(390, 1);
+      expect(box.bottom).toBeCloseTo(window.innerHeight, 0);
+      const style = getComputedStyle(sheet);
+      expect(style.borderTopLeftRadius).toBe("16px");
+      expect(style.borderTopRightRadius).toBe("16px");
+      expect(style.borderBottomLeftRadius).toBe("0px");
+      expect(style.borderBottomRightRadius).toBe("0px");
+      // Focus moves into the sheet: "Use passkey", the footer's action.
+      await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+      expect(document.activeElement).toBe(
+        within(sheet).getByRole("button", { name: "Use passkey" }),
+      );
+      expect(footerRow(sheet)).toEqual(["Cancel", "Use passkey"]);
+      expectSheetLayout(sheet, 40);
+      await settle();
+      await page.screenshot({ path: `${SHOTS}/step-up-sheet-390-${theme}.png` });
+
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      // Back on "Add a passkey", which the host disabled while the sheet was open.
+      await waitFor(() => expect(document.activeElement).toBe(opener));
+    },
+  );
+
+  it("holds Resend while the emailed link's wait runs, at 390px", async () => {
+    await page.viewport(390, 844);
+    const { sheet } = await openSheet();
+    await userEvent.click(within(sheet).getByRole("button", { name: "Email me a link" }));
+    const resend = await waitFor(() =>
+      within(sheet).getByRole("button", { name: /^Resend in \d+s$/ }),
+    );
+    expect((resend as HTMLButtonElement).disabled).toBe(true);
+    expect(within(sheet).getByText("47")).toBeTruthy();
+    expect(within(sheet).getByRole("button", { name: "Use another method" })).toBeTruthy();
+    await settle();
+    await page.screenshot({ path: `${SHOTS}/step-up-sheet-email-390.png` });
+  });
+
+  it.each(["light", "dark"])("gives the code row at least 260px at 320px (%s)", async (theme) => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    // Tall enough that the sheet never scrolls.
+    await page.viewport(320, 900);
+    const { sheet, row } = await openCodeStep();
+    expect(sheet.getBoundingClientRect().width).toBeCloseTo(320, 1);
+    const width = row.getBoundingClientRect().width;
+    expect(width).toBeGreaterThanOrEqual(260);
+    // The sheet's 16px each side: 288px.
+    expect(width).toBeCloseTo(288, 0);
+    const boxes = within(row).getAllByRole("textbox");
+    expect(boxes).toHaveLength(6);
+    for (const box of boxes) expect(box.getBoundingClientRect().width).toBeGreaterThanOrEqual(40);
+    // Every action stays inside the sheet's 16px padding, 40px tall or more.
+    const inner = sheet.getBoundingClientRect().right - 16;
+    for (const button of within(sheet).getAllByRole("button")) {
+      expect(button.getBoundingClientRect().right).toBeLessThanOrEqual(inner + 0.5);
+      expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(40);
+    }
+    await settle();
+    await page.screenshot({ path: `${SHOTS}/step-up-code-320-${theme}.png` });
+  });
+
+  it.each(["light", "dark"])("is a centred 384px card at 1440px (%s)", async (theme) => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    await page.viewport(1440, 900);
+    const { sheet, row } = await openCodeStep();
+    const box = sheet.getBoundingClientRect();
+    expect(box.width).toBeCloseTo(384, 1);
+    expect(box.left).toBeCloseTo((1440 - 384) / 2, 0);
+    // The row inside the sheet's 16px padding and 1px edge.
+    expect(row.getBoundingClientRect().width).toBeCloseTo(384 - 2 - 32, 1);
+    await settle();
+    await page.screenshot({ path: `${SHOTS}/step-up-code-1440-${theme}.png` });
+  });
+
+  it.each(["light", "dark"])(
+    "keeps the footer's pair on one row at 320px while the passkey call runs (%s)",
+    async (theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.viewport(320, 640);
+      const { sheet } = await openSheet();
+      await userEvent.click(within(sheet).getByRole("button", { name: "Use passkey" }));
+      // The longest label a footer pair carries: 284px of the sheet's 288px.
+      await waitFor(() => within(sheet).getByRole("button", { name: "Waiting for your passkey…" }));
+      expect(footerRow(sheet)).toEqual(["Cancel", "Waiting for your passkey…"]);
+      expectSheetLayout(sheet, 40);
+      await settle();
+      await page.screenshot({ path: `${SHOTS}/step-up-busy-320-${theme}.png` });
+    },
+  );
+
+  it.each(["light", "dark"])(
+    "lists the factors in a centred card at 1440px (%s)",
+    async (theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.viewport(1440, 900);
+      const { sheet } = await openSheet();
+      expect(footerRow(sheet)).toEqual(["Cancel", "Use passkey"]);
+      expectSheetLayout(sheet, 32);
+      await settle();
+      await page.screenshot({ path: `${SHOTS}/step-up-sheet-1440-${theme}.png` });
+    },
+  );
+
+  it("closes on a press outside the card at 1440px, and gives focus back", async () => {
+    await page.viewport(1440, 900);
+    const { sheet, opener } = await openSheet();
+    await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+    // Top left of the scrim, well clear of the centred 384px card.
+    await userEvent.click(scrimOf(sheet), { position: { x: 100, y: 100 } });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+
+  it("stays open on a press outside the card while the passkey call runs", async () => {
+    await page.viewport(1440, 900);
+    const { sheet } = await openSheet();
+    await userEvent.click(within(sheet).getByRole("button", { name: "Use passkey" }));
+    await waitFor(() => within(sheet).getByRole("button", { name: "Waiting for your passkey…" }));
+    await userEvent.click(scrimOf(sheet), { position: { x: 100, y: 100 } });
+    // Long enough for the card's 80ms exit fade and the 300ms fallback after it.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(screen.getByRole("dialog", { name: "Confirm it's you" })).toBe(sheet);
+    expect(sheet.hasAttribute("data-closed")).toBe(false);
+  });
+});
+
+describe("the step-up's hand-over below md", () => {
+  // The sheet hands its outcome over when it unmounts, with a fallback timer
+  // for a tab that runs no animation. Below `md` its exit is the slide down,
+  // the longest it has; if that ever outran the fallback, the host would get
+  // the outcome while the sheet was still on screen.
+  it("cancels only once the sheet has slid out, at 390px", async () => {
+    await page.viewport(390, 844);
+    let goneAtHandOver: boolean | undefined;
+    const onCancel = vi.fn(() => {
+      goneAtHandOver = screen.queryByRole("dialog") === null;
+    });
+    render(() => (
+      <StepUpDialog
+        client={{} as StepUpClient}
+        onToken={() => {}}
+        onCancel={onCancel}
+        purpose="passkey_delete"
+      />
+    ));
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Confirm it's you" }));
+    await settle();
+    const runs: string[] = [];
+    const listen = (event: AnimationEvent) => {
+      if (event.target === sheet) runs.push(event.animationName);
+    };
+    document.addEventListener("animationstart", listen, true);
+    await userEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(onCancel).toHaveBeenCalledOnce(), { timeout: 2000 });
+    document.removeEventListener("animationstart", listen, true);
+    expect(runs, "the sheet did not slide out").toContain("ui-sheet-exit");
+    expect(goneAtHandOver, "the outcome arrived while the sheet was on screen").toBe(true);
+  });
+});
+
+describe("a step-up sheet whose title names a passkey", () => {
+  // A passkey's name may be one word of 64 characters, the rename field's
+  // limit; a title that names it must break rather than widen the sheet.
+  const title = `Remove ${"x".repeat(64)} passkey?`;
+  const client = {} as StepUpClient;
+
+  it.each([
+    [320, 640],
+    [1440, 900],
+  ])("keeps a 64-character name inside the sheet at %ipx", async (width, height) => {
+    await page.viewport(width, height);
+    render(() => (
+      <StepUpDialog
+        client={client}
+        onToken={() => {}}
+        onCancel={() => {}}
+        purpose="passkey_delete"
+        title={title}
+        warning="You'll need another credential to sign in. Confirm it's you to remove it."
+      />
+    ));
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: title }));
+    expect(sheet.scrollWidth).toBeLessThanOrEqual(sheet.clientWidth);
+    const heading = within(sheet).getByRole("heading", { name: title });
+    // Inside the header's 16px padding.
+    const inner = sheet.getBoundingClientRect().right - 16;
+    expect(heading.getBoundingClientRect().right).toBeLessThanOrEqual(inner + 0.5);
+    await settle();
+    await page.screenshot({ path: `${SHOTS}/step-up-long-title-${width}.png` });
+  });
+});
+
+describe("a passkey row in Settings → Security", () => {
+  it("wraps a 64-character name and keeps Rename and Remove inside the card at 320px", async () => {
+    // The rename field's longest name, with no space to break at.
+    fixture.label = "x".repeat(64);
+    await page.viewport(320, 2400);
+    renderSecurity();
+    const rename = await waitFor(() => screen.getByRole("button", { name: /^Rename / }));
+    const card = settingsCard(rename);
+    const inner =
+      card.getBoundingClientRect().right - parseFloat(getComputedStyle(card).paddingRight);
+    for (const name of [/^Rename x/, /^Remove x/]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.getBoundingClientRect().right).toBeLessThanOrEqual(inner + 0.5);
+    }
+    expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+    await page.screenshot({ path: `${SHOTS}/passkey-long-name-320.png` });
+  });
+
+  // The row is `Card radius="md" padding="sm"`, nested in Settings' card: an
+  // 8px corner, the hairline edge, the card's fill and 16px inside. Read
+  // against a probe drawn with those props, so a change to `Card` moves both.
+  // Its placeholder is as tall as a row whose words take one line each.
+  /** The list held, then landed: the placeholder's height, the row, its region. */
+  async function rowAfterPlaceholder(width: number, theme: string) {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    await page.viewport(width, 1200);
+    fixture.holdList = true;
+    renderSecurity();
+    const heading = await waitFor(() => screen.getByRole("heading", { name: "Passkeys" }));
+    const busy = await waitFor(() => {
+      const region = heading.closest("div.flex-col")?.querySelector<HTMLElement>("[aria-busy]");
+      if (!region) throw new Error("no busy region");
+      return region;
+    });
+    const held = busy.getBoundingClientRect().height;
+    fixture.releaseList();
+    const remove = await waitFor(() => screen.getByRole("button", { name: "Remove Work laptop" }));
+    const row = remove.closest("li")!.firstElementChild as HTMLElement;
+    return { heading, held, landed: busy.getBoundingClientRect().height, row };
+  }
+
+  /** The row's look against a `Card radius="md" padding="sm"` drawn beside it. */
+  function expectNestedCard(row: HTMLElement) {
+    render(() => (
+      <Card radius="md" padding="sm" data-testid="probe">
+        probe
+      </Card>
+    ));
+    const properties = [
+      "border-top-left-radius",
+      "border-top-color",
+      "border-top-width",
+      "background-color",
+      "padding-top",
+      "padding-left",
+    ];
+    const read = (style: CSSStyleDeclaration) =>
+      Object.fromEntries(properties.map((p) => [p, style.getPropertyValue(p)]));
+    expect(read(getComputedStyle(row))).toEqual(
+      read(getComputedStyle(screen.getByTestId("probe"))),
+    );
+    expect(getComputedStyle(row).borderTopLeftRadius).toBe("8px");
+    expect(getComputedStyle(row).paddingTop).toBe("16px");
+  }
+
+  /** Both row actions' heights. */
+  const actionHeights = () =>
+    ["Rename Work laptop", "Remove Work laptop"].map((name) =>
+      Math.round(screen.getByRole("button", { name }).getBoundingClientRect().height),
+    );
+
+  it.each(["light", "dark"])(
+    "is a nested Card at 1440px, as tall as its placeholder (%s)",
+    async (theme) => {
+      const { heading, held, landed, row } = await rowAfterPlaceholder(1440, theme);
+      // Nothing below the list moves when it lands.
+      expect(landed).toBeCloseTo(held, 0);
+      expectNestedCard(row);
+      expect(actionHeights()).toEqual([32, 32]);
+      // The panel heading in the title step at 500, as `DialogTitle` sets it.
+      expect(getComputedStyle(heading).fontSize).toBe("14px");
+      expect(getComputedStyle(heading).fontWeight).toBe("500");
+      await page.screenshot({ path: `${SHOTS}/security-rows-1440-${theme}.png` });
+    },
+  );
+
+  it.each(["light", "dark"])(
+    "is a nested Card at 390px with 40px actions under its words, as tall as its placeholder (%s)",
+    async (theme) => {
+      const { held, landed, row } = await rowAfterPlaceholder(390, theme);
+      expect(landed).toBeCloseTo(held, 0);
+      const remove = screen.getByRole("button", { name: "Remove Work laptop" });
+      const words = within(row).getByText(/^Last used /);
+      expect(remove.getBoundingClientRect().top).toBeGreaterThan(
+        words.getBoundingClientRect().bottom,
+      );
+      expectNestedCard(row);
+      expect(actionHeights()).toEqual([40, 40]);
+      await page.screenshot({ path: `${SHOTS}/security-rows-390-${theme}.png` });
+    },
+  );
+});
+
+describe("recovery codes in Settings → Security", () => {
+  it.each([
+    [390, "light"],
+    [390, "dark"],
+  ])("show in a muted well, with a 16px box in a 44px target (%ipx, %s)", async (width, theme) => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    await page.viewport(width, 1400);
+    fixture.codes = 0;
+    fixture.stepUp = true;
+    renderSecurity();
+    await userEvent.click(
+      await waitFor(() => {
+        const button = screen.getByRole("button", { name: "Generate recovery codes" });
+        if ((button as HTMLButtonElement).disabled) throw new Error("still checking");
+        return button;
+      }),
+    );
+    await userEvent.click(await waitFor(() => screen.getByRole("button", { name: "Use passkey" })));
+    const first = await waitFor(() => screen.getByText("abcd-efgh-ijkl-0000"));
+    const well = first.closest("ul")!.parentElement as HTMLElement;
+
+    render(() => (
+      <Card variant="muted" radius="md" padding="sm" data-testid="well-probe">
+        probe
+      </Card>
+    ));
+    const properties = [
+      "background-color",
+      "border-top-color",
+      "border-top-left-radius",
+      "padding-top",
+    ];
+    const read = (style: CSSStyleDeclaration) =>
+      Object.fromEntries(properties.map((p) => [p, style.getPropertyValue(p)]));
+    expect(read(getComputedStyle(well))).toEqual(
+      read(getComputedStyle(screen.getByTestId("well-probe"))),
+    );
+
+    const box = screen.getByRole("checkbox");
+    // The label is what answers a tap: `touch` pads it to 44px and pulls the
+    // row back, so the layout around it does not move.
+    const target = box.closest("label")!;
+    expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    // The drawn box beside the hidden input, 16px.
+    const drawn = box.nextElementSibling as HTMLElement | null;
+    const square = (drawn ?? box).getBoundingClientRect();
+    expect(square.width).toBeCloseTo(16, 0);
+    await settle();
+    await page.screenshot({ path: `${SHOTS}/recovery-codes-${width}-${theme}.png` });
+  });
+
+  /** "Generate new codes" pressed: the dialog that asks first. */
+  async function openRotate(width: number, theme: string) {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    await page.viewport(width, 900);
+    renderSecurity();
+    await userEvent.click(
+      await waitFor(() => {
+        const button = screen.getByRole("button", { name: "Generate new codes" });
+        if ((button as HTMLButtonElement).disabled) throw new Error("still checking");
+        return button;
+      }),
+    );
+    return waitFor(() => screen.getByRole("dialog", { name: "Generate a new set?" }));
+  }
+
+  /** The dialog's Cancel against a `secondary` Button drawn beside it. */
+  function expectSecondaryCancel(sheet: HTMLElement) {
+    render(() => (
+      <Button variant="secondary" data-testid="secondary-probe">
+        Cancel
+      </Button>
+    ));
+    const probe = getComputedStyle(screen.getByTestId("secondary-probe"));
+    const cancel = getComputedStyle(within(sheet).getByRole("button", { name: "Cancel" }));
+    expect([rgb(cancel.backgroundColor), rgb(cancel.color)]).toEqual([
+      rgb(probe.backgroundColor),
+      rgb(probe.color),
+    ]);
+  }
+
+  it.each(["light", "dark"])(
+    "ask before a new set in a bottom sheet at 390px, dismissed by a secondary Cancel (%s)",
+    async (theme) => {
+      const sheet = await openRotate(390, theme);
+      await settle();
+      const box = sheet.getBoundingClientRect();
+      expect(box.left).toBeCloseTo(0, 1);
+      expect(box.width).toBeCloseTo(390, 1);
+      expect(box.bottom).toBeCloseTo(window.innerHeight, 0);
+      expect(getComputedStyle(sheet).borderBottomLeftRadius).toBe("0px");
+      expectSecondaryCancel(sheet);
+      await settle();
+      await page.screenshot({ path: `${SHOTS}/recovery-rotate-390-${theme}.png` });
+    },
+  );
+
+  it.each(["light", "dark"])(
+    "ask before a new set in a centred 384px card at 1440px (%s)",
+    async (theme) => {
+      const sheet = await openRotate(1440, theme);
+      const box = sheet.getBoundingClientRect();
+      expect(box.width).toBeCloseTo(384, 1);
+      expect(box.left).toBeCloseTo((1440 - 384) / 2, 0);
+      expectSecondaryCancel(sheet);
+      await settle();
+      await page.screenshot({ path: `${SHOTS}/recovery-rotate-1440-${theme}.png` });
+    },
+  );
+});

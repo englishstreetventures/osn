@@ -1106,9 +1106,10 @@ export interface DeclaredComplexity {
  * set before work starts — see `wiki/conventions/session-metrics.md`. The
  * card only transcribes it.
  *
- * Two labels rather than one: `complexity:unconfirmed` marks a rating no human
- * signed off on, which is most of a backfill. Those stay separable so a query
- * meant to drive a decision can exclude an agent's unreviewed guess. More than
+ * Two labels rather than one: `complexity:unconfirmed` marks a rating made by
+ * backfill or after the work began, with its cost in view. Those stay separable
+ * so a query meant to drive a decision can exclude a rating that may have been
+ * fitted to the cost. More than
  * one rating label is a labelling mistake, not a value to average — it reads as
  * unrated so the mistake shows up rather than being quietly resolved.
  */
@@ -3132,7 +3133,9 @@ function fetchTrackerLabels(issues: ForeignIssue[]): Map<string, string[]> {
  *
  * The `SessionEnd` fallback in `.claude/settings.json` has no way to know them:
  * it fires as a session closes, often before a pull request exists at all, and
- * then records nothing. `retro` runs it once the pull request is open.
+ * then records nothing. With no pull request this finds nothing, so `retro`,
+ * which writes the card before the branch's first push, passes `--issue` and
+ * `--issue-labels` itself, and runs this only on a pull request already open.
  *
  * The rules are `wiki/conventions/session-metrics.md` §Which issue a card
  * names: {@link selectIssues} names the issue, {@link issuesToRate} says which

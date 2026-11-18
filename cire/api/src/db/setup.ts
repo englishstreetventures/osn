@@ -11,6 +11,7 @@ import {
 import type { EnvelopeId } from "@cire/envelope";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import type { DesignId } from "@cire/invite-designs";
+import { hashRecoveryCode } from "@shared/crypto/recovery";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -647,12 +648,14 @@ CREATE TABLE IF NOT EXISTS wedding_upgrade_purchases (
   price_currency TEXT,
   amount_minor INTEGER,
   currency TEXT,
+  refund_id TEXT,
   created_by_osn_profile_id TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_wedding_entitlement_idx ON wedding_upgrade_purchases(wedding_id, entitlement);
 CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_payment_intent_idx ON wedding_upgrade_purchases(payment_intent_id);
+CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_status_updated_idx ON wedding_upgrade_purchases(status, updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS wedding_upgrade_purchases_one_pending_uniq ON wedding_upgrade_purchases(wedding_id) WHERE status = 'pending';
 CREATE TABLE IF NOT EXISTS platform_sales (
   id TEXT PRIMARY KEY,
@@ -662,6 +665,22 @@ CREATE TABLE IF NOT EXISTS platform_sales (
   currency TEXT NOT NULL,
   settled_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS platform_refunds (
+  id TEXT PRIMARY KEY,
+  purchase_id TEXT NOT NULL UNIQUE,
+  entitlement TEXT NOT NULL,
+  payment_intent_id TEXT,
+  amount_minor INTEGER,
+  currency TEXT,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL,
+  refund_id TEXT,
+  owners_notified_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CONSTRAINT platform_refunds_status_ck CHECK (status in ('refunding','auto_refunded','refunded','refund_failed'))
+);
+CREATE INDEX IF NOT EXISTS platform_refunds_status_updated_idx ON platform_refunds(status, updated_at);
 CREATE TABLE IF NOT EXISTS link_thumb_transforms (
   period TEXT PRIMARY KEY NOT NULL,
   used INTEGER DEFAULT 0 NOT NULL
@@ -770,6 +789,16 @@ WHEN NEW.plan_id IS NOT NULL AND NOT EXISTS (
 )
 BEGIN
   SELECT RAISE(ABORT, 'seating table plan is not a plan of its event');
+END;
+CREATE TRIGGER IF NOT EXISTS wedding_upgrade_purchases_status_known BEFORE INSERT ON wedding_upgrade_purchases
+WHEN NEW.status NOT IN ('pending', 'succeeded', 'failed', 'expired', 'refunded', 'mismatch', 'refunding', 'auto_refunded', 'refund_failed')
+BEGIN
+  SELECT RAISE(ABORT, 'upgrade purchase status is not one cire writes');
+END;
+CREATE TRIGGER IF NOT EXISTS wedding_upgrade_purchases_status_known_update BEFORE UPDATE OF status ON wedding_upgrade_purchases
+WHEN NEW.status NOT IN ('pending', 'succeeded', 'failed', 'expired', 'refunded', 'mismatch', 'refunding', 'auto_refunded', 'refund_failed')
+BEGIN
+  SELECT RAISE(ABORT, 'upgrade purchase status is not one cire writes');
 END;
 CREATE TRIGGER IF NOT EXISTS vendors_status_stage BEFORE INSERT ON vendors
 WHEN NEW.status NOT IN ('researching', 'contacted', 'quoted', 'booked', 'declined')
@@ -996,10 +1025,11 @@ export function applyE2eRsvpDeadline(
  *
  * The couple are taking money as far as their own settings go: money gifts
  * on, a connected account that can charge and settles in the wedding's
- * currency. The stack runs cire-api with a placeholder Stripe key and no
- * Connect webhook secret, so it could open a payment page but never record the
- * gift, and the guest list must offer neither the money form nor the fund.
- * That is the deployment check the claimed flow holds.
+ * currency. The E2E stack also runs a second cire-api with this seed, a
+ * placeholder Stripe key and no Connect webhook secret, which could open a
+ * payment page but never record the gift, so its guest list must offer
+ * neither the money form nor the fund. That is the deployment check the
+ * claimed flow holds there.
  *
  * Its own wedding rather than the sample one, so the gift band that a
  * published list puts on the invite never appears in the other cire flows.
@@ -1018,6 +1048,8 @@ function seedE2eGiftList(db: TestDb): void {
       slug: "gift-wedding",
       displayName: "Gift Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -1172,11 +1204,16 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Eight weddings for the E2E suite's organiser flows, each on Gold, and one
- * whose guests open an envelope. The dev profile, which osn-api's `/dev/login`
- * signs in as, owns all but `wed_e2e_rs_helper`, where it is a helper, and
- * `wed_e2e_envelope`, which has no seat:
+ * The weddings for the E2E suite's organiser flows, each on Gold but
+ * `wed_e2e_enquiries`, on Crimson, and the two upgrade weddings, on Ivory, plus
+ * three with no seat whose guests open an envelope (`seedE2eEnvelope`). The dev
+ * profile, which osn-api's `/dev/login` signs in as, owns every seated one but
+ * `wed_e2e_rs_helper`, where it is a helper, and `wed_e2e_leaver`:
  *
+ * - `wed_e2e_leaver`: owned by `usr_e2e_leaver` alone, the profile of the
+ *   account the account-deletion flow deletes (`DELETION_PERSON` in
+ *   `tools/e2e/src/config.ts`), so its deletion preview lists the wedding and
+ *   its erasure deletes it.
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
  * - `wed_e2e_holders`: one open task nobody holds, an editor and a viewer, for
@@ -1199,11 +1236,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   a $1,200 target, has had $1,400 given by two households — past its
  *   target — beside a gift refunded in full and one not yet paid, which count
  *   for nothing; the other, a stand mixer, has had one gift of exactly its
- *   $500 target. For the portal on a site that cannot take a money
- *   gift: the stack's cire-api holds a Stripe key and no webhook secret. Its
- *   second owner, Kit (`usr_e2e_kit`), connected the account, so the dev
- *   profile is an owner who sees the account's status and cannot open its
- *   onboarding links.
+ *   $500 target. Its second owner, Kit (`usr_e2e_kit`), connected the
+ *   account, so the dev profile is an owner who sees the account's status and
+ *   cannot open its onboarding links.
  * - `wed_e2e_shared_from` and `wed_e2e_shared_to`: two weddings the dev
  *   profile owns alone. On the first it connected a Stripe account that can
  *   charge and settles in AUD; the second has no settings row. For giving the
@@ -1211,6 +1246,17 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * - `wed_e2e_oauth`: Garden Wedding, which the dev profile owns alone, with an
  *   open registry and no Stripe account, for connecting a Stripe account the
  *   owner already has through the E2E suite's Stripe stand-in.
+ * - `wed_e2e_fund`: Fund Wedding, on Gold, with a published gift list and
+ *   nothing on it, money gifts on and an Express account that can charge and
+ *   pays out in AUD, which its second owner, Kit, connected — so no other
+ *   wedding of the dev profile is offered it — and one household of one guest
+ *   invited to one event with no address. The owner adds a cash fund through
+ *   the portal and the guest gives to it through the E2E suite's Stripe
+ *   stand-in (`seedE2eFund`).
+ * - `wed_e2e_upgrade` and `wed_e2e_upgrade_refund`: two Ivory weddings the
+ *   dev profile owns alone, for buying Gold through the Stripe stand-in. The
+ *   first is granted Gold; the second is deleted while its checkout is open,
+ *   so its payment is refunded.
  * - `wed_e2e_emails`: one household, Tanaka, of Gus with no address and Hana
  *   with an address she gave herself on the invite, for adding an address in
  *   the guest editor under the organiser's attestation.
@@ -1218,8 +1264,17 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   use — Ada and Bo Alpha at Table 1, Cy Charlie at Table 2, all three having
  *   said yes — and an after party, inviting Ada, with no plan yet; for setting
  *   out and seating an event's chart.
- * - `wed_e2e_envelope`: on Crimson, with the Wax seal envelope and a hero
- *   title, for the guest's opening of the envelope.
+ * - `wed_e2e_settings`: two households and two live unlock codes, for
+ *   redeeming a code, re-minting the family codes and deleting and restoring
+ *   the wedding (`seedE2eSettings`).
+ * - `wed_e2e_enquiries`: on Crimson, with two live directory listings, one
+ *   made in the vendor portal with no vendor profile on it and one whose
+ *   enquiry has a quote, for enquiring with a vendor and adding a quote to the
+ *   budget (`seedE2eEnquiries`).
+ * - `wed_e2e_legacy_event`: an event saved before the editor checked one
+ *   (`seedE2eLegacyEvent`).
+ *
+ * The envelope weddings have no seat (`seedE2eEnvelope`).
  *
  * It also gives Bo, of the sample wedding's Sampleton household, an address
  * his hosts added, so the member-step flow can check the invitation shows it
@@ -1232,14 +1287,23 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  */
 function seedE2eOrganiser(db: TestDb): void {
   const now = new Date();
-  const wedding = (id: string, slug: string, displayName: string, weddingDate?: string) =>
+  const wedding = (
+    id: string,
+    slug: string,
+    displayName: string,
+    weddingDate?: string,
+    tier: "ivory" | "gold" = "gold",
+  ) =>
     db
       .insert(schema.weddings)
       .values({
         id,
         slug,
         displayName,
-        tier: "gold",
+        tier,
+        // A paid tier records how it was granted, as an operator's comp does.
+        tierSource: tier === "ivory" ? null : "comp",
+        tierGrantedBy: tier === "ivory" ? null : "script:e2e-seed",
         weddingDate: weddingDate ?? null,
         createdAt: now,
         updatedAt: now,
@@ -1248,6 +1312,46 @@ function seedE2eOrganiser(db: TestDb): void {
 
   wedding("wed_e2e_checklist", "checklist-wedding", "Checklist Wedding", "2099-06-20");
   seatDevOwner(db, "wed_e2e_checklist", "whost_e2e_checklist_owner", now);
+
+  wedding("wed_e2e_leaver", "leaver-wedding", "Leaver Wedding");
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_leaver_owner",
+      weddingId: "wed_e2e_leaver",
+      osnProfileId: "usr_e2e_leaver",
+      addedByOsnProfileId: "usr_e2e_leaver",
+      role: "owner",
+      createdAt: now,
+    })
+    .run();
+
+  // `cire-remove-my-data` (`CIRE_REMOVAL_PERSON` in tools/e2e/src/config.ts):
+  // one wedding the remover owns alone, one they share with the keeper, and
+  // one the keeper owns alone, which the removal must not touch.
+  for (const [id, slug, name, owners] of [
+    ["wed_e2e_rm_alone", "remover-alone-wedding", "Remover Alone Wedding", ["usr_e2e_remover"]],
+    [
+      "wed_e2e_rm_shared",
+      "remover-shared-wedding",
+      "Remover Shared Wedding",
+      ["usr_e2e_remover", "usr_e2e_keeper"],
+    ],
+    ["wed_e2e_rm_theirs", "keeper-wedding", "Keeper Wedding", ["usr_e2e_keeper"]],
+  ] as const) {
+    wedding(id, slug, name);
+    db.insert(schema.weddingHosts)
+      .values(
+        owners.map((osnProfileId) => ({
+          id: `whost_${id}_${osnProfileId}`,
+          weddingId: id,
+          osnProfileId,
+          addedByOsnProfileId: owners[0],
+          role: "owner" as const,
+          createdAt: now,
+        })),
+      )
+      .run();
+  }
 
   wedding("wed_e2e_holders", "holders-wedding", "Holders Wedding");
   seatDevOwner(db, "wed_e2e_holders", "whost_e2e_holders_owner", now);
@@ -1649,6 +1753,13 @@ function seedE2eOrganiser(db: TestDb): void {
 
   wedding("wed_e2e_oauth", "garden-wedding", "Garden Wedding");
   seatDevOwner(db, "wed_e2e_oauth", "whost_e2e_oauth_owner", now);
+
+  // Two Ivory weddings to buy Gold for: one is granted it, and one is deleted
+  // while its checkout is open, so its payment is refunded.
+  wedding("wed_e2e_upgrade", "upgrade-wedding", "Upgrade Wedding", undefined, "ivory");
+  seatDevOwner(db, "wed_e2e_upgrade", "whost_e2e_upgrade_owner", now);
+  wedding("wed_e2e_upgrade_refund", "refund-wedding", "Refund Wedding", undefined, "ivory");
+  seatDevOwner(db, "wed_e2e_upgrade_refund", "whost_e2e_upgrade_refund_owner", now);
   // An open registry with no account: the OAuth connect fills an existing row.
   db.insert(schema.registrySettings)
     .values({ weddingId: "wed_e2e_oauth", createdAt: now, updatedAt: now })
@@ -1731,7 +1842,326 @@ function seedE2eOrganiser(db: TestDb): void {
   }
 
   seedE2eSeating(db, now);
+  seedE2eSettings(db, now);
+  seedE2eFund(db, now);
+  seedE2eEnquiries(db, now);
   seedE2eEnvelope(db, now);
+  seedE2eLegacyEvent(db, now);
+}
+
+/**
+ * `wed_e2e_settings`, for {@link seedE2eOrganiser}: a Gold wedding the dev
+ * profile owns alone, for `cire-checklist-holders`' settings steps, which
+ * redeem codes on it, re-mint its family codes and delete and restore it, so
+ * no other flow's wedding is changed by any of them. Its Gold is a comp, as
+ * an operator grant (`scripts/grant-tier.ts`) records one.
+ *
+ * - Two households of one guest each. Nguyen's code has been sent, so the
+ *   re-mint warns that a family already holds a code that will stop working.
+ * - Two live unlock codes, one use each, stored as `hashRecoveryCode` of the
+ *   code as `scripts/mint-unlock-code.ts` stores them: a Gold one, which the
+ *   wedding already holds, so redeeming it is refused and spends nothing, and
+ *   a Crimson one, which raises the wedding to Crimson.
+ */
+function seedE2eSettings(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_settings";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "settings-wedding",
+      displayName: "Settings Wedding",
+      tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_settings_owner", now);
+  const households = [
+    { id: "fam_e2e_settings_nguyen", code: "NGUYEN-E2E-ST01", name: "Nguyen", sent: true },
+    { id: "fam_e2e_settings_patel", code: "PATEL-E2E-ST02", name: "Patel", sent: false },
+  ];
+  households.forEach((household, sortOrder) => {
+    db.insert(schema.families)
+      .values({
+        id: household.id,
+        weddingId,
+        publicId: household.code,
+        familyName: household.name,
+        codeSharedAt: household.sent ? now : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(schema.guests)
+      .values({
+        id: `gst_e2e_settings_${household.name.toLowerCase()}`,
+        familyId: household.id,
+        firstName: household.name === "Nguyen" ? "Linh" : "Ravi",
+        lastName: household.name,
+        sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  });
+  db.insert(schema.unlockCodes)
+    .values([
+      {
+        id: "ulc_e2e_settings_gold",
+        codeHash: hashRecoveryCode("e2e0-901d-0000-0001"),
+        tier: "gold",
+        maxRedemptions: 1,
+        createdBy: "script:e2e-seed",
+        createdAt: now,
+      },
+      {
+        id: "ulc_e2e_settings_crimson",
+        codeHash: hashRecoveryCode("e2e0-c41f-0000-0002"),
+        tier: "crimson",
+        maxRedemptions: 1,
+        createdBy: "script:e2e-seed",
+        createdAt: now,
+      },
+    ])
+    .run();
+}
+
+/**
+ * `wed_e2e_fund`, for {@link seedE2eOrganiser}: Fund Wedding, where
+ * `cire-registry-money` adds a cash fund through the portal's form and a guest
+ * gives to it through the Stripe stand-in.
+ *
+ * - On Gold, the tier a gift list needs, with the list published and nothing
+ *   on it: the flow adds the fund.
+ * - Money gifts on, and an Express account (no `stripe_account_type`) that can
+ *   charge and pays out in AUD, the wedding's currency. Kit, its second owner,
+ *   connected it, so the dev profile is never offered it for another wedding.
+ * - One household, Parkes, of one guest, Pia, invited to one event with no
+ *   address or venue, so the invitation embeds no map.
+ *
+ * The values a flow checks are written out again as `CIRE_ORGANISER.fund` in
+ * `tools/e2e/src/config.ts`.
+ */
+function seedE2eFund(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_fund";
+  const eventId = "evt_e2e_fund_reception";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "fund-wedding",
+      displayName: "Fund Wedding",
+      tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_fund_owner", now);
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_fund_kit",
+      weddingId,
+      osnProfileId: "usr_e2e_kit",
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "owner",
+      createdAt: now,
+    })
+    .run();
+  db.insert(schema.events)
+    .values({
+      id: eventId,
+      weddingId,
+      slug: "reception",
+      name: "Reception",
+      startAt: "2099-06-20T16:00:00+00:00",
+      endAt: "2099-06-20T22:00:00+00:00",
+      timezone: "UTC",
+    })
+    .run();
+  db.insert(schema.families)
+    .values({
+      id: "fam_e2e_fund",
+      weddingId,
+      publicId: "PARKES-E2E-FD01",
+      familyName: "Parkes",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values({
+      id: "gst_e2e_fund_pia",
+      familyId: "fam_e2e_fund",
+      firstName: "Pia",
+      lastName: "Parkes",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guestEvents).values({ guestId: "gst_e2e_fund_pia", eventId }).run();
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId,
+      published: true,
+      cashGiftsEnabled: true,
+      stripeAccountId: "acct_e2e_fund",
+      stripeConnectedByOsnProfileId: "usr_e2e_kit",
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDefaultCurrency: "AUD",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+/**
+ * `wed_e2e_enquiries`, for {@link seedE2eOrganiser}: a Crimson wedding, the
+ * tier the vendor directory and enquiries need, comped as an operator grant
+ * records one, that the dev profile owns alone, for `cire-registry-money`'s
+ * enquiry steps. Two listings are live in the directory:
+ *
+ * - Willow & Fern Florals, not yet in the wedding, listed as the vendor portal
+ *   lists one: its organisation owns it and no vendor profile is on it
+ *   (`claimed_by_profile_id` NULL). An enquiry to it waits on the listing
+ *   (`pending_body`), so sending one needs no vendor chat, which this stack
+ *   does not run; and since the listing is owned, it mints no claim link.
+ * - Harbour Strings, claimed, whose enquiry from this wedding the vendor has
+ *   already answered with a $4,800 quote. A quote reaches a couple only
+ *   through the vendor chat, so it is seeded; Add to budget reads the quote
+ *   from the enquiry row and needs no chat either.
+ *
+ * Directory listings are not a wedding's own rows, but only the E2E stack seeds
+ * these two, and no other flow opens the directory.
+ */
+function seedE2eEnquiries(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_enquiries";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "enquiries-wedding",
+      displayName: "Enquiries Wedding",
+      tier: "crimson",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_enquiries_owner", now);
+  db.insert(schema.directoryVendors)
+    .values([
+      {
+        id: "dir_e2e_enq_florals",
+        ownerOrgId: "org_e2e_willow_fern",
+        claimedByProfileId: null,
+        name: "Willow & Fern Florals",
+        description: "Seasonal flowers, arranged loose.",
+        locationText: "Sydney",
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "dir_e2e_enq_strings",
+        ownerOrgId: "org_e2e_harbour_strings",
+        claimedByProfileId: "usr_e2e_harbour",
+        name: "Harbour Strings",
+        description: "A string quartet for the ceremony and the drinks after.",
+        locationText: "Sydney",
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+    .run();
+  db.insert(schema.directoryVendorCategories)
+    .values([
+      { directoryVendorId: "dir_e2e_enq_florals", category: "florals" },
+      { directoryVendorId: "dir_e2e_enq_strings", category: "music_entertainment" },
+    ])
+    .run();
+  db.insert(schema.vendors)
+    .values({
+      id: "vnd_e2e_enq_strings",
+      weddingId,
+      directoryVendorId: "dir_e2e_enq_strings",
+      name: "Harbour Strings",
+      category: "music_entertainment",
+      status: "quoted",
+      quotedMinor: 480_000,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.vendorEnquiries)
+    .values({
+      id: "enq_e2e_strings",
+      weddingId,
+      directoryVendorId: "dir_e2e_enq_strings",
+      vendorId: "vnd_e2e_enq_strings",
+      zapChatId: "chat_e2e_harbour_strings",
+      status: "quoted",
+      createdBy: DEV_OWNER_PROFILE_ID,
+      quotedMinor: 480_000,
+      lastMessageAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+/**
+ * A wedding whose first event was saved before the editor door checked an
+ * event's name, times and zone, for `cire-event-details.flow.ts`: no name,
+ * a Start and End with no UTC offset, and a zone no runtime resolves. The
+ * editor saves around such a row, says what to fix, and takes the fix. Its
+ * own wedding, seated to the dev owner, so no guest-facing flow reads it.
+ * Every value the flow checks is written out again as `CIRE_LEGACY_EVENT` in
+ * `tools/e2e/src/config.ts`; a change here goes there too.
+ */
+function seedE2eLegacyEvent(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_legacy_event";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "legacy-event-wedding",
+      displayName: "Legacy Event Wedding",
+      tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_legacy_event_owner", now);
+  db.insert(schema.events)
+    .values([
+      {
+        id: "evt_e2e_legacy",
+        weddingId,
+        slug: "untitled",
+        name: "",
+        startAt: "2026-11-14T15:00",
+        endAt: "2026-11-14T17:00",
+        timezone: "AEST",
+        sortOrder: 0,
+      },
+      {
+        id: "evt_e2e_legacy_reception",
+        weddingId,
+        slug: "reception",
+        name: "Reception",
+        startAt: "2026-11-14T18:00:00+11:00",
+        endAt: "",
+        timezone: "Australia/Sydney",
+        sortOrder: 1,
+      },
+    ])
+    .run();
 }
 
 /**
@@ -1739,6 +2169,12 @@ function seedE2eOrganiser(db: TestDb): void {
  * the local server puts the bytes behind it (`applyE2eOrganiserAssets`).
  */
 const E2E_ENVELOPE_HERO_KEY = "assets/wed_e2e_envelope/hero-e0000000-0000-4000-8000-0000000000e1";
+
+/**
+ * The R2 key of `wed_e2e_seating`'s invite hero: the envelope hero's bytes
+ * again, under that wedding's own key (`applyE2eOrganiserAssets`).
+ */
+const E2E_SEATING_HERO_KEY = "assets/wed_e2e_seating/hero-e0000000-0000-4000-8000-0000000000e2";
 
 /**
  * Three weddings for the envelope E2E flow (`cire-invite-envelope.flow.ts`),
@@ -1770,6 +2206,8 @@ function seedE2eEnvelope(db: TestDb, now: Date): void {
         slug,
         displayName: title,
         tier: envelope ? "crimson" : "gold",
+        tierSource: "comp",
+        tierGrantedBy: "script:e2e-seed",
         createdAt: now,
         updatedAt: now,
       })
@@ -1794,6 +2232,8 @@ function seedE2eEnvelope(db: TestDb, now: Date): void {
       slug: "envelope-wedding",
       displayName: "Envelope Wedding",
       tier: "crimson",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -1826,6 +2266,8 @@ function seedE2eSeating(db: TestDb, now: Date): void {
       slug: "seating-wedding",
       displayName: "Seating Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -1940,6 +2382,17 @@ function seedE2eSeating(db: TestDb, now: Date): void {
         .run();
     }
   });
+  // An invite hero picture, so the whole-wedding archive the flow downloads
+  // holds a file from R2 (`cire-seating.flow.ts`). The flow never opens the
+  // invite.
+  db.insert(schema.weddingInviteCustomisations)
+    .values({
+      weddingId,
+      heroImageKey: E2E_SEATING_HERO_KEY,
+      updatedAt: now,
+      imagesUpdatedAt: now,
+    })
+    .run();
 }
 
 /**
@@ -1958,8 +2411,8 @@ export function applyE2eOrganiser(
 /**
  * The image bytes behind the organiser weddings' keys, for the local server's
  * assets stub, under the same `CIRE_E2E_ORGANISER` reading as
- * {@link applyE2eOrganiser}. Today that is one picture: the envelope wedding's
- * hero, a generated bokeh backdrop committed beside this file.
+ * {@link applyE2eOrganiser}: one picture, a generated bokeh backdrop committed
+ * beside this file, as the envelope wedding's hero and the seating wedding's.
  */
 export async function applyE2eOrganiserAssets(
   assets: AssetsBucket,
@@ -1967,5 +2420,9 @@ export async function applyE2eOrganiserAssets(
 ): Promise<void> {
   if (env.CIRE_E2E_ORGANISER !== "1") return;
   const bytes = await Bun.file(new URL("./e2e-envelope-hero.jpg", import.meta.url)).arrayBuffer();
-  await assets.put(E2E_ENVELOPE_HERO_KEY, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+  await Promise.all(
+    [E2E_ENVELOPE_HERO_KEY, E2E_SEATING_HERO_KEY].map((key) =>
+      assets.put(key, bytes, { httpMetadata: { contentType: "image/jpeg" } }),
+    ),
+  );
 }

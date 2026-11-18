@@ -28,9 +28,20 @@ vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-import type { LoginClient, RecoveryClient } from "@osn/client";
+import type { LoginClient, RecoveryClient, RegistrationClient } from "@osn/client";
+import { toast } from "@shared/toast";
+import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 
 import { SignIn } from "../src/SignIn";
+import {
+  CHECK_FAILED,
+  WAIT,
+  PASSKEY_NOT_USED,
+  alertsText,
+  apiError,
+  ceremonyError,
+} from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
 
 interface LoginStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
@@ -91,6 +102,34 @@ describe("SignIn component", () => {
     cleanup();
   });
 
+  it("asks phones not to capitalise the typed identifier", () => {
+    render(() => (
+      <SignIn
+        host="page"
+        client={asLogin(login)}
+        recoveryClient={asRecovery(recovery)}
+        productName="Musubi"
+      />
+    ));
+    expect(screen.getByLabelText(/Email or @handle/).getAttribute("autocapitalize")).toBe("none");
+  });
+
+  // On a page nothing moves — Continue spans the column and "Lost your
+  // passkey?" sits under it, as `/authorize`'s placeholder draws them.
+  it("puts Lost your passkey? under Continue on a page", () => {
+    render(() => (
+      <SignIn
+        host="page"
+        client={asLogin(login)}
+        recoveryClient={asRecovery(recovery)}
+        productName="Musubi"
+      />
+    ));
+    const proceed = screen.getByRole("button", { name: /^Continue$/ });
+    const link = screen.getByRole("button", { name: "Lost your passkey?" });
+    expect(proceed.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   describe("WebAuthn login (passkey or security key)", () => {
     it("happy path: begin → WebAuthn → complete → adoptSession", async () => {
       login.passkeyBegin.mockResolvedValue({ options: { challenge: "ch" } });
@@ -100,6 +139,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -121,13 +161,14 @@ describe("SignIn component", () => {
       });
     });
 
-    it("surfaces errors from passkeyComplete and doesn't adopt a session", async () => {
+    it("shows the map's sentence for a refused passkey, never the error's text, and adopts nothing", async () => {
       login.passkeyBegin.mockResolvedValue({ options: {} });
       hoisted.startAuthentication.mockResolvedValue({ id: "cred" });
-      login.passkeyComplete.mockRejectedValue(new Error("Passkey verification failed"));
+      login.passkeyComplete.mockRejectedValue(apiError("PLANTED-signin-complete"));
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -136,10 +177,107 @@ describe("SignIn component", () => {
       fillIdentifier("alice");
       fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
 
-      await waitFor(() => {
-        expect(screen.getByText(/Passkey verification failed/)).toBeTruthy();
-      });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("We couldn't verify that passkey. Try again.");
+      expect(document.body.textContent).not.toContain("PLANTED");
       expect(hoisted.adoptSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("error line", () => {
+    function mount() {
+      render(() => (
+        <SignIn
+          host="page"
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
+    }
+
+    async function submitAndFail(error: Error) {
+      login.passkeyBegin.mockRejectedValue(error);
+      mount();
+      fillIdentifier("alice");
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
+      return screen.findByRole("alert");
+    }
+
+    it.each([
+      ["a 400", apiError("PLANTED-signin-400"), "We couldn't verify that passkey. Try again."],
+      ["a 429", apiError("PLANTED-signin-429", 429, "rate_limited"), WAIT],
+      [
+        "a 503",
+        apiError("PLANTED-signin-503", 503, "temporarily_unavailable"),
+        "Something went wrong on our side. Try again.",
+      ],
+    ])("reads %s as the map's sentence, never its text", async (_, error, sentence) => {
+      const alert = await submitAndFail(error);
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+    });
+
+    it("ties the line to the identifier field", async () => {
+      const alert = await submitAndFail(apiError("PLANTED-signin-tie"));
+      const field = screen.getByLabelText(/Email or @handle/);
+      expect(alert.id).not.toBe("");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      // A 400 refused what was typed.
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+    });
+
+    it.each([
+      ["a 429", apiError("PLANTED-signin-429", 429, "rate_limited"), WAIT],
+      [
+        "a failed verification check",
+        apiError("PLANTED-signin-turnstile", 400, "turnstile_failed"),
+        CHECK_FAILED,
+      ],
+    ])(
+      "does not mark the field invalid for %s, where nothing typed was wrong",
+      async (_, error, sentence) => {
+        const alert = await submitAndFail(error);
+        expect(alert.textContent).toContain(sentence);
+        expect(alertsText()).not.toContain("PLANTED");
+        const field = screen.getByLabelText(/Email or @handle/);
+        expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+        expect(field.getAttribute("aria-invalid")).toBeNull();
+      },
+    );
+
+    it("raises no error toast", async () => {
+      vi.mocked(toast.error).mockClear();
+      await submitAndFail(apiError("PLANTED-signin-toast"));
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("keeps a way out beside a refused passkey", async () => {
+      login.passkeyBegin.mockResolvedValue({ options: {} });
+      hoisted.startAuthentication.mockRejectedValue(
+        ceremonyError("NotAllowedError", "PLANTED https://www.w3.org/TR/webauthn-2/"),
+      );
+      mount();
+      fillIdentifier("alice");
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(PASSKEY_NOT_USED);
+      expect(alert.textContent).not.toContain("PLANTED");
+      const way = alert.querySelector("button");
+      expect(way?.textContent).toBe("Lost your passkey?");
+      expect(way?.getAttribute("type")).toBe("button");
+      fireEvent.click(way!);
+      await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
+    });
+
+    it("leaves no sign-in error under the recovery form", async () => {
+      await submitAndFail(apiError("PLANTED-signin-switch"));
+      // The standalone link below Continue.
+      const links = screen.getAllByRole("button", { name: /Lost your passkey/i });
+      fireEvent.click(links[links.length - 1]!);
+      await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
+      expect(screen.queryByRole("alert")).toBeNull();
     });
   });
 
@@ -159,6 +297,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -189,6 +328,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -232,6 +372,30 @@ describe("SignIn component", () => {
       delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
     });
 
+    it("names the recovery code as the way round a challenge that cannot load", async () => {
+      (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+        render: vi.fn((_el: HTMLElement, opts: { "error-callback"?: () => void }) => {
+          opts["error-callback"]?.();
+          return "widget-err";
+        }),
+        reset: vi.fn(),
+        remove: vi.fn(),
+      };
+      render(() => (
+        <SignIn
+          host="page"
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
+          productName="Musubi"
+        />
+      ));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(
+        "Signing in with a recovery code doesn't need this challenge: choose “Lost your passkey?”.",
+      );
+    });
+
     it("retries with a FRESH token after a failed ceremony — never replays the redeemed one", async () => {
       const { reset } = installTurnstileStub();
 
@@ -245,6 +409,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
@@ -272,6 +437,79 @@ describe("SignIn component", () => {
       expect(secondToken).not.toBe("tok-1");
       await waitFor(() => expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession));
     });
+
+    // The server checks the token before it answers, so a refused begin has
+    // spent it too. Retrying with it would earn `turnstile_failed`.
+    it("asks for a fresh token when begin itself is refused, and waits for it", async () => {
+      let cb: ((token: string) => void) | undefined;
+      const reset = vi.fn();
+      (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+        render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+          cb = opts.callback;
+          cb?.("tok-1");
+          return "widget-1";
+        }),
+        reset,
+        remove: vi.fn(),
+      };
+      login.passkeyBegin.mockRejectedValueOnce(apiError("PLANTED-begin", 400, "invalid_request"));
+
+      render(() => (
+        <SignIn
+          host="page"
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
+          productName="Musubi"
+        />
+      ));
+      fillIdentifier("alice");
+      const button = () => screen.getByRole("button", { name: /^Continue$/ }) as HTMLButtonElement;
+      await waitFor(() => expect(button().disabled).toBe(false));
+
+      fireEvent.click(button());
+      await screen.findByRole("alert");
+      expect(reset).toHaveBeenCalledWith("widget-1");
+      expect(button().disabled).toBe(true);
+
+      cb?.("tok-2");
+      await waitFor(() => expect(button().disabled).toBe(false));
+    });
+
+    // Begin spends the token and the widget drops it at once, while the
+    // passkey prompt is still open. The button that started the wait stays
+    // busy, not disabled, so it keeps focus for the whole ceremony.
+    it("keeps Continue busy, and not disabled, while the passkey prompt is open", async () => {
+      (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+        render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+          opts.callback?.("tok-1");
+          return "widget-1";
+        }),
+        reset: vi.fn(),
+        remove: vi.fn(),
+      };
+      login.passkeyBegin.mockResolvedValue({ options: { challenge: "ch" } });
+      hoisted.startAuthentication.mockReturnValue(new Promise(() => {}));
+
+      render(() => (
+        <SignIn
+          host="page"
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
+          productName="Musubi"
+        />
+      ));
+      fillIdentifier("alice");
+      const idle = screen.getByRole("button", { name: /^Continue$/ }) as HTMLButtonElement;
+      await waitFor(() => expect(idle.disabled).toBe(false));
+
+      fireEvent.click(idle);
+      await waitFor(() => expect(hoisted.startAuthentication).toHaveBeenCalled());
+      const waiting = screen.getByRole("button", { name: /Verifying…/ }) as HTMLButtonElement;
+      expect(waiting.getAttribute("aria-busy")).toBe("true");
+      expect(waiting.disabled).toBe(false);
+    });
   });
 
   describe("WebAuthn-unsupported fallback", () => {
@@ -279,6 +517,7 @@ describe("SignIn component", () => {
       hoisted.webauthnSupported = false;
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -293,7 +532,7 @@ describe("SignIn component", () => {
       // offers only the recovery code, because the other two mint a session
       // whose one permitted action is a ceremony this browser cannot run.
       await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
-      expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
       await waitFor(() => {
         expect(screen.getByLabelText(/Recovery code/i)).toBeTruthy();
@@ -302,9 +541,52 @@ describe("SignIn component", () => {
   });
 
   describe("Lost your passkey? escape hatch", () => {
+    it("names the product on the emailed recovery link's wait, as the junk-mail line", async () => {
+      vi.useFakeTimers();
+      try {
+        sessionStorage.clear();
+        const emailed = {
+          ...recovery,
+          emailRecoveryBegin: vi.fn().mockResolvedValue({
+            requestId: "recovery_0123456789ab",
+            claimSecret: "c".repeat(64),
+            pairingCode: "42",
+            expiresAt: Math.floor(Date.now() / 1000) + 600,
+          }),
+          emailRecoveryStatus: vi.fn().mockResolvedValue({ status: "pending" }),
+        };
+        render(() => (
+          <SignIn
+            host="page"
+            client={asLogin(login)}
+            recoveryClient={asRecovery(emailed)}
+            registrationClient={{} as unknown as RegistrationClient}
+            runPasskeyRegistration={vi.fn()}
+            productName="Musubi"
+          />
+        ));
+        fireEvent.click(screen.getByRole("button", { name: /Lost your passkey/i }));
+        fireEvent.click(await screen.findByRole("button", { name: /Email me a link/i }));
+        fireEvent.input(screen.getByLabelText(/Email address on the account/i), {
+          target: { value: "alice@example.com" },
+        });
+        fireEvent.click(screen.getByRole("button", { name: /Send the link/i }));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(screen.getByRole("heading", { name: "Check your email" })).toBeTruthy();
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(screen.getByText(/^Can't find it\?/).textContent).toBe(
+          "Can't find it? Look in your junk or spam folder for an email about Musubi.",
+        );
+      } finally {
+        vi.useRealTimers();
+        sessionStorage.clear();
+      }
+    });
+
     it("surfaces the recovery form when the user clicks it", async () => {
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -324,6 +606,7 @@ describe("SignIn component", () => {
       const onCancel = vi.fn();
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           onCancel={onCancel}
@@ -337,12 +620,143 @@ describe("SignIn component", () => {
     it("omits the Cancel button when no onCancel prop is given", () => {
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
         />
       ));
       expect(screen.queryByRole("button", { name: /^Cancel$/ })).toBeNull();
+    });
+  });
+
+  describe("in a dialog", () => {
+    withoutAnimations();
+
+    /** The one element the dialog takes its name from, read through its id. */
+    function dialogNamedOnce(name: string) {
+      const dialog = screen.getByRole("dialog", { name });
+      const id = dialog.getAttribute("aria-labelledby");
+      expect(id).toBeTruthy();
+      expect(document.querySelectorAll(`[id="${id}"]`)).toHaveLength(1);
+      expect(dialog.querySelectorAll("h2")).toHaveLength(1);
+    }
+
+    it("names the dialog by its title, and renames it for recovery and back, by one element", async () => {
+      render(() => (
+        <Dialog open onOpenChange={() => {}}>
+          <DialogContent presentation="sheet">
+            <SignIn
+              host="dialog"
+              client={asLogin(login)}
+              recoveryClient={asRecovery(recovery)}
+              productName="Musubi"
+              onCancel={() => {}}
+            />
+          </DialogContent>
+        </Dialog>
+      ));
+      dialogNamedOnce("Sign in to Musubi");
+      fireEvent.click(screen.getByRole("button", { name: "Lost your passkey?" }));
+      await waitFor(() => dialogNamedOnce("Recover your account"));
+      fireEvent.click(screen.getByRole("button", { name: "Back to sign in" }));
+      await waitFor(() => dialogNamedOnce("Sign in to Musubi"));
+      expect(screen.getByLabelText(/Email or @handle/)).toBeTruthy();
+    });
+
+    /**
+     * The view in an open sheet, as musubi's sign-in dialog holds it. Like
+     * every real host it passes `onOpenChange`, so a test can show that Cancel
+     * never asks the dialog to close: only the view's handler decides that.
+     */
+    function renderInDialog(onCancel = vi.fn(), onOpenChange = vi.fn()) {
+      render(() => (
+        <Dialog open onOpenChange={onOpenChange}>
+          <DialogContent presentation="sheet">
+            <SignIn
+              host="dialog"
+              client={asLogin(login)}
+              recoveryClient={asRecovery(recovery)}
+              productName="Musubi"
+              onCancel={onCancel}
+            />
+          </DialogContent>
+        </Dialog>
+      ));
+      return { onCancel, onOpenChange };
+    }
+
+    /** The buttons in the footer Cancel sits in, by name, in order. */
+    function footer(): string[] {
+      const cancel = screen.getByRole("button", { name: "Cancel" });
+      return [...cancel.parentElement!.querySelectorAll("button")].map((b) => b.textContent ?? "");
+    }
+
+    // The header holds the title alone; Cancel leads the footer pair,
+    // calls the view's handler once and leaves closing to it.
+    it("puts Cancel first in the footer, beside Continue, with no button in the header", () => {
+      const { onCancel, onOpenChange } = renderInDialog();
+      const title = screen.getByRole("heading", { name: "Sign in to Musubi" });
+      expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+      expect(footer()).toEqual(["Cancel", "Continue"]);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    // The footer sits inside the form, so Enter in the field submits.
+    it("keeps Continue the form's submit, so Enter in the field sends it", () => {
+      renderInDialog();
+      const field = screen.getByLabelText(/Email or @handle/) as HTMLInputElement;
+      const proceed = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+      expect(proceed.type).toBe("submit");
+      expect(proceed.form).not.toBeNull();
+      expect(proceed.form).toBe(field.form);
+    });
+
+    it("puts Cancel beside the recovery chooser's own action, and it still leaves the dialog", async () => {
+      const { onCancel, onOpenChange } = renderInDialog();
+      fireEvent.click(screen.getByRole("button", { name: "Lost your passkey?" }));
+      await screen.findByRole("heading", { name: "Recover your account" });
+      expect(footer()).toEqual(["Cancel", "Use a recovery code"]);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(onOpenChange).not.toHaveBeenCalled();
+      // Cancel leaves the dialog; it does not go back to sign-in.
+      expect(screen.getByRole("heading", { name: "Recover your account" })).toBeTruthy();
+    });
+
+    // The footer's Cancel is the dialog's way out, so it holds while the
+    // passkey call runs.
+    it("holds the footer's Cancel while the passkey call runs", async () => {
+      login.passkeyBegin.mockReturnValue(new Promise(() => {}));
+      const { onCancel } = renderInDialog();
+      fillIdentifier("alice");
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
+      await screen.findByRole("button", { name: "Verifying…" });
+      const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+      expect(cancel.disabled).toBe(true);
+      fireEvent.click(cancel);
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it("takes no Cancel words in a dialog", () => {
+      render(() => (
+        <Dialog open onOpenChange={() => {}}>
+          <DialogContent presentation="sheet">
+            <SignIn
+              host="dialog"
+              client={asLogin(login)}
+              recoveryClient={asRecovery(recovery)}
+              productName="Musubi"
+              onCancel={() => {}}
+              // @ts-expect-error A dialog's Cancel always reads "Cancel".
+              cancelLabel="Sign in instead"
+            />
+          </DialogContent>
+        </Dialog>
+      ));
+      expect(screen.queryByRole("button", { name: "Sign in instead" })).toBeNull();
     });
   });
 });

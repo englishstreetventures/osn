@@ -47,21 +47,27 @@ import {
   type AuthRateLimiters,
   type RateLimitBudget,
 } from "../../routes/auth/limiters";
-import { TOTP_LOCKOUT_MS, TOTP_LOCKOUT_THRESHOLD } from "../../services/auth/constants";
+import {
+  REGISTRATION_LINK_LOCKOUT_MS,
+  REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+  TOTP_LOCKOUT_MS,
+  TOTP_LOCKOUT_THRESHOLD,
+} from "../../services/auth/constants";
 import type {
+  AppStepUpRequest,
   CeremonyStores,
   ChallengeClaimStore,
+  ChallengeClaimStoreName,
   ChallengeEntry,
   CrossDeviceRequest,
   PendingAuthorizeRequest,
   PendingEmailChange,
-  PendingRecoveryOtp,
   PendingRegistration,
   PendingTotpEnrollment,
   RecoveryDisownToken,
+  EmailLinkChallenge,
   RegistrationChallengeEntry,
   StepUpJtiStore,
-  StepUpOtpEntry,
 } from "../../services/auth/stores";
 import type { CeremonyStore, CeremonyStoreOp } from "../ceremony-store";
 import { RECOVERY_LOCKOUT_MS, RECOVERY_LOCKOUT_THRESHOLD } from "../recovery-lockout-store";
@@ -253,14 +259,15 @@ export function createDurableJtiStore(
   };
 }
 
-/** Discoverable passkey challenges: the first `claim` of a nonce wins. */
+/** Discoverable passkey challenges and Email Verification API nonces: the first `claim` of a nonce wins. */
 function createDurableChallengeClaimStore(
   ns: CoordinationNamespace,
   onError: CoordinationErrorReporter,
+  name: ChallengeClaimStoreName,
 ): ChallengeClaimStore {
-  const store = client(ns, "passkey_challenge_claim", onError);
+  const store = client(ns, name, onError);
   return {
-    namespace: "passkey_challenge_claim",
+    namespace: name,
     claim: (nonce, ttlMs) => store.claim(nonce, ttlMs),
   };
 }
@@ -285,19 +292,20 @@ export function createDurableCoordination(
     loginChallenges: ceremony<ChallengeEntry>("login_challenge"),
     pendingRegistrations: ceremony<PendingRegistration>("pending_registration"),
     stepUpPasskeyChallenges: ceremony<ChallengeEntry>("step_up_challenge"),
-    stepUpOtp: ceremony<StepUpOtpEntry>("step_up_otp"),
-    pendingRecoveryOtp: ceremony<PendingRecoveryOtp>("pending_recovery_otp"),
     pendingTotpEnrollments: ceremony<PendingTotpEnrollment>("pending_totp_enroll"),
     pendingEmailChanges: ceremony<PendingEmailChange>("pending_email_change"),
     crossDeviceRequests: ceremony<CrossDeviceRequest>("cross_device"),
     authorizeRequests: ceremony<PendingAuthorizeRequest>("oidc_authorize_request"),
     recoveryDisownTokens: ceremony<RecoveryDisownToken>("recovery_disown"),
+    emailLinks: ceremony<EmailLinkChallenge>("email_link"),
+    appStepUpRequests: ceremony<AppStepUpRequest>("app_step_up"),
   };
 
   const accountErasureRateLimiters: AccountErasureRateLimiters = {
     accountDelete: named(OSN_RATE_LIMITS.accountDelete),
     accountRestore: named(OSN_RATE_LIMITS.accountRestore),
     accountDeletionStatus: named(OSN_RATE_LIMITS.accountDeletionStatus),
+    accountDataLink: named(OSN_RATE_LIMITS.accountDataLink),
   };
 
   const recoveryLockout = { threshold: RECOVERY_LOCKOUT_THRESHOLD, lockoutMs: RECOVERY_LOCKOUT_MS };
@@ -320,7 +328,16 @@ export function createDurableCoordination(
     accountExportIpLimiter: named(OSN_RATE_LIMITS.accountExportIp),
     accountErasureRateLimiters,
     stepUpJtiStore: createDurableJtiStore(ns, onError),
-    passkeyChallengeClaims: createDurableChallengeClaimStore(ns, onError),
+    passkeyChallengeClaims: createDurableChallengeClaimStore(
+      ns,
+      onError,
+      "passkey_challenge_claim",
+    ),
+    emailVerificationNonceClaims: createDurableChallengeClaimStore(
+      ns,
+      onError,
+      "email_verification_nonce",
+    ),
     ceremonyStores,
     recoveryLockoutStore: createDurableLockoutStore(
       ns,
@@ -328,8 +345,9 @@ export function createDurableCoordination(
       recoveryLockout,
       onError,
     ),
-    // The emailed recovery code's counter. Its own store, so grinding one
-    // recovery factor never locks the owner out of the other.
+    // Email recovery's counter: wrong numbers typed on an account's recovery
+    // links. Its own store, so failing one recovery factor
+    // never locks the owner out of another.
     recoveryOtpLockoutStore: createDurableLockoutStore(
       ns,
       "recovery_otp_lockout",
@@ -342,9 +360,28 @@ export function createDurableCoordination(
       { threshold: TOTP_LOCKOUT_THRESHOLD, lockoutMs: TOTP_LOCKOUT_MS },
       onError,
     ),
+    registrationLinkLockoutStore: createDurableLockoutStore(
+      ns,
+      "registration_link_lockout",
+      { threshold: REGISTRATION_LINK_LOCKOUT_THRESHOLD, lockoutMs: REGISTRATION_LINK_LOCKOUT_MS },
+      onError,
+    ),
+    // Step-up links: wrong typed numbers per account, on recovery's numbers.
+    stepUpLinkLockoutStore: createDurableLockoutStore(
+      ns,
+      "step_up_link_lockout",
+      recoveryLockout,
+      onError,
+    ),
     profileSwitchCap: named(OSN_RATE_LIMITS.profileSwitchCap),
     emailChangeBeginCap: named(OSN_RATE_LIMITS.emailChangeBeginCap),
-    recoveryEmailBeginCap: named(OSN_RATE_LIMITS.recoveryEmailBeginCap),
+    recoveryLinkAddressCap: named(OSN_RATE_LIMITS.recoveryLinkAddressCap),
+    recoveryResendCap: named(OSN_RATE_LIMITS.recoveryResendCap),
+    recoveryLinkCeiling: named(OSN_RATE_LIMITS.recoveryLinkCeiling),
+    registrationSendCap: named(OSN_RATE_LIMITS.registrationSendCap),
+    registrationFirstLinkCap: named(OSN_RATE_LIMITS.registrationFirstLinkCap),
+    stepUpLinkCeiling: named(OSN_RATE_LIMITS.stepUpLinkCeiling),
+    linkResendCap: named(OSN_RATE_LIMITS.linkResendCap),
     healthProbe: createCoordinationProbe(client(ns, "health_probe", onError)),
     healthProbeLimiter: named(OSN_RATE_LIMITS.healthCoordination),
   };

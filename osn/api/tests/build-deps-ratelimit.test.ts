@@ -36,6 +36,7 @@ function nonLocalEnv(over: Partial<Record<string, string>> = {}): EnvVars {
     OSN_JWT_PUBLIC_KEY: pubB64,
     OSN_SESSION_IP_PEPPER: "x".repeat(32),
     OSN_PAIRWISE_SALT: "p".repeat(32),
+    INTERNAL_SERVICE_SECRET: "i".repeat(32),
     OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
     ...over,
   };
@@ -173,7 +174,10 @@ describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
     seen.length = 0;
     await built.deps.profileSwitchCap.check("acc_1");
     await built.deps.emailChangeBeginCap.check("acc_1");
-    await built.deps.recoveryEmailBeginCap.check("acc_1");
+    await built.deps.recoveryLinkAddressCap.check("rsk_1");
+    await built.deps.recoveryResendCap.check("acc_1");
+    await built.deps.recoveryLinkCeiling.check("prb_1");
+    await built.deps.registrationSendCap.check("prb_1");
     await built.deps.accountExportLimiter.check("acc_1");
     await built.deps.accountErasureRateLimiters.accountDelete.check("acc_1");
     expect(seen).toEqual([]);

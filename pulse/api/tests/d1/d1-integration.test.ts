@@ -12,6 +12,7 @@ import { Miniflare } from "miniflare";
 import {
   cancelErasure,
   getDeletionStatus,
+  previewDeletion,
   purgeAccount,
   requestErasure,
 } from "../../src/services/accountErasure";
@@ -160,13 +161,101 @@ describe("pulse/api account erasure over real D1 (Miniflare)", () => {
     // real D1.
     await rawDb.run(insertManyViaJsonEach(events, hosted));
 
-    const out = await run(purgeAccount("acc_bulk", ["usr_bulk"]));
+    const out = await run(purgeAccount("acc_bulk", ["usr_bulk"], { deleteEverything: true }));
     expect(out).toMatchObject({ purged: 1, alreadyProcessed: false });
 
     // The whole point: the events are gone, which means the batch committed
     // rather than rolling back on a bind-cap error.
     const left = await rawDb.select({ id: events.id }).from(events).all();
     expect(left.filter((e) => e.id.startsWith("evt_bulk_"))).toHaveLength(0);
+  });
+
+  it("keeps an answered series' instance for its guests and deletes the series, on D1's foreign keys", async () => {
+    // The series has two instances: one answered cancel (kept, taken out of
+    // the series), one deleted with the series' own answer. The series row
+    // can go only once no event names it, which D1 enforces.
+    const { series } = await run(
+      createSeries(
+        {
+          title: "Kept and gone",
+          rrule: "FREQ=WEEKLY;COUNT=2",
+          dtstart: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+        },
+        { createdByProfileId: "usr_keep", createdByName: "Keeper", createdByAvatar: null },
+      ),
+    );
+    const instances = await rawDb
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.seriesId, series.id))
+      .all();
+    expect(instances).toHaveLength(2);
+    const [kept, gone] = instances.map((row) => row.id) as [string, string];
+
+    const out = await run(
+      purgeAccount("acc_keep", ["usr_keep"], {
+        answers: {
+          [`pulse:event:${kept}`]: { choice: "cancel" },
+          [`pulse:series:${series.id}`]: { choice: "delete" },
+        },
+      }),
+    );
+
+    expect(out.kept).toHaveLength(1);
+    const left = await rawDb
+      .select({ id: events.id, seriesId: events.seriesId, status: events.status })
+      .from(events)
+      .where(eq(events.createdByProfileId, "usr_keep"))
+      .all();
+    expect(left).toEqual([{ id: kept, seriesId: null, status: "cancelled" }]);
+    expect(gone).not.toBe(kept);
+    expect(
+      await rawDb.select().from(eventSeries).where(eq(eventSeries.id, series.id)).all(),
+    ).toEqual([]);
+  });
+
+  it("previews a series as one action and folds past 100 actions, grouped in one read on D1", async () => {
+    const { series } = await run(
+      createSeries(
+        {
+          title: "Grouped",
+          rrule: "FREQ=WEEKLY;COUNT=3",
+          dtstart: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+        },
+        { createdByProfileId: "usr_group", createdByName: "Grouper", createdByAvatar: null },
+      ),
+    );
+    const actions = await run(previewDeletion(["usr_group"], 1_900_000_000));
+    expect(actions.map((a) => [a.id, a.label])).toEqual([
+      [`pulse:series:${series.id}`, 'You host 3 upcoming events of "Grouped".'],
+    ]);
+
+    const now = new Date(Date.now() + 86_400_000);
+    await rawDb.run(
+      insertManyViaJsonEach(
+        events,
+        Array.from({ length: 101 }, (_, i) => ({
+          id: `evt_fold_${i}`,
+          title: `Fold ${i}`,
+          startTime: now,
+          status: "upcoming" as const,
+          visibility: "public" as const,
+          guestListVisibility: "public" as const,
+          joinPolicy: "open" as const,
+          allowInterested: true,
+          commsChannels: '["email"]',
+          instanceOverride: false,
+          createdByProfileId: "usr_group",
+          createdByName: "Grouper",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      ),
+    );
+    const folded = await run(previewDeletion(["usr_group"], 1_900_000_000));
+    expect(folded.map((a) => [a.id, a.label])).toEqual([
+      ["pulse:events:all", "You host 104 upcoming events."],
+    ]);
   });
 
   it("purgeAccount is idempotent via the replay ledger (batch insert on D1)", async () => {

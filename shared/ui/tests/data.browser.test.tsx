@@ -8,14 +8,22 @@
  * "the fill is transformed, not resized" is likewise only visible here.
  */
 
-import { render } from "@solidjs/testing-library";
+import { cleanup, render } from "@solidjs/testing-library";
 import { For } from "solid-js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Meter, meterPct } from "../src/ui/meter";
 import { Table, Td, Th } from "../src/ui/table";
 
 import "./test-support/tailwind.css";
+
+// The claims below are about where things sit on the page, so each test starts
+// on an empty page scrolled to the top: a table left behind pushes the next one
+// down, below the window, where `elementFromPoint` finds nothing.
+afterEach(() => {
+  cleanup();
+  window.scrollTo(0, 0);
+});
 
 describe("Table", () => {
   it("scrolls sideways itself rather than taking the page with it", () => {
@@ -291,7 +299,6 @@ describe("Table — page mode", () => {
     // The table's own top is far above the window by now; its head is not.
     expect(box.getBoundingClientRect().top).toBeLessThan(-200);
     expect(head.getBoundingClientRect().top).toBeCloseTo(40, 0);
-    window.scrollTo(0, 0);
   });
 
   it("is no tab stop and no region: the page is what scrolls", () => {

@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-18
 ---
 
 # OSN Wiki
@@ -46,7 +46,7 @@ Applies to every product: architecture, platform systems, observability, deploys
 - [[realtime]] — `@shared/realtime`: invalidation signals over WebSocket, the per-topic Durable Object hub, and how a product adopts it
 - [[database-environments]] — four DB environments (local bun:sqlite / dev·staging·prod D1), driver-agnostic Drizzle seam, D1 transaction caveat
 - [[dev-environment]] — the dev tier in its own Cloudflare account: tier map, how a merge deploys dev through the Alchemy stacks, how a change reaches production, bootstrapping the dev account, and working on dev by hand
-- [[production-deploy]] — production runbook for osn-api + the cire stack (secret/var checklist, migrations, the daily production release and its one approval, smoke checks)
+- [[production-deploy]] — production runbook for osn-api, cire and zap (secret/var checklist, setting a production secret, migrations, the daily production release and its two approvals, smoke checks)
 - [[infrastructure-as-code]] — Alchemy and `@shared/infra`: the dev and production accounts, the Worker and storage builders, stage rules, the secret inventory and its checks, the state store, and the four stacks that deploy the dev tier
 - [[free-tier-limits]] — provider ceilings (Workers / Durable Objects / D1 / Pages / Turnstile / WAF) on dev's Free account and production's Paid one, what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
 - [[rate-limit-incident]] — false positives, tuning, which backend a limiter runs on
@@ -70,10 +70,13 @@ The identity core: accounts, sessions, passkeys, step-up, OIDC, ARC tokens, the 
 - [[identity-model]] — accounts, profiles (users), organisations, multi-account
 - [[verified-identity]] — Yoti-style verified-attribute layer (Australian DVS / mDL / myID; SD-JWT VC) — design doc, not yet implemented
 - [[passkey-primary]] — passkey-only login contract (the only primary factor)
+- [[email-verification-api]] — where the browser Email Verification API stands, and the tests for turning our flag-gated sign-up path on or dropping it
+- [[email-links]] — the emailed-link challenge: proves a mailbox at sign-up, confirmed by picking the waiting screen's number, never a login
 - [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
 - [[step-up]] — short-lived sudo tokens gating sensitive endpoints (M-PK1)
 - [[totp]] — RFC 6238 authenticator-app second factor: the encrypted secret, single use, the per-account lockout
 - [[sessions]] — session introspection, per-device revocation, "sign out everywhere else", device/passkey management UI
+- [[account-deletion]] — deleting an account: the seven-day window, the fan-out every app implements, leaving one app, what is kept, and what each tier needs
 - [[oidc-provider]] — OpenID Connect provider: how other apps recognise an OSN account without holding a passkey
 - [[social-graph]] — connections, blocks
 - [[osn-core]] — identity / auth stack (`@osn/api` + SDK + UI)
@@ -121,6 +124,7 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-upgrades]] — self-serve purchase of a plan tier: catalogue, platform Stripe checkout, the webhook that raises the tier
 - [[cire-invite-designs]] — the invite design selector
 - [[cire-envelope]] — the wax-sealed envelope a guest opens before the invite: who sees it, the card drawn from the live hero, boot and failure rules
+- [[cire-invite-look-study]] — investigation: how a leading digital-invite service builds its invites and envelope, cire's gaps, and the open questions for iPhone, App Clips, Pulse iOS and AI-made materials
 - [[cire-registry]] — the gift registry: list, household claims, gift log, one-primary-currency money rule
 - [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it
 - [[cire-plus-ones]] — a guest's plus-one: the organiser's permission, the household's naming, how the change pipeline treats them
@@ -156,7 +160,7 @@ How we work: tests, comments, commands, pull requests, agent tooling.
 - [[bundle-size-guards]] — the two rules any guard with a threshold obeys, and the guards that hold them: per-app Astro bundle size (which warns) and the public source-map refusal beside it, the src/pages test-route check, D1 migration-cost, and the monorepo-wide lint-warning ceiling
 - [[wiki-search]] — the three ways to search this vault, which exist where, and the guard that stops a branch reading stale
 - [[house-lint-rules]] — the `house/*` oxlint rules this repo writes for itself, and the code rule each one enforces
-- [[agent-tooling]] — where agent sessions start, skills and their evals, third-party skills, subagent definitions, the vendored lint plugin
+- [[agent-tooling]] — where agent sessions start, skills and their evals, third-party skills, subagent definitions, vendored trees
 - [[github-issues-setup]] — the labels, issue types and Project behind the two issue repositories
 
 ## Decisions

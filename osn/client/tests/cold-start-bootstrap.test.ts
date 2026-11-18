@@ -147,11 +147,11 @@ it.effect(
 );
 
 // ---------------------------------------------------------------------------
-// Reload with an expired cached access token (the "logged out on every reload"
-// regression). Access tokens have a short (5 min) TTL and live only in memory;
-// the persisted account in localStorage almost always carries a STALE access
-// token after a reload. loadSession must rehydrate it from the still-alive
-// refresh cookie via /token instead of reporting the user as logged out.
+// An account with no valid access token in hand (the "logged out on every
+// reload" regression). Access tokens have a short (5 min) TTL and live only in
+// memory, so a reloaded page holds none, and a long-open one holds an expired
+// one. loadSession must rehydrate from the still-alive refresh cookie via
+// /token instead of reporting the user as logged out.
 // ---------------------------------------------------------------------------
 
 it.effect("loadSession rehydrates from the cookie when the stored access token has expired", () =>
@@ -180,8 +180,8 @@ it.effect("loadSession rehydrates from the cookie when the stored access token h
 
     const auth = yield* OsnAuth;
 
-    // Persist an account whose access token is ALREADY expired — exactly what
-    // localStorage holds on a reload >5 min after the last token issuance.
+    // Hold an account whose access token has ALREADY expired — a page left
+    // open past the token's 5 minutes.
     yield* auth.setSession({
       accessToken: fakeJwt(profileId),
       idToken: null,

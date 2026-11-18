@@ -1,6 +1,6 @@
 {
   "name": "@shared/email",
-  "version": "0.16.16",
+  "version": "0.21.0",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -21,10 +21,10 @@
   },
   "dependencies": {
     "@shared/observability": "workspace:*",
-    "effect": "4.0.7"
+    "effect": "4.1.4"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.5",
+    "@effect/vitest": "4.1.4",
     "@shared/typescript-config": "workspace:*",
     "vitest": "5.0.5"
   }

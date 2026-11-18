@@ -1,12 +1,13 @@
 /**
  * The checkbox, measured where it is painted, in both of its boxes.
  *
- * `drawn` is pulse's: a visually hidden input beside a painted box, so the
- * claims about it are the ones Kobalte's part made — the ring reaches the box
- * from the input's focus, the box's size, corner and fills — held at today's
- * values, because pulse must not move. `native` is cire's: the browser's own
- * box ticked, a drawn edge unticked, and only a real engine can say whether
- * the ticked box is still the platform's and whether ticking moved anything.
+ * `drawn` is Musubi's and pulse's: a visually hidden input beside a painted
+ * box, so the claims about it are the ones Kobalte's part made — focus
+ * reaches the box from the input, the box's size, corner and fills — on the
+ * rule all choice controls share (`choice-geometry.browser.test.tsx`).
+ * `native` is cire's: the browser's own box ticked, a drawn edge unticked, and
+ * only a real engine can say whether the ticked box is still the platform's
+ * and whether ticking moved anything.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -37,12 +38,7 @@ const drawnBoxOf = (name: string) => box(name).nextElementSibling as HTMLElement
 const rowOf = (input: HTMLElement) => input.closest("label") as HTMLLabelElement;
 
 /** A controlled checkbox whose parent agrees to every change. */
-function Agreeing(props: {
-  box?: "drawn" | "native";
-  label?: string;
-  start?: boolean;
-  size?: "sm" | "md";
-}) {
+function Agreeing(props: { box?: "drawn" | "native"; label?: string; size?: "sm" | "md" }) {
   const [on, setOn] = createSignal(false);
   return (
     <Checkbox
@@ -51,7 +47,6 @@ function Agreeing(props: {
       checked={on()}
       onChange={setOn}
       label={props.label ?? "Florals"}
-      align={props.start ? "start" : undefined}
     />
   );
 }
@@ -242,14 +237,13 @@ describe("Checkbox, either box", () => {
         );
       });
 
-      it("centres the box on the first line of a label that wraps, with align start", () => {
+      it("centres the box on the first line of a label that wraps", () => {
         // The page's own line height is not the label's, so a first-line box
         // measured against the page would miss.
         render(() => (
           <div style={{ width: "160px", "line-height": "1" }}>
             <Agreeing
               box={kind}
-              start
               size="sm"
               label="Also remove these three tasks from the checklist"
             />
@@ -268,27 +262,33 @@ describe("Checkbox, either box", () => {
   }
 });
 
-describe("Checkbox, drawn (pulse's box, which must not move)", () => {
-  it("rings the box in the focus colour when the input takes keyboard focus", async () => {
+describe("Checkbox, drawn (Musubi's and pulse's box)", () => {
+  it("outlines the box in the focus colour when the input takes keyboard focus", async () => {
     render(() => <Checkbox checked={false} onChange={() => {}} label="Florals" />);
     const painted = drawnBoxOf("Florals");
-    expect(getComputedStyle(painted).boxShadow).toBe("none");
+    expect(getComputedStyle(painted).outlineStyle).toBe("none");
 
     await userEvent.tab();
 
     expect(document.activeElement).toBe(box("Florals"));
-    expect(getComputedStyle(painted).boxShadow).toContain(FOCUS);
+    const s = getComputedStyle(painted);
+    expect([s.outlineStyle, s.outlineWidth, s.outlineOffset, s.outlineColor]).toEqual([
+      "solid",
+      "2px",
+      "2px",
+      FOCUS,
+    ]);
   });
 
-  it("paints no ring after a pointer click, which focuses the input too", async () => {
+  it("paints no outline after a pointer click, which focuses the input too", async () => {
     render(() => <Agreeing />);
     await userEvent.click(screen.getByText("Florals"));
     expect((box("Florals") as HTMLInputElement).checked).toBe(true);
     expect(document.activeElement).toBe(box("Florals"));
-    expect(getComputedStyle(drawnBoxOf("Florals")).boxShadow).toBe("none");
+    expect(getComputedStyle(drawnBoxOf("Florals")).outlineStyle).toBe("none");
   });
 
-  it("keeps its input clipped out of sight, so focus paints the box's ring and nothing else", async () => {
+  it("keeps its input clipped out of sight, so focus paints the box's outline and nothing else", async () => {
     render(() => <Checkbox checked={false} onChange={() => {}} label="Florals" />);
     await userEvent.tab();
     const r = box("Florals").getBoundingClientRect();
@@ -296,7 +296,7 @@ describe("Checkbox, drawn (pulse's box, which must not move)", () => {
     expect(r.height).toBeLessThanOrEqual(1);
   });
 
-  it("draws today's box: 16px, the small corner, the strong hairline, the ground; the accent when ticked", () => {
+  it("draws its box: 16px, the small corner, the strong hairline, the ground; the accent, edge and fill, when ticked", () => {
     render(() => (
       <>
         <Checkbox checked={false} label="Off" />
@@ -314,33 +314,31 @@ describe("Checkbox, drawn (pulse's box, which must not move)", () => {
     expect(getComputedStyle(drawnBoxOf("Shut")).opacity).toBe("0.5");
     unmount();
     const on = getComputedStyle(drawnBoxOf("On"));
-    expect(on.backgroundColor).toBe(ACCENT);
+    expect([on.backgroundColor, on.borderTopColor]).toEqual([ACCENT, ACCENT]);
     expect(drawnBoxOf("On").querySelector("svg")).not.toBeNull();
     expect(drawnBoxOf("Off").querySelector("svg")).toBeNull();
   });
 
-  it("sets the label at md, leading none, 8px from the box", () => {
+  it("sets the label at md, prose leading, 8px from the box", () => {
     render(() => <Checkbox checked={false} label="Florals" />);
     const words = screen.getByText("Florals");
     const s = getComputedStyle(words);
-    // `text-ui-base` and `leading-none` at the contract's fallbacks.
-    expect([s.fontSize, s.lineHeight]).toEqual(["14.4px", "14.4px"]);
+    // `text-ui-base` and `leading-ui-normal` at the contract's fallbacks.
+    expect([s.fontSize, s.lineHeight]).toEqual(["14.4px", "23.04px"]);
     expect(
       words.getBoundingClientRect().left - drawnBoxOf("Florals").getBoundingClientRect().right,
     ).toBe(8);
   });
 
-  it("sets a label that wraps, with align start, at prose leading, on a first line the box fits", () => {
-    // `leading-none` beside a centred box is pulse's one-line look; a label set
-    // to wrap reads its second line at prose leading, and the slot that centres
-    // the 16px box on the first line is that line's height.
+  it("sets a label that wraps at prose leading, on a first line the box fits", () => {
+    // The second line reads at prose leading, and the slot that centres the
+    // 16px box on the first line is that line's height.
     render(() => (
       <div style={{ width: "160px", "line-height": "1" }}>
         {(["sm", "md"] as const).map((size) => (
           <Checkbox
             checked={false}
             size={size}
-            align="start"
             label={`Also remove these three tasks from the checklist, ${size}`}
           />
         ))}

@@ -1,5 +1,38 @@
 # @osn/landing
 
+## 0.2.22
+
+### Patch Changes
+
+- 9ea44d7: The privacy notices and terms say what deleting a Musubi account does: it is deleted once 7 days have passed, usually within a day of the date shown, and can be kept until then by signing in and choosing Keep my account; its handles are held for 30 days by a keyed hash; each app deletes what it holds except what others still rely on. Musubi's notice and terms name only what Settings can do (download your data, disconnect an app, delete your account), and a test fails when either names an action Settings has no control for. A Cire wedding deleted with the account is said to wait for any payment still settling. Pulse's notice says what happens to RSVPs and hosted events. The two marketing sites say where an account is deleted, and links inside the Musubi marketing site's legal text are underlined.
+
+## 0.2.21
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+## 0.2.20
+
+### Patch Changes
+
+- f2c7a76: Every written motion value left in these packages states its reason, so `house/no-literal-motion` and `scripts/check-motion-literals.ts` pass: `Modal`'s keyword easings, the toast's curves and spinner, pulse's onboarding rings, pin and their staggers, its live and brand pulses, and the landing sites' hovers and reveals, which have no motion tokens. Pulse's own motion now reads the token of its job: the calendar's reminder buttons, the onboarding chips and the explore card lift on `--ui-dur-fast` (120ms), the onboarding step and the header's "Create new event" button and label on `--ui-dur-base` (200ms), and the onboarding progress fill on `--ui-dur-slow`, all on `--ui-ease-out`. The explore card animates `border-color`, `translate` and `box-shadow` by name rather than `transition-all`.
+
 ## 0.2.19
 
 ### Patch Changes

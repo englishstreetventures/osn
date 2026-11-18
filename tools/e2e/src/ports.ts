@@ -3,10 +3,12 @@
  * server, another worktree's stack or a previous run's orphan on one of the
  * fixed ports would answer the flows with state the seed never wrote. So every
  * port is checked before anything spawns, and the run stops naming each one
- * that is taken.
+ * that is taken. Once the stack is up, the same probe checks that no API
+ * answers at this machine's network address.
  */
 
 import { createConnection } from "node:net";
+import type { NetworkInterfaceInfo } from "node:os";
 
 /** True when something accepts a TCP connection on `host:port`. */
 function answers(host: string, port: number): Promise<boolean> {
@@ -47,4 +49,37 @@ export async function takenPorts(
     })),
   );
   return checks.filter((c) => c.taken).map(({ name, port }) => ({ name, port }));
+}
+
+/**
+ * This machine's first IPv4 address that is not loopback: where another
+ * machine on the network would connect. Null on a machine with none.
+ */
+export function networkAddress(
+  interfaces: Readonly<Record<string, readonly NetworkInterfaceInfo[] | undefined>>,
+): string | null {
+  for (const addresses of Object.values(interfaces)) {
+    const found = addresses?.find((a) => a.family === "IPv4" && !a.internal);
+    if (found) return found.address;
+  }
+  return null;
+}
+
+/**
+ * Every `name → port` that accepts a connection at `address`. Given this
+ * machine's network address, a server listening on loopback alone is never
+ * named; one listening on every interface is.
+ */
+export async function answeringAt(
+  address: string,
+  ports: Readonly<Record<string, number>>,
+): Promise<Array<{ name: string; port: number }>> {
+  const checks = await Promise.all(
+    Object.entries(ports).map(async ([name, port]) => ({
+      name,
+      port,
+      open: await answers(address, port),
+    })),
+  );
+  return checks.filter((c) => c.open).map(({ name, port }) => ({ name, port }));
 }

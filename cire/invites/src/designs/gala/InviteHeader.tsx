@@ -229,7 +229,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   // Once loaded, visibility is breakpoint-aware classes (the img
                   // shows only where no crop layer covers); before that it holds
                   // at opacity-0 so the fade lifecycle is unchanged.
-                  class={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${
+                  class={`absolute inset-0 h-full w-full object-cover transition-opacity duration-[calc(700ms*var(--motion-scale))] ${
                     heroBackdrop.state() === "loaded"
                       ? heroImgRevealClass(heroCrops())
                       : "opacity-0"

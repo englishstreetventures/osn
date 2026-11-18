@@ -1,7 +1,7 @@
-import { describe, it, expect } from "bun:test";
+import { afterEach, describe, it, expect, setSystemTime } from "bun:test";
 import { createHash } from "node:crypto";
 
-import { BOOTSTRAP_WEDDING_ID, emailSuppressions, families, guests } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, emailSuppressions, families, guests, weddings } from "@cire/db";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import { createStaticFlags } from "@shared/feature-flags";
 import { createRateLimiter } from "@shared/rate-limit";
@@ -159,6 +159,15 @@ function optOuts(db: TestDb) {
 }
 
 describe("guest email routes — refusals", () => {
+  it("refuses a session cookie that names no session", async () => {
+    const { db, app } = buildApp();
+    const cleo = guestId(db, "Cleo");
+    const cookie = "cire_session=no-such-session";
+    expect((await save(app, cookie, cleo)).status).toBe(401);
+    expect((await remove(app, cookie, cleo)).status).toBe(401);
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+  });
+
   it("refuses a request with no household session", async () => {
     const { db, app } = buildApp();
     const res = await save(app, null, guestId(db, "Cleo"));
@@ -317,6 +326,151 @@ describe("guest email routes — refusals", () => {
       expect(await jsonBody(res)).toEqual({ error: "email_consent_outdated" });
     }
     expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+  });
+});
+
+/** Give the sample wedding an RSVP deadline: a date, in `timezone`. */
+function setDeadline(db: TestDb, date: string | null, timezone = "UTC") {
+  db.update(weddings)
+    .set({ rsvpDeadline: date, rsvpDeadlineTimezone: date === null ? null : timezone })
+    .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+    .run();
+}
+
+describe("guest email routes — after the RSVP deadline", () => {
+  afterEach(() => setSystemTime());
+
+  it("refuses a new address once RSVPs have closed, and stores nothing", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    setDeadline(db, "2020-01-01");
+    const res = await save(app, cookie, cleo);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "rsvp_closed" });
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+  });
+
+  it("takes an address through the whole deadline day and refuses it the instant after", async () => {
+    const { db, app } = buildApp();
+    setSystemTime(new Date("2030-06-15T23:59:00.000Z"));
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    setDeadline(db, "2030-06-15");
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    setSystemTime(new Date("2030-06-16T00:00:01.000Z"));
+    const late = await save(app, cookie, cleo, "cleo.late@example.test");
+    expect(late.status).toBe(403);
+    expect(emailRow(db, cleo)?.email).toBe(ADDRESS);
+  });
+
+  // The day is measured in the wedding's own zone, so the lock falls at the
+  // end of that day there, not in UTC: Sydney is UTC+10 in June.
+  it("measures the deadline day in the wedding's time zone", async () => {
+    const { db, app } = buildApp();
+    setSystemTime(new Date("2030-06-15T13:59:00.000Z"));
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    setDeadline(db, "2030-06-15", "Australia/Sydney");
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    setSystemTime(new Date("2030-06-15T14:00:01.000Z"));
+    const late = await save(app, cookie, cleo, "cleo.late@example.test");
+    expect(late.status).toBe(403);
+    expect(emailRow(db, cleo)?.email).toBe(ADDRESS);
+  });
+
+  // The deadline answers before the address and consent checks, so a closed
+  // wedding says so whatever the body holds.
+  it("answers a closed wedding before it reads the address or the consent", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    setDeadline(db, "2020-01-01");
+    const res = await call(app, "PUT", PATH, cookie, {
+      memberGuestId: guestId(db, "Cleo"),
+      email: "not an address",
+      consentVersion: "guest-email-2020-01-01",
+    });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "rsvp_closed" });
+  });
+
+  // A removal made after the deadline would otherwise be final, and anyone
+  // holding the household code could make it. The seat may undo its own.
+  it("lets a seat give back an address it removed itself, hosts' or its own", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    await hostsAdded(db, cleo, ADDRESS);
+    expect((await remove(app, cookie, cleo)).status).toBe(200);
+    expect(optOuts(db)).toHaveLength(1);
+    setDeadline(db, "2020-01-01");
+
+    const back = await save(app, cookie, cleo);
+    expect(back.status).toBe(200);
+    expect(emailRow(db, cleo)?.email).toBe(ADDRESS);
+    expect(optOuts(db)).toHaveLength(0);
+
+    // The guest's own address, removed and given back the same way.
+    setDeadline(db, null);
+    const own = "cleo.own@example.test";
+    expect((await save(app, cookie, cleo, own)).status).toBe(200);
+    expect((await remove(app, cookie, cleo)).status).toBe(200);
+    setDeadline(db, "2020-01-01");
+    expect((await save(app, cookie, cleo, own)).status).toBe(200);
+    expect(emailRow(db, cleo)?.email).toBe(own);
+  });
+
+  it("refuses an address the seat did not remove, and one another seat removed", async () => {
+    const { db, app } = buildApp();
+    const bo = guestId(db, "Bo");
+    const cleo = guestId(db, "Cleo");
+    await hostsAdded(db, bo, ADDRESS);
+    const boCookie = await answeringAs(app, db, "Bo");
+    expect((await remove(app, boCookie, bo)).status).toBe(200);
+    const cleoCookie = await answeringAs(app, db, "Cleo");
+    setDeadline(db, "2020-01-01");
+
+    // Bo's wedding-wide withdrawal is not Cleo's to undo.
+    const other = await save(app, cleoCookie, cleo);
+    expect(other.status).toBe(403);
+    expect(await jsonBody(other)).toEqual({ error: "rsvp_closed" });
+    // And a new address is refused to the seat that withdrew another.
+    expect((await save(app, boCookie, bo, "bo.new@example.test")).status).toBe(403);
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+    expect(optOuts(db)).toHaveLength(1);
+  });
+
+  it("still lets the guest remove their address", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    setDeadline(db, "2020-01-01");
+    const res = await remove(app, cookie, cleo);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ email: null });
+    expect(emailRow(db, cleo)?.email).toBeNull();
+  });
+
+  // The seat refusals come first, as they do before every other refusal here:
+  // a page whose member changed asks "Who are you?" and then renders closed.
+  it("answers a body naming another member with the seat's refusal, not the deadline's", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Bo");
+    setDeadline(db, "2020-01-01");
+    const res = await save(app, cookie, guestId(db, "Cleo"));
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "member_changed" });
+  });
+
+  it("counts the refusal as a deadline block", async () => {
+    const { db, app } = buildApp();
+    const blocked = () => counterValue(CIRE_METRICS.guestEmailBlocked, { reason: "deadline" });
+    const before = await blocked();
+    const cookie = await answeringAs(app, db, "Cleo");
+    setDeadline(db, "2020-01-01");
+    await save(app, cookie, guestId(db, "Cleo"));
+    expect(await blocked()).toBe(before + 1);
   });
 });
 

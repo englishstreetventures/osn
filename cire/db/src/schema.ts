@@ -130,9 +130,11 @@ export const weddings = sqliteTable(
     // NULL means the wedding is live. Set, it is unreachable by every guest,
     // vendor and co-host path, and by every organiser route except its owners'
     // restore; the daily purge hard-deletes the row (and, by cascade, every
-    // child) once `deleted_at` is more than the restore window old. Seconds,
+    // child) once `deleted_at` is more than the restore window old, or at
+    // once when no owner seat is left, since no one can restore it. Seconds,
     // like `created_at`. `deleted_by_osn_profile_id` is the owner who deleted
-    // it, cleared with `deleted_at` on a restore.
+    // it, cleared with `deleted_at` on a restore; NULL when an OSN account's
+    // erasure deleted it, or once the deleting owner's account is erased.
     deletedAt: integer("deleted_at", { mode: "timestamp" }),
     deletedByOsnProfileId: text("deleted_by_osn_profile_id"),
   },
@@ -158,7 +160,11 @@ export const weddings = sqliteTable(
 // creator. The API keeps at least one owner on every wedding and at most
 // `MAX_HOSTS_PER_WEDDING` rows, owners counted (`cire/api/src/services/hosts.ts`);
 // both limits are enforced inside the writing statement, since SQLite cannot
-// express either as a constraint.
+// express either as a constraint. Erasing an OSN account removes its seats
+// without that guard, and soft-deletes in the same batch, before the seats
+// go, any wedding with no owner outside the account
+// (`cire/api/src/services/account-erasure.ts`), so no live wedding is ever
+// without one.
 //
 // `osn_profile_id` is an OSN profile id (`usr_*`): an opaque cross-database
 // reference, deliberately NOT a foreign key (cire's D1 and osn's D1 are
@@ -1069,10 +1075,11 @@ export const registrySettings = sqliteTable(
     // somebody eventually asks with no other way to answer it.
     stripeDeauthorizedAt: integer("stripe_deauthorized_at", { mode: "timestamp" }),
     stripeDeauthorizedAccountId: text("stripe_deauthorized_account_id"),
-    // ── What survives the 1-year sweep ──────────────────────────────────────
+    // ── What survives the guest-data sweep ──────────────────────────────────
     // Gifts are guest data: `registry_claims` and `registry_contributions` both
     // hang off `families`, so the retention sweep's family delete cascades them
-    // away a year after the wedding, and the couple's record of what arrived goes
+    // away a year after the wedding (three years after its creation when the
+    // sweep cannot read its event dates), and the couple's record of what arrived goes
     // with it. This row is KEPT by that sweep (it carries no guest PII and the
     // published invite depends on it), which makes it the right home for a
     // parting summary: written just before the delete — counts, totals and each
@@ -2038,14 +2045,29 @@ export const weddingUpgradePurchases = sqliteTable(
     // a Crimson bought outright from one bought as an upgrade from Gold. NULL on
     // every row written before 0073.
     fromTier: text("from_tier", { enum: ["ivory", "gold"] }),
-    // `refunded` is a paid purchase an operator has since taken back with
-    // `grant-tier.ts --lower`: a redelivered payment for it grants nothing.
-    // `mismatch` is a payment whose amount or currency is not what this
-    // purchase sold, or one priced from a tier the wedding no longer holds:
-    // the money arrived and nothing was granted, so a person has to refund it
-    // or apply it by hand.
+    // `refunded` is a paid purchase a person took back: an operator with
+    // `grant-tier.ts --lower`, or a refund made by hand before cire's own. A
+    // redelivered payment for it grants nothing.
+    // `refunding` is a paid checkout cire could not grant and has decided to
+    // refund, before Stripe has accepted the refund; `auto_refunded` is one
+    // Stripe accepted (`refund_id`); `refund_failed` is one whose refund then
+    // failed at the bank, so the money is back in cire's balance and a person
+    // has to return it. None of the three ever grants.
+    // `mismatch` was written by an earlier release for a payment of another
+    // amount than the Price. Nothing writes it now; settle treats it as open,
+    // so a resend of its own session's payment grants.
     status: text("status", {
-      enum: ["pending", "succeeded", "failed", "expired", "refunded", "mismatch"],
+      enum: [
+        "pending",
+        "succeeded",
+        "failed",
+        "expired",
+        "refunded",
+        "mismatch",
+        "refunding",
+        "auto_refunded",
+        "refund_failed",
+      ],
     })
       .notNull()
       .default("pending"),
@@ -2055,9 +2077,9 @@ export const weddingUpgradePurchases = sqliteTable(
     checkoutSessionId: text("checkout_session_id").unique(),
     paymentIntentId: text("payment_intent_id"),
     // The Stripe Price the purchase opened at, and what that Price charges,
-    // read from Stripe when the row is written. Settle grants only for a
-    // payment of exactly this amount and currency. NULL on every row written
-    // before 0073, which settle accepts only from the session it already holds.
+    // read from Stripe when the row is written. The session this row holds
+    // sold exactly this Price, so settle holds nothing to the amount. NULL on
+    // every row written before 0073.
     priceId: text("price_id"),
     priceAmountMinor: integer("price_amount_minor"),
     priceCurrency: text("price_currency"),
@@ -2065,6 +2087,9 @@ export const weddingUpgradePurchases = sqliteTable(
     // for. Null while pending.
     amountMinor: integer("amount_minor"),
     currency: text("currency"),
+    // The Stripe refund (`re_…`) cire made for a payment it could not grant.
+    // NULL until Stripe accepts it, and on every refund a person made.
+    refundId: text("refund_id"),
     // Who pressed buy. A webhook has no actor of its own, so the tier grant
     // records this purchase (`weddings.tier_granted_by = 'stripe:<id>'`) and
     // the buyer is read from here.
@@ -2075,6 +2100,9 @@ export const weddingUpgradePurchases = sqliteTable(
   (t) => [
     index("wedding_upgrade_purchases_wedding_entitlement_idx").on(t.weddingId, t.entitlement),
     index("wedding_upgrade_purchases_payment_intent_idx").on(t.paymentIntentId),
+    // The daily reconciliation's read: `refunding` and stale `pending` rows,
+    // least recently moved first. Without it that read scans the table.
+    index("wedding_upgrade_purchases_status_updated_idx").on(t.status, t.updatedAt),
     // At most ONE attempt in flight per wedding, whatever it buys: a wedding
     // can only be moving to one tier at a time, and a Gold page left open
     // beside a Crimson one could charge for both. The service resolves an
@@ -2118,6 +2146,65 @@ export const platformSales = sqliteTable("platform_sales", {
   currency: text("currency").notNull(),
   settledAt: integer("settled_at", { mode: "timestamp" }).notNull(),
 });
+
+// The record of an upgrade payment cire is giving back, kept OUTSIDE the
+// wedding's cascade like `platform_sales`: no foreign key, no wedding id, no
+// profile id. Pseudonymous, not anonymous: the PaymentIntent and refund ids
+// open the buyer's charge in Stripe. A refund cire owes must outlive the wedding
+// row, so the daily reconciliation retries it from here and the purge never
+// has to wait for it. Written in the same D1 batch as the purchase row's
+// `refunding` claim, and moved with it to `auto_refunded`, `refunded` or
+// `refund_failed`.
+export const platformRefunds = sqliteTable(
+  "platform_refunds",
+  {
+    id: text("id").primaryKey(), // rfd_<uuid>
+    // UNIQUE with no FK: one refund per purchase, and an orphan opaque string
+    // once the purge takes the purchase row.
+    purchaseId: text("purchase_id").notNull().unique(),
+    // The product sold, as `wedding_upgrade_purchases.entitlement` names it.
+    entitlement: text("entitlement").notNull(),
+    // The PaymentIntent refunded, in full, and what it took.
+    paymentIntentId: text("payment_intent_id"),
+    amountMinor: integer("amount_minor"),
+    currency: text("currency"),
+    // Why the payment could not upgrade the wedding; `unrecorded` for a refund
+    // the table's migration found already under way, which stored no reason.
+    reason: text("reason", {
+      enum: [
+        "no_tier",
+        "wedding_not_live",
+        "unknown_tier",
+        "not_from_tier",
+        "already_held",
+        "unrecorded",
+      ],
+    }).notNull(),
+    // `refunding` until Stripe accepts the refund (`auto_refunded`, with
+    // `refund_id`); `refunded` when a person refunded it first; `refund_failed`
+    // when a person has to return the money.
+    status: text("status", {
+      enum: ["refunding", "auto_refunded", "refunded", "refund_failed"],
+    }).notNull(),
+    // The Stripe refund (`re_…`), once Stripe accepts it.
+    refundId: text("refund_id"),
+    // When the wedding's owners were emailed about the refund: written once
+    // the notice has gone out, so NULL means nobody was mailed. Whether to
+    // mail is decided by the status move to `auto_refunded`, once.
+    ownersNotifiedAt: integer("owners_notified_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // The daily reconciliation's read: `refunding` rows, least recently moved
+    // first, and the count of those waiting for a person.
+    index("platform_refunds_status_updated_idx").on(t.status, t.updatedAt),
+    check(
+      "platform_refunds_status_ck",
+      sql`status in ('refunding','auto_refunded','refunded','refund_failed')`,
+    ),
+  ],
+);
 
 // How many Images-binding transforms the registry link picker's thumbnails have
 // spent in one calendar month (UTC), across every wedding. One row per month.

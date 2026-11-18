@@ -1,5 +1,5 @@
 ---
-title: Design tokens — the contract every shared component reads
+title: Design tokens — @shared/design-tokens and the ui-* contract
 tags:
   - architecture
   - design-system
@@ -11,14 +11,15 @@ related:
   - "[[browser-tests]]"
   - "[[toast]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-11-04
+  - "[[house-lint-rules]]"
+last-reviewed: 2026-11-17
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
 
 One neutral vocabulary that the shared component packages write and every app
 maps onto once. Colour roles, plus type, tracking, leading, radius and measure
-scales.
+scales, and a title weight.
 
 ## The problem it solves
 
@@ -46,8 +47,14 @@ that none of the three is ever the answer.
 Three rules, and they are the whole design:
 
 1. **The contract is library-facing.** `@shared/ui`, `@cire/ui` and
-   `@osn/auth-ui` write `ui-*` utilities. Application code never does — every
-   `bg-card` in pulse and `text-gold` in cire stays exactly as written.
+   `@osn/auth-ui` are held to `ui-*` utilities, each package's own class
+   attributes included (`@osn/auth-ui`'s `tests/token-contract.test.ts`
+   holds its). Application code is not held to them — every
+   `bg-card` in pulse and `text-gold` in cire stays exactly as written. An
+   app may still write one where it wants the contract's step or role:
+   pulse and cire take their type and tracking steps from the contract
+   (`text-ui-sm`, `tracking-ui-wider`), and cire its leading and radius
+   steps too.
    `@shared/toast` reaches the same end by a different route: it compiles no
    utilities at all and reads its own `--toast-*` properties from plain CSS
    ([[toast]]).
@@ -92,8 +99,9 @@ which name a new package, token or identifier takes.
 | Group    | Names                                                               |
 | -------- | ------------------------------------------------------------------- |
 | Grounds  | `ground`, `ground-deep`                                             |
+| Scrim    | `scrim`                                                             |
 | Surfaces | `surface`, `surface-raised`, `surface-sunk`                         |
-| Edges    | `hairline`, `hairline-strong`                                       |
+| Edges    | `hairline`, `hairline-strong`, `choice-edge`                        |
 | Ink      | `ink`, `ink-secondary`, `ink-tertiary`                              |
 | Accent   | `accent`, `accent-strong`, `accent-soft`, `accent-ink`, `on-accent` |
 | Status   | `success`, `warn`, `danger`, `on-danger`                            |
@@ -103,14 +111,19 @@ Scales, each spelled as a Tailwind utility: `text-ui-xs` … `2xl`,
 `tracking-ui-tight` … `ultra`, `leading-ui-none` … `relaxed`,
 `rounded-ui-hair` … `pill` plus the three role radii `rounded-ui-control`,
 `rounded-ui-field` and `rounded-ui-sheet`, `font-ui-body` /
-`-display` / `-mono`, and the measure scale `max-w-ui-xs` … `3xl` — declared
-as `--container-ui-*`, which is the namespace Tailwind reads a `max-w-*` from.
+`-display` / `-mono`, the weight role `font-ui-title`, and the measure scale
+`max-w-ui-xs` … `3xl` — declared as `--container-ui-*`, which is the namespace
+Tailwind reads a `max-w-*` from.
 
 Three groups sit outside `@theme` as plain custom properties, because a
 component consumes them inside its own rule rather than as a utility:
-`--ui-focus-width` / `--ui-focus-offset`, the motion tokens
-(`--ui-dur-fast|base|slow`, `--ui-ease-out|in-out`) and `--ui-elev-1|2`.
-Aliasing those would generate utilities nobody spells. `CONTRACT_COLOR_TOKENS`
+`--ui-focus-width` / `--ui-focus-offset`, the motion tokens (§Motion, below)
+and `--ui-elev-1|2`.
+Aliasing those would generate utilities nobody spells. No `@shared/ui`
+primitive reads the two focus tokens: it draws focus with Tailwind's fixed
+2px utilities (`ring-2`, `outline-2`, `outline-hidden` and their offsets), so
+a surface that sets them moves only the rules it writes itself, such as the
+lab's focus story. `CONTRACT_COLOR_TOKENS`
 and `CONTRACT_SCALAR_TOKENS` in `src/index.ts` are the enumerable form of both
 lists, and `tests/tokens-css-agrees.test.ts` fails if they and `tokens.css`
 drift apart.
@@ -132,7 +145,7 @@ value rather than one from the package: `control` to `md`, `sheet` to `lg`.
 | Role      | musubi               | pulse                            | cire                                     |
 | --------- | -------------------- | -------------------------------- | ---------------------------------------- |
 | `control` | pill                 | `--radius`, the same as its `md` | pill                                     |
-| `field`   | not mapped: a pill   | not mapped: `--radius`           | 14px                                     |
+| `field`   | `--radius-md`, 8px   | not mapped: `--radius`           | 14px                                     |
 | `sheet`   | not mapped: its `lg` | not mapped: its `lg`             | 1.75rem on the guest and marketing sites |
 
 cire's sized steps are 2px `hair`, 6px `sm`, 10px `md`, 16px `lg` and 999px
@@ -141,19 +154,236 @@ same values: `cire/vendor/tests/styles/tokens.test.ts` reads each one and fails
 if a role or a step differs. What each step paints in cire is
 `cire/host/DESIGN.md` §4.
 
+**`title` is a weight role**, not a step on a weight scale: the weight a shared
+part sets a short title or a tag in, one step over body text. An app maps
+`--ui-weight-title`; parts read it through `font-ui-title`, which `tokens.css`
+declares as `--font-weight-ui-title: var(--ui-weight-title, 600)` in its
+`@theme inline` block. Tailwind tells it apart from the `font-ui-*` families by
+the key: `--font-weight-*` builds a weight utility, `--font-*` a family. The
+fallback is 600, Tailwind's `font-semibold`, so an app that maps nothing sets
+those parts semibold. `@shared/ui`'s `Badge`, `DialogTitle` and `CardTitle`
+read it ([[component-library]], §Variant components, §Kobalte components and
+§Simple styled components). Musubi maps it to 500 in the contract block of
+`musubi/social/src/App.css`, and the lab and the metrics dashboard, which
+import that stylesheet, draw its 500. Pulse and cire map nothing: pulse draws
+a badge and a dialog title at 600 and no `CardTitle`. Musubi draws dialog and
+card titles at 500 and no badge. In the lab, `DialogStory`, the unmapped
+columns of `CardTitleWeights` and `BadgeWeights`, and every cire subtree
+(`cireStyle()`) lend `initial`, so they draw 600 whatever the lab maps. `shared/ui/tests/badge-default.browser.test.tsx`,
+`dialog-default.browser.test.tsx` and `card-default.browser.test.tsx` each hold
+an unmapped badge's or title's whole computed style, and pulse's
+`tests/styles/token-contract.browser.test.tsx` holds 600 for its badges and the
+dialog title under pulse's own stylesheet.
+
+**`scrim` is the veil a modal lays over the page.** `Dialog`'s overlay
+(`bg-ui-scrim`) and `Modal`'s `::backdrop` both read it, so an app has one
+backdrop for one kind of interruption, and one line to change it. It is a
+translucent colour measured against nothing, so it sits in no contrast pair and
+no app has to map it: its own group, `scrim`, in `CONTRACT_COLOR_TOKENS`. The
+fallback is black at 50%. `::backdrop` inherits from its dialog, so a mapping on
+`:root` reaches it.
+
+| App    | `--ui-scrim`                                                                            |
+| ------ | --------------------------------------------------------------------------------------- |
+| musubi | not mapped: black at 50%                                                                |
+| pulse  | not mapped: black at 50%                                                                |
+| cire   | `color-mix(in srgb, var(--ui-ground-deep) 72%, transparent)`, in all four stylesheets |
+
+cire's line sits in the `:root` contract block beside `--ui-ground-deep`, where
+`data-theme` and an invite's palette also land, so the backdrop follows both.
+`cire/host/tests/styles/modal-scrim.browser.test.tsx` and
+`cire/invites/tests/styles/modal-scrim.browser.test.tsx` compare the painted
+backdrop with that expression in each theme and palette; `cire/vendor`'s
+`tests/styles/tokens.test.ts` holds the four stylesheets to the one line.
+
+**Raised panels cast `--ui-elev-2`.** `Modal`, `Dialog` and a `Card` with
+`elevation="raised"` read it, and the accent `DropdownMenu` reads it after an
+app's own `--elev-2`. So an app that maps it once themes its dialogs, modals
+and raised cards, and the accent menu where the app sets no `--elev-2`.
+`Popover`, `Tooltip` and the default and touch menus cast Tailwind's
+`shadow-md` or `shadow-lg` and do not follow it. No app maps it, so musubi's
+and pulse's dialogs cast the fallback, `0 8px 24px rgb(0 0 0 / 0.12)`.
+
 `@cire/ui` also reads a few of cire's own app tokens, outside the contract,
-with a fallback at each use: the glass's `--glass-edge`, `--inner-lip` and
-`--elev-1`, the motion ladder's `--dur-*` and `--ease-*`, and the portals' two
-pill tokens, `--pill-ground` and `--pill-sm-height`, which only the host and
-vendor portals set, so one `Button` draws grounded 28px pills there and clear
-31px ones on the guest site ([[component-library]], §cire's `Button`).
-They are not contract tokens because nothing outside cire reads them.
+with a fallback at each use: the glass's `--glass-edge`, `--glass-ring`,
+`--inner-lip` and `--elev-1`, the motion ladder's `--dur-*` and `--ease-*`, and
+the portals' two pill tokens, `--pill-ground` and `--pill-sm-height`, which
+only the host and vendor portals set, so one `Button` draws grounded 28px pills
+there and clear 31px ones on the guest site ([[component-library]], §cire's
+`Button`). They are not contract tokens because nothing outside cire reads
+them.
 
 Two names are worth reading twice. **`ground-deep` is not "darker"** — it is
 what the page recedes _to_, behind a sticky bar or under a scrim, and on a dark
 theme it is lighter. **`accent-ink` is not `on-accent`**: `accent-ink` is accent
 text on the page, `on-accent` is the label on a filled accent ground, and the
 two have opposite contrast requirements.
+
+## Motion
+
+Each motion token is named for its job. **Choose one by its job, never by the
+nearest number**: a hover timed on `--ui-dur-exit` because 80ms looked right
+would change pace the day exits do, and a sheet on `--ui-dur-fast` would stop
+following an app that slows its panels. `tokens.css` carries the same job as
+a one-line comment beside each value, and `CONTRACT_SCALAR_TOKENS.motion`
+lists them. A duration, delay or easing written out where a token belongs
+fails `house/no-literal-motion` in TypeScript and
+`scripts/check-motion-literals.ts` in `.css` and `.astro` files; a fallback
+inside `var()` passes. A literal moves to the token of its job even when the
+value changes. Tailwind's `ease-out` class reads the app's `--ease-out`:
+Tailwind's own curve outside cire, cire's own curve inside it (below). It is
+never `--ui-ease-out`: for the contract's curve write `ease-(--ui-ease-out)`
+([[house-lint-rules]] §Literal motion).
+
+| Token | Value | Used for |
+| --- | --- | --- |
+| `--ui-dur-fast` | 120ms | A hover, a press, a small panel arriving |
+| `--ui-dur-base` | 200ms | A panel swap, a pill sliding, a `Dialog` sheet leaving |
+| `--ui-dur-slow` | 320ms | Something crossing the screen: a `Dialog` sheet rising |
+| `--ui-dur-exit` | 80ms | A Kobalte overlay closing: a menu, a popover, `Dialog` as a card. `Modal` exits on its own `--ui-modal-exit` ([[component-library]], §Overlays: `Modal`); a `Dialog` sheet below `md` on `--ui-dur-base` |
+| `--ui-ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Something arriving |
+| `--ui-ease-in-out` | `cubic-bezier(0.65, 0, 0.35, 1)` | Something moving between two places |
+| `--ui-ease-exit` | `cubic-bezier(0.22, 1, 0.36, 1)` | A Kobalte overlay closing: a menu, a popover, `Dialog` as a card. `Modal`'s exit runs `ease-in`; a `Dialog` sheet below `md` leaves on `--ui-ease-sheet` |
+| `--ui-ease-sheet` | `cubic-bezier(0.32, 0.72, 0, 1)` | A `Dialog` sheet rising and leaving below `md`: quick off the mark, long to settle, as iOS sheets move |
+| `--ui-scale-enter` | 0.96 | How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog` as a card (a sheet below `md` slides instead) |
+| `--ui-scale-exit` | 0.98 | How small an overlay ends as it leaves, `Modal` included |
+| `--ui-distance-enter` | 24px | How far `Modal` rises into place |
+| `--ui-distance-exit` | 8px | How far `Modal` sinks as it leaves |
+
+**An exit is shorter and smaller than its entry.** A panel leaving has nothing
+more to tell the reader, so it gets out of the way: 80ms against 120ms, and it
+ends at 0.98 where it started at 0.96. `Modal` keeps its entry's own 0.98, so
+its exit is softer by distance and time alone (8px in 150ms against 24px in
+350ms). Musubi sets the two scale tokens to 1 (below); no app sets the
+durations or distances, so every app runs those, and pulse and cire run the
+scales too.
+
+**An exit has its own curve.** `--ui-ease-exit` carries the same curve as
+`--ui-ease-out`, so a Kobalte overlay leaves on the curve it arrives on. They
+are two tokens so that an app can map `--ui-ease-out` onto its own arriving
+curve without moving its overlays' exits, which `animate-out` times. Cire
+maps `--ui-ease-out` (below); no app sets `--ui-ease-exit`.
+`overlay-motion.browser.test.tsx` holds each overlay that exits
+on `--ui-ease-exit`, unmoved by `--ui-ease-out`, and
+`dialog-default.browser.test.tsx` holds an unmapped `Dialog`'s entry and exit
+on the one curve ([[browser-tests]]).
+
+Cire's own `--ease-out` is a different curve, `cubic-bezier(0.23, 1, 0.32, 1)`,
+the owner's choice of 2026-11-11 for all four cire apps and their one curve
+for something arriving ([`cire/host/DESIGN.md`](../../cire/host/DESIGN.md) §4).
+The shared parts that read `var(--ease-out, var(--ui-ease-out))` follow it
+there, and so does every transition that names no easing: each cire stylesheet
+sets Tailwind's `--default-transition-timing-function` to `var(--ease-out)`,
+which outside cire stays Tailwind's `cubic-bezier(0.4, 0, 0.2, 1)`. Each cire
+stylesheet's contract mapping also sets `--ui-ease-out: var(--ease-out)` (the
+owner's choice of 2026-11-12), so `Modal`'s rise and every `animate-in` entry
+(`Tooltip`, `Popover`, the default `DropdownMenu`) arrive on cire's curve too.
+The exits stay where they were: `animate-out` reads `--ui-ease-exit`, which no
+cire stylesheet maps, and `Modal` leaves on `ease-in`.
+`cire/vendor/tests/styles/tokens.test.ts` fails if one cire app drops the
+mapping or maps an exit, and cire host's
+`tests/styles/overlay-curves.browser.test.tsx` reads a `Popover`'s and a
+`Modal`'s curves back as they run.
+
+**A `Dialog` sheet slides.** Below `md`, `Dialog`'s `sheet` presentation
+rises from its own height below the bottom edge over `--ui-dur-slow` and
+falls back over `--ui-dur-base`, both on `--ui-ease-sheet`, at full opacity
+and with no scale, whatever the scale tokens hold; its scrim fades in and out
+on the same pace and curve. The owner chose it for every sheet ("B: slide
+up", #2045, 2026-11-13). It moves by CSS transitions, not the keyframes the
+other overlays run, so a sheet closed part-way up or reopened part-way down
+turns round from where it is: `transform` on the panel and `opacity` on the
+scrim, from `@starting-style` in and to the closed state out, through
+`animate-sheet-in` and `animate-sheet-out` in `tokens.css`. The slide is on
+`transform`, never `translate`, because the card's centring and the sheet's
+reset of it are both on `translate`: listed, it would fly a sheet in from the
+middle of the screen when a phone turns with it open. Kobalte keeps a closing
+panel mounted only while a keyframe run lasts, so the two utilities also run
+`ui-sheet-enter` and `ui-sheet-exit`, which write only `--ui-sheet-run` and
+move nothing. A run that wrote `transform` or `opacity` would beat the
+transition on the same property in Chromium and WebKit, the two names must
+not contain each other (Kobalte ends a close on the end of a run whose name
+the current one contains), and Tailwind drops an empty `@keyframes`, so a run
+with no declaration never reaches the stylesheet. At `md` and up the sheet is
+the centred card and runs the card's keyframes. Carried across `md` while
+open, it does not slide: down across it, it sits on the bottom edge at once;
+up across it, the card's entry runs again. `@starting-style` needs Chrome 117,
+Firefox 129 and Safari 17.5, above the floor in [[frontend-patterns]]
+§Supported browsers; on a browser between the floor and those versions a
+sheet appears at once and still slides out (or fades out, under reduced
+motion, below).
+`Modal`, on the same rule, has the same gap. `overlay-motion.browser.test.tsx` holds the slide, its
+pace and curve, the scrim, the turn-rounds, the `md` crossing and the
+reduced-motion fade ([[browser-tests]]); `musubi-surfaces.ts` holds Musubi's
+profile switcher sliding on a real page, and pulse's
+`share-sheet-motion.browser.test.tsx` holds its share sheet's first frame,
+sliding and fading.
+
+**A fade with no scale is the two scale tokens at 1.** An app whose overlays
+should fade without moving sets `--ui-scale-enter` and `--ui-scale-exit` to 1
+on its root. Every Kobalte overlay — `Dialog` as a card (and as a sheet at
+`md` and up), `Popover`, both `DropdownMenu` looks and `Tooltip` — then
+changes only its opacity, since
+`zoom-in` and `zoom-out` read those tokens and nothing else in the keyframes
+moves a panel. `--ui-scale-exit` at 1 also stops `Modal`'s exit scale. Its
+entry keeps its own `scale(0.98)` (`modal.tsx`), which no token reaches, so it
+still grows as it opens; its rise and sink (`--ui-distance-enter`,
+`--ui-distance-exit`) stay too. No component takes a prop for it: a prop would
+give a panel's scale a second home, and leave the menus and popovers of the
+same app zooming. A held frame's computed `transform` is the identity matrix
+rather than `none`, because the shared keyframes always declare one.
+`overlay-motion.browser.test.tsx` holds the fade for all five overlays
+against a control that scales, and the lab's `DialogFadeOnly` story shows it
+([[component-lab]]). Musubi sets both to 1 in its contract block, so the lab
+and the metrics dashboard fade too. On real pages `tools/e2e` holds Musubi's
+account menu and create-organisation dialog on the fade, and pulse's avatar
+menus and "More filters" dialog on the contract's 0.96 (`musubi-surfaces.ts`,
+`pulse-menus.ts`).
+
+The overlays reach them through utilities in `tokens.css`, not by reading
+the tokens in their own classes. `animate-in` runs `--ui-dur-fast` on
+`--ui-ease-out` and `animate-out` runs `--ui-dur-exit` on `--ui-ease-exit`;
+`animate-sheet-in` and `animate-sheet-out` time a sheet's transitions and
+runs on `--ui-dur-slow` and `--ui-dur-base`, both on `--ui-ease-sheet`;
+`zoom-in` and `zoom-out` set the scale an element enters from and leaves to
+from `--ui-scale-enter` and `--ui-scale-exit`. Two pairs of names sit close:
+`--ui-scale-enter` is the token an app sets, `--ui-enter-scale` is what
+`zoom-in` writes on one element for the keyframes to read.
+
+**Reduced motion has one home for the Kobalte overlays.** Under
+`prefers-reduced-motion: reduce`, a flat block in `tokens.css` sets
+`--ui-enter-animation` and `--ui-exit-animation` to `none` on the root, and
+`animate-in` and `animate-out` read their `animation-name` from them. Every
+overlay drawn with those utilities stops moving, and a new one needs nothing
+on its class string. A `Dialog` sheet below `md` is the one that still moves,
+and only in opacity: it fades in and out with its scrim, in place, on its
+usual pace and curve, with no transform on any frame. The owner chose the fade
+on 2026-11-14 ("you can do fade in and fade out for reduced motion right?
+Otherwise sure nothing moves"). The same block sets three more variables:
+`--ui-sheet-transition: opacity`, which `animate-sheet-in` and
+`animate-sheet-out` read as their `transition-property`, so the panel's
+`transform` no longer transitions; and `--ui-sheet-hidden-transform: none` and
+`--ui-sheet-hidden-opacity: 0`, which `sheet-hidden`, the state a sheet comes
+from and goes to, reads in place of its own height below the edge at full
+opacity. The scrim's fade is unchanged. The sheet's two runs read no variable,
+so they still run, move nothing, and keep a closing sheet mounted until its
+fade has ended. The accent menu's pop is its own `animation` shorthand,
+so it keeps its `motion-safe:` prefix. `Modal` is a transition, not these
+utilities: its own stylesheet drops every duration to 1ms
+([[component-library]] §Overlays: `Modal`).
+`overlay-motion.browser.test.tsx` holds each of these in Chromium
+([[browser-tests]]).
+
+**A press is `--ui-dur-fast` on `--ui-ease-out`.** `Button` scales to 0.97
+while a pointer or a held Space presses it, and eases there and back on these
+two tokens; its colour fade keeps Tailwind's own 150ms and curve
+([[component-library]] §Press). The 0.97 has no token: the owner chose one
+press for every app that draws `Button` (2026-11-14, #2034), so no app has a
+value to set. The two scale tokens above do not reach it, so Musubi, which maps
+both to 1, still presses. Under `prefers-reduced-motion: reduce` the button
+does not scale at all: the rule sits behind `motion-safe:`, not in the
+`tokens.css` block above. `button-press.browser.test.tsx` holds it in
+Chromium.
 
 ## A `max-w-*` outside the built-in steps needs naming in the linter
 
@@ -266,13 +496,28 @@ cire apps each declare `@source "../../../ui/src"` for it in their own global
 CSS. A path to it in the shared contract would instead make musubi and pulse
 scan cire's components on every build.
 
+`choice-edge` is the edge of a drawn choice at rest, unchosen: `@shared/ui`'s
+radio circle, checkbox box, switch track and unticked native box. It owes
+3:1, as `hairline-strong` does, and falls back to it, so an app that maps only
+the boundary draws its choices as it draws its fields. Musubi and pulse map it
+apart (each to its own `--subtle`), since their field edge is lighter than a
+choice's may be: a field has a label above it and words inside it, while an
+unchosen circle has only its edge (`musubi/social/DESIGN.md` §Choices,
+`pulse/DESIGN.md` §Choice controls). Both apps waive `hairline-strong`, so
+each contract test holds `choice-edge` at 3:1 on every ground in a case of its
+own, with no waiver. Cire's apps map neither and need not: their
+`hairline-strong` clears 3:1 unwaived, and the guest site's is walked to 3:1
+on every surface of every palette (`@cire/theme`'s `derivePalette`).
+
 ## The conformance harness
 
 `@shared/design-tokens` exports `contrastPairs()` and
 `assertContractConformance()`. Every app calls it from its own suite: the
 harness resolves the app's mapping and checks each foreground/background pair
 against WCAG 2.2 — 4.5:1 for text (SC 1.4.3), 3:1 for non-text and focus
-indicators (SC 1.4.11).
+indicators (SC 1.4.11). A token an app need not map (`COLOR_FALLBACKS`:
+`--ui-choice-edge`) is measured, unmapped, as the token it falls back to,
+under that token's waiver.
 
 This is not ceremony. Deriving the first four mappings surfaced **13 pre-existing
 contrast defects**, including cire's primary button at 2.42:1 with a light label
@@ -298,7 +543,7 @@ take. See [[component-lab]].
 | `@shared/design-tokens` | `tokens.css` (the contract), the conformance harness, and `CONTRACT_SCALES` / `SCALE_MIGRATION` which the scale codemod reads                                                                                                                                         |
 | `@shared/color`         | The OKLCH maths — parsing, conversion, contrast, `ensureContrast`. Lifted out of `@cire/theme` so no `@shared/*` package depends on a `@cire/*` one                                                                                                                   |
 | `@shared/ui`            | The primitives — `Button`, `Card`, `Modal`, `Field`, the rest — painted entirely in `ui-*` utilities                                                                                                                                                                  |
-| `@osn/auth-ui`          | The OSN auth views. Built out of `@shared/ui` primitives, so it inherits the contract through them — but its own class attributes still name the shadcn vocabulary, so it renders correctly only in an app that speaks it. `@musubi/social` is the one consumer today |
+| `@osn/auth-ui`          | The OSN auth views. Built out of `@shared/ui` primitives, and its own class attributes are `ui-*` utilities alone, so it renders in any app that maps the contract. `@musubi/social` is the one consumer today. Its rules: [`osn/auth-ui/DESIGN.md`](../../osn/auth-ui/DESIGN.md) |
 | `@cire/ui`              | cire's house components — see [[component-library]] for why two layers rather than one                                                                                                                                                                                |
 | `@shared/toast`         | Its own `--toast-*` properties in plain CSS, mapped once per app — the arrangement this contract generalises. See [[toast]]                                                                                                                                           |
 

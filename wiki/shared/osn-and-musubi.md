@@ -12,7 +12,7 @@ related:
   - "[[identity-model]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-11
 ---
 
 # OSN and Musubi
@@ -83,8 +83,8 @@ so it is not Musubi's either, and sits under `shared/` for the same reason.
 
 The repository is still named `osn` (`englishstreetventures/osn`), the
 Cloudflare Pages projects are still `osn-social` and `osn-landing`, and the dev
-Worker is still `osn-social-dev`. The production Worker that will take the apex from
-the Pages project keeps the name `osn-social`
+Worker is still `osn-social-dev`. The production Worker that serves the apex keeps
+the name `osn-social`
 ([[infrastructure-as-code#Production sites]]). Renaming a Pages project attached to a
 live apex is a deploy operation, not a rename.
 

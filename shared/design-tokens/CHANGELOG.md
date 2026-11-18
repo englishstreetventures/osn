@@ -1,5 +1,93 @@
 # @shared/design-tokens
 
+## 0.10.0
+
+### Minor Changes
+
+- db8c428: Account deletion gets its emails and the calls its screens need.
+
+  - `@shared/email`: five templates — `account-deletion-scheduled`, `account-deletion-cancelled`, `account-deleted`, `organisation-ownership-received` and `account-data-link`. Text another party wrote is escaped and never in a subject; every one names an organisation by its handle only. Every template draws its button through one helper, `emailButton`: the recovery, step-up and email-change links' buttons take 6px corners at the text's own weight, as every other button already did.
+  - `@osn/api`: `DELETE /account` mails the scheduled notice (the date, how to keep the account and download the data, and what each answer does, from the request's own preview); `POST /account/restore` mails the cancelled one. The hard delete reads the address, the held handles and what each app kept before its batch, and once the batch has removed the account mails the old address and each organisation's new owner, side by side, each send giving up after 10 seconds (at most 10 ownership notices one by one on a transport with no batch send); a pass whose batch removed nothing mails nothing. The cron and the local sweeper provide the email transport to it; local sweeps run on the app's runtime and skip a tick while a pass runs. New `POST /account/data-link` mails the account a link to its download page (per IP, then three a day per account). New `POST /organisations/:handle/decline-ownership`: a member who received an organisation by succession may hand it back within 30 days; it passes on as the hard delete would pass it, or is deleted, and the decliner leaves it in the same batch, the next owner mailed. `GET` on the same path answers whether the caller may decline it, and until when, with the same refusals, and writes nothing. `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation. The deletion preview's organisation actions carry `candidates`, the members a successor answer may name, read beside the organisations at most 50 an organisation. CORS exposes `Content-Disposition` and `Retry-After`. The local Bun server keys its per-address limiters on a sent `cf-connecting-ip` when `OSN_E2E_CLIENT_ADDRESS=1`, which only the E2E stack sets.
+  - `@osn/db`: `organisations.owner_inherited_at` (migration `20261116094005_organisation_owner_inherited_at`), NULL for every existing row.
+  - `@osn/client`: a 401 after a renewal that minted a pending-deletion token reaches the caller and ends nothing; `onSessionChange` gains `pending-deletion`; `isPendingDeletionToken`. The Solid provider gains `pendingDeletion` and `renewSession`, and lists no profiles for a pending-deletion session. `deleteAccount` throws `AccountDeletionRefusedError` with the open actions, fresh preview or refused action; new `exportAccount`, `sendDataLink`, `declineOwnership` and `declineOwnershipStatus`.
+  - `@shared/observability`: `OrgAction` gains `decline_ownership`; the auth rate-limit endpoint union gains `account_data_link`.
+  - `@tools/lab`: the auth-ui stories' hand-built auth contexts carry `pendingDeletion` and `renewSession`.
+  - `@shared/design-tokens`: a contract colour, `--ui-choice-edge`, for the edge of an unchosen radio, checkbox or switch track, owing 3:1. It falls back to `--ui-hairline-strong`, so an app that does not map it looks as before, and the conformance check measures it unmapped as that token, under that token's waiver (`COLOR_FALLBACKS`, `colorFallback`).
+  - `@shared/ui`: `RadioGroup`'s circle, `Checkbox`'s box, `Switch`'s track and the unticked native box draw their edge in `--ui-choice-edge`.
+  - `@osn/auth-ui`: `InlineAction`, the underlined button that ends an error line, is exported as `@osn/auth-ui/InlineAction`.
+  - `@musubi/infra`: the dev stack's env check lists `OSN_E2E_CLIENT_ADDRESS` as left unset on dev: only the Bun dev server reads it, for the E2E suite.
+
+## 0.9.1
+
+### Patch Changes
+
+- f040da3: Tests only: cases that a kept sibling already fails on are removed, each checked by breaking the source and watching both fail. Toast and dev-urls gain one case each, and four Toaster cases move to fake timers so they can fail on what they name.
+- Updated dependencies [f040da3]
+  - @shared/color@0.3.7
+
+## 0.9.0
+
+### Minor Changes
+
+- da04fab: A `Dialog` sheet slides. Below `md`, `DialogContent presentation="sheet"` rises from its own height below the bottom edge over `--ui-dur-slow` and falls back over `--ui-dur-base`, both on the new `--ui-ease-sheet` token (`cubic-bezier(0.32, 0.72, 0, 1)`), at full opacity and unscaled, with its scrim fading on the same pace; closed part-way up or reopened part-way down it turns round from where it is. It moves by CSS transitions through two new utilities, `animate-sheet-in` and `animate-sheet-out`, beside two keyframes that move nothing and tell Kobalte how long to keep a closing sheet mounted. Under reduced motion it does not slide: it fades in and out with its scrim, in place, on the same pace and curve, with no transform on any frame; a new `sheet-hidden` utility holds where a sheet starts and ends, its own height below the edge or, under reduced motion, in place and transparent. At `md` and up, and with `presentation="centred"`, nothing changes. `DialogOverlay` takes the same optional `presentation`. Every sheet changes with it: Musubi's dialogs below `md`, `@osn/auth-ui`'s step-up, "Generate a new set?" and "Create a new profile", and pulse's share sheet. Musubi's, pulse's and `@osn/auth-ui`'s design documents say so; the lab adds a `DialogSheetSlide` story and lists the new curve.
+
+## 0.8.0
+
+### Minor Changes
+
+- 90c891b: `Dialog` takes its shadow, its scrim and its sheet corners from the design-token contract.
+
+  - `@shared/design-tokens` adds a scrim role, `--ui-scrim` (`bg-ui-scrim`), in its own `scrim` group of `CONTRACT_COLOR_TOKENS`. It sits in no contrast pair, so no app has to map it; unmapped it is black at 50%.
+  - `DialogContent` casts `--ui-elev-2`, as `Modal` and a raised `Card` do, instead of Tailwind's `shadow-xl`. Musubi and pulse map no elevation, so their dialogs now cast `0 8px 24px rgb(0 0 0 / 0.12)`.
+  - `DialogOverlay` and `Modal`'s `::backdrop` both paint `--ui-scrim`. Musubi's and pulse's dialog scrims paint the same pixels as before (black at 50%).
+  - The sheet presentation keeps square bottom corners at every width below `md`; between 640px and 767px they were round.
+  - The lab's colour story shows the new role, and its cire mapping carries cire's scrim.
+  - Musubi's `DESIGN.md` records the elevation and scrim it leaves unmapped.
+
+## 0.7.0
+
+### Minor Changes
+
+- 2035748: A contract token for the curve an overlay leaves on, `--ui-ease-exit`, and `animate-out` reads it. `Dialog`, `Popover` and the default `DropdownMenu` close on it; `animate-in` still reads `--ui-ease-out`. Its value is `cubic-bezier(0.22, 1, 0.36, 1)`, the same as `--ui-ease-out`, and no app sets either, so no overlay in any app changes how it moves. An app can now map `--ui-ease-out` onto its own arriving curve and its overlays still leave as before. `CONTRACT_SCALAR_TOKENS.motion` lists the new token, and the agreement test now also fails when `tokens.css` declares a root token the list leaves out.
+
+## 0.6.1
+
+### Patch Changes
+
+- 5bc7db4: `DialogTitle` reads its weight from the design-token contract's title-weight role, `--ui-weight-title`, through the utility `font-ui-title`, as `Badge` does, and falls back to 600, the `font-semibold` it carried before. The token's comments in `tokens.css` and `index.ts` name both parts that read it. No app maps the token, so pulse's three dialogs, Musubi's and the auth views draw their titles exactly as before; a snapshot of the title's computed style written before the change still passes, and pulse's browser tests check 600 under pulse's own stylesheet. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+  An app that wants its overlays to fade without scaling sets `--ui-scale-enter` and `--ui-scale-exit` to 1. Every Kobalte overlay then changes only its opacity; `Modal`'s exit scale stops too, while its rise and sink stay, and its entry keeps its own `scale(0.98)`, so it still grows as it opens. No component changed for this: the browser tests now prove it, and the design-token wiki page describes it. Default motion is unchanged.
+
+## 0.6.0
+
+### Minor Changes
+
+- 2c2906f: A title weight in the token contract, and `Badge` reads it.
+
+  - `@shared/design-tokens`: new role token `--ui-weight-title`, the weight a shared part sets a short title or a tag in, read through the utility `font-ui-title` (`--font-weight-ui-title` in `@theme inline`). It falls back to 600. `CONTRACT_SCALAR_TOKENS.fontWeight` lists it, and the agrees test fails if `tokens.css` does not alias it. The README's contract table gains it, with the `field` and `sheet` radius roles it was missing.
+  - `@shared/ui`: `Badge`'s label reads `font-ui-title` in place of `font-semibold`, so an app sets its weight once with `--ui-weight-title`. No app maps it, so every badge still draws at 600. `Badge`'s props refuse `innerHTML`, `innerText` and `textContent` (`SafeProps`). `Badge` carries no focus classes: a label takes no focus, so it draws no ring and removes no outline. A frozen snapshot of the unmapped badge's computed style, written before the change, holds pulse's look.
+  - `@tools/lab`: `Badges` shows both treatments and gains a treatment control; new `BadgeWeights` shows every badge unmapped and under `--ui-weight-title: 500`, captioned with the computed weight. The theming story's unmapped column also clears the weight token.
+  - `@pulse/web`: the token-contract browser test checks pulse's three badges compute 600 under its own stylesheet.
+
+## 0.5.0
+
+### Minor Changes
+
+- e71aee5: Errors read as plain sentences, in the place they are about.
+
+  - `@osn/auth-ui`: every view shows a sentence from `describeAuthError` or `describePasskeyError`, never an error's own text, in an inline danger `Notice` with `role="alert"` — under the field it is about (tied by `aria-describedby`, `aria-invalid` only when the input was refused) or above the action it follows. No error toasts. `SignIn`'s passkey error carries "Lost your passkey?"; `Register`'s age hint reads "You must be 13 or older to create an account."; `TurnstileWidget` says "Reload and try again". A failed passkey, authenticator or session list says it didn't load, with Try again, instead of throwing. Every call that spends a Turnstile token asks for a fresh one when it is refused. `Register` drops a spent token with its widget instead of running a challenge nobody uses, and its code step mounts a widget of its own for "Resend code" once the countdown ends. `ChangeEmailForm` and `StepUpDialog` group each field under a `Label`, and their raw inputs turn red when refused. `InlineAction` draws Button's focus ring. `SecurityEventsBanner`'s error line sits above its box, on the page.
+  - `@osn/client`: `useAuth()` gains `profilesError` and `refetchProfiles`. A profile list that fails keeps the last list instead of throwing on read; when no session exists any longer, however it went, the list and its error go, and one that settles after that is dropped. Adopting a first session lists the profiles once, not twice; adopting one over another drops the old account's list first. The provider treats a session that failed to load as none, so reading it throws nowhere inside the provider.
+  - `@musubi/social`: the shell says "You've been signed out." with Sign in when the session ends, and "Your profiles didn't load." with Try again when the list fails. A page that throws while rendering shows "This page didn't load." with Try again inside the shell instead of blanking the app. `/authorize` reads its failures from the copy map. Every failed-load and error line, on `/authorize`, Connected apps and an organisation's page included, is a danger `Notice`, apart from the shell frame's own load-failure line. Connected apps' revoke and an organisation's save, delete and member removal name what failed, then the copy map's sentence. The signed-out notice's Sign in opens the shell's sign-in dialog once its chunk has loaded.
+  - `@shared/design-tokens`: `checkContractConformance` takes an optional `pairs` list to measure in place of the contract's own.
+
+## 0.4.0
+
+### Minor Changes
+
+- d3fe597: Overlays leave faster and smaller than they arrive, and each motion token says what it is for. `tokens.css` adds `--ui-dur-exit` (80ms), `--ui-scale-enter` (0.96), `--ui-scale-exit` (0.98), `--ui-distance-enter` (24px) and `--ui-distance-exit` (8px), each with a one-line job comment, and `CONTRACT_SCALAR_TOKENS.motion` lists them. `animate-out` runs `--ui-dur-exit`; `zoom-in` and `zoom-out` replace `zoom-in-95` and `zoom-out-95` and read the scale tokens. Under `prefers-reduced-motion: reduce`, `animate-in` and `animate-out` run nothing: the old reduced-motion rule matched no overlay, so `Dialog`, `Popover` and the default `DropdownMenu` still moved.
+
+  In `@shared/ui`, `Dialog`, `Popover` and both `DropdownMenu` looks take their scale from the tokens; `Popover`, `Tooltip` and the default menu grow from their trigger. `Tooltip` opens after 400ms, goes at once with no exit (the pointer can still cross onto it), and a neighbour opened within 300ms of another closing carries `data-instant` and does not animate. `Modal` exits in 150ms by default (was 200ms), sinking 8px to 0.98 rather than 24px, and its backdrop fades out with it. Musubi's `DESIGN.md` names the shared overlay motion; the lab's motion story reads the new duration.
+
 ## 0.3.9
 
 ### Patch Changes

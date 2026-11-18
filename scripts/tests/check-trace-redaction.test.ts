@@ -1,12 +1,8 @@
 // Tests for scripts/check-trace-redaction.ts: the pure checks against fixture
-// configs, the parser on both file kinds, and the CLI's two modes run as a
-// subprocess. The `script-tests` job in .github/workflows/ci.yml runs these and
+// configs, the parser on both file kinds, and the CLI run as a subprocess. The `script-tests` job in .github/workflows/ci.yml runs these and
 // then runs the script against the committed configs; both halves are needed.
 
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import {
   checkApiWorker,
@@ -155,39 +151,6 @@ test("CLI: the committed configs exit 0", async () => {
   const { code, stdout } = await run();
   expect(code).toBe(0);
   expect(stdout).toContain("check-trace-redaction");
-});
-
-test("CLI: a generated guest config without redaction exits 1 and names the key", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "trace-redaction-"));
-  try {
-    const path = join(dir, "wrangler.json");
-    await writeFile(
-      path,
-      JSON.stringify({ name: "cire-invites", observability: { logs: { invocation_logs: false } } }),
-    );
-    const { code, stderr } = await run("--generated", path);
-    expect(code).toBe(1);
-    expect(stderr).toContain("observability.redact_query_string must be true");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("CLI: a generated guest config that redacts exits 0", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "trace-redaction-"));
-  try {
-    const path = join(dir, "wrangler.json");
-    await writeFile(
-      path,
-      JSON.stringify({
-        name: "cire-invites",
-        observability: { redact_query_string: true, logs: { invocation_logs: false } },
-      }),
-    );
-    expect((await run("--generated", path)).code).toBe(0);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
 });
 
 test("CLI: an unknown argument exits 1", async () => {

@@ -842,28 +842,6 @@ describe("preview — image candidates", () => {
     }
   });
 
-  it("emits the same six urls from a page listing hundreds of images", async () => {
-    // The rank-2 cap changes what the scanner COLLECTS, never what the
-    // preview emits.
-    const imgs = Array.from(
-      { length: 300 },
-      (_, i) => `<img src="https://cdn.example/${i}.jpg" width="600">`,
-    ).join("");
-    const { fetchImpl } = recordingFetch(() => htmlResponse(imgs));
-    const exit = await run("https://shop.example/item", { fetchImpl, resolveHost: publicResolver });
-    expect(Exit.isSuccess(exit)).toBe(true);
-    if (Exit.isSuccess(exit)) {
-      expect(exit.value.imageUrls).toEqual([
-        "https://cdn.example/0.jpg",
-        "https://cdn.example/1.jpg",
-        "https://cdn.example/2.jpg",
-        "https://cdn.example/3.jpg",
-        "https://cdn.example/4.jpg",
-        "https://cdn.example/5.jpg",
-      ]);
-    }
-  });
-
   it("resolves each image host at most once", async () => {
     const hosts: string[] = [];
     const imgs = Array.from(

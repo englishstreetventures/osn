@@ -1,19 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDevEnv, DEV_ENV, resolveSelfId } from "../src/app-env";
+import { buildDevEnv, resolveSelfId } from "../src/app-env";
 import { DEV_APPS, type DevAppId } from "../src/index";
 
-/** A portless URL for `app`, with an optional worktree prefix. */
-const urlFor = (app: DevAppId, prefix = "") => ({
-  PORTLESS_URL: `https://${prefix}${DEV_APPS[app].name}.localhost`,
+/** A portless URL for `app` in the main worktree. */
+const urlFor = (app: DevAppId) => ({
+  PORTLESS_URL: `https://${DEV_APPS[app].name}.localhost`,
 });
 
 describe("buildDevEnv", () => {
-  it("is empty without portless, so every app keeps its fixed-port defaults", () => {
-    expect(buildDevEnv("@osn/api", {})).toEqual({});
-    expect(buildDevEnv("@cire/host", {})).toEqual({});
-  });
-
   it("gives @osn/api its issuer, RP ID, both origin lists and the S2S URLs", () => {
     expect(buildDevEnv("@osn/api", urlFor("@osn/api"))).toEqual({
       OSN_ISSUER_URL: "https://id.musubi.localhost",
@@ -27,7 +22,7 @@ describe("buildDevEnv", () => {
       PULSE_API_URL: "https://api.pulse.localhost",
       ZAP_API_URL: "https://zap.cire.localhost",
       // Must equal what @cire/api is told is its own origin, below.
-      CIRE_INTERNAL_REVOKE_URL: "https://api.cire.localhost",
+      CIRE_API_URL: "https://api.cire.localhost",
     });
   });
 
@@ -79,25 +74,6 @@ describe("buildDevEnv", () => {
       VITE_API_URL: "https://api.pulse.localhost",
       VITE_OSN_ISSUER_URL: "https://id.musubi.localhost",
     });
-  });
-
-  it("carries the worktree prefix into every derived var", () => {
-    const env = buildDevEnv("@cire/api", urlFor("@cire/api", "my-branch."));
-    expect(env.WEB_ORIGIN).toBe(
-      "https://my-branch.invite.cire.localhost,https://my-branch.host.cire.localhost,https://my-branch.vendor.cire.localhost",
-    );
-    expect(env.OSN_JWKS_URL).toBe("https://my-branch.id.musubi.localhost/.well-known/jwks.json");
-  });
-
-  it("keeps the RP ID free of the worktree prefix, so one covers every worktree", () => {
-    // It has to stay a suffix of both musubi.* and id.musubi.*, prefixed or not.
-    expect(buildDevEnv("@osn/api", urlFor("@osn/api", "my-branch.")).OSN_RP_ID).toBe(
-      "musubi.localhost",
-    );
-  });
-
-  it("covers every app in DEV_APPS", () => {
-    expect(Object.keys(DEV_ENV).toSorted()).toEqual(Object.keys(DEV_APPS).toSorted());
   });
 
   it("derives only absolute http(s) origins", () => {

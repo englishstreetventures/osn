@@ -12,6 +12,7 @@ import { TOTP_LOCKOUT_THRESHOLD } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
+import { completeTotpStepUp, mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * The TOTP lockout bounds how many codes are compared per account per window,
@@ -95,7 +96,7 @@ describe("a burst of TOTP attempts compares at most the threshold's worth of cod
       return Effect.gen(function* () {
         const handle = `race${scope.replace("_", "")}`;
         const profile = yield* auth.registerProfile(`${handle}@example.com`, handle);
-        const token = yield* auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+        const token = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll");
         const { totpSecret } = yield* auth.beginTotpEnrollment(profile.accountId, token);
         const secret = base32Decode(totpSecret);
         const step = Math.floor(Date.now() / 1000 / STEP_SECONDS);
@@ -114,7 +115,7 @@ describe("a burst of TOTP attempts compares at most the threshold's worth of cod
 
         const attempt = (code: string) =>
           scope === "step_up"
-            ? Effect.asVoid(auth.completeStepUpTotp(profile.accountId, code))
+            ? Effect.asVoid(completeTotpStepUp(auth, profile.accountId, code))
             : Effect.asVoid(auth.completeTotpRecovery(handle, code));
 
         verified.mockClear();

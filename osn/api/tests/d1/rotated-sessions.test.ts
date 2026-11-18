@@ -14,6 +14,7 @@ import { Effect, Layer, Logger } from "effect";
 import { Miniflare } from "miniflare";
 
 import { handler } from "../../src/index";
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { requestErasure, runHardDeleteSweep } from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
 import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
@@ -345,6 +346,63 @@ describe("the caller's device on D1", () => {
     expect((await failure(auth.verifyRefreshToken(next.refreshToken)))._tag).toBe("AuthError");
     expect(await recordsOf(profile.accountId)).toEqual([]);
   });
+
+  /**
+   * A device revoked by handle keeps its rotation records, then its first
+   * token is replayed past the grace window. The info line is written only by
+   * the request whose delete removed those records, so it shows the D1 row
+   * count of that delete is read.
+   */
+  async function revokedByHandle(email: string, handle: string) {
+    const { profile, refreshToken } = await signIn(email, handle);
+    const next = await run(auth.refreshTokens(refreshToken));
+    await run(auth.revokeAccountSession(profile.accountId, handleOf(next.refreshToken), null));
+    await db
+      .update(rotatedSessions)
+      .set({ rotatedAt: Date.now() - ROTATION_GRACE_MS - 1 })
+      .where(eq(rotatedSessions.accountId, profile.accountId));
+    const infos: string[] = [];
+    const logged = Logger.layer([
+      Logger.map(Logger.formatStructured, (line) => {
+        if (line.level === "INFO") infos.push(String(line.message));
+      }),
+    ]);
+    return { profile, refreshToken, infos, logged };
+  }
+
+  it("a sign-in replaying a revoked device's token counts the reuse off the records it removed", async () => {
+    const { profile, refreshToken, infos, logged } = await revokedByHandle(
+      "d1-si-reuse@example.com",
+      "d1sireuse",
+    );
+
+    await Effect.runPromise(
+      auth.endReplacedSession(refreshToken).pipe(Effect.provide(layer), Effect.provide(logged)),
+    );
+
+    expect(infos).toEqual([
+      "Session token reuse detected at sign-in — no session of the family was left",
+    ]);
+    expect(await recordsOf(profile.accountId)).toEqual([]);
+  });
+
+  it("a renewal replaying a revoked device's token counts the reuse off the records it removed", async () => {
+    const { profile, refreshToken, infos, logged } = await revokedByHandle(
+      "d1-tk-reuse@example.com",
+      "d1tkreuse",
+    );
+
+    const outcome = await Effect.runPromise(
+      Effect.result(auth.refreshTokens(refreshToken)).pipe(
+        Effect.provide(layer),
+        Effect.provide(logged),
+      ),
+    );
+
+    expect(outcome._tag).toBe("Failure");
+    expect(infos).toEqual(["Session token reuse detected — no session of the family was left"]);
+    expect(await recordsOf(profile.accountId)).toEqual([]);
+  });
 });
 
 describe("account erasure on D1", () => {
@@ -362,7 +420,16 @@ describe("account erasure on D1", () => {
     await run(
       requestErasure({
         accountId: profile.accountId,
-        cancelSessionId: hashSessionToken(kept.refreshToken),
+        cancel: {
+          sessionId: hashSessionToken(kept.refreshToken),
+          familyId: (
+            await db
+              .select({ familyId: sessions.familyId })
+              .from(sessions)
+              .where(eq(sessions.id, hashSessionToken(kept.refreshToken)))
+          )[0]!.familyId,
+        },
+        heldHandleDigest: makeHeldHandleDigest(undefined),
       }),
     );
 
@@ -381,6 +448,7 @@ describe("account erasure on D1", () => {
       hardDeleteAt: 2_000,
       pulseDoneAt: 1_500,
       zapDoneAt: 1_500,
+      cireDoneAt: 1_500,
       reason: "user_request",
       cancelSessionId: null,
     });

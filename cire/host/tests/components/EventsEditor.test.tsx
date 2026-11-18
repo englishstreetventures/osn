@@ -574,10 +574,12 @@ describe("EventsEditor", () => {
     expect(ceremony.timezone).toBe("Australia/Brisbane");
   });
 
-  it("keeps an unresolvable imported zone's stored offset when another field is edited", async () => {
-    // A spreadsheet import can carry a free-text zone this tz database can't
-    // resolve ("AEST"). `stamped()` falls back to the offset already on the
-    // value, so touching the time must not silently shift the event by hours.
+  it("keeps an unresolvable stored zone's wall clock, and asks for a zone once a time is edited", async () => {
+    // A row stored before either door checked zones can carry one this tz
+    // database can't resolve ("AEST"). `stamped()` falls back to the offset
+    // already on the value, so touching the time must not shift the event. The
+    // zone is said as a warning while the save leaves the times alone; a time
+    // the save sets takes its offset from the zone, so then Save waits for one.
     authFetchMock.mockImplementation((url: string) => {
       const u = String(url);
       if (u.endsWith("/events")) {
@@ -589,6 +591,7 @@ describe("EventsEditor", () => {
       }
       if (u.endsWith("/guests")) return Promise.resolve(json([]));
       if (u.endsWith("/households")) return Promise.resolve(json([]));
+      if (u.endsWith("/changes/preview")) return Promise.resolve(json({}, 500));
       return Promise.resolve(fallback(url));
     });
     render(() => <EventsEditor weddingId="wed_a" />);
@@ -599,6 +602,9 @@ describe("EventsEditor", () => {
     // The unknown zone leads the list under "Current", so the select shows what
     // is actually stored rather than the first option in the tz database.
     expect(zone.value).toBe("AEST");
+    expect(
+      screen.getByText(/These saved details need fixing/).closest("div")!.textContent,
+    ).toContain("Choose a timezone from the list.");
 
     fireEvent.input(screen.getByLabelText("Start time"), { target: { value: "16:00" } });
     // The row can't format a time in a zone this runtime doesn't know, so it
@@ -612,9 +618,16 @@ describe("EventsEditor", () => {
     const hint = document.getElementById(zone.getAttribute("aria-describedby")!)!;
     expect(hint.textContent).toBe("Times below are local to AEST.");
 
-    // The STORED offset is untouched underneath: an unresolvable zone can't be
-    // re-derived from, so editing another field must not shift the event.
-    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    // The time is set now, so the zone is an error and Save waits for one.
+    expect(screen.queryByText(/These saved details need fixing/)).toBeNull();
+    expect(screen.getByText("Choose a timezone from the list.")).toBeTruthy();
+    const save = screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    // Picking one stamps that zone's offset onto the wall clock typed above.
+    fireEvent.change(zone, { target: { value: "Australia/Sydney" } });
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
     await waitFor(() =>
       expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/preview"))).toBe(
         true,
@@ -623,9 +636,130 @@ describe("EventsEditor", () => {
     const body = JSON.parse(
       authFetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/preview"))![1].body,
     );
-    expect((body.desiredState.events[0] as { startAt: string }).startAt).toBe(
-      "2026-11-14T16:00:00+10:00",
+    expect(body.desiredState.events[0]).toMatchObject({
+      startAt: "2026-11-14T16:00:00+11:00",
+      timezone: "Australia/Sydney",
+    });
+  });
+
+  it("leaves a stored End it cannot read as it is when the zone changes", async () => {
+    // Re-stamping rebuilds a time from its parts; free text has none, and
+    // rebuilt from nothing it would be cleared without a word.
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/events")) return Promise.resolve(json([{ ...EVENTS[0], endAt: "late" }]));
+      if (u.endsWith("/guests")) return Promise.resolve(json([]));
+      if (u.endsWith("/households")) return Promise.resolve(json([]));
+      if (u.endsWith("/changes/preview")) return Promise.resolve(json({}, 500));
+      return Promise.resolve(fallback(url));
+    });
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    fireEvent.change(await waitFor(() => screen.getByLabelText("Timezone")), {
+      target: { value: "Australia/Brisbane" },
+    });
+    const save = (await waitFor(() =>
+      screen.getByRole("button", { name: /Save changes/i }),
+    )) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/preview"))).toBe(
+        true,
+      ),
     );
+    const body = JSON.parse(
+      authFetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/preview"))![1].body,
+    );
+    expect(body.desiredState.events[0]).toMatchObject({
+      startAt: "2026-11-14T15:00:00+10:00",
+      endAt: "late",
+      timezone: "Australia/Brisbane",
+    });
+  });
+
+  it("saves around an event stored before the checks, says what to fix, and holds a changed field", async () => {
+    // Stored with no name, times with no offset and a zone that does not
+    // resolve. The API refuses none of them while the save leaves them as they
+    // are, so neither does Save; each is said, on the row and in the drawer.
+    const legacy = {
+      ...EVENTS[0]!,
+      name: "",
+      startAt: "2026-11-14T15:00",
+      endAt: "2026-11-14T17:00",
+      timezone: "AEST",
+    };
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/events")) return Promise.resolve(json([legacy, EVENTS[1]]));
+      if (u.endsWith("/guests")) return Promise.resolve(json([]));
+      if (u.endsWith("/households")) return Promise.resolve(json([]));
+      if (u.endsWith("/changes/preview")) return Promise.resolve(json({}, 500));
+      return Promise.resolve(fallback(url));
+    });
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Reception")).toBeTruthy());
+
+    // The row says there is something to fix, as a warning, not an error.
+    expect(screen.getByText("Saved details need fixing — open it to see them.")).toBeTruthy();
+    expect(screen.queryByText(/This event has errors/)).toBeNull();
+
+    // Edit the other event: Save opens, and the stored values travel as stored.
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[1]!);
+    fireEvent.input(await waitFor(() => screen.getByLabelText("Address")), {
+      target: { value: "The Old Grounds" },
+    });
+    const save = (await waitFor(() =>
+      screen.getByRole("button", { name: /Save changes/i }),
+    )) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/preview"))).toBe(
+        true,
+      ),
+    );
+    const body = JSON.parse(
+      authFetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/preview"))![1].body,
+    );
+    expect(body.desiredState.events[0]).toMatchObject({
+      name: "",
+      startAt: "2026-11-14T15:00",
+      endAt: "2026-11-14T17:00",
+      timezone: "AEST",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    // The drawer lists each stored value to fix, above the form.
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    const warning = (
+      await waitFor(() => screen.getByText(/These saved details need fixing/))
+    ).closest("div")!;
+    for (const message of [
+      "Event name is required.",
+      "Re-enter the start time.",
+      "Re-enter the end time.",
+      "Choose a timezone from the list.",
+    ]) {
+      expect(warning.textContent).toContain(message);
+    }
+
+    // A change that is still refused is an error, and shuts Save. The row then
+    // says so once, as an error: the drawer lists the stored values beside it.
+    fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "   " } });
+    await waitFor(() => expect(save.disabled).toBe(true));
+    expect(screen.getByText(/Fix 1 error before saving/)).toBeTruthy();
+    expect(screen.getByText("This event has errors — open it to fix them.")).toBeTruthy();
+    expect(screen.queryByText("Saved details need fixing — open it to see them.")).toBeNull();
+    expect(screen.getByText(/These saved details need fixing/)).toBeTruthy();
+
+    // Picking a zone stamps its offset on both times: the three stored values
+    // left go, and only the name's error is said.
+    fireEvent.change(screen.getByLabelText("Timezone"), { target: { value: "Australia/Sydney" } });
+    await waitFor(() => expect(screen.queryByText(/These saved details need fixing/)).toBeNull());
+    expect(screen.getByText("Event name is required.")).toBeTruthy();
   });
 
   it("shows an empty zone as empty, not as the first zone in the database", async () => {

@@ -19,7 +19,7 @@ function themesFor(choice: ThemeChoice): CireTheme[] {
 /** The portals' motion clock, which `cireStyle` leaves out: the edge fades on it. */
 const PORTAL_MOTION: JSX.CSSProperties = {
   "--dur-fast": "120ms",
-  "--ease-out": "cubic-bezier(0.22, 1, 0.36, 1)",
+  "--ease-out": "cubic-bezier(0.23, 1, 0.32, 1)",
 };
 
 /**

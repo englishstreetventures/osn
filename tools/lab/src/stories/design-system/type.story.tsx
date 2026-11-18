@@ -58,8 +58,9 @@ function ScaleRow(props: { step: TextStep; sample: string }) {
 /**
  * The seven steps stacked, so the scale can be read as a scale. The contract's
  * fallback is beside each; the painted size is what this app mapped it to —
- * musubi keeps its four-step house scale and fills the gaps by continuing it,
- * which is why the two columns disagree.
+ * musubi keeps its four-step house scale, puts `md` on its title step beside
+ * `base` (the size shared titles take) and fills the gaps above by continuing
+ * it, which is why the two columns disagree.
  */
 export const Scale: Story<SampleArgs> = {
   args: { sample: "The quick brown fox jumps over the lazy dog" },

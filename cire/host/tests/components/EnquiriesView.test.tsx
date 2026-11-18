@@ -11,7 +11,6 @@ import { __resetEnquiriesCache, setCachedEnquiries } from "../../src/lib/enquiri
  * EnquiriesView — the container that wires the store + API helpers into the
  * EnquiryInbox ↔ EnquiryThread surface. Tests:
  * - inbox rows render from a pre-seeded store;
- * - clicking an inbox row fetches messages and shows the thread;
  * - the non-E2E notice is visible in the thread;
  * - Back returns to the inbox;
  * - when the store is empty the container calls fetchEnquiries.
@@ -109,6 +108,23 @@ describe("EnquiriesView", () => {
     render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
 
     await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+  });
+
+  it("sends an organiser whose session has expired to sign in from a thread", async () => {
+    const EnquiriesView = await importComponent();
+    // A cached inbox, so the only read that can fail is the thread's.
+    setCachedEnquiries("wed_1", [makeItem()]);
+    authFetch.mockRejectedValue(
+      Object.assign(new Error("boom"), {
+        toString: () => "(FiberFailure) AuthExpiredError: session gone",
+      }),
+    );
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(String(authFetch.mock.calls[0]![0])).toMatch(/\/enquiries\/enq_1\/messages$/);
   });
 
   it("does not redirect on an unrelated load failure", async () => {
@@ -236,23 +252,6 @@ describe("EnquiriesView", () => {
     const [url] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/enquiries$/);
     expect(await screen.findByText("Blue Roses")).toBeInTheDocument();
-  });
-
-  it("clicking an inbox row fetches messages and renders the thread", async () => {
-    const EnquiriesView = await importComponent();
-    setCachedEnquiries("wed_1", [makeItem()]);
-    authFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ messages: [makeMessage({ body: "Hello from vendor!" })] }), {
-        status: 200,
-      }),
-    );
-    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
-    fireEvent.click(await screen.findByText("Blue Roses"));
-    // Thread renders the message body.
-    expect(await screen.findByText("Hello from vendor!")).toBeInTheDocument();
-    // authFetch called with messages URL.
-    const [url] = authFetch.mock.calls[0]!;
-    expect(String(url)).toMatch(/\/messages$/);
   });
 
   it("offers the detail-column placeholder until an enquiry is picked", async () => {
@@ -457,6 +456,76 @@ describe("EnquiriesView", () => {
 
     await waitFor(() => expect(threadReads).toBe(2));
     expect(await screen.findByText("Hello!")).toBeInTheDocument();
+  });
+
+  // Reading a resource whose last load failed throws. The reply has already
+  // gone through by then, so a throw would report a sent message as unsent.
+  it("takes a reply in a thread whose messages failed to load, and reads the thread again", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [makeItem()]);
+    const sent = makeMessage({
+      id: "msg_new",
+      senderProfileId: "p_me",
+      body: "Are you free in June?",
+    });
+    let threadReads = 0;
+    authFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ message: sent }), { status: 201 });
+      }
+      threadReads += 1;
+      return threadReads === 1
+        ? new Response(JSON.stringify({ error: "vendor_chat_unavailable" }), { status: 503 })
+        : new Response(JSON.stringify({ messages: [sent] }), { status: 200 });
+    });
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    await screen.findByText(/Messaging is temporarily unavailable/);
+    const draft = await screen.findByPlaceholderText(/write a reply/i);
+    fireEvent.input(draft, { target: { value: "Are you free in June?" } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    expect(await screen.findByText("Are you free in June?")).toBeInTheDocument();
+    expect(threadReads).toBe(2);
+    expect(toast.error).not.toHaveBeenCalled();
+    // A vendor chat that is down is not an expired session.
+    expect(redirectToLogin).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Messaging is temporarily unavailable/)).not.toBeInTheDocument();
+  });
+
+  // A resource keeps its last error until the next load settles, so the first
+  // vendor's failure would sit under the second vendor's name while it loads.
+  it("keeps one vendor's failed read out of the next thread while it loads", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [
+      makeItem(),
+      makeItem({ id: "enq_2", vendorName: "Southbank Strings" }),
+    ]);
+    let releaseSecond: (res: Response) => void = () => {};
+    authFetch.mockImplementation((url: string) =>
+      String(url).includes("/enq_1/")
+        ? Promise.resolve(
+            new Response(JSON.stringify({ error: "vendor_chat_unavailable" }), { status: 503 }),
+          )
+        : new Promise<Response>((resolve) => (releaseSecond = resolve)),
+    );
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    await screen.findByText(/Messaging is temporarily unavailable/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Southbank Strings/ }));
+    await screen.findByText(/loading messages/i);
+    expect(screen.queryByText(/Messaging is temporarily unavailable/)).not.toBeInTheDocument();
+
+    releaseSecond(
+      new Response(JSON.stringify({ messages: [makeMessage({ body: "SOUTHBANK-ONLY" })] }), {
+        status: 200,
+      }),
+    );
+    expect(await screen.findByText("SOUTHBANK-ONLY")).toBeInTheDocument();
+    expect(screen.queryByText(/Messaging is temporarily unavailable/)).not.toBeInTheDocument();
   });
 
   it("does not re-read a thread the organiser left while the reply was in flight", async () => {

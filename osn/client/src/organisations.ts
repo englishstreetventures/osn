@@ -1,41 +1,47 @@
 /**
- * Plain-fetch client for the organisations API. No Effect — mirrors the
- * pattern in `./login.ts`. Each method calls the OSN core REST API with
- * Bearer token auth.
+ * Promise client for the organisations API. No Effect — mirrors the pattern
+ * in `./login.ts`. Each method calls the OSN core REST API through the page's
+ * `authFetch`, which supplies and renews the access token.
  */
 
+import { OsnApiError } from "./api-error";
 import { createAuthFetchers, qs } from "./auth-fetch";
+import type { AuthFetch } from "./runtime";
 
 export interface OrgClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
+/**
+ * An organisation as every organisation route answers with it. No id: the
+ * routes address an organisation by its handle.
+ */
 export interface OrgSummary {
-  id: string;
   handle: string;
   name: string;
   description: string | null;
   avatarUrl: string | null;
-  ownerId: string;
   createdAt: string;
   updatedAt: string;
 }
 
+/**
+ * One row of an organisation's roster. No profile id and no avatar: the routes
+ * address a member by handle, and the roster carries nothing more.
+ */
 export interface OrgMember {
-  profile: {
-    id: string;
-    handle: string;
-    displayName: string | null;
-    avatarUrl: string | null;
-  };
+  handle: string;
+  displayName: string | null;
   role: "admin" | "member";
   joinedAt: string;
 }
 
-export class OrgClientError extends Error {
-  constructor(message: string) {
-    super(message);
+export class OrgClientError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "OrgClientError";
   }
 }
@@ -44,40 +50,48 @@ export class OrgClientError extends Error {
 // Client interface & factory
 // ---------------------------------------------------------------------------
 
+/**
+ * Each method returns its route's success body as sent. An organisation is
+ * addressed by its `handle`, a member by their profile's `profileHandle`.
+ */
 export interface OrgClient {
-  listMyOrgs(
-    token: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<{ organisations: OrgSummary[] }>;
-  getOrg(token: string, orgId: string): Promise<OrgSummary>;
-  createOrg(
-    token: string,
-    data: { handle: string; name: string; description?: string },
-  ): Promise<OrgSummary>;
+  listMyOrgs(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ organisations: OrgSummary[] }>;
+  getOrg(handle: string): Promise<{ organisation: OrgSummary }>;
+  createOrg(data: {
+    handle: string;
+    name: string;
+    description?: string;
+  }): Promise<{ ok: boolean; organisation: OrgSummary }>;
   updateOrg(
-    token: string,
-    orgId: string,
+    handle: string,
     data: { name?: string; description?: string },
-  ): Promise<OrgSummary>;
-  deleteOrg(token: string, orgId: string): Promise<void>;
+  ): Promise<{ ok: boolean; organisation: OrgSummary }>;
+  deleteOrg(handle: string): Promise<void>;
   listMembers(
-    token: string,
-    orgId: string,
+    handle: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ members: OrgMember[] }>;
-  addMember(
-    token: string,
-    orgId: string,
-    profileId: string,
-    role: "admin" | "member",
-  ): Promise<void>;
-  removeMember(token: string, orgId: string, profileId: string): Promise<void>;
-  updateMemberRole(
-    token: string,
-    orgId: string,
-    profileId: string,
-    role: "admin" | "member",
-  ): Promise<void>;
+  addMember(handle: string, profileHandle: string, role: "admin" | "member"): Promise<void>;
+  removeMember(handle: string, profileHandle: string): Promise<void>;
+  updateMemberRole(handle: string, profileHandle: string, role: "admin" | "member"): Promise<void>;
+  /**
+   * Hands back an organisation the caller received by succession, within 30
+   * days of receiving it: it passes to its next admin or member from another
+   * account (`passed`), or is deleted when there is none (`deleted`); the
+   * caller leaves it either way. Refused at 403 (`not_owner`) for anyone but
+   * its owner, and at 409 (`not_declinable`) for an owner who created it or
+   * received it more than 30 days ago.
+   */
+  declineOwnership(handle: string): Promise<{ outcome: "passed" | "deleted" }>;
+  /**
+   * Whether the caller may decline the organisation now, and until when (an
+   * ISO date-time); it writes nothing. Refused as {@link declineOwnership}
+   * would be: 403 (`not_owner`), 409 (`not_declinable`).
+   */
+  declineOwnershipStatus(handle: string): Promise<{ declineUntil: string }>;
 }
 
 export function createOrgClient(config: OrgClientConfig): OrgClient {
@@ -86,7 +100,10 @@ export function createOrgClient(config: OrgClientConfig): OrgClient {
   // a call no bundler will drop, which pinned this module into the entry
   // chunk of every app importing the barrel. `/* @__PURE__ */` does not fix
   // that on a destructuring declarator.
-  const { authGet, authPost, authPatch, authDeleteVoid } = createAuthFetchers(OrgClientError);
+  const { authGet, authPost, authPatch, authDeleteVoid } = createAuthFetchers(
+    OrgClientError,
+    config.authFetch,
+  );
   // `deleteOrg` and `removeMember` are declared `Promise<void>` on `OrgClient`
   // and their callers use no body, so this module discards it. The routes do
   // return `{ ok: true }` (see `osn/api/src/routes/organisation.ts`) — the
@@ -94,41 +111,37 @@ export function createOrgClient(config: OrgClientConfig): OrgClient {
   // that does not parse cannot throw.
   const authDelete = authDeleteVoid;
 
+  const org = (handle: string) => `${base}/${encodeURIComponent(handle)}`;
+  const member = (handle: string, profileHandle: string) =>
+    `${org(handle)}/members/${encodeURIComponent(profileHandle)}`;
+
   return {
-    listMyOrgs: (token, options) =>
-      authGet<{ organisations: OrgSummary[] }>(`${base}${qs(options)}`, token),
+    listMyOrgs: (options) => authGet<{ organisations: OrgSummary[] }>(`${base}${qs(options)}`),
 
-    getOrg: (token, orgId) => authGet<OrgSummary>(`${base}/${encodeURIComponent(orgId)}`, token),
+    getOrg: (handle) => authGet<{ organisation: OrgSummary }>(org(handle)),
 
-    createOrg: (token, data) => authPost<OrgSummary>(base, token, data),
+    createOrg: (data) => authPost<{ ok: boolean; organisation: OrgSummary }>(base, data),
 
-    updateOrg: (token, orgId, data) =>
-      authPatch<OrgSummary>(`${base}/${encodeURIComponent(orgId)}`, token, data),
+    updateOrg: (handle, data) =>
+      authPatch<{ ok: boolean; organisation: OrgSummary }>(org(handle), data),
 
-    deleteOrg: (token, orgId) => authDelete(`${base}/${encodeURIComponent(orgId)}`, token),
+    deleteOrg: (handle) => authDelete(org(handle)),
 
-    listMembers: (token, orgId, options) =>
-      authGet<{ members: OrgMember[] }>(
-        `${base}/${encodeURIComponent(orgId)}/members${qs(options)}`,
-        token,
-      ),
+    listMembers: (handle, options) =>
+      authGet<{ members: OrgMember[] }>(`${org(handle)}/members${qs(options)}`),
 
-    addMember: (token, orgId, profileId, role) =>
-      authPost(`${base}/${encodeURIComponent(orgId)}/members`, token, { profileId, role }).then(
-        () => undefined,
-      ),
+    addMember: (handle, profileHandle, role) =>
+      authPost(member(handle, profileHandle), { role }).then(() => undefined),
 
-    removeMember: (token, orgId, profileId) =>
-      authDelete(
-        `${base}/${encodeURIComponent(orgId)}/members/${encodeURIComponent(profileId)}`,
-        token,
-      ),
+    removeMember: (handle, profileHandle) => authDelete(member(handle, profileHandle)),
 
-    updateMemberRole: (token, orgId, profileId, role) =>
-      authPatch(
-        `${base}/${encodeURIComponent(orgId)}/members/${encodeURIComponent(profileId)}`,
-        token,
-        { role },
-      ).then(() => undefined),
+    updateMemberRole: (handle, profileHandle, role) =>
+      authPatch(member(handle, profileHandle), { role }).then(() => undefined),
+
+    declineOwnership: (handle) =>
+      authPost<{ outcome: "passed" | "deleted" }>(`${org(handle)}/decline-ownership`),
+
+    declineOwnershipStatus: (handle) =>
+      authGet<{ declineUntil: string }>(`${org(handle)}/decline-ownership`),
   };
 }

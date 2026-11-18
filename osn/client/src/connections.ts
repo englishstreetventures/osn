@@ -11,14 +11,20 @@
  * Access-token authed like every other settings surface.
  */
 
+import { OsnApiError } from "./api-error";
+import { reach, readJson, responseError } from "./auth-fetch";
+import type { AuthFetch } from "./runtime";
+
 export interface ConnectionsClientConfig {
   /** OSN issuer base URL, e.g. https://id.musubi.social */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
-export class ConnectionsError extends Error {
-  constructor(message: string) {
-    super(message);
+export class ConnectionsError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "ConnectionsError";
   }
 }
@@ -35,42 +41,40 @@ export interface OidcConnection {
   grantedAt: number;
 }
 
+/**
+ * A rejection of `authFetch` about the session, or the caller's abort,
+ * reaches the caller unchanged (`./auth-fetch.ts`); every other failure is
+ * a `ConnectionsError`.
+ */
 export interface ConnectionsClient {
-  list(input: { accessToken: string }): Promise<{ connections: OidcConnection[] }>;
-  revoke(input: { accessToken: string; clientId: string }): Promise<{ success: true }>;
+  list(): Promise<{ connections: OidcConnection[] }>;
+  revoke(input: { clientId: string }): Promise<{ success: true }>;
 }
 
-function withAuth(accessToken: string): RequestInit {
-  return {
-    credentials: "include",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-  };
-}
+const INIT: RequestInit = {
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+};
 
 export function createConnectionsClient(config: ConnectionsClientConfig): ConnectionsClient {
   const base = config.issuerUrl.replace(/\/$/, "");
+  const send = (url: string, init: RequestInit) =>
+    reach(ConnectionsError, url, init, config.authFetch);
 
   return {
-    list: async (input) => {
-      const res = await fetch(`${base}/oidc/connections`, { ...withAuth(input.accessToken) });
-      const json = (await res.json()) as { connections?: OidcConnection[]; error?: string };
-      if (!res.ok || !Array.isArray(json.connections)) {
-        throw new ConnectionsError(json.error ?? `Request failed: ${res.status}`);
-      }
+    list: async () => {
+      const res = await send(`${base}/oidc/connections`, INIT);
+      const json = await readJson<{ connections?: OidcConnection[] }>(ConnectionsError, res);
+      if (!Array.isArray(json.connections)) throw responseError(ConnectionsError, res, json);
       return { connections: json.connections };
     },
     revoke: async (input) => {
-      const res = await fetch(`${base}/oidc/connections/${encodeURIComponent(input.clientId)}`, {
-        ...withAuth(input.accessToken),
+      const res = await send(`${base}/oidc/connections/${encodeURIComponent(input.clientId)}`, {
+        ...INIT,
         method: "DELETE",
       });
-      const json = (await res.json()) as { success?: boolean; error?: string };
-      if (!res.ok || json.success !== true) {
-        throw new ConnectionsError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const json = await readJson<{ success?: boolean }>(ConnectionsError, res);
+      if (json.success !== true) throw responseError(ConnectionsError, res, json);
       return { success: true };
     },
   };

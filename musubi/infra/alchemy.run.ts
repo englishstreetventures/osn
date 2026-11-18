@@ -11,8 +11,8 @@ import {
   flattenMigrations,
   hostsFor,
   origin,
+  PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
-  productionSiteKinds,
   refuseDotEnvFiles,
   requireSecrets,
   requireSeedValue,
@@ -20,6 +20,7 @@ import {
   siteWorker,
   stackOptions,
   tierOf,
+  type HostHold,
   type SiteMode,
   type SiteSurface,
 } from "@shared/infra";
@@ -28,15 +29,17 @@ import { Data } from "effect";
 import * as Effect from "effect/Effect";
 
 import {
+  API_LOGICAL_IDS,
   musubiDeclaration,
+  musubiProductionApis,
   musubiProductionSites,
+  OSN_DB_MIGRATIONS,
+  OSN_DB_PRODUCTION_MIGRATIONS,
+  productionResourceKinds,
   SITE_LOGICAL_IDS,
   type BindingDescription,
 } from "./src/declaration";
 import { osnSeedSql } from "./src/seeds";
-
-/** osn/db's Drizzle migrations, flattened for Alchemy on every run. */
-const OSN_MIGRATIONS = "../../osn/db/drizzle";
 
 class UnresolvedBindingError extends Data.TaggedError("UnresolvedBindingError")<{
   readonly binding: string;
@@ -86,38 +89,58 @@ function writeSeed(path: string, sql: string): void {
 }
 
 /**
- * The musubi stack on production: each site `modes` does not turn off,
- * built for production and checked to be, under today's name. It reads no
- * secret or seed value, writes no file, and declares neither osn-api nor
- * its database; anything else declared fails the scope check before the
- * plan.
+ * The musubi stack on production: osn-api and its database, each adopted
+ * under today's name, and each site `modes` does not turn off, built for
+ * production and checked to be, with no custom domain while `holds` holds
+ * its host. It reads no secret or seed value (production's secrets stay on
+ * the Worker), and writes only osn-db-prod's migrations, which Alchemy
+ * applies in the stack job's migrate step, before the deploy. Anything else
+ * declared fails the scope check before the plan.
  */
 const musubiProductionStack = (input: {
+  readonly env: Readonly<Record<string, string | undefined>>;
   readonly stage: string;
+  readonly generatedDir: string;
   readonly workingDir: string;
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds: readonly HostHold[];
 }) =>
   Effect.gen(function* () {
-    const declared = musubiProductionSites({
-      modes: input.modes,
-      hosts: hostsFor(input.stage, {}),
-    });
+    const { stage } = input;
+    const hosts = hostsFor(stage, {});
+    const declared = musubiProductionSites({ modes: input.modes, holds: input.holds, hosts });
+    const apis = musubiProductionApis({ hosts, generatedDir: input.generatedDir });
     for (const site of declared.prebuilt) {
       assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
     }
-    const workers = [];
+    const secrets = requireSecrets({ worker: "osn-api", stage, env: input.env });
+
+    flattenMigrations({ ...OSN_DB_PRODUCTION_MIGRATIONS, target: apis.osnDb.migrations });
+
+    // Binding `db` makes osn-api wait for the database's reconcile, which
+    // applies its migrations.
+    const db = yield* retainedD1("OsnDb", apis.osnDb);
+    const osnApi = yield* apiWorker(API_LOGICAL_IDS.osn_api, {
+      ...apis.osnApi,
+      bindings: toBindings(apis.osnApi.bindings, { DB: db }),
+      secrets,
+    });
+    const workers = [osnApi];
     for (const [logicalId, site] of Object.entries(declared.sites)) {
       workers.push(yield* siteWorker(logicalId, site));
     }
-    assertStackRetained({ stage: input.stage, storage: [], workers });
+    assertStackRetained({ stage, storage: [db], workers });
     assertProductionScope({
-      stage: input.stage,
-      resources: workers,
-      allowed: Object.keys(productionSiteKinds(SITE_LOGICAL_IDS, input.modes)),
+      stage,
+      resources: [db, ...workers],
+      allowed: Object.keys(productionResourceKinds(input.modes)),
     });
-    return Object.fromEntries(
-      Object.entries(declared.sites).map(([logicalId, site]) => [logicalId, site.domain]),
-    );
+    return {
+      osnApi: apis.osnApi.domain,
+      ...Object.fromEntries(
+        Object.entries(declared.sites).map(([logicalId, site]) => [logicalId, site.domain]),
+      ),
+    };
   });
 
 /**
@@ -128,13 +151,15 @@ const musubiProductionStack = (input: {
  * working directory, `musubi/infra`. `workingDir` names that directory to
  * the checks: the `.env` files Bun would load from it are refused, and the
  * site paths resolve from it. On production it declares the sites alone,
- * at `modes` (PRODUCTION_SITE_MODES unless a test passes its own).
+ * at `modes` and `holds` (PRODUCTION_SITE_MODES and PRODUCTION_HOST_HOLDS
+ * unless a test passes its own).
  */
 export const musubiStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
   readonly workingDir: string;
   readonly modes?: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds?: readonly HostHold[];
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
@@ -142,9 +167,12 @@ export const musubiStack = (input: {
     const stage = assertDeployTarget(yield* Alchemy.Stage, env);
     if (tierOf(stage) === "production") {
       return yield* musubiProductionStack({
+        env,
         stage,
+        generatedDir,
         workingDir: input.workingDir,
         modes: input.modes ?? PRODUCTION_SITE_MODES,
+        holds: input.holds ?? PRODUCTION_HOST_HOLDS,
       });
     }
     const hosts = hostsFor(stage, env);
@@ -161,7 +189,7 @@ export const musubiStack = (input: {
       arcPublicJwk: requireSeedValue(env, "CIRE_API_ARC_PUBLIC_JWK"),
     });
 
-    flattenMigrations({ source: OSN_MIGRATIONS, target: declared.osnDb.migrations });
+    flattenMigrations({ ...OSN_DB_MIGRATIONS, target: declared.osnDb.migrations });
     writeSeed(declared.seeds.osn, seed);
 
     // Logical ids key the state rows, so they never change: a renamed id is a new resource.

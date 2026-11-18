@@ -24,11 +24,13 @@ import { createSlidingPill } from "./lib/sliding-pill";
  * A 28px track: a 1px hairline on the surface at 30%, 2px inside it, so each
  * choice is 22px whatever font the platform has. The highlight is glass: the
  * raised surface at 55% under the accent at 14%, an inner lip, a light inner
- * edge (`--glass-edge`), a hairline ring, the app's first lift and a 12px
- * frosted backdrop. It slides on the house spring and jumps for a reader who
- * has turned motion down (`lib/sliding-pill.ts`). It sits in its own layer,
- * clipped to the track's shape, so an overshoot past either end is cut by the
- * track and no choice's focus ring is.
+ * edge (`--glass-edge`), an outer ring (`--glass-ring`, readable gold at 80%
+ * and 1px in the portals' light theme, so the glass stands 3:1 apart from its
+ * track), the app's first lift and a 12px frosted backdrop. It glides to a
+ * choice, its size easing out so it never grows past it, and jumps for a reader
+ * who has turned motion down (`lib/sliding-pill.ts` holds the timing). It sits
+ * in its own layer, clipped to the track's shape, so an overshoot past either
+ * end is cut by the track and no choice's focus ring is.
  *
  * Labels are sentence case at the extra-small step, normal weight, in the
  * secondary ink; the chosen one in the readable accent ink. Under the pointer
@@ -123,9 +125,10 @@ const GLASS = `base:absolute base:top-0 base:left-0 base:rounded-ui-pill ${GLASS
  *
  * Two clocks, by the state a choice moves to: a hover comes and goes on
  * `--dur-fast` with `--ease-out`, and a choice being made arrives on
- * `--dur-base` with `--ease-in-out`, the glass's own step. A browser takes a
- * transition from the state it moves to, so the choice giving the mark up
- * runs on the rest clock, the fast one.
+ * `--dur-base` with `--ease-in-out`, so its word lands before the glass,
+ * which runs on the slower `--dur-slow`. A browser takes a transition from
+ * the state it moves to, so the choice giving the mark up runs on the rest
+ * clock, the fast one.
  */
 const ITEM =
   "base:relative base:inline-flex base:h-5.5 base:shrink-0 base:cursor-pointer base:items-center base:gap-1.5 base:rounded-ui-pill base:px-3 " +

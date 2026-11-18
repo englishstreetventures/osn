@@ -5,7 +5,6 @@ import { createResource, createSignal, Show } from "solid-js";
 import { PRODUCT_NAME } from "../lib/auth";
 import { recoveryClient } from "../lib/authClients";
 import { dismissRecoveryPrompt, isRecoveryPromptDismissed } from "../lib/recovery-codes-prompt";
-import { getTokenClaims } from "../lib/utils";
 
 /**
  * Offers recovery-code setup to an account that has never generated a set.
@@ -32,23 +31,20 @@ import { getTokenClaims } from "../lib/utils";
  * App-local rather than shared: the copy names this product and the link names
  * a route only this app has. See `wiki/shared/osn-and-musubi.md`.
  */
-export function RecoveryCodesPrompt(props: { accessToken: string }) {
-  const profileId = () => getTokenClaims(props.accessToken).profileId;
-
+export function RecoveryCodesPrompt(props: { profileId: string }) {
   // Tracked separately from storage so a dismissal takes effect at once, and
   // re-derived from the profile id so switching profile asks the new one.
   const [justDismissed, setJustDismissed] = createSignal<string | null>(null);
   const dismissed = () => {
-    const id = profileId();
-    if (id === null) return true;
+    const id = props.profileId;
     return justDismissed() === id || isRecoveryPromptDismissed(id);
   };
 
   // A dismissed prompt never reaches the network: the source stays null and
-  // the fetcher does not run.
+  // the fetcher does not run. Keyed on the profile, so a switch asks again.
   const [status] = createResource(
-    () => (dismissed() ? null : props.accessToken),
-    (accessToken) => recoveryClient.getRecoveryCodesStatus({ accessToken }),
+    () => (dismissed() ? null : props.profileId),
+    () => recoveryClient.getRecoveryCodesStatus(),
   );
 
   // `dismissed()` is checked here as well as in the resource's source. A Solid
@@ -57,7 +53,7 @@ export function RecoveryCodesPrompt(props: { accessToken: string }) {
   const visible = () => !dismissed() && status.state === "ready" && status()?.generatedAt === null;
 
   function dismiss() {
-    const id = profileId();
+    const id = props.profileId;
     setJustDismissed(id);
     dismissRecoveryPrompt(id);
   }

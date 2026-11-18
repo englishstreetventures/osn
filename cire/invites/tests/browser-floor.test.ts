@@ -50,7 +50,10 @@ const SITE_EXTRA_FILES = /^lib\.(es2025\.float16|esnext\.disposable)\.d\.ts$/;
  * browser. Every other workspace dependency, dev or not, is walked.
  */
 const BUILD_ONLY: ReadonlyMap<string, string> = new Map([
-  ["@cire/build-tools", "an Astro integration `astro.config.mjs` runs at build time"],
+  [
+    "@cire/build-tools",
+    "an Astro integration `astro.config.mjs` runs at build time, and a pure module the Worker bundles for response headers; neither reaches a browser",
+  ],
   ["@shared/dev-urls", "read by `astro.config.mjs` for the dev server's port"],
   ["@shared/typescript-config", "tsconfig presets, no code"],
 ]);

@@ -6,13 +6,13 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-12
 ---
 # Vendors — directory, CRM, and email-verification claim
 
 > **Tier gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`), the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) and the couple's enquiry routes (`/api/organiser/weddings/:weddingId/enquiries/*`) all require the wedding to be on the **Crimson** plan tier (`weddingTier(db, "crimson")`). Requests from a wedding below it receive `402 { "error": "payment_required", "tier": "crimson" }`. The gate sits after the role check — see [[cire-entitlements]]. A host can buy Crimson from the portal, at an upgrade-from-Gold price when the wedding is on Gold; see [[cire-upgrades]].
 
-The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds and deploys as a Pages project from `.github/workflows/production-release.yml` (dev: `deploy.yml`), and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist. Until that domain moves to a Worker, the cire stack also deploys the same production build to the staged `cire-vendor` Worker on `next.vendor.cireweddings.com` ([[infrastructure-as-code#Production sites]]).
+The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds in `.github/workflows/production-release.yml`'s `sites` job (dev: `deploy.yml`), and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist. The portal is `worker` in `shared/infra/src/production-sites.ts`: the cire stack deploys it to the `cire-vendor` Worker, which holds `vendor.cireweddings.com` since release 42329249886 (2026-11-07) moved the domain off the `cire-vendor` Pages project ([[infrastructure-as-code#Production sites]], [[production-deploy#5.7 Rolling a site back 🔑]]).
 
 ---
 
@@ -143,21 +143,14 @@ While a claim waits, the listing is `draft` with no owner. The claimant's portal
 
 The same address receives the R2 orphan reconcilers' alerts (`r2-reconcile-alert`): at most three a day, and only while a reconciler is held or stopped or the tier has them disabled ([[backup-dr]]).
 
-`CIRE_OPS_EMAIL` is a secret, not a `[vars]` entry, because the repository is public and the address is a person's. The secret inventory decides which secrets a Worker keeps: an Alchemy deploy deletes any live secret it does not declare ([[infrastructure-as-code#Secrets]]). The inventory does not declare this one on either tier yet; englishstreetventures/osn#1572 adds it to cire-api's production row. Set it on production in this order, the one [[production-deploy]] §3 sets for every secret:
+`CIRE_OPS_EMAIL` is a secret, not a `[vars]` entry, because the repository is public and the address is a person's. cire-api's production row in `shared/infra/src/secrets/inventory.ts` lists it as optional; the dev row does not list it ([[infrastructure-as-code#Secrets]]). Production secrets stay on the Worker, and no stack uploads one, so set it there ([[production-deploy#5.9 Setting a production secret 🔑]]):
 
-1. Add `CIRE_OPS_EMAIL` to cire-api's production row in `shared/infra/src/secrets/inventory.ts`, in a reviewed pull request (englishstreetventures/osn#1572).
-2. Put the address in the `production` GitHub Environment:
+```bash
+cd cire/api
+printf '%s' "$ADDRESS" | bunx wrangler secret put CIRE_OPS_EMAIL --env production
+```
 
-   ```bash
-   printf '%s' "$ADDRESS" | gh secret set CIRE_OPS_EMAIL --env production --repo englishstreetventures/osn
-   ```
-
-3. Set it on the Worker, then redeploy it, since a secret change does not reach warm isolates:
-
-   ```bash
-   cd cire/api
-   bunx wrangler secret put CIRE_OPS_EMAIL --env production
-   ```
+A warm isolate may keep the old value until cire-api deploys again, which a release does only when cire-api's code or declaration changed.
 
 The dev Worker holds no `CIRE_OPS_EMAIL`: the cire stack uploads only the secrets the inventory declares, so dev sends no reminder.
 
@@ -228,7 +221,7 @@ The claim and listing routes, `createVendorPortalRoutes` in [`vendor-portal.ts`]
 
 ## Vendor portal (`cire/vendor`)
 
-The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS Cloudflare Pages app living in `cire/vendor/`. It is the browser surface vendors use after an organiser sends them a claim link.
+The vendor self-service portal (`vendor.cireweddings.com`) is a static Astro + SolidJS site living in `cire/vendor/`, served by the `cire-vendor` Worker's static assets. It is the browser surface vendors use after an organiser sends them a claim link.
 
 ### Screens (left-to-right user flow)
 
@@ -244,7 +237,7 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 - **osn-api** — the portal does not call it at all. Since the 2026-07-27 OIDC swap the browser holds a cire session cookie, not an OSN token, so it has nothing to send. The caller's orgs come from cire-api's `GET /api/vendor/orgs`, which resolves them over ARC (`profileOrgs` in `cire/api/src/routes/vendor-portal.ts:52`). **Org creation is still not here** — an org is an OSN account-level entity, created in the OSN app.
 - **cire-api** — `/api/vendor/*` routes gated by `osnAuth()` plus an inline ARC org-membership check. Called via the `authFetch` from `@shared/rp-auth`, which sends `credentials: "include"`. Cross-origin (portal → `api.cireweddings.com`), so cire-api's `WEB_ORIGIN` must include `vendor.cireweddings.com`.
 
-`vendor.cireweddings.com` stays in osn-api's `OSN_CORS_ORIGIN` for now but no longer earns its place; pruning is tracked in `[[production-deploy]]`. It is **not** in `OSN_ORIGIN` — that list is the WebAuthn expected-origin allowlist, and with the RP ID on `musubi.social` a ceremony from a cireweddings.com host is illegal whatever the list says.
+`vendor.cireweddings.com` is not in osn-api's production `OSN_CORS_ORIGIN`, which holds `https://musubi.social` alone ([[production-deploy]] §3.1). Nor is it in `OSN_ORIGIN` — that list is the WebAuthn expected-origin allowlist, and with the RP ID on `musubi.social` a ceremony from a cireweddings.com host is illegal whatever the list says.
 
 ### Look and feel
 
@@ -281,7 +274,7 @@ Two consequences worth knowing about outside the portal:
 The `/claim/?token=<raw>` URL carries a 256-bit claim secret. Two defences prevent it leaking:
 
 1. **Token-strip**: `ClaimApp` calls `history.replaceState(null, "", "/claim/")` on mount — the token leaves the address bar before any user action or navigation.
-2. **Referrer-Policy: no-referrer** header: set in `cire/vendor/public/_headers` (Cloudflare Pages static headers). Prevents any remaining `<a>` or `fetch` from forwarding the URL in a `Referer` header to third-party origins.
+2. **Referrer-Policy: no-referrer** header: set in `cire/vendor/public/_headers`, which the Worker's static assets apply as Pages did ([[infrastructure-as-code#Sites]]). Prevents any remaining `<a>` or `fetch` from forwarding the URL in a `Referer` header to third-party origins.
 
 ### Auth flow
 

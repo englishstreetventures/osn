@@ -206,12 +206,16 @@ const MODAL_PADDING = {
  * `display` utility. `[open]` stays on through the deferred exit below, so the
  * exit is still drawn.
  *
- * ## The backdrop mixes the app's ground rather than using black
+ * ## The backdrop is the contract's scrim role
  *
- * `color-mix` against `--ui-ground-deep`: on a light theme a black scrim reads
- * as a hole punched in the page, and on a dark one it is nearly invisible.
- * Mixing the app's own ground keeps the scrim in the same family as whatever it
- * is dimming.
+ * `--ui-scrim`, the role `Dialog`'s overlay reads too, so an app has one
+ * backdrop for one kind of interruption. Unmapped, it is black at 50%. cire
+ * maps it onto its deep ground at 72%, `color-mix(in srgb,
+ * var(--ui-ground-deep) 72%, transparent)`: on its light theme a black scrim
+ * reads as a hole punched in the page, and on its dark one it is nearly
+ * invisible, while its own ground keeps the scrim in the family of what it
+ * dims. `::backdrop` inherits from the dialog, so a mapping on `:root`
+ * reaches it.
  *
  * ## Entry is pure CSS. Exit cannot be.
  *
@@ -235,11 +239,28 @@ const MODAL_PADDING = {
  * finished. No `overlay`, no `allow-discrete`, and the same behaviour in every
  * engine.
  *
- * ## The durations are tokens
+ * ## The durations are tokens, and the exit is the smaller move
  *
  * An app that wants different timing sets `--ui-modal-enter` / `--ui-modal-exit`
- * rather than restyling the component. The defaults are cire's existing modal
- * choreography, which is the only hand-rolled one this replaces.
+ * rather than restyling the component. The entry rises `--ui-distance-enter`
+ * over 250ms (opacity) and 350ms (movement); the exit sinks the shorter
+ * `--ui-distance-exit` to `--ui-scale-exit` in 150ms, and the backdrop fades
+ * with it. A dialog leaving has nothing more to tell the reader, so it gets
+ * out of the way sooner and travels less.
+ *
+ * The entry keeps its own `scale(0.98)` rather than `--ui-scale-enter`, which
+ * sizes small floating panels: a full-width sheet scaled like a menu would move
+ * its edges about 12px, and its rise already carries the entry.
+ *
+ * ## Two curves are keywords
+ *
+ * The exit and the backdrop's fade out run `ease-in`, which speeds up as the
+ * dialog goes, and no token names it: `--ui-ease-exit`, the Kobalte overlays'
+ * exit curve, slows down as they go. The backdrop's fade in runs `ease-out`,
+ * gentler on a fade than `--ui-ease-out`. Each declaration carries a short
+ * `motion-literal:` tag so `house/no-literal-motion` keeps it; the reason
+ * lives here because this string ships to the page, and a comment in it costs
+ * bytes in every app.
  */
 const MODAL_STYLE = `
 .ui-modal:not([open]) {
@@ -247,12 +268,14 @@ const MODAL_STYLE = `
 }
 
 .ui-modal::backdrop {
-  background-color: color-mix(in srgb, var(--ui-ground-deep, #18181b) 72%, transparent);
+  background-color: var(--ui-scrim, rgb(0 0 0 / 0.5));
   opacity: 0;
-  transition: opacity var(--ui-modal-exit, 200ms) ease-in;
+  /* motion-literal: exit curve */
+  transition: opacity var(--ui-modal-exit, 150ms) ease-in;
 }
 .ui-modal[open]::backdrop {
   opacity: 1;
+  /* motion-literal: fade curve */
   transition: opacity var(--ui-modal-enter, 250ms) ease-out;
 }
 @starting-style {
@@ -263,13 +286,13 @@ const MODAL_STYLE = `
   opacity: 1;
   transform: none;
   transition:
-    opacity var(--ui-modal-enter, 250ms) cubic-bezier(0.22, 1, 0.36, 1),
-    transform var(--ui-modal-enter, 350ms) cubic-bezier(0.22, 1, 0.36, 1);
+    opacity var(--ui-modal-enter, 250ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
+    transform var(--ui-modal-enter, 350ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 @starting-style {
   .ui-modal[open] {
     opacity: 0;
-    transform: translateY(24px) scale(0.98);
+    transform: translateY(var(--ui-distance-enter, 24px)) scale(0.98);
   }
 }
 
@@ -277,21 +300,32 @@ const MODAL_STYLE = `
    state \`Modal\` holds the element in while it waits for the exit to finish. */
 .ui-modal[data-closing] {
   opacity: 0;
-  transform: translateY(24px) scale(0.98);
+  transform: translateY(var(--ui-distance-exit, 8px)) scale(var(--ui-scale-exit, 0.98));
+  /* motion-literal: exit curve */
   transition:
-    opacity var(--ui-modal-exit, 200ms) ease-in,
-    transform var(--ui-modal-exit, 200ms) ease-in;
+    opacity var(--ui-modal-exit, 150ms) ease-in,
+    transform var(--ui-modal-exit, 150ms) ease-in;
+}
+
+/* \`[open]\` stays on through the exit, so without this the backdrop holds at
+   full strength and drops the moment \`close()\` runs. */
+.ui-modal[data-closing]::backdrop {
+  opacity: 0;
+  /* motion-literal: exit curve */
+  transition: opacity var(--ui-modal-exit, 150ms) ease-in;
 }
 
 /* Near-zero rather than \`none\`: the exit is awaited, and a transition that was
    never started is one there is nothing to wait for. 1ms keeps the code path
-   identical and the motion imperceptible. */
+   identical and the motion imperceptible. Every rule above that sets a
+   transition is named here, and this block stays last, so none outranks it. */
 @media (prefers-reduced-motion: reduce) {
   .ui-modal,
   .ui-modal[open],
   .ui-modal[data-closing],
   .ui-modal::backdrop,
-  .ui-modal[open]::backdrop {
+  .ui-modal[open]::backdrop,
+  .ui-modal[data-closing]::backdrop {
     transition-duration: 1ms;
   }
 }

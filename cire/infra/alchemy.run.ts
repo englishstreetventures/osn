@@ -11,8 +11,8 @@ import {
   flattenMigrations,
   hostsFor,
   planPrebuiltStage,
+  PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
-  productionSiteKinds,
   refuseDotEnvFiles,
   requireSecrets,
   retainedBucket,
@@ -21,6 +21,7 @@ import {
   stackOptions,
   tierOf,
   writePrebuiltStage,
+  type HostHold,
   type SiteMode,
   type SiteSurface,
 } from "@shared/infra";
@@ -29,15 +30,17 @@ import { Data } from "effect";
 import * as Effect from "effect/Effect";
 
 import {
+  API_LOGICAL_IDS,
+  CIRE_DB_MIGRATIONS,
+  CIRE_DB_PRODUCTION_MIGRATIONS,
   cireDeclaration,
+  cireProductionApis,
   cireProductionSites,
+  productionResourceKinds,
   SITE_LOGICAL_IDS,
   type BindingDescription,
 } from "./src/declaration";
 import { ownerSeatSql } from "./src/seeds";
-
-/** cire/db's migrations, flattened for Alchemy on every run. */
-const CIRE_MIGRATIONS = "../db/migrations";
 
 class UnresolvedBindingError extends Data.TaggedError("UnresolvedBindingError")<{
   readonly binding: string;
@@ -95,35 +98,77 @@ function writeSeed(path: string, sql: string): void {
 }
 
 /**
- * The cire stack on production: each site `modes` does not turn off, built
- * for production and checked to be, under today's name. It reads no secret,
- * writes no file, and declares no API Worker, database or bucket; anything
- * else declared fails the scope check before the plan.
+ * The cire stack on production: cire-api with its database and buckets and
+ * the guest site's Worker, each adopted under today's name, and each site
+ * `modes` does not turn off, with no custom domain while `holds` holds its
+ * host. Every build is checked to be production's before anything is written
+ * or declared. It reads no secret (production's stay on the Workers), and
+ * writes only the guest site's staged server output and cire-db's migrations,
+ * which Alchemy applies to cire-db in the stack job's migrate step, before the
+ * deploy. Anything else declared fails the scope check before the plan.
  */
 const cireProductionStack = (input: {
+  readonly env: Readonly<Record<string, string | undefined>>;
   readonly stage: string;
+  readonly generatedDir: string;
   readonly workingDir: string;
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds: readonly HostHold[];
 }) =>
   Effect.gen(function* () {
-    const hosts = hostsFor(input.stage, {});
-    const declared = cireProductionSites({ modes: input.modes, hosts });
-    for (const site of declared.prebuilt) {
+    const { stage } = input;
+    const hosts = hostsFor(stage, {});
+    const sites = cireProductionSites({ modes: input.modes, holds: input.holds, hosts });
+    const apis = cireProductionApis({ hosts, generatedDir: input.generatedDir });
+    for (const site of [...apis.prebuilt, ...sites.prebuilt]) {
       assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
     }
-    const workers = [];
-    for (const [logicalId, site] of Object.entries(declared.sites)) {
+    // Read and checked here, written below.
+    const invitesServer = planPrebuiltStage({
+      source: join(input.workingDir, apis.invitesServer.source),
+      main: apis.invitesServer.main,
+    });
+    const apiSecrets = requireSecrets({ worker: "cire-api", stage, env: input.env });
+    const invitesSecrets = requireSecrets({ worker: "cire-invites", stage, env: input.env });
+
+    flattenMigrations({ ...CIRE_DB_PRODUCTION_MIGRATIONS, target: apis.cireDb.migrations });
+    writePrebuiltStage(invitesServer, apis.invitesServer.target);
+
+    // Binding `db` makes cire-api wait for the database's reconcile, which
+    // applies its migrations.
+    const db = yield* retainedD1("CireDb", apis.cireDb);
+    const assets = yield* retainedBucket("CireAssets", apis.cireAssets);
+    const sheets = yield* retainedBucket("CireSheets", apis.cireSheets);
+    const cireApi = yield* apiWorker(API_LOGICAL_IDS.cire_api, {
+      ...apis.cireApi,
+      bindings: toBindings(apis.cireApi.bindings, {
+        databases: { DB: db },
+        buckets: { ASSETS: assets, SHEETS: sheets },
+      }),
+      secrets: apiSecrets,
+    });
+    const cireInvites = yield* apiWorker(API_LOGICAL_IDS.cire_invites, {
+      ...apis.cireInvites,
+      secrets: invitesSecrets,
+    });
+    const workers = [cireApi, cireInvites];
+    for (const [logicalId, site] of Object.entries(sites.sites)) {
       workers.push(yield* siteWorker(logicalId, site));
     }
-    assertStackRetained({ stage: input.stage, storage: [], workers });
+    const storage = [db, assets, sheets];
+    assertStackRetained({ stage, storage, workers });
     assertProductionScope({
-      stage: input.stage,
-      resources: workers,
-      allowed: Object.keys(productionSiteKinds(SITE_LOGICAL_IDS, input.modes)),
+      stage,
+      resources: [...storage, ...workers],
+      allowed: Object.keys(productionResourceKinds(input.modes)),
     });
-    return Object.fromEntries(
-      Object.entries(declared.sites).map(([logicalId, site]) => [logicalId, site.domain]),
-    );
+    return {
+      cireApi: apis.cireApi.domain,
+      cireInvites: apis.cireInvites.domain,
+      ...Object.fromEntries(
+        Object.entries(sites.sites).map(([logicalId, site]) => [logicalId, site.domain]),
+      ),
+    };
   });
 
 /**
@@ -136,13 +181,15 @@ const cireProductionStack = (input: {
  * working directory, `cire/infra`. `workingDir` names that directory to the
  * checks: the `.env` files Bun would load from it are refused, and the site
  * paths resolve from it. On production it declares the sites alone, at
- * `modes` (PRODUCTION_SITE_MODES unless a test passes its own).
+ * `modes` and `holds` (PRODUCTION_SITE_MODES and PRODUCTION_HOST_HOLDS
+ * unless a test passes its own).
  */
 export const cireStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
   readonly workingDir: string;
   readonly modes?: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds?: readonly HostHold[];
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
@@ -150,9 +197,12 @@ export const cireStack = (input: {
     const stage = assertDeployTarget(yield* Alchemy.Stage, env);
     if (tierOf(stage) === "production") {
       return yield* cireProductionStack({
+        env,
         stage,
+        generatedDir,
         workingDir: input.workingDir,
         modes: input.modes ?? PRODUCTION_SITE_MODES,
+        holds: input.holds ?? PRODUCTION_HOST_HOLDS,
       });
     }
     const hosts = hostsFor(stage, env);
@@ -175,7 +225,7 @@ export const cireStack = (input: {
     const apiSecrets = requireSecrets({ worker: "cire-api", stage, env });
     const invitesSecrets = requireSecrets({ worker: "cire-invites", stage, env });
 
-    flattenMigrations({ source: CIRE_MIGRATIONS, target: declared.cireDb.migrations });
+    flattenMigrations({ ...CIRE_DB_MIGRATIONS, target: declared.cireDb.migrations });
     if (ownerSeat !== null) writeSeed(declared.seeds.ownerSeat, ownerSeat);
     writePrebuiltStage(invitesServer, declared.invitesServer.target);
 

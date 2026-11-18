@@ -1,0 +1,7 @@
+---
+"@cire/api": minor
+"@cire/db": patch
+"@cire/infra": patch
+---
+
+cire-api takes osn-api's account-deletion calls over ARC: `POST /internal/account-deletion-preview` (scope `account:deletion-preview`) and `POST /internal/account-deleted` (scope `account:erase`), each a token osn-api signed for audience `cire-api`, checked against osn-api's published keys before the body is read; cire-api holds no kid secret. The preview lists each live wedding a profile of the account alone owns as an action, `cire:wedding:<id>`, with one choice, `delete`, no default, and a link to the wedding's owners in the host portal; a wedding with another owner is not an action. The erasure removes the account's seats and their RSVP notice rows, soft-deleting in the same batch any wedding left with no owner, at most three owned weddings a call (503 `not_finished` while more remain); then it deletes the account's organiser sessions, guest account links, Stripe OAuth states and budget rows, deletes an enquiry it opened that never reached a chat, and clears every column that names a profile (`'deleted'` where the column cannot be NULL or sits beside a time that stays, `''` on the RSVP change log). It answers `kept: []`. The purge takes a deleted wedding with no owner seat at once, money holds still applying. `GET /hosts` lists no adder for a seat whose adder was erased. New counters `cire.account_deletion.previews`, `.erasures` and `.weddings`.

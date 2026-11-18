@@ -1,26 +1,40 @@
+import { AuthHeader } from "@osn/auth-ui/AuthHeader";
+import { DialogActions } from "@osn/auth-ui/DialogActions";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
-import { Dialog, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Card } from "@shared/ui/ui/card";
+import { Dialog } from "@shared/ui/ui/dialog";
+import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { A } from "@solidjs/router";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
+import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
+import { SignedOutNote } from "../components/SignedOutNote";
+import { describeActionError } from "../lib/action-error";
 import { orgClient } from "../lib/api";
+import { scopeMark } from "../lib/page-cache";
+import { myOrganisations, suggestions } from "../lib/page-data";
+import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
+
+/** The route's preload. */
+export function preloadOrganisations(): void {
+  myOrganisations.preload();
+}
 
 export function OrganisationsPage() {
   const { session } = useAuth();
-  const token = () => session()?.accessToken ?? "";
+  usePageTitle(() => "Organisations");
 
-  const [orgs, { refetch }] = createResource(
-    () => token() || false,
-    (t) => orgClient.listMyOrgs(t as string),
-  );
+  // Through the page cache: shown again, the last list draws at once and is
+  // read again behind it.
+  const orgs = myOrganisations.use(() => []);
 
   const [showCreate, setShowCreate] = createSignal(false);
   const [creating, setCreating] = createSignal(false);
@@ -30,10 +44,11 @@ export function OrganisationsPage() {
 
   async function handleCreate(e: Event) {
     e.preventDefault();
-    if (!handle() || !name()) return;
+    if (creating() || !handle() || !name()) return;
     setCreating(true);
     try {
-      await orgClient.createOrg(token(), {
+      const mark = scopeMark();
+      const { organisation } = await orgClient.createOrg({
         handle: handle(),
         name: name(),
         description: description() || undefined,
@@ -43,9 +58,16 @@ export function OrganisationsPage() {
       setHandle("");
       setName("");
       setDescription("");
-      refetch();
+      // On the list at once; the read behind it puts it in the API's order.
+      myOrganisations.update(
+        [],
+        (value) => ({ ...value, organisations: [...value.organisations, organisation] }),
+        mark,
+      );
+      myOrganisations.invalidate();
+      suggestions.invalidate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create organisation");
+      toast.error(describeActionError(err, "Failed to create organisation"));
     } finally {
       setCreating(false);
     }
@@ -67,141 +89,141 @@ export function OrganisationsPage() {
 
       <Show
         when={session()}
-        fallback={
-          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-            Sign in to view your organisations.
-          </div>
-        }
+        fallback={<SignedOutNote>Sign in to view your organisations.</SignedOutNote>}
       >
-        <Show
-          when={!orgs.loading}
-          fallback={
-            <div class="flex flex-col gap-2">
-              {Array.from({ length: 2 }, () => (
-                <div class="bg-muted/50 rounded-card h-20 animate-pulse" />
-              ))}
-            </div>
-          }
-        >
+        <div aria-busy={orgs.busy || undefined}>
           <Show
-            when={(orgs()?.organisations.length ?? 0) > 0}
+            when={orgs()}
             fallback={
-              <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-                You're not part of any organisations yet.
+              <div class="flex flex-col gap-2">
+                {/* As many as the page last landed, one when nothing is known. */}
+                {Array.from({ length: orgs.rows }, () => (
+                  <Skeleton standsFor="card" height={18.5} />
+                ))}
               </div>
             }
           >
-            <div class="flex flex-col gap-2">
-              <For each={orgs()?.organisations}>
-                {(org) => (
-                  <A
-                    // Handle, not id: the public `orgProjection` never returns
-                    // an id, so this interpolated `undefined` and every row
-                    // linked to a 404. `GET /organisations/:handle` is what the
-                    // detail route actually resolves.
-                    href={`/organisations/${org.handle}`}
-                    class="border-border hover:bg-muted/30 active:bg-muted/30 rounded-card flex items-center gap-3 border px-4 py-3 transition-colors"
-                  >
-                    <Avatar class="h-10 w-10">
-                      <Show when={safeAvatarUrl(org.avatarUrl)}>
-                        {(url) => (
-                          <AvatarImage
-                            src={url()}
-                            alt={org.name}
-                            referrerpolicy="no-referrer"
-                            loading="lazy"
-                          />
-                        )}
-                      </Show>
-                      <AvatarFallback>{org.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div class="min-w-0 flex-1">
-                      <p class="text-foreground text-title font-medium">{org.name}</p>
-                      <p class="text-subtle text-meta">@{org.handle}</p>
-                    </div>
-                    <Show when={org.description}>
-                      <p class="text-subtle text-meta hidden max-w-48 truncate sm:block">
-                        {org.description}
-                      </p>
-                    </Show>
-                    <svg
-                      class="text-subtle h-5 w-5 shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
+            <Show
+              when={(orgs()?.organisations.length ?? 0) > 0}
+              fallback={<EmptyNote>You're not part of any organisations yet.</EmptyNote>}
+            >
+              <div class="flex flex-col gap-2">
+                <For each={orgs()?.organisations}>
+                  {(org) => (
+                    <A
+                      // Handle, not id: the public `orgProjection` never returns
+                      // an id, so this interpolated `undefined` and every row
+                      // linked to a 404. `GET /organisations/:handle` is what the
+                      // detail route actually resolves.
+                      href={`/organisations/${org.handle}`}
+                      class="group rounded-card block"
                     >
-                      <path d="m9 18 6-6-6-6" />
-                    </svg>
-                  </A>
-                )}
-              </For>
-            </div>
+                      {/* A card that is a link. `Card` owns its fill, so the row
+                        takes no wash: its chevron turns to full ink on hover
+                        and press instead. */}
+                      <Card padding="sm" class="flex items-center gap-3">
+                        <Avatar class="h-10 w-10">
+                          <Show when={safeAvatarUrl(org.avatarUrl)}>
+                            {(url) => (
+                              <AvatarImage
+                                src={url()}
+                                alt={org.name}
+                                referrerpolicy="no-referrer"
+                                loading="lazy"
+                              />
+                            )}
+                          </Show>
+                          <AvatarFallback>{org.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-foreground text-title truncate font-medium">{org.name}</p>
+                          <p class="text-muted-foreground text-meta truncate">@{org.handle}</p>
+                        </div>
+                        <Show when={org.description}>
+                          <p class="text-muted-foreground text-meta hidden max-w-48 truncate md:block">
+                            {org.description}
+                          </p>
+                        </Show>
+                        <svg
+                          class="text-subtle group-hover:text-foreground group-active:text-foreground transition-ui-colors h-5 w-5 shrink-0"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </Card>
+                    </A>
+                  )}
+                </For>
+              </div>
+            </Show>
           </Show>
-        </Show>
+        </div>
       </Show>
 
       {/* Create org dialog */}
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
-        <ResponsiveDialogContent class="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Create organisation</DialogTitle>
-          </DialogHeader>
-          <form class="flex flex-col gap-4 pt-2" onSubmit={handleCreate}>
-            <div class="flex flex-col gap-1.5">
-              <Label for="org-handle">Handle</Label>
-              <Input
-                id="org-handle"
-                placeholder="my-org"
-                value={handle()}
-                onInput={(e) =>
-                  setHandle(e.currentTarget.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
-                }
-                required
-              />
-              <p class="text-subtle text-meta">Lowercase letters, numbers, and underscores only.</p>
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <Label for="org-name">Name</Label>
-              <Input
-                id="org-name"
-                placeholder="My Organisation"
-                value={name()}
-                onInput={(e) => setName(e.currentTarget.value)}
-                required
-              />
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <Label for="org-desc">Description</Label>
-              <Textarea
-                id="org-desc"
-                placeholder="What's this organisation about?"
-                value={description()}
-                onInput={(e) => setDescription(e.currentTarget.value)}
-                rows={2}
-              />
-            </div>
-            <div class="flex justify-end gap-2 pt-1">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                class="max-md:h-10"
-                onClick={() => setShowCreate(false)}
+        <ResponsiveDialogContent>
+          <AuthHeader host="dialog" title="Create organisation" />
+          {/* The footer sits inside the form, so Enter in a field still submits. */}
+          <form onSubmit={handleCreate}>
+            <div class="flex flex-col gap-4 p-4">
+              <Field
+                labelTreatment="plain"
+                label="Handle"
+                hint="Lowercase letters, numbers, and underscores only."
               >
-                Cancel
-              </Button>
+                {(field) => (
+                  <Input
+                    {...field}
+                    placeholder="my_org"
+                    spellcheck={false}
+                    value={handle()}
+                    onInput={(e) =>
+                      setHandle(e.currentTarget.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
+                    }
+                    required
+                  />
+                )}
+              </Field>
+              <Field labelTreatment="plain" label="Name">
+                {(field) => (
+                  <Input
+                    {...field}
+                    placeholder="My Organisation"
+                    value={name()}
+                    onInput={(e) => setName(e.currentTarget.value)}
+                    required
+                  />
+                )}
+              </Field>
+              <Field labelTreatment="plain" label="Description">
+                {(field) => (
+                  <Textarea
+                    {...field}
+                    placeholder="What's this organisation about?"
+                    value={description()}
+                    onInput={(e) => setDescription(e.currentTarget.value)}
+                    rows={2}
+                  />
+                )}
+              </Field>
+            </div>
+            <DialogActions onCancel={() => setShowCreate(false)} cancelDisabled={creating()}>
               <Button
                 type="submit"
                 size="sm"
                 class="max-md:h-10"
-                disabled={creating() || !handle() || !name()}
+                busy={creating()}
+                disabled={!creating() && (!handle() || !name())}
               >
-                {creating() ? "Creating..." : "Create"}
+                {creating() ? "Creating…" : "Create"}
               </Button>
-            </div>
+            </DialogActions>
           </form>
         </ResponsiveDialogContent>
       </Dialog>

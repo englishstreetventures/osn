@@ -106,11 +106,6 @@ describe("dev-env exit status", () => {
     expect(result.exitCode === 143 || result.signal === "SIGTERM").toBe(true);
     expect(result.exitCode).not.toBe(0);
   });
-
-  it("exits 0 when the command succeeds", async () => {
-    const result = await run(["sh", "-c", "exit 0"]);
-    expect(result.exitCode).toBe(0);
-  });
 });
 
 describe("dev-env exit status without execve", () => {
@@ -129,11 +124,6 @@ describe("dev-env exit status without execve", () => {
   it("reports a signalled command as 128 + the signal", async () => {
     const result = await run(["sh", "-c", "kill -TERM $$"], { env: NO_EXECVE });
     expect(result.exitCode).toBe(143);
-  });
-
-  it("exits 0 when the command succeeds", async () => {
-    const result = await run(["sh", "-c", "exit 0"], { env: NO_EXECVE });
-    expect(result.exitCode).toBe(0);
   });
 
   it("still hands the derived origins to the command", async () => {

@@ -6,7 +6,7 @@
     // project (vitest.config.ts) also reads the Worker sources, the lockfile
     // (which pins the wrangler it reads and the Alchemy tree it reads), the
     // root turbo.json,
-    // the cire packages' own turbo.json, the workflows, the stack
+    // the cire packages' own turbo.json, the Wrangler configs, the workflows, the stack
     // declarations and the asset sites' public directories (their `_headers`
     // included), so only it reruns when one of those changes.
     // tests/package.test.ts holds the last two to the sites the tests read.
@@ -18,6 +18,31 @@
     // tests/package.test.ts holds `test` to running it, and its inputs.
     "test": {
       "dependsOn": ["^build", "test:repo", "test:alchemy"]
+    },
+    // The D1 tier (tests/d1): Wrangler, from cire/api's install, builds each
+    // production database's history from the migration directories, and the
+    // installed Alchemy provider converts it with the stacks' own migration
+    // sources. It reruns when any of those, a Wrangler config or the
+    // installed tree changes, and keeps its artifact.
+    "test:d1": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/bun.lock",
+        "$TURBO_ROOT$/patches/**",
+        "$TURBO_ROOT$/cire/db/migrations/**",
+        "$TURBO_ROOT$/cire/db/migrations-archive/**",
+        "$TURBO_ROOT$/osn/db/drizzle/**",
+        "$TURBO_ROOT$/zap/db/drizzle/**",
+        "$TURBO_ROOT$/cire/api/wrangler.toml",
+        "$TURBO_ROOT$/osn/api/wrangler.toml",
+        "$TURBO_ROOT$/zap/api/wrangler.toml",
+        "$TURBO_ROOT$/cire/infra/src/declaration.ts",
+        "$TURBO_ROOT$/musubi/infra/src/declaration.ts",
+        "$TURBO_ROOT$/zap/infra/src/declaration.ts"
+      ],
+      "outputs": ["d1-artifacts/**"]
     },
     "test:alchemy": {
       "inputs": [
@@ -38,7 +63,10 @@
         "$TURBO_ROOT$/cire/api/src/**",
         "$TURBO_ROOT$/zap/api/src/**",
         "$TURBO_ROOT$/cire/invites/src/**",
-        "$TURBO_ROOT$/osn/api/wrangler.toml",
+        "$TURBO_ROOT$/**/*wrangler.toml",
+        "$TURBO_ROOT$/**/*wrangler.jsonc",
+        "$TURBO_ROOT$/**/*wrangler.json",
+        "!$TURBO_ROOT$/**/node_modules/**",
         "$TURBO_ROOT$/bun.lock",
         "$TURBO_ROOT$/turbo.json",
         "$TURBO_ROOT$/cire/*/turbo.json",

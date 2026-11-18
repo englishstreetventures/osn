@@ -9,7 +9,16 @@
  *    goes to the owner who did it and every other owner, and — for a removal
  *    or demotion — to the person affected;
  *  - a delete (`wedding-delete-started`) goes to every owner, the one who
- *    deleted included, with the restore deadline.
+ *    deleted included, with the restore deadline;
+ *  - an upgrade payment cire refunded because it could not grant it
+ *    (`upgrade-refund`) goes to every owner, once, after Stripe accepted the
+ *    refund. It names no actor and no reason, and spends a refund budget of
+ *    the wedding's own, so refunds and owner changes cannot use up each
+ *    other's;
+ *  - an owner who removed their Cire data and so left the wedding
+ *    (`wedding-owner-change`, as one who stepped down) goes to the owners who
+ *    remain, not to the one who left, and spends the wedding's budget only:
+ *    cire keeps nothing naming the person afterwards, a budget row included.
  *
  * Each names who acted. The actor gets their own copy because a session
  * someone else is using is exactly the case where the real owner needs to
@@ -39,6 +48,7 @@
 import { ownerNoticeBudget, weddingHosts, weddings } from "@cire/db";
 import { EmailService } from "@shared/email";
 import type { EmailTemplateData, SendEmailInput } from "@shared/email";
+import { LEGAL_ENTITY } from "@shared/legal";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { Cause, Effect, type Layer } from "effect";
 
@@ -48,12 +58,17 @@ import type { OwnerNoticeKind, OwnerNoticeResult } from "../metrics";
 import { runCire } from "../observability";
 import type { HostRole } from "../services/hosts";
 import type { OsnOrganiserEmailLookup, OsnProfileDisplayResolver } from "../services/osn-bridge";
+import type { RefundNotice } from "../services/upgrades";
 import { getWaitUntil } from "./execution-ctx";
+import { formatMinor } from "./money";
 
 /** Owner-notice emails one wedding, or one acting owner, may cause per UTC
  *  day. A real ownership change mails a handful of people; this is room for
  *  several on one day. */
 const OWNER_NOTICE_EMAILS_PER_DAY = 30;
+
+/** The tiers as the couple reads them. */
+const TIER_NAMES = { gold: "Gold", crimson: "Crimson" } as const;
 
 /** A seat the actor created this recently does not mail its holder. */
 const FRESH_SEAT_MS = 24 * 60 * 60 * 1000;
@@ -243,7 +258,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
       never,
       DbService
     >,
-  ): Effect.Effect<void, never, DbService> =>
+  ): Effect.Effect<OwnerNoticeResult, never, DbService> =>
     Effect.gen(function* () {
       const plan = yield* build();
       if (!plan || plan.recipients.length === 0) return "no_recipients" as const;
@@ -269,7 +284,11 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
       const keys =
         kind === "delete_started"
           ? [`actor:${actorOsnProfileId}`]
-          : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
+          : kind === "upgrade_refund"
+            ? [`refund:${weddingId}`]
+            : kind === "owner_left"
+              ? [`wedding:${weddingId}`]
+              : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
       const allowed = yield* spend(keys, inputs.length, now);
       const budgeted = inputs.slice(0, allowed);
       if (budgeted.length === 0) return "throttled" as const;
@@ -300,15 +319,16 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
           ),
         ),
       ),
-      Effect.asVoid,
       Effect.withSpan(`cire.ownerNotice.${kind}`),
     );
+
+  const deliverVoid = (...args: Parameters<typeof deliver>) => deliver(...args).pipe(Effect.asVoid);
 
   return {
     /** An owner was added, promoted, removed or demoted. */
     ownerChanged(input: OwnerChangedInput): Effect.Effect<void, never, DbService> {
       const now = input.now ?? new Date();
-      return deliver("owner_change", input.weddingId, input.actorOsnProfileId, now, () =>
+      return deliverVoid("owner_change", input.weddingId, input.actorOsnProfileId, now, () =>
         Effect.gen(function* () {
           const wedding = yield* weddingOwners(input.weddingId);
           if (!wedding) return null;
@@ -347,36 +367,108 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
       );
     },
 
-    /** An owner started deleting the wedding. */
-    deleteStarted(input: DeleteStartedInput): Effect.Effect<void, never, DbService> {
-      return deliver("delete_started", input.weddingId, input.actorOsnProfileId, new Date(), () =>
+    /**
+     * An owner left the wedding by removing their Cire data, which another
+     * owner keeps. Told to the owners who remain: the one who left confirmed
+     * it on Musubi and is told on screen.
+     */
+    ownerLeft(input: {
+      readonly weddingId: string;
+      readonly leaverOsnProfileId: string;
+    }): Effect.Effect<void, never, DbService> {
+      return deliverVoid("owner_left", input.weddingId, input.leaverOsnProfileId, new Date(), () =>
         Effect.gen(function* () {
           const wedding = yield* weddingOwners(input.weddingId);
           if (!wedding) return null;
-          // The deleter first: on a one-owner wedding they are the only one who
-          // can notice a delete made from a session that is not theirs.
-          const recipients: Recipient[] = [
-            { osnProfileId: input.actorOsnProfileId, audience: "actor" },
-            ...wedding.owners
-              .filter((id) => id !== input.actorOsnProfileId)
-              .map((osnProfileId) => ({ osnProfileId, audience: "owner" as const })),
-          ];
-          const restoreUntil = formatRestoreUntil(input.restoreUntil);
-          const render: RenderFor = (recipient, to, displays) => ({
-            template: "wedding-delete-started",
+          const recipients: Recipient[] = wedding.owners
+            .filter((id) => id !== input.leaverOsnProfileId)
+            .map((osnProfileId) => ({ osnProfileId, audience: "owner" as const }));
+          const render: RenderFor = (_recipient, to, displays) => ({
+            template: "wedding-owner-change",
             to,
             data: {
               weddingName: wedding.name,
-              actorName: nameOf(displays, input.actorOsnProfileId),
-              audience: recipient.audience === "actor" ? "actor" : "owner",
-              restoreUntil,
-              restoreDays: input.restoreDays,
+              actorName: nameOf(displays, input.leaverOsnProfileId),
+              subjectName: nameOf(displays, input.leaverOsnProfileId),
+              change: "removed",
+              audience: "owner",
+              self: true,
               portalUrl: deps.portalUrl,
             },
           });
-          return { recipients, named: [input.actorOsnProfileId], render };
+          return { recipients, named: [input.leaverOsnProfileId], render };
         }),
       );
+    },
+
+    /** An owner started deleting the wedding. */
+    deleteStarted(input: DeleteStartedInput): Effect.Effect<void, never, DbService> {
+      return deliverVoid(
+        "delete_started",
+        input.weddingId,
+        input.actorOsnProfileId,
+        new Date(),
+        () =>
+          Effect.gen(function* () {
+            const wedding = yield* weddingOwners(input.weddingId);
+            if (!wedding) return null;
+            // The deleter first: on a one-owner wedding they are the only one who
+            // can notice a delete made from a session that is not theirs.
+            const recipients: Recipient[] = [
+              { osnProfileId: input.actorOsnProfileId, audience: "actor" },
+              ...wedding.owners
+                .filter((id) => id !== input.actorOsnProfileId)
+                .map((osnProfileId) => ({ osnProfileId, audience: "owner" as const })),
+            ];
+            const restoreUntil = formatRestoreUntil(input.restoreUntil);
+            const render: RenderFor = (recipient, to, displays) => ({
+              template: "wedding-delete-started",
+              to,
+              data: {
+                weddingName: wedding.name,
+                actorName: nameOf(displays, input.actorOsnProfileId),
+                audience: recipient.audience === "actor" ? "actor" : "owner",
+                restoreUntil,
+                restoreDays: input.restoreDays,
+                portalUrl: deps.portalUrl,
+              },
+            });
+            return { recipients, named: [input.actorOsnProfileId], render };
+          }),
+      );
+    },
+
+    /**
+     * An upgrade payment cire could not grant was refunded, and Stripe
+     * accepted it. Answers whether any owner was mailed.
+     */
+    refundIssued(input: RefundNotice): Effect.Effect<boolean, never, DbService> {
+      return deliver("upgrade_refund", input.weddingId, "", new Date(), () =>
+        Effect.gen(function* () {
+          const wedding = yield* weddingOwners(input.weddingId);
+          if (!wedding) return null;
+          const recipients: Recipient[] = wedding.owners.map((osnProfileId) => ({
+            osnProfileId,
+            audience: "owner" as const,
+          }));
+          const amount =
+            input.amountMinor === null || input.currency === null
+              ? null
+              : formatMinor(input.amountMinor, input.currency);
+          const render: RenderFor = (_recipient, to) => ({
+            template: "upgrade-refund",
+            to,
+            data: {
+              weddingName: wedding.name,
+              tierName: input.tier === null ? null : TIER_NAMES[input.tier],
+              amount,
+              contactEmail: LEGAL_ENTITY.contactEmail,
+              portalUrl: deps.portalUrl,
+            },
+          });
+          return { recipients, named: [], render };
+        }),
+      ).pipe(Effect.map((result) => result === "sent"));
     },
   };
 }

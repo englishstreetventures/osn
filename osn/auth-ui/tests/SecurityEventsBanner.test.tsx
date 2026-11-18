@@ -4,6 +4,13 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
+import { dialogDescription } from "./helpers/dialog";
+import { SERVER, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Settings banner for out-of-band security events (M-PK1b). Tests cover:
@@ -11,9 +18,9 @@ import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
  *   - recovery_code_generate event renders headline + timestamp + UA label
  *   - recovery_code_consume event renders the takeover-specific headline
  *   - unknown kinds fall through to a generic message (forward-compat)
- *   - "Acknowledge" opens the step-up dialog, NOT the ack endpoint directly (S-M1)
+ *   - "Acknowledge" opens the step-up dialog, NOT the ack endpoint directly
  *   - a successful step-up ceremony calls acknowledgeAll and optimistically removes the events
- *   - a rejected acknowledgeAll surfaces the error text in the banner
+ *   - a rejected acknowledgeAll shows the map's sentence in the banner, never its text
  */
 
 interface ClientStub {
@@ -25,8 +32,9 @@ interface ClientStub {
 interface StepUpStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
 }
 
 function makeClientStub(): ClientStub {
@@ -41,8 +49,17 @@ function makeStepUpStub(): StepUpStub {
   return {
     passkeyBegin: vi.fn(),
     passkeyComplete: vi.fn(),
-    otpBegin: vi.fn().mockResolvedValue({ sent: true }),
-    otpComplete: vi.fn().mockResolvedValue({ token: "eyJ.step.up", expiresIn: 300 }),
+    emailBegin: vi.fn().mockResolvedValue({
+      requestId: "stepup_0123456789ab",
+      claimSecret: "c".repeat(64),
+      pairingCode: "47",
+      expiresAt: 1_900_000_000,
+    }),
+    emailStatus: vi.fn().mockResolvedValue({
+      status: "complete",
+      token: { token: "eyJ.step.up", expiresIn: 300 },
+    }),
+    emailResend: vi.fn(),
   };
 }
 
@@ -82,7 +99,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -90,7 +106,7 @@ describe("SecurityEventsBanner", () => {
     expect(container.textContent?.trim()).toBe("");
   });
 
-  // S-H1: the takeover half of the threat model — gets its own headline so
+  // The takeover half of the threat model — gets its own headline so
   // the user knows the codes were USED, not just regenerated.
   it("renders the recovery_code_generate headline with UA label", async () => {
     stub.list.mockResolvedValue({ events: [recoveryGenerateEvent] });
@@ -98,7 +114,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -114,7 +129,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -134,7 +148,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -143,7 +156,23 @@ describe("SecurityEventsBanner", () => {
     });
   });
 
-  // S-M1: clicking "Acknowledge" must NOT hit the ack endpoint with the raw
+  // The sheet says why, in one line under its title.
+  it("says why on the step-up sheet before the alerts are acknowledged", async () => {
+    stub.list.mockResolvedValue({ events: [recoveryGenerateEvent] });
+    render(() => (
+      <SecurityEventsBanner
+        client={asClient(stub)}
+        stepUpClient={asStepUp(stepUp)}
+        productName="Musubi"
+      />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: /Acknowledge/ }));
+    expect(await dialogDescription("Confirm it's you")).toBe(
+      "To acknowledge these alerts, confirm it's you.",
+    );
+  });
+
+  // Clicking "Acknowledge" must NOT hit the ack endpoint with the raw
   // access token — it opens the step-up dialog instead.
   it("'Acknowledge' opens the step-up dialog; ack-all is only called after a token is minted", async () => {
     stub.list.mockResolvedValue({ events: [recoveryGenerateEvent, recoveryConsumeEvent] });
@@ -152,7 +181,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -164,21 +192,18 @@ describe("SecurityEventsBanner", () => {
     expect(stub.acknowledgeAll).not.toHaveBeenCalled();
 
     // Drive the OTP flow in the step-up dialog.
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
-    fireEvent.input(screen.getByLabelText(/Code/i), {
-      target: { value: "123456" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // The link is confirmed elsewhere; coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
 
     await waitFor(() =>
       expect(stub.acknowledgeAll).toHaveBeenCalledWith({
-        accessToken: "acc",
         stepUpToken: "eyJ.step.up",
       }),
     );
-    // P-I3: list NOT re-fetched — the banner removed events optimistically.
+    // List NOT re-fetched — the banner removed events optimistically.
     expect(stub.list).toHaveBeenCalledTimes(1);
     // Banner collapses.
     await waitFor(() => {
@@ -186,30 +211,29 @@ describe("SecurityEventsBanner", () => {
     });
   });
 
-  it("surfaces an error message when acknowledgeAll rejects", async () => {
+  it("reads a rejected acknowledgeAll as the map's sentence, never its text", async () => {
     stub.list.mockResolvedValue({ events: [recoveryGenerateEvent] });
-    stub.acknowledgeAll.mockRejectedValue(new Error("server on fire"));
+    stub.acknowledgeAll.mockRejectedValue(
+      apiError("PLANTED server on fire", 500, "internal_error"),
+    );
     render(() => (
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
     await waitFor(() => screen.getByRole("button", { name: /Acknowledge/ }));
     fireEvent.click(screen.getByRole("button", { name: /Acknowledge/ }));
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
-    fireEvent.input(screen.getByLabelText(/Code/i), {
-      target: { value: "123456" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // The link is confirmed elsewhere; coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
 
-    await waitFor(() => {
-      expect(screen.getByText(/server on fire/)).toBeTruthy();
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(SERVER);
+    expect(alertsText()).not.toContain("PLANTED");
   });
 
   // A host may mount this in an application shell rather than a settings
@@ -222,7 +246,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -242,7 +265,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
         onVisibleCountChange={(count) => counts.push(count)}
       />
@@ -263,7 +285,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
         onVisibleCountChange={(count) => counts.push(count)}
       />
@@ -278,7 +299,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
         onVisibleCountChange={(count) => counts.push(count)}
       />
@@ -294,7 +314,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
         onVisibleCountChange={(count) => counts.push(count)}
       />
@@ -302,11 +321,11 @@ describe("SecurityEventsBanner", () => {
     await waitFor(() => expect(counts).toEqual([1]));
 
     fireEvent.click(screen.getByRole("button", { name: /Acknowledge/ }));
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
-    fireEvent.input(screen.getByLabelText(/Code/i), { target: { value: "123456" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // The link is confirmed elsewhere; coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
 
     await waitFor(() => expect(counts).toEqual([1, 0]));
   });

@@ -1,16 +1,18 @@
 // @vitest-environment happy-dom
 import type { SessionsClient } from "@osn/client";
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
+import { Suspense } from "solid-js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SessionsView } from "../src/SessionsView";
+import { SERVER, WAIT, alertsText, apiError } from "./helpers/errors";
 
 /**
  * Settings → Sessions view. Tests cover:
  *   - renders all sessions with coarse UA labels
  *   - "this device" badge appears on the current session
- *   - Revoke button is disabled for the current session
- *   - Revoke non-current session triggers client.revoke + refetches
+ *   - A row's Sign out is disabled for the current session
+ *   - Signing out a non-current session triggers client.revoke + refetches
  *   - "Sign out everywhere else" calls revokeAllOther
  */
 
@@ -60,9 +62,82 @@ describe("SessionsView", () => {
 
   afterEach(() => cleanup());
 
+  /** The list's place, marked busy while a read is out. */
+  const busyRegion = () => document.querySelector('[aria-busy="true"]');
+
+  it("holds one row's placeholder in a busy region until the first read lands", async () => {
+    let land!: (v: { sessions: typeof sessions }) => void;
+    stub.list.mockReturnValue(new Promise((resolve) => (land = resolve)));
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    await waitFor(() => expect(stub.list).toHaveBeenCalled());
+    expect(busyRegion()?.querySelector('[aria-hidden="true"]')).toBeTruthy();
+
+    land({ sessions });
+    await waitFor(() => screen.getByText(/Firefox on macOS/));
+    expect(busyRegion()).toBeNull();
+    expect(document.querySelector('[aria-hidden="true"]')).toBeNull();
+  });
+
+  // A read under a host's Suspense boundary would hand the whole boundary to
+  // the host's fallback; the view shows its own placeholder instead.
+  it("holds its place under a host's Suspense while the list loads", async () => {
+    stub.list.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <SessionsView client={asClient(stub)} />
+      </Suspense>
+    ));
+    await waitFor(() => expect(stub.list).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Active sessions" })).toBeTruthy();
+    expect(busyRegion()?.querySelector('[aria-hidden="true"]')).toBeTruthy();
+  });
+
+  // The revoked session stays on screen until the list is read again; its
+  // Sign out then would only meet a session that is gone.
+  it("locks each row's Sign out and Sign out everywhere else while the list is read again", async () => {
+    stub.list.mockResolvedValueOnce({ sessions });
+    stub.list.mockReturnValueOnce(new Promise(() => {}));
+    stub.revoke.mockResolvedValue({ revokedSelf: false });
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ })[1]!);
+    await waitFor(() => expect(stub.list).toHaveBeenCalledTimes(2));
+
+    const actions = [
+      ...screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ }),
+      screen.getByRole("button", { name: /Sign out everywhere else/ }),
+    ] as HTMLButtonElement[];
+    expect(actions).toHaveLength(3);
+    for (const b of actions) expect(b.disabled).toBe(true);
+  });
+
+  it("names each row's Sign out by its device, so two rows never share a name", async () => {
+    const unknown = {
+      id: "f00dfeed00112233",
+      uaLabel: null,
+      createdAt: 7,
+      lastUsedAt: 8,
+      expiresAt: 9,
+      isCurrent: false,
+    };
+    stub.list.mockResolvedValue({ sessions: [...sessions, unknown] });
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Sign out Firefox on macOS" }));
+    expect(screen.getByRole("button", { name: "Sign out Safari on iOS" })).toBeTruthy();
+    const nameless = screen.getByRole("button", { name: "Sign out Unknown device" });
+    // The name carries the device; the words on the button stay the action.
+    expect(nameless.textContent).toBe("Sign out");
+    expect(screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ })).toHaveLength(3);
+  });
+
   it("renders all sessions with UA labels and marks the current one", async () => {
     stub.list.mockResolvedValue({ sessions });
-    render(() => <SessionsView client={asClient(stub)} accessToken="acc" />);
+    render(() => <SessionsView client={asClient(stub)} />);
 
     await waitFor(() => {
       expect(screen.getByText(/Firefox on macOS/)).toBeTruthy();
@@ -75,17 +150,18 @@ describe("SessionsView", () => {
     stub.list.mockResolvedValueOnce({ sessions });
     stub.list.mockResolvedValueOnce({ sessions: [sessions[0]] });
     stub.revoke.mockResolvedValue({ revokedSelf: false });
-    render(() => <SessionsView client={asClient(stub)} accessToken="acc" />);
+    render(() => <SessionsView client={asClient(stub)} />);
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Revoke$/ }));
-    const buttons = screen.getAllByRole("button", { name: /^Revoke$/ }) as HTMLButtonElement[];
+    await waitFor(() => screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ }));
+    const buttons = screen.getAllByRole("button", {
+      name: /^Sign out (?!everywhere)/,
+    }) as HTMLButtonElement[];
     // The first session is current — its button is disabled.
     expect(buttons[0]!.disabled).toBe(true);
     // The second is not current — clicking revokes it.
     fireEvent.click(buttons[1]!);
     await waitFor(() =>
       expect(stub.revoke).toHaveBeenCalledWith({
-        accessToken: "acc",
         id: "deadbeef87654321",
       }),
     );
@@ -95,10 +171,47 @@ describe("SessionsView", () => {
     stub.list.mockResolvedValueOnce({ sessions });
     stub.list.mockResolvedValueOnce({ sessions: [sessions[0]] });
     stub.revokeAllOther.mockResolvedValue({ success: true });
-    render(() => <SessionsView client={asClient(stub)} accessToken="acc" />);
+    render(() => <SessionsView client={asClient(stub)} />);
 
     await waitFor(() => screen.getByRole("button", { name: /Sign out everywhere else/ }));
     fireEvent.click(screen.getByRole("button", { name: /Sign out everywhere else/ }));
     await waitFor(() => expect(stub.revokeAllOther).toHaveBeenCalledTimes(1));
+  });
+
+  it.each([
+    ["revoke", apiError("PLANTED-revoke", 503, "temporarily_unavailable"), SERVER],
+    ["sign out everywhere else", apiError("PLANTED-revoke-all", 429, "rate_limited"), WAIT],
+  ])("reads a failed %s as the map's sentence, never its text", async (action, error, sentence) => {
+    stub.list.mockResolvedValue({ sessions });
+    stub.revoke.mockRejectedValue(error);
+    stub.revokeAllOther.mockRejectedValue(error);
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ }));
+    if (action === "revoke") {
+      fireEvent.click(screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ })[1]!);
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: /Sign out everywhere else/ }));
+    }
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(sentence);
+    expect(alertsText()).not.toContain("PLANTED");
+  });
+
+  it("says a list that failed to load didn't, with a Try again that reloads it", async () => {
+    stub.list
+      .mockRejectedValueOnce(apiError("PLANTED-list", 500, "internal_error"))
+      .mockResolvedValueOnce({ sessions });
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Your sessions didn't load.");
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(screen.getByRole("heading", { name: "Active sessions" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => screen.getByText(/Firefox on macOS/));
+    expect(stub.list).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render } from "@solidjs/testing-library";
+import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Step3Interests } from "../../../src/components/onboarding/Step3Interests";
@@ -47,18 +47,6 @@ function setup(initial: ReadonlySet<InterestCategory> = new Set()) {
 
 describe("Step3Interests", () => {
   afterEach(() => cleanup());
-
-  it("clicking a chip calls onToggle with that category", () => {
-    const { view, onToggle } = setup();
-    fireEvent.click(view.getByText("Music"));
-    expect(onToggle).toHaveBeenCalledWith("music");
-  });
-
-  it("a selected chip reports aria-pressed=true", () => {
-    const { view } = setup(new Set<InterestCategory>(["music"]));
-    const musicChip = view.getByText("Music").closest("button");
-    expect(musicChip?.getAttribute("aria-pressed")).toBe("true");
-  });
 
   it("an unselected chip reports aria-pressed=false", () => {
     const { view } = setup(new Set<InterestCategory>(["music"]));

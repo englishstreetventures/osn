@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 
@@ -84,6 +84,43 @@ describe("the wedding list at a phone's width", () => {
     expect(style.borderTopLeftRadius).toBe("16px");
     // A row set on the page's own ground: no fill of its own.
     expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  });
+});
+
+/*
+ * A wedding tile's hover (DESIGN.md §4, One motion rule): the gold rule down
+ * its left edge, the "Open dashboard" ink and the arrow's nudge come and go on
+ * `--dur-fast` with `--ease-out`, as every hover does.
+ */
+describe("a wedding tile's hover", () => {
+  it("moves the rule, the ink and the arrow on --dur-fast with --ease-out", async () => {
+    await page.viewport(1280, 900);
+    render(() => <WeddingList weddings={WEDDINGS} onSelect={() => {}} onCreated={() => {}} />);
+    const tile = screen.getByRole("button", { name: new RegExp(WEDDINGS[1]!.displayName) });
+    const resolved = (
+      property: "transitionDuration" | "transitionTimingFunction",
+      token: string,
+    ) => {
+      const probe = document.createElement("div");
+      probe.style[property] = `var(${token})`;
+      document.body.append(probe);
+      const value = getComputedStyle(probe)[property];
+      probe.remove();
+      return value;
+    };
+    const rule = tile.querySelector<HTMLElement>('span[aria-hidden="true"]')!;
+    const ink = within(tile).getByText("Open dashboard");
+    const arrow = within(tile).getByText("→");
+    expect(rule).not.toBe(arrow);
+    const clocks = [rule, ink, arrow].map((part) => {
+      const style = getComputedStyle(part);
+      return [style.transitionDuration, style.transitionTimingFunction];
+    });
+    const hover = [
+      resolved("transitionDuration", "--dur-fast"),
+      resolved("transitionTimingFunction", "--ease-out"),
+    ];
+    expect(clocks).toEqual([hover, hover, hover]);
   });
 });
 

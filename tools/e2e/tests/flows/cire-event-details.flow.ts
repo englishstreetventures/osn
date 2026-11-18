@@ -29,6 +29,13 @@
  * The edited event is the sample wedding's Kitchen Tea, and the household
  * allowed a plus-one is Eli's; no other flow reads either, so the edits change
  * nothing another flow sees.
+ *
+ * In the same sign-in, the organiser opens a second wedding whose first event
+ * was saved before the editor checked an event's name, times and zone (no
+ * name, times with no UTC offset, the zone `AEST`). The editor marks it as a
+ * warning and saves an edit to the other event around it, leaving its values
+ * as stored; a time edited on its zone shuts Save until a zone is picked; the
+ * fix saves. Its own wedding, so no other flow sees it.
  */
 
 import { readFileSync } from "node:fs";
@@ -38,6 +45,7 @@ import type { Page } from "@playwright/test";
 
 import {
   CIRE_EVENT_EDIT,
+  CIRE_LEGACY_EVENT,
   DB_FILES,
   DEV_LOGIN_SECRET,
   ORIGINS,
@@ -236,8 +244,8 @@ test("cire-event-details", async ({ page, context, flow }) => {
   });
 
   /** Save, confirm in the preview, and wait for the editor to reload its rows. */
-  const saveSchedule = async () => {
-    const preview = responseTo(page, "POST", `${WEDDING_API}/changes/preview`);
+  const saveScheduleOf = async (api: string) => {
+    const preview = responseTo(page, "POST", `${api}/changes/preview`);
     await page.getByRole("button", { name: "Save changes" }).click();
     const previewed = await preview;
     expect(previewed.status(), "preview").toBe(200);
@@ -246,8 +254,8 @@ test("cire-event-details", async ({ page, context, flow }) => {
       changeId: string;
     };
 
-    const apply = responseTo(page, "POST", `${WEDDING_API}/changes/apply`);
-    const reload = responseTo(page, "GET", `${WEDDING_API}/events`);
+    const apply = responseTo(page, "POST", `${api}/changes/apply`);
+    const reload = responseTo(page, "GET", `${api}/events`);
     await page
       .getByRole("dialog", { name: "Review changes before applying" })
       .getByRole("button", { name: "Confirm & save" })
@@ -259,6 +267,7 @@ test("cire-event-details", async ({ page, context, flow }) => {
     await expect(page.getByRole("button", { name: "Save changes" })).toBeHidden();
     return { status, warnings, changeId };
   };
+  const saveSchedule = () => saveScheduleOf(WEDDING_API);
 
   const kitchenTeaRow = () =>
     queryOne<{
@@ -553,6 +562,111 @@ test("cire-event-details", async ({ page, context, flow }) => {
     ),
   );
   flow.check("Eli allowed a plus-one", 200, allowed);
+
+  // ── An event saved before the editor checked its fields ──────────────────
+  const LEGACY_API = `${ORIGINS.cireApi}/api/organiser/weddings/${CIRE_LEGACY_EVENT.weddingId}`;
+  const legacyRowOf = (id: string) =>
+    queryOne<{
+      name: string;
+      start_at: string;
+      end_at: string;
+      timezone: string;
+      address: string | null;
+    }>(
+      DB_FILES.cire,
+      "SELECT name, start_at, end_at, timezone, address FROM events WHERE id = ?",
+      id,
+    );
+  /** The four fields the editor checks, as one comparable string. */
+  const heldFields = (r: ReturnType<typeof legacyRowOf>) =>
+    `${JSON.stringify(r?.name)} / ${r?.start_at} / ${r?.end_at} / ${r?.timezone}`;
+  const STORED = CIRE_LEGACY_EVENT.stored;
+  const legacyCard = page
+    .getByRole("listitem")
+    .filter({ has: page.getByText("Untitled event", { exact: true }) })
+    .filter({ has: page.getByRole("button", { name: "Edit", exact: true }) });
+  const otherCard = page
+    .getByRole("listitem")
+    .filter({ has: page.getByText(CIRE_LEGACY_EVENT.otherName, { exact: true }) })
+    .filter({ has: page.getByRole("button", { name: "Edit", exact: true }) });
+
+  const legacyListed = await flow.step(
+    "open the events editor of a wedding with an event saved before the checks",
+    async () => {
+      await page.goto(`${ORIGINS.cireHost}/#/w/${CIRE_LEGACY_EVENT.weddingId}/events/edit`);
+      const rows = responseTo(page, "GET", `${LEGACY_API}/events`);
+      await page.reload();
+      expect((await rows).status(), "events read").toBe(200);
+      await expect(legacyCard).toBeVisible();
+      await shot(page, "legacy-event-row");
+      return (await legacyCard.textContent()) ?? "";
+    },
+  );
+  flow.check(
+    "the row says its saved details need fixing",
+    true,
+    legacyListed.includes("Saved details need fixing — open it to see them."),
+  );
+
+  const aroundIt = await flow.step("save an edit to the other event around it", async () => {
+    await otherCard.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(drawer).toBeVisible();
+    await drawer.getByLabel("Address").fill(CIRE_LEGACY_EVENT.address);
+    await drawer.getByRole("button", { name: "Done" }).click();
+    await expect(drawer).toBeHidden();
+    return saveScheduleOf(LEGACY_API);
+  });
+  flow.check("the save around it applied", 200, aroundIt.status);
+  flow.check(
+    "the other event's address changed",
+    CIRE_LEGACY_EVENT.address,
+    legacyRowOf(CIRE_LEGACY_EVENT.otherId)?.address ?? "missing",
+  );
+  flow.check(
+    "the legacy event keeps the values it was saved with",
+    `${JSON.stringify(STORED.name)} / ${STORED.start_at} / ${STORED.end_at} / ${STORED.timezone}`,
+    heldFields(legacyRowOf(CIRE_LEGACY_EVENT.legacyId)),
+  );
+
+  const fixing = await flow.step("open the legacy event and fix it", async () => {
+    await legacyCard.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(drawer).toBeVisible();
+    const warning = drawer
+      .getByText("These saved details need fixing. Your other changes still save.")
+      .locator("xpath=..");
+    await expect(warning).toBeVisible();
+    await shot(page, "legacy-event-drawer");
+    const toFix = (await warning.locator("p").allTextContents()).join(" ");
+
+    // A time set on a zone the browser cannot resolve takes its offset from
+    // nowhere it can trust, so Save waits for a zone.
+    await drawer.getByLabel("Start time").fill(CIRE_LEGACY_EVENT.fixedStartTime);
+    const save = page.getByRole("button", { name: "Save changes" });
+    await expect(save).toBeDisabled();
+    const waited = await drawer
+      .getByText("Choose a timezone from the list.", { exact: true })
+      .count();
+
+    await drawer.getByLabel("Timezone").selectOption(CIRE_LEGACY_EVENT.fixedZone);
+    await drawer.getByLabel("Event name").fill(CIRE_LEGACY_EVENT.fixedName);
+    await expect(warning).toBeHidden();
+    await expect(save).toBeEnabled();
+    await drawer.getByRole("button", { name: "Done" }).click();
+    await expect(drawer).toBeHidden();
+    return { toFix, waited, ...(await saveScheduleOf(LEGACY_API)) };
+  });
+  flow.check(
+    "the drawer lists each saved value to fix",
+    "These saved details need fixing. Your other changes still save. Event name is required. Re-enter the start time. Re-enter the end time. Choose a timezone from the list.",
+    fixing.toFix,
+  );
+  flow.check("a time edited on that zone waits for a zone", 1, fixing.waited);
+  flow.check("the fix applied", 200, fixing.status);
+  flow.check(
+    "the fixed event holds a name, its zone, and both times stamped from it",
+    `${JSON.stringify(CIRE_LEGACY_EVENT.fixed.name)} / ${CIRE_LEGACY_EVENT.fixed.start_at} / ${CIRE_LEGACY_EVENT.fixed.end_at} / ${CIRE_LEGACY_EVENT.fixed.timezone}`,
+    heldFields(legacyRowOf(CIRE_LEGACY_EVENT.legacyId)),
+  );
 
   const claimed = await flow.step("open the invitation from Preview invite", async () => {
     // What the button asks for before it opens the invitation.

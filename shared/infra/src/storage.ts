@@ -17,6 +17,9 @@ export class AdoptedLocationHintError extends Data.TaggedError("AdoptedLocationH
   readonly message: string;
 }> {}
 
+/** The table Alchemy keeps each database's migration ledger in. */
+export const ALCHEMY_LEDGER = "__alchemy_migrations";
+
 /** Production storage is adopted, so it never declares where it lives: a hint that differs from live replaces it. */
 function refuseAdoptedHint(resource: string, stage: string, locationHint: string | null): void {
   if (locationHint !== null && tierOf(stage) === "production") {
@@ -42,8 +45,12 @@ export interface RetainedD1Input {
   readonly jurisdiction: NonNullable<Cloudflare.D1.DatabaseProps["jurisdiction"]>;
   /** Where a database this stage creates is placed; null on production, whose databases are adopted. */
   readonly locationHint: NonNullable<Cloudflare.D1.DatabaseProps["primaryLocationHint"]> | null;
-  /** The migrations directory once Alchemy migrates this database; null while Wrangler still does. */
-  readonly migrations: string | null;
+  /**
+   * The flattened directory Alchemy migrates this database from
+   * (`flattenMigrations`): Alchemy is every database's one migrator, on every
+   * stage, and keeps its ledger in `__alchemy_migrations`.
+   */
+  readonly migrations: string;
   /** SQL files Alchemy imports after the migrations, in order; refused on production, whose data is never seeded. */
   readonly importFiles: readonly string[];
 }
@@ -70,7 +77,15 @@ export function retainedD1Props(
     input.locationHint === null
       ? declared
       : { ...declared, primaryLocationHint: input.locationHint };
-  const migrated = input.migrations === null ? placed : { ...placed, migrations: input.migrations };
+  // The table is named, not left to Alchemy: an explicit table beats one a
+  // prior deploy stamped into state (`@alchemy.run/sql` Registry.ts
+  // `resolveMigrations`), so a stamped `d1_migrations` can never become the
+  // ledger Alchemy rebuilds in place. Wrangler's `d1_migrations` is converted
+  // once, read only, and never written.
+  const migrated = {
+    ...placed,
+    migrations: { dir: input.migrations, table: ALCHEMY_LEDGER },
+  };
   return input.importFiles.length === 0
     ? migrated
     : { ...migrated, importFiles: [...input.importFiles] };

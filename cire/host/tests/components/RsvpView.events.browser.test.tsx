@@ -32,7 +32,10 @@ import "../../src/styles/global.css";
 
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
-vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
+vi.mock("@shared/toast", () => ({
+  toast: { success: () => {}, error: () => {}, info: () => {} },
+  toasts: () => [],
+}));
 vi.mock("../../src/lib/touch-feedback", () => ({
   haptic: () => {},
   hapticsAvailable: () => false,
@@ -165,11 +168,17 @@ beforeAll(() => {
   document.head.append(style);
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   authFetch.mockReset();
   delete document.documentElement.dataset.theme;
   window.scrollTo(0, 0);
+  // `cleanup()` does not move the pointer. Left where a test hovered or
+  // clicked, it would lift whatever the next render draws there, the same
+  // test run again included. `unhover` moves it to the middle of the page, and
+  // here it runs whether the test passed or failed, so a failure is reported
+  // once, by the test that failed.
+  await userEvent.unhover(document.body);
 });
 
 interface AXNode {
@@ -308,7 +317,12 @@ describe("the RSVP page's event tabs", () => {
     expect(brunch!.getAttribute("aria-selected")).toBe("true");
     expect(chosen).toEqual(["evt_reception", "evt_brunch"]);
 
-    // Tab leaves the strip for the search box beside it, in the same bar.
+    // Tab leaves the strip for the download that ends its row, then the
+    // search box that starts the next, in reading order.
+    await userEvent.tab();
+    expect(document.activeElement).toBe(
+      within(viewBar()).getByRole("button", { name: "Download RSVPs CSV" }),
+    );
     await userEvent.tab();
     expect(document.activeElement).toBe(
       within(viewBar()).getByRole("searchbox", { name: "Search Farewell brunch guests" }),
@@ -752,10 +766,25 @@ describe("the RSVP bar's one pill language", () => {
       replies: bar.getByRole("radiogroup").getBoundingClientRect().height,
       key: bar.getByRole("button", { name: "What the reply icons mean" }).getBoundingClientRect()
         .height,
-      download: bar.getByRole("button", { name: "Download RSVPs (CSV)" }).getBoundingClientRect()
+      download: bar.getByRole("button", { name: "Download RSVPs CSV" }).getBoundingClientRect()
         .height,
     };
     expect(heights).toEqual({ search: 28, events: 28, replies: 28, key: 28, download: 28 });
+  });
+
+  it("ends the first row with the download, its word beside its icon", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const download = within(viewBar()).getByRole("button", { name: "Download RSVPs CSV" });
+    const box = download.getBoundingClientRect();
+    expect(Math.abs(box.top - strip().getBoundingClientRect().top)).toBeLessThanOrEqual(0.5);
+    expect(box.right).toBeGreaterThan(strip().getBoundingClientRect().right);
+    expect(download.textContent).toBe("Download RSVPs CSV");
+    expect(box.width).toBeGreaterThan(28);
+    expect(download.querySelector("svg")!.getBoundingClientRect().width).toBe(14);
+    // `outline`'s word: the readable gold, as on every page's download.
+    expect(getComputedStyle(download).color).toBe(probe("text-gold-ink", "color"));
   });
 
   it("rests the search box on the track's look, led by a magnifier, its edge strong under the pointer and on focus", async () => {
@@ -804,13 +833,12 @@ describe("the RSVP bar's one pill language", () => {
     expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border-strong")));
   });
 
-  it("draws the reply key and the download as the bar's icon buttons: lifted under the pointer, raised while open", async () => {
+  it("draws the reply key as the bar's icon button: lifted under the pointer, raised while open", async () => {
     await page.viewport(1280, 900);
     renderPage(THREE);
     await ready(rowsOf(THREE));
     const bar = within(viewBar());
     const key = bar.getByRole("button", { name: "What the reply icons mean" });
-    const download = bar.getByRole("button", { name: "Download RSVPs (CSV)" });
     const search = bar.getByRole("searchbox");
     /** `button`'s fill, edge and ink, each as one comparable paint. */
     const look = (button: Element) => {
@@ -823,19 +851,15 @@ describe("the RSVP bar's one pill language", () => {
     document.body.append(ground);
     const lifted = getComputedStyle(ground).backgroundColor;
     ground.remove();
-    // At rest, both: the search box's ground and the hairline.
-    for (const button of [key, download]) {
-      expect(button.getBoundingClientRect().width).toBe(28);
-      expect(paint(getComputedStyle(button).borderTopColor)).toBe(paint(rootToken("--border")));
-      expect(paint(getComputedStyle(button).backgroundColor)).toBe(
-        paint(getComputedStyle(search).backgroundColor),
-      );
-    }
+    // At rest: the search box's ground and the hairline.
+    expect(key.getBoundingClientRect().width).toBe(28);
+    expect(paint(getComputedStyle(key).borderTopColor)).toBe(paint(rootToken("--border")));
+    expect(paint(getComputedStyle(key).backgroundColor)).toBe(
+      paint(getComputedStyle(search).backgroundColor),
+    );
     // Under the pointer: the ground at 60%, the body ink, a gold edge.
-    for (const button of [download, key]) {
-      await userEvent.hover(button);
-      expect(look(button)).toEqual([lifted, rootToken("--gold"), rootToken("--text")].map(paint));
-    }
+    await userEvent.hover(key);
+    expect(look(key)).toEqual([lifted, rootToken("--gold"), rootToken("--text")].map(paint));
     // Open, the pointer still on it: the raised surface, the body ink and the
     // hairline, which the pointer does not move.
     await userEvent.click(key);
@@ -874,13 +898,20 @@ describe("the RSVPs page's own lines", () => {
     expect(seen.every((el) => viewBar().contains(el))).toBe(true);
   });
 
-  it("keeps the download in the bar's search row on a phone", async () => {
+  it("keeps the download in the bar's search row on a phone, a circle named by its hidden word", async () => {
     await page.viewport(390, 844);
     renderPage(THREE);
     await ready(rowsOf(THREE));
-    const download = within(viewBar()).getByRole("button", { name: "Download RSVPs (CSV)" });
+    const download = within(viewBar()).getByRole("button", { name: "Download RSVPs CSV" });
     const search = within(viewBar()).getByRole("searchbox");
     expect(download.getBoundingClientRect().height).toBe(28);
+    expect(download.getBoundingClientRect().width).toBe(28);
+    expect(download.getAttribute("data-tip")).toBe("Download RSVPs CSV");
+    // The bar's icon button, drawn as the reply key beside it is.
+    const key = within(viewBar()).getByRole("button", { name: "What the reply icons mean" });
+    for (const property of ["borderTopColor", "backgroundColor", "color"] as const) {
+      expect(getComputedStyle(download)[property]).toBe(getComputedStyle(key)[property]);
+    }
     expect(
       Math.abs(download.getBoundingClientRect().top - search.getBoundingClientRect().top),
     ).toBeLessThanOrEqual(0.5);

@@ -124,7 +124,7 @@ describe("VenueDetailPage", () => {
     expect(await findByText(/Lineup to be announced/)).toBeTruthy();
   });
 
-  it("fetches scope=upcoming and skips the past fallback when nights exist (P-W1)", async () => {
+  it("fetches scope=upcoming and skips the past fallback when nights exist", async () => {
     fetchVenue.mockResolvedValue(VENUE);
     fetchVenueEvents.mockResolvedValue([EVENT_UPCOMING]);
     fetchEventLineup.mockResolvedValue(SLOTS);
@@ -140,7 +140,7 @@ describe("VenueDetailPage", () => {
     );
   });
 
-  it("falls back to the most recent past night when upcoming is empty (P-W1)", async () => {
+  it("falls back to the most recent past night when upcoming is empty", async () => {
     const pastEvent = {
       ...EVENT_UPCOMING,
       id: "evt_past",
@@ -164,7 +164,7 @@ describe("VenueDetailPage", () => {
     );
   });
 
-  it("shows the loading state before the venue resolves (T-S1)", async () => {
+  it("shows the loading state before the venue resolves", async () => {
     let resolveVenue!: (v: typeof VENUE) => void;
     fetchVenue.mockReturnValue(
       new Promise((resolve) => {
@@ -181,7 +181,7 @@ describe("VenueDetailPage", () => {
     expect(await findByText("The Pickle Factory")).toBeTruthy();
   });
 
-  it("does not render hero image or website link for non-http(s) URLs (S-M2)", async () => {
+  it("does not render hero image or website link for non-http(s) URLs", async () => {
     fetchVenue.mockResolvedValue({
       ...VENUE,
       heroImageUrl: "javascript:alert(1)",

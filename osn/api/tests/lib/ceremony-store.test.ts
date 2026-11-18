@@ -71,7 +71,7 @@ describe("createInMemoryCeremonyStore", () => {
   });
 
   it("carries an updated attempts counter across set/get (attempts carry-over)", async () => {
-    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    const store = createInMemoryCeremonyStore<Entry>("pending_totp_enroll");
     await store.set("k", entry("c", 0), 60_000);
     const first = (await store.get("k"))!;
     await store.set("k", { ...first, attempts: first.attempts + 1 }, 60_000);
@@ -190,7 +190,7 @@ describe("CeremonyStore.consume — first consumer wins", () => {
  */
 describe("CeremonyStore.guess and take", () => {
   it("counts nothing, and stores nothing, when there is no live entry", async () => {
-    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    const store = createInMemoryCeremonyStore<Entry>("pending_totp_enroll");
     expect(await store.guess("ghost")).toEqual({ value: null, n: 0 });
     expect(await store.get("ghost")).toBe(null);
     await store.set("k", entry("c"), 1);
@@ -204,7 +204,7 @@ describe("CeremonyStore.guess and take", () => {
   });
 
   it("counts each guess on the entry and answers the value with the count", async () => {
-    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    const store = createInMemoryCeremonyStore<Entry>("pending_totp_enroll");
     await store.set("k", entry("c"), 60_000);
     const results = await Promise.all([store.guess("k"), store.guess("k"), store.guess("k")]);
     expect(results.map((r) => r.n).toSorted()).toEqual([1, 2, 3]);
@@ -212,7 +212,7 @@ describe("CeremonyStore.guess and take", () => {
   });
 
   it("set restarts the count; delete and consume clear it with the entry", async () => {
-    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    const store = createInMemoryCeremonyStore<Entry>("pending_totp_enroll");
     await store.set("k", entry("first"), 60_000);
     await store.guess("k");
     await store.guess("k");

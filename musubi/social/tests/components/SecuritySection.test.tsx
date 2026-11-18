@@ -45,6 +45,13 @@ const clients = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/lib/authClients", () => clients);
+// The reads go through the page cache, which `SecurityCache.test.tsx` covers.
+vi.mock("../../src/lib/security-data", () => ({
+  passkeyList: {},
+  authenticatorStatus: {},
+  recoveryCodesStatus: {},
+  useSettingsRead: () => ({}),
+}));
 vi.mock("../../src/lib/webauthn-ceremony", () => ({ runPasskeyCeremony: () => {} }));
 vi.mock("../../src/lib/webauthn-registration", () => ({ runPasskeyRegistration: () => {} }));
 
@@ -54,7 +61,7 @@ afterEach(() => cleanup());
 
 describe("SecuritySection", () => {
   it("mounts all three ways in and back into an account", () => {
-    render(() => <SecuritySection accessToken="acc" profileId="prof_1" />);
+    render(() => <SecuritySection profileId="prof_1" />);
     expect(screen.getByTestId("passkeys")).toBeTruthy();
     // Without this the authenticator-app work ships unreachable.
     expect(screen.getByTestId("totp")).toBeTruthy();
@@ -62,7 +69,7 @@ describe("SecuritySection", () => {
   });
 
   it("offers the authenticator as a step-up factor on the surfaces that admit it", () => {
-    render(() => <SecuritySection accessToken="acc" profileId="prof_1" />);
+    render(() => <SecuritySection profileId="prof_1" />);
     // `passkey_register` and `recovery_generate` both admit a `totp` AMR, so
     // a user whose passkey is on a lost device can still act here.
     expect(props.passkeys.totpClient).toBe(clients.totpClient);

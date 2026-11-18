@@ -2,6 +2,7 @@ import { Checkbox, type ChoiceBox } from "@shared/ui/ui/checkbox";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput, type OtpStatus } from "@shared/ui/ui/otp-input";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Select } from "@shared/ui/ui/select";
@@ -112,27 +113,107 @@ export const Username: Story<UsernameArgs> = {
 interface OtpArgs extends StoryArgs {
   status: OtpStatus;
   disabled: boolean;
+  labelled: boolean;
+  autofocus: boolean;
+  column: string;
 }
 
 /**
  * The six-box verification code. `verifying` and `accepted` disable the boxes
- * on their own; `error` re-focuses the first one so a retry can just be typed.
+ * on their own; `error` marks every box invalid and refocuses the first one so
+ * a retry can just be typed. The boxes share the column's width up to 48px
+ * each: pick a column to watch them shrink. `labelled` names the group from
+ * the label above it and each box "Code from your email Digit N"; `autofocus`
+ * takes effect when the story mounts.
  */
 export const Otp: Story<OtpArgs> = {
-  args: { status: "idle", disabled: false },
+  args: { status: "idle", disabled: false, labelled: true, autofocus: false, column: "400px" },
   controls: {
     status: { kind: "select", options: ["idle", "error", "verifying", "accepted"] },
+    column: { kind: "select", options: ["212px", "260px", "300px", "400px", "100%"] },
   },
   render: (args) => {
     const [code, setCode] = createSignal("12");
     return (
-      <div class="flex flex-col gap-3">
-        <OtpInput value={code()} onChange={setCode} status={args.status} disabled={args.disabled} />
+      <div class="flex flex-col gap-3" style={{ width: args.column }}>
+        <Label id="lab-otp-label">Code from your email</Label>
+        <OtpInput
+          value={code()}
+          onChange={setCode}
+          status={args.status}
+          disabled={args.disabled}
+          autofocus={args.autofocus}
+          aria-labelledby={args.labelled ? "lab-otp-label" : undefined}
+        />
         <p class="text-meta text-subtle">value: {code() || "(empty)"}</p>
       </div>
     );
   },
 };
+
+/**
+ * Every state at once, each named by the label above it. The error line is an
+ * inline `Notice` with `alert`, so it is read when it appears, and its id goes
+ * to every box through `aria-describedby`, so it is read again when focus
+ * lands on one.
+ */
+export const OtpStates = () => {
+  const states: { label: string; value: string; status?: OtpStatus; disabled?: boolean }[] = [
+    { label: "Empty", value: "" },
+    { label: "Partly typed", value: "123" },
+    { label: "Error", value: "123456", status: "error" },
+    { label: "Verifying", value: "123456", status: "verifying" },
+    { label: "Accepted", value: "123456", status: "accepted" },
+    { label: "Disabled", value: "", disabled: true },
+  ];
+  return (
+    <div class="flex max-w-sm flex-col gap-6">
+      {states.map((state, n) => {
+        const [code, setCode] = createSignal(state.value);
+        const labelId = `lab-otp-state-${n}`;
+        const errorId = `lab-otp-state-${n}-error`;
+        return (
+          <div class="flex flex-col gap-2">
+            <Label id={labelId}>{state.label}</Label>
+            <OtpInput
+              value={code()}
+              onChange={setCode}
+              status={state.status}
+              disabled={state.disabled}
+              aria-labelledby={labelId}
+              aria-describedby={state.status === "error" ? errorId : undefined}
+            />
+            {state.status === "error" && (
+              <Notice size="inline" tone="danger" alert id={errorId}>
+                Incorrect code. Try again.
+              </Notice>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/**
+ * The row in the columns it has to fit: 212px (an authenticator enrolment box
+ * in Settings on a 320px phone, under Musubi's touch floor), 260px (the
+ * narrowest column that keeps 40px boxes), 300px (`/authorize` at 390px) and
+ * 400px, where the boxes reach their 48px and stop growing.
+ */
+export const OtpNarrow = () => (
+  <div class="flex flex-wrap items-start gap-8">
+    {["212px", "260px", "300px", "400px"].map((width) => {
+      const [code, setCode] = createSignal("1234");
+      return (
+        <div class="flex flex-col gap-2" style={{ width }}>
+          <p class="text-meta text-subtle">{width}</p>
+          <OtpInput value={code()} onChange={setCode} />
+        </div>
+      );
+    })}
+  </div>
+);
 
 /**
  * `Field` is the label-hint-error scaffolding, and the thing to notice is what
@@ -182,6 +263,111 @@ export const Fields = () => {
       </Field>
     </div>
   );
+};
+
+/**
+ * `labelTreatment="plain"`: the label `Label` draws by default — the words as
+ * written, full ink, weight 500, the control type step — over `Field`'s wiring.
+ * The first column is the sign-up form (`@osn/auth-ui`'s `Register`) drawn with
+ * plain fields, two of them wrong; the second holds a field with two errors,
+ * one with a hint, and a long label wrapping in a 200px column; the third is
+ * the Email field in the default treatment, cire's, for comparison.
+ *
+ * Register's Email label also carries an `InfoPopover` beside it. `Field` has
+ * no place for one, so it is not drawn here.
+ */
+export const PlainLabels = () => {
+  const [handle, setHandle] = createSignal("ada");
+  return (
+    <div class="flex flex-wrap items-start gap-10">
+      <div class="flex w-80 flex-col gap-4">
+        <Field labelTreatment="plain" label="Email" errors={["Please enter a valid email address"]}>
+          {(field) => <Input {...field} type="email" value="ada@example" />}
+        </Field>
+        <Field labelTreatment="plain" label="Handle">
+          {(field) => (
+            <UsernameInput
+              {...field}
+              value={handle()}
+              onInput={setHandle}
+              status="available"
+              placeholder="lowercase, numbers, _"
+            />
+          )}
+        </Field>
+        <Field
+          labelTreatment="plain"
+          label="Date of birth"
+          errors={["Musubi is for users 13 and older"]}
+        >
+          {(field) => <Input {...field} type="date" value="2020-01-01" />}
+        </Field>
+        <Field labelTreatment="plain" label="Display name (optional)">
+          {(field) => <Input {...field} />}
+        </Field>
+      </div>
+
+      <div class="flex w-80 flex-col gap-4">
+        <Field
+          labelTreatment="plain"
+          label="Organisation handle"
+          errors={["Use lowercase letters, numbers and underscores", "That handle is taken"]}
+        >
+          {(field) => <Input {...field} value="Acme Ltd" />}
+        </Field>
+        <Field
+          labelTreatment="plain"
+          label="Date of birth"
+          hint="You must be 13 or older to use Musubi"
+        >
+          {(field) => <Input {...field} type="date" />}
+        </Field>
+        <div class="w-50">
+          <Field labelTreatment="plain" label="A label long enough to wrap onto a second line">
+            {(field) => <Input {...field} />}
+          </Field>
+        </div>
+      </div>
+
+      <div class="flex w-80 flex-col gap-4">
+        <Field label="Email" errors={["Please enter a valid email address"]}>
+          {(field) => <Input {...field} type="email" value="ada@example" />}
+        </Field>
+      </div>
+    </div>
+  );
+};
+
+interface FieldPlaygroundArgs extends StoryArgs {
+  labelTreatment: "caps" | "plain";
+  label: string;
+  hint: boolean;
+  errors: number;
+  labelHidden: boolean;
+}
+
+const PLAYGROUND_ERRORS = ["Please enter a valid email address", "That address is already in use"];
+
+/** Every way `Field`'s label, hint and errors combine, one control each. */
+export const FieldPlayground: Story<FieldPlaygroundArgs> = {
+  args: { labelTreatment: "plain", label: "Email", hint: true, errors: 1, labelHidden: false },
+  controls: {
+    labelTreatment: { kind: "select", options: ["caps", "plain"] },
+    errors: { kind: "select", options: [0, 1, 2] },
+  },
+  render: (args) => (
+    <div class="w-80">
+      <Field
+        labelTreatment={args.labelTreatment}
+        label={args.label}
+        labelHidden={args.labelHidden}
+        hint={args.hint ? "We never show it on your profile" : undefined}
+        errors={PLAYGROUND_ERRORS.slice(0, Number(args.errors))}
+      >
+        {(field) => <Input {...field} type="email" value="ada@example" />}
+      </Field>
+    </div>
+  ),
 };
 
 /**
@@ -370,7 +556,6 @@ function CheckboxStates(props: { box: ChoiceBox }) {
       <Checkbox
         box={props.box}
         size="sm"
-        align="start"
         class="max-w-72"
         checked={remove()}
         onChange={setRemove}
@@ -386,7 +571,6 @@ function CheckboxStates(props: { box: ChoiceBox }) {
       />
       <Checkbox
         box={props.box}
-        align="start"
         checked={maps()}
         onChange={setMaps}
         label="Google Maps"
@@ -403,7 +587,6 @@ function CheckboxStates(props: { box: ChoiceBox }) {
       <Checkbox
         box={props.box}
         size="sm"
-        align="start"
         checked={attest()}
         onChange={setAttest}
         label="I confirm the plus-one consented to their dietary requirements being stored and shared with the caterers."
@@ -422,10 +605,10 @@ function CheckboxStates(props: { box: ChoiceBox }) {
 
 /**
  * `Checkbox`, every state: checked, unchecked, disabled both ways, named only
- * by `aria-label`, a two-line label holding a link (`align="start"`, the box on
- * its first line), a `description` inside the label, and a `note` under it,
- * outside the label. The drawn box under the lab's mapping, as pulse draws it;
- * the native box under cire's, light and dark.
+ * by `aria-label`, a two-line label holding a link (the box on its first line,
+ * as always), a `description` inside the label, and a `note` under it,
+ * outside the label. The drawn box under the lab's mapping, as Musubi and
+ * pulse draw it; the native box under cire's, light and dark.
  */
 export const CheckboxBoxes = () => (
   <div class="flex flex-wrap items-start gap-6">
@@ -444,6 +627,7 @@ export const CheckboxBoxes = () => (
 function RadioStates(props: { box: ChoiceBox }) {
   const [scope, setScope] = createSignal("every");
   const [shown, setShown] = createSignal("guests");
+  const [owner, setOwner] = createSignal("successor");
   return (
     <div class="flex flex-col gap-5">
       <div class="flex flex-col gap-2">
@@ -481,15 +665,41 @@ function RadioStates(props: { box: ChoiceBox }) {
           <RadioGroupItem value="b" label="Not chosen" />
         </RadioGroup>
       </div>
+      <div class="flex max-w-72 flex-col gap-2">
+        <span class="text-ui-xs text-ui-ink-secondary">
+          Column, touch: long words and a description; 44px rows below md
+        </span>
+        <RadioGroup
+          box={props.box}
+          size="sm"
+          orientation="vertical"
+          touch
+          value={owner()}
+          onChange={setOwner}
+          aria-label="Who owns the club"
+        >
+          <RadioGroupItem value="transfer" label="@bobwhite becomes the owner." />
+          <RadioGroupItem
+            value="successor"
+            label="The member you name becomes the owner, once they accept."
+            description="They get an email to accept."
+          />
+          <RadioGroupItem
+            value="delete"
+            label="The organisation and its memberships are deleted when your account is."
+          />
+        </RadioGroup>
+      </div>
     </div>
   );
 }
 
 /**
- * `RadioGroup`, every state: a row (16px apart in the native box, 8px in the
- * drawn) with one radio disabled, a column (8px apart), and a whole group
- * disabled. The drawn circle under the lab's mapping; the native radio under
- * cire's, light and dark.
+ * `RadioGroup`, every state: a row (16px apart) with one radio disabled, a
+ * column (8px apart), a whole group disabled, and a `touch` column of long
+ * labels, one with a `description`: each circle on its words' first line, the
+ * options evenly apart. The drawn circle under the lab's mapping; the native
+ * radio under cire's, light and dark.
  */
 export const RadioBoxes = () => (
   <div class="flex flex-wrap items-start gap-6">

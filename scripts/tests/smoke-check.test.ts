@@ -11,19 +11,17 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { HostHold } from "../../shared/infra/src/production-sites";
 import { isSurfaceKey } from "../deploy-surfaces";
 import {
   annotation,
   CI_USER_AGENT,
   type Deployment,
-  deployedVersion,
-  devRestorePlan,
   devTarget,
   judge,
   type Outcome,
   probeOnce,
   type Probe,
-  productionSiteTarget,
   productionTarget,
   restorePlan,
   rollbackMessage,
@@ -177,7 +175,7 @@ const workerOf = (args: readonly string[]) => {
   if (surface === undefined || !isSurfaceKey(surface)) return undefined;
   if (tier === "dev") return devTarget(surface)?.worker;
   if (tier !== "production") return undefined;
-  return (productionSiteTarget(surface) ?? productionTarget(surface))?.worker;
+  return productionTarget(surface)?.worker;
 };
 
 // Dev hosts come from the stack job's dev-hosts step, never from this script.
@@ -192,13 +190,48 @@ const devEnv = (origin: string, extra: Record<string, string | undefined> = {}) 
   SMOKE_DEPLOYMENT: DEP_THIS_JOB,
   ...extra,
 });
+
+/**
+ * What a production stack job's smoke step passes for each surface: its
+ * production origin (production-hosts) and the guest site's marketing origin.
+ */
+const PRODUCTION_ORIGINS: Readonly<Partial<Record<string, Record<string, string>>>> = {
+  cire_api: { SMOKE_ORIGIN: "https://api.cireweddings.com" },
+  cire_invites: {
+    SMOKE_ORIGIN: "https://invite.cireweddings.com",
+    SMOKE_MARKETING_ORIGIN: "https://cireweddings.com",
+  },
+  osn_api: { SMOKE_ORIGIN: "https://id.musubi.social" },
+  zap_api: { SMOKE_ORIGIN: "https://zap.cireweddings.com" },
+  cire_host: { SMOKE_ORIGIN: "https://host.cireweddings.com" },
+  cire_vendor: { SMOKE_ORIGIN: "https://vendor.cireweddings.com" },
+  cire_landing: { SMOKE_ORIGIN: "https://cireweddings.com" },
+  osn_social: { SMOKE_ORIGIN: "https://musubi.social" },
+  musubi_landing: { SMOKE_ORIGIN: "https://www.musubi.social" },
+};
+
+/** The production stack job's env for `args`, the deployment its deploy made included; none on dev. */
+const productionEnvFor = (args: readonly string[]): Record<string, string> => {
+  const [surface, tier] = args;
+  if (tier !== "production" || surface === undefined) return {};
+  return { ...PRODUCTION_ORIGINS[surface], SMOKE_DEPLOYMENT: DEP_THIS_JOB };
+};
 const INVITES_ENV = (extra: Record<string, string | undefined> = {}) =>
   devEnv(INVITES_DEV, { SMOKE_MARKETING_ORIGIN: CIRE_LANDING_DEV, ...extra });
 
+/**
+ * Runs the check over `answers`. Holds none unless `options.holds` names
+ * some, so no test reads PRODUCTION_HOST_HOLDS and an entry the owner adds
+ * fails none.
+ */
 async function smoke(
   args: string[],
   answers: Record<string, Answer>,
-  options: { env?: Record<string, string | undefined>; api?: ApiOptions } = {},
+  options: {
+    env?: Record<string, string | undefined>;
+    api?: ApiOptions;
+    holds?: readonly HostHold[];
+  } = {},
 ) {
   const api = fakeApi(options.api);
   const worker = workerOf(args);
@@ -210,11 +243,12 @@ async function smoke(
   const lines: string[] = [];
   const code = await runSmokeCheck({
     args,
-    env: { ...RUN_ENV, ...options.env },
+    env: { ...RUN_ENV, ...productionEnvFor(args), ...options.env },
     fetch: http.fetch,
     now: clock.now,
     sleep: clock.sleep,
     out: (text) => lines.push(text),
+    holds: options.holds ?? [],
   });
   const isApi = (url: string) => url.startsWith("https://api.cloudflare.com/");
   return {
@@ -243,7 +277,7 @@ const hanging = (_: number, init: RequestInit | undefined): Promise<Response> =>
 // ── what counts as healthy ──────────────────────────────────────────────────
 
 describe("judge: a static JSON file", () => {
-  const file = probe("https://next.musubi.social/.well-known/apple-app-site-association", {
+  const file = probe("https://musubi.social/.well-known/apple-app-site-association", {
     kind: "jsonFile",
   });
   const answer = (status: number, type: string, body: string) =>
@@ -525,57 +559,36 @@ describe("restorePlan", () => {
     deployment("d1", "2026-10-14T09:00:00Z", "v1"),
   ];
 
-  test("restores the newest version that served all traffic before the newest deployment", () => {
-    expect(restorePlan(history, undefined)).toEqual({ ok: true, newest: "d3", version: "v1" });
-    expect(restorePlan(history, "v3")).toEqual({ ok: true, newest: "d3", version: "v1" });
-  });
-
-  test("refuses when the newest deployment is not the version this job deployed", () => {
-    const plan = restorePlan(history, "v-this-job");
-    expect(plan.ok).toBe(false);
-    expect(plan.ok === false && plan.refused).toBe(true);
-    expect(plan.ok === false && plan.reason).toContain("not v-this-job");
-  });
-
-  test("a Worker with one deployment has nothing to restore", () => {
-    const plan = restorePlan([deployment("d1", "2026-10-16T09:00:00Z", "v1")], "v1");
-    expect(plan.ok).toBe(false);
-    expect(plan.ok === false && plan.refused).toBe(false);
-    expect(plan.ok === false && plan.reason).toContain("first deploy");
-    expect(restorePlan([], undefined).ok).toBe(false);
-  });
-});
-
-describe("devRestorePlan", () => {
   test("restores the newest version that served all traffic before the deployment this run made", () => {
-    const history = [
-      deployment("d3", "2026-10-16T09:00:00Z", "v3"),
-      deployment("d2", "2026-10-15T09:00:00Z", "v2", 50),
-      deployment("d1", "2026-10-14T09:00:00Z", "v1"),
-    ];
-    expect(devRestorePlan(history, "d3", "osn-api-dev")).toEqual({
+    expect(restorePlan(history, "d3", "osn-api-production")).toEqual({
       ok: true,
       newest: "d3",
       version: "v1",
     });
   });
-});
 
-describe("deployedVersion", () => {
-  test("reads the last deploy entry of wrangler's output file", () => {
-    const ndjson = [
-      JSON.stringify({ type: "wrangler-session", version: 1 }),
-      "not json",
-      JSON.stringify({ type: "deploy", version: 1, version_id: "v-first" }),
-      "",
-      JSON.stringify({ type: "deploy", version: 1, version_id: "v-this-job" }),
-    ].join("\n");
-    expect(deployedVersion(ndjson)).toBe("v-this-job");
+  test("refuses when another deployment replaced this run's, or the run deployed nothing or could not read what it deployed", () => {
+    for (const [deployed, says] of [
+      ["d-this-run", "was deployed again since this run deployed d-this-run"],
+      ["unchanged", "this run deployed nothing"],
+      ["unknown", "could not be read"],
+    ] as const) {
+      const plan = restorePlan(history, deployed, "osn-api-production");
+      expect({ deployed, ok: plan.ok, refused: plan.ok === false && plan.refused }).toEqual({
+        deployed,
+        ok: false,
+        refused: true,
+      });
+      expect(plan.ok === false && plan.reason).toContain(says);
+    }
   });
 
-  test("names nothing when no entry is a deploy", () => {
-    expect(deployedVersion(JSON.stringify({ type: "deploy" }))).toBeUndefined();
-    expect(deployedVersion("")).toBeUndefined();
+  test("a Worker with one deployment has nothing to restore", () => {
+    const plan = restorePlan([deployment("d1", "2026-10-16T09:00:00Z", "v1")], "d1", "zap-api");
+    expect(plan.ok).toBe(false);
+    expect(plan.ok === false && plan.refused).toBe(false);
+    expect(plan.ok === false && plan.reason).toContain("first deploy");
+    expect(restorePlan([], "d1", "zap-api").ok).toBe(false);
   });
 });
 
@@ -899,62 +912,32 @@ describe("a broken deploy", () => {
   });
 });
 
-describe("the rollback restores only what served before this job's deploy", () => {
+describe("the rollback restores only what served before this run's deploy", () => {
   const BROKEN = { ...OSN_PROD, "https://id.musubi.social/health": MISCONFIGURED };
 
-  async function withOutput(contents: string | undefined, api?: ApiOptions) {
-    const dir = await mkdtemp(join(tmpdir(), "smoke-check-output-"));
-    try {
-      const file = join(dir, "wrangler-deploy.ndjson");
-      if (contents !== undefined) await Bun.write(file, contents);
-      return await smoke(["osn_api", "production"], BROKEN, {
-        env: { WRANGLER_OUTPUT_FILE_PATH: file },
-        api,
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  }
-  const deployEntry = (version: string) =>
-    `${JSON.stringify({ type: "deploy", version: 1, version_id: version })}\n`;
-
-  test("rolls back when the newest deployment is the version the deploy step reported", async () => {
-    const result = await withOutput(deployEntry("v-this-job"));
+  test("rolls back when the newest deployment is the one the stack deploy made", async () => {
+    const result = await smoke(["osn_api", "production"], BROKEN);
     expect(result.code).toBe(1);
     expect(result.posts).toHaveLength(1);
   });
 
   test("refuses when another deploy landed before the check began", async () => {
-    const result = await withOutput(deployEntry("v-this-job"), {
-      reads: [[...HISTORY, deployment("dep-other", "2026-10-16T09:00:05Z", "v-other")]],
+    const result = await smoke(["osn_api", "production"], BROKEN, {
+      api: { reads: [[...HISTORY, deployment("dep-other", "2026-10-16T09:00:05Z", "v-other")]] },
     });
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
     expect(result.output).toContain("::error title=Rollback refused::");
-    expect(result.output).toContain("serves v-other, not v-this-job");
+    expect(result.output).toContain("was deployed again since this run deployed");
   });
 
-  test.each([
-    ["is missing", undefined, "cannot be read"],
-    [
-      "names no deploy",
-      `${JSON.stringify({ type: "wrangler-session" })}\n`,
-      "names no deployed version",
-    ],
-  ])("fails, rolling nothing back, when the output file %s", async (_, contents, reason) => {
-    const result = await withOutput(contents);
-    expect(result.code).toBe(1);
-    expect(result.posts).toEqual([]);
-    expect(result.output).toContain("::error title=Rollback failed::");
-    expect(result.output).toContain(reason);
-  });
-
-  test("a refused or failed rollback names the version to restore by hand, and claims nothing about what serves", async () => {
+  test("a refused or failed rollback names the version that served before, tells nobody to roll the stack's Worker back by hand, and claims nothing about what serves", async () => {
     const refused = await smoke(["osn_api", "production"], BROKEN, {
       api: { rollback: apiError(SECRETS_CHANGED, "secrets have changed: X") },
     });
-    expect(refused.output).toContain("`bunx wrangler rollback v-before`");
+    expect(refused.output).toContain("The version that served before this deploy is v-before.");
     expect(refused.output).toContain("Check what osn-api-production serves");
+    expect(refused.output).not.toContain("wrangler rollback");
     expect(refused.output).not.toContain("still runs");
 
     const timedOut = await smoke(["osn_api", "production"], BROKEN, {
@@ -1474,18 +1457,18 @@ describe("dev learns its host and its deployment from the stack job", () => {
 });
 
 describe("a production site the production stack deployed", () => {
-  const STAGED_SOCIAL = "https://next.musubi.social";
+  const SOCIAL_ORIGIN = "https://musubi.social";
   const siteEnv = (extra: Record<string, string | undefined> = {}) => ({
-    SMOKE_ORIGIN: STAGED_SOCIAL,
+    SMOKE_ORIGIN: SOCIAL_ORIGIN,
     SMOKE_DEPLOYMENT: DEP_THIS_JOB,
     ...extra,
   });
   const appFile = (type: string, body: string) =>
     new Response(body, { status: 200, headers: { "content-type": type } });
   const SOCIAL = (association: Response) => ({
-    [`${STAGED_SOCIAL}/`]: html(200),
-    [`${STAGED_SOCIAL}/smoke-check-deep-link`]: html(200),
-    [`${STAGED_SOCIAL}/.well-known/apple-app-site-association`]: association,
+    [`${SOCIAL_ORIGIN}/`]: html(200),
+    [`${SOCIAL_ORIGIN}/smoke-check-deep-link`]: html(200),
+    [`${SOCIAL_ORIGIN}/.well-known/apple-app-site-association`]: association,
   });
 
   test("SM1: probes the host the stack job names, the app's deep link and its app-site association, with no Access token", async () => {
@@ -1527,8 +1510,8 @@ describe("a production site the production stack deployed", () => {
 
   test("SM2: without an https SMOKE_ORIGIN or a SMOKE_DEPLOYMENT it exits 2, asking nothing", async () => {
     for (const env of [
-      { SMOKE_DEPLOYMENT: DEP_THIS_JOB },
-      siteEnv({ SMOKE_ORIGIN: "http://next.musubi.social" }),
+      { SMOKE_ORIGIN: undefined, SMOKE_DEPLOYMENT: DEP_THIS_JOB },
+      siteEnv({ SMOKE_ORIGIN: "http://musubi.social" }),
       siteEnv({ SMOKE_DEPLOYMENT: undefined }),
       siteEnv({ SMOKE_DEPLOYMENT: "latest" }),
     ]) {
@@ -1544,20 +1527,20 @@ describe("a production site the production stack deployed", () => {
 describe("the organiser portal", () => {
   // cire-api's enquiry emails link `/vendors/enquiries/<id>` on the portal's
   // host. No file answers that path; the portal's single-page fallback does.
-  const STAGED_HOST = "https://next.host.cireweddings.com";
+  const PORTAL = "https://host.cireweddings.com";
   const THREAD = "/vendors/enquiries/smoke-check";
-  const hostEnv = { SMOKE_ORIGIN: STAGED_HOST, SMOKE_DEPLOYMENT: DEP_THIS_JOB };
+  const hostEnv = { SMOKE_ORIGIN: PORTAL, SMOKE_DEPLOYMENT: DEP_THIS_JOB };
 
   test("SM4: production asks `/` and an enquiry email's path, and passes when both answer 200 HTML", async () => {
     const result = await smoke(
       ["cire_host", "production"],
-      { [`${STAGED_HOST}/`]: html(200), [`${STAGED_HOST}${THREAD}`]: html(200) },
+      { [`${PORTAL}/`]: html(200), [`${PORTAL}${THREAD}`]: html(200) },
       { env: hostEnv },
     );
     expect(result.code).toBe(0);
     expect([...new Set(result.calls.map((call) => call.url))].toSorted()).toEqual([
-      `${STAGED_HOST}/`,
-      `${STAGED_HOST}${THREAD}`,
+      `${PORTAL}/`,
+      `${PORTAL}${THREAD}`,
     ]);
     expect(result.posts).toEqual([]);
   });
@@ -1566,8 +1549,8 @@ describe("the organiser portal", () => {
     const result = await smoke(
       ["cire_host", "production"],
       {
-        [`${STAGED_HOST}/`]: html(200),
-        [`${STAGED_HOST}${THREAD}`]: new Response(null, { status: 404 }),
+        [`${PORTAL}/`]: html(200),
+        [`${PORTAL}${THREAD}`]: new Response(null, { status: 404 }),
       },
       { env: hostEnv },
     );
@@ -1586,77 +1569,136 @@ describe("the organiser portal", () => {
   });
 });
 
-describe("a production site the release gives a new host", () => {
-  // A new host two labels below its zone answers no TLS handshake until its
-  // certificate arrives, about two minutes after the deploy. The stack job
-  // passes SMOKE_BUDGET_MS for such a site; every other site passes "".
-  const NEW_HOST = "https://next.vendor.cireweddings.com";
-  const hostEnv = (budget: string) => ({
-    SMOKE_ORIGIN: NEW_HOST,
+describe("a production site held off its host", () => {
+  // PRODUCTION_HOST_HOLDS holds a site's host off its Worker: the stack
+  // declares the Worker with no custom domain, so there is no host to probe.
+  // The check reads the Worker's custom domains instead, and passes only when
+  // the held host is not among them.
+  const VENDOR_HELD: readonly HostHold[] = [
+    {
+      site: "cire_vendor",
+      host: "vendor.cireweddings.com",
+      reason: "Serves nothing until the vendor export ships.",
+    },
+  ];
+  const domainsUrl = (worker: string) =>
+    `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/domains?service=${worker}`;
+  const domainList = (worker: string, ...hosts: string[]) =>
+    apiOk(hosts.map((hostname) => ({ hostname, service: worker, zone_name: "cireweddings.com" })));
+  // The stack job passes the production origin for every site, held or not.
+  const env = {
+    SMOKE_ORIGIN: "https://vendor.cireweddings.com",
     SMOKE_DEPLOYMENT: DEP_THIS_JOB,
-    SMOKE_BUDGET_MS: budget,
-  });
-  /** No answer for the first `rounds` rounds (10 s apart), then a working page. */
-  const certificateAfter = (rounds: number) => ({
-    [`${NEW_HOST}/`]: (call: number) => (call <= rounds ? UNREACHABLE() : html(200)),
-  });
+  };
 
-  test("SB1: waits out a certificate that takes 200 s, still asking every 10 s and passing on the first two good rounds; with no budget set it gives up at 60 s", async () => {
-    const waited = await smoke(["cire_vendor", "production"], certificateAfter(20), {
-      env: hostEnv("240000"),
-    });
-    expect(waited.code).toBe(0);
-    // Twenty rounds with no answer (0 to 190 s), then two good ones at 200 and 210 s.
-    expect(waited.sleeps).toEqual(Array(21).fill(10_000));
-    expect(fetchesOf(waited, `${NEW_HOST}/`)).toBe(22);
-    expect(waited.posts).toEqual([]);
-    expect(waited.output).toContain(
-      "Smoke check passed: cire_vendor (production), 1 probes, 22 rounds.",
+  test("H8: passes when the Worker serves no held host, probing nothing and rolling nothing back", async () => {
+    const result = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => domainList("cire-vendor") },
+      { env, holds: VENDOR_HELD },
     );
-
-    const minute = await smoke(["cire_vendor", "production"], certificateAfter(20), {
-      env: hostEnv(""),
-    });
-    expect(minute.code).toBe(1);
-    expect(minute.sleeps).toEqual(Array(6).fill(10_000));
-    expect(minute.posts).toEqual([]);
-    expect(minute.output).toContain("within 60 s, but the Worker never answered wrongly");
-  });
-
-  test("SB2: a host that never answers fails when the budget runs out, at 240 s, without a rollback", async () => {
-    const result = await smoke(["cire_vendor", "production"], certificateAfter(Infinity), {
-      env: hostEnv("240000"),
-    });
-    expect(result.code).toBe(1);
-    // Rounds at 0, 10, … 240 s.
-    expect(result.sleeps).toEqual(Array(24).fill(10_000));
-    expect(fetchesOf(result, `${NEW_HOST}/`)).toBe(25);
-    expect(result.posts).toEqual([]);
-    expect(result.output).toContain("within 240 s, but the Worker never answered wrongly");
-  });
-
-  test.each([
-    "240001",
-    "300000",
-    "59999",
-    "0",
-    "4m",
-    "-1",
-    "240000.5",
-    " 240000",
-    "2.4e5",
-    "0x3a980",
-  ])("SB3: SMOKE_BUDGET_MS=%j is refused with exit 2, asking nothing", async (budget) => {
-    const result = await smoke(["cire_vendor", "production"], certificateAfter(0), {
-      env: hostEnv(budget),
-    });
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(0);
     expect(result.calls).toEqual([]);
-    expect(result.apiCalls).toEqual([]);
-    expect(result.output).toContain("SMOKE_BUDGET_MS must be");
+    expect(result.apiCalls.map((call) => call.url)).toEqual([domainsUrl("cire-vendor")]);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("::notice::");
+    expect(result.output).toContain("vendor.cireweddings.com");
+    expect(result.output).toContain("PRODUCTION_HOST_HOLDS");
+    expect(result.output).toContain("shared/infra/src/production-sites.ts");
+    expect(result.output).toContain("Serves nothing until the vendor export ships.");
+    // The step summary says the same.
+    const dir = await mkdtemp(join(tmpdir(), "smoke-held-"));
+    const summaryFile = join(dir, "summary.md");
+    const summarised = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => domainList("cire-vendor") },
+      { env: { ...env, GITHUB_STEP_SUMMARY: summaryFile }, holds: VENDOR_HELD },
+    );
+    expect(summarised.code).toBe(0);
+    expect(await readFile(summaryFile, "utf8")).toStartWith(
+      "- **cire_vendor (production)**: vendor.cireweddings.com is held off cire-vendor",
+    );
+    await rm(dir, { recursive: true, force: true });
+    // It needs neither the origin nor the deployment.
+    const bare = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => domainList("cire-vendor") },
+      { env: {}, holds: VENDOR_HELD },
+    );
+    expect(bare.code).toBe(0);
   });
 
-  test("SB4: at the longest budget, the worst case ends inside the time limit of every step that sets one", async () => {
+  test("H8b: fails, rolling nothing back, when the Worker still serves the held host or its domains cannot be read", async () => {
+    const still = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => domainList("cire-vendor", "vendor.cireweddings.com") },
+      { env, holds: VENDOR_HELD },
+    );
+    expect(still.code).toBe(1);
+    expect(still.calls).toEqual([]);
+    expect(still.posts).toEqual([]);
+    expect(still.output).toContain("::error::");
+    expect(still.output).toContain("still serves vendor.cireweddings.com");
+
+    const down = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => json({ success: false, errors: [] }, 503) },
+      { env, holds: VENDOR_HELD },
+    );
+    expect(down.code).toBe(1);
+    expect(down.apiCalls).toHaveLength(3);
+    expect(down.posts).toEqual([]);
+    expect(down.output).toContain("::error::");
+
+    const keyless = await smoke(
+      ["cire_vendor", "production"],
+      {},
+      { env: { ...env, CLOUDFLARE_API_TOKEN: "" }, holds: VENDOR_HELD },
+    );
+    expect(keyless.code).toBe(1);
+    expect(keyless.apiCalls).toEqual([]);
+  });
+
+  test("H8c: a refused read of the domains names its status and codes, never Cloudflare's message, the token or the account", async () => {
+    const refused = await smoke(
+      ["cire_vendor", "production"],
+      {
+        [domainsUrl("cire-vendor")]: () =>
+          apiError(10_000, `Authentication error: token ${TOKEN} has no access to ${ACCOUNT}`, 403),
+      },
+      { env, holds: VENDOR_HELD },
+    );
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("Cloudflare answered 403 (codes 10000)");
+    expect(refused.output).not.toContain(TOKEN);
+    expect(refused.output).not.toContain(ACCOUNT);
+    expect(refused.output).not.toContain("Authentication error");
+  });
+
+  test("H8: a hold on one site leaves every other site's check, and the held site's dev check, as they were", async () => {
+    const result = await smoke(
+      ["cire_host", "production"],
+      {},
+      { env: { SMOKE_ORIGIN: undefined, SMOKE_DEPLOYMENT: DEP_THIS_JOB }, holds: VENDOR_HELD },
+    );
+    expect(result.code).toBe(2);
+    expect(result.output).toContain("SMOKE_ORIGIN is not set");
+    // On dev the held site's Worker serves its dev host, so its check asks it.
+    const dev = await smoke(
+      ["cire_vendor", "dev"],
+      {},
+      { env: { SMOKE_DEPLOYMENT: DEP_THIS_JOB }, holds: VENDOR_HELD },
+    );
+    expect(dev.code).toBe(2);
+    expect(dev.output).toContain("SMOKE_ORIGIN is not set");
+    expect(dev.apiCalls).toEqual([]);
+  });
+});
+
+describe("a production site's check, at its worst", () => {
+  const ORIGIN = "https://vendor.cireweddings.com";
+
+  test("SB4: at the default budget, the worst case ends inside the time limit of every production site's smoke step", async () => {
     // Every request takes its whole timeout; each read of the deployments
     // fails twice before it answers; the Worker answers wrongly except in the
     // last round the budget allows, so the round that would confirm it runs
@@ -1670,9 +1712,9 @@ describe("a production site the release gives a new host", () => {
       reads: [unavailable(), unavailable(), HISTORY, unavailable(), unavailable(), HISTORY],
     });
     const http = fakeFetch({
-      [`${NEW_HOST}/`]: () => {
+      [`${ORIGIN}/`]: () => {
         firstProbe ??= startedAt;
-        if (!passedOnce && startedAt - firstProbe >= TIMING.maxBudgetMs) {
+        if (!passedOnce && startedAt - firstProbe >= TIMING.budgetMs) {
           passedOnce = true;
           return html(200);
         }
@@ -1683,7 +1725,7 @@ describe("a production site the release gives a new host", () => {
     const lines: string[] = [];
     const code = await runSmokeCheck({
       args: ["cire_vendor", "production"],
-      env: { ...RUN_ENV, ...hostEnv(String(TIMING.maxBudgetMs)) },
+      env: { ...RUN_ENV, SMOKE_ORIGIN: ORIGIN, SMOKE_DEPLOYMENT: DEP_THIS_JOB },
       fetch: (async (input: string | URL | Request, init?: RequestInit) => {
         startedAt = now;
         now += TIMING.requestMs;
@@ -1694,6 +1736,7 @@ describe("a production site the release gives a new host", () => {
         now += ms;
       },
       out: (text) => lines.push(text),
+      holds: [],
     });
     expect(code).toBe(1);
     expect(passedOnce).toBe(true);
@@ -1701,19 +1744,20 @@ describe("a production site the release gives a new host", () => {
     // 33 s to read the deployments; polling until the budget plus the last
     // round, its confirming round and the wait between; 43 s to read them
     // again and send the rollback; 20 s for the wait and the re-check.
-    expect(now).toBe(33_000 + (TIMING.maxBudgetMs + 30_000) + 43_000 + 20_000);
+    expect(now).toBe(33_000 + (TIMING.budgetMs + 30_000) + 43_000 + 20_000);
 
     const workflow = Bun.YAML.parse(
       readFileSync(join(import.meta.dir, "../../.github/workflows/production-release.yml"), "utf8"),
     ) as {
-      jobs: Record<
-        string,
-        { steps?: { env?: Record<string, string>; "timeout-minutes"?: number }[] }
-      >;
+      jobs: Record<string, { steps?: { run?: string; "timeout-minutes"?: number }[] }>;
     };
+    const SITE_CHECK = /^bun run scripts\/smoke-check\.ts [a-z_]+ production$/;
     const limits = Object.values(workflow.jobs)
       .flatMap((job) => job.steps ?? [])
-      .filter((step) => step.env?.SMOKE_BUDGET_MS !== undefined)
+      .filter((step) => {
+        const surface = SITE_CHECK.test(step.run ?? "") ? (step.run ?? "").split(" ")[3] : "";
+        return surface !== undefined && isSurfaceKey(surface) && productionTarget(surface);
+      })
       .map((step) => (step["timeout-minutes"] ?? 0) * 60_000);
     expect(limits.length).toBeGreaterThan(0);
     for (const limit of limits) expect(now).toBeLessThan(limit);
@@ -1724,7 +1768,7 @@ describe("usage", () => {
   test.each([
     [["osn_api"]],
     [["osn_api", "staging"]],
-    [["osn_social", "production"]],
+    [["osn_social", "production", "extra"]],
     [["no_such_surface", "dev"]],
     [["osn_api", "dev", "extra"]],
   ])("%j is refused with exit 2, asking nothing and rolling nothing back", async (args) => {
@@ -1770,27 +1814,26 @@ describe("annotation", () => {
 });
 
 describe("SMOKE_TARGETS", () => {
-  test("covers every surface on dev, and production for the four Workers production deploys", () => {
+  test("covers every surface on dev and on production", () => {
     const keys = Object.keys(SMOKE_TARGETS) as (keyof typeof SMOKE_TARGETS)[];
     expect(keys.filter((key) => devTarget(key) === undefined)).toEqual([]);
-    expect(keys.filter((key) => productionTarget(key) !== undefined).toSorted()).toEqual([
-      "cire_api",
-      "cire_invites",
-      "osn_api",
-      "zap_api",
-    ]);
+    expect(keys.filter((key) => productionTarget(key) === undefined)).toEqual([]);
   });
 
-  test("SM1: names the Worker each production site stack deploys, by its production name", () => {
+  test("SM1: names the Worker each production stack deploys, by its production name; only the guest site needs the marketing origin", () => {
     const keys = Object.keys(SMOKE_TARGETS) as (keyof typeof SMOKE_TARGETS)[];
     expect(
       Object.fromEntries(
         keys.flatMap((key) => {
-          const worker = productionSiteTarget(key)?.worker;
+          const worker = productionTarget(key)?.worker;
           return worker === undefined ? [] : [[key, worker]];
         }),
       ),
     ).toEqual({
+      cire_api: "cire-api-production",
+      cire_invites: "cire-invites",
+      osn_api: "osn-api-production",
+      zap_api: "zap-api-production",
       cire_host: "cire-host",
       cire_vendor: "cire-vendor",
       cire_landing: "cire-landing",
@@ -1798,13 +1841,12 @@ describe("SMOKE_TARGETS", () => {
       musubi_landing: "musubi-landing",
       pulse_landing: "pulse-landing",
     });
-    // No surface is both: a site Worker is the stack's, an API Worker Wrangler's.
-    expect(keys.filter((key) => productionSiteTarget(key) && productionTarget(key))).toEqual([]);
+    expect(keys.filter((key) => productionTarget(key)?.needsMarketing)).toEqual(["cire_invites"]);
   });
 
   test("checks osn-api's JWKS on both tiers", () => {
     const dev = devTarget("osn_api")?.probes({ origin: OSN_API_DEV });
-    const production = productionTarget("osn_api")?.probes;
+    const production = productionTarget("osn_api")?.probes({ origin: "https://id.musubi.social" });
     for (const probes of [dev, production]) {
       expect(probes?.map((p) => p.expects.kind)).toContain("jwks");
     }
@@ -1812,7 +1854,7 @@ describe("SMOKE_TARGETS", () => {
 
   test("checks osn-api's coordination store round trip on both tiers", () => {
     const dev = devTarget("osn_api")?.probes({ origin: OSN_API_DEV });
-    const production = productionTarget("osn_api")?.probes;
+    const production = productionTarget("osn_api")?.probes({ origin: "https://id.musubi.social" });
     expect(dev).toContainEqual({
       url: `${OSN_API_DEV}/health/coordination`,
       expects: { kind: "json", fields: { ok: true } },

@@ -10,10 +10,10 @@ related:
   - "[[subprocessors]]"
   - "[[shared/observability/overview]]"
   - "[[cire]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-10
 ---
 
-# SOC 2
+# SOC 2 (Trust Services Criteria)
 
 We pursue **SOC 2 Type II** because Zap M3 (verified-organisation chats +
 embeddable customer-support widget) is a B2B surface — businesses will not
@@ -162,24 +162,43 @@ Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `area:complia
 4. **Incident response runbook** — [[breach-response]]. Shared with GDPR. (same row).
 5. **Dependency CVE scanning in CI** — `osv-scanner` step running on PRs. Fail on critical, warn on high.
 
-   **Vendored dependencies.** One dependency does not come from a registry and so
-   is invisible to a scanner keyed on `bun.lock`: `tools/oxlint/anti-slop` is a
-   verbatim copy of [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop),
-   MIT licensed (`tools/oxlint/anti-slop/LICENSE`, vendored beside the code),
-   pinned to upstream commit `446268e5d15baa968eaec669ff65358d36ae6259`
-   (2026-08-14). Upstream publishes no package — the plugin is meant to be copied
-   in — so there is no version to resolve, no integrity hash from a registry and
-   no advisory feed to subscribe to. Integrity is asserted in-repo instead, by
-   three checks that each cover a different failure:
-   `tools/oxlint/anti-slop/SHA256SUMS`
-   plus `scripts/verify-vendored-anti-slop.sh` catch a change to the tree's
-   contents, its file set, or the mode of any file in it; the same script,
-   given a base ref, also catches a change to that tree with no matching change
-   to the pinned commit, which is what a self-certifying manifest cannot see;
-   and `.github/CODEOWNERS` puts the tree behind a named owner. What none of
-   them do is compare the tree against upstream — that claim rests on the pin
-   and on whoever performs the next re-vendor. Reviewing the pin is a manual
-   step at each re-vendor, not a scheduled control.
+   **Vendored dependencies.** Two dependencies do not come from a registry and so
+   are invisible to a scanner keyed on `bun.lock`:
+
+   - `tools/oxlint/anti-slop` is a verbatim copy of
+     [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop), MIT licensed
+     (`tools/oxlint/anti-slop/LICENSE`, vendored beside the code), pinned to
+     upstream commit `446268e5d15baa968eaec669ff65358d36ae6259` (2026-08-14).
+     Upstream publishes no package — the plugin is meant to be copied in — so
+     there is no version to resolve, no integrity hash from a registry and no
+     advisory feed to subscribe to.
+   - `shared/ui/vendor/thinking-orbs` is a verbatim copy of the drawing engine
+     of [thinking-orbs](https://github.com/Jakubantalik/Libraries.dev), MIT
+     licensed (`LICENSE` beside the code), plus one repo-authored `types.ts`
+     holding two type aliases copied from upstream's, pinned to upstream commit
+     `5e7afad5fc8f3661e0bf0b4cd3f87de482ffcf16` (2026-09-22, release 0.3.2).
+     Upstream does publish it on npm as `thinking-orbs`, so vendoring takes a
+     registry package out of the scanner's reach. Whoever re-vendors checks the
+     upstream repository's issues and the npm package's advisories first. A
+     change to the tree asks the code owner of `shared/ui/vendor/`
+     (`.github/CODEOWNERS`) for review, and whoever merges it runs the README's
+     check against upstream first. The engine
+     imports no package, only its own modules, and reaches no browser global but
+     the 2D canvas context it is handed.
+
+   Integrity is asserted in-repo instead, by three checks that each cover a
+   different failure: each tree's `SHA256SUMS` plus `scripts/verify-vendored.sh`
+   catch a change to the tree's contents, its file set, or the mode of any file
+   in it, and CI runs it on every tree `scripts/vendored-trees.txt` names, so a
+   branch that deletes a tree's manifest fails the check rather than leaving
+   the tree out of it; the same script, given a base ref, also catches a change to a tree
+   with no matching change to its pinned commit, which is what a
+   self-certifying manifest cannot see; and `.github/CODEOWNERS` puts both
+   trees behind a named owner. None of them compares a tree against upstream in
+   CI. The orb tree's `README.md` carries a command that does, fetching the
+   pinned files and checking them against `SHA256SUMS`; for anti-slop that
+   claim rests on the pin and on whoever performs the next re-vendor. Reviewing
+   the pin is a manual step at each re-vendor, not a scheduled control.
 
    **Modes, added 2026-08-30:** contents and names were checked, modes were
    not, so flipping a vendored file to `100755` passed both halves. Nothing
@@ -195,7 +214,8 @@ Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `area:complia
    branch protection is ruleset `13921406` (active), and `.github/CODEOWNERS`
    names an owner for the CI wiring, the guard scripts, the files that decide a
    guard runs (`package.json`, `bunfig.toml`, `oxlintrc.json`, `lefthook.yml`),
-   the dependency pins (`bun.lock`, `.bun-version`), the vendored plugin tree and
+   the dependency pins (`bun.lock`, `.bun-version`), both vendored trees
+   (`tools/oxlint/anti-slop`, `shared/ui/vendor/`) and
    the five `wrangler.toml`/`wrangler.jsonc` files. **Not yet a gate:** the
    ruleset requires zero approving reviews and no code-owner review, since there
    is one maintainer; required MFA and required signed commits are org settings

@@ -32,6 +32,7 @@ function unmappedStyle(): JSX.CSSProperties {
     ...ALL_COLOR_TOKENS,
     ...CONTRACT_SCALAR_TOKENS.radius,
     ...CONTRACT_SCALAR_TOKENS.fontFamily,
+    ...CONTRACT_SCALAR_TOKENS.fontWeight,
     ...Object.keys(CONTRACT_SCALES.text).map((s) => `--ui-text-${s}`),
     ...Object.keys(CONTRACT_SCALES.tracking).map((s) => `--ui-tracking-${s}`),
     ...Object.keys(CONTRACT_SCALES.leading).map((s) => `--ui-leading-${s}`),
@@ -186,9 +187,9 @@ export const SideBySide: Story<SideBySideArgs> = {
             The same <Mono>Button</Mono>, <Mono>Card</Mono>, <Mono>Chip</Mono> and{" "}
             <Mono>Notice</Mono> imports render in each column. The type scale moves too — cire's{" "}
             <Mono>sm</Mono> is 0.82rem where musubi's is 13px — and so do the radius roles: on the
-            page the button and the field are both pills, in cire the button is a pill and the field
-            a 14px square, and unmapped both are 6px. Flip the toggle: only the page column changes,
-            unless <Mono>cireTheme</Mono> is set to follow.
+            page the button is a pill and the field takes an 8px corner, in cire the button is a
+            pill and the field a 14px square, and unmapped both are 6px. Flip the toggle: only the
+            page column changes, unless <Mono>cireTheme</Mono> is set to follow.
           </Rule>
         </Section>
       </Gallery>

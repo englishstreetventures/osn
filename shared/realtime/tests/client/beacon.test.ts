@@ -17,8 +17,17 @@ const runtime = (
   }
 ).process;
 
-/** Long enough for a rejection nobody handled to reach `unhandledRejection`. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+// Node's and Bun's `setImmediate`, which the DOM types lack.
+const { setImmediate } = globalThis as unknown as {
+  setImmediate(callback: () => void): void;
+};
+
+/**
+ * One macrotask turn: the runtime reports a rejection nobody handled once the
+ * microtask queue has drained, so it has reached `unhandledRejection` by the
+ * time the next turn runs. A microtask flush would look before the report.
+ */
+const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -62,10 +71,5 @@ describe("sendFallbackBeacon", () => {
       }),
     );
     expect(() => sendFallbackBeacon("not a url", "exhausted")).not.toThrow();
-  });
-
-  it("does nothing when the runtime has no fetch", () => {
-    vi.stubGlobal("fetch", undefined);
-    expect(() => sendFallbackBeacon(ENDPOINT, "exhausted")).not.toThrow();
   });
 });

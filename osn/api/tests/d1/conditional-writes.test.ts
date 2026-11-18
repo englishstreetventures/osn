@@ -6,18 +6,21 @@ import {
   connections,
   deletionJobs,
   emailChanges,
+  handleHolds,
   organisationMembers,
   securityEvents,
   sessions,
+  users,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
 import { createD1Db } from "@shared/db-utils";
 import { type EmailService, makeLogEmailLive } from "@shared/email";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import {
   cancelErasure,
   requestErasure,
@@ -28,7 +31,12 @@ import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
+import { appStandIns } from "../helpers/deletion-apps";
 import { holdQueries } from "../helpers/held-query";
+import { latestLinkTo } from "../helpers/registration";
+import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * The writes that name the row as their request read it, on real D1. D1 takes
@@ -52,7 +60,7 @@ let layer: Layer.Layer<Db | EmailService>;
 let mail: ReturnType<typeof makeLogEmailLive>;
 let auth: ReturnType<typeof createAuthService>;
 const graph = createGraphService();
-const org = createOrganisationService();
+const org = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 
 const run = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>) =>
   Effect.runPromise(eff.pipe(Effect.provide(layer)));
@@ -60,15 +68,9 @@ const run = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>) =>
 const outcomeOf = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>) =>
   Effect.runPromise(eff.pipe(Effect.result, Effect.provide(layer)));
 
-/** The newest six-digit code mailed. */
-const latestCode = (): string => {
-  const all = mail.recorded();
-  for (let i = all.length - 1; i >= 0; i--) {
-    const match = all[i]!.text.match(/code is: (\d{6})/);
-    if (match) return match[1]!;
-  }
-  throw new Error("no code mailed");
-};
+/** An email change to `newEmail`, its link confirmed, ready to complete. */
+const confirmed = (accountId: string, newEmail: string) =>
+  run(confirmedEmailChange(auth, accountId, newEmail, () => mail.recorded()));
 
 beforeAll(async () => {
   mf = new Miniflare({
@@ -103,18 +105,35 @@ describe("email change on D1", () => {
       newEmail: "seed-new@example.com",
       completedAt: nowSec,
     });
-    const tokenA = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
-    const tokenB = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const tokenA = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
+    const tokenB = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
 
-    await run(auth.beginEmailChange(profile.accountId, "ec-d1-a@example.com"));
-    const codeA = latestCode();
+    const requestA = await confirmed(profile.accountId, "ec-d1-a@example.com");
     // A's commit batch waits, after its claim and preflight have read one change.
     const commitA = hold(/^update "accounts" set "email"/);
-    const a = outcomeOf(auth.completeEmailChange(profile.accountId, codeA, tokenA, null));
+    const a = outcomeOf(
+      auth.completeEmailChange(
+        profile.accountId,
+        profile.id,
+        requestA.requestId,
+        requestA.claimSecret,
+        tokenA,
+        NO_LIVE_SESSION,
+      ),
+    );
     await commitA.reached;
 
-    await run(auth.beginEmailChange(profile.accountId, "ec-d1-b@example.com"));
-    const b = await run(auth.completeEmailChange(profile.accountId, latestCode(), tokenB, null));
+    const requestB = await confirmed(profile.accountId, "ec-d1-b@example.com");
+    const b = await run(
+      auth.completeEmailChange(
+        profile.accountId,
+        profile.id,
+        requestB.requestId,
+        requestB.claimSecret,
+        tokenB,
+        NO_LIVE_SESSION,
+      ),
+    );
     expect(b.email).toBe("ec-d1-b@example.com");
 
     commitA.release();
@@ -136,6 +155,208 @@ describe("email change on D1", () => {
       .from(accounts)
       .where(eq(accounts.id, profile.accountId));
     expect(account?.email).toBe("ec-d1-b@example.com");
+    // The security event rides in the same batch, guarded on the batch's own
+    // change: the refused commit writes none.
+    const events = await db
+      .select({ id: securityEvents.id })
+      .from(securityEvents)
+      .where(
+        and(
+          eq(securityEvents.accountId, profile.accountId),
+          eq(securityEvents.kind, "email_changed"),
+        ),
+      );
+    expect(events).toHaveLength(1);
+  });
+
+  // A's preflight reads the address, then its commit waits while B's whole
+  // change commits. A's swap names the address A read, so it moves nothing
+  // once B has moved it: the address B replaced is the one mailed, once.
+  it("refuses a change whose preflight address another change has since replaced", async () => {
+    const profile = await run(auth.registerProfile("ec-d1-stale@example.com", "ecd1stale"));
+    const tokenA = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
+    const tokenB = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
+
+    const requestA = await confirmed(profile.accountId, "ec-d1-stale-a@example.com");
+    const commitA = hold(/^update "accounts" set "email"/);
+    const a = outcomeOf(
+      settle(
+        auth.completeEmailChange(
+          profile.accountId,
+          profile.id,
+          requestA.requestId,
+          requestA.claimSecret,
+          tokenA,
+          NO_LIVE_SESSION,
+        ),
+      ),
+    );
+    await commitA.reached;
+
+    const requestB = await confirmed(profile.accountId, "ec-d1-stale-b@example.com");
+    const b = await run(
+      settle(
+        auth.completeEmailChange(
+          profile.accountId,
+          profile.id,
+          requestB.requestId,
+          requestB.claimSecret,
+          tokenB,
+          NO_LIVE_SESSION,
+        ),
+      ),
+    );
+    expect(b.email).toBe("ec-d1-stale-b@example.com");
+
+    commitA.release();
+    const outcome = await a;
+    expect(outcome._tag).toBe("Failure");
+
+    const [account] = await db
+      .select({ email: accounts.email })
+      .from(accounts)
+      .where(eq(accounts.id, profile.accountId));
+    expect(account?.email).toBe("ec-d1-stale-b@example.com");
+    const events = await db
+      .select({ id: securityEvents.id })
+      .from(securityEvents)
+      .where(
+        and(
+          eq(securityEvents.accountId, profile.accountId),
+          eq(securityEvents.kind, "email_changed"),
+        ),
+      );
+    expect(events).toHaveLength(1);
+    const notices = mail
+      .recorded()
+      .filter((e) => e.template === "email-changed" && e.to.startsWith("ec-d1-stale"));
+    expect(notices.map((e) => e.to)).toEqual(["ec-d1-stale@example.com"]);
+  });
+
+  it("rolls the change back with its security event, and mails no notice", async () => {
+    const profile = await run(auth.registerProfile("ec-d1-roll@example.com", "ecd1roll"));
+    const token = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
+    const request = await confirmed(profile.accountId, "ec-d1-roll-new@example.com");
+    await db.run(
+      sql.raw(`CREATE TRIGGER ec_d1_event_fault BEFORE INSERT ON security_events
+        BEGIN SELECT RAISE(ABORT, 'simulated failure inside the commit'); END;`),
+    );
+    try {
+      const outcome = await outcomeOf(
+        settle(
+          auth.completeEmailChange(
+            profile.accountId,
+            profile.id,
+            request.requestId,
+            request.claimSecret,
+            token,
+            NO_LIVE_SESSION,
+          ),
+        ),
+      );
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") expect(outcome.failure._tag).toBe("DatabaseError");
+    } finally {
+      await db.run(sql.raw("DROP TRIGGER ec_d1_event_fault"));
+    }
+
+    // One batch: the event's failure takes the swap and the audit row with it.
+    const [account] = await db
+      .select({ email: accounts.email })
+      .from(accounts)
+      .where(eq(accounts.id, profile.accountId));
+    expect(account?.email).toBe("ec-d1-roll@example.com");
+    const changes = await db
+      .select({ id: emailChanges.id })
+      .from(emailChanges)
+      .where(eq(emailChanges.accountId, profile.accountId));
+    expect(changes).toHaveLength(0);
+    const notices = mail
+      .recorded()
+      .filter((e) => e.template === "email-changed" && e.to === "ec-d1-roll@example.com");
+    expect(notices).toHaveLength(0);
+  });
+});
+
+describe("security-event acknowledgements on D1", () => {
+  // Each acknowledgement is one UPDATE whose RETURNING rows decide what it
+  // reports, so D1 must answer those rows.
+  it("reports the rows one ack and one ack-all changed", async () => {
+    const profile = await run(auth.registerProfile("sev-d1-ack@example.com", "sevd1ack"));
+    await run(auth.generateRecoveryCodesForAccount(profile.accountId));
+    await run(auth.generateRecoveryCodesForAccount(profile.accountId));
+    const { events } = await run(auth.listUnacknowledgedSecurityEvents(profile.accountId));
+    expect(events).toHaveLength(2);
+
+    const one = await run(mintStepUpToken(auth, profile.accountId, "otp", "security_event_ack"));
+    const single = await run(auth.acknowledgeSecurityEvent(profile.accountId, events[0]!.id, one));
+    expect(single.acknowledged).toBe(true);
+    const again = await run(mintStepUpToken(auth, profile.accountId, "otp", "security_event_ack"));
+    const repeat = await run(
+      auth.acknowledgeSecurityEvent(profile.accountId, events[0]!.id, again),
+    );
+    expect(repeat.acknowledged).toBe(false);
+
+    // An `email_changed` row inside its 7-day hold, which ack-all leaves.
+    await db.insert(securityEvents).values({
+      id: "sev_d1d1d1d1d1d1",
+      accountId: profile.accountId,
+      kind: "email_changed",
+      createdAt: Math.floor(Date.now() / 1000) - 60,
+      acknowledgedAt: null,
+    });
+    const rest = await run(mintStepUpToken(auth, profile.accountId, "otp", "security_event_ack"));
+    const all = await run(auth.acknowledgeAllSecurityEvents(profile.accountId, rest));
+    expect(all.acknowledged).toBe(1);
+    const left = await run(auth.listUnacknowledgedSecurityEvents(profile.accountId));
+    expect(left.events.map((e) => e.id)).toEqual(["sev_d1d1d1d1d1d1"]);
+  });
+});
+
+describe("sign-up finish on D1", () => {
+  /** A sign-up for `address` begun and confirmed on a free `handle`. */
+  const confirmedSignUp = async (address: string, handle: string) => {
+    const begun = await run(settle(auth.beginRegistration(address, handle, "1990-01-01")));
+    const link = latestLinkTo(mail.recorded(), address)!;
+    await run(
+      auth.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      }),
+    );
+    return begun;
+  };
+  const accountRows = (address: string) =>
+    db.select({ id: accounts.id }).from(accounts).where(eq(accounts.email, address));
+  const profileRows = (handle: string) =>
+    db.select({ id: users.id }).from(users).where(eq(users.handle, handle));
+
+  // The two guarded inserts are one batch, and the finish reads the profile
+  // insert's change count from D1's answer.
+  it("writes the account and its profile, and answers complete", async () => {
+    const begun = await confirmedSignUp("signup-d1@example.com", "signupd1");
+
+    const done = await run(settle(auth.registrationStatus(begun.requestId, begun.claimSecret)));
+
+    expect(done.status).toBe("complete");
+    expect(await accountRows("signup-d1@example.com")).toHaveLength(1);
+    expect(await profileRows("signupd1")).toHaveLength(1);
+  });
+
+  it("writes neither row when the handle was held after begin, and answers conflict", async () => {
+    const begun = await confirmedSignUp("signup-held-d1@example.com", "signupheldd1");
+    await db.insert(handleHolds).values({
+      handle: auth.heldHandleDigest("signupheldd1"),
+      accountId: null,
+      releaseAt: Math.floor(Date.now() / 1000) + 86_400,
+      createdAt: Math.floor(Date.now() / 1000),
+    });
+
+    const done = await run(settle(auth.registrationStatus(begun.requestId, begun.claimSecret)));
+
+    expect(done).toEqual({ status: "conflict" });
+    expect(await accountRows("signup-held-d1@example.com")).toEqual([]);
+    expect(await profileRows("signupheldd1")).toEqual([]);
   });
 });
 
@@ -253,35 +474,26 @@ describe("session revoke on D1", () => {
 });
 
 describe("erasure cancel and purge on D1", () => {
-  let server: ReturnType<typeof Bun.serve>;
-  const purged: string[] = [];
-  let urls: { pulseApiUrl: string; zapApiUrl: string };
+  const apps = appStandIns();
+  const config = apps.config();
 
-  beforeAll(() => {
-    server = Bun.serve({
-      port: 0,
-      async fetch(request) {
-        const body = (await request.json()) as { accountId: string };
-        purged.push(body.accountId);
-        return Response.json({ ok: true });
-      },
-    });
-    const base = `http://localhost:${server.port}`;
-    urls = { pulseApiUrl: base, zapApiUrl: base };
-  });
+  afterAll(() => apps.stop());
 
-  afterAll(() => {
-    void server.stop(true);
-  });
-
-  const purgesOf = (accountId: string) => purged.filter((id) => id === accountId).length;
+  const purgesOf = (accountId: string) =>
+    apps.calls.filter(
+      (call) => call.path === "/internal/account-deleted" && call.body.accountId === accountId,
+    ).length;
 
   const scheduled = async (handle: string) => {
     const profile = await run(auth.registerProfile(`${handle}@example.com`, handle));
     await run(joinApp(profile.accountId, "pulse"));
     await run(joinApp(profile.accountId, "zap"));
     const { scheduledFor } = await run(
-      requestErasure({ accountId: profile.accountId, cancelSessionId: null }),
+      requestErasure({
+        accountId: profile.accountId,
+        cancel: null,
+        heldHandleDigest: makeHeldHandleDigest(undefined),
+      }),
     );
     return { accountId: profile.accountId, pastWindowMs: (scheduledFor + 1) * 1_000 };
   };
@@ -297,8 +509,9 @@ describe("erasure cancel and purge on D1", () => {
     const batch = hold(/^delete from "deletion_jobs"/);
     const cancel = outcomeOf(cancelErasure(accountId));
     await batch.reached;
-    await run(runFanOutRetrySweep({ nowMs: pastWindowMs, ...urls }));
-    expect(purgesOf(accountId)).toBe(2);
+    await run(runFanOutRetrySweep({ nowMs: pastWindowMs, config }));
+    // Pulse, Zap and cire, each once.
+    expect(purgesOf(accountId)).toBe(3);
     batch.release();
 
     expect(await cancel).toMatchObject({ _tag: "Success", success: { cancelled: false } });
@@ -309,11 +522,12 @@ describe("erasure cancel and purge on D1", () => {
   it("a cancel that lands while the fan-out is held before its claim stops the purge", async () => {
     const { accountId, pastWindowMs } = await scheduled("ced1first");
 
-    const body = hold(/^select "id" from "users"/);
-    const sweep = run(runFanOutRetrySweep({ nowMs: pastWindowMs, ...urls }));
-    await body.reached;
+    // The fan-out reads the job, then claims it: held at the claim.
+    const claim = hold(/^update "deletion_jobs" set "purge_started_at"/);
+    const sweep = run(runFanOutRetrySweep({ nowMs: pastWindowMs, config }));
+    await claim.reached;
     expect(await run(cancelErasure(accountId))).toEqual({ cancelled: true });
-    body.release();
+    claim.release();
     await sweep;
 
     expect(purgesOf(accountId)).toBe(0);

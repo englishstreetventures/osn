@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-18
 ---
 
 # Session Metrics
@@ -54,8 +54,8 @@ outliers are a **query over raw fields**, never a stored field.
 
 The rating lives on the **issue**, as a `complexity:` label, and it is set
 **before work starts** — the `write-issue` skill does it when the issue is filed, through the
-`rate-complexity` skill (`.claude/skills/rate-complexity/SKILL.md`), which proposes a number from the issue body alone and
-asks the owner to confirm or amend it.
+`rate-complexity` skill (`.claude/skills/rate-complexity/SKILL.md`), which picks a number from the issue body alone and
+applies it without asking the owner, who has delegated that approval.
 
 The timing is not a detail. A rating made at pull-request time, with a token
 total already on screen, gets talked into agreeing with whatever the work cost,
@@ -70,7 +70,7 @@ score the task it struggled with as hard.
 | `complexity:3` | One package, but something must be designed |
 | `complexity:5` | Several packages, or a contract others depend on |
 | `complexity:8` | Cross-cutting, or the shape is unknown at the start |
-| `complexity:unconfirmed` | An agent's rating that no human signed off on |
+| `complexity:unconfirmed` | A rating made by backfill, or after the work had begun |
 
 Fibonacci, so `usd_equivalent ÷ declared` is a real division. The rubric rates
 the **problem**, not the change: a one-line fix to a race condition is not a 1.
@@ -78,9 +78,9 @@ Diff size is recorded separately, on purpose, and the two are never blended.
 A card whose pull request closes several issues declares the sum of their
 ratings, which can be any whole number — see [[#Which issue a card names, and what it divides by]].
 
-Exclude unconfirmed ratings from anything you intend to act on — they are an
-agent's guess standing alone, and mostly arrive from the backfill of issues that
-predate the label.
+Exclude unconfirmed ratings from anything you intend to act on — they were made
+after the work began, with its cost in view, and mostly arrive from the backfill
+of issues that predate the label.
 
 ## Which issue a card names, and what it divides by
 
@@ -200,16 +200,16 @@ Three writers, and only one of them is the owner.
 
 | Writer | When | Carries identity? |
 |---|---|---|
-| The **`retro`** skill | Once, straight after `prep-pr` opens the pull request | Yes — `--resolve-issue` finds the pull request, names its issue and sums the ratings of what it closes; `--pr`, `--issue` and `--issue-labels` override it. It commits the JSON and appends the `<details>` block to the pull-request body |
+| The **`retro`** skill | Once, in `prep-pr` Step 9, after the reviews and fixes and before the branch's first push | The issue and its rating, not yet the pull request's number. No pull request exists yet, so it passes `--issue` and `--issue-labels` for the branch's issue; `pr.number` stays null until a later run or `backfill` writes it. On a branch whose pull request is already open, `--resolve-issue` finds the pull request, names its issue and sums the ratings of what it closes. It commits the JSON, and its `<details>` block goes on the pull-request body |
 | The `SessionEnd` hook | At the end of every session, in every environment | Only what `--resolve-issue` finds, which is nothing before the pull request exists. It runs `card -- --if-absent --resolve-issue`, so it writes a card for a branch that has none and never touches one `retro` committed |
 | `backfill` | Retrospectively, over merged pull requests | From the GitHub API — see [[#Backfilling]] |
 
-`retro` runs after the pull request is open, so the card covers the whole
-session — on any diff that is not docs and tests alone, `prep-pr`
-dispatches `review-tests`, `review-performance` and `review-security`,
-`review-state` when the diff writes state and `review-design` when it changes
-how a screen looks, and a card written before those finish measures building
-the change rather than shipping it.
+`retro` runs after `prep-pr`'s reviews and the fixes they ask for — a card
+written before those finish measures building the change rather than shipping
+it — and before the push, so the card goes out with the work and the pull
+request runs CI once. A card committed after the pull request opens is a
+second push and a second CI run. What follows the push, the CI wait and the
+merge, reaches the card when `backfill` rewrites it after the merge.
 
 > [!warning] The fallback must never overwrite the owner's card.
 > The hook has no way to know the pull request, the issue or the rating — it
@@ -245,8 +245,14 @@ rule.
 | The file names another pull request on another branch name — `feat/a-b` and `feat-a-b` flatten to one file — or this run names no pull request | Refuses | Keeps the first and skips the second |
 
 A refusal prints both numbers on stderr, writes nothing, renders no
-`--format markdown` block, and exits 1. A card whose `pr.number` is null is the
-fallback's identity-less one, and `retro` replaces it.
+`--format markdown` block, and exits 1. A card whose `pr.number` is null was
+written before its pull request opened — by `retro` before the push, with the
+issue and its rating, or by the fallback, with neither — and a run that names
+the pull request writes over it. On a reused branch name `retro` writes the card once
+the pull request is open: before then `card` cannot keep the two pull requests
+apart, and refuses only when the earlier card is on disk. `backfill` never
+counts a card that names no pull request, written after an earlier pull
+request on the name merged, as that earlier one's, and never writes over it.
 
 `new-feat` Step 1 and `orchestrate` Step 2 still check a name is unused before
 cutting it — no card for it on `origin/main`, and no pull request with that head
@@ -534,7 +540,7 @@ is one issue's rating.
 | `pr.phase` | `at-open` or `at-merge` — see [[#Two phases]] |
 | `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. Only ever an issue in this repository, and `labels` only ever its labels: never a tracker issue's, whose number is not recorded and whose labels other than the `complexity:` pair are never kept. With `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
 | `complexity.declared` | The sum of the ratings of the issues in this repository the pull request closes or, when it links none here, of the tracker issues it closes — 1, 2, 3, 5 or 8 for one issue. On a tracker-only card, `declared` and `issues` show how many tracker issues it closed and their summed rating; the pull request's own `Closes` lines already show the count. The only judgement in the file |
-| `complexity.method` | How that number was arrived at: `confirmed`, `unconfirmed`, `none`, `not-fetched`, `lookup-failed`, `part-of`, or `manual` for `--complexity` |
+| `complexity.method` | How that number was arrived at: `confirmed` (no issue it sums carries `complexity:unconfirmed`), `unconfirmed`, `none`, `not-fetched`, `lookup-failed`, `part-of`, or `manual` for `--complexity` |
 | `complexity.issues` | How many issues' ratings `declared` adds up. Absent before version 3 |
 | `window.sessions` | Distinct sessions on this branch |
 | `window.span_seconds` | First to last timestamp, idle included |
@@ -566,10 +572,10 @@ the rate table prices at zero rather than guessing, and is named in
 
 ### Two phases
 
-A card written when the PR opens cannot see review-cycle cost. `phase` says
+A card written before the push cannot see the CI wait or review-cycle cost. `phase` says
 which you are looking at:
 
-- `at-open` — written by `retro`, covers work up to the pull request.
+- `at-open` — written by `retro`, covers work up to the branch's first push.
 - `at-merge` — written after merge, includes review fixes.
 
 > [!caution] Do not filter a query on `phase = 'at-merge'`.
@@ -756,8 +762,10 @@ GitHub's own case. A `--repo xchromo/osn` or `EnglishStreetVentures/osn` still
 reads this repository's issues. Where `gh` cannot answer, the typed name stands
 in, compared ignoring case.
 
-**A backfill never lowers a rating on disk.** When the card already written for
-the same pull request holds a rating and this run's has none, or holds a
+**A backfill never lowers a rating on disk.** A card that names no pull
+request, on the same branch, counts as that pull request's: it is the one
+`retro` wrote before the push, and its review counts carry across too. When
+the card already written for the same pull request holds a rating and this run's has none, or holds a
 `confirmed` one and this run's is not, it keeps the card's `complexity` and says
 so on stderr. A failed lookup, or an issue this run cannot read, must not erase
 the only record of the rating. The card's `issue` comes with it only when
@@ -777,9 +785,11 @@ Two cases are not a lowered rating, or cannot carry one:
   carries labels with no issue. Then the rebuilt card is written, without the
   old rating, so no tracker number or label survives.
 
-Only `"confirmed"` is a rating to act on; every other method is either an
-agent's guess (`"unconfirmed"`) or a null `complexity.declared`, for the reasons
-in the table above.
+Only `"confirmed"` is a rating to act on: every issue it sums carries no
+`complexity:unconfirmed`, so each was rated from its body before work began, by
+the owner or by an agent rating on their behalf. Every other method is either a
+rating made by backfill or after the work began (`"unconfirmed"`) or a null
+`complexity.declared`, for the reasons in the table above.
 
 ## The two fields that name a cause
 

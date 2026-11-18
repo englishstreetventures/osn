@@ -1,6 +1,6 @@
 {
   "name": "@osn/db",
-  "version": "0.25.3",
+  "version": "0.29.0",
   "private": true,
   "license": "UNLICENSED",
   "author": "English Street Ventures Pty Ltd",
@@ -18,13 +18,12 @@
   "scripts": {
     "db:generate": "bun run ../../scripts/db-generate.ts .",
     "db:migrate": "bun run db:generate",
-    "db:push": "bunx drizzle-kit push",
+    "db:push": "bunx drizzle-kit push && bun run src/push-triggers.ts",
     "db:studio": "bunx drizzle-kit studio",
     "db:seed": "bun run src/seed.ts",
     "db:reset": "bash ../../scripts/db-reset.sh OSN_DATABASE_URL ../../data/osn.db",
     "db:migrate:local": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply osn-db --local",
     "db:migrate:staging": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply osn-db-staging --env staging --remote",
-    "db:migrate:prod": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply osn-db-prod --env production --remote",
     "db:reset:local": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:migrate:local",
     "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
@@ -33,7 +32,7 @@
   "dependencies": {
     "@shared/db-utils": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.0.7"
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
@@ -42,6 +41,6 @@
     "better-sqlite3": "^13.0.3",
     "drizzle-kit": "1.0.0-rc.5",
     "vitest": "5.0.5",
-    "wrangler": "4.149.0"
+    "wrangler": "4.156.1"
   }
 }

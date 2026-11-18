@@ -297,8 +297,8 @@ describe("Disclosure — the box", () => {
   });
 });
 
-describe("Disclosure — the opening fade", () => {
-  function fade(tone: DisclosureTone): string[] {
+describe("Disclosure — the opening", () => {
+  function opening(tone: DisclosureTone): string[] {
     const { container, unmount } = render(() => (
       <Disclosure tone={tone} summary="Is there parking?">
         x
@@ -311,9 +311,9 @@ describe("Disclosure — the opening fade", () => {
 
   it("fades the body in, for readers who did not ask for less motion", () => {
     // The apps' reduced-motion rule selects `*`, which no pseudo-element
-    // matches, so the fade carries its own gate.
+    // matches, so the opening carries its own gate.
     for (const tone of EVERY_TONE) {
-      const found = fade(tone);
+      const found = opening(tone);
       expect(found).toContain("motion-safe:base:details-content:opacity-0");
       expect(found).toContain("motion-safe:base:open:details-content:opacity-100");
       expect(found.filter((c) => !c.startsWith("motion-safe:"))).toEqual([]);
@@ -324,9 +324,25 @@ describe("Disclosure — the opening fade", () => {
     // A fading body would leave its controls focusable in a box that is
     // going away.
     for (const tone of EVERY_TONE) {
-      const timed = fade(tone).filter((c) => /transition|duration-|ease-/.test(c));
+      const timed = opening(tone).filter((c) => /transition|duration-|delay-|ease-/.test(c));
       expect(timed.length).toBeGreaterThan(0);
       expect(timed.filter((c) => !c.includes(":open:"))).toEqual([]);
+    }
+  });
+
+  it("sets the body's height and clip only where the engine can grow it to auto", () => {
+    // The transition is `allow-discrete`, so in an engine with no
+    // `interpolate-size` a height moving from 0 to `auto` would step halfway
+    // through instead of opening at once. The browser tier runs Chromium,
+    // which has it, so only the classes can show the gate.
+    for (const tone of EVERY_TONE) {
+      const sizing = opening(tone).filter((c) => /:h-|:overflow-|interpolate-size:allow/.test(c));
+      expect(sizing.length).toBe(5);
+      expect(
+        sizing.filter(
+          (c) => !c.startsWith("motion-safe:base:supports-[interpolate-size:allow-keywords]:"),
+        ),
+      ).toEqual([]);
     }
   });
 });

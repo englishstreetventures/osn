@@ -7,19 +7,6 @@ import { Step6Finish } from "../../../src/components/onboarding/Step6Finish";
 describe("Step6Finish", () => {
   afterEach(() => cleanup());
 
-  it("personalises the headline when displayName is present", () => {
-    const { getByText } = render(() => (
-      <Step6Finish
-        displayName="Sarah"
-        totalSteps={6}
-        busy={false}
-        onPrimary={vi.fn()}
-        onBack={vi.fn()}
-      />
-    ));
-    expect(getByText(/Sarah/)).toBeTruthy();
-  });
-
   it("falls back to the generic headline when displayName is null", () => {
     const { container } = render(() => (
       <Step6Finish

@@ -19,47 +19,12 @@ describe("retainedD1Props", () => {
     importFiles: [],
   } as const;
 
-  test("declares only what adoption converges on production, and no creation-only setting", () => {
-    expect(retainedD1Props({ ...cireDb, migrations: null }, ["cire-db"])).toEqual({
-      name: "cire-db",
-      readReplication: { mode: "disabled" },
-      jurisdiction: "default",
-    });
-  });
+  const MIGRATIONS = ".generated/migrations/cire-db";
 
   test("refuses a location hint on production, where the database is adopted", () => {
-    expect(() => retainedD1Props({ ...cireDb, locationHint: "oc", migrations: null })).toThrow(
-      AdoptedLocationHintError,
-    );
-  });
-
-  test("places a database a dev stage creates", () => {
-    expect(
-      retainedD1Props({
-        ...cireDb,
-        name: "cire-db-dev",
-        stage: "dev",
-        locationHint: "oc",
-        migrations: "../../cire/db/migrations",
-      }),
-    ).toEqual({
-      name: "cire-db-dev",
-      readReplication: { mode: "disabled" },
-      jurisdiction: "default",
-      primaryLocationHint: "oc",
-      migrations: "../../cire/db/migrations",
-    });
-  });
-
-  test("adds migrations only once Alchemy is the database's migrator", () => {
-    expect(
-      retainedD1Props({ ...cireDb, migrations: "../../cire/db/migrations" }, ["cire-db"]),
-    ).toEqual({
-      name: "cire-db",
-      readReplication: { mode: "disabled" },
-      jurisdiction: "default",
-      migrations: "../../cire/db/migrations",
-    });
+    expect(() =>
+      retainedD1Props({ ...cireDb, locationHint: "oc", migrations: MIGRATIONS }),
+    ).toThrow(AdoptedLocationHintError);
   });
 
   test("B5: seed files reach a dev database's props, and production refuses any", () => {
@@ -75,7 +40,7 @@ describe("retainedD1Props", () => {
     expect(props.importFiles).toEqual(seeds);
     expect(props.importFiles).not.toBe(seeds);
     expect(() =>
-      retainedD1Props({ ...cireDb, migrations: null, importFiles: ["seed.sql"] }),
+      retainedD1Props({ ...cireDb, migrations: MIGRATIONS, importFiles: ["seed.sql"] }),
     ).toThrow(ProductionSeedError);
   });
 });
@@ -162,10 +127,13 @@ describe("production storage", () => {
       readReplication: "auto",
       jurisdiction: "default",
       locationHint: null,
-      migrations: null,
+      migrations: ".generated/migrations/cire-db",
       importFiles: [],
     } as const;
-    expect(() => retainedD1Props(cireDb)).toThrow(ProductionNotAdoptedError);
+    expect(() => retainedD1Props(cireDb, [])).toThrow(ProductionNotAdoptedError);
+    expect(() => retainedD1Props({ ...cireDb, name: "cire-db-new" })).toThrow(
+      ProductionNotAdoptedError,
+    );
     expect(() => retainedD1Props(cireDb, ["cire-db-dev"])).toThrow(ProductionNotAdoptedError);
     expect(retainedD1Props(cireDb, ["cire-db"]).name).toBe("cire-db");
     expect(retainedD1Props({ ...cireDb, name: "cire-db-dev", stage: "dev" }).name).toBe(
@@ -185,7 +153,10 @@ describe("production storage", () => {
       cors: [],
       domains: [],
     };
-    expect(() => retainedBucketProps(cireAssets)).toThrow(ProductionNotAdoptedError);
+    expect(() => retainedBucketProps(cireAssets, [])).toThrow(ProductionNotAdoptedError);
+    expect(() => retainedBucketProps({ ...cireAssets, name: "cire-assets-new" })).toThrow(
+      ProductionNotAdoptedError,
+    );
     expect(retainedBucketProps(cireAssets, ["cire-assets"]).name).toBe("cire-assets");
   });
 });

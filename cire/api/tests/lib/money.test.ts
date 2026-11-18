@@ -17,8 +17,8 @@ describe("minorToDecimal", () => {
   });
 
   it("renders a zero-exponent currency as a whole number", () => {
-    // The hard-coded `/ 100` this replaces would have said "200.00" — a 100×
-    // understatement of a ¥20,000 gift.
+    // A fixed `/ 100` would print "200.00" — a 100× understatement of a
+    // ¥20,000 gift.
     expect(minorToDecimal(20_000, "JPY")).toBe("20000");
   });
 
@@ -72,6 +72,7 @@ describe("formatMinor", () => {
 
   it("returns the same answer on the memoised second call", () => {
     const first = formatMinor(1000, "JPY");
+    expect(first).toBe(intl(1000, "JPY"));
     expect(formatMinor(1000, "JPY")).toBe(first);
     formatMinor(12_500, "XX");
     expect(formatMinor(12_500, "XX")).toBe("125.00 XX");

@@ -11,7 +11,7 @@ related:
   - "[[free-tier-limits]]"
   - "[[cire-plus-ones]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-11-16
 ---
 # RSVP changes
 
@@ -37,7 +37,7 @@ Only the household's writes. `POST /api/rsvp` compares each guest×event pair wi
 | `reply_edited` | Its status, dietary text or dietary picks differ (picks compared in stored, canonical order) |
 | `plus_one_added`, `plus_one_renamed`, `plus_one_removed` | Written by the household's own plus-one writes, with no event — see below |
 
-An identical re-submit writes nothing, and a pair named twice in one body is judged once, from its last entry. `POST /api/rsvp` sits behind the same per-IP limiter as the other guest writes (20 a minute, `defaultRsvpLimiter` in `cire/api/src/app.ts`), since each submit can add up to 200 rows to the log. A reply an organiser records (`PUT …/guests/:guestId/rsvps/:eventId`) is never a change: a full reply is not logged at all, and a status-only save writes only the audit row below. The log stores ids, the kind and the time; dietary content is compared in the route and never stored.
+An identical re-submit writes nothing, and a pair named twice in one body is judged once, from its last entry. `POST /api/rsvp` sits behind the same per-IP limiter as the other guest writes (20 a minute, `defaultRsvpLimiter` in `cire/api/src/app.ts`), since each submit can add up to 200 rows to the log. A submit carries at least one reply; a body with none is refused with a 400. A reply an organiser records (`PUT …/guests/:guestId/rsvps/:eventId`) is never a change: a full reply is not logged at all, and a status-only save writes only the audit row below. The log stores ids, the kind and the time; dietary content is compared in the route and never stored.
 
 The change row rides the reply's own batch, after the upserts and before the read-back (`rsvpService.submitRsvpsAndList`). Up to 49 pairs that is one atomic batch. Past that the upserts fill earlier batches of 50 and the change row rides the last, so a failure there loses the log entry but never invents one for a reply that did not land.
 
@@ -139,7 +139,7 @@ The portal link is the tier's organiser origin (`organiserOriginFrom` in `cire/a
 
 ## Retention
 
-The guest privacy notice (`cire/ui/src/guest-privacy-notice.astro`, on the guest site and cireweddings.com) names the record and its window. Change rows are deleted **90 days** after they are written (`rsvpChangeService.sweepExpired`, daily cron), and go with their household or wedding before that — so the 1-year guest-data sweep reaches them. Organiser status-save rows keep the same 90 days: the record of who set a status lasts 90 days, while `rsvps.recorded_by_osn_profile_id` keeps the latest organiser writer for as long as the reply. Notice rows go with the seat or the wedding. An OSN account deletion does not reach `wedding_hosts`, so a deleted account's notice row lasts as long as its seat. See [[retention]] and [[data-map]].
+The guest privacy notice (`cire/ui/src/guest-privacy-notice.astro`, on the guest site and cireweddings.com) names the record and its window. Change rows are deleted **90 days** after they are written (`rsvpChangeService.sweepExpired`, daily cron), and go with their household or wedding before that — so the 1-year guest-data sweep reaches them. Organiser status-save rows keep the same 90 days: the record of who set a status lasts 90 days, while `rsvps.recorded_by_osn_profile_id` keeps the latest organiser writer for as long as the reply. Notice rows go with the seat or the wedding. An OSN account deletion removes the person's seats and their notice rows together, and empties `actor_osn_profile_id` on their status-save rows ([[dsar#Cire (wedding-invite) data]]). See [[retention]] and [[data-map]].
 
 ## Related
 

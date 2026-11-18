@@ -37,8 +37,14 @@ questions.
 
 ## Who writes a card
 
-The **`retro`** skill, once, after `prep-pr` has opened the pull request. It
-runs `card -- --resolve-issue`, which asks `gh` for the pull request, names the
+The **`retro`** skill, once, in `prep-pr` Step 9, before the branch's first
+push, so the card goes out with the work and the pull request runs CI once. No
+pull request exists yet, so it passes `--issue` and `--issue-labels` for the
+branch's issue, and the card's `pr.number` stays null until a later run or
+`backfill` writes it; `backfill` counts a card that names no pull request, on
+the same branch, as that pull request's, and keeps its review counts and
+rating. On a branch whose pull request is already open, `retro` runs
+`card -- --resolve-issue`, which asks `gh` for the pull request, names the
 issue the branch was cut for — the branch's `NEW-FEAT.md` when it names one of
 the pull request's links, else the first `Closes` line of the body — and
 declares the sum of the `complexity:` ratings of every issue in this

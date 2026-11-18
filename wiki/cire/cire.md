@@ -24,7 +24,8 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-11-04
+  - "[[account-deletion]]"
+last-reviewed: 2026-11-18
 ---
 
 # Cire
@@ -54,6 +55,8 @@ Two separate systems by design — full contract in [[cire-auth]]:
 - **Guests** never become OSN account holders. A guest exchanges a family claim code (`families.public_id`, e.g. `SHARMA-IVY-QM42`) at `POST /api/claim` for a 256-bit session token (SHA-256-hashed at rest), carried in a 30-day HttpOnly `cire_session` cookie. `sessionAuth()` protects `/api/rsvp`.
 - **Organisers** sign in with their OSN account through the **OIDC redirect** (since 2026-07-27): the portal navigates to cire-api's `/api/auth/oidc/start`, the passkey ceremony and consent run on `musubi.social`, and cire-api exchanges the code server-side and sets its own `cire_org_session` cookie. Registering a new OSN account happens on musubi too — the portal no longer carries `@osn/client` or `@osn/auth-ui`. **Any logged-in OSN user is a full organiser** (the old bootstrap-owner 503 gate is gone — #156, see below). `osnAuth()` reads that cookie, falling back to an `aud: "osn-access"` bearer token for non-browser callers. Per-wedding authorisation reads the caller's seat in the `wedding_hosts` table: `weddingOwner()` (any owner, destructive/management routes) and `weddingMember()` (owner **or** co-host, dashboard reads), among the gates listed in [[cire-auth]].
 - **Multiple weddings + co-hosts** — an organiser lists / selects / creates weddings (`GET`/`POST /api/organiser/weddings`, #147); every wedding-scoped route carries an explicit `:weddingId` (the import routes were rescoped from global, and now live under `/api/organiser/weddings/:weddingId/changes/*` — see [[cire-guest-event-editor]] §7). An owner adds co-hosts **by OSN handle** (#148): `cire/api` resolves the handle via an ARC-gated osn-api `GET /graph/internal/profile-by-handle` call, asks `GET /graph/internal/either-blocked` that neither the person nor the adding owner has blocked the other, and writes a `wedding_hosts` row; editors and viewers get the read dashboard via `weddingMember()`, a helper only the run sheet, and none of them anything destructive.
+- **OSN account deletion** reaches cire over ARC: osn-api's preview and erasure calls (`/internal/account-deletion-preview`, `/internal/account-deleted`, audience `cire-api`; [[cire-auth#osn-api's ARC calls (account deletion)]]). An account that is the only owner of a live wedding cannot be deleted until the person adds another owner, deletes the wedding, or answers `delete`; at the erasure its seats go, a wedding left with no owner is deleted in the same batch, and everything that names the person is cleared ([[dsar#Cire (wedding-invite) data]]). The whole flow, and the contract every app implements: [[account-deletion]].
+- **Taking a wedding away.** An owner downloads the whole wedding as one ZIP from the portal's `#/w/<weddingId>/settings/export` page (`POST /api/organiser/weddings/:weddingId/archive`): every CSV the portal offers, the rest of the wedding's rows, and the pictures and uploaded spreadsheets it holds in R2, at any plan tier ([[cire-development#CSV exports]]). osn-api's account export carries the person's seats as its `cire.weddings` section, from the third ARC call, `/internal/account-export`, and points an owner at that page ([[dsar#Art. 15 — Right of access]]).
 - **Optional guest account linking** — an invitee may attach their seat to an OSN/Pulse account. `PulseAccountLink` renders in the claim and welcome panel after a claim ([[cire-invite-designs]]); signing in is the same OIDC redirect the organiser uses, so the invite origin never runs a ceremony. `POST /api/account/link` is the one dual-credential route (guest `cire_session` cookie binds the household, the cire OSN session cookie names the account); it resolves the profile to an account id over ARC and writes `guest_account_links`. Full contract + the 401/dual-credential nuances in [[cire-auth]].
 
 ## Guest + organiser features (shipped by 2026-07-22)
@@ -62,12 +65,13 @@ Two separate systems by design — full contract in [[cire-auth]]:
 - **Google Maps Embed preview (#146)** — venue/location previews use the Maps Embed API, key-optional with a CSS-card fallback when no key is set (same graceful-degradation pattern as Turnstile and the optional email).
 - **Turnstile bot protection (#154)** — guest claim + RSVP (and the organiser-portal OSN register/login) are gated by Cloudflare Turnstile, key-optional + fail-closed; **inert until a widget is created**. See [[turnstile]].
 - **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/auth-ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The flag is still forced on, but its original reason has expired: it was set because the deployed osn-api ran with email degraded, and osn-api has delivered through Resend since 2026-06-18 ([[email]]). Whether to re-enable the OTP factor is an open decision, tracked as an issue in `englishstreetventures/osn`; the code comment in `cire/host/src/components/SecurityPanel.tsx` still cites the degraded-email reason. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
+- **Remove my Cire data** — the portal's account menu opens a screen (`#/remove-data`, `RemoveCireData`) where a host removes their Cire data and keeps their Musubi account: it lists each wedding they hold a seat on and what removal does to it, offers each wedding they alone own its download and a way to add another owner, takes an answer for each, sends them to Musubi to confirm it's them, and removes everything at once ([[cire-auth#A host removes their Cire data]], [[dsar#Cire (wedding-invite) data]]). A wedding's download page (`#/w/<id>/settings/export`) also offers an owner the way to add another owner; Musubi's account deletion links each wedding the person alone owns there.
 
 ## Data model
 
 - `weddings` is the root table; `families`, `events`, and `imports` carry a `wedding_id` NOT NULL FK (cascade). Multiple weddings per organiser are live (#147) — there is no longer a single seeded wedding.
-- `wedding_hosts(wedding_id, osn_profile_id, role, …)` (#148) holds every organiser's **seat**, unique per `(wedding_id, osn_profile_id)`. A wedding's owners are its seats with role `owner` — it can have several, all equal, counted towards the 50-seat cap, and always at least one (migration `0076` moved ownership here from the dropped `weddings.owner_osn_profile_id`). The profile id is an opaque `usr_*` string — **no cross-DB FK** (cire's D1 and OSN's DB are separate databases). See [[cire-auth#Equal owners]].
-- `weddings.deleted_at` + `deleted_by_osn_profile_id` (migration `0077`) make a wedding **soft-deleted**: an owner's delete sets them, and from that moment the wedding is hidden from every guest, vendor and co-host path. Any owner can restore it for 7 days; then the daily purge hard-deletes the row and, by FK cascade, every child, and reaps the R2 objects those rows name. See [[cire-auth#Soft-deleted weddings]].
+- `wedding_hosts(wedding_id, osn_profile_id, role, …)` (#148) holds every organiser's **seat**, unique per `(wedding_id, osn_profile_id)`. A wedding's owners are its seats with role `owner` — it can have several, all equal, counted towards the 50-seat cap, and always at least one: the seat routes refuse to remove or demote the last owner, and an OSN account's erasure deletes a wedding its removal leaves with no owner, in the same batch (migration `0076` moved ownership here from the dropped `weddings.owner_osn_profile_id`). The profile id is an opaque `usr_*` string — **no cross-DB FK** (cire's D1 and OSN's DB are separate databases). See [[cire-auth#Equal owners]].
+- `weddings.deleted_at` + `deleted_by_osn_profile_id` (migration `0077`) make a wedding **soft-deleted**: an owner's delete sets them, or an account erasure (with no deleter named), and from that moment the wedding is hidden from every guest, vendor and co-host path. Any owner can restore it for 7 days; then the daily purge hard-deletes the row (at once, for a deleted wedding with no owner left to restore it) and, by FK cascade, every child, and reaps the R2 objects those rows name. See [[cire-auth#Soft-deleted weddings]].
 - A **plus-one** is an ordinary `guests` row whose `plus_one_of_guest_id` names the guest who brought them; `guests.plus_one_allowed` is the organiser's permission (migration 0066). The household names them on the invite; the change pipeline never matches one. See [[cire-plus-ones]].
 - `rsvp_changes` logs each household RSVP change (ids, kind, time; `seq` AUTOINCREMENT cursor; cascades with the household and wedding, purged at 90 days) and each organiser status-only save, naming the organiser (migration 0084; read by nothing that tells organisers about changes), and `host_rsvp_notices` keeps each organiser's read marker and digest switch per wedding (migration 0068). See [[cire-rsvp-changes]].
 - `guest_account_links` records the optional per-invitee OSN link: `guest_id`/`family_id`/`wedding_id` (cascade FKs) + opaque `osn_account_id` / `osn_profile_id` (no cross-DB FK). See [[cire-auth]].
@@ -124,7 +128,8 @@ neither runs in the deployed Worker (entry `src/entry.ts`, which
 re-exports the handler in `src/index.ts` and the realtime hub class).
 
 `cire/db` drizzle.config points `db:studio` at the local D1 sqlite (override via
-`CIRE_DATABASE_URL`; the content-hashed path changes on `db:reset`).
+`CIRE_DATABASE_URL`; the hashed file name follows the local database id in
+`cire/api/wrangler.toml`, `local:cire-db`).
 
 ## Deployment — live on `cireweddings.com`
 
@@ -133,10 +138,10 @@ Free tier throughout — see [[free-tier-limits]]). Domains (#149):
 
 | Host | Surface |
 |---|---|
-| `cireweddings.com` (apex) | marketing site (`cire/landing` Pages) |
-| `invite.cireweddings.com` | guest site (`cire/invites` Pages) |
-| `host.cireweddings.com` | organiser portal (`cire/host` Pages) |
-| `vendor.cireweddings.com` | vendor portal (`cire/vendor` Pages) |
+| `cireweddings.com` (apex) | marketing site (`cire/landing`, the `cire-landing` Worker) |
+| `invite.cireweddings.com` | guest site (`cire/invites`, the `cire-invites` SSR Worker) |
+| `host.cireweddings.com` | organiser portal (`cire/host`, the `cire-host` Worker) |
+| `vendor.cireweddings.com` | vendor portal (`cire/vendor`, the `cire-vendor` Worker) |
 | `api.cireweddings.com` | `cire-api` Worker |
 | `id.musubi.social` | `osn-api` Worker — the OSN issuer, on a **zone of its own** since 2026-07-27 (was `id.cireweddings.com`) |
 | `musubi.social` (apex) | `@musubi/social` — the identity app and the OIDC consent screen |
@@ -148,10 +153,11 @@ host can run one any more. **That is why cire signs in over the OIDC redirect**
 (shipped 2026-07-27): cire is a registered client, the ceremony and consent run on
 `musubi.social/authorize`, and cire-api exchanges the code server-side. No
 cireweddings.com origin runs a WebAuthn ceremony. Production deploys run via the **GitHub Actions
-workflow** `.github/workflows/production-release.yml`: gated on a build/test job and one
-approval, it applies the remote cire D1 migrations and deploys the **cire-api Worker**,
-the **cire-invites guest Worker** and the **organiser, vendor and landing Pages**
-projects in each daily or hand-run release; the dev tier deploys from `deploy.yml` on
+workflow** `.github/workflows/production-release.yml`: gated on a build/test job and the
+`production` Environment's approvals, it applies the remote cire D1 migrations and deploys
+the **cire-api Worker** and the **cire-invites guest Worker**, and through the cire stack
+the **organiser portal, vendor portal and marketing site Workers**
+([[production-deploy]] §5.3) in each daily or hand-run release; the dev tier deploys from `deploy.yml` on
 every merge. The Cloudflare API tokens sit on the `production`
 and `dev` GitHub Environments. Prod wrangler config redeclares the D1, R2, rate-limit and Durable Object bindings under
 `[env.production]` (named envs don't inherit top-level bindings); cire-api no
@@ -188,17 +194,17 @@ tier` once, as an error ([`src/index.ts`](../../cire/api/src/index.ts)), which
 is expected while push is off. No var turns push off; the binding is the
 switch.
 
-The two tiers deploy cire-api with different tools, and the `TopicHub` class
-lives by different rules on each. Both upload the same module, `src/entry.ts`,
-which exports the class.
+Both tiers deploy cire-api through the cire Alchemy stack, from the same
+module, `src/entry.ts`, which exports the `TopicHub` class. The class lives by
+different rules on each.
 
 | | dev | production |
 |---|---|---|
-| Uploads cire-api | `stack-cire-dev` in `.github/workflows/deploy.yml`, through the cire Alchemy stack; `deploy-cire-api-dev` only records the run | `deploy-cire-api` in `.github/workflows/production-release.yml`, with `wrangler deploy --env production` |
-| Binds `REALTIME_HUB` | [`cire/infra/src/declaration.ts`](../../cire/infra/src/declaration.ts) | `[[env.production.durable_objects.bindings]]` in [wrangler.toml](../../cire/api/wrangler.toml) |
-| Deletes the class | the first deploy in which no binding names it | a `[[migrations]]` entry listing it in `deleted_classes` |
+| Uploads cire-api | `stack-cire-dev` in `.github/workflows/deploy.yml`; `deploy-cire-api-dev` only records the run | `stack-cire-production` in `.github/workflows/production-release.yml`; `record-cire-api` only records the run |
+| Binds `REALTIME_HUB` | `cireDeclaration()` in [`cire/infra/src/declaration.ts`](../../cire/infra/src/declaration.ts) | `cireProductionApis()` in the same file; `[[env.production.durable_objects.bindings]]` in [wrangler.toml](../../cire/api/wrangler.toml) mirrors it |
+| Deletes the class | the first deploy in which no binding names it | no release: the live read refuses every release while the Worker hosts a class no declared binding names ([[infrastructure-as-code#Production API Workers and storage]]) |
 
-**How Alchemy treats the class.** Alchemy `2.0.0-beta.84` records each class
+**How Alchemy treats the class.** Alchemy `2.0.0-beta.85` records each class
 the Worker hosts, keyed by its binding's env key, in the Worker's
 `alchemy:dos:` tags. Each deploy compares those tags with the bindings, and
 gives a class that no binding names any more a `deleted` tombstone in the
@@ -226,15 +232,18 @@ page, its error table and "Rollbacks cannot cross a lifecycle change".
 
 #### Push off, class kept
 
-- **Production**, through Wrangler until the Alchemy rollout's P3 moves
-  production to Alchemy ([[infrastructure-as-code]]).
-  Delete the `[[env.production.durable_objects.bindings]]` block and release.
-  Keep the export, the `v1` migration and the top-level block, which only
-  `wrangler dev` and the `build` dry run read. The class and its namespace
-  stay, so restoring the block turns push back on. Tests to change: the
-  production row of the binding check in `cire/api/tests/wrangler-config.test.ts`,
-  and K2 in `cire/infra/tests/parity.test.ts`, which must read a missing
-  `durable_objects` table as empty and list `REALTIME_HUB` in `DEV_ONLY`.
+- **Production** deploys through the cire stack too, from
+  `cireProductionApis()`. Dropping the `REALTIME_HUB` binding there would
+  have the upload delete `TopicHub` with its storage, and the live read
+  refuses every release while cire-api hosts a class no declared binding names
+  ([[infrastructure-as-code#Production API Workers and storage]]). So no
+  release turns push off on production by dropping the binding; a rename that
+  keeps `className: "TopicHub"`, as on dev, keeps the class named. The
+  `[[env.production.durable_objects.bindings]]` block in `wrangler.toml`
+  mirrors the declaration, and `cire/infra/tests/parity.test.ts` (PA2) holds
+  the two equal.
+
+  *Unverified — a production release that renames the binding has not run.*
 - **Dev.** Rename the binding's key in `declaration.ts` (to `REALTIME_HUB_OFF`,
   say) and keep `className: "TopicHub"`. A binding still names the class, so
   Alchemy keeps it and creates nothing, and cire-api finds no `REALTIME_HUB`.
@@ -248,16 +257,16 @@ verifying the dev tier) say push is on; change them in the same pull request.
 
 #### Removing push from both tiers
 
-One change, which deletes the class on both tiers:
+One change, which deletes the class on dev, and on production once the live
+read allows it (below):
 
-1. Remove the `TopicHub` export from `src/entry.ts`, the `REALTIME_HUB` entry
-   from `declaration.ts`, and the read of `env.REALTIME_HUB` and its error log
-   from `src/index.ts`.
+1. Remove the `TopicHub` export from `src/entry.ts`, both `REALTIME_HUB`
+   entries from `declaration.ts` (`cireDeclaration()` and
+   `cireProductionApis()`), and the read of `env.REALTIME_HUB` and its error
+   log from `src/index.ts`.
 2. Delete both `REALTIME_HUB` blocks from `wrangler.toml`, and add a
    `[[migrations]]` entry with a new tag and `deleted_classes = ["TopicHub"]`.
-   Never edit `v1`. Wrangler 4.149 can send the declarative `exports` form
-   instead, but a script that has used `exports` cannot go back to migrations,
-   so production stays on migrations until the Alchemy rollout's P3.
+   Never edit `v1`.
 3. Change the tests that pin the hub: K10 in `cire/infra/tests/bundle.test.ts`
    to an exact empty list (it is the only check that pins the classes the dev
    Worker hosts, whatever production binds), K2's `durable_objects` reads,
@@ -269,13 +278,14 @@ One change, which deletes the class on both tiers:
    [[dev-environment]], [[infrastructure-as-code]], [[subprocessors]] and
    [[data-map]].
 
-The merge deploys dev, where Alchemy's tombstone deletes the namespace; the
-next production release applies the migration. Neither deploy can be rolled
-back, so ship the removal in a release with no other cire-api change. Nothing
-checks the production half before that release: the `build` dry run reads only
-the top-level config and sends no migrations. Turning push back on repeats the
-adoption steps in [[realtime]], with a new migration tag listing `TopicHub` in
-`new_sqlite_classes` for production.
+The merge deploys dev, where Alchemy's tombstone deletes the namespace. On
+production the live read refuses every release while cire-api hosts `TopicHub`
+and no declared binding names it, so the change holds every cire production
+release until the guard is changed to let that one deletion through
+([[infrastructure-as-code#Production API Workers and storage]]). Neither
+deletion can be rolled back, so ship the removal in a release with no other
+cire-api change. Turning push back on repeats the adoption steps in
+[[realtime]].
 
 *Unverified — that Cloudflare re-creates a class under a name it has deleted;
 Alchemy declares it as a new SQLite class.*
@@ -355,10 +365,10 @@ recorded in the OSN compliance programme:
 
 - [[data-map]] — cire section (fields, lawful basis, recipients); dietary Art. 9(2)(a) consent captured (PR #123), covering both `rsvps.dietary` and the `rsvps.dietary_presets` vocabulary; residual R2 retention + the age-gate note
 - [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category, presets and free text alike; consent asked once per submission and never pre-ticked for a member with no record; gating consent mitigation RESOLVED PR #123, sign-off pending residual retention items)
-- [[retention]] — cire rows: guest data swept at 1 year (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open
+- [[retention]] — cire rows: guest data swept a year after the final event, or three years after creation for a wedding the sweep cannot date (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open
 - [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed
 - privacy notice — guest site publishes `/privacy` + `/terms`
-- [[dsar]] — cross-DB reachability + orphan-tolerance decision
+- [[dsar]] — cross-DB reachability, the account export's cire section and the owner's whole-wedding download, and what an OSN account deletion does in cire
 - [[access-control]] — cire D1/R2 operator access + the two cire credential classes
 - [[soc2]] — `@cire/api` observability exception; redaction deny-list interim guard
 

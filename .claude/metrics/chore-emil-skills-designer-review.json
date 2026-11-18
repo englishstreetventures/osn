@@ -1,0 +1,195 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "chore/emil-skills-designer-review",
+    "base_sha": "5748fbff790da5a6b34ce29252195c0708c177e7",
+    "head_sha": "b967de7571a9042d5cbc302779e00b7988e7e128",
+    "generated_at": "2026-11-10T08:49:14.935Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2151,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-11-10T07:56:57.683Z",
+    "last_ts": "2026-11-10T08:49:06.950Z",
+    "span_seconds": 3129,
+    "active_seconds": 3621,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 20.030682600000002,
+    "tokens": {
+      "input": 540,
+      "output": 202350,
+      "thinking": 80968,
+      "cache_write_5m": 615047,
+      "cache_write_1h": 335619,
+      "cache_read": 36013256
+    },
+    "by_model": {
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 164,
+          "output": 62379,
+          "thinking": 16381,
+          "cache_write_5m": 0,
+          "cache_write_1h": 335619,
+          "cache_read": 11086864
+        },
+        "usd_equivalent": 4.183966799999998,
+        "messages": 76
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 376,
+          "output": 139971,
+          "thinking": 64587,
+          "cache_write_5m": 615047,
+          "cache_write_1h": 0,
+          "cache_read": 24926392
+        },
+        "usd_equivalent": 15.846715799999993,
+        "messages": 187
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 164,
+          "output": 62379,
+          "thinking": 16381,
+          "cache_write_5m": 0,
+          "cache_write_1h": 335619,
+          "cache_read": 11086864
+        },
+        "usd_equivalent": 4.183966799999998,
+        "messages": 76
+      },
+      "subagent": {
+        "tokens": {
+          "input": 376,
+          "output": 139971,
+          "thinking": 64587,
+          "cache_write_5m": 615047,
+          "cache_write_1h": 0,
+          "cache_read": 24926392
+        },
+        "usd_equivalent": 15.846715799999993,
+        "messages": 187
+      }
+    },
+    "effort": {
+      "medium": 76,
+      "high": 187
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 1,
+      "docs": 31,
+      "config": 18,
+      "source": 1
+    },
+    "loc": {
+      "generated": {
+        "added": 11,
+        "deleted": 0
+      },
+      "test": {
+        "added": 38,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 4928,
+        "deleted": 4
+      },
+      "config": {
+        "added": 145,
+        "deleted": 1
+      },
+      "source": {
+        "added": 21,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "cire/vendor",
+      "osn/auth-ui"
+    ],
+    "touches_migration": false,
+    "commits": 5
+  },
+  "interaction": {
+    "user_turns": 3,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": 636010,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 222,
+      "Read": 32,
+      "Skill": 12,
+      "Edit": 10,
+      "Write": 5,
+      "Agent": 3,
+      "SubagentHandback": 3,
+      "AskUserQuestion": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 4
+    },
+    "skills": {
+      "new-feat": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "reviewer": 3
+    },
+    "requests": {
+      "main": 76,
+      "subagent": 187,
+      "with_tools": 258,
+      "with_one_tool": 236,
+      "context_median": 143588,
+      "context_p90": 200843
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 12,
+    "located": 10,
+    "acted_on": 8,
+    "paired": 9,
+    "acted_on_paired": 7,
+    "control_changed": 3,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

@@ -32,9 +32,10 @@
  * (`cire/infra/tests/parity.test.ts` holds the two equal).
  *
  * Imports only Bun and web built-ins, and the user agent from
- * scripts/smoke-check.ts, which imports only node:fs; so CI runs it with
- * `bun --no-install`. Output goes to stdout and, on GitHub Actions, to the
- * step summary.
+ * scripts/smoke-check.ts, which imports only node:fs and
+ * shared/infra/src/production-sites.ts, which imports nothing; so CI runs it
+ * with `bun --no-install`. Output goes to stdout and, on GitHub Actions, to
+ * the step summary.
  *
  * @see wiki/shared/d1-read-replication.md — where the results are recorded.
  */

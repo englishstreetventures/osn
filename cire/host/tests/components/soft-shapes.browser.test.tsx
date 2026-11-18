@@ -1,6 +1,6 @@
 import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
+import { commands, page } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
@@ -231,11 +231,16 @@ const BUDGET = {
 };
 
 describe("the budget's form fields", () => {
+  afterEach(() => commands.emulateMedia({ reducedMotion: "no-preference" }));
+
   for (const viewport of VIEWPORTS) {
     for (const theme of THEMES) {
       it(`draws every field and the buttons beside them at 34px, ${viewport.name}px ${theme}`, async () => {
         await page.viewport(viewport.width, viewport.height);
         document.documentElement.dataset.theme = theme;
+        // The payment and per-head panels grow open; with reduced motion they
+        // open at once, so the screenshots never catch one part-way.
+        await commands.emulateMedia({ reducedMotion: "reduce" });
         authFetch.mockResolvedValue(json(BUDGET));
         render(() => <BudgetView weddingId="wed_1" canEdit canManage />);
         (await screen.findByRole("button", { name: "payments (0)" })).click();

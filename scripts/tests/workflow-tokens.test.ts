@@ -37,6 +37,7 @@ const NO_TOKEN_ON_DISK = [
   "free-tier-ceiling-alert.yml",
   "main-audit.yml",
   "migration-history.yml",
+  "set-osn-api-secret.yml",
 ];
 
 test.each(NO_TOKEN_ON_DISK)("%s: no checkout leaves the job token in .git/config", (file) => {

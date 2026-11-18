@@ -7,6 +7,7 @@ import {
   unique,
   uniqueIndex,
   blob,
+  check,
 } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
@@ -15,6 +16,9 @@ import {
 
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(), // "acc_" prefix
+  // Stored lower case. Two triggers refuse a capital letter A to Z on insert
+  // and update. A migration creates them; `src/triggers.ts` copies them for
+  // test and local databases.
   email: text("email").notNull().unique(),
   passkeyUserId: text("passkey_user_id").notNull().unique(), // random UUID, opaque WebAuthn user.id (never correlates to accountId)
   maxProfiles: integer("max_profiles").notNull().default(5),
@@ -35,13 +39,13 @@ export const accounts = sqliteTable("accounts", {
   processingRestrictedAt: integer("processing_restricted_at"),
   /**
    * Unix seconds of the most recent account recovery, written by all three
-   * recovery paths — the recovery code, the emailed code and the authenticator
+   * recovery paths — the recovery code, the emailed link and the authenticator
    * code. NULL on an account that has never been recovered.
    *
    * It opens a 72-hour window in which two things are refused: changing the
-   * email on a step-up whose factor was an emailed OTP, and completing a
+   * email on a step-up whose factor was the emailed link, and completing a
    * SECOND email or TOTP recovery. The first is the point — the reason
-   * `emailChangeAllowedAmr` admits `otp` at all is that an emailed code proves
+   * `emailChangeAllowedAmr` admits `otp` at all is that the emailed link proves
    * control of the CURRENT mailbox, and after a recovery that mailbox may be
    * the attacker's. The second stops a mailbox holder simply running recovery
    * again once the owner has cleaned up.
@@ -95,6 +99,12 @@ export const users = sqliteTable(
     // keeps it stable if the unique constraint ever changes shape.
     index("users_handle_idx").on(t.handle),
     uniqueIndex("users_handle_unique").on(t.handle),
+    // At most one default profile per account. A writer that makes a profile
+    // the default clears the old one in the same batch, or does so only
+    // where the account has none.
+    uniqueIndex("users_one_default_per_account")
+      .on(t.accountId)
+      .where(sql`${t.isDefault} = 1`),
   ],
 );
 
@@ -368,6 +378,18 @@ export const sessions = sqliteTable(
      * assumed. A restricted row with no recorded factor admits nothing.
      */
     restrictedAmr: text("restricted_amr"),
+    /**
+     * Unix seconds when a sign-in on this device's browser replaced the
+     * cookie of this session's family and left the family live: only the
+     * cancel handle of a deletion job that predates the restore record
+     * (`osn/api/src/services/deletion-job-shape.ts`), whose account has no
+     * credential left to sign in with. Every other family a sign-in replaces
+     * ends. Marked, it renews only for a profile its own account owns, and
+     * `GET /authorize` sees no session in it. Copied forward on every
+     * rotation, never cleared, so cancelling the deletion does not lift it.
+     * NULL on every other session.
+     */
+    replacedAt: integer("replaced_at"),
   },
   (t) => [
     index("sessions_account_idx").on(t.accountId),
@@ -549,9 +571,9 @@ export const emailChanges = sqliteTable(
     // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
     // and keeps these rows under Art. 6(1)(c), so the column outlives its
     // parent: a foreign key to it would fail that delete, and with it the
-    // whole erasure batch, on a database that enforces foreign keys. Nothing
-    // deletes these rows yet: `wiki/compliance/retention.md` sets their
-    // retention and lists the sweeper that will enforce it as planned.
+    // whole erasure batch, on a database that enforces foreign keys. The
+    // retention sweep (`osn/api/src/services/retention.ts`, on the six-hourly
+    // cron) deletes rows 90 days after `completed_at`.
     accountId: text("account_id").notNull(),
     previousEmail: text("previous_email").notNull(),
     newEmail: text("new_email").notNull(),
@@ -563,8 +585,8 @@ export const emailChanges = sqliteTable(
     // range) as a single index scan instead of an accountId-only scan
     // followed by a filter.
     index("email_changes_account_completed_at_idx").on(t.accountId, t.completedAt),
-    // Kept for a future retention sweeper (not yet built) that will need to
-    // find rows past the retention window irrespective of account.
+    // The retention sweep's range: rows past the 90-day window, whatever
+    // the account (`osn/api/src/services/retention.ts`).
     index("email_changes_completed_at_idx").on(t.completedAt),
   ],
 );
@@ -597,9 +619,9 @@ export const securityEvents = sqliteTable(
     // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
     // and keeps these rows under Art. 6(1)(c), so the column outlives its
     // parent: a foreign key to it would fail that delete, and with it the
-    // whole erasure batch, on a database that enforces foreign keys. Nothing
-    // deletes these rows yet: `wiki/compliance/retention.md` sets their
-    // retention and lists the sweeper that will enforce it as planned.
+    // whole erasure batch, on a database that enforces foreign keys. The
+    // retention sweep (`osn/api/src/services/retention.ts`, on the six-hourly
+    // cron) deletes rows 12 months after `created_at`.
     accountId: text("account_id").notNull(),
     /**
      * Bounded kind enum — see SecurityEventKind in @shared/observability.
@@ -626,6 +648,9 @@ export const securityEvents = sqliteTable(
     index("security_events_unacked_idx")
       .on(t.accountId, t.createdAt)
       .where(sql`${t.acknowledgedAt} IS NULL`),
+    // The retention sweep's range: rows older than the 12-month window,
+    // whatever the account (`osn/api/src/services/retention.ts`).
+    index("security_events_created_at_idx").on(t.createdAt),
   ],
 );
 
@@ -647,6 +672,13 @@ export const organisations = sqliteTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => users.id),
+    /**
+     * Unix seconds when the owner received the organisation by succession —
+     * the hard delete of the previous owner's account, or a decline by the
+     * member it passed to before — and so may decline it for 30 days. NULL
+     * for an owner who created it. Written only with `owner_id`, by those two.
+     */
+    ownerInheritedAt: integer("owner_inherited_at"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
@@ -663,12 +695,18 @@ export const organisationMembers = sqliteTable(
     profileId: text("profile_id")
       .notNull()
       .references(() => users.id),
+    // Two triggers refuse any other value on insert and update. A migration
+    // creates them; `src/triggers.ts` copies them for test and local databases.
     role: text("role", { enum: ["admin", "member"] }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
     unique("org_members_pair_idx").on(t.organisationId, t.profileId),
-    index("org_members_org_idx").on(t.organisationId),
+    // An organisation's members in succession order: admins first ('admin'
+    // sorts before 'member'), then the longest-standing, then by id. The
+    // hard delete's successor read walks it and stops at the first member
+    // from another account; a read on the organisation alone uses its prefix.
+    index("org_members_succession_idx").on(t.organisationId, t.role, t.createdAt, t.id),
     index("org_members_profile_idx").on(t.profileId),
   ],
 );
@@ -725,11 +763,9 @@ export type NewAppEnrollment = typeof appEnrollments.$inferInsert;
 // the underlying account rows and this job. Idempotent re-requests return
 // the existing scheduledFor without inserting a duplicate.
 //
-// `*_done_at` columns track per-bridge fan-out completion. The hard-delete
-// sweeper refuses to fire until both are non-null AND `now >= hard_delete_at`.
-// Bridges not in this account's enrolled-apps set at soft-delete time are
-// pre-marked done (via a sentinel timestamp) so the gate doesn't block on
-// services the user never used.
+// `*_done_at` columns track the fan-out to each app; every account goes to
+// every app. The hard-delete sweeper refuses to fire until each is positive
+// AND `now >= hard_delete_at`.
 // ---------------------------------------------------------------------------
 
 export const deletionJobs = sqliteTable(
@@ -743,10 +779,20 @@ export const deletionJobs = sqliteTable(
     softDeletedAt: integer("soft_deleted_at").notNull(),
     /** Unix seconds. softDeletedAt + 7 days. */
     hardDeleteAt: integer("hard_delete_at").notNull(),
-    /** Unix seconds. Set by the Pulse purge bridge when its work is done. */
+    /**
+     * Unix seconds when the fan-out finished with Pulse: it answered, or the
+     * tier has no Pulse. A positive value is done; NULL is pending, and so is
+     * `-1`, which a row written before every account went to every app holds
+     * for an app the account was not enrolled in.
+     */
     pulseDoneAt: integer("pulse_done_at"),
-    /** Unix seconds. Set by the Zap purge bridge when its work is done. */
+    /** As `pulseDoneAt`, for Zap. */
     zapDoneAt: integer("zap_done_at"),
+    /**
+     * As `pulseDoneAt`, for cire. NULL on every row written before the column
+     * existed, which reads as pending, so such a job is sent to cire too.
+     */
+    cireDoneAt: integer("cire_done_at"),
     /** Trigger source — "user_request" | "minor_detected" | "admin". */
     reason: text("reason").notNull().default("user_request"),
     /**
@@ -764,22 +810,133 @@ export const deletionJobs = sqliteTable(
      * NULL. Nothing clears it; the row's own delete removes it.
      */
     purgeStartedAt: integer("purge_started_at"),
+    /**
+     * What a cancel puts back, as JSON written by the soft delete in the
+     * statement that inserts this row: `{ "profiles": [{ "id", "handle",
+     * "displayName", "avatarUrl" }], "enrollments": ["aenr_…"] }` — each
+     * profile as it stood before redaction, and the app enrolments the soft
+     * delete closed. NULL on a row written before the column existed; such a
+     * row cancels without restoring profiles or enrolments.
+     */
+    restore: text("restore"),
+    /**
+     * The person's answers to the deletion's open actions, as JSON keyed by
+     * action id: `{ "<action id>": { "choice": string, "successorProfileId"?:
+     * string } }`. Only choices the person made are stored; an action with a
+     * default and no answer takes its default when the hard delete runs. NULL
+     * when there were none.
+     */
+    choices: text("choices"),
+    /**
+     * Unix seconds. The last time a hard delete of this account failed. The
+     * sweep reads rows with no failure first, then the least recently failed,
+     * so a job that keeps failing never stands in front of the rest.
+     */
+    hardDeleteFailedAt: integer("hard_delete_failed_at"),
+    /**
+     * A random id the soft delete writes with the row: names this one job, so
+     * a cancel that read it removes it and no later job of the account, even
+     * one requested in the same second. NULL on a row written before the
+     * column existed.
+     */
+    jobId: text("job_id"),
+    /**
+     * What each app reported when the fan-out finished with it, as JSON keyed
+     * by app: `{ "<app>": { "status": "done", "kept": [{ "what", "erasedOn",
+     * "requestUrl" }] } | { "status": "skipped" } }`. `kept` is the app's data
+     * that outlives the account, for the email after the hard delete. NULL
+     * until the first app finishes.
+     */
+    appOutcomes: text("app_outcomes"),
+    /**
+     * The person chose to delete everything: each app takes, for every action
+     * it has, the choice that erases their data soonest, and no organisation
+     * has a stored answer, so each passes to a successor where one exists.
+     */
+    deleteEverything: integer("delete_everything", { mode: "boolean" }).notNull().default(false),
+    /**
+     * Unix seconds. The last time the fan-out failed to finish with an app of
+     * this job. The fan-out reads rows with no failure first, then the least
+     * recently failed, so a job that keeps failing never stands in front of
+     * the rest.
+     */
+    fanoutFailedAt: integer("fanout_failed_at"),
   },
   (t) => [
     // Sweeper scan: rows ready for hard-delete.
     index("deletion_jobs_hard_delete_idx").on(t.hardDeleteAt),
-    // Retry sweeper scan: pending fan-out.
-    index("deletion_jobs_pulse_pending_idx")
-      .on(t.softDeletedAt)
-      .where(sql`${t.pulseDoneAt} IS NULL`),
-    index("deletion_jobs_zap_pending_idx")
-      .on(t.softDeletedAt)
-      .where(sql`${t.zapDoneAt} IS NULL`),
+    // The fan-out's read order: never-failed jobs first, then by due date.
+    index("deletion_jobs_fanout_order_idx").on(t.fanoutFailedAt, t.hardDeleteAt),
   ],
 );
 
+/**
+ * osn-api's outbound ARC public keys. Each isolate mints its own key pair the
+ * first time it calls an app and writes the public half here before it signs
+ * anything; `GET /.well-known/arc-jwks.json` serves the unexpired rows, and
+ * apps verify osn-api's tokens against that set. Deleting a row revokes the
+ * key within the apps' five-minute key cache.
+ */
+export const arcOutboundKeys = sqliteTable(
+  "arc_outbound_keys",
+  {
+    /** The key id, `<uuid>.<expiry>.<mac>`, as the token header carries it. */
+    keyId: text("key_id").primaryKey(),
+    /** The public key, as a JWK JSON string. */
+    publicKeyJwk: text("public_key_jwk").notNull(),
+    /** Unix seconds. */
+    createdAt: integer("created_at").notNull(),
+    /** Unix seconds. osn-api signs nothing with the key from this time. */
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (t) => [index("arc_outbound_keys_expires_idx").on(t.expiresAt)],
+);
+
+export type ArcOutboundKey = typeof arcOutboundKeys.$inferSelect;
+
 export type DeletionJob = typeof deletionJobs.$inferSelect;
 export type NewDeletionJob = typeof deletionJobs.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Handle holds
+//
+// A deleted account's handles cannot be taken while its deletion is pending
+// or for 30 days after the hard delete. One row per held handle. `handle` is
+// a keyed hash of the handle (`osn/api/src/lib/handle-hold.ts`), never the
+// handle itself: the plain value lives only on the profile and, during the
+// window, in the job's restore record. Registration, profile creation and
+// organisation creation refuse a handle whose hash has a live row here.
+// ---------------------------------------------------------------------------
+
+export const handleHolds = sqliteTable(
+  "handle_holds",
+  {
+    /** Keyed hash of the normalised handle, 64 hex digits. */
+    handle: text("handle").primaryKey(),
+    /**
+     * The account whose deletion holds the handle, while that deletion is
+     * pending. A cancel deletes the account's rows; the hard delete clears this
+     * and starts the 30 days.
+     */
+    accountId: text("account_id").references(() => accounts.id),
+    /** Unix seconds. NULL while the deletion is pending; the hold ends here. */
+    releaseAt: integer("release_at"),
+    /** Unix seconds. */
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("handle_holds_account_idx").on(t.accountId),
+    // The retention sweep's range: holds past their release.
+    index("handle_holds_release_idx").on(t.releaseAt),
+    // Pending (an account, no release) or released (a release, no account):
+    // a row with neither would hold its handle for ever.
+    check("handle_holds_state_ck", sql`(account_id IS NULL) <> (release_at IS NULL)`),
+    check("handle_holds_handle_ck", sql`length(handle) = 64`),
+  ],
+);
+
+export type HandleHold = typeof handleHolds.$inferSelect;
+export type NewHandleHold = typeof handleHolds.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // OIDC relying parties (OAuth 2.1 authorization-code clients)

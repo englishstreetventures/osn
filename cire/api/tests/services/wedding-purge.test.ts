@@ -17,7 +17,9 @@ import {
 } from "../../src/services/maintenance-sweeps";
 import type { PurgeStripe } from "../../src/services/maintenance-sweeps";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
-import { StripeError } from "../../src/services/stripe";
+import { StripeError, type StripeClient } from "../../src/services/stripe";
+import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
+import { createUpgradeService } from "../../src/services/upgrades";
 import { captureLogs } from "../test-helpers/capture-logs";
 import {
   fullWeddingKeys,
@@ -126,20 +128,6 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
     expect(await counterValue(CIRE_METRICS.weddingPurged, { result: "ok" })).toBe(before + 1);
   });
 
-  it("leaves a wedding still inside its restore window", async () => {
-    const db = makeDb();
-    seedWedding(db, "wed_recent", daysAgo(6));
-    expect(await purge(db)).toEqual({ purged: 0, held: 0, errors: 0, backlog: 0 });
-    expect(exists(db, "wed_recent")).toBe(true);
-  });
-
-  it("never touches a live wedding", async () => {
-    const db = makeDb();
-    seedWedding(db, "wed_live", null);
-    expect((await purge(db)).purged).toBe(0);
-    expect(exists(db, "wed_live")).toBe(true);
-  });
-
   describe("holds a wedding while money can still move", () => {
     it("a pending gift or purchase under the hold, and not once it has aged out", async () => {
       const db = makeDb();
@@ -176,6 +164,113 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
         .run();
       expect((await purge(db)).held).toBe(1);
       expect(exists(db, "wed_disputed")).toBe(true);
+    });
+
+    // A refund cire owes holds nothing: its record (`platform_refunds`) is
+    // outside the cascade, and the daily reconciliation completes the refund
+    // from it after the purge has taken the purchase row.
+    it("no refund cire owes, and the refund still completes after the purge", async () => {
+      const db = makeDb();
+      seedWedding(db, "wed_owed", daysAgo(60));
+      const [purchase] = db
+        .update(weddingUpgradePurchases)
+        .set({ status: "refunding", createdAt: daysAgo(2), paymentIntentId: "pi_owed" })
+        .where(eq(weddingUpgradePurchases.weddingId, "wed_owed"))
+        .returning({ id: weddingUpgradePurchases.id, product: weddingUpgradePurchases.entitlement })
+        .all();
+      const s = Math.floor(daysAgo(2).getTime() / 1000);
+      db.run(
+        sql.raw(
+          `INSERT INTO platform_refunds (id, purchase_id, entitlement, payment_intent_id, amount_minor, currency, reason, status, refund_id, owners_notified_at, created_at, updated_at) VALUES ('rfd_owed', '${purchase!.id}', '${purchase!.product}', 'pi_owed', 4900, 'AUD', 'wedding_not_live', 'refunding', NULL, NULL, ${s}, ${s})`,
+        ),
+      );
+
+      expect((await purge(db)).purged).toBe(1);
+      expect(exists(db, "wed_owed")).toBe(false);
+      const records = () =>
+        db.all<{ status: string; refund_id: string | null }>(
+          sql.raw("SELECT status, refund_id FROM platform_refunds WHERE id = 'rfd_owed'"),
+        );
+      expect(records()).toEqual([{ status: "refunding", refund_id: null }]);
+
+      const refunds: string[] = [];
+      const stripe = {
+        createPlatformRefund: (input: { paymentIntentId: string }) => {
+          refunds.push(input.paymentIntentId);
+          return Effect.succeed({ id: "re_owed" });
+        },
+      } as unknown as StripeClient;
+      const told: unknown[] = [];
+      const upgrades = createUpgradeService({
+        stripe,
+        catalogue: createUpgradeCatalogue({ stripe, prices: {} }),
+        now: () => NOW.getTime(),
+        notifyRefund: (notice) =>
+          Effect.sync(() => {
+            told.push(notice);
+            return true;
+          }),
+      });
+      const result = await Effect.runPromise(
+        upgrades.reconcile().pipe(Effect.provideService(DbService, db)),
+      );
+      expect(result).toEqual({ read: 1, failed: 0 });
+      expect(refunds).toEqual(["pi_owed"]);
+      expect(records()).toEqual([{ status: "auto_refunded", refund_id: "re_owed" }]);
+      // The wedding is gone, so there is nobody to tell.
+      expect(told).toEqual([]);
+
+      // The bank then returns it: the record alone answers.
+      const failed = await Effect.runPromise(
+        upgrades
+          .refundFailed({ purchaseId: purchase!.id, refundId: "re_owed" })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(failed).toBe("recorded");
+      expect(records()).toEqual([{ status: "refund_failed", refund_id: "re_owed" }]);
+      const logs = await captureLogs(() =>
+        Effect.runPromise(upgrades.reconcile().pipe(Effect.provideService(DbService, db))),
+      );
+      expect(logs).toContain("upgrade refunds waiting for a person");
+    });
+
+    // Nor does a refund handed to a person or one Stripe accepted: each record
+    // stays, and the wedding goes on schedule.
+    it("no refund handed to a person, nor one Stripe accepted", async () => {
+      const db = makeDb();
+      for (const [weddingId, status] of [
+        ["wed_failed", "refund_failed"],
+        ["wed_back", "auto_refunded"],
+      ] as const) {
+        seedWedding(db, weddingId, daysAgo(60));
+        const [purchase] = db
+          .update(weddingUpgradePurchases)
+          .set({ status, createdAt: daysAgo(40), paymentIntentId: `pi_${weddingId}` })
+          .where(eq(weddingUpgradePurchases.weddingId, weddingId))
+          .returning({
+            id: weddingUpgradePurchases.id,
+            product: weddingUpgradePurchases.entitlement,
+          })
+          .all();
+        const s = Math.floor(daysAgo(40).getTime() / 1000);
+        db.run(
+          sql.raw(
+            `INSERT INTO platform_refunds (id, purchase_id, entitlement, payment_intent_id, amount_minor, currency, reason, status, refund_id, owners_notified_at, created_at, updated_at) VALUES ('rfd_${weddingId}', '${purchase!.id}', '${purchase!.product}', 'pi_${weddingId}', 4900, 'AUD', 'wedding_not_live', '${status}', NULL, NULL, ${s}, ${s})`,
+          ),
+        );
+      }
+
+      expect((await purge(db)).purged).toBe(2);
+      expect(exists(db, "wed_failed")).toBe(false);
+      expect(exists(db, "wed_back")).toBe(false);
+      expect(
+        db.all<{ id: string; status: string }>(
+          sql.raw("SELECT id, status FROM platform_refunds ORDER BY id"),
+        ),
+      ).toEqual([
+        { id: "rfd_wed_back", status: "auto_refunded" },
+        { id: "rfd_wed_failed", status: "refund_failed" },
+      ]);
     });
 
     it("a change still writing", async () => {
@@ -319,7 +414,7 @@ describe("maintenanceSweeps.purgeDeletedWeddings — failures", () => {
  * keeps no access to an account it no longer uses. An Express account cire
  * created stays, as it always has.
  */
-describe("handing a purged wedding's Standard account back (23)", () => {
+describe("handing a purged wedding's Standard account back", () => {
   const nameAccount = (
     db: TestDb,
     weddingId: string,
@@ -392,5 +487,45 @@ describe("handing a purged wedding's Standard account back (23)", () => {
     expect(result?.purged).toBe(1);
     expect(logs).toContain("stripe account not handed back after purge");
     expect(logs).toContain("acct_own");
+  });
+});
+
+/**
+ * A deleted wedding with no owner seat: what an account erasure leaves when it
+ * deletes a wedding its only owner's account held. Only an owner can restore a
+ * deleted wedding, so one with none waits for nothing.
+ */
+describe("maintenanceSweeps.purgeDeletedWeddings — a deleted wedding with no owner", () => {
+  const ownerless = (db: TestDb, id: string) =>
+    db.run(sql.raw(`DELETE FROM wedding_hosts WHERE wedding_id = '${id}' AND role = 'owner'`));
+
+  it("purges it inside the restore window; one with an owner waits out the window", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_noowner", daysAgo(1));
+    ownerless(db, "wed_noowner");
+    seedWedding(db, "wed_owned", daysAgo(1));
+    expect((await purge(db)).purged).toBe(1);
+    expect(exists(db, "wed_noowner")).toBe(false);
+    expect(exists(db, "wed_owned")).toBe(true);
+  });
+
+  it("still holds it while money can move", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_noowner", daysAgo(1));
+    ownerless(db, "wed_noowner");
+    db.update(registryContributions)
+      .set({ status: "disputed" })
+      .where(eq(registryContributions.weddingId, "wed_noowner"))
+      .run();
+    expect(await purge(db)).toMatchObject({ purged: 0, held: 1 });
+    expect(exists(db, "wed_noowner")).toBe(true);
+  });
+
+  it("never touches a live wedding, owner or not", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_live", null);
+    ownerless(db, "wed_live");
+    expect((await purge(db)).purged).toBe(0);
+    expect(exists(db, "wed_live")).toBe(true);
   });
 });

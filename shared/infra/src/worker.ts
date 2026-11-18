@@ -8,6 +8,11 @@ import { SECRET_INVENTORY, tierSecrets, type WorkerKey } from "./secrets/invento
 import { tierOf, type Tier } from "./stage";
 
 export interface ApiWorkerObservability {
+  /**
+   * Workers Logs. Off sends `enabled: false`, as a Wrangler config with no
+   * `observability.enabled` uploads it, and holds invocation logs off.
+   */
+  readonly logs: boolean;
   readonly headSamplingRate: number;
   readonly redactQueryString: boolean;
   readonly traces: { readonly enabled: boolean; readonly headSamplingRate?: number };
@@ -132,21 +137,30 @@ export class UndeclaredSecretsError extends Data.TaggedError("UndeclaredSecretsE
 }> {}
 
 /**
- * An upload keeps only the secrets it declares and deletes every other secret
- * the Worker holds, so `secrets` holds every name the inventory requires of
- * the Worker on the stage's tier, and no name the inventory does not declare.
+ * Every upload keeps the secrets the Worker holds that it does not name (the
+ * provider patch's `keep_bindings`), and a later deploy deletes a secret an
+ * earlier one uploaded and it drops. So on a tier whose secrets come from the
+ * GitHub Environment, `secrets` holds every name the inventory requires of the
+ * Worker and no name the inventory does not declare; on a tier whose secrets
+ * stay on the Worker (`source: "worker"`), it holds none, so no deploy
+ * uploads a value over a live one.
  */
 function checkDeclaredSecrets(input: ApiWorkerInput): void {
   const tier = tierOf(input.stage);
   const row = tierSecrets(input.worker, tier);
   const passed = new Set(Object.keys(input.secrets));
-  const declared = new Set([...row.secrets, ...row.optional]);
-  const missing = row.secrets.filter((name) => !passed.has(name));
+  const fromEnvironment = row.source === "environment";
+  const declared = new Set(fromEnvironment ? [...row.secrets, ...row.optional] : []);
+  const missing = fromEnvironment ? row.secrets.filter((name) => !passed.has(name)) : [];
   const unexpected = [...passed].filter((name) => !declared.has(name)).toSorted();
   if (missing.length === 0 && unexpected.length === 0) return;
   const parts = [
     missing.length > 0 ? `required by the inventory but not passed: ${missing.join(", ")}` : "",
-    unexpected.length > 0 ? `not in the inventory: ${unexpected.join(", ")}` : "",
+    unexpected.length > 0
+      ? fromEnvironment
+        ? `not in the inventory: ${unexpected.join(", ")}`
+        : `passed on a tier whose secrets stay on the Worker: ${unexpected.join(", ")}`
+      : "",
   ].filter((part) => part !== "");
   throw new UndeclaredSecretsError({
     worker: input.worker,
@@ -321,10 +335,13 @@ export function apiWorkerProps(
     crons: [...input.crons],
     workersDev,
     observability: {
-      enabled: true,
+      enabled: observability.logs,
       headSamplingRate: observability.headSamplingRate,
       redactQueryString: observability.redactQueryString,
-      logs: { enabled: true, invocationLogs: observability.invocationLogs ?? false },
+      logs: {
+        enabled: observability.logs,
+        invocationLogs: observability.logs && (observability.invocationLogs ?? false),
+      },
       traces:
         observability.traces.headSamplingRate === undefined
           ? { enabled: observability.traces.enabled }

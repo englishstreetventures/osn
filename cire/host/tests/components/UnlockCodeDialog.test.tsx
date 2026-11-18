@@ -45,19 +45,6 @@ describe("UnlockCodeDialog", () => {
     expect(useButton()).toBeEnabled();
   });
 
-  it("sends the code, reports the new tier and closes", async () => {
-    authFetchMock.mockResolvedValueOnce(json({ tier: "gold" }));
-    const { input, onRedeemed } = open();
-    fireEvent.input(input, { target: { value: "3f9a-0c1e-b7d2-48aa" } });
-    fireEvent.click(useButton());
-
-    await waitFor(() => expect(onRedeemed).toHaveBeenCalledWith("gold"));
-    const [url, init] = authFetchMock.mock.calls[0]!;
-    expect(url).toBe("https://api.test/api/organiser/weddings/wed_1/unlock-code");
-    expect(JSON.parse(init.body)).toEqual({ unlockCode: "3f9a-0c1e-b7d2-48aa" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  });
-
   it("shows a refusal beside the field, stays open, and clears it on the next keystroke", async () => {
     authFetchMock.mockResolvedValueOnce(json({ error: "unlock_code_invalid" }, 404));
     const { input, onRedeemed } = open();

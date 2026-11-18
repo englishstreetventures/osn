@@ -39,6 +39,12 @@ vi.mock("../../src/lib/download", () => ({
   downloadBlob: (name: string, blob: Blob) => downloadBlobMock(name, blob),
 }));
 
+const hapticSpy = vi.hoisted(() => vi.fn());
+vi.mock("../../src/lib/touch-feedback", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/touch-feedback")>()),
+  haptic: (name: string) => hapticSpy(name),
+}));
+
 // The marketing site's origin, set apart from every default so a link built
 // from anything else shows.
 vi.mock("../../src/lib/osn", async (importOriginal) => ({
@@ -206,6 +212,7 @@ describe("RsvpView", () => {
     cleanup();
     resetOrganiserMocks();
     downloadBlobMock.mockReset();
+    hapticSpy.mockClear();
     restoreViewport();
     restoreViewport = () => {};
   });
@@ -460,16 +467,20 @@ describe("RsvpView", () => {
   it("holds the RSVP download to one request while it runs, then names the file", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit canManage />);
-    const button = await screen.findByRole("button", { name: "Download RSVPs (CSV)" });
-    // An icon, as the Households tab's downloads are: its name is its label,
-    // and the shell's tooltip shows the same words.
-    expect(button.textContent).toBe("");
-    expect(button.getAttribute("data-tip")).toBe("Download RSVPs (CSV)");
+    const button = await screen.findByRole("button", { name: "Download RSVPs CSV" });
+    // The portal's download button: its word beside its icon, so no tooltip
+    // repeats it.
+    expect(button.textContent).toBe("Download RSVPs CSV");
+    expect(button.querySelector("svg")).not.toBeNull();
+    expect(button.hasAttribute("data-tip")).toBe(false);
     let answer: (res: Response) => void = () => {};
     authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
     fireEvent.click(button);
-    await waitFor(() => expect(button.getAttribute("aria-label")).toBe("Exporting RSVPs…"));
-    expect(button).toHaveProperty("disabled", true);
+    await waitFor(() => expect(button.textContent).toBe("Exporting RSVPs…"));
+    // Unavailable through `aria-disabled`, never `disabled`, which would drop
+    // the focus a keyboard press left on it.
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button).toHaveProperty("disabled", false);
     fireEvent.click(button);
     const csvCalls = () => authFetchMock.mock.calls.filter((c) => String(c[0]).endsWith(".csv"));
     expect(csvCalls().map((c) => String(c[0]))).toEqual([
@@ -483,7 +494,7 @@ describe("RsvpView", () => {
     // Content-Disposition does.
     await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
     expect(downloadBlobMock.mock.calls[0]![0]).toBe("cire-rsvps-wed_a.csv");
-    expect(button.getAttribute("aria-label")).toBe("Download RSVPs (CSV)");
+    await waitFor(() => expect(button.textContent).toBe("Download RSVPs CSV"));
   });
 
   // Both ways a lapsed session shows: the API's 401, and the auth client's
@@ -497,7 +508,7 @@ describe("RsvpView", () => {
   ])("sends an owner whose session %s to sign in rather than download", async (_, lapse) => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit canManage weddingSlug="nadia-sam" />);
-    const button = await screen.findByRole("button", { name: "Download RSVPs (CSV)" });
+    const button = await screen.findByRole("button", { name: "Download RSVPs CSV" });
     lapse();
     fireEvent.click(button);
     await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
@@ -508,16 +519,27 @@ describe("RsvpView", () => {
   it("saves no file when the RSVP download is refused, says so, and offers it again", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit canManage weddingSlug="nadia-sam" />);
-    const button = await screen.findByRole("button", { name: "Download RSVPs (CSV)" });
+    const button = await screen.findByRole("button", { name: "Download RSVPs CSV" });
     authFetchMock.mockResolvedValueOnce(json({ error: "forbidden" }, 403));
     fireEvent.click(button);
     await waitFor(() => expect(toastError).toHaveBeenCalledWith("RSVP export failed. Try again."));
+    expect(hapticSpy).toHaveBeenLastCalledWith("reject");
     expect(downloadBlobMock).not.toHaveBeenCalled();
     expect(redirectSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Download RSVPs (CSV)" })).toHaveProperty(
-      "disabled",
-      false,
-    );
+    expect(
+      screen.getByRole("button", { name: "Download RSVPs CSV" }).hasAttribute("aria-disabled"),
+    ).toBe(false);
+  });
+
+  it("says so, and keeps the owner signed in, when the RSVP download cannot reach the API", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit canManage weddingSlug="nadia-sam" />);
+    const button = await screen.findByRole("button", { name: "Download RSVPs CSV" });
+    authFetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    fireEvent.click(button);
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("RSVP export failed. Try again."));
+    expect(redirectSpy).not.toHaveBeenCalled();
+    expect(downloadBlobMock).not.toHaveBeenCalled();
   });
 
   it("gives each replies table a fixed layout with one sized column per heading", async () => {

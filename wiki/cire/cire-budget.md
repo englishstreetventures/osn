@@ -10,7 +10,8 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-27
+  - "[[toast]]"
+last-reviewed: 2026-11-16
 ---
 # Budget
 
@@ -157,6 +158,7 @@ A line with a `unit_price_minor` is priced per guest. The couple enters the pric
 **`cire/host/src/lib/budget-store.ts`** — the `weddingId`-keyed cache of one wedding's budget snapshot (`GET /api/organiser/weddings/:weddingId/budget`), shared by the Budget view and the Overview's budget widget so the two make one request.
 
 - **Writes** — a successful create or edit folds the row the server returns into the cached snapshot. Only a failed write reads the budget again, to undo the optimistic change.
+- **Deleting a line** — the ✕ hides the line and its payments at once and sends `DELETE .../budget/items/:itemId` only once its undo toast has gone without Undo, about five seconds later or longer while the toast is hovered or focused, or as the page is left (`keepalive`). Until then the line is still on the server, so co-hosts still see it, and the Budget view's own load leaves it out of any read; Undo puts back the same line and payments with no request. See [[toast]] and `cire/host/src/lib/undo-delete.ts`.
 - **Lifetime** — the same contract as its siblings (`guests-store.ts`, `events-store.ts`, `tasks-store.ts` and the rest): stale-while-revalidate after a write, and every row dropped when the wedding's dashboard closes. See [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]].
 - **Per-head refetch** — a per-head line's figures change as RSVPs arrive, with nobody touching the budget. So the Budget view loads through `revalidateBudget`: when the cached snapshot holds a per-head line it is marked stale and refetched each time the view opens, with the old rows on screen meanwhile; a refused refetch blanks them as any other does. An open while a load is already in flight joins that load rather than discarding it. A budget with no per-head line loads once. The Overview card does not refetch, because its fetcher soft-fails to an empty snapshot that would then be cached; it shows whatever was last loaded. This exception is the budget module's alone, not part of the shared cache contract.
 
@@ -181,6 +183,17 @@ Previously: `Budget` v0 (Phase 1 spec artifact) had the cap editor in the Settin
 **Decision:** Settings is for profile + co-host roles; budget cap is domain-specific and grows with the feature (Phase 2: vendor links, Phase 3: pricing seeding). Putting it in the Budget tab keeps the concerns separate and mirrors the "upcoming payments" widget on Overview (another Phase 1 surface).
 
 **Governance:** `weddingOwner()` gate on the `PUT .../budget/total` endpoint (organiser can only set their own wedding's cap).
+
+## End to end
+
+`cire-registry-money` drives the Budget module on two seeded weddings
+([`cire-registry-money.flow.ts`](../../tools/e2e/tests/flows/cire-registry-money.flow.ts),
+[[testing-patterns#The end-to-end suite]]). On Money Wedding the owner adds a
+line with an estimate, records its actual cost, sets a total the line runs
+over, schedules a deposit and ticks it paid, then deletes the line and lets its
+Undo toast run out; the flow reads `budget_items` and `payments` at each step.
+On a Crimson wedding it adds a vendor's quote from an enquiry with Add to
+budget, and finds the line in the module at the quoted figure.
 
 ## Deferred Items
 

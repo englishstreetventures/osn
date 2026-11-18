@@ -14,6 +14,13 @@ interface HeroCropLayerProps {
 }
 
 /**
+ * The fade every crop layer runs, the plain backdrop `<img>`'s own: a hero
+ * fade, choreography slower than `--dur-slow`, so it keeps its own time,
+ * scaled like every cire duration (cire/host/DESIGN.md §4, Motion).
+ */
+const HERO_FADE = "transition-opacity duration-[calc(700ms*var(--motion-scale))]";
+
+/**
  * One of the hero backdrop's crop layers, shared by every design pack.
  *
  * As a rule it is a `<div>` with the crop as a cover `background-image`. On a
@@ -35,8 +42,8 @@ export function HeroCropLayer(props: HeroCropLayerProps) {
           aria-hidden="true"
           class={
             props.breakpoint === "md:hidden"
-              ? "absolute inset-0 h-full w-full bg-cover transition-opacity duration-700 md:hidden"
-              : "absolute inset-0 hidden h-full w-full bg-cover transition-opacity duration-700 md:block"
+              ? `absolute inset-0 h-full w-full bg-cover ${HERO_FADE} md:hidden`
+              : `absolute inset-0 hidden h-full w-full bg-cover ${HERO_FADE} md:block`
           }
           style={{ ...props.layer, opacity: opacity() }}
         />
@@ -50,8 +57,8 @@ export function HeroCropLayer(props: HeroCropLayerProps) {
           aria-hidden="true"
           class={
             props.breakpoint === "md:hidden"
-              ? "absolute inset-0 h-full w-full object-cover transition-opacity duration-700 md:hidden"
-              : "absolute inset-0 hidden h-full w-full object-cover transition-opacity duration-700 md:block"
+              ? `absolute inset-0 h-full w-full object-cover ${HERO_FADE} md:hidden`
+              : `absolute inset-0 hidden h-full w-full object-cover ${HERO_FADE} md:block`
           }
           style={{ "object-position": props.layer["background-position"], opacity: opacity() }}
         />

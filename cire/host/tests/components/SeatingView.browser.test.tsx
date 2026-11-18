@@ -8,8 +8,9 @@ import "../../src/styles/global.css";
  * The seating chart in real Chromium, for the two things no DOM without layout
  * can show, and the pictures a reviewer checks without running anything:
  *
- * - a guest dragged with a real pointer onto a table is seated there, and the
- *   row being dragged paints above the cards it crosses rather than under them;
+ * - a guest dragged with a real pointer onto a table is seated there, the row
+ *   being dragged paints above the cards it crosses rather than under them,
+ *   and a dropped guest does not ease into place as a list row does;
  * - printing the page prints the chart and nothing of the portal around it;
  * - a guest's menu opens, seats and closes from the keyboard, focus and all.
  *
@@ -171,6 +172,18 @@ describe("SeatingView in Chromium", () => {
     await waitFor(() => expect(target.getAttribute("data-over")).toBe("true"));
     expect(row.contains(document.elementFromPoint(to.x, to.y))).toBe(true);
     await mouse("mouseReleased", to);
+    // A guest is a free item, and a free item does not settle: no guest row,
+    // the old node or the one its new table mounts, eases its transform.
+    const guestSettles = document
+      .getAnimations()
+      .filter(
+        (a) =>
+          a instanceof CSSTransition &&
+          a.transitionProperty === "transform" &&
+          a.effect instanceof KeyframeEffect &&
+          a.effect.target?.querySelector("[data-drag-handle]"),
+      );
+    expect(guestSettles).toEqual([]);
 
     await waitFor(() => expect(within(target).getByText("Ada Alpha")).toBeTruthy());
     expect(writes).toEqual([

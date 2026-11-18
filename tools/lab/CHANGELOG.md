@@ -1,5 +1,530 @@
 # @tools/lab
 
+## 0.3.80
+
+### Patch Changes
+
+- Updated dependencies [5742a4e]
+  - @osn/client@4.3.0
+  - @osn/auth-ui@6.4.1
+
+## 0.3.79
+
+### Patch Changes
+
+- db8c428: `Checkbox`, `RadioGroup` and `Switch` draw on one rule: the control sits on its words' first line whatever their length, 8px from them, at prose leading; a chosen radio's 8px dot sits in the centre of its 16px circle; options are 8px apart in a column and 16px in a row; keyboard focus is the house outline, 2px off. `align` is gone (every control sits on the first line). `RadioGroup` and `Checkbox` take `touch`: below `md` each row is a 44px target and the space between options stays even, with nothing around it moving. `RadioGroupItem` takes a `description`. Musubi's deletion flow and the recovery-codes box use `touch` in place of their own row classes; Pulse's attendance setting puts each option's line under its words, and Pulse maps `--ui-choice-edge` to its `--subtle`, so an unchosen radio's edge clears 3:1 (it was 1.10–1.31:1 on `--input`, an edge nobody could see on a dark card); Pulse's and Musubi's contract tests hold the choice edge at 3:1 on every ground in both themes.
+- db8c428: Account deletion gets its emails and the calls its screens need.
+
+  - `@shared/email`: five templates — `account-deletion-scheduled`, `account-deletion-cancelled`, `account-deleted`, `organisation-ownership-received` and `account-data-link`. Text another party wrote is escaped and never in a subject; every one names an organisation by its handle only. Every template draws its button through one helper, `emailButton`: the recovery, step-up and email-change links' buttons take 6px corners at the text's own weight, as every other button already did.
+  - `@osn/api`: `DELETE /account` mails the scheduled notice (the date, how to keep the account and download the data, and what each answer does, from the request's own preview); `POST /account/restore` mails the cancelled one. The hard delete reads the address, the held handles and what each app kept before its batch, and once the batch has removed the account mails the old address and each organisation's new owner, side by side, each send giving up after 10 seconds (at most 10 ownership notices one by one on a transport with no batch send); a pass whose batch removed nothing mails nothing. The cron and the local sweeper provide the email transport to it; local sweeps run on the app's runtime and skip a tick while a pass runs. New `POST /account/data-link` mails the account a link to its download page (per IP, then three a day per account). New `POST /organisations/:handle/decline-ownership`: a member who received an organisation by succession may hand it back within 30 days; it passes on as the hard delete would pass it, or is deleted, and the decliner leaves it in the same batch, the next owner mailed. `GET` on the same path answers whether the caller may decline it, and until when, with the same refusals, and writes nothing. `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation. The deletion preview's organisation actions carry `candidates`, the members a successor answer may name, read beside the organisations at most 50 an organisation. CORS exposes `Content-Disposition` and `Retry-After`. The local Bun server keys its per-address limiters on a sent `cf-connecting-ip` when `OSN_E2E_CLIENT_ADDRESS=1`, which only the E2E stack sets.
+  - `@osn/db`: `organisations.owner_inherited_at` (migration `20261116094005_organisation_owner_inherited_at`), NULL for every existing row.
+  - `@osn/client`: a 401 after a renewal that minted a pending-deletion token reaches the caller and ends nothing; `onSessionChange` gains `pending-deletion`; `isPendingDeletionToken`. The Solid provider gains `pendingDeletion` and `renewSession`, and lists no profiles for a pending-deletion session. `deleteAccount` throws `AccountDeletionRefusedError` with the open actions, fresh preview or refused action; new `exportAccount`, `sendDataLink`, `declineOwnership` and `declineOwnershipStatus`.
+  - `@shared/observability`: `OrgAction` gains `decline_ownership`; the auth rate-limit endpoint union gains `account_data_link`.
+  - `@tools/lab`: the auth-ui stories' hand-built auth contexts carry `pendingDeletion` and `renewSession`.
+  - `@shared/design-tokens`: a contract colour, `--ui-choice-edge`, for the edge of an unchosen radio, checkbox or switch track, owing 3:1. It falls back to `--ui-hairline-strong`, so an app that does not map it looks as before, and the conformance check measures it unmapped as that token, under that token's waiver (`COLOR_FALLBACKS`, `colorFallback`).
+  - `@shared/ui`: `RadioGroup`'s circle, `Checkbox`'s box, `Switch`'s track and the unticked native box draw their edge in `--ui-choice-edge`.
+  - `@osn/auth-ui`: `InlineAction`, the underlined button that ends an error line, is exported as `@osn/auth-ui/InlineAction`.
+  - `@musubi/infra`: the dev stack's env check lists `OSN_E2E_CLIENT_ADDRESS` as left unset on dev: only the Bun dev server reads it, for the E2E suite.
+
+- Updated dependencies [db8c428]
+- Updated dependencies [db8c428]
+  - @shared/ui@0.18.0
+  - @osn/auth-ui@6.4.0
+  - @osn/client@4.2.0
+  - @shared/design-tokens@0.10.0
+
+## 0.3.78
+
+### Patch Changes
+
+- Updated dependencies [d0e0687]
+  - @osn/auth-ui@6.3.0
+
+## 0.3.77
+
+### Patch Changes
+
+- 0789495: The cire button story's `bar` icon specimen is named "Add household", a
+  control that still draws that look, rather than the RSVP download, which is
+  now a labelled pill.
+- b49154c: The `SegmentedTabs` story sets the portals' new `--glass-ring`, so its light panel shows the chosen glass's readable-gold ring at 80% as the portals draw it.
+
+## 0.3.76
+
+### Patch Changes
+
+- f040da3: Tests only: cases that a kept sibling already fails on are removed, each checked by breaking the source and watching both fail. Toast and dev-urls gain one case each, and four Toaster cases move to fake timers so they can fail on what they name.
+- Updated dependencies [f040da3]
+  - @shared/design-tokens@0.9.1
+  - @shared/color@0.3.7
+  - @shared/ui@0.17.1
+  - @osn/auth-ui@6.2.4
+
+## 0.3.75
+
+### Patch Changes
+
+- Updated dependencies [3ba8aa7]
+  - @osn/auth-ui@6.2.3
+
+## 0.3.74
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- Updated dependencies [5347e06]
+  - @osn/client@4.1.2
+  - @osn/auth-ui@6.2.2
+
+## 0.3.73
+
+### Patch Changes
+
+- 4905950: Install the third-party `modern-web-guidance` skill from `GoogleChrome/modern-web-guidance`, pinned to its upstream commit, route UI work to it from the design-system skill and the designer agent, and keep its guide text out of the lint run.
+
+## 0.3.72
+
+### Patch Changes
+
+- Updated dependencies [7b90b0c]
+  - @shared/ui@0.17.1
+  - @osn/auth-ui@6.2.1
+
+## 0.3.71
+
+### Patch Changes
+
+- Updated dependencies [721b0f7]
+  - @osn/auth-ui@6.2.0
+
+## 0.3.70
+
+### Patch Changes
+
+- Updated dependencies [4deee2c]
+  - @osn/client@4.1.1
+  - @osn/auth-ui@6.1.5
+
+## 0.3.69
+
+### Patch Changes
+
+- da04fab: A `Dialog` sheet slides. Below `md`, `DialogContent presentation="sheet"` rises from its own height below the bottom edge over `--ui-dur-slow` and falls back over `--ui-dur-base`, both on the new `--ui-ease-sheet` token (`cubic-bezier(0.32, 0.72, 0, 1)`), at full opacity and unscaled, with its scrim fading on the same pace; closed part-way up or reopened part-way down it turns round from where it is. It moves by CSS transitions through two new utilities, `animate-sheet-in` and `animate-sheet-out`, beside two keyframes that move nothing and tell Kobalte how long to keep a closing sheet mounted. Under reduced motion it does not slide: it fades in and out with its scrim, in place, on the same pace and curve, with no transform on any frame; a new `sheet-hidden` utility holds where a sheet starts and ends, its own height below the edge or, under reduced motion, in place and transparent. At `md` and up, and with `presentation="centred"`, nothing changes. `DialogOverlay` takes the same optional `presentation`. Every sheet changes with it: Musubi's dialogs below `md`, `@osn/auth-ui`'s step-up, "Generate a new set?" and "Create a new profile", and pulse's share sheet. Musubi's, pulse's and `@osn/auth-ui`'s design documents say so; the lab adds a `DialogSheetSlide` story and lists the new curve.
+- Updated dependencies [da04fab]
+  - @shared/design-tokens@0.9.0
+  - @shared/ui@0.17.0
+  - @osn/auth-ui@6.1.4
+
+## 0.3.68
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+  - @osn/client@4.1.0
+  - @osn/auth-ui@6.1.3
+
+## 0.3.67
+
+### Patch Changes
+
+- Updated dependencies [9172b9c]
+  - @osn/client@4.0.1
+  - @osn/auth-ui@6.1.2
+
+## 0.3.66
+
+### Patch Changes
+
+- Updated dependencies [3437d4a]
+- Updated dependencies [3437d4a]
+  - @osn/auth-ui@6.1.1
+  - @osn/client@4.0.0
+
+## 0.3.65
+
+### Patch Changes
+
+- Updated dependencies [0d8f467]
+  - @osn/client@3.5.0
+  - @osn/auth-ui@6.1.0
+
+## 0.3.64
+
+### Patch Changes
+
+- fe8f780: `osn/auth-ui/StepUpDialog/CodeNoAnswer` shows the step-up sheet after a code check that got no answer: empty code boxes, not marked invalid, under the line that asks for a new code.
+- Updated dependencies [fe8f780]
+- Updated dependencies [fe8f780]
+  - @osn/client@3.4.2
+  - @osn/auth-ui@6.0.2
+
+## 0.3.63
+
+### Patch Changes
+
+- ed7813d: `Button` presses: while a pointer or a held Space presses it, it scales to 0.97 over `--ui-dur-fast` on `--ui-ease-out` and eases back when let go, in every app that draws it (Musubi, `@osn/auth-ui`'s views, pulse). It sets `scale`, so a call site's `transform` stays. No press while disabled, busy or `aria-disabled`, at `size="inline"`, or under `prefers-reduced-motion: reduce`. The colour fade keeps Tailwind's 150ms and curve. Musubi's and `@osn/auth-ui`'s `DESIGN.md` name the press beside the orb, and the lab's `shared/ui/Button` gains a `Press` story.
+- Updated dependencies [ed7813d]
+  - @shared/ui@0.16.0
+  - @osn/auth-ui@6.0.1
+
+## 0.3.62
+
+### Patch Changes
+
+- 123bb37: Every dialog `@osn/auth-ui` and Musubi draw has one shape: the title alone in the header, centred; the body; then a footer with Cancel (`secondary`) first, beside the step's one action, both `sm` and 40px tall below `md`. The step-up sheet says one line under its title naming the cause ("To generate recovery codes, confirm it's you."), and drops "Re-authenticate…" and "This action needs a fresh authentication. Choose a method below."
+
+  Breaking, in `@osn/auth-ui`: `AuthHeader` with `host="dialog"` takes no `onCancel`, `cancelLabel` or `cancelDisabled` (a page header still does). `SignIn` with `host="dialog"` requires `onCancel` and takes no `cancelLabel`; `Register` with `host="dialog"` takes no `cancelLabel`. `RecoveryLoginForm` takes a required `host`, and `onDismiss` (the dialog's Cancel) with `host="dialog"`. `StepUpDialog`'s `reason` is the whole line it prints ("To change your email, confirm it's you."); with a `warning`, the warning is the one line. `CreateProfileForm` draws its own padded body and a dialog footer (Cancel, then Create profile): mount it straight inside a `DialogContent`, with no padding of your own.
+
+  New: `DialogActions` (`@osn/auth-ui/DialogActions` and the barrel), every dialog's footer — Cancel first, then the step's one action, both `sm`, wrapping rather than scrolling sideways — for a host's own dialogs.
+
+  - `SignIn`, `Register` and `RecoveryLoginForm` lay out each step through an internal `ViewStep`: in a dialog, the body with its ways back as centred links at its foot ("Lost your passkey?" under the field, recovery's "Back"), then the footer (none on a done line); on a page, the action spans the column with its links under it, so `/authorize`'s sign-in and create-account views look as they did. Recovery's "Back" buttons are links, and its chooser lists "Use a recovery code" after the factors that end in a passkey.
+  - The step-up sheet opens with focus on "Use passkey", now the footer's action; the other factors sit above it. "Generate a new set?" and "Create a new profile" take the same header and footer.
+  - Every view that opens the step-up sheet passes its line: adding a passkey, renaming one (by its current name), adding an authenticator app, generating recovery codes, acknowledging alerts and changing the email.
+
+  - The recovery form's Cancel on the emailed link's wait ends the wait in this tab, as Back does, and a recovery that answers after the form has gone starts no session refresh.
+
+  Musubi: the profile switcher, the remove-friend dialog and the create and edit organisation dialogs take `AuthHeader` and `DialogActions`, so their titles are centred and their footers match the auth views'; the switcher gains a footer Cancel after its rows, held with Escape and a press outside while a switch runs. The sign-in and create-account dialogs open with focus on the dialog itself, so no phone keyboard rises over the sheet. The lab's `AuthHeader`, `SignIn` and step-up stories show the new layout.
+
+- Updated dependencies [123bb37]
+  - @osn/auth-ui@6.0.0
+
+## 0.3.61
+
+### Patch Changes
+
+- 12bb72c: `@osn/auth-ui`: three states where a person signing up could get stuck now have a way forward. `CheckEmailView` takes `productName` and, for sign-up and recovery, says above Resend once its first wait ends to look in the junk or spam folder for an email about the product; `Register` passes its `productName`, and `RecoveryLoginForm` takes one, which `SignIn` passes. `ConfirmLinkPage` states each flow's wrong-number lockout as fixed copy under its instruction and on every expired page, from `LINK_LOCKOUT` (`src/link-lockout.ts`), which a new `repo` test project (`test:repo`) holds to osn-api's constants; `showLockoutRule={false}` leaves it out where the host cannot tell the flow. `TurnstileWidget` names the causes of a challenge that cannot load and offers Try again, which loads the script afresh where it failed and renders the challenge again; a load unfinished 15 seconds after it started counts as failed; a host may add an `alternative` sentence (`SignIn` and `RecoveryLoginForm` name the recovery code); the package exports a `./TurnstileWidget` subpath. `@musubi/social`'s `/verify/:requestId` placeholder holds the taller ready card (590px below `md`, 560px from it), and a link whose id names no flow states no lockout rule. `@tools/lab` adds the TurnstileWidget stories and shows the new copy in the CheckEmailView and ConfirmLinkPage stories.
+- Updated dependencies [12bb72c]
+  - @osn/auth-ui@5.0.1
+
+## 0.3.60
+
+### Patch Changes
+
+- cae963a: Every `@osn/auth-ui` view now paints with the `ui-*` contract alone, so it renders the same in any app that maps the contract: colours, type steps, weights up to 500 and radii, held by a new `token-contract.test.ts`. Breaking: `ProfileSwitcher` and its export are gone (no app used it; Musubi has its own switcher), `SignIn` and `Register` take a required `host` (`"dialog"` or `"page"`) and an optional `cancelLabel`. With `passkeyOnly`, a step-up sheet that carries a `warning` now waits for a factor press instead of starting the passkey prompt.
+
+  - `SignIn` and `Register` head themselves with `AuthHeader`, so a dialog is named by the view's title ("Sign in to Musubi", "Create your Musubi account"); on a page they draw no frame and no side padding.
+  - Settings rows are nested `Card`s (8px corners, 16px inside), drawn by one internal `SettingsRow` in all three panels, with the dates on two lines and the actions under the words below `md`, 40px tall; each action is named by its item ("Remove Work laptop", "Sign out Safari on iOS"). Each panel's own action ("Add a passkey", "Add an authenticator app", "Sign out everywhere else") is 40px tall below `md` too. Each list's placeholder is as tall as the row that replaces it at every width.
+  - Removing a passkey or the authenticator app asks in the step-up sheet, titled "Remove {name}?" with its warning, instead of the browser's `confirm()`.
+  - "Generate a new set?" and "Create a new profile" open as bottom sheets on phones, dismissed by a `secondary` Cancel. The codes sit in a muted well, and "I've saved these codes" is the drawn checkbox in a 44px row.
+  - A failed recovery-code status read shows the failed-load line with Try again, and still asks before a rotation; an account with no codes gets a warn notice instead of red text. Blockers (no WebAuthn) are info notices.
+  - One set of words for each action: "Add a passkey", "Remove", "Sign out" for one session, "Email me a link" in the step-up sheet, "Use your authenticator app", "Email or @handle", "Waiting for your passkey…". The glossary is `osn/auth-ui/DESIGN.md` §10.
+
+  Musubi: the sign-in and create-account dialogs are named by their views. `/authorize` drops the frame around the sign-in panel, sets the app's name at the display step over the panel's 14px heading, and calls the create-account view's Cancel "Sign in instead"; its loading placeholder takes the new shape. `ResponsiveSkeleton` takes a width and a placement class, and both that placeholder and Settings' Security fallback draw with it; the fallback's head is 40px tall below `md`, as the panel's is. Settings → Security's "Recovery codes" heading is at the title step. The lab gets stories for `SignIn` and `Register` in both hosts and for each Settings panel.
+
+- cb7cf9a: `osn/auth-ui/AuthHeader` stories: the title row in the real sheet and on `/authorize`'s column, with and without Cancel, disabled, a long title, both hosts on one sheet, a 320px `Phone` frame and a playground. Each dialog story reads the dialog's accessible name from the page.
+- 8097327: The lab depends on `@osn/client` and gains `osn/auth-ui/SignIn`: `Default`, the sign-in view a signed-out person sees in musubi's "Sign in" dialog at `md` and up, and `Phone`, the same view in the 320px sheet musubi opens below `md`. Both frames are unpadded, as musubi's dialog is, and `SignIn` gets every client musubi passes it, so "Lost your passkey?" opens the same recovery chooser. It is the first `@osn/auth-ui` story that calls `useAuth`, and follows §Stories for auth and cire components: a fixed signed-out value through `AuthContext.Provider`, and stub clients whose calls never answer.
+- 008ca7c: `osn/auth-ui/StepUpDialog` stories: the real step-up sheet in every state, a 320px `Phone` frame and a playground. A story that cannot find a button it presses says so on the page.
+- Updated dependencies [8097327]
+- Updated dependencies [cb7cf9a]
+- Updated dependencies [008ca7c]
+- Updated dependencies [cae963a]
+  - @osn/auth-ui@5.0.0
+
+## 0.3.59
+
+### Patch Changes
+
+- 90c891b: `Dialog` takes its shadow, its scrim and its sheet corners from the design-token contract.
+
+  - `@shared/design-tokens` adds a scrim role, `--ui-scrim` (`bg-ui-scrim`), in its own `scrim` group of `CONTRACT_COLOR_TOKENS`. It sits in no contrast pair, so no app has to map it; unmapped it is black at 50%.
+  - `DialogContent` casts `--ui-elev-2`, as `Modal` and a raised `Card` do, instead of Tailwind's `shadow-xl`. Musubi and pulse map no elevation, so their dialogs now cast `0 8px 24px rgb(0 0 0 / 0.12)`.
+  - `DialogOverlay` and `Modal`'s `::backdrop` both paint `--ui-scrim`. Musubi's and pulse's dialog scrims paint the same pixels as before (black at 50%).
+  - The sheet presentation keeps square bottom corners at every width below `md`; between 640px and 767px they were round.
+  - The lab's colour story shows the new role, and its cire mapping carries cire's scrim.
+  - Musubi's `DESIGN.md` records the elevation and scrim it leaves unmapped.
+
+- Updated dependencies [90c891b]
+  - @shared/design-tokens@0.8.0
+  - @shared/ui@0.15.3
+  - @osn/auth-ui@4.6.1
+
+## 0.3.58
+
+### Patch Changes
+
+- 45c409b: `@osn/api` answers the tab that began a sign-up, recovery or email change alike whatever the link's reader does: a decline, a wrong number, or a right one the account's lockout refuses ends the request (`declined` or `ended`) and keeps it until its expiry, its poll answering `pending` with the number and its Resend `sent` with nothing mailed, as for an address nobody was mailed; wrong link secrets there no longer end the request, and every one past the fifth is refused unread. A begin's first sign-up link counts against a per-mailbox restart window (ten an hour, `registration_restart`) when the begin carried `previous` or a sign-up to the mailbox was declined in the hour before; a plain first begin always mails. Step-up writes a `step_up_link_declined` security event on a decline and a `step_up_link_lockout` event when wrong numbers lock its links, with the `osn.auth.step_up.lockout` counter. Recovery's per-address link allowance keys an IPv6 client by its /64. `@shared/rate-limit` adds `clientNetwork`. `@shared/observability` adds the two event kinds. `@osn/auth-ui`'s waiting screen's way back reads "Start again" from the first moment, the link page's refusal and "Cancelled" copy sends a sign-up, recovery or email change back to it, and the security banner names a turned-down step-up request; `@osn/client` knows the kind. `@musubi/social`'s layout test and `@tools/lab`'s story name "Start again".
+- Updated dependencies [45c409b]
+  - @osn/auth-ui@4.6.0
+
+## 0.3.57
+
+### Patch Changes
+
+- @osn/auth-ui@4.5.6
+
+## 0.3.56
+
+### Patch Changes
+
+- Updated dependencies [6dd5ff4]
+  - @shared/ui@0.15.2
+  - @osn/auth-ui@4.5.5
+
+## 0.3.55
+
+### Patch Changes
+
+- add334b: The cire stories for `MessageThread`, `PersonAvatar` and `Wordmark` set cire's
+  `--ease-out` to `cubic-bezier(0.23, 1, 0.32, 1)`, the curve the cire apps run.
+
+## 0.3.54
+
+### Patch Changes
+
+- @osn/auth-ui@4.5.4
+
+## 0.3.53
+
+### Patch Changes
+
+- a6a57fc: The `SegmentedTabs` stories set the portals' `--ease-glide` on their panels, in the `cubic-bezier` form the portals fall back to, so the glass glides in the lab on the portals' curve. It runs at the touch pace, 320ms, even with a mouse, where the portals take 200ms.
+
+## 0.3.52
+
+### Patch Changes
+
+- 2035748: The design system's `Motion` story names `ease-exit`, the curve an overlay leaves on, in its introduction; its grid shows the new token beside the other easings.
+- Updated dependencies [2035748]
+- Updated dependencies [2035748]
+  - @shared/design-tokens@0.7.0
+  - @shared/ui@0.15.1
+  - @osn/auth-ui@4.5.3
+
+## 0.3.51
+
+### Patch Changes
+
+- 9a86d64: A `CardTitleWeights` story in `shared/ui/display`: one card that unsets the title weight token, so it draws the 600 fallback whatever the lab's stylesheet maps, beside one with the token at 500, each captioned with the weight the browser computed.
+- e275448: The lab imports Musubi's stylesheet, so its stories now draw shared titles at 14px and 500 and overlays with no scale. Stories that show the contract's default keep it: `BadgeWeights`' unmapped column lends `--ui-weight-title: initial`, `DialogStory` also lends `--ui-text-md: initial`, and `cireStyle()` lends `initial` for the title weight and both scale tokens, which cire leaves unmapped, so cire subtrees draw cire's 600 title and 96% pop. The `MenuItems` and type-scale comments say what the lab draws. `tests/cire-mapping.test.ts` fails when Musubi maps a `--ui-*` token that `cireStyle()` neither maps nor lends `initial`, so a cire column never draws Musubi's value.
+- Updated dependencies [e275448]
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @osn/auth-ui@4.5.2
+  - @shared/ui@0.15.0
+
+## 0.3.50
+
+### Patch Changes
+
+- 5bc7db4: Two `Dialog` stories in `shared/ui/overlays`: `DialogTitleWeight` sets the title weight token from a control, with an `unmapped` option that shows the 600 fallback, and `DialogFadeOnly` sets both scale tokens to 1, as a card or a sheet. The default `DialogStory` now unsets the title weight and both scale tokens, so it draws the contract's default whatever the lab's stylesheet maps.
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/design-tokens@0.6.1
+  - @shared/ui@0.14.0
+  - @osn/auth-ui@4.5.1
+
+## 0.3.49
+
+### Patch Changes
+
+- Updated dependencies [f052448]
+  - @osn/auth-ui@4.5.0
+
+## 0.3.48
+
+### Patch Changes
+
+- Updated dependencies [0821963]
+  - @osn/auth-ui@4.4.0
+
+## 0.3.47
+
+### Patch Changes
+
+- ff81047: The lab depends on `@osn/auth-ui` and gains its first stories for it, `osn/auth-ui/CheckEmailView`: waiting before and after the Resend wait, expired, error, every flow, a 320px phone with a long address, the number the page the link opens asks for (at rest, on recovery and step-up, across a resend, and on a phone), and a playground.
+- f4c9fea: The lab gains stories for `@osn/auth-ui`'s `ConfirmLinkPage`, `osn/auth-ui/ConfirmLinkPage`: ready with three numbers and with five of six digits, confirming (with the slow line after 10 seconds), confirmed, confirmed with Continue, expired, an error and its retry, declined, opening on a known answer, every flow before and after the tap, three cards on a 320px phone, the typed field ready, confirming, after an error, refused and on a 320px phone, and a playground.
+- Updated dependencies [ff81047]
+- Updated dependencies [f4c9fea]
+- Updated dependencies [cbd32bd]
+- Updated dependencies [9d193fe]
+  - @osn/auth-ui@4.3.0
+
+## 0.3.46
+
+### Patch Changes
+
+- 989666f: The cire `Disclosure` card story names the growth: a click shows the card grow open as the body fades in. It also says the lab declares neither cire's `--dur-slow` nor its `--ease-out`, so the opening runs on the part's 320ms fallback and the lab's own curve, and the pace is judged in the app.
+
+## 0.3.45
+
+### Patch Changes
+
+- 452ec7b: Every six-digit code is typed into `OtpInput`'s boxes, tied to its error line, and every loading placeholder is `Skeleton`.
+
+  - `@osn/auth-ui`: `StepUpDialog`'s two code steps and `ChangeEmailForm`'s code are a row of `OtpInput` boxes under a span label, in place of a single `Input`; each code step puts focus in box 1 as it opens. Every row of code boxes (`Register`, `RecoveryLoginForm`'s two, `TotpView`, `StepUpDialog`'s two, `ChangeEmailForm`) names its group by its label (`aria-labelledby`; `Register`'s keeps "Verification code") and its error line by `aria-describedby`, on every box. The boxes are marked invalid, with the danger edge, only for a `400` or `422` refusal other than the verification check, so a wait or an outage ties the line without calling the code wrong. After such a refusal sent with Enter, `Register` puts focus back in box 1 when focus is on the page or still in the row, as WebKit can leave it on the disabled box. `PasskeysView`, `SessionsView`, `TotpView` and `RecoveryCodesView` show `Skeleton` while they load, in a region marked `aria-busy`, in place of "Loading…" and a hand-drawn pulse; each reads its resource's `state` before its value, so it never joins a host's `Suspense` boundary or throws a failed read, and `StepUpDialog` reads `GET /totp/status` the same way, so opening a step-up never swaps its host for the host's fallback. `PasskeysView` and `SessionsView` disable their actions while a list they have shown is read again, so a passkey just deleted or a session just revoked cannot be acted on. A passkey's or a session's name wraps inside a word, so a long one keeps the row's actions inside the card on a phone. `TotpView`'s enrolment step drops its border and padding below `md`, and `StepUpDialog` its side padding, so a code row takes the panel's whole column on a phone; a panel's header action wraps under its heading when the two do not fit.
+  - `@musubi/social`: Connections, Discover, Organisations, an organisation's head and members, Connected apps, and the fallbacks of Settings' Security and Connected apps tabs and `/authorize`'s sign-in frame draw `Skeleton` in place of "Loading…" lines and `bg-muted/50 animate-pulse` blocks, each in a region marked `aria-busy`, at the height of what replaces it at each width: a row whose buttons grow to the touch height below `md` takes one block per width (`ResponsiveSkeleton`), and each placeholder list takes its list's gap. `/authorize`'s placeholder takes the shape of the half that leads, at the panel's width: sign-up's heading, Cancel and four fields for `reason=create`, sign-in's heading, field, buttons and "Create one" line otherwise, with the heading and the birth date's hint drawn as words so they wrap as the panel's do. Connected apps' lead paragraph moves to the page, so it shows while the section loads, and its empty list is an `EmptyNote`. Connected apps says a failed list in its own line instead of throwing to the page's error boundary, and keeps its rows on screen while it reads them again after a revoke. The Settings Security tab shows each panel's own placeholder rather than its fallback for the whole tab. `DESIGN.md` gains the loading rule, that what replaces a placeholder, an error line and a step that replaces another arrive with no fade, and the code boxes' widths at 320px, and lists no `Badge`, which Musubi does not draw; the token-contract browser test drops its `Badge` case. A new browser test opens the step-up's code step in Settings' Security tab at 320 and 1440px and checks the code row's width and that no button runs past the card, nor with a 64-character passkey name at 320px. Two more hold every loading placeholder's height against what lands at 320 and 1440px (`/authorize`'s at 390 too), with its region the only busy one until then.
+  - `@tools/lab`: `SkeletonGrounds` drops the half-strength placeholder Musubi drew by hand.
+
+- 2c2906f: A title weight in the token contract, and `Badge` reads it.
+
+  - `@shared/design-tokens`: new role token `--ui-weight-title`, the weight a shared part sets a short title or a tag in, read through the utility `font-ui-title` (`--font-weight-ui-title` in `@theme inline`). It falls back to 600. `CONTRACT_SCALAR_TOKENS.fontWeight` lists it, and the agrees test fails if `tokens.css` does not alias it. The README's contract table gains it, with the `field` and `sheet` radius roles it was missing.
+  - `@shared/ui`: `Badge`'s label reads `font-ui-title` in place of `font-semibold`, so an app sets its weight once with `--ui-weight-title`. No app maps it, so every badge still draws at 600. `Badge`'s props refuse `innerHTML`, `innerText` and `textContent` (`SafeProps`). `Badge` carries no focus classes: a label takes no focus, so it draws no ring and removes no outline. A frozen snapshot of the unmapped badge's computed style, written before the change, holds pulse's look.
+  - `@tools/lab`: `Badges` shows both treatments and gains a treatment control; new `BadgeWeights` shows every badge unmapped and under `--ui-weight-title: 500`, captioned with the computed weight. The theming story's unmapped column also clears the weight token.
+  - `@pulse/web`: the token-contract browser test checks pulse's three badges compute 600 under its own stylesheet.
+
+- 3424e05: `OtpInput` fits a phone, names its boxes from a label, and puts focus where it says.
+
+  - The boxes share the column's width, up to 48px each and 48px tall; from a 328px column up the row is the same six 48px squares, 8px apart. Narrower, the gaps close to 4px before the boxes shrink, so the boxes are 40px wide in a 260px column, and the row still fits a 212px one.
+  - An empty box's edge is the ink at 55%, which reads at 3:1 on a light and a dark ground, and the boxes take the text fields' `field` corner.
+  - New optional `aria-labelledby` (the visible label's id): the group takes the label's name and box N is named "<label> Digit N". Without it the names stay "Verification code" and "Digit N".
+  - New optional `aria-describedby`, set on every box; every box is `aria-invalid` while `status` is `error`.
+  - `autofocus` and the refocus after an error focus box 1 one task later, once it is enabled, so they land when the caller re-enables the boxes in the same run and inside a Kobalte dialog.
+  - Focus draws the text field's 2px `--ui-focus` ring 2px off the ground, with an outline a contrast theme paints on the focused box only; colours fade on the contract's fast step.
+  - The value has no gaps: focus past the first empty box moves to it, typing over a digit replaces it, Backspace, Delete and a cut remove one, and an autofill of the whole code is taken whole (no box has `maxlength`).
+
+  The lab's `shared/ui/forms` group draws it as `Otp`, `OtpStates` and `OtpNarrow`. Musubi's `DESIGN.md` records the boxes' edge and corner, and that a screen gives the code row at least 260px on a phone.
+
+- ae53236: New `Skeleton` (`@shared/ui/ui/skeleton`): the block a list or panel shows in place of each line, row, field, button, card or chip while it loads.
+
+  - `standsFor` names what the block stands in for and sets its corner: `line` (`rounded-ui-sm`), `row` (`rounded-ui-md`, the default and the fallback for an unknown value), `field` (`rounded-ui-field`, the role `Input` and `Select` read), `control` (`rounded-ui-control`, the role `Button` reads), `card` (`rounded-ui-lg`) or `pill` (`rounded-ui-pill`).
+  - `width` and `height` are spacing steps (`48` is 12rem); no width fills the container. Both are always inline, so a caller's `w-*` or `h-*` cannot resize the block. It never runs wider than its container, a numeric width does not shrink in a flex row, and a size that is not a finite number of at least 0 is refused (full width, or a 1rem height).
+  - Every block fills with `--ui-surface-sunk`, with no edge. In a forced-colours theme, which repaints that fill as the page's `Canvas`, it draws a 1px edge the theme paints in its text colour. It pulses on Tailwind's `--animate-pulse` behind `motion-safe:`, so it stands still for a reader who asked for reduced motion.
+  - One `aria-hidden` div with no role and no children; `class` carries placement only, and no other prop reaches it.
+
+  Nothing imports it yet. The lab's `shared/ui/feedback` group draws it as `Skeletons`, `SkeletonGrounds`, `SkeletonInPlace` and `SkeletonPlayground`, and the overview has an entry. The package README's list of primitives names `Skeleton`, `Switch`, `Textarea`, `Label` and `Fieldset`.
+
+- Updated dependencies [2c2906f]
+- Updated dependencies [3424e05]
+- Updated dependencies [ae53236]
+  - @shared/design-tokens@0.6.0
+  - @shared/ui@0.13.0
+
+## 0.3.44
+
+### Patch Changes
+
+- 6f1cacc: Install sixteen third-party motion and interface skills from `emilkowalski/skill`, pinned to their upstream commit, and keep their example source out of the lint run. State the package's motion rules in its `DESIGN.md`.
+
+## 0.3.43
+
+### Patch Changes
+
+- 3abdb2b: `Button` gains two opt-in props; a button that uses neither draws as before.
+
+  `variant="link" size="inline"` is a link set inside a sentence: underlined at
+  rest, in the sentence's own size, line height and weight, adding no height to
+  the line. An `<a>` wearing `buttonVariants({ variant: "link", size: "inline" })`
+  wraps with the text, and its focus ring closes round each line. A standalone
+  `link` still underlines on hover only.
+
+  `busy` marks a wait the button started. While busy it keeps keyboard focus, sets
+  `aria-busy` and `aria-disabled`, refuses activation (a click, Enter, Space, and
+  the form submission they would make, with or without an `onClick`), dims as a
+  disabled button does except while focused from the keyboard, where it stays at
+  full strength so its focus ring keeps its contrast, and draws the 20px `Orb`
+  before the label the caller passes. The orb loads as a chunk of its own,
+  fetched only by a page holding a `Button` that carries a `busy` prop.
+
+  `ButtonProps` is now a union: `inline` goes with `link` only, and `busy` is not
+  accepted at `icon` or `inline`. A caller holding a variant and a size in
+  variables narrows them per member. The box classes (`inline-flex`, gap, no
+  wrap, type step, weight) move from the base string into each box size; every
+  existing variant and size keeps the same class set, except that `sm` drops the
+  `text-ui-base` its own `text-ui-sm` overrode. No computed style changes.
+
+  The lab's `shared/ui/Button` gains `Inline` and `Busy` stories, and its
+  Playground a `busy` control.
+
+- bceeafe: `Field` takes `labelTreatment`, `"caps"` by default or `"plain"`. A field that
+  does not pass it draws exactly as before, so cire's forms do not change.
+
+  `plain` draws the label as `Label` draws it by default: the words as written,
+  full ink, weight 500, the control type step. The hint, the errors, the gaps and
+  the wiring (`id`, `aria-describedby`, `aria-invalid`) are the same in both, and
+  `labelHidden` wins over either. `Label` and the plain label take their classes
+  from one file, `label-classes.ts`, so the two cannot drift; `Label` draws as
+  before.
+
+  `Field` now reads its `hint` once and holds it, so a hint written as JSX is
+  built once rather than on every read. It still follows a hint that changes or
+  goes away, and the DOM it draws is unchanged.
+
+  The lab's `shared/ui/forms` gains `PlainLabels` and `FieldPlayground`.
+
+- 4ce452e: Add `Orb` (`@shared/ui/ui/orb`): a dotted sphere drawn into a canvas that moves
+  while something is in progress, in one of nine states at 20 or 64px. Its ink
+  is the text colour it inherits, so it reads on whatever ground that text is set
+  for. It moves for five seconds at most, then holds one still frame; it holds
+  that frame from the start under `prefers-reduced-motion: reduce` and follows a
+  change of that preference. It stops drawing off screen and in a hidden tab,
+  keeps every orb on one animation loop and one clock, sizes its bitmap from the
+  box it measures, and caps it at two device pixels per CSS pixel. The canvas is `aria-hidden`; it
+  belongs inside a control whose own label says what is happening. `Button`'s
+  `busy` draws it.
+
+  The drawing engine is upstream's thinking-orbs engine (MIT), vendored byte for
+  byte into `shared/ui/vendor/thinking-orbs/` at a pinned commit. The export
+  points TypeScript at a types-only `src/ui/orb-api.ts`, so a consumer's type
+  check never reads the engine.
+
+  The lab gains `shared/ui/Orb` (`States`, `InButtons`, `Playground`) and an
+  `Orb` row on the `shared/ui` overview.
+
+  `scripts/verify-vendored-anti-slop.sh` becomes `scripts/verify-vendored.sh
+  <tree> [base-ref] [repo-root]`, which checks any vendored tree; CI's
+  `script-tests` job runs it on every tree `scripts/vendored-trees.txt` lists.
+
+- Updated dependencies [3abdb2b]
+- Updated dependencies [bceeafe]
+- Updated dependencies [4ce452e]
+  - @shared/ui@0.12.0
+
+## 0.3.42
+
+### Patch Changes
+
+- Updated dependencies [e71aee5]
+  - @shared/design-tokens@0.5.0
+  - @shared/ui@0.11.1
+
+## 0.3.41
+
+### Patch Changes
+
+- Updated dependencies [f2c7a76]
+  - @shared/ui@0.11.1
+
+## 0.3.40
+
+### Patch Changes
+
+- d3fe597: Overlays leave faster and smaller than they arrive, and each motion token says what it is for. `tokens.css` adds `--ui-dur-exit` (80ms), `--ui-scale-enter` (0.96), `--ui-scale-exit` (0.98), `--ui-distance-enter` (24px) and `--ui-distance-exit` (8px), each with a one-line job comment, and `CONTRACT_SCALAR_TOKENS.motion` lists them. `animate-out` runs `--ui-dur-exit`; `zoom-in` and `zoom-out` replace `zoom-in-95` and `zoom-out-95` and read the scale tokens. Under `prefers-reduced-motion: reduce`, `animate-in` and `animate-out` run nothing: the old reduced-motion rule matched no overlay, so `Dialog`, `Popover` and the default `DropdownMenu` still moved.
+
+  In `@shared/ui`, `Dialog`, `Popover` and both `DropdownMenu` looks take their scale from the tokens; `Popover`, `Tooltip` and the default menu grow from their trigger. `Tooltip` opens after 400ms, goes at once with no exit (the pointer can still cross onto it), and a neighbour opened within 300ms of another closing carries `data-instant` and does not animate. `Modal` exits in 150ms by default (was 200ms), sinking 8px to 0.98 rather than 24px, and its backdrop fades out with it. Musubi's `DESIGN.md` names the shared overlay motion; the lab's motion story reads the new duration.
+
+- Updated dependencies [d3fe597]
+  - @shared/design-tokens@0.4.0
+  - @shared/ui@0.11.0
+
+## 0.3.39
+
+### Patch Changes
+
+- 11685a5: Musubi's stylesheet takes on the base rules its screens were missing. Readable small text (handles, statuses, hints, "Loading…" lines) moves from `text-subtle` to `text-muted-foreground`, and `--subtle` darkens to `#8d8d8d` in light so the icons and ornaments that keep it clear 3:1 on every ground; the contrast contract now holds `--ui-ink-tertiary` without a waiver. Text fields take an 8px corner (`--ui-radius-field`) while buttons stay pills. A bare `border` draws the hairline instead of ink; a bare-bordered field keeps its ink edge. Every element reached from the keyboard gets the house focus outline, the account-menu triggers included, drawn inside the box where a row would clip it (the bottom bar, section tabs, the profile switcher). `transition-ui-colors` replaces `transition-colors`, so the outline lands at once. The theme menu is now `@shared/ui`'s `DropdownMenu` with radio rows, so it matches the account menu and a screen reader hears which theme is on. The current bottom-bar tab draws a bar along its top edge as well as full ink. The legal pages sit on Musubi's type scale: the body through `.prose-legal`, the title, date and draft notice through the scale's own steps. Discover's suggestions are `Card`s; the organisation page's loading blocks and the search fields' "@" sit on the scale. `@osn/auth-ui`'s `DESIGN.md` records how those base rules reach its views in Musubi. The lab drops its copy of `transition-ui-colors`, which it now takes from Musubi's stylesheet, and its radius stories say Musubi's fields are 8px.
+
+## 0.3.38
+
+### Patch Changes
+
+- Updated dependencies [6c81633]
+  - @shared/ui@0.10.3
+
 ## 0.3.37
 
 ### Patch Changes

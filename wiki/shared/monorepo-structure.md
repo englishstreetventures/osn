@@ -77,7 +77,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Monorepo Structure
@@ -134,7 +134,7 @@ cire/
   envelope/            # @cire/envelope — the envelope opening: its catalog (`.`, no DOM, read by cire-api; every envelope premium), the head boot script (`./boot`) and the Three.js scene and wax seal (`./scene`)
   dietary/             # @cire/dietary — the dietary-requirement vocabulary shared by cire-api and @cire/ui; no dependencies
   guest-email/         # @cire/guest-email — the one rule for a guest's email address and its consent wordings, shared by cire-api, the portal and the invite; no dependencies
-  build-tools/         # @cire/build-tools — build-only code for the Astro apps: the integration that points each build's `_headers` CSP at its own cire-api
+  build-tools/         # @cire/build-tools — build code for the Astro apps: the integration that points each build's `_headers` CSP at its own cire-api, and the Chrome origin-trial tokens the apps serve
   landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323; prod cireweddings.com)
   infra/               # @cire/infra — the Alchemy stack `cire`: cire-api with its D1, buckets and seeds, cire-invites, the three cire sites (dev only today)
 shared/
@@ -159,7 +159,7 @@ shared/
   toast/               # @shared/toast — SolidJS toasts themed through --toast-* custom properties
   turnstile/           # @shared/turnstile — key-optional, fail-closed Turnstile verifier
   typescript-config/   # @shared/typescript-config — base.json, node.json, solid.json
-  ui/                  # @shared/ui — the SolidJS primitives (Button, Card, Modal, Field, Table, Input, Select, …) plus clsx()
+  ui/                  # @shared/ui — the SolidJS primitives (Button, Card, Modal, Field, Table, Input, Select, Orb, …) plus clsx(); vendor/ holds the orb's upstream drawing engine
   openapi/             # generated OpenAPI documents — not a workspace
   swift/               # OSNShared — the local SPM package the iOS targets depend on; not a workspace
   test-config/         # shared Vitest guard config — not a workspace

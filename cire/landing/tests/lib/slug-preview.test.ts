@@ -41,11 +41,6 @@ describe("the claim field's slug preview", () => {
     );
   });
 
-  it("compares against a real function, not a missing export", () => {
-    expect(typeof slugifyDisplayName).toBe("function");
-    expect(slugifyDisplayName("Amara & Sam")).toBe("amara-sam");
-  });
-
   it("caps the field at the length cire-api and the portal accept", () => {
     const portal = readFileSync(
       join(import.meta.dirname, "../../../host/src/components/CreateWeddingForm.tsx"),

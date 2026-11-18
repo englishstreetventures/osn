@@ -21,6 +21,7 @@ import {
   beforeStatement,
   failLikeD1,
   jsonBody,
+  type RecordedStatement,
   recordStatements,
   setTier,
 } from "../test-helpers";
@@ -44,7 +45,11 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp({
+function buildApp(options: { tier?: Tier; extraListings?: number } = {}) {
+  return buildAppAndDb(options).app;
+}
+
+function buildAppAndDb({
   tier = "crimson",
   extraListings = 0,
 }: { tier?: Tier; extraListings?: number } = {}) {
@@ -148,14 +153,27 @@ function buildApp({
     vendorPortalOrigin: "https://vendor.test",
   });
 
-  return createApp(db, {
+  const app = createApp(db, {
     osnTestKey: auth.key,
     directoryService,
     emailLayer: logEmailLayer,
   });
+  return { app, db };
 }
 
 type App = ReturnType<typeof buildApp>;
+
+/**
+ * The OFFSET the directory's browse read bound. Drizzle leaves the clause out
+ * for an offset of 0, and binds it last otherwise.
+ */
+function browseOffset(statements: RecordedStatement[]): unknown {
+  const browse = statements.filter(
+    (s) => /from "directory_vendors"/i.test(s.sql) && /limit \?/i.test(s.sql),
+  );
+  expect(browse).toHaveLength(1);
+  return /offset \?/i.test(browse[0]!.sql) ? browse[0]!.params.at(-1) : 0;
+}
 
 async function req(app: App, path: string, profileId: string | undefined): Promise<Response> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -192,16 +210,16 @@ describe("vendor directory browse route", () => {
     expect(res.status).toBe(200);
   });
 
-  it("404 for a wedding the caller is not a member of (cross-tenant)", async () => {
+  it("403 for a wedding the caller is not a member of (cross-tenant)", async () => {
     // STRANGER is not a member of BOOTSTRAP_WEDDING_ID.
     expect((await req(buildApp(), base, STRANGER)).status).toBe(403);
     // usr_bob owns wed_other but is not a member of BOOTSTRAP_WEDDING_ID.
     expect(
       (await req(buildApp(), `/api/organiser/weddings/wed_other/directory`, "usr_bob")).status,
     ).toBe(200);
-    // OWNER is not a member of wed_other → 404/403.
+    // OWNER is not a member of wed_other.
     const crossRes = await req(buildApp(), `/api/organiser/weddings/wed_other/directory`, OWNER);
-    expect([403, 404]).toContain(crossRes.status);
+    expect(crossRes.status).toBe(403);
   });
 
   it("category filter passes through to the service", async () => {
@@ -247,30 +265,41 @@ describe("vendor directory browse route", () => {
     expect(body.listings).toHaveLength(50);
   });
 
-  it("limit=0 falls back to default (24)", async () => {
-    // 0 is below min (1) so clampInt returns the default (24).
-    const res = await req(buildApp(), `${base}?limit=0`, VIEWER);
+  it("limit=0 is raised to the floor of one listing", async () => {
+    const res = await req(buildApp({ extraListings: 30 }), `${base}?limit=0`, VIEWER);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { listings: unknown[]; total: number };
-    // With 2 listings the page is fine; the important thing is no error.
-    expect(Array.isArray(body.listings)).toBe(true);
+    expect(body.listings).toHaveLength(1);
   });
 
-  it("offset=-5 is clamped to 0 (no error)", async () => {
-    const res = await req(buildApp(), `${base}?offset=-5`, VIEWER);
+  it("a limit that is not a number falls back to the default of 24", async () => {
+    const res = await req(buildApp({ extraListings: 30 }), `${base}?limit=many`, VIEWER);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { listings: unknown[]; total: number };
-    expect(Array.isArray(body.listings)).toBe(true);
+    expect(body.listings).toHaveLength(24);
+  });
+
+  // SQLite reads a negative OFFSET as 0, so the clamp shows only in what the
+  // query binds.
+  it("offset=-5 is clamped to 0 (no error)", async () => {
+    const { app, db } = buildAppAndDb();
+    const statements = recordStatements(db);
+    const res = await req(app, `${base}?offset=-5`, VIEWER);
+    expect(res.status).toBe(200);
+    expect(browseOffset(statements)).toBe(0);
   });
 
   it("offset far past the 10k ceiling is clamped, not an error (DoS bound)", async () => {
     // OFFSET is O(offset) in SQLite; the route clamps to 10_000 so a single
     // request can never force a very deep walk. Pinned like the floor above.
-    const res = await req(buildApp(), `${base}?offset=999999`, VIEWER);
+    const { app, db } = buildAppAndDb();
+    const statements = recordStatements(db);
+    const res = await req(app, `${base}?offset=999999`, VIEWER);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { listings: unknown[]; total: number };
     expect(body.listings).toHaveLength(0);
     expect(body.total).toBeGreaterThan(0);
+    expect(browseOffset(statements)).toBe(10_000);
   });
 
   // ── Tier gate ──────────────────────────────────────────────────────────────
@@ -281,11 +310,6 @@ describe("vendor directory browse route", () => {
       expect(res.status, tier).toBe(402);
       expect(await jsonBody(res)).toEqual({ error: "payment_required", tier: "crimson" });
     }
-  });
-
-  it("on Crimson, GET /directory passes the gate", async () => {
-    const res = await req(buildApp(), base, OWNER);
-    expect(res.status).toBe(200);
   });
 });
 

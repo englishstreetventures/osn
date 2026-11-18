@@ -1,5 +1,426 @@
 # @osn/ui
 
+## 6.4.1
+
+### Patch Changes
+
+- 5742a4e: An app whose own pages cannot run a step-up asks for one through Musubi: an app step-up request. osn-api adds the purpose `cire_app_delete` (spent by `cire-api` alone), `POST /internal/step-up/requests` to begin a request bound to the hash of a secret the app's cookie holds in the asking browser, `GET /step-up/requests/:id` and `POST /step-up/requests/:id/confirm` for Musubi's confirm page, and a request form of `/internal/step-up/verify` that spends nothing and answers the account and every profile of it. The return address is pinned to `CIRE_ORGANISER_ORIGIN`, which the musubi stack sets. `@osn/client` adds `createAppStepUpClient`; `@osn/auth-ui`'s step-up sheet offers its three factors for the new purpose. Musubi adds `/confirm/:requestId`, and follows an app's `http:` link to this machine, which osn-api forwards from a local run only. New counter `osn.auth.app_step_up.requests`; two step-up limiters join the rate-limit endpoint list. The musubi stack registers cire-api's dev key with `step-up:verify`.
+- Updated dependencies [5742a4e]
+  - @osn/client@4.3.0
+
+## 6.4.0
+
+### Minor Changes
+
+- db8c428: Account deletion gets its emails and the calls its screens need.
+
+  - `@shared/email`: five templates — `account-deletion-scheduled`, `account-deletion-cancelled`, `account-deleted`, `organisation-ownership-received` and `account-data-link`. Text another party wrote is escaped and never in a subject; every one names an organisation by its handle only. Every template draws its button through one helper, `emailButton`: the recovery, step-up and email-change links' buttons take 6px corners at the text's own weight, as every other button already did.
+  - `@osn/api`: `DELETE /account` mails the scheduled notice (the date, how to keep the account and download the data, and what each answer does, from the request's own preview); `POST /account/restore` mails the cancelled one. The hard delete reads the address, the held handles and what each app kept before its batch, and once the batch has removed the account mails the old address and each organisation's new owner, side by side, each send giving up after 10 seconds (at most 10 ownership notices one by one on a transport with no batch send); a pass whose batch removed nothing mails nothing. The cron and the local sweeper provide the email transport to it; local sweeps run on the app's runtime and skip a tick while a pass runs. New `POST /account/data-link` mails the account a link to its download page (per IP, then three a day per account). New `POST /organisations/:handle/decline-ownership`: a member who received an organisation by succession may hand it back within 30 days; it passes on as the hard delete would pass it, or is deleted, and the decliner leaves it in the same batch, the next owner mailed. `GET` on the same path answers whether the caller may decline it, and until when, with the same refusals, and writes nothing. `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation. The deletion preview's organisation actions carry `candidates`, the members a successor answer may name, read beside the organisations at most 50 an organisation. CORS exposes `Content-Disposition` and `Retry-After`. The local Bun server keys its per-address limiters on a sent `cf-connecting-ip` when `OSN_E2E_CLIENT_ADDRESS=1`, which only the E2E stack sets.
+  - `@osn/db`: `organisations.owner_inherited_at` (migration `20261116094005_organisation_owner_inherited_at`), NULL for every existing row.
+  - `@osn/client`: a 401 after a renewal that minted a pending-deletion token reaches the caller and ends nothing; `onSessionChange` gains `pending-deletion`; `isPendingDeletionToken`. The Solid provider gains `pendingDeletion` and `renewSession`, and lists no profiles for a pending-deletion session. `deleteAccount` throws `AccountDeletionRefusedError` with the open actions, fresh preview or refused action; new `exportAccount`, `sendDataLink`, `declineOwnership` and `declineOwnershipStatus`.
+  - `@shared/observability`: `OrgAction` gains `decline_ownership`; the auth rate-limit endpoint union gains `account_data_link`.
+  - `@tools/lab`: the auth-ui stories' hand-built auth contexts carry `pendingDeletion` and `renewSession`.
+  - `@shared/design-tokens`: a contract colour, `--ui-choice-edge`, for the edge of an unchosen radio, checkbox or switch track, owing 3:1. It falls back to `--ui-hairline-strong`, so an app that does not map it looks as before, and the conformance check measures it unmapped as that token, under that token's waiver (`COLOR_FALLBACKS`, `colorFallback`).
+  - `@shared/ui`: `RadioGroup`'s circle, `Checkbox`'s box, `Switch`'s track and the unticked native box draw their edge in `--ui-choice-edge`.
+  - `@osn/auth-ui`: `InlineAction`, the underlined button that ends an error line, is exported as `@osn/auth-ui/InlineAction`.
+  - `@musubi/infra`: the dev stack's env check lists `OSN_E2E_CLIENT_ADDRESS` as left unset on dev: only the Bun dev server reads it, for the E2E suite.
+
+### Patch Changes
+
+- db8c428: `Checkbox`, `RadioGroup` and `Switch` draw on one rule: the control sits on its words' first line whatever their length, 8px from them, at prose leading; a chosen radio's 8px dot sits in the centre of its 16px circle; options are 8px apart in a column and 16px in a row; keyboard focus is the house outline, 2px off. `align` is gone (every control sits on the first line). `RadioGroup` and `Checkbox` take `touch`: below `md` each row is a 44px target and the space between options stays even, with nothing around it moving. `RadioGroupItem` takes a `description`. Musubi's deletion flow and the recovery-codes box use `touch` in place of their own row classes; Pulse's attendance setting puts each option's line under its words, and Pulse maps `--ui-choice-edge` to its `--subtle`, so an unchosen radio's edge clears 3:1 (it was 1.10–1.31:1 on `--input`, an edge nobody could see on a dark card); Pulse's and Musubi's contract tests hold the choice edge at 3:1 on every ground in both themes.
+- Updated dependencies [db8c428]
+- Updated dependencies [db8c428]
+  - @shared/ui@0.18.0
+  - @osn/client@4.2.0
+
+## 6.3.0
+
+### Minor Changes
+
+- d0e0687: Settings' Security tab reads through Musubi's page cache. Coming back to the tab draws the passkeys, the authenticator app and the recovery-code count it last had at once, and reads them again behind them; the cache goes with the session that read it, as every page's does. After a write on the tab no row it may have changed is shown again: a rename or a removal shows its outcome at once, a refused write keeps the rows, and anything else draws the panel's placeholder until the read lands — the old set's recovery count included. Remove, Save, "Add an authenticator app" and Generate, pressed while a read is out, are busy ("Checking…") until it lands and act only on what it answers. `PasskeysView`, `TotpView` and `RecoveryCodesView` take an optional `read` (`SettingsRead`, exported from `@osn/auth-ui/settings-read` with `ownRead` and `writeEnd`); without one they read for themselves.
+
+## 6.2.4
+
+### Patch Changes
+
+- Updated dependencies [f040da3]
+  - @shared/toast@0.3.16
+  - @shared/ui@0.17.1
+
+## 6.2.3
+
+### Patch Changes
+
+- 3ba8aa7: Chrome fills the email verification token on dev Musubi: the dev trial token names `musubi.esv.tools` itself, and the sign-up form sets the hidden field's nonce after the field is in the page.
+
+## 6.2.2
+
+### Patch Changes
+
+- Updated dependencies [5347e06]
+  - @osn/client@4.1.2
+
+## 6.2.1
+
+### Patch Changes
+
+- Updated dependencies [7b90b0c]
+  - @shared/ui@0.17.1
+
+## 6.2.0
+
+### Minor Changes
+
+- 721b0f7: `CheckEmailView`'s Resend shows how far its wait has gone: while it reads "Resend in {n}s", a fill behind the label, the ghost button's own hover fill led by a 2px edge in the faintest ink, at the disabled button's opacity, empties at an even pace over the whole wait and is gone as the label reads "Resend link". It is a CSS transition timed from the wait's own deadline, so a fill drawn after a send starts part-empty and still empties as Resend unlocks, and every wait after an accepted Resend runs the whole length again. It reads only `resendWaitSeconds`, the same for every address. It says nothing to a screen reader, holds no room in the button, and is not drawn under reduced motion, in a contrast theme or in a browser without `@starting-style`, where the label's seconds carry the wait alone. Musubi's `DESIGN.md` lists it among the app's motions, and its `CheckEmailView` layout browser test holds the fill's place, timing, colours in both themes, and absence under reduced motion and forced colours.
+
+## 6.1.5
+
+### Patch Changes
+
+- Updated dependencies [4deee2c]
+  - @osn/client@4.1.1
+
+## 6.1.4
+
+### Patch Changes
+
+- da04fab: A `Dialog` sheet slides. Below `md`, `DialogContent presentation="sheet"` rises from its own height below the bottom edge over `--ui-dur-slow` and falls back over `--ui-dur-base`, both on the new `--ui-ease-sheet` token (`cubic-bezier(0.32, 0.72, 0, 1)`), at full opacity and unscaled, with its scrim fading on the same pace; closed part-way up or reopened part-way down it turns round from where it is. It moves by CSS transitions through two new utilities, `animate-sheet-in` and `animate-sheet-out`, beside two keyframes that move nothing and tell Kobalte how long to keep a closing sheet mounted. Under reduced motion it does not slide: it fades in and out with its scrim, in place, on the same pace and curve, with no transform on any frame; a new `sheet-hidden` utility holds where a sheet starts and ends, its own height below the edge or, under reduced motion, in place and transparent. At `md` and up, and with `presentation="centred"`, nothing changes. `DialogOverlay` takes the same optional `presentation`. Every sheet changes with it: Musubi's dialogs below `md`, `@osn/auth-ui`'s step-up, "Generate a new set?" and "Create a new profile", and pulse's share sheet. Musubi's, pulse's and `@osn/auth-ui`'s design documents say so; the lab adds a `DialogSheetSlide` story and lists the new curve.
+- Updated dependencies [da04fab]
+  - @shared/ui@0.17.0
+
+## 6.1.3
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+  - @osn/client@4.1.0
+
+## 6.1.2
+
+### Patch Changes
+
+- Updated dependencies [9172b9c]
+  - @osn/client@4.0.1
+
+## 6.1.1
+
+### Patch Changes
+
+- 3437d4a: `StepUpDialog` offers a passkey, the emailed link and an authenticator code for the new `account_restore` purpose, the factors `POST /account/restore` accepts.
+- Updated dependencies [3437d4a]
+  - @osn/client@4.0.0
+
+## 6.1.0
+
+### Minor Changes
+
+- 0d8f467: Starting a Musubi sign-up again for the same address from a new tab of the same browser, or after closing the waiting tab, mails the link at once. `@osn/api`'s `POST /register/begin` answers a `retireSecret` beside the claim secret, for a free, taken or held address alike, stored only as a SHA-256 hash. It can only end its request: no status poll, Resend, candidates read or confirm accepts it. Begin's `previous` is `{ requestId, retireSecret }`, never the claim secret, and it retires the earlier request only when that request is for the address this begin is for; a wrong secret, the claim secret, an unknown request or another address retires nothing, at the same one store read and with the same answer. `@osn/client`'s `BegunRegistration` carries `retireSecret`, `PreviousRegistration` is `{ requestId, retireSecret }`, and the status poll and Resend take a `RegistrationClaim`. `@osn/auth-ui`'s `Register` keeps the claim secret in the tab's `sessionStorage` as before, and shares the live request's id, retire secret and expiry with the browser's other tabs in `localStorage` (`osn.signup.live`), nothing about the address; a tab that begins sends it as `previous`. The tab's own left request (`osn.signup.previous`, in its `sessionStorage`) carries the retire secret and the address it was for, and is sent first for that address. The entry goes when its request ends or expires, and no tab removes another tab's entry; a begin refused with a 4xx other than 429 is not sent with the same `previous` again. Only sign-up's requests carry a retire secret. `@shared/observability` redacts `retireSecret` in logs.
+
+### Patch Changes
+
+- Updated dependencies [0d8f467]
+  - @osn/client@3.5.0
+
+## 6.0.2
+
+### Patch Changes
+
+- fe8f780: `describeAuthError(err, "code")` gives its own sentence for a call that got no answer (status `0`): "We couldn't connect. Check your connection, then try again with a new code." The server may have taken the code before the answer was lost, and it refuses the same code again as a replay that counts toward the lockout. `StepUpDialog` empties its code boxes on such a failure, the step-up deadline included, so a second Confirm sends nothing until a new code is typed.
+- Updated dependencies [fe8f780]
+- Updated dependencies [fe8f780]
+  - @osn/client@3.4.2
+
+## 6.0.1
+
+### Patch Changes
+
+- ed7813d: `Button` presses: while a pointer or a held Space presses it, it scales to 0.97 over `--ui-dur-fast` on `--ui-ease-out` and eases back when let go, in every app that draws it (Musubi, `@osn/auth-ui`'s views, pulse). It sets `scale`, so a call site's `transform` stays. No press while disabled, busy or `aria-disabled`, at `size="inline"`, or under `prefers-reduced-motion: reduce`. The colour fade keeps Tailwind's 150ms and curve. Musubi's and `@osn/auth-ui`'s `DESIGN.md` name the press beside the orb, and the lab's `shared/ui/Button` gains a `Press` story.
+- Updated dependencies [ed7813d]
+  - @shared/ui@0.16.0
+
+## 6.0.0
+
+### Major Changes
+
+- 123bb37: Every dialog `@osn/auth-ui` and Musubi draw has one shape: the title alone in the header, centred; the body; then a footer with Cancel (`secondary`) first, beside the step's one action, both `sm` and 40px tall below `md`. The step-up sheet says one line under its title naming the cause ("To generate recovery codes, confirm it's you."), and drops "Re-authenticate…" and "This action needs a fresh authentication. Choose a method below."
+
+  Breaking, in `@osn/auth-ui`: `AuthHeader` with `host="dialog"` takes no `onCancel`, `cancelLabel` or `cancelDisabled` (a page header still does). `SignIn` with `host="dialog"` requires `onCancel` and takes no `cancelLabel`; `Register` with `host="dialog"` takes no `cancelLabel`. `RecoveryLoginForm` takes a required `host`, and `onDismiss` (the dialog's Cancel) with `host="dialog"`. `StepUpDialog`'s `reason` is the whole line it prints ("To change your email, confirm it's you."); with a `warning`, the warning is the one line. `CreateProfileForm` draws its own padded body and a dialog footer (Cancel, then Create profile): mount it straight inside a `DialogContent`, with no padding of your own.
+
+  New: `DialogActions` (`@osn/auth-ui/DialogActions` and the barrel), every dialog's footer — Cancel first, then the step's one action, both `sm`, wrapping rather than scrolling sideways — for a host's own dialogs.
+
+  - `SignIn`, `Register` and `RecoveryLoginForm` lay out each step through an internal `ViewStep`: in a dialog, the body with its ways back as centred links at its foot ("Lost your passkey?" under the field, recovery's "Back"), then the footer (none on a done line); on a page, the action spans the column with its links under it, so `/authorize`'s sign-in and create-account views look as they did. Recovery's "Back" buttons are links, and its chooser lists "Use a recovery code" after the factors that end in a passkey.
+  - The step-up sheet opens with focus on "Use passkey", now the footer's action; the other factors sit above it. "Generate a new set?" and "Create a new profile" take the same header and footer.
+  - Every view that opens the step-up sheet passes its line: adding a passkey, renaming one (by its current name), adding an authenticator app, generating recovery codes, acknowledging alerts and changing the email.
+
+  - The recovery form's Cancel on the emailed link's wait ends the wait in this tab, as Back does, and a recovery that answers after the form has gone starts no session refresh.
+
+  Musubi: the profile switcher, the remove-friend dialog and the create and edit organisation dialogs take `AuthHeader` and `DialogActions`, so their titles are centred and their footers match the auth views'; the switcher gains a footer Cancel after its rows, held with Escape and a press outside while a switch runs. The sign-in and create-account dialogs open with focus on the dialog itself, so no phone keyboard rises over the sheet. The lab's `AuthHeader`, `SignIn` and step-up stories show the new layout.
+
+## 5.0.1
+
+### Patch Changes
+
+- 12bb72c: `@osn/auth-ui`: three states where a person signing up could get stuck now have a way forward. `CheckEmailView` takes `productName` and, for sign-up and recovery, says above Resend once its first wait ends to look in the junk or spam folder for an email about the product; `Register` passes its `productName`, and `RecoveryLoginForm` takes one, which `SignIn` passes. `ConfirmLinkPage` states each flow's wrong-number lockout as fixed copy under its instruction and on every expired page, from `LINK_LOCKOUT` (`src/link-lockout.ts`), which a new `repo` test project (`test:repo`) holds to osn-api's constants; `showLockoutRule={false}` leaves it out where the host cannot tell the flow. `TurnstileWidget` names the causes of a challenge that cannot load and offers Try again, which loads the script afresh where it failed and renders the challenge again; a load unfinished 15 seconds after it started counts as failed; a host may add an `alternative` sentence (`SignIn` and `RecoveryLoginForm` name the recovery code); the package exports a `./TurnstileWidget` subpath. `@musubi/social`'s `/verify/:requestId` placeholder holds the taller ready card (590px below `md`, 560px from it), and a link whose id names no flow states no lockout rule. `@tools/lab` adds the TurnstileWidget stories and shows the new copy in the CheckEmailView and ConfirmLinkPage stories.
+
+## 5.0.0
+
+### Major Changes
+
+- cae963a: Every `@osn/auth-ui` view now paints with the `ui-*` contract alone, so it renders the same in any app that maps the contract: colours, type steps, weights up to 500 and radii, held by a new `token-contract.test.ts`. Breaking: `ProfileSwitcher` and its export are gone (no app used it; Musubi has its own switcher), `SignIn` and `Register` take a required `host` (`"dialog"` or `"page"`) and an optional `cancelLabel`. With `passkeyOnly`, a step-up sheet that carries a `warning` now waits for a factor press instead of starting the passkey prompt.
+
+  - `SignIn` and `Register` head themselves with `AuthHeader`, so a dialog is named by the view's title ("Sign in to Musubi", "Create your Musubi account"); on a page they draw no frame and no side padding.
+  - Settings rows are nested `Card`s (8px corners, 16px inside), drawn by one internal `SettingsRow` in all three panels, with the dates on two lines and the actions under the words below `md`, 40px tall; each action is named by its item ("Remove Work laptop", "Sign out Safari on iOS"). Each panel's own action ("Add a passkey", "Add an authenticator app", "Sign out everywhere else") is 40px tall below `md` too. Each list's placeholder is as tall as the row that replaces it at every width.
+  - Removing a passkey or the authenticator app asks in the step-up sheet, titled "Remove {name}?" with its warning, instead of the browser's `confirm()`.
+  - "Generate a new set?" and "Create a new profile" open as bottom sheets on phones, dismissed by a `secondary` Cancel. The codes sit in a muted well, and "I've saved these codes" is the drawn checkbox in a 44px row.
+  - A failed recovery-code status read shows the failed-load line with Try again, and still asks before a rotation; an account with no codes gets a warn notice instead of red text. Blockers (no WebAuthn) are info notices.
+  - One set of words for each action: "Add a passkey", "Remove", "Sign out" for one session, "Email me a link" in the step-up sheet, "Use your authenticator app", "Email or @handle", "Waiting for your passkey…". The glossary is `osn/auth-ui/DESIGN.md` §10.
+
+  Musubi: the sign-in and create-account dialogs are named by their views. `/authorize` drops the frame around the sign-in panel, sets the app's name at the display step over the panel's 14px heading, and calls the create-account view's Cancel "Sign in instead"; its loading placeholder takes the new shape. `ResponsiveSkeleton` takes a width and a placement class, and both that placeholder and Settings' Security fallback draw with it; the fallback's head is 40px tall below `md`, as the panel's is. Settings → Security's "Recovery codes" heading is at the title step. The lab gets stories for `SignIn` and `Register` in both hosts and for each Settings panel.
+
+### Minor Changes
+
+- cb7cf9a: `AuthHeader`, a new export (`@osn/auth-ui/AuthHeader` and the barrel): the title row of a sign-in or create-account view. With `host="dialog"` its title is the dialog's `DialogTitle` in a `DialogHeader`, so the dialog takes its name from it. With `host="page"` it is a plain `h2` in the same type with no padding or rule, for `/authorize`, where the page's own heading leads. An optional Cancel sits at the row's end, `secondary` in a dialog and `ghost` on a page, 40px tall below `md`; `cancelLabel` changes its words (a blank one reads "Cancel") and `cancelDisabled` holds it while the view's call runs. No view uses it yet.
+- 008ca7c: `StepUpDialog` is a sheet: `@shared/ui`'s `Dialog` with `presentation="sheet"`, a bottom sheet below `md` and a centred 384px card above, named by its title. Focus moves into it as it opens and goes back to the control that opened it on Escape or Cancel. "Use another method" goes back from the emailed link's wait or the code step to the factors, ending the wait on this side. The `passkeyOnly` wait is the busy passkey button. A new `warning` prop puts a destructive action's cost in the sheet as its description, and the title breaks inside a word, so a passkey's 64-character name never widens the sheet. The sheet hands the host its one outcome after its fade out, or within 300ms if the fade never ends. Resend's 120-second wait and the server's limits are unchanged.
+
+### Patch Changes
+
+- 8097327: `DESIGN.md` §11 lists the `osn/auth-ui/SignIn` lab story beside those for `CheckEmailView` and `ConfirmLinkPage`.
+
+## 4.6.1
+
+### Patch Changes
+
+- Updated dependencies [90c891b]
+  - @shared/ui@0.15.3
+
+## 4.6.0
+
+### Minor Changes
+
+- 45c409b: `@osn/api` answers the tab that began a sign-up, recovery or email change alike whatever the link's reader does: a decline, a wrong number, or a right one the account's lockout refuses ends the request (`declined` or `ended`) and keeps it until its expiry, its poll answering `pending` with the number and its Resend `sent` with nothing mailed, as for an address nobody was mailed; wrong link secrets there no longer end the request, and every one past the fifth is refused unread. A begin's first sign-up link counts against a per-mailbox restart window (ten an hour, `registration_restart`) when the begin carried `previous` or a sign-up to the mailbox was declined in the hour before; a plain first begin always mails. Step-up writes a `step_up_link_declined` security event on a decline and a `step_up_link_lockout` event when wrong numbers lock its links, with the `osn.auth.step_up.lockout` counter. Recovery's per-address link allowance keys an IPv6 client by its /64. `@shared/rate-limit` adds `clientNetwork`. `@shared/observability` adds the two event kinds. `@osn/auth-ui`'s waiting screen's way back reads "Start again" from the first moment, the link page's refusal and "Cancelled" copy sends a sign-up, recovery or email change back to it, and the security banner names a turned-down step-up request; `@osn/client` knows the kind. `@musubi/social`'s layout test and `@tools/lab`'s story name "Start again".
+
+### Patch Changes
+
+- Updated dependencies [45c409b]
+  - @osn/client@3.4.1
+
+## 4.5.6
+
+### Patch Changes
+
+- Updated dependencies [d60b6ce]
+  - @shared/toast@0.3.15
+
+## 4.5.5
+
+### Patch Changes
+
+- Updated dependencies [6dd5ff4]
+  - @shared/ui@0.15.2
+
+## 4.5.4
+
+### Patch Changes
+
+- Updated dependencies [8397b84]
+  - @shared/toast@0.3.14
+
+## 4.5.3
+
+### Patch Changes
+
+- Updated dependencies [2035748]
+  - @shared/ui@0.15.1
+
+## 4.5.2
+
+### Patch Changes
+
+- e275448: Musubi's dialog and card titles draw at 14px and weight 500, its title step, and its overlays fade with no scale. The contract block in `App.css` maps `--ui-text-md` to `--text-title`, `--ui-weight-title` to 500, and `--ui-scale-enter` and `--ui-scale-exit` to 1, so `DialogTitle`, `CardTitle` and every Kobalte overlay (dialog as card and as sheet, popover, menus) follow with no class at a call site. `OtpInput`'s digits read `--ui-text-md` too: 14px from 768px, as `Input` is, and still 16px below through the mobile input rule. The account menu's separator is the shared hairline fill, and the account menu, the rail's account trigger and Settings' profile card hold an ellipsis character while the handle loads, never three dots, a bare `@` or `@undefined`; `@osn/auth-ui`'s `ProfileSwitcher` trigger holds the same character. `DESIGN.md` records the titles and their leading, the separator and the fade under §Typography, §Borders, §Chips, §Motion and §Token contract, and gives a reason for never drawing `Badge` that holds for each of its variants; `@osn/auth-ui`'s `DESIGN.md` says its dialogs and its sign-up form's popover fade in Musubi and what size its code boxes take there.
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @shared/ui@0.15.0
+
+## 4.5.1
+
+### Patch Changes
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/ui@0.14.0
+
+## 4.5.0
+
+### Minor Changes
+
+- f052448: Step-up and email change confirm by an emailed link in place of the six-digit code. `POST /step-up/email/begin` (Bearer, `{ purpose }`) mails a link to the account's own address for that one purpose and answers a request id, a claim secret and a number; whoever opens the link types the number, and the tab that began, signed in as the same account, polls `POST /step-up/email/:requestId/status` and gets a step-up token for that purpose, once (`amr: ["otp"]`, the emailed factor, so never accepted at `passkey_delete`). `POST /account/email/begin` mails a link to the new address and answers the same shape whether or not another account holds it; its status answers `confirmed` once the link is picked, and `POST /account/email/:requestId/complete` with a step-up token for `email_change` moves the account and revokes its other sessions. `/step-up/otp/*` and `/account/email/complete` are gone, with the code store, templates and dev log line.
+
+  `@osn/api` counts wrong typed step-up numbers on a per-account lockout (five in 15 minutes: no step-up link mailed, a right number refused), counts wrong email-change picks on the per-address link lockout sign-up uses, caps step-up links at 10 a day per account and Resends of both at 3 a day per mailbox (`+tag` and Gmail dots folded). `@osn/client` replaces `otpBegin`/`otpComplete` with `emailBegin`, `emailStatus` and `emailResend`, and gives the account client `changeEmailStatus`, `changeEmailResend` and a request-based `changeEmailComplete`; `emailLinkPurpose` knows step-up and email-change links. `@osn/auth-ui`'s `StepUpDialog` offers "Use email instead" under the passkey and waits on the link with `CheckEmailView` (no purpose, no email factor); `ChangeEmailForm` waits on the new address's link, then steps up and completes. `@musubi/social` asks for the number typed on a step-up link's page. `@shared/email` replaces `otp-step-up` and `otp-email-change` with `link-step-up` and `link-email-change`. `@shared/observability` adds the two flows, their routes and the `resend` steps. `@osn/db` updates a schema comment.
+
+### Patch Changes
+
+- Updated dependencies [f052448]
+  - @osn/client@3.4.0
+
+## 4.4.0
+
+### Minor Changes
+
+- 0821963: Sign-up can accept a browser Email Verification API token, behind the osn-api flag `OSN_EMAIL_VERIFICATION_API` (off unless it reads true). With it on, `POST /register/email-verification-nonce` hands the sign-up form a nonce, `Register` adds the hidden `email-verification-token` field, and a begin whose token verifies confirms a free address at once: no email, no number to match, and the first status poll makes the account before the passkey step. A taken or held address, and every token that fails a check, takes the emailed link path unchanged. `@osn/client` gains `emailVerificationNonce()` and the begin fields `emailVerificationToken` and `nonceSecret`; `@shared/observability` gains `EmailVerificationTokenOutcome` and redacts both fields.
+
+### Patch Changes
+
+- Updated dependencies [0821963]
+  - @osn/client@3.3.0
+
+## 4.3.0
+
+### Minor Changes
+
+- ff81047: `@osn/auth-ui` gains `CheckEmailView` (`@osn/auth-ui/CheckEmailView`, and from the barrel): the "Check your email" screen a flow shows after it emails a link, for sign-up, recovery, step-up and email change. It shows the address, kept from page translation, and what opening the link does, unlocks Resend after a wait read from the clock (30 seconds by default), and offers "Use a different email" when the host passes a handler. Where the host passes `pairingCode`, it draws that number large, in tabular figures, with a caption: the page the link opens asks the person to type it on recovery and step-up, and to pick it on sign-up and email change. Only one to six digits are drawn; the number sits outside the live region behind a hidden "Your number:" label and is hidden while the link is expired, and after a resend the announced sentence ends "Check the number again." Both buttons are 40px tall below `md`, the touch height `musubi/social/DESIGN.md` sets for phones. The sentence sits in a polite live region and an error under it as an alert of its own, cleared while Resend sends; the countdown stays out of both. Resend is busy while it sends, keeping focus, with "Use a different email" disabled. Focus moves to the heading when the view appears and when a send ends with the wait disabling Resend. Recovery's wording promises no send, since recovery answers every address alike. Nothing renders it yet.
+- f4c9fea: `@osn/auth-ui` gains `ConfirmLinkPage` (`@osn/auth-ui/ConfirmLinkPage`, and from the barrel): the page an emailed link opens for sign-up, recovery, step-up and email change. It asks the person to pick the number shown on the waiting screen from the host's `candidates` (three to five, all different, each one to six digits, passed as osn-api sends them), drawn in the order given in tabular figures and kept from page translation; any other list draws the expired page. Tapping a number is the confirm: `onConfirm` receives exactly that number, never on a mount, a prop change or a timer; the number turns busy, keeping focus, and every other choice disables itself, so one tap is one call. Confirm, the decline and Try again show their wait the same way, reading "Confirming…" or "Cancelling…". "I didn't ask for this" sends `null` and a `declined` answer shows "Cancelled". An answer must fit what was sent; every refusal shows the same expired page; a thrown error shows a fixed line and Try again, which sends the same number, or the same decline, again, and "I didn't ask for this" stays open, sending `null` as a new attempt. Step-up's expired page keeps its warning to sign out the other sessions. With `typeNumber`, which recovery's and step-up's hosts pass, the page asks the person to type the number instead: one field with a plain label for up to six digits that refuses any other insertion and never rewrites what was typed, Confirm (or Enter) once it holds one to six digits, and the entry sent exactly as typed. `initialOutcome` opens the page on `confirmed` or `expired` with no numbers, and the props type requires one of `candidates`, `typeNumber` and `initialOutcome`, never `candidates` with `typeNumber`. One polite output says each change aloud, the error line is an alert of its own, the heading takes focus on every answer, and a call still running after 10 seconds says so. Nothing renders it yet.
+- cbd32bd: Email account recovery uses an emailed link in place of the six-digit code. `POST /login/recovery/email/begin` answers every address alike with a request id, a claim secret and a pairing number (202), and mails `<frontend origin>/verify/<request id>#<link secret>` to an account's address. Whoever opens the link types the number the waiting screen shows (a blind guess is right 1 time in 100; a wrong number ends the request) or turns it down; confirming signs nobody in. The tab that began polls `POST /login/recovery/email/:requestId/status` with its claim secret and gets the restricted recovery session (passkey enrolment only), once; `POST /login/recovery/email/:requestId/resend` sends another link for the same request. `/login/recovery/email/complete` is gone.
+
+  `@osn/api` gives each emailed-link flow a pairing mode (sign-up picks among five candidates; recovery types the number), refuses a malformed pick like any other refusal, counts wrong typed numbers on the account's recovery lockout (five in 15 minutes) and wrong link secrets only on their request, records a `recovery_link_declined` security event, and caps recovery links at 3 a day per account and client address, 3 Resends a day per account and 20 links a day per account in all; the pending recovery-code store and its cap go. `@osn/client` replaces `emailRecoveryComplete` with `emailRecoveryStatus` and `emailRecoveryResend`, all sent through `reach` so `describeAuthError` reads what they throw, `emailRecoveryBegin` answers the request, and `emailLinkPurpose` knows recovery links. `@osn/auth-ui`'s `RecoveryLoginForm` waits on the link with `CheckEmailView`, survives a reload in the tab's `sessionStorage` (never the number), and `@osn/auth-ui/pending-recovery` exports `hasPendingRecovery`, with no component in it, so a page can ask without loading `SignIn`; `SignIn` opens on its recovery view when one is pending; `createLinkPoll` is the shared poll loop; `SignIn` and `RecoveryLoginForm` ask phones not to capitalise a typed identifier (`autocapitalize="none"`); the security banner names a turned-down recovery request. `@musubi/social` reopens sign-in for a pending recovery and asks for the number typed on a recovery link's page. `@shared/email` replaces `otp-recovery` with `link-recovery`. `@shared/observability` adds the recovery flow, its routes, the `email_resend` step and the `recovery_link_declined` event kind.
+
+- 9d193fe: Sign-up proves the address with an emailed link in place of the six-digit code. `POST /register/begin` answers a request id, a claim secret and a pairing number, and mails `<frontend origin>/verify/<request id>#<link secret>`; the link's page reads the candidates (`POST /email-link/:requestId/candidates`) and confirms (`POST /email-link/:requestId/confirm`) with the number picked, since the confirm step requires the number shown on the waiting screen; "I didn't ask for this" ends the request and answers `declined`, again when repeated. Confirming never signs anyone in: the tab that began polls `POST /register/:requestId/status` with its claim secret, which answers the number while it waits, and gets the account and session once; `POST /register/:requestId/resend` sends another link for the same request. `/register/complete` is gone.
+
+  `@osn/api` adds the shared email-link challenge for every flow that emails a link, the `email_link` ceremony store, the `registration_link_lockout` counter, keyed on the address as typed (lowercased), and the `registrationSendCap` limiter, keyed on the address's mailbox key (`mailboxKey`: `+tag` cut, Gmail dots dropped), which feeds no stored or mailed address. `POST /register/begin` holds `previous` to the request-id and secret patterns the status and resend routes use. A begin for an address another live sign-up holds sends nothing; its Resend parks the sign-up and sends the link once that sign-up has ended, unless an account has the address or the handle by then: every sign-up link's send checks both first. `@osn/client` replaces `completeRegistration` with `registrationStatus` and `resendRegistrationLink`, and adds `createEmailLinkClient` and `emailLinkPurpose`. `@osn/auth-ui`'s `Register` waits on the link with `CheckEmailView`, survives a reload in the tab's `sessionStorage` (the number is never stored; the first poll after a reload brings it back), and `@osn/auth-ui/pending-sign-up` exports `hasPendingSignUp`, with no component in it, so a page can ask without loading `Register`. `@musubi/social` serves the link's page at `/verify/:requestId` with `ConfirmLinkPage`. `@shared/email` replaces `otp-registration` with `link-registration`. `@shared/observability` adds the email-link metric attributes and redacts the link and claim secrets and the pairing values. `@osn/client`'s `EmailLinkError` is an `OsnApiError`, and the link calls and the status poll send through `reach`, so `describeAuthError` reads what they throw. `registerProfile` stores the address lower-cased. `@musubi/social`'s Try again on a failed `/authorize` or `/verify/:requestId` card is busy while it reads again.
+
+### Patch Changes
+
+- Updated dependencies [cbd32bd]
+- Updated dependencies [9d193fe]
+  - @osn/client@3.2.0
+
+## 4.2.1
+
+### Patch Changes
+
+- Updated dependencies [bc18a2b]
+  - @osn/client@3.1.1
+
+## 4.2.0
+
+### Minor Changes
+
+- 452ec7b: Every six-digit code is typed into `OtpInput`'s boxes, tied to its error line, and every loading placeholder is `Skeleton`.
+
+  - `@osn/auth-ui`: `StepUpDialog`'s two code steps and `ChangeEmailForm`'s code are a row of `OtpInput` boxes under a span label, in place of a single `Input`; each code step puts focus in box 1 as it opens. Every row of code boxes (`Register`, `RecoveryLoginForm`'s two, `TotpView`, `StepUpDialog`'s two, `ChangeEmailForm`) names its group by its label (`aria-labelledby`; `Register`'s keeps "Verification code") and its error line by `aria-describedby`, on every box. The boxes are marked invalid, with the danger edge, only for a `400` or `422` refusal other than the verification check, so a wait or an outage ties the line without calling the code wrong. After such a refusal sent with Enter, `Register` puts focus back in box 1 when focus is on the page or still in the row, as WebKit can leave it on the disabled box. `PasskeysView`, `SessionsView`, `TotpView` and `RecoveryCodesView` show `Skeleton` while they load, in a region marked `aria-busy`, in place of "Loading…" and a hand-drawn pulse; each reads its resource's `state` before its value, so it never joins a host's `Suspense` boundary or throws a failed read, and `StepUpDialog` reads `GET /totp/status` the same way, so opening a step-up never swaps its host for the host's fallback. `PasskeysView` and `SessionsView` disable their actions while a list they have shown is read again, so a passkey just deleted or a session just revoked cannot be acted on. A passkey's or a session's name wraps inside a word, so a long one keeps the row's actions inside the card on a phone. `TotpView`'s enrolment step drops its border and padding below `md`, and `StepUpDialog` its side padding, so a code row takes the panel's whole column on a phone; a panel's header action wraps under its heading when the two do not fit.
+  - `@musubi/social`: Connections, Discover, Organisations, an organisation's head and members, Connected apps, and the fallbacks of Settings' Security and Connected apps tabs and `/authorize`'s sign-in frame draw `Skeleton` in place of "Loading…" lines and `bg-muted/50 animate-pulse` blocks, each in a region marked `aria-busy`, at the height of what replaces it at each width: a row whose buttons grow to the touch height below `md` takes one block per width (`ResponsiveSkeleton`), and each placeholder list takes its list's gap. `/authorize`'s placeholder takes the shape of the half that leads, at the panel's width: sign-up's heading, Cancel and four fields for `reason=create`, sign-in's heading, field, buttons and "Create one" line otherwise, with the heading and the birth date's hint drawn as words so they wrap as the panel's do. Connected apps' lead paragraph moves to the page, so it shows while the section loads, and its empty list is an `EmptyNote`. Connected apps says a failed list in its own line instead of throwing to the page's error boundary, and keeps its rows on screen while it reads them again after a revoke. The Settings Security tab shows each panel's own placeholder rather than its fallback for the whole tab. `DESIGN.md` gains the loading rule, that what replaces a placeholder, an error line and a step that replaces another arrive with no fade, and the code boxes' widths at 320px, and lists no `Badge`, which Musubi does not draw; the token-contract browser test drops its `Badge` case. A new browser test opens the step-up's code step in Settings' Security tab at 320 and 1440px and checks the code row's width and that no button runs past the card, nor with a 64-character passkey name at 320px. Two more hold every loading placeholder's height against what lands at 320 and 1440px (`/authorize`'s at 390 too), with its region the only busy one until then.
+  - `@tools/lab`: `SkeletonGrounds` drops the half-strength placeholder Musubi drew by hand.
+
+### Patch Changes
+
+- Updated dependencies [2c2906f]
+- Updated dependencies [3424e05]
+- Updated dependencies [ae53236]
+  - @shared/ui@0.13.0
+
+## 4.1.2
+
+### Patch Changes
+
+- 6f1cacc: Install sixteen third-party motion and interface skills from `emilkowalski/skill`, pinned to their upstream commit, and keep their example source out of the lint run. State the package's motion rules in its `DESIGN.md`.
+
+## 4.1.1
+
+### Patch Changes
+
+- d526209: The auth views and Musubi's forms use the shared parts. A button that starts a wait shows it with `Button`'s `busy` ("Verifying…", "Creating…", "Saving…", "Sending…"): it keeps focus, draws the orb and refuses a second press, and only the button that started the wait is busy, so a resend in `Register` leaves "Verify email" alone. While a call runs, the view's other actions wait with it: Cancel, Back, "← Use a different email" and "Lost your passkey?" are disabled until it settles. The change-email form's and the step-up's buttons show their wait the same way ("Sending…", "Checking…", "Waiting for your passkey…"). A Turnstile-gated submit stays busy, not disabled, after its spent token is dropped. Discover's Connect and `/search`'s Connect and Accept name their wait, and a second press for the same person sends nothing; below `md` those and Revoke are 40px tall. Each form field is a `Field` with a plain label, 6px above its control; the views keep their own `Notice` error lines and tie them to the field. The step-up and change-email fields are the shared `Input`, the recovery codes' "I've saved these codes" is the shared `Checkbox`, and `ProfileSwitcher`'s delete sits beside its row's button instead of inside it, 40px below `md`, with the row's hover wash on the row's button alone. The labels over the code boxes and the setup key take `Label`'s classes from `labelVariants()`. "Lost your passkey?" and "Resend code" are `Button` links centred under their action; `/authorize`'s "Create one", Discover's "Search for someone" and the legal pages' contact address are inline links, underlined at rest. Working labels end in "…".
+- Updated dependencies [3abdb2b]
+- Updated dependencies [bceeafe]
+- Updated dependencies [4ce452e]
+  - @shared/ui@0.12.0
+
+## 4.1.0
+
+### Minor Changes
+
+- e71aee5: Errors read as plain sentences, in the place they are about.
+
+  - `@osn/auth-ui`: every view shows a sentence from `describeAuthError` or `describePasskeyError`, never an error's own text, in an inline danger `Notice` with `role="alert"` — under the field it is about (tied by `aria-describedby`, `aria-invalid` only when the input was refused) or above the action it follows. No error toasts. `SignIn`'s passkey error carries "Lost your passkey?"; `Register`'s age hint reads "You must be 13 or older to create an account."; `TurnstileWidget` says "Reload and try again". A failed passkey, authenticator or session list says it didn't load, with Try again, instead of throwing. Every call that spends a Turnstile token asks for a fresh one when it is refused. `Register` drops a spent token with its widget instead of running a challenge nobody uses, and its code step mounts a widget of its own for "Resend code" once the countdown ends. `ChangeEmailForm` and `StepUpDialog` group each field under a `Label`, and their raw inputs turn red when refused. `InlineAction` draws Button's focus ring. `SecurityEventsBanner`'s error line sits above its box, on the page.
+  - `@osn/client`: `useAuth()` gains `profilesError` and `refetchProfiles`. A profile list that fails keeps the last list instead of throwing on read; when no session exists any longer, however it went, the list and its error go, and one that settles after that is dropped. Adopting a first session lists the profiles once, not twice; adopting one over another drops the old account's list first. The provider treats a session that failed to load as none, so reading it throws nowhere inside the provider.
+  - `@musubi/social`: the shell says "You've been signed out." with Sign in when the session ends, and "Your profiles didn't load." with Try again when the list fails. A page that throws while rendering shows "This page didn't load." with Try again inside the shell instead of blanking the app. `/authorize` reads its failures from the copy map. Every failed-load and error line, on `/authorize`, Connected apps and an organisation's page included, is a danger `Notice`, apart from the shell frame's own load-failure line. Connected apps' revoke and an organisation's save, delete and member removal name what failed, then the copy map's sentence. The signed-out notice's Sign in opens the shell's sign-in dialog once its chunk has loaded.
+  - `@shared/design-tokens`: `checkContractConformance` takes an optional `pairs` list to measure in place of the contract's own.
+
+### Patch Changes
+
+- Updated dependencies [e71aee5]
+  - @osn/client@3.1.0
+  - @shared/ui@0.11.1
+
+## 4.0.2
+
+### Patch Changes
+
+- Updated dependencies [f2c7a76]
+  - @shared/ui@0.11.1
+  - @shared/toast@0.3.13
+
+## 4.0.1
+
+### Patch Changes
+
+- Updated dependencies [d3fe597]
+  - @shared/ui@0.11.0
+
+## 4.0.0
+
+### Major Changes
+
+- c06ee7a: A page's session now outlives its access token. `createOsnAuthRuntime({ issuerUrl })` builds the page's one auth service, and its `authFetch` sends the active profile's token and renews it: before the token expires, and once on a 401. Only a refusal ends the session: the stored account is cleared, `AuthProvider` goes to signed out, and the call rejects with `AuthExpiredError`. A grant whose body names a lost rotation race or a storage error is retried once. A renewal that cannot reach the issuer, or is rate limited, keeps the session: the request goes out with the token in hand while it is valid, otherwise the call rejects with `TokenRefreshError`, and renewal then pauses (the issuer's `Retry-After`, or 2 s doubling to 30 s) so no call in the pause sends a grant. Access tokens, the ID token and scopes stay in the page's memory: the stored account holds only whether a session is held, the active profile and a random id for the sign-in, so no script that reads storage finds a token. A reload rebuilds the session from the cookie, naming the profile the page was on; an account stored with tokens by an older client is rewritten without them on its first read, and no token is ever read from storage; a reload whose grant is refused forgets the stored account. Each tab renews for itself. The stored account carries a random id per sign-in on the device, and a tab ends its session, with no request, as soon as another tab signs out or a new sign-in replaces the stored account (`checkStoredAccount`, which the runtime runs on every `storage` event for the key, and before every `authFetch`). `authFetch` rejects a request that fails or is aborted with what `fetch` gave, and refuses a URL off the issuer's origin with a `TypeError` before anything is sent. The clients pass an abort and the session rejections (`AuthExpiredError`, `TokenRefreshError`, `ActiveProfileResetError`, `StorageError`) through unchanged, and turn a failed request into their own `OsnApiError` at status `0`.
+
+  `POST /token` takes an optional `profile_id`, and renewal names the active profile in it: the issuer mints for that profile when the session's account owns it, and for the default profile otherwise, so renewal is one request and spends no profile switch. A grant that comes back for the default profile means the account does not own the active one: the default profile becomes active and the call rejects with `ActiveProfileResetError`. A restricted recovery session ignores the field.
+
+  Breaking: `AuthProvider` takes `auth` (the runtime) in place of `config` and `storage`. `decodeAccountSession` is gone; `decodeStoredAccount` reads the stored account, typed `StoredAccount`; `OsnAuthService` gains `checkStoredAccount`, and `ACCOUNT_SESSION_KEY` names the storage key. Every authenticated client (`createGraphClient`, `createOrgClient`, `createRecommendationClient`, `createSessionsClient`, `createSecurityEventsClient`, `createConnectionsClient`, `createPasskeysClient`, `createTotpClient`, `createStepUpClient`, `createRecoveryClient`, `createAccountClient`) takes `{ issuerUrl, authFetch }`, and no method takes an access token. `GraphProvider` and `OrgProvider` are removed. The `@osn/auth-ui` views (`SessionsView`, `PasskeysView`, `TotpView`, `RecoveryCodesView`, `SecurityEventsBanner`, `ChangeEmailForm`, `StepUpDialog`) drop the `accessToken` prop.
+
+  Musubi builds one runtime, `osnAuth`, hands it to both of its providers and builds every authenticated client with its `authFetch`. Settings, connections, organisations, discovery and search keep working past five minutes, and a refused renewal shows the signed-out page. Musubi's built `_headers` now carries a `script-src` (the app, its two inline scripts by hash, and Turnstile when the build has a sitekey) and a `connect-src` (the app and the issuer it was built for): scripts run only from those sources, and `fetch`, XHR, WebSocket and `sendBeacon` reach only the app and the issuer. Images, frames, styles and navigation stay unrestricted, so the policy does not stop a script sending data off the page.
+
+### Patch Changes
+
+- Updated dependencies [c06ee7a]
+  - @osn/client@3.0.0
+
+## 3.1.1
+
+### Patch Changes
+
+- Updated dependencies [c687234]
+  - @osn/client@2.20.1
+
+## 3.1.0
+
+### Minor Changes
+
+- ff7a76f: Every `@osn/client` REST client's error now extends `OsnApiError` and carries the response's HTTP `status` (`0` when no response arrived) and the server's `error` code. A non-JSON error page, or a success whose body is not JSON, throws the client's own error instead of a `SyntaxError` or `null`; a failed `fetch` throws it at status `0`, and a caller's own abort still passes through. `ProfileManagementError`, an Effect tagged error rather than an `OsnApiError`, carries `status` and `code` as optional fields. New `describeAuthError(err, context?)` in `@osn/client`, which reads either, and `describePasskeyError(err, ceremony)` in `@osn/auth-ui`, whose caller names the WebAuthn ceremony that failed, turn a failure into one plain sentence that never shows the error's message, the code or the browser's text.
+
+### Patch Changes
+
+- 11685a5: Musubi's stylesheet takes on the base rules its screens were missing. Readable small text (handles, statuses, hints, "Loading…" lines) moves from `text-subtle` to `text-muted-foreground`, and `--subtle` darkens to `#8d8d8d` in light so the icons and ornaments that keep it clear 3:1 on every ground; the contrast contract now holds `--ui-ink-tertiary` without a waiver. Text fields take an 8px corner (`--ui-radius-field`) while buttons stay pills. A bare `border` draws the hairline instead of ink; a bare-bordered field keeps its ink edge. Every element reached from the keyboard gets the house focus outline, the account-menu triggers included, drawn inside the box where a row would clip it (the bottom bar, section tabs, the profile switcher). `transition-ui-colors` replaces `transition-colors`, so the outline lands at once. The theme menu is now `@shared/ui`'s `DropdownMenu` with radio rows, so it matches the account menu and a screen reader hears which theme is on. The current bottom-bar tab draws a bar along its top edge as well as full ink. The legal pages sit on Musubi's type scale: the body through `.prose-legal`, the title, date and draft notice through the scale's own steps. Discover's suggestions are `Card`s; the organisation page's loading blocks and the search fields' "@" sit on the scale. `@osn/auth-ui`'s `DESIGN.md` records how those base rules reach its views in Musubi. The lab drops its copy of `transition-ui-colors`, which it now takes from Musubi's stylesheet, and its radius stories say Musubi's fields are 8px.
+- Updated dependencies [ff7a76f]
+  - @osn/client@2.20.0
+
+## 3.0.35
+
+### Patch Changes
+
+- 3a4615b: Docs now describe the code as it stands. `musubi/social/DESIGN.md` says ghost and link buttons are pills, default button labels are 14px, and success and warn are allowed within named uses with their contrast measured; it adds focus, motion, the token contract and how Musubi hosts `@osn/auth-ui`, and lists where the code does not meet a rule yet. A new `osn/auth-ui/DESIGN.md` states the `ui-*` contract the package is held to and how its views stand against it, focus included. The `@pulse/web` README names its one backend, the two ways the app reaches it, the third parties the browser calls, and its OIDC sign-in. No source changes; Musubi's token-contract browser test now holds the default Button label at 14px.
+
+## 3.0.34
+
+### Patch Changes
+
+- Updated dependencies [6c81633]
+  - @shared/ui@0.10.3
+
+## 3.0.33
+
+### Patch Changes
+
+- Updated dependencies [3f628a0]
+  - @osn/client@2.19.0
+
 ## 3.0.32
 
 ### Patch Changes

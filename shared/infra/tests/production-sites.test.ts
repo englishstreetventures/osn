@@ -5,18 +5,18 @@ import { describe, expect, test } from "vitest";
 
 import { hostsFor, PRODUCTION_ZONES, stageHosts } from "../src/hosts";
 import {
-  PAGES_PROJECTS,
+  heldHost,
+  HOST_HOLDS_FILE,
+  type HostHold,
   PRODUCTION_ADOPTIONS,
+  PRODUCTION_HOST_HOLDS,
   PRODUCTION_HOSTS,
   PRODUCTION_SITE_MODES,
-  PRODUCTION_STAGING_HOSTS,
   productionHost,
-  RETIRED_STAGING_HOSTS,
   productionHostOutputs,
   SITE_BUILDS,
   SITE_SURFACES,
   siteDomain,
-  SiteModeError,
   zoneOf,
 } from "../src/production-sites";
 
@@ -25,60 +25,70 @@ const source = readFileSync(
   "utf8",
 );
 
+/** A hold on cire vendor's host, as an entry in PRODUCTION_HOST_HOLDS reads. */
+const VENDOR_HELD: readonly HostHold[] = [
+  {
+    site: "cire_vendor",
+    host: "vendor.cireweddings.com",
+    reason: "Serves nothing until the vendor export ships.",
+  },
+];
+
 describe("production-sites.ts", () => {
-  test("PS1: imports nothing, so scripts that install nothing can load it", () => {
+  test("PS1: imports nothing, so scripts that install nothing can load it, and names its own path for the refusals that cite it", () => {
     expect(source).not.toMatch(/^\s*import\b|\brequire\(|\bimport\(/m);
     expect(source).not.toMatch(/^\s*export\s+\*?\s*\{?[^;]*\bfrom\b/m);
+    expect(
+      fileURLToPath(new URL("../src/production-sites.ts", import.meta.url)).endsWith(
+        `/${HOST_HOLDS_FILE}`,
+      ),
+    ).toBe(true);
   });
 
-  test("PS2: no production API Worker, database or bucket is adopted", () => {
-    expect(PRODUCTION_ADOPTIONS).toEqual([]);
+  test("PS2: the stacks adopt each production API Worker, database and bucket by its existing name", () => {
+    expect(PRODUCTION_ADOPTIONS.toSorted()).toEqual(
+      [
+        "osn-api-production",
+        "osn-db-prod",
+        "cire-api-production",
+        "cire-invites",
+        "cire-db",
+        "cire-assets",
+        "cire-sheets",
+        "zap-api-production",
+        "zap-db-prod",
+      ].toSorted(),
+    );
   });
 
-  test("PS3: the four Pages sites are staged, musubi landing serves its host, pulse landing is off", () => {
+  test("PS3: every site but pulse landing serves its host from its Worker, pulse landing is off", () => {
     expect(PRODUCTION_SITE_MODES).toEqual({
-      cire_host: "staged",
-      cire_vendor: "staged",
-      cire_landing: "staged",
-      osn_social: "staged",
+      cire_host: "worker",
+      cire_vendor: "worker",
+      cire_landing: "worker",
+      osn_social: "worker",
       musubi_landing: "worker",
       pulse_landing: "off",
     });
     expect(Object.keys(PRODUCTION_SITE_MODES).toSorted()).toEqual([...SITE_SURFACES].toSorted());
-    // Only a site a Pages project serves today can be staged beside it.
-    const staged = SITE_SURFACES.filter((surface) => PRODUCTION_SITE_MODES[surface] === "staged");
-    expect(staged.filter((surface) => PAGES_PROJECTS[surface] === undefined)).toEqual([]);
   });
 
-  test("PS4: a staged site serves its spare host, a worker its production host, an off site none; a staged site with no spare host is refused", () => {
-    expect(siteDomain("cire_host", "staged")).toBe("next.host.cireweddings.com");
-    expect(siteDomain("osn_social", "staged")).toBe("next.musubi.social");
-    expect(siteDomain("cire_host", "worker")).toBe("host.cireweddings.com");
-    expect(siteDomain("musubi_landing", "worker")).toBe("www.musubi.social");
-    expect(siteDomain("cire_landing", "off")).toBeNull();
-    for (const surface of ["musubi_landing", "pulse_landing"] as const) {
-      expect(() => siteDomain(surface, "staged")).toThrow(SiteModeError);
-      expect(() => siteDomain(surface, "staged")).toThrow(/no spare host/);
-    }
-    // Every mode the switch sets is one the site can serve.
-    for (const surface of SITE_SURFACES) {
-      expect(() => siteDomain(surface, PRODUCTION_SITE_MODES[surface])).not.toThrow();
-    }
+  test("PS4: a worker serves its production host, an off site none, and a held site none", () => {
+    expect(siteDomain("cire_host", "worker", [])).toBe("host.cireweddings.com");
+    expect(siteDomain("musubi_landing", "worker", [])).toBe("www.musubi.social");
+    expect(siteDomain("cire_landing", "off", [])).toBeNull();
+    expect(siteDomain("cire_vendor", "worker", VENDOR_HELD)).toBeNull();
+    // A hold on one site leaves every other site its host.
+    expect(siteDomain("cire_host", "worker", VENDOR_HELD)).toBe("host.cireweddings.com");
+    expect(heldHost("cire_vendor", VENDOR_HELD)).toEqual(VENDOR_HELD[0]);
+    expect(heldHost("cire_host", VENDOR_HELD)).toBeUndefined();
   });
 
-  test("PS5: every site host sits in its production zone, and no spare host is a production host", () => {
-    const production = new Set<string>(Object.values(PRODUCTION_HOSTS));
+  test("PS5: every site host sits in its production zone, and each build writes its workspace's dist", () => {
     for (const surface of SITE_SURFACES) {
       const host = productionHost(surface);
       expect({ host, zone: PRODUCTION_ZONES.includes(zoneOf(host)) }).toEqual({ host, zone: true });
-      const staging = PRODUCTION_STAGING_HOSTS[surface];
-      if (staging === undefined) continue;
-      expect({ staging, zone: zoneOf(staging) }).toEqual({ staging, zone: zoneOf(host) });
-      expect(production.has(staging)).toBe(false);
     }
-    expect(new Set(Object.values(PRODUCTION_STAGING_HOSTS)).size).toBe(
-      Object.values(PRODUCTION_STAGING_HOSTS).length,
-    );
     // Each workspace `@<product>/<name>` lives in `<product>/<name>` and builds into `dist`.
     for (const surface of SITE_SURFACES) {
       const build = SITE_BUILDS[surface];
@@ -86,39 +96,24 @@ describe("production-sites.ts", () => {
     }
   });
 
-  test("PS7: each retired spare host sits in its site's zone, is no production host or current spare host, and is listed under one site only", () => {
-    const inUse = new Set<string>([
-      ...Object.values(PRODUCTION_HOSTS),
-      ...SITE_SURFACES.flatMap((surface) => PRODUCTION_STAGING_HOSTS[surface] ?? []),
-    ]);
-    for (const surface of SITE_SURFACES) {
-      for (const host of RETIRED_STAGING_HOSTS[surface] ?? []) {
-        expect({ surface, host, zone: zoneOf(host), inUse: inUse.has(host) }).toEqual({
-          surface,
-          host,
-          zone: zoneOf(productionHost(surface)),
-          inUse: false,
-        });
-      }
-    }
-    // A host listed under two sites is one either site's Worker may give up.
-    const listed = SITE_SURFACES.flatMap((surface) => RETIRED_STAGING_HOSTS[surface] ?? []);
-    expect(listed.filter((host, at) => listed.indexOf(host) !== at)).toEqual([]);
-  });
-
-  test("production-hosts names each non-off site's origin at its mode, the origin its smoke check probes", () => {
+  test("production-hosts names each API Worker's and each non-off site's production origin, held or not, the origin its smoke check probes", () => {
     expect(Object.fromEntries(productionHostOutputs())).toEqual({
-      cire_host_origin: "https://next.host.cireweddings.com",
-      cire_vendor_origin: "https://next.vendor.cireweddings.com",
-      cire_landing_origin: "https://next.cireweddings.com",
-      osn_social_origin: "https://next.musubi.social",
+      cire_api_origin: "https://api.cireweddings.com",
+      cire_invites_origin: "https://invite.cireweddings.com",
+      osn_api_origin: "https://id.musubi.social",
+      zap_api_origin: "https://zap.cireweddings.com",
+      cire_host_origin: "https://host.cireweddings.com",
+      cire_vendor_origin: "https://vendor.cireweddings.com",
+      cire_landing_origin: "https://cireweddings.com",
+      osn_social_origin: "https://musubi.social",
       musubi_landing_origin: "https://www.musubi.social",
     });
-    expect(
-      Object.fromEntries(
-        productionHostOutputs({ ...PRODUCTION_SITE_MODES, cire_host: "worker", osn_social: "off" }),
-      ),
-    ).toMatchObject({ cire_host_origin: "https://host.cireweddings.com" });
+    // An off site has none.
+    const outputs = Object.fromEntries(
+      productionHostOutputs({ ...PRODUCTION_SITE_MODES, osn_social: "off" }),
+    );
+    expect(outputs.osn_social_origin).toBeUndefined();
+    expect(outputs.cire_landing_origin).toBe("https://cireweddings.com");
   });
 
   test("PS6: production runs on today's production hosts and reads no DEV_DOMAIN; every other stage derives its own", () => {
@@ -135,3 +130,51 @@ describe("production-sites.ts", () => {
     expect(() => hostsFor("dev", {})).toThrow(/DEV_DOMAIN/);
   });
 });
+
+describe("PS7: each production host hold", () => {
+  // Read on every entry the owner adds: these hold the list's shape, never
+  // its contents, so a pull request that adds or removes an entry passes.
+  test("names a site whose Worker serves its host, and that site's production host", () => {
+    for (const hold of PRODUCTION_HOST_HOLDS) {
+      expect({ hold, mode: PRODUCTION_SITE_MODES[hold.site] }).toEqual({ hold, mode: "worker" });
+      expect({ hold, host: productionHost(hold.site) }).toEqual({ hold, host: hold.host });
+    }
+  });
+
+  test("holds each site once", () => {
+    const sites = PRODUCTION_HOST_HOLDS.map((hold) => hold.site);
+    expect(new Set(sites).size).toBe(sites.length);
+  });
+
+  test("gives a reason of one line that names no issue or finding", () => {
+    for (const hold of PRODUCTION_HOST_HOLDS) {
+      expect({ hold, ok: reasonProblem(hold.reason) }).toEqual({ hold, ok: undefined });
+    }
+  });
+
+  test("the reason check refuses an empty, long or multi-line reason, and one that names an issue or finding", () => {
+    expect(reasonProblem("Serves nothing until the vendor export ships.")).toBeUndefined();
+    for (const bad of [
+      "",
+      "   ",
+      "two\nlines",
+      "x".repeat(161),
+      "See #412.",
+      "Tracked in osn-tracker.",
+      "S-H2 is open",
+      "P-W1",
+      "C-M3",
+    ]) {
+      expect({ bad, problem: reasonProblem(bad) === undefined }).toEqual({ bad, problem: false });
+    }
+  });
+});
+
+/** Why `reason` is not a hold's reason, or undefined when it is one. */
+function reasonProblem(reason: string): string | undefined {
+  if (reason.trim() === "") return "empty";
+  if (/[\r\n]/.test(reason)) return "more than one line";
+  if (reason.length > 160) return "longer than 160 characters";
+  if (/#\d|osn-tracker|\b[SPC]-[A-Z]{1,2}\d/.test(reason)) return "names an issue or finding";
+  return undefined;
+}

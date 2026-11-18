@@ -1,0 +1,158 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "docs/tracker-1662",
+    "base_sha": "c7cebf716a7f527cb059a45d2beb389cf6ebf0cc",
+    "head_sha": "b85aaeed48be294a74fdcb6ee5bd3f87f1478394",
+    "generated_at": "2026-11-16T13:58:17.113Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none",
+    "issues": 0
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-12T17:06:37.626Z",
+    "last_ts": "2026-11-16T13:58:09.022Z",
+    "span_seconds": 334291,
+    "active_seconds": 5317,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 4.012519799999999,
+    "tokens": {
+      "input": 158,
+      "output": 31941,
+      "thinking": 8825,
+      "cache_write_5m": 0,
+      "cache_write_1h": 262901,
+      "cache_read": 13205949
+    },
+    "by_model": {
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 158,
+          "output": 31941,
+          "thinking": 8825,
+          "cache_write_5m": 0,
+          "cache_write_1h": 262901,
+          "cache_read": 13205949
+        },
+        "usd_equivalent": 4.012519799999999,
+        "messages": 79
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 158,
+          "output": 31941,
+          "thinking": 8825,
+          "cache_write_5m": 0,
+          "cache_write_1h": 262901,
+          "cache_read": 13205949
+        },
+        "usd_equivalent": 4.012519799999999,
+        "messages": 79
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {
+      "medium": 79
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 0,
+      "docs": 3,
+      "config": 0,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 8,
+        "deleted": 7
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 4,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": 1181041,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 65,
+      "Skill": 8,
+      "Read": 3,
+      "Edit": 3,
+      "Write": 3,
+      "ExitWorktree": 1,
+      "EnterWorktree": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "prep-pr": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 79,
+      "subagent": 0,
+      "with_tools": 76,
+      "with_one_tool": 70,
+      "context_median": 190344,
+      "context_p90": 244804
+    }
+  },
+  "review": null
+}

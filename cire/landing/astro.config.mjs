@@ -8,8 +8,8 @@ import { defineConfig, fontProviders } from "astro/config";
 // see [[wiki/cire/cire-landing]]). Unlike the guest site (`cire/invites`, SSR Worker
 // — it resolves a wedding per request) the
 // landing page is the same for everyone, so it prerenders to plain HTML and
-// deploys to Cloudflare Pages (`wrangler pages deploy dist`) exactly like the
-// organiser portal. No Cloudflare adapter is needed for a static build.
+// is served from a Worker's static assets exactly like the organiser portal.
+// No Cloudflare adapter is needed for a static build.
 export default defineConfig({
   // Portless assigns the port and passes it as `PORT`; the literal is the
   // fallback for a devloop without portless (`PORTLESS=0`, or running

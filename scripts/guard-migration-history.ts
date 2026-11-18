@@ -40,7 +40,11 @@ import { readFileSync } from "node:fs";
 import { rebuildReason } from "./db-generate";
 import { migrationStatements } from "./migration-files";
 
-/** Every directory wrangler applies migrations from, plus cire's archive. */
+/**
+ * Every directory a database is migrated from (Alchemy on dev and production,
+ * Wrangler on local and staging databases), plus cire's archive, whose names
+ * production's ledger holds.
+ */
 export const MIGRATION_DIRS = [
   "cire/db/migrations",
   "cire/db/migrations-archive",

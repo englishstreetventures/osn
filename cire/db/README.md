@@ -31,17 +31,18 @@ cire/db/
 
 Run from the repo root with `bun run --cwd cire/db <script>`. Wrangler reads
 `cire/api/wrangler.toml` via the `--config` flag baked into each script. The
-three scripts that apply migrations go through `scripts/cire-db-migrate.ts`,
+two scripts that apply migrations go through `scripts/cire-db-migrate.ts`,
 which checks the target's ledger first (see the baseline section below) and
 runs the wrangler `cire/api` installs from the lockfile. Without that install
-it stops rather than fetch another version.
+it stops rather than fetch another version. Both target the local database: the
+script refuses `--remote`. The cire stack migrates the dev and production
+databases with Alchemy (`wiki/shared/production-deploy.md` §4).
 
 | Script             | What it does                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
 | `db:generate`      | `scripts/db-generate.ts` — diff the working tree's `schema.ts` against `HEAD`'s, write one migration file (see below) |
 | `db:push`          | Check the ledger, then apply pending migrations to the **local** D1 (Miniflare-backed)            |
-| `db:migrate:local` | Same as `db:push`, named to match `:prod`                                                         |
-| `db:migrate:prod`  | Check the ledger, then apply pending migrations to the **production** D1 (`--env production`). Coordinate with deploys. |
+| `db:migrate:local` | Same as `db:push`                                                                                 |
 | `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (re-runnable — `INSERT OR IGNORE` skips rows already there) |
 | `db:reset`         | Wipe local D1 state, re-run migrations + seed. Destructive — local only.                          |
 | `db:studio`        | Launch Drizzle Studio for browsing the schema / writing one-off queries                           |
@@ -95,15 +96,16 @@ prices the live chain against the free tier's 100,000 rows written a day.
 *Measured 2026-10-02 — `bun run scripts/guard-d1-migration-cost.ts --all` for
 the baseline; the archive through the same script's `measureChain`.*
 
-**Do not rename it.** `wrangler d1 migrations apply` skips any file already
-named in the target database's `d1_migrations` ledger. Every deployed ledger
-holds `0001_initial.sql`, so wrangler skips the baseline there and applies
-only what follows it. Under any other name it would run the whole schema
-against the live wedding database and fail on the first `CREATE TABLE`.
-`ddl-lockstep.test.ts` pins the name.
+**Do not rename it.** A migrator skips any file already named in the target
+database's ledger (Wrangler's `d1_migrations`, Alchemy's `__alchemy_migrations`).
+Every deployed ledger holds `0001_initial.sql`, so the baseline is skipped there
+and only what follows it applies. Under any other name it would run the whole
+schema against the live wedding database and fail on the first `CREATE TABLE`.
+`ddl-lockstep.test.ts` pins the name. Nor change its bytes: Alchemy records each
+applied file's hash and refuses a ledger whose file changed.
 
-**Apply migrations only through the scripts above.** Skipping the baseline is
-right only on a database that had applied the whole archived chain. On one
+**Apply local migrations only through the scripts above.** Skipping the baseline
+is right only on a database that had applied the whole archived chain. On one
 that stopped part-way, wrangler would skip the baseline and never run the rest
 of the archive, and nothing would say so. `scripts/cire-db-migrate.ts` reads
 the target's ledger before anything is applied:
@@ -121,15 +123,19 @@ the target's ledger before anything is applied:
 A chain starts at one of the names in `CHAIN_STARTS` in
 `scripts/cire-db-migrate.ts`: `0002`, where the original chain began, and
 `0058`, the first migration after the previous baseline. The ledger read gives
-up after two minutes, so a stalled call fails the deploy instead of holding it.
+up after two minutes, so a stalled call fails instead of hanging.
 
-A bare `wrangler d1 migrations apply` makes no such check. A refused database
-is brought level with the code that matches it, never by applying archived
-files by hand: they can change schema the Worker serving that database still
-reads. Production: re-run only the production cire-api job of an earlier run
-whose commit is from before the files were archived and let it finish — it
-applies them and deploys the matching Worker — then dispatch a release
-(`wiki/shared/production-deploy.md` §4.1). Local: `db:reset`.
+A bare `wrangler d1 migrations apply` makes no such check. A refused local
+database is rebuilt with `db:reset`, never brought level by applying archived
+files by hand.
+
+**Production** is migrated by the cire stack with Alchemy, never by these
+scripts. Its ledger holds every archived name, so the stack hands Alchemy a
+placeholder under each (`archivedPlaceholder()` in
+`shared/infra/src/migrations.ts`): none ever runs there, and on a database whose
+ledger lacked one it fails rather than run archived SQL. Before anything writes,
+the release refuses a production ledger missing an archived file, or one behind a
+later applied file, as this table would (`wiki/shared/production-deploy.md` §4.2).
 
 The archive lives outside `migrations_dir`, so nothing applies it. The tests
 that replay it to prove what a migration did to existing rows are listed in
@@ -138,14 +144,19 @@ that replay it to prove what a migration did to existing rows are listed in
 
 ### Squashing the chain again
 
+> [!warning] This method no longer works as written
+> Alchemy migrates every deployed cire database and records each applied file's
+> hash. Step 4 changes `0001_initial.sql`'s bytes, and on production step 3 turns
+> applied files into placeholders with other bytes, so every dev deploy and every
+> production release would refuse (the release before its second approval). Do
+> not squash until the method is redesigned: englishstreetventures/osn#2096.
+
 When `scripts/guard-d1-migration-cost.ts --all` nears its line, squash the
 chain rather than raise the line:
 
 1. **Every deployed database must already have applied every live migration.**
-   For production, `bun run --cwd cire/api wrangler d1 migrations list cire-db
-   --env production --remote` must say "No migrations to apply!". Running it
-   through cire/api uses the wrangler the lockfile installs, never one fetched
-   from the registry.
+   For production, the release's ledger counts must read "0 to apply"
+   (`wiki/shared/production-deploy.md` §4.1); no agent reads the database.
    A database that has not is refused by the ledger check after the squash, and
    every deploy to it stops until a pre-squash deploy run brings it level.
 2. Append the first live migration after the baseline to `CHAIN_STARTS` in

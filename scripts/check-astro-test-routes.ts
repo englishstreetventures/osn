@@ -82,8 +82,7 @@ const DEFAULT_ASTRO_APPS = [
   "pulse/landing",
 ] as const;
 
-// Test-only override, the same idiom as check-d1-database-id.ts's
-// WRANGLER_TOML: a comma-separated list of app roots, so the CLI test can
+// Test-only override: a comma-separated list of app roots, so the CLI test can
 // point this at fixture directories instead of the real repo. An absolute
 // entry (what a fixture's mkdtemp root is) is used as-is; a relative one
 // resolves the same way the default list does, against the repo root.

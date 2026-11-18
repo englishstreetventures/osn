@@ -1,5 +1,86 @@
 # @zap/db
 
+## 0.7.3
+
+### Patch Changes
+
+- Updated dependencies [adec70d]
+  - @shared/db-utils@0.9.5
+
+## 0.7.2
+
+### Patch Changes
+
+- f040da3: Tests only: cases that a kept sibling already fails on are removed, each checked by breaking the source and watching both fail. Toast and dev-urls gain one case each, and four Toaster cases move to fake timers so they can fail on what they name.
+
+## 0.7.1
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- Updated dependencies [5347e06]
+  - @shared/db-utils@0.9.4
+
+## 0.7.0
+
+### Minor Changes
+
+- 582649a: Pulse and Zap take part in account deletion. Pulse's preview lists the upcoming events a person hosts, one action per series and per other event (one for all past 100), with the 14-day cancellation as the default; its erasure takes the answers and `deleteEverything`, keeps a cancelled event 14 days for its guests or deletes it, deletes the person's series and web sessions, and answers what it kept. `POST /internal/account-sessions/revoke` ends a person's Pulse web sessions. Zap's preview lists nothing; its erasure removes the person's memberships, deletes a chat left with no one, replaces their sender id on what stays with a deletion sentinel and wipes the body of a plain-text message they wrote, recording each account in `zap_account_purges`. Each erasure checks state as each write runs and answers a call that overlaps another with the same kept list; the preview and session-end bodies carry no account id, and the erasure body no email address. Both verify osn-api's ARC tokens against the keys osn-api publishes, treating an `INTERNAL_SERVICE_SECRET` under 32 characters as absent; Pulse's key registry and register-service routes are gone, and Zap's registry refuses keys for osn-api.
+
+## 0.6.19
+
+### Patch Changes
+
+- 6e75a5f: Alchemy is the migrator of every production database. `flattenMigrations()` writes production's extra files (refusing placeholders for archived names, and the freeze of Wrangler's `d1_migrations`) and `migrationFiles()` lists them; `retainedD1Props()` names the `__alchemy_migrations` table; `read:live` reads each migrated database's ledger through D1's `/query`, keeping counts only, and the plan guard refuses a ledger Alchemy could not convert or would replay from, and a frozen ledger whose trigger is gone (`readLedger()`, `countLedger()`, `judgeLedger()`). The musubi and zap stacks declare `osn-db-prod` and `zap-db-prod` with their migrations, and `migrate:production` deploys each database alone before the release's deploy. The `[env.production]` D1 blocks of `osn/api` and `zap/api` name no `migrations_dir`, and `osn/db` and `zap/db` drop `db:migrate:prod`. `bun run --cwd shared/infra test:d1` proves the conversion on local copies of each database.
+
+## 0.6.18
+
+### Patch Changes
+
+- 73043c4: The identity database refuses an organisation member role other than `admin` or `member`. A migration adds two triggers, one on insert and one on update, and stops without changing anything if a stored row already holds another role; its header gives the recovery. `@osn/db/testing` adds the same triggers to every test database, and `db:push` adds them to the local database after `drizzle-kit push`. `@osn/api` gains a Miniflare D1 test of the refusals over the real migration chain. The pulse and zap lockstep tests name their own package in a comment.
+
+## 0.6.17
+
+### Patch Changes
+
+- c687234: Every workspace that uses Effect runs `effect` 4.1.2, with `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
+  `@effect/vitest` at 4.1.2 and the root overrides for
+  `@effect/platform-node-shared` and `@effect/sql-d1` with them. The stacks run
+  `alchemy` and `@alchemy.run/cloudflare` 2.0.0-beta.85, which loads on Effect
+  4.1 unpatched; the provider's patch, carried to beta.85, keeps the D1 import
+  the stacks ran on beta.84 and the content types Wrangler uploads assets with.
+  beta.85 deploys state store version 8, which beta.84 cannot use, so a tier's
+  store cannot go back once it is upgraded.
+
+  The production plan guard reads beta.85's console lines
+  (`[hh:mm:ss.mmm] INFO: …`), and `messageOf()` reads no logfmt record.
+  `@shared/infra`'s tests hold the AWS SDK the provider installs,
+  `@distilled.cloud/aws`, to listing and aborting an R2 bucket's multipart
+  uploads, and run both under Bun. `RETIRED_STAGING_HOSTS` is gone from
+  `@shared/infra`, and `domainRefusals()` takes `(changes, unflip)`: a site's
+  Worker gives up only its current spare host without an `unflip` naming the
+  site.
+
+- Updated dependencies [c687234]
+  - @shared/db-utils@0.9.3
+
 ## 0.6.16
 
 ### Patch Changes

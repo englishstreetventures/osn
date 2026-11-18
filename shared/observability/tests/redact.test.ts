@@ -40,6 +40,37 @@ describe("redact", () => {
     expect(out.enrollment_token).toBe(REDACTION_PLACEHOLDER);
   });
 
+  it("redacts an emailed link's secrets and every value that says which candidate is right", () => {
+    const input = {
+      requestId: "signup_0123456789ab",
+      linkSecret: "a".repeat(64),
+      claimSecret: "b".repeat(64),
+      retireSecret: "c".repeat(64),
+      pairingCode: "47",
+      pairingCandidates: ["12", "33", "47", "68", "90"],
+      pairingPick: "47",
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.requestId).toBe("signup_0123456789ab");
+    expect(out.linkSecret).toBe(REDACTION_PLACEHOLDER);
+    expect(out.claimSecret).toBe(REDACTION_PLACEHOLDER);
+    expect(out.retireSecret).toBe(REDACTION_PLACEHOLDER);
+    expect(out.pairingCode).toBe(REDACTION_PLACEHOLDER);
+    expect(out.pairingCandidates).toBe(REDACTION_PLACEHOLDER);
+    expect(out.pairingPick).toBe(REDACTION_PLACEHOLDER);
+  });
+
+  it("redacts a sign-up's Email Verification API token and the nonce secret that binds it", () => {
+    const input = {
+      email: "ada@example.com",
+      emailVerificationToken: "eyJhbGciOiJFZDI1NTE5In0.e30.c2ln~eyJhbGciOiJFZDI1NTE5In0.e30.c2ln",
+      nonceSecret: "n".repeat(75),
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.emailVerificationToken).toBe(REDACTION_PLACEHOLDER);
+    expect(out.nonceSecret).toBe(REDACTION_PLACEHOLDER);
+  });
+
   it("redacts the Authorization header", () => {
     const input = {
       url: "/graph/internal/connections",
@@ -262,7 +293,7 @@ describe("redact", () => {
   /**
    * `redact` runs inside the logger on every deployed tier (see
    * `src/logger/layer.ts`), so a throw here is not a loud bug report — it is a
-   * dead fiber whose only crime was calling `Effect.logError`. These four cases
+   * dead fiber whose only crime was calling `Effect.logError`. These three cases
    * pin the marker behaviour that replaced the throw.
    */
   describe("cyclic input", () => {
@@ -294,14 +325,6 @@ describe("redact", () => {
       expect(out).toBeInstanceOf(Error);
       expect(out.cause).toBe(CIRCULAR_PLACEHOLDER);
     });
-
-    it("keeps the primitive fast path allocation-free", () => {
-      // A scalar must not reach the WeakSet-allocating walk at all. Identity
-      // on the way out is the observable proxy for that.
-      const s = "not-an-object";
-      expect(redact(s)).toBe(s);
-      expect(redact(7)).toBe(7);
-    });
   });
 
   it("does not mutate input", () => {
@@ -311,13 +334,6 @@ describe("redact", () => {
     expect(input).toEqual(snapshot);
   });
 
-  /**
-   * Walks every entry in the deny-list and confirms it redacts.
-   * Self-maintaining: any key added to (or removed from) REDACT_KEYS
-   * automatically gets coverage. Guards against a future refactor
-   * accidentally dropping an entry without updating the explicit
-   * assertion below.
-   */
   it("redacts step-up tokens and session-metadata keys", () => {
     const input = {
       stepUpToken: "eyJ...",
@@ -434,6 +450,13 @@ describe("redact", () => {
     ]);
   });
 
+  /**
+   * Walks every entry in the deny-list and confirms it redacts.
+   * Self-maintaining: any key added to (or removed from) REDACT_KEYS
+   * automatically gets coverage. Guards against a future refactor
+   * accidentally dropping an entry without updating the explicit
+   * assertion below.
+   */
   it("every entry in REDACT_KEYS is actually redacted", () => {
     expect(REDACT_KEYS.size).toBeGreaterThan(0);
     for (const key of REDACT_KEYS) {
@@ -537,6 +560,14 @@ describe("redact", () => {
       "passkey_label",
       "cdlsecret",
       "cdl_secret",
+      "linksecret",
+      "claimsecret",
+      "retiresecret",
+      "pairingcode",
+      "pairingcandidates",
+      "pairingpick",
+      "emailverificationtoken",
+      "noncesecret",
       "privatekey",
       "private_key",
       "accountid",

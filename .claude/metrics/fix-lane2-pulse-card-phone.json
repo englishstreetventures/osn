@@ -1,0 +1,191 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/lane2-pulse-card-phone",
+    "base_sha": "d19c2d1be905fb69b357558aa5d68eecd5ad1da1",
+    "head_sha": "b593c2d223bb94f314bb654136a759ba27a32a12",
+    "generated_at": "2026-11-11T02:09:00.782Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2161,
+    "type": null,
+    "labels": [
+      "product:pulse",
+      "complexity:2"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-10T16:54:59.940Z",
+    "last_ts": "2026-11-11T02:08:54.407Z",
+    "span_seconds": 33234,
+    "active_seconds": 7254,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 20.883435399999996,
+    "tokens": {
+      "input": 360,
+      "output": 173498,
+      "thinking": 71811,
+      "cache_write_5m": 1157387,
+      "cache_write_1h": 0,
+      "cache_read": 29062751
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 360,
+          "output": 173498,
+          "thinking": 71811,
+          "cache_write_5m": 1157387,
+          "cache_write_1h": 0,
+          "cache_read": 29062751
+        },
+        "usd_equivalent": 20.883435399999996,
+        "messages": 168
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 360,
+          "output": 173498,
+          "thinking": 71811,
+          "cache_write_5m": 1157387,
+          "cache_write_1h": 0,
+          "cache_read": 29062751
+        },
+        "usd_equivalent": 20.883435399999996,
+        "messages": 169
+      }
+    },
+    "effort": {
+      "high": 50,
+      "xhigh": 118
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 1,
+      "docs": 2,
+      "config": 0,
+      "source": 1
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 344,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 45,
+        "deleted": 2
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 31,
+        "deleted": 23
+      }
+    },
+    "packages": [
+      "pulse/web"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 130,
+      "Read": 30,
+      "Write": 11,
+      "Skill": 10,
+      "Edit": 7,
+      "SubagentHandback": 2,
+      "Agent": 1,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 3,
+      "max_edits_one_file": 3
+    },
+    "skills": {
+      "design-system": 1,
+      "new-feat": 1,
+      "emil-design-eng": 1,
+      "apple-design": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "find-animation-opportunities": 1,
+      "prep-pr": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "reviewer": 1
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 168,
+      "with_tools": 167,
+      "with_one_tool": 144,
+      "context_median": 166096,
+      "context_p90": 308420
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 6,
+    "located": 4,
+    "acted_on": 3,
+    "paired": 3,
+    "acted_on_paired": 2,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

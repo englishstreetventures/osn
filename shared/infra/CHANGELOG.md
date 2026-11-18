@@ -1,5 +1,135 @@
 # @shared/infra
 
+## 0.10.3
+
+### Patch Changes
+
+- 731488c: Tests only. Removes 22 cases and the one-case `tests/index.test.ts` that another named test already checks, in this package or in the cire, musubi and zap stack tests, and two of `tests/dev-hosts.test.ts`'s spawned inputs that `tests/hosts.test.ts` already refuses. The `checkLive` ordering case in `tests/secrets/check.test.ts` runs on fake timers. Every refusal, redaction and drift guard keeps a test.
+
+## 0.10.2
+
+### Patch Changes
+
+- 5347e06: Dependency bumps that cleared the waiting rules on 2026-11-15: `effect` and the
+  `@effect/*` packages 4.1.4 (with the root overrides for `@effect/sql-d1` and
+  `@effect/platform-node-shared`), `astro` 7.4.11, `@astrojs/solid-js` 7.1.5,
+  `@astrojs/cloudflare` 14.4.7, `@elysiajs/openapi` 1.4.17 (escapes OpenAPI
+  values in the Swagger UI and Scalar pages), `@opentelemetry/*` 2.12.1 and
+  0.223.1, `jose` 6.2.17, `turbo` 2.11.11, `portless` 0.15.13, `nitro`
+  3.0.261103-rc, `@solidjs/start` 2.1.0, `wrangler` 4.156.1 (with the root override of `@cloudflare/vite-plugin` raised to 1.67.0, the release that pins that Wrangler, so the tree carries one Wrangler), `oxlint` and
+  `@oxlint/plugins` 1.90.0, `lucide-solid` 1.66.0, `@shadcn/lint` 0.2.3, and
+  `three` and `@types/three` 0.187.0.
+
+  Effect's tracers now leave a successful span's status Unset rather than Ok.
+
+  `mime` stays on 4.0.7 in `@shared/infra`: Wrangler 4.156.1 still bundles 4.0.7,
+  and the asset upload types every file the way that copy does.
+
+  `@shared/db-utils`: `@effect/sql-d1` 4.1.3 stopped making a D1 client a subtype of `SqlClient`, so `commitEffectWrites` takes a handle whose `$client` is either.
+
+- 5347e06: The production plan guard refuses a release whose database has a timestamped migration that sorts before one its ledger already records, since Alchemy from `2.0.0-beta.86` refuses to apply it.
+
+## 0.10.1
+
+### Patch Changes
+
+- 582649a: `@shared/osn-auth-client/arc` verifies an ARC token osn-api sent an app against the keys osn-api publishes, refusing a token from another issuer, for a scope the app does not let osn-api use, or whose kid fails its MAC, before fetching anything. `@shared/crypto/arc-kid` mints and checks those key ids under a MAC key derived from the secret with HKDF-SHA-256, never the secret itself, and derives none from a secret under 32 characters; a dev deploy refuses an `INTERNAL_SERVICE_SECRET` that short; `@shared/crypto/arc-metrics` is a Worker-safe export of the ARC metrics. `DeletionRequestResult` gains `could_not_check` and `stale_choices`. The musubi stack gives osn-api Zap's address on dev and production and declares Pulse absent.
+
+## 0.10.0
+
+### Minor Changes
+
+- 6e75a5f: Alchemy is the migrator of every production database. `flattenMigrations()` writes production's extra files (refusing placeholders for archived names, and the freeze of Wrangler's `d1_migrations`) and `migrationFiles()` lists them; `retainedD1Props()` names the `__alchemy_migrations` table; `read:live` reads each migrated database's ledger through D1's `/query`, keeping counts only, and the plan guard refuses a ledger Alchemy could not convert or would replay from, and a frozen ledger whose trigger is gone (`readLedger()`, `countLedger()`, `judgeLedger()`). The musubi and zap stacks declare `osn-db-prod` and `zap-db-prod` with their migrations, and `migrate:production` deploys each database alone before the release's deploy. The `[env.production]` D1 blocks of `osn/api` and `zap/api` name no `migrations_dir`, and `osn/db` and `zap/db` drop `db:migrate:prod`. `bun run --cwd shared/infra test:d1` proves the conversion on local copies of each database.
+
+## 0.9.0
+
+### Minor Changes
+
+- b5ff9b9: The production API Workers deploy through the Alchemy stacks. The musubi stack declares osn-api and its database on production, and the new zap production stack declares zap-api and its database; each adopts the existing Worker, database and Durable Object class by name, and a release migrates the database with Wrangler before the deploy.
+
+  - `@shared/infra`: `apiWorker()` adopts a production Worker under its own name only; production secrets stay on the Worker (`source: "worker"` in the inventory), and the patched provider keeps every live secret an upload does not name. A new live read (`readProductionLive()`, `runReadLiveCli()`) gives the plan guard each adopted resource's live settings and secret names, and checks after a deploy that no secret went. The plan guard refuses creating a database or bucket, creating an API Worker that does not exist live, unbinding a Durable Object, and a release whose Worker lacks a required secret.
+  - `@musubi/infra`, `@zap/infra`: `read:live` reads what the stack's adopted resources hold live; zap gains `plan:production`, `deploy:production` and `plan:guard`.
+  - `@osn/api`, `@zap/api`: no hand-deploy script; production deploys only through the release workflow.
+
+## 0.8.0
+
+### Minor Changes
+
+- 630cf31: A production host can be held off its site's Worker in code. `PRODUCTION_HOST_HOLDS` in `shared/infra/src/production-sites.ts` lists each held host with its site and a one-line reason; the stacks declare a held site's Worker with no custom domain, and the plan guard refuses any plan in which a site Worker would serve a held host, whether it gains the host or holds it already. The guard now reads the host each product's declaration gives its site Workers (`PRODUCTION_SITE_DOMAINS`, passed as `declared` to `runPlanGuardCli`, which no longer takes `sites` or `modes`), refuses every host a Worker would give up, and lists the stack's held hosts in its run summary. With `--scheduled`, which the production release passes when its schedule started it, the guard refuses every host a Worker would gain (`addedHostRefusals`), so only a release dispatched by hand adds a host.
+
+  A site is `off` or `worker`: the `staged` mode goes with `PRODUCTION_STAGING_HOSTS`, `PAGES_PROJECTS`, `SiteModeError` and the spare-host allowance in `domainRefusals`. `cireProductionSites` and `musubiProductionSites` take `holds`, and `siteDomain` takes them as a third argument. `@musubi/social` drops its redirect off `osn-social.pages.dev`, which no host serving its bundle can reach, so its built CSP hashes one inline script.
+
+## 0.7.6
+
+### Patch Changes
+
+- 0821963: The secret inventory forbids `OSN_EMAIL_VERIFICATION_EMULATOR_URL` on osn-api on both tiers, as the production deploy's preflight does, and the musubi stack's read check names it and `OSN_EMAIL_VERIFICATION_API` as deliberately unset on dev, each with its reason.
+
+## 0.7.5
+
+### Patch Changes
+
+- 6c2f518: `CLOUDFLARE_PAGES_DNS_TOKEN` is retired: `RETIRED_CREDENTIALS` replaces `PAGES_DNS_CREDENTIALS`, the production Environment requires it no more, `forbiddenCredentials()` forbids it on both tiers, and `knownCredentials()` leaves it out, so no workflow may read it. The domain move rehearsal stack (`rehearsal/`, `rehearsal:deploy`, `rehearsal:destroy`) is removed with its tests.
+
+## 0.7.4
+
+### Patch Changes
+
+- 6c209aa: The plan guard reads neither `--flip` nor `--unflip`, and its record carries no `flip` or `unflip` key. A Worker giving up its production host, another site's host, or one the code does not name is refused in every release; the refusal says to take the host off in the Cloudflare dashboard first. `GuardInput` loses `flip`, `sites` and `domains`, `domainRefusals()` its `unflip` argument, `planRecord()` its `flip` and `unflip` fields, and `DomainReading` its `read` list, which only the flip rules read. `@musubi/infra`'s `plan:guard` usage comment follows.
+
+## 0.7.3
+
+### Patch Changes
+
+- ab6810e: Cire landing and musubi social serve from their Workers: `PRODUCTION_SITE_MODES.cire_landing` and `.osn_social` are `worker`, so the cire production stack declares the apex `cireweddings.com` on the `cire-landing` Worker and the musubi stack the apex `musubi.social` on the `osn-social` Worker, and the release workflow records each site with `record-cire-landing` and `record-osn-social` in place of its Pages job. No site is staged any more. Each domain moves in its own release, dispatched with `flip: cire_landing`, then `flip: osn_social`. Until a stack's flip has run, every release that ships that stack, the daily run included, fails its precheck, which stops every job of that release.
+
+## 0.7.2
+
+### Patch Changes
+
+- df9b5d9: Cire host serves from its Worker: `PRODUCTION_SITE_MODES.cire_host` is `worker`, so the cire production stack declares `host.cireweddings.com` on the `cire-host` Worker and the release workflow records the site with `record-cire-host` in place of its Pages job. The domain moves in a release dispatched with `flip: cire_host`. Until then every release whose surfaces name a cire site or are empty, the daily run included, ships the cire stack and fails its precheck, which stops every job of that release.
+
+## 0.7.1
+
+### Patch Changes
+
+- c687234: Every workspace that uses Effect runs `effect` 4.1.2, with `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
+  `@effect/vitest` at 4.1.2 and the root overrides for
+  `@effect/platform-node-shared` and `@effect/sql-d1` with them. The stacks run
+  `alchemy` and `@alchemy.run/cloudflare` 2.0.0-beta.85, which loads on Effect
+  4.1 unpatched; the provider's patch, carried to beta.85, keeps the D1 import
+  the stacks ran on beta.84 and the content types Wrangler uploads assets with.
+  beta.85 deploys state store version 8, which beta.84 cannot use, so a tier's
+  store cannot go back once it is upgraded.
+
+  The production plan guard reads beta.85's console lines
+  (`[hh:mm:ss.mmm] INFO: …`), and `messageOf()` reads no logfmt record.
+  `@shared/infra`'s tests hold the AWS SDK the provider installs,
+  `@distilled.cloud/aws`, to listing and aborting an R2 bucket's multipart
+  uploads, and run both under Bun. `RETIRED_STAGING_HOSTS` is gone from
+  `@shared/infra`, and `domainRefusals()` takes `(changes, unflip)`: a site's
+  Worker gives up only its current spare host without an `unflip` naming the
+  site.
+
+## 0.7.0
+
+### Minor Changes
+
+- aeab4d4: The production plan guard lets a flip release update the stack's other site Workers, as long as their custom domains are read and do not change. Every cire site build bakes the release commit, so those Workers update in nearly every release, and the old rule (the flip site's own update, every other line a noop) refused every cire flip.
+
+  In a flip release the guard now refuses: a flip site that does not update or whose Worker does not gain its production host; another site Worker updating while its custom domains were not read; any other site's custom-domain change, whatever its action; any other resource that is not a noop or a site Worker's update; and any binding change. `--flip` with `--unflip` is a usage error (exit 2). `DomainReading` gains `read`, the sites whose live hosts were read, and `GuardInput` gains `sites` and `domains`.
+
+### Patch Changes
+
+- d3b719a: Cire vendor serves from its Worker: `PRODUCTION_SITE_MODES.cire_vendor` is `worker`, so the cire production stack declares `vendor.cireweddings.com` on the `cire-vendor` Worker and the release workflow records the site with `record-cire-vendor` in place of its Pages job. The domain moves in a release dispatched with `flip: cire_vendor`. Until then every release whose surfaces name a cire site or are empty, the daily run included, ships the cire stack and fails its precheck, which stops every job of that release.
+
+## 0.6.9
+
+### Patch Changes
+
+- a28e017: A stack for the domain move rehearsal (`rehearsal/alchemy.run.ts`): one marker Worker at the `domain-move` stage of the dev account, on the spare host `next.domain-move.<DEV_DOMAIN>` or the moved host `domain-move.<DEV_DOMAIN>` as `REHEARSAL_MODE` says, run by the new `rehearsal:deploy` and `rehearsal:destroy` scripts. `rehearsal/names.ts` holds the rehearsal's hosts, Worker and per-run Pages project names, and refuses a production zone. The rehearsal makes every Cloudflare call with the dev deploy token, so no credential is added.
+
 ## 0.6.8
 
 ### Patch Changes

@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
@@ -7,6 +7,7 @@ import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
+import { followInApp, type InAppLink } from "../lib/link-click";
 import { deleteWedding } from "../lib/wedding-lifecycle";
 
 const DANGER_ZONE_CLASS = cardClass({ tone: "danger", fill: "none" });
@@ -26,6 +27,9 @@ export default function DeleteWeddingDialog(props: {
   slug: string;
   /** The delete went through; the wedding can be restored until `restoreUntil` (ISO). */
   onDeleted: (restoreUntil: string) => void;
+  /** Settings → Export, the whole wedding as one download, for a copy first.
+   *  Following it leaves the dialog, and the typed name with it. */
+  exportPage: InAppLink;
 }) {
   const { authFetch } = useAuth();
   const [open, setOpen] = createSignal(false);
@@ -99,8 +103,15 @@ export default function DeleteWeddingDialog(props: {
               was. After that it is deleted for good.
             </li>
             <li>
-              Want a copy? Download the guest list and gift log from the Guests and Registry tabs
-              first.
+              Want a copy?{" "}
+              <a
+                href={props.exportPage.href}
+                class={proseLinkClass()}
+                onClick={followInApp(props.exportPage)}
+              >
+                Download the whole wedding
+              </a>{" "}
+              first: guests, replies, gifts, pictures and the rest, in one file.
             </li>
             <li>
               A Stripe account you connected for cash gifts stays with Stripe, and keeps taking

@@ -3,13 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { formatPlanLines } from "alchemy/Cli/LoggingCli";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import { LoggingCli } from "alchemy/Cli/LoggingCli";
+import type { ResourceStatusChanged as ApplyEvent } from "alchemy/Events";
 import type { Plan } from "alchemy/Plan";
+import { Cli } from "alchemy/Report";
+import { prettyLine } from "alchemy/Util/ConsoleSink";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
 import { describe, expect, test } from "vitest";
 
 import {
+  addedHostRefusals,
+  type DeclaredDomains,
+  declaredDomains,
   domainRefusals,
   guardPlan,
+  holdRefusals,
   messageOf,
   parsePlan,
   planRecord,
@@ -19,16 +29,19 @@ import {
   runPlanGuardCli,
   type ResourceKind,
 } from "../src/plan-guard";
-import { PRODUCTION_SITE_MODES, type SiteMode, type SiteSurface } from "../src/production-sites";
+import type { AdoptedResources, LiveState } from "../src/production-live";
+import type { HostHold } from "../src/production-sites";
 
-const ESC = String.fromCharCode(27);
-
-/** Each line as Effect's pretty console logger prints it in CI, with colour. */
+/** Each line as Alchemy's console prints a record, with colour (alchemy src/Util/ConsoleSink.ts). */
 const pretty = (...lines: string[]) =>
   lines
-    .map(
-      (line, index) =>
-        `${ESC}[2m[20:17:0${index % 10}.123]${ESC}[0m INFO (#12): ${ESC}[36m${line}${ESC}[0m`,
+    .map((text, index) =>
+      prettyLine({
+        date: new Date(2026, 10, 6, 20, 17, index % 60, 123),
+        level: "Info",
+        text,
+        colors: true,
+      }),
     )
     .join("\n");
 
@@ -36,12 +49,13 @@ const KINDS: Readonly<Record<string, ResourceKind>> = {
   CireHost: "custom-domain",
   CireVendor: "custom-domain",
   CireApi: "worker",
+  CireInvites: "api-worker",
   CireDb: "d1",
   CireAssets: "r2",
   CireRoute: "route",
 };
 
-const refusals = (log: string, extra: { adoptions?: string[]; flip?: string } = {}) =>
+const refusals = (log: string, extra: { existing?: ReadonlySet<string> } = {}) =>
   guardPlan({ plan: parsePlan(log), kinds: KINDS, ...extra });
 
 describe("parsePlan", () => {
@@ -72,16 +86,13 @@ describe("parsePlan", () => {
     expect(guardPlan({ plan, kinds: KINDS })).toEqual([]);
   });
 
-  test("G10: a logfmt record, a namespaced resource, unbind, `no changes` and `no resources`", () => {
-    expect(
-      messageOf('timestamp=2026-10-27T20:17:00Z level=INFO fiber=#3 message="[CireHost] update"'),
-    ).toBe("[CireHost] update");
+  test("G10: a namespaced resource, unbind, `no changes` and `no resources`", () => {
     const namespaced = parsePlan(
-      [
-        'level=INFO message="Plan: 1 to update, 1 binding changes"',
-        'level=INFO message="[Sites/CireHost] update"',
-        'level=INFO message="[Sites/CireHost/ASSETS] unbind"',
-      ].join("\n"),
+      pretty(
+        "Plan: 1 to update, 1 binding changes",
+        "[Sites/CireHost] update",
+        "[Sites/CireHost/ASSETS] unbind",
+      ),
     );
     expect(namespaced.resources).toEqual([{ fqn: "Sites/CireHost", action: "update" }]);
     expect(namespaced.bindings).toEqual([{ fqn: "Sites/CireHost/ASSETS", action: "unbind" }]);
@@ -204,12 +215,120 @@ describe("parsePlan reads what Alchemy prints", () => {
     };
     return plan as unknown as Plan;
   }
-  /** The plan as the production plan step logs it: each line one record, nothing after. */
-  const printed = (plan: Plan) => pretty(...formatPlanLines(plan));
+  /**
+   * The plan as the production plan step logs it: the installed Alchemy's
+   * own CLI service displays it, as `deploy --dry-run` does (alchemy
+   * src/Cli/commands/deploy.ts), and its console lines are kept.
+   */
+  async function printed(plan: Plan): Promise<string> {
+    const lines: string[] = [];
+    const console = {
+      ...globalThis.console,
+      log: (...args: unknown[]) => void lines.push(args.map(String).join(" ")),
+    };
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const cli = yield* Cli;
+        yield* cli.displayPlan(plan, {});
+      }).pipe(
+        Effect.provide(LoggingCli),
+        Effect.provide(BunServices.layer),
+        Effect.provideService(Console.Console, console),
+      ),
+    );
+    return lines.join("\n");
+  }
+  /**
+   * The plan and its progress lines as a deploy that applies logs them, the
+   * log `plan-summary` reads on dev: the installed Alchemy's CLI service
+   * starts its apply session (alchemy src/Cli/LoggingCli.ts
+   * `startApplySession`), and each resource reports its statuses.
+   */
+  async function applied(
+    plan: Plan,
+    statuses: readonly (readonly [fqn: string, status: ApplyEvent["status"]])[],
+  ): Promise<string> {
+    const lines: string[] = [];
+    const console = {
+      ...globalThis.console,
+      log: (...args: unknown[]) => void lines.push(args.map(String).join(" ")),
+    };
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const cli = yield* Cli;
+        const session = yield* cli.startApplySession(plan, {});
+        for (const [fqn, status] of statuses) {
+          yield* session.emit({
+            type: "apply.resource.status",
+            fqn,
+            id: fqn,
+            resourceType: "Cloudflare.Worker",
+            status,
+            providerMode: "live",
+          });
+        }
+      }).pipe(
+        Effect.provide(LoggingCli),
+        Effect.provide(BunServices.layer),
+        Effect.provideService(Console.Console, console),
+      ),
+    );
+    return lines.join("\n");
+  }
 
-  test("G15: every resource action, binding action and note the installed Alchemy prints reads back as itself", () => {
+  test("G19: a deploy's progress lines after its plan, tagged as plan lines are, are not read as part of the plan", async () => {
+    const log = await applied(
+      planOf({
+        resources: [
+          { fqn: "CireHost", action: "update" },
+          { fqn: "CireVendor", action: "noop" },
+        ],
+      }),
+      [
+        ["CireHost", "updating"],
+        ["CireHost", "updated"],
+      ],
+    );
+    expect(log).toContain("[CireHost] updating");
+    const plan = parsePlan(log);
+    expect(plan).toMatchObject({ plan: "changes", counts: { update: 1 }, problems: [] });
+    expect(plan.resources).toEqual([
+      { fqn: "CireHost", action: "update" },
+      { fqn: "CireVendor", action: "noop" },
+    ]);
+    expect(planTextFaults(plan)).toEqual([]);
+  });
+
+  test("G16: Alchemy's console prefix, at each level and with colour or none, is removed and nothing else", () => {
+    for (const level of ["Trace", "Debug", "Info", "Warn", "Error", "Fatal"] as const) {
+      for (const colors of [true, false]) {
+        const line = prettyLine({ date: new Date(), level, text: "Plan: 1 to update", colors });
+        expect({ level, colors, message: messageOf(line) }).toEqual({
+          level,
+          colors,
+          message: "Plan: 1 to update",
+        });
+      }
+    }
+    // A record about one resource carries its tag, which a plan line never does.
+    expect(
+      messageOf(
+        prettyLine({
+          date: new Date(),
+          level: "Info",
+          text: "updating",
+          resource: "CireHost",
+          colors: false,
+        }),
+      ),
+    ).toBe("[CireHost] updating");
+    // A line in another shape keeps its text, so its Plan line is not read.
+    expect(parsePlan("INFO [20:17:00.123]: Plan: 1 to update\n").plan).toBe("missing");
+  });
+
+  test("G15: every resource action, binding action and note the installed Alchemy prints reads back as itself", async () => {
     const plan = parsePlan(
-      printed(
+      await printed(
         planOf({
           resources: [
             { fqn: "CireVendor", action: "create" },
@@ -266,13 +385,18 @@ describe("parsePlan reads what Alchemy prints", () => {
     ]);
     expect(planTextFaults(plan)).toEqual([]);
 
-    const quiet = parsePlan(printed(planOf({ resources: [{ fqn: "CireHost", action: "noop" }] })));
+    const quiet = parsePlan(
+      await printed(planOf({ resources: [{ fqn: "CireHost", action: "noop" }] })),
+    );
     expect(quiet).toMatchObject({ plan: "no-changes", counts: {}, problems: [] });
-    expect(parsePlan(printed(planOf({})))).toMatchObject({ plan: "no-resources", problems: [] });
+    expect(parsePlan(await printed(planOf({})))).toMatchObject({
+      plan: "no-resources",
+      problems: [],
+    });
 
     // What production never runs reads as a fault, not as a resource line.
     const refused = parsePlan(
-      printed(
+      await printed(
         planOf({
           resources: [
             { fqn: "CireHost", action: "update", mode: "local" },
@@ -326,7 +450,7 @@ describe("guardPlan refuses", () => {
   });
 
   test("G5: replacing, deleting or orphaning a protected kind; a plain Worker may be replaced", () => {
-    for (const fqn of ["CireHost", "CireDb", "CireAssets", "CireRoute"]) {
+    for (const fqn of ["CireHost", "CireInvites", "CireDb", "CireAssets", "CireRoute"]) {
       for (const action of ["replace", "delete", "orphaned"]) {
         const found = refusals(pretty(`Plan: 1 to ${action}`, `[${fqn}] ${action}`));
         expect({ fqn, action, refused: found.length }).toEqual({ fqn, action, refused: 1 });
@@ -338,10 +462,36 @@ describe("guardPlan refuses", () => {
     }
   });
 
-  test("G6: an adoption while PRODUCTION_ADOPTIONS is empty", () => {
-    const log = pretty("Plan: 1 to adopted", "[CireDb] adopted");
-    expect(refusals(log)).toEqual(["CireDb would be adopted, and PRODUCTION_ADOPTIONS is empty"]);
-    expect(refusals(log, { adoptions: ["cire-db"] })).toEqual([]);
+  test("GA1: an adoption of a site Worker or a plain Worker; an API Worker, a database or a bucket may be adopted", () => {
+    for (const fqn of ["CireInvites", "CireDb", "CireAssets"]) {
+      expect(refusals(pretty("Plan: 1 to adopted", `[${fqn}] adopted`))).toEqual([]);
+    }
+    expect(refusals(pretty("Plan: 1 to adopted", "[CireHost] adopted"))).toEqual([
+      "CireHost (custom-domain) would be adopted; production adopts none of its kind",
+    ]);
+    expect(refusals(pretty("Plan: 1 to adopted", "[CireApi] adopted"))).toEqual([
+      "CireApi (worker) would be adopted; production adopts none of its kind",
+    ]);
+  });
+
+  test("GA2: a database or a bucket created: no live one has its name", () => {
+    expect(refusals(pretty("Plan: 1 to create", "[CireDb] create"))).toEqual([
+      "CireDb (d1) would be created: production adopts its storage, and no live database has its name",
+    ]);
+    expect(refusals(pretty("Plan: 1 to create", "[CireAssets] create"))).toEqual([
+      "CireAssets (r2) would be created: production adopts its storage, and no live bucket has its name",
+    ]);
+  });
+
+  test("GA3: an API Worker created is refused unless the live read found it, which the deploy then adopts", () => {
+    const log = pretty("Plan: 1 to create", "[CireInvites] create");
+    expect(refusals(log)).toEqual([
+      "CireInvites (api-worker) would be created: production adopts its API Workers, and the live read found none of its name",
+    ]);
+    expect(refusals(log, { existing: new Set(["CireHost"]) })).toHaveLength(1);
+    expect(refusals(log, { existing: new Set(["CireInvites"]) })).toEqual([]);
+    // A site Worker may be created: a new site's first release.
+    expect(refusals(pretty("Plan: 1 to create", "[CireHost] create"))).toEqual([]);
   });
 
   test("G7: a task line", () => {
@@ -379,28 +529,6 @@ describe("guardPlan refuses", () => {
       "the plan lists 0 binding changes, and its Plan line counts 1",
     ]);
   });
-
-  test("G11: in a flip release, anything but the flip's own update with every other line a noop", () => {
-    const flip = "CireVendor";
-    const one = pretty("Plan: 1 to update", "[CireHost] noop", "[CireVendor] update");
-    expect(refusals(one, { flip })).toEqual([]);
-    expect(
-      refusals(pretty("Plan: no changes", "[CireHost] noop", "[CireVendor] noop"), { flip }),
-    ).toEqual(["a flip release must update CireVendor"]);
-    expect(
-      refusals(pretty("Plan: 2 to update", "[CireHost] update", "[CireVendor] update"), { flip }),
-    ).toEqual(["a flip release changes only CireVendor, and CireHost would update"]);
-    expect(
-      refusals(
-        pretty(
-          "Plan: 1 to update, 1 binding changes",
-          "[CireVendor] update",
-          "[CireVendor/X] create",
-        ),
-        { flip },
-      ),
-    ).toEqual(["a flip release changes no binding"]);
-  });
 });
 
 describe("the guard's record and summary", () => {
@@ -417,9 +545,7 @@ describe("the guard's record and summary", () => {
         { fqn: "CireVendor", kind: "custom-domain", action: "update" },
       ],
       bindings: [],
-      flip: null,
       domains: [],
-      unflip: null,
     });
     expect(record).not.toContain("INFO");
     expect(record).not.toContain("20:17");
@@ -434,36 +560,85 @@ describe("the guard's record and summary", () => {
     expect(summary).not.toContain("INFO");
   });
 
-  test("a stack's site kinds: every staged or worker site is a Worker holding a domain", () => {
+  test("a stack's site kinds: every worker site is a Worker holding a domain", () => {
     expect(
       productionSiteKinds(
         { cire_host: "CireHost", cire_vendor: "CireVendor", cire_landing: "CireLanding" },
         {
-          cire_host: "staged",
+          cire_host: "worker",
           cire_vendor: "worker",
           cire_landing: "off",
-          osn_social: "staged",
+          osn_social: "worker",
           musubi_landing: "worker",
           pulse_landing: "off",
         },
       ),
     ).toEqual({ CireHost: "custom-domain", CireVendor: "custom-domain" });
   });
+
+  test("the domains a stack's guard reads are the ones its declaration gives each site's Worker", () => {
+    expect(
+      declaredDomains(
+        { cire_host: "CireHost", cire_vendor: "CireVendor", cire_landing: "CireLanding" },
+        {
+          CireHost: { domain: "host.cireweddings.com" },
+          CireVendor: { domain: null },
+        },
+      ),
+    ).toEqual({ cire_host: "host.cireweddings.com", cire_vendor: null });
+  });
 });
+
+/** A hold on cire vendor's host, as an entry in PRODUCTION_HOST_HOLDS reads. */
+const VENDOR_HELD: readonly HostHold[] = [
+  {
+    site: "cire_vendor",
+    host: "vendor.cireweddings.com",
+    reason: "Serves nothing until the vendor export ships.",
+  },
+];
+
+/** What the guard says when a site Worker would serve a held host. */
+const holdRefusal = (site: string, host: string, reason: string) =>
+  `${site}'s Worker would serve ${host}, which PRODUCTION_HOST_HOLDS in shared/infra/src/production-sites.ts holds off every Worker (${reason}); a release serves it again only once a pull request removes its entry`;
+
+/** What the guard says when a Worker would give up a host. */
+const removalRefusal = (site: string, host: string) =>
+  `${site}'s Worker would give up ${host}; no release takes a production host off its Worker: remove it in the Cloudflare dashboard first`;
+
+/** What the guard says when a scheduled release would add a host. */
+const scheduledAddRefusal = (site: string, host: string) =>
+  `${site}'s Worker would gain ${host}, and a scheduled release adds no host: dispatch Production release by hand to add it`;
+
+/** What the guard says when a Worker would give up a held host. */
+const heldRemovalRefusal = (site: string, host: string) =>
+  `${site}'s Worker would give up ${host}, which PRODUCTION_HOST_HOLDS in shared/infra/src/production-sites.ts holds off; no release takes a production host off its Worker: remove it in the Cloudflare dashboard first`;
+
+/** A stack that adopts nothing, and the live read of it. */
+const NO_ADOPTIONS: AdoptedResources = { workers: {}, databases: {}, buckets: {} };
+const NOTHING_LIVE: LiveState = { workers: {}, databases: {}, buckets: {} };
 
 describe("runPlanGuardCli", () => {
   const dir = mkdtempSync(join(tmpdir(), "plan-guard-"));
   const domainsFile = join(dir, "domains.json");
-  /** The hosts each staged site's Worker holds while nothing moves: its spare host. */
-  const STAGED_LIVE = {
-    cire_host: ["next.host.cireweddings.com"],
-    cire_vendor: ["next.vendor.cireweddings.com"],
+  const liveFile = join(dir, "live.json");
+  writeFileSync(liveFile, JSON.stringify(NOTHING_LIVE));
+  /** The host each of the stack's two site Workers is declared with: its production host. */
+  const DECLARED: DeclaredDomains = {
+    cire_host: "host.cireweddings.com",
+    cire_vendor: "vendor.cireweddings.com",
+  };
+  /** The hosts each site Worker holds while nothing moves: its production host. */
+  const LIVE = {
+    cire_host: ["host.cireweddings.com"],
+    cire_vendor: ["vendor.cireweddings.com"],
   };
   const run = (
     argv: string[],
     log?: string,
-    live: unknown = STAGED_LIVE,
-    modes: Readonly<Record<SiteSurface, SiteMode>> = PRODUCTION_SITE_MODES,
+    live: unknown = LIVE,
+    declared: DeclaredDomains = DECLARED,
+    holds: readonly HostHold[] = [],
   ) => {
     if (log !== undefined) writeFileSync(join(dir, "plan.log"), log);
     writeFileSync(domainsFile, typeof live === "string" ? live : JSON.stringify(live));
@@ -471,11 +646,12 @@ describe("runPlanGuardCli", () => {
     const code = runPlanGuardCli({
       stack: "cire",
       kinds: KINDS,
-      sites: { cire_host: "CireHost", cire_vendor: "CireVendor" },
+      declared,
+      adopted: NO_ADOPTIONS,
       argv,
       env: {},
       out: (text) => out.push(text),
-      modes,
+      holds,
     });
     return { code, out: out.join("") };
   };
@@ -486,6 +662,8 @@ describe("runPlanGuardCli", () => {
     join(dir, "record.json"),
     "--domains",
     domainsFile,
+    "--live",
+    liveFile,
   ];
 
   test("G12: a re-plan that differs from the approved record is refused; an equal one passes", () => {
@@ -513,33 +691,40 @@ describe("runPlanGuardCli", () => {
     });
   });
 
-  test("G14: --flip naming a surface outside the stack, or missing arguments, exit 2", () => {
-    expect(run([...logArgs, "--flip", "osn_social"], pretty("Plan: no changes")).code).toBe(2);
+  test("G14: missing arguments exit 2", () => {
     expect(run(["--log", join(dir, "plan.log")]).code).toBe(2);
-    const flipped = run(
-      [...logArgs, "--flip", "cire_vendor"],
-      pretty("Plan: 1 to update", "[CireVendor] update"),
-    );
-    expect(flipped.code).toBe(0);
-    expect(JSON.parse(readFileSync(join(dir, "record.json"), "utf8")).flip).toBe("CireVendor");
+    // --live is required: every production stack adopts something.
+    expect(run(logArgs.slice(0, -2), pretty("Plan: no changes", "[CireHost] noop")).code).toBe(2);
+  });
+
+  test("GL0: an unreadable or malformed live file refuses", () => {
+    for (const content of ["not json", "[]", "{}"]) {
+      writeFileSync(liveFile, content);
+      const result = run(logArgs, pretty("Plan: no changes", "[CireHost] noop"));
+      expect({ content, code: result.code }).toEqual({ content, code: 1 });
+      expect(result.out).toContain("the live state of the adopted resources was not read");
+    }
+    writeFileSync(liveFile, JSON.stringify(NOTHING_LIVE));
   });
 
   const UPDATE = pretty("Plan: 1 to update", "[CireVendor] update", "[CireHost] noop");
   const record = () => JSON.parse(readFileSync(join(dir, "record.json"), "utf8")) as unknown;
-  const vendorWorker = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
 
   test("GD1: no --domains is a usage error; an unreadable, malformed or partial file refuses", () => {
     const bare = ["--log", join(dir, "plan.log"), "--out", join(dir, "record.json")];
     expect(run(bare, UPDATE).code).toBe(2);
     expect(run([...bare, "--domains"], UPDATE).code).toBe(2);
-    const missing = run([...bare, "--domains", join(dir, "nowhere.json")], UPDATE);
+    const missing = run(
+      [...bare, "--domains", join(dir, "nowhere.json"), "--live", liveFile],
+      UPDATE,
+    );
     expect(missing.code).toBe(1);
     expect(missing.out).toContain("the hosts cire_host's Worker holds now were not read");
     for (const live of [
       "not json",
       "[]",
-      { ...STAGED_LIVE, cire_host: "next.host.cireweddings.com" },
-      { ...STAGED_LIVE, cire_host: [1] },
+      { ...LIVE, cire_host: "host.cireweddings.com" },
+      { ...LIVE, cire_host: [1] },
     ]) {
       const result = run(logArgs, UPDATE, live);
       expect({ live, code: result.code }).toEqual({ live, code: 1 });
@@ -548,81 +733,52 @@ describe("runPlanGuardCli", () => {
   });
 
   test("GD5: a site of the stack missing from the file refuses", () => {
-    const result = run(logArgs, UPDATE, { cire_host: STAGED_LIVE.cire_host });
+    const result = run(logArgs, UPDATE, { cire_host: LIVE.cire_host });
     expect(result.code).toBe(1);
     expect(result.out).toContain("the hosts cire_vendor's Worker holds now were not read");
   });
 
-  test("GD2: the record and the summary name each site's added and removed hosts, the same every run", () => {
-    // A flip of cire_vendor: its Worker gives up its spare host and takes its production host.
-    const flip = run([...logArgs, "--flip", "cire_vendor"], UPDATE, STAGED_LIVE, vendorWorker);
-    expect(flip.code).toBe(0);
+  test("GD2: the record and the summary name each site's added and removed hosts, the same every run; a host coming back is allowed", () => {
+    // A first attach, or a host back once its hold is removed: the Worker
+    // holds nothing and takes its production host.
+    const fresh = { ...LIVE, cire_vendor: [] };
+    const attached = run(logArgs, UPDATE, fresh);
+    expect(attached.code).toBe(0);
     const first = readFileSync(join(dir, "record.json"), "utf8");
-    expect(record()).toMatchObject({
-      flip: "CireVendor",
-      domains: [
-        {
-          site: "cire_vendor",
-          added: ["vendor.cireweddings.com"],
-          removed: ["next.vendor.cireweddings.com"],
-        },
-      ],
-      unflip: null,
-    });
-    expect(flip.out).toContain(
-      "| `cire_vendor` | `vendor.cireweddings.com` | `next.vendor.cireweddings.com` |",
+    expect(record()).toEqual(
+      expect.objectContaining({
+        domains: [{ surface: "cire_vendor", added: ["vendor.cireweddings.com"], removed: [] }],
+      }),
     );
-    run([...logArgs, "--flip", "cire_vendor"], UPDATE, STAGED_LIVE, vendorWorker);
+    expect(Object.keys(record() as object)).not.toContain("flip");
+    expect(Object.keys(record() as object)).not.toContain("unflip");
+    expect(attached.out).toContain("| `cire_vendor` | `vendor.cireweddings.com` | — |");
+    expect(attached.out).toContain("The guard allows this plan.");
+    run(logArgs, UPDATE, fresh);
     expect(readFileSync(join(dir, "record.json"), "utf8")).toBe(first);
-    // A first staged deploy: nothing to remove.
-    const fresh = run(logArgs, UPDATE, { cire_host: [], cire_vendor: [] });
-    expect(fresh.code).toBe(0);
-    expect(record()).toMatchObject({
-      domains: [
-        { site: "cire_host", added: ["next.host.cireweddings.com"], removed: [] },
-        { site: "cire_vendor", added: ["next.vendor.cireweddings.com"], removed: [] },
-      ],
-    });
     const quiet = run(logArgs, UPDATE);
-    expect(quiet.out).toContain("No site's custom domains change.");
+    expect(quiet.code).toBe(0);
+    expect(quiet.out).toContain("No Worker's custom domains change.");
+    expect(quiet.out).not.toContain("Held off");
   });
 
-  test("GD3: a Worker giving up its production host, or a host the code no longer names, refuses unless unflip names its site", () => {
-    // Set back from worker to staged: the Worker holds the production host.
-    const back = { cire_host: STAGED_LIVE.cire_host, cire_vendor: ["vendor.cireweddings.com"] };
-    const refused = run(logArgs, UPDATE, back);
+  test("GD3: a Worker giving up its production host, or a host the code no longer names, refuses in every release; an unknown flag lets nothing through", () => {
+    const declared = { ...DECLARED, cire_vendor: null };
+    const refused = run(logArgs, UPDATE, LIVE, declared);
     expect(refused.code).toBe(1);
-    expect(refused.out).toContain(
-      "cire_vendor's Worker would give up vendor.cireweddings.com; only a release dispatched with unflip: cire_vendor takes a production host off its Worker",
-    );
-    const unflipped = run([...logArgs, "--unflip", "cire_vendor"], UPDATE, back);
-    expect(unflipped.code).toBe(0);
-    expect(record()).toMatchObject({
-      domains: [
-        {
-          site: "cire_vendor",
-          added: ["next.vendor.cireweddings.com"],
-          removed: ["vendor.cireweddings.com"],
-        },
-      ],
-      unflip: "cire_vendor",
+    expect(refused.out).toContain(removalRefusal("cire_vendor", "vendor.cireweddings.com"));
+    const flagged = run([...logArgs, "--unflip", "cire_vendor"], UPDATE, LIVE, declared);
+    expect(flagged.code).toBe(1);
+    expect(flagged.out).toContain(removalRefusal("cire_vendor", "vendor.cireweddings.com"));
+    // Once the dashboard has taken the host off, the Worker gives up nothing.
+    expect(run(logArgs, UPDATE, { ...LIVE, cire_vendor: [] }, declared).code).toBe(0);
+    // A host the code no longer names refuses too.
+    const old = run(logArgs, UPDATE, {
+      ...LIVE,
+      cire_vendor: ["old.cireweddings.com", "vendor.cireweddings.com"],
     });
-    // unflip names one site: another site's production host still refuses.
-    const hostBack = { ...back, cire_host: ["host.cireweddings.com"] };
-    const other = run([...logArgs, "--unflip", "cire_vendor"], UPDATE, hostBack);
-    expect(other.code).toBe(1);
-    expect(other.out).toContain("cire_host's Worker would give up host.cireweddings.com");
-    // A worker site whose host the code changed: the old host refuses too.
-    const moved = run(
-      logArgs,
-      UPDATE,
-      { ...STAGED_LIVE, cire_vendor: ["old.cireweddings.com"] },
-      vendorWorker,
-    );
-    expect(moved.code).toBe(1);
-    expect(moved.out).toContain("cire_vendor's Worker would give up old.cireweddings.com");
-    // --unflip naming a site outside the stack is a usage error.
-    expect(run([...logArgs, "--unflip", "osn_social"], UPDATE).code).toBe(2);
+    expect(old.code).toBe(1);
+    expect(old.out).toContain(removalRefusal("cire_vendor", "old.cireweddings.com"));
   });
 
   test("GD4: a re-plan whose domain change differs from the approved one is refused", () => {
@@ -631,79 +787,122 @@ describe("runPlanGuardCli", () => {
     writeFileSync(approved, readFileSync(join(dir, "record.json")));
     expect(run([...logArgs, "--approved", approved], UPDATE).code).toBe(0);
     const changed = run([...logArgs, "--approved", approved], UPDATE, {
-      ...STAGED_LIVE,
+      ...LIVE,
       cire_host: [],
     });
     expect(changed.code).toBe(1);
     expect(changed.out).toContain("not the one approved");
   });
 
-  test("GD6: a Worker gives up its own site's retired spare host with no flip or unflip; another site's retired host refuses", () => {
-    const retiredLive = {
-      cire_host: ["next-host.cireweddings.com"],
-      cire_vendor: ["next-vendor.cireweddings.com"],
-    };
-    const swap = run(
-      logArgs,
-      pretty("Plan: 2 to update", "[CireHost] update", "[CireVendor] update"),
-      retiredLive,
+  test("H1: a plan whose site Worker would take a held host is refused, naming the host, the list, its file and the reason, and still writes its record", () => {
+    const result = run(logArgs, UPDATE, { ...LIVE, cire_vendor: [] }, DECLARED, VENDOR_HELD);
+    expect(result.code).toBe(1);
+    expect(result.out).toContain(
+      `::error::cire production plan refused: ${holdRefusal("cire_vendor", "vendor.cireweddings.com", "Serves nothing until the vendor export ships.")}`,
     );
-    expect(swap.out).not.toContain("::error::");
-    expect(swap.code).toBe(0);
     expect(record()).toMatchObject({
-      flip: null,
-      domains: [
-        {
-          site: "cire_host",
-          added: ["next.host.cireweddings.com"],
-          removed: ["next-host.cireweddings.com"],
-        },
-        {
-          site: "cire_vendor",
-          added: ["next.vendor.cireweddings.com"],
-          removed: ["next-vendor.cireweddings.com"],
-        },
-      ],
-      unflip: null,
+      domains: [{ surface: "cire_vendor", added: ["vendor.cireweddings.com"], removed: [] }],
     });
-    const crossed = run(logArgs, UPDATE, {
-      ...STAGED_LIVE,
-      cire_host: ["next-vendor.cireweddings.com"],
-    });
-    expect(crossed.code).toBe(1);
-    expect(crossed.out).toContain(
-      "cire_host's Worker would give up next-vendor.cireweddings.com; only a release dispatched with unflip: cire_host",
+  });
+
+  test("H1b: a held host its site Worker still serves and is declared with is refused, though nothing changes", () => {
+    const result = run(logArgs, UPDATE, LIVE, DECLARED, VENDOR_HELD);
+    expect(result.code).toBe(1);
+    expect(result.out).toContain(
+      holdRefusal(
+        "cire_vendor",
+        "vendor.cireweddings.com",
+        "Serves nothing until the vendor export ships.",
+      ),
     );
+    expect(result.out).toContain("No Worker's custom domains change.");
+  });
+
+  test("H3: a held site whose host is already off its Worker plans no change and passes; the summary names the held host and the list's file", () => {
+    const declared = { ...DECLARED, cire_vendor: null };
+    const result = run(logArgs, UPDATE, { ...LIVE, cire_vendor: [] }, declared, VENDOR_HELD);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("No Worker's custom domains change.");
+    expect(result.out).toContain(
+      "Held off their Workers by `PRODUCTION_HOST_HOLDS` (`shared/infra/src/production-sites.ts`):\n- `vendor.cireweddings.com` (`cire_vendor`): Serves nothing until the vendor export ships.",
+    );
+    expect(result.out).toContain("The guard allows this plan.");
+  });
+
+  test("H4: a held host still on its Worker refuses, sending it to the dashboard first", () => {
+    const declared = { ...DECLARED, cire_vendor: null };
+    const result = run(logArgs, UPDATE, LIVE, declared, VENDOR_HELD);
+    expect(result.code).toBe(1);
+    expect(result.out).toContain(heldRemovalRefusal("cire_vendor", "vendor.cireweddings.com"));
+  });
+
+  test("GS1: a scheduled release's plan that adds a host is refused, naming the host and sending it to a release dispatched by hand", () => {
+    const result = run([...logArgs, "--scheduled"], UPDATE, { ...LIVE, cire_vendor: [] });
+    expect(result.code).toBe(1);
+    expect(result.out).toContain(
+      `::error::cire production plan refused: ${scheduledAddRefusal("cire_vendor", "vendor.cireweddings.com")}`,
+    );
+    // Its record is still written, as for any refusal.
+    expect(record()).toMatchObject({
+      domains: [{ surface: "cire_vendor", added: ["vendor.cireweddings.com"], removed: [] }],
+    });
+  });
+
+  test("GS3: a scheduled release with no domain change passes", () => {
+    const result = run([...logArgs, "--scheduled"], UPDATE);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("No Worker's custom domains change.");
+  });
+});
+
+describe("addedHostRefusals", () => {
+  test("GS4: refuses each host each Worker would gain, and nothing a Worker gives up", () => {
+    expect(
+      addedHostRefusals([
+        { surface: "cire_host", added: ["host.cireweddings.com"], removed: [] },
+        { surface: "cire_landing", added: [], removed: ["old.cireweddings.com"] },
+      ]),
+    ).toEqual([scheduledAddRefusal("cire_host", "host.cireweddings.com")]);
+    expect(addedHostRefusals([])).toEqual([]);
+  });
+});
+
+describe("holdRefusals", () => {
+  test("H2: refuses each site Worker declared with a held host, whichever site holds it, and nothing else", () => {
+    expect(holdRefusals({ cire_host: "vendor.cireweddings.com" }, VENDOR_HELD)).toEqual([
+      holdRefusal(
+        "cire_host",
+        "vendor.cireweddings.com",
+        "Serves nothing until the vendor export ships.",
+      ),
+    ]);
+    expect(
+      holdRefusals(
+        { cire_host: "host.cireweddings.com", cire_vendor: null, cire_landing: "cireweddings.com" },
+        VENDOR_HELD,
+      ),
+    ).toEqual([]);
+    expect(holdRefusals({ cire_vendor: "vendor.cireweddings.com" }, [])).toEqual([]);
   });
 });
 
 describe("domainRefusals", () => {
-  test("GD7: a retired host that is a production host or a current spare host never leaves on its strength", () => {
-    const removed = [
-      "host.cireweddings.com",
-      "id.musubi.social",
-      "next.vendor.cireweddings.com",
-      "old.host.cireweddings.com",
-    ];
-    const refused = domainRefusals([{ site: "cire_host", added: [], removed }], undefined, {
-      cire_host: removed,
-    });
-    expect(refused).toEqual(
-      ["host.cireweddings.com", "id.musubi.social", "next.vendor.cireweddings.com"].map(
-        (host) =>
-          `cire_host's Worker would give up ${host}; only a release dispatched with unflip: cire_host takes a production host off its Worker`,
-      ),
+  test("GD8: a Worker giving up any host refuses: its production host, another site's, or one the code no longer names", () => {
+    const removed = ["cireweddings.com", "host.cireweddings.com", "old.cireweddings.com"];
+    expect(domainRefusals([{ surface: "cire_landing", added: [], removed }], [])).toEqual(
+      removed.map((host) => removalRefusal("cire_landing", host)),
     );
+    expect(
+      domainRefusals([{ surface: "cire_landing", added: ["cireweddings.com"], removed: [] }], []),
+    ).toEqual([]);
   });
 
-  test("GD8: with the shipped list, a site with no retired entry gives up its spare host freely and refuses any other host", () => {
+  test("H4: giving up a held host names the hold, and still refuses", () => {
     expect(
-      domainRefusals([{ site: "cire_landing", added: [], removed: ["next.cireweddings.com"] }]),
-    ).toEqual([]);
-    expect(
-      domainRefusals([{ site: "cire_landing", added: [], removed: ["old.cireweddings.com"] }]),
-    ).toEqual([
-      "cire_landing's Worker would give up old.cireweddings.com; only a release dispatched with unflip: cire_landing takes a production host off its Worker",
-    ]);
+      domainRefusals(
+        [{ surface: "cire_vendor", added: [], removed: ["vendor.cireweddings.com"] }],
+        VENDOR_HELD,
+      ),
+    ).toEqual([heldRemovalRefusal("cire_vendor", "vendor.cireweddings.com")]);
   });
 });

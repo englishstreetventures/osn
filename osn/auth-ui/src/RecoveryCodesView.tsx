@@ -1,15 +1,24 @@
-import type { RecoveryClient, StepUpClient, StepUpToken, TotpClient } from "@osn/client";
-import { Button } from "@shared/ui/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@shared/ui/ui/dialog";
-import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+  describeAuthError,
+  type RecoveryClient,
+  type RecoveryCodesStatus,
+  type StepUpClient,
+  type StepUpToken,
+  type TotpClient,
+} from "@osn/client";
+import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
+import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
+import { AuthHeader } from "./AuthHeader";
+import { LoadFailed } from "./LoadFailed";
+import { ownRead, writeEnd, type SettingsRead, type WriteEnd } from "./settings-read";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
+import { stepAction, ViewStep } from "./ViewParts";
 
 /**
  * Settings-panel surface for generating and displaying recovery codes
@@ -31,41 +40,49 @@ import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
  *   no codes at all. It carries counts only, never a code, so it needs no
  *   step-up — and gating it would be circular, since the answer is what tells
  *   the user whether starting a ceremony is worth it. A failed status read
- *   never blocks generation; it just leaves the count unknown.
+ *   never blocks generation: it says so in the count's place, with a Try
+ *   again, and leaves the count unknown.
  * - Regenerating invalidates any previous set server-side, so it asks for
  *   confirmation first — the easy footgun is rotating the set while the
  *   previous codes are still taped to a fridge somewhere.
+ * - The count may be one the host remembered, being read again behind it
+ *   (`read`). Generate is busy from the press until that read lands, and
+ *   chooses between the warning and the step-up from what it says. A new set
+ *   forgets the old count at once, so it is never shown again; the count is
+ *   read again behind the codes on screen.
  */
 
 export interface RecoveryCodesViewProps {
-  /** Recovery client, built via `createRecoveryClient({ issuerUrl })`. */
+  /** Recovery client, built via `createRecoveryClient({ issuerUrl, authFetch })`. */
   client: RecoveryClient;
-  /** Step-up client, built via `createStepUpClient({ issuerUrl })`. */
+  /** Step-up client, built via `createStepUpClient({ issuerUrl, authFetch })`. */
   stepUpClient: StepUpClient;
-  /** The caller's current access token — required to authenticate generate. */
-  accessToken: string;
   /**
    * Executes the browser-side WebAuthn assertion for the step-up ceremony.
    * Kept caller-side so the host picks the WebAuthn wrapper.
    */
   runPasskeyCeremony?: RunPasskeyCeremony;
   /**
-   * Force the step-up ceremony to use the passkey factor only, suppressing
-   * the OTP ("email me a code") option. Set this for accounts whose host has
-   * no deliverable transactional email, so the user is never offered a code
-   * that won't arrive.
-   */
-  /**
    * TOTP client. Supplied, the step-up dialog offers the authenticator-app
    * factor wherever the ceremony and the account allow it. Omitted, it does
    * not. See `StepUpDialog.totpClient`.
    */
   totpClient?: TotpClient;
+  /**
+   * The host cannot deliver mail: the step-up sheet offers no emailed link.
+   * See `StepUpDialog.passkeyOnly`. No host passes it today.
+   */
   passkeyOnly?: boolean;
   /** Fires once the user has acknowledged saving the codes. */
   onSaved?: () => void;
   /** Product name the downloaded file is named after — e.g. "Musubi". */
   productName: string;
+  /**
+   * The status, read by the host (Musubi's page cache), which may draw it
+   * from memory and read it again behind it. Read once, when the view mounts.
+   * Omitted, the view reads `client.getRecoveryCodesStatus()` itself.
+   */
+  read?: SettingsRead<RecoveryCodesStatus>;
 }
 
 /**
@@ -100,7 +117,8 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   const [acknowledged, setAcknowledged] = createSignal(false);
   const [pending, setPending] = createSignal(false);
   const [confirmRotate, setConfirmRotate] = createSignal(false);
-  const [reloadKey, setReloadKey] = createSignal(0);
+  // Generate pressed while the count is read again: busy until it lands.
+  const [checking, setChecking] = createSignal(false);
 
   // The freshly-shown codes are the ONLY copy the client ever holds, and the
   // previous set is already revoked server-side by the time they render — so
@@ -151,46 +169,48 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   });
 
   // Fails soft: a status read that errors leaves the count unknown rather than
-  // stranding the user on an error screen with no way to make codes.
-  const [status] = createResource(reloadKey, async () => {
-    try {
-      return await props.client.getRecoveryCodesStatus({ accessToken: props.accessToken });
-    } catch {
-      return null;
-    }
-  });
+  // stranding the user on an error screen with no way to make codes. The
+  // failure is never a count: it shows in the count's place, with Try again.
+  const status = props.read ?? ownRead(() => props.client.getRecoveryCodesStatus());
 
-  // Read `status.latest` rather than `status()` so the button label
-  // doesn't join the resource's Suspense boundary and blank the whole panel
-  // on every refetch.
+  const count = () => status.value() ?? null;
+  const readFailure = status.failure;
   const hasCodes = () => {
-    const s = status.latest;
+    const s = count();
     return s != null && s.total > 0;
   };
 
   // An unreadable status counts as "might have codes". Rotation is
   // destructive, so a failed count must not silently skip the warning.
   const mayHaveCodes = () => {
-    const s = status.latest;
+    const s = count();
     return s == null || s.total > 0;
   };
 
+  // The skeleton and the disabled "Checking…" stand for a count not yet
+  // known: before the first read lands, and after a new set until it is read
+  // again — the old set's count is never shown once it is gone. A read behind
+  // a count already shown leaves it on screen.
+  const firstLoad = () => status.state() === "pending";
+
   // Freezes the generate button while a ceremony is in flight, so a double
-  // click can't queue a second rotation behind the first — and until the first
-  // status read lands, since before that the panel can't tell a first set from
-  // a rotation and would warn a brand-new user about codes they don't have.
-  const locked = () => busy() || pending() || status.loading;
+  // click can't queue a second rotation behind the first — and while the
+  // count is unknown, since then the panel can't tell a first set from a
+  // rotation and would warn a brand-new user about codes they don't have.
+  const locked = () => busy() || pending() || checking() || firstLoad();
 
-  // The skeleton and the "Checking…" label are for the COLD read only.
-  // `status.loading` is also true on the refetch `acknowledge()` triggers, and
-  // gating on it would withdraw an already-known count from the screen for a
-  // round-trip — the same "don't blank a warm value" rule that put `hasCodes()`
-  // and `mayHaveCodes()` on `.latest`.
-  const firstLoad = () => status.loading && status.latest === undefined;
-
-  function requestGenerate() {
+  async function requestGenerate() {
     if (locked()) return;
     setError(null);
+    // The count on screen may be one remembered and being read again: wait
+    // for that read, busy from the press, and decide from what it says.
+    setChecking(true);
+    try {
+      await status.settled();
+    } finally {
+      setChecking(false);
+    }
+    if (locked()) return;
     // Rotation is destructive — the existing set is revoked the moment the new
     // one is minted. Gate it behind an explicit confirmation dialog. A brand-new
     // account (no codes to lose) skips straight to the ceremony.
@@ -210,17 +230,19 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
     setPending(false);
     setBusy(true);
     setError(null);
+    const finish: (end: WriteEnd<RecoveryCodesStatus>) => void = status.write();
     try {
       const res = await props.client.generateRecoveryCodes({
-        accessToken: props.accessToken,
         stepUpToken: token.token,
       });
       setCodes(res.codes);
       setAcknowledged(false);
-      // No status refetch here: the codes list has replaced the status line,
-      // and `acknowledge()` refetches once the user leaves it.
+      // The old set's count goes now, and the new one is read behind the
+      // codes on screen. The codes themselves never reach the read.
+      finish("unknown");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to generate recovery codes");
+      finish(writeEnd(e));
+      setError(describeAuthError(e));
     } finally {
       setBusy(false);
     }
@@ -251,7 +273,6 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   function acknowledge() {
     setAcknowledged(true);
     setCodes(null);
-    setReloadKey((k) => k + 1);
     props.onSaved?.();
   }
 
@@ -261,7 +282,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
         when={codes() !== null}
         fallback={
           <div class="flex flex-col gap-3">
-            <p class="text-muted-foreground text-sm">
+            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
               Recovery codes let you sign in if you lose every device with your passkey. Each code
               works once. Generating a new set invalidates any previous codes.
             </p>
@@ -270,66 +291,81 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
                 panel would otherwise show a blank gap above a disabled
                 button — indistinguishable from a broken one. Reserve the
                 line's height so nothing shifts when the count lands. */}
-            <Show
-              when={!firstLoad()}
-              fallback={
-                <div
-                  class="bg-muted/50 h-5 w-56 animate-pulse rounded"
-                  aria-hidden="true"
-                  data-testid="recovery-status-skeleton"
-                />
-              }
-            >
+            <div aria-busy={firstLoad() || undefined}>
               <Show
-                when={status()}
-                fallback={
-                  <p class="text-muted-foreground text-sm">
-                    Couldn't check whether you have recovery codes.
-                  </p>
-                }
+                when={!firstLoad()}
+                fallback={<Skeleton standsFor="line" width={56} height={5} />}
               >
-                {(s) => (
-                  <Show
-                    when={s().total > 0}
-                    fallback={
-                      <p class="text-destructive text-sm">
-                        You don't have any recovery codes yet. Without them, losing every device
-                        with your passkey locks you out.
+                <Show when={readFailure()}>
+                  {(failure) => (
+                    <LoadFailed
+                      lead="Your recovery codes didn't load."
+                      error={failure().error}
+                      onRetry={status.retry}
+                    />
+                  )}
+                </Show>
+                {/* The count, kept on screen while it is read again behind it. */}
+                <Show when={count()}>
+                  {(s) => (
+                    <Show
+                      when={s().total > 0}
+                      fallback={
+                        <Notice tone="warn" size="sm">
+                          You don&apos;t have any recovery codes yet. Without them, losing every
+                          device with your passkey locks you out.
+                        </Notice>
+                      }
+                    >
+                      <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+                        {s().active} of {s().total} codes unused
+                        <Show when={s().generatedAt}>
+                          {(ts) => <> · created {formatDate(ts())}</>}
+                        </Show>
                       </p>
-                    }
-                  >
-                    <p class="text-muted-foreground text-sm">
-                      {s().active} of {s().total} codes unused
-                      <Show when={s().generatedAt}>
-                        {(ts) => <> · created {formatDate(ts())}</>}
-                      </Show>
-                    </p>
-                  </Show>
-                )}
+                    </Show>
+                  )}
+                </Show>
               </Show>
+            </div>
+            <Show when={error()}>
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
+                </Notice>
+              )}
             </Show>
-            <Button onClick={requestGenerate} disabled={locked()}>
+            {/* Busy only for a wait this button started — its generate, or
+                the read again it waits on; a count not yet known and an open
+                step-up hold it disabled. */}
+            <Button
+              onClick={requestGenerate}
+              busy={busy() || checking()}
+              disabled={!busy() && !checking() && (pending() || firstLoad())}
+            >
               {busy()
                 ? "Generating…"
                 : // Same reason as the skeleton: say why the button is
                   // disabled instead of leaving it looking dead.
-                  firstLoad()
+                  checking() || firstLoad()
                   ? "Checking…"
                   : hasCodes()
                     ? "Generate new codes"
                     : "Generate recovery codes"}
             </Button>
-            <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
           </div>
         }
       >
         <div class="flex flex-col gap-3">
-          <p class="text-muted-foreground text-sm">
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
             Save these codes somewhere safe. You will not see them again.
           </p>
-          <ul class="bg-muted/40 grid grid-cols-2 gap-2 rounded-md border p-3 font-mono text-sm">
-            <For each={codes()!}>{(c) => <li>{c}</li>}</For>
-          </ul>
+          {/* The codes are already the person's, held here to copy: a well. */}
+          <Card variant="muted" radius="md" padding="sm">
+            <ul class="font-ui-mono text-ui-sm text-ui-ink grid grid-cols-2 gap-2">
+              <For each={codes()!}>{(c) => <li>{c}</li>}</For>
+            </ul>
+          </Card>
           <div class="flex flex-wrap gap-2">
             <Button variant="outline" onClick={copyToClipboard}>
               Copy
@@ -338,51 +374,51 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
               Download .txt
             </Button>
           </div>
-          <label class="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={acknowledged()}
-              onChange={(e) => setAcknowledged(e.currentTarget.checked)}
-            />
-            I've saved these codes somewhere safe.
-          </label>
+          <Checkbox
+            size="sm"
+            touch
+            checked={acknowledged()}
+            onChange={setAcknowledged}
+            label="I've saved these codes somewhere safe."
+          />
           <Button onClick={acknowledge} disabled={!acknowledged()}>
             Done
           </Button>
         </div>
       </Show>
       <Dialog open={confirmRotate()} onOpenChange={setConfirmRotate}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Generate a new set?</DialogTitle>
-          </DialogHeader>
-          <div class="flex flex-col gap-2 p-4">
-            <p class="text-muted-foreground text-sm">
-              Your existing recovery codes stop working immediately — any copy you've saved
-              elsewhere becomes useless.
-            </p>
-            <p class="text-muted-foreground text-sm">
-              You'll be asked to confirm with your passkey before the new codes are generated.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setConfirmRotate(false)}>
-              Cancel
-            </Button>
-            <Button onClick={confirmRotation}>Generate new set</Button>
-          </DialogFooter>
+        <DialogContent presentation="sheet" class="md:max-w-sm">
+          <AuthHeader host="dialog" title="Generate a new set?" />
+          <ViewStep
+            host="dialog"
+            onCancel={() => setConfirmRotate(false)}
+            action={
+              <Button {...stepAction("dialog")} onClick={confirmRotation}>
+                Generate new set
+              </Button>
+            }
+          >
+            <div class="flex flex-col gap-2">
+              <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+                Your existing recovery codes stop working immediately — any copy you've saved
+                elsewhere becomes useless.
+              </p>
+              <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+                You'll be asked to confirm with your passkey before the new codes are generated.
+              </p>
+            </div>
+          </ViewStep>
         </DialogContent>
       </Dialog>
       <Show when={pending()}>
         <StepUpDialog
           client={props.stepUpClient}
-          accessToken={props.accessToken}
           onToken={handleStepUp}
           onCancel={cancelStepUp}
           runPasskeyCeremony={props.runPasskeyCeremony}
           passkeyOnly={props.passkeyOnly}
           totpClient={props.totpClient}
-          reason="to generate recovery codes"
+          reason="To generate recovery codes, confirm it's you."
           purpose="recovery_generate"
         />
       </Show>

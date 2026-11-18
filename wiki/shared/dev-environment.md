@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-17
 ---
 
 # Dev environment (cire + OSN identity)
@@ -18,13 +18,13 @@ last-reviewed: 2026-11-05
 `cireweddings.com` serves live weddings, so nothing reaches production per merge.
 Every merge deploys a **dev tier** automatically, and production waits for a
 **release**: a separate workflow, run once a day and by hand, that ships whatever
-production is behind on after one approval.
+production is behind on after two approvals.
 
 ```
 deploy.yml (every push)                              production-release.yml (daily, or by hand)
 
-changes ──┐                                          plan ──> build ──> deploy-<surface>
-          ├──> stack-<stack>-dev ──> deploy-<surface>-dev           waits for one approval
+changes ──┐                                          plan ──> build, sites ──> alchemy-plan ──> stack-<stack>-production ──> record-<surface>
+          ├──> stack-<stack>-dev ──> deploy-<surface>-dev                  approval 1         approval 2, Alchemy
 build ────┘        Alchemy, automatic     record jobs
 ```
 
@@ -63,9 +63,7 @@ its value. Each run's summary prints every host under **Dev hosts**.
 | Pulse marketing | `pulse.<D>` | `pulse-landing-dev` (pulse) | none |
 
 Every dev surface is a Worker; the sites serve from Workers static assets, not
-Pages ([[infrastructure-as-code#Sites]]). On production the organiser, vendor, cire
-marketing and musubi social hosts are still Pages projects, each with a staged Worker
-on a spare host until its domain moves, and musubi marketing is a Worker
+Pages ([[infrastructure-as-code#Sites]]). On production every site is a Worker too
 ([[infrastructure-as-code#Production sites]]).
 
 Backing resources, all in the dev account:
@@ -120,7 +118,35 @@ enrol once on the dev musubi social host and that key does nothing on
 - **No Cloudflare Access on the API hosts.** See §5.
 
 `cire/infra/tests/reads.test.ts` lists every name cire-api reads that dev leaves
-unset, each with its reason.
+unset, each with its reason; `musubi/infra/tests/reads.test.ts` does the same for
+osn-api.
+
+### What dev turns on that production does not
+
+- **Passkey-less sign-in.** `DEV_LOGIN_SECRET` and `DEV_LOGIN_RETURN_ORIGINS`
+  mount `GET /dev/login` on `osn-api-dev`; production refuses it
+  ([[#Passkey-less sign-in on local and dev]]).
+- **Sign-up's browser Email Verification API.** `OSN_EMAIL_VERIFICATION_API` is
+  `true` on `osn-api-dev`, set on stage `dev` only in `musubiDeclaration`
+  (`musubi/infra/src/declaration.ts`); investigation stages leave it unset, and
+  production sets it too. A Chrome signed in to Gmail can prove its address at sign-up with no
+  email; the owner's steps are in [[email-verification-api#Testing on the dev tier]].
+- **Chrome origin-trial tokens for the dev zone.** Each trial that has a
+  production token has a second one registered for the dev host itself
+  (`musubi.<DEV_DOMAIN>`), with its subdomains. Every tier serves both, and Chrome accepts the dev one only on a
+  dev host: `EmailVerificationProtocol` on musubi social
+  ([[email-verification-api#Our origin trial]]), `HTMLInCanvas` on the guest site
+  and `WebMCP` on the organiser portal ([[cire-development#Chrome origin trials]]).
+
+### Where an account deletion reaches on dev
+
+The musubi stack gives `osn-api-dev` zap-api-dev's and cire-api-dev's origins
+(`ZAP_API_URL`, `CIRE_API_URL`) and declares Pulse absent
+(`OSN_DELETION_ABSENT_APPS = "pulse"`): a dev deletion asks Zap and cire for
+their previews and, after the window, erases there, and skips Pulse, which has
+no dev API. `CIRE_API_URL` is also where osn-api-dev ends cire organiser
+sessions; cire-api-dev needs no new secret for the deletion's calls. `OSN_DELETION_FANOUT_MAX_JOBS` is unset, so each cron run reaches
+at most 4 jobs ([[account-deletion#The app contract]]).
 
 ---
 
@@ -131,7 +157,11 @@ unset, each with its reason.
 
 1. **`changes`** — one boolean per dev surface and one per stack, from
    [`scripts/deploy-surfaces.ts`](../../scripts/deploy-surfaces.ts) run against
-   `git diff --name-only "$BEFORE_SHA" HEAD`. A landing-page tweak deploys one
+   `git diff --name-only -z --no-renames "$BEFORE_SHA" HEAD`, which gives each
+   file's name as written, as the production planner reads it; the step's log
+   lists each name after `- `, with each control character written as an escape,
+   so no name can start a line the runner reads as a workflow command. A
+   landing-page tweak deploys one
    stack. A dispatch, and a diff that fails to compute (first push,
    force-push), deploy everything. Any change under `shared/` or `patches/`,
    to `bun.lock`, root `package.json`/`turbo.json`/`tsconfig.json`,
@@ -289,19 +319,19 @@ Permissions the dev deploy token holds, one line per thing the stack jobs call:
 | Account | `Account Settings: Read` | the account lookup on every call |
 | Zone (the dev zone) | `Zone: Read`, `DNS: Edit`, `Workers Routes: Edit` | each Worker's custom domain |
 
-Every production CI token — `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_PAGES_DNS_TOKEN`
-and `CLOUDFLARE_API_TOKEN_READONLY` — is an account API token, made under
+Every production CI token — `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_API_TOKEN_READONLY` — is an account API token, made under
 **Manage Account → Account API Tokens** on the production account, never under
 **My Profile**: it outlives any one person's membership and reaches only its own
 account, which `token:check` requires. An account API token answers
-`GET /accounts` with its one account, so `token:check` and `scripts/pages-domain.ts`'s
-reach check accept it unchanged.
+`GET /accounts` with its one account, so `token:check` accepts it unchanged.
 
 *Measured 2026-10-28 — `curl -H "Authorization: Bearer $T" https://api.cloudflare.com/client/v4/accounts` with an account API token: `success: true`, one result, `total_count` 1; `/accounts/<id>/tokens/verify` `active`. The `production` Environment's `CLOUDFLARE_API_TOKEN`, as an account API token, then passed `token:check` (Alchemy state store, run 40641704428) and deployed cire landing with Wrangler (Production release, run 40644019262).*
 
 The read-only token, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY`, holds
 `Account Settings: Read`, `D1: Read` and `Account Analytics: Read` on the dev
 account, for the free-tier alert's dev job ([[free-tier-limits]]).
+
 
 Repository scope holds no credential that can write to Cloudflare. It keeps
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN_READONLY`, the production
@@ -319,8 +349,8 @@ Before adding a workflow that touches Cloudflare, check what scope it resolves
 at: `grep -l CLOUDFLARE .github/workflows/*.yml`, then read each hit for an
 `environment:` line. `shared/infra/tests/accounts.test.ts` fails when a workflow
 reads a credential nobody classified, or when any workflow but
-`alchemy-state.yml`, `deploy.yml` and `free-tier-ceiling-alert.yml` reads a dev
-account credential. A workflow that declares no Environment and needs to write
+`alchemy-state.yml`, `deploy.yml` and `free-tier-ceiling-alert.yml` reads a
+dev account credential. A workflow that declares no Environment and needs to write
 has no credential to read — that is the design.
 
 ### The dev data is not reset
@@ -356,11 +386,14 @@ schema. Each new migration then runs against real D1 on the merge that adds it,
 which catches DDL `bun:sqlite` accepts and D1 rejects at the migration that
 introduces it.
 
-> [!warning] A half-applied migration has no scripted recovery yet
-> Alchemy applies migrations over D1's HTTP API, which has no transactions. A
-> migration that fails part-way leaves its earlier statements applied and
-> itself unrecorded, and every later deploy of that stack fails on it. Fix
-> forward with a new migration that brings the database level.
+> [!warning] A failed migration has no scripted recovery yet
+> Alchemy sends each migration with its ledger row as one query over D1's HTTP
+> API. Cloudflare documents that a migration that fails that way is rolled back,
+> and on local D1 it is (`shared/infra/tests/d1/ledger-conversion.test.ts`);
+> on a deployed database that is unverified, and a migration that failed
+> part-way would leave its earlier statements applied and itself unrecorded.
+> Either way every later deploy of that stack fails on it. Fix forward with a
+> new migration that brings the database level.
 > englishstreetventures/osn#1554 tracks a tested procedure.
 
 ### Re-setting the sample wedding's owner
@@ -416,7 +449,9 @@ again. The full procedure and the dispatch inputs are in [[production-deploy]] �
 **A surface reaches production only after dev deployed the same content.** The
 release planner reads dev's Deployment records: a changed surface with no recent
 successful dev record built from the same content is held back until dev has it.
-A record exists only when the surface's smoke check passed. Dev redeploys a
+A release's version bump is not content, so dev's deploy of a merge counts for the
+`chore: version packages` commits after it ([[production-deploy]] §5.0 item 2). A
+record exists only when the surface's smoke check passed. Dev redeploys a
 stack only on a push that touches it, so after a failed dev deploy, dispatch
 **Deploy**. Musubi landing and pulse landing have no production surface in the
 release; zap-api's production release waits for its dev deploy like every other
@@ -445,14 +480,17 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    Images enabled.
 2. **The `dev` Environment's variables.** `DEV_DOMAIN`: the zone, bare, no
    scheme. `PUBLIC_TURNSTILE_SITEKEY` and `PUBLIC_GOOGLE_MAPS_EMBED_KEY` stay as
-   they are. Leave `CIRE_DEV_OWNER_PROFILE_ID` unset until step 8.
+   they are. Leave `CIRE_DEV_OWNER_PROFILE_ID` unset until step 8. A new zone
+   also needs new dev origin-trial tokens: each is registered for its dev host, and
+   Chrome ignores it on any other, with no error
+   ([[#What dev turns on that production does not]]).
 3. **Credentials.** `CLOUDFLARE_DEV_ACCOUNT_ID`;
    `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` (the permissions in §2); and
    `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` (`Account Settings: Read`,
    `D1: Read`, `Account Analytics: Read`).
 4. **Worker secrets**, new values made for the dev account, never production's:
    - osn-api: `DEV_LOGIN_SECRET` (at least 32 characters), `INTERNAL_SERVICE_SECRET`
-     (zap-api reads the same one), `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`,
+     (at least 32 characters; zap-api reads the same one), `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`,
      `OSN_PAIRWISE_SALT`, `OSN_SESSION_IP_PEPPER`, `OSN_TOTP_ENCRYPTION_KEY`,
      `RESEND_API_KEY`.
    - cire-api: `CIRE_API_ARC_KEY_ID` (a UUID), `CIRE_API_ARC_PRIVATE_KEY` (a
@@ -477,9 +515,10 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
      Zero Trust organisation; another account's token passes the name check
      and fails every browser host's smoke check.
 
-   The cire and musubi stacks refuse to deploy while a value breaks its dev
-   rule: a `STRIPE_SECRET_KEY` that is not a test-mode key, or a
-   `DEV_LOGIN_SECRET` or `CIRE_INTERNAL_REVOKE_SECRET` shorter than 32 characters
+   The cire, musubi and zap stacks refuse to deploy while a value breaks its
+   dev rule: a `STRIPE_SECRET_KEY` that is not a test-mode key, or a
+   `DEV_LOGIN_SECRET`, `CIRE_INTERNAL_REVOKE_SECRET` or `INTERNAL_SERVICE_SECRET`
+   shorter than 32 characters
    ([[infrastructure-as-code#GitHub Environment secrets]]).
 
    `secrets:check-github -- --tier dev` lists any missing Worker secret,
@@ -766,8 +805,8 @@ so the page the secret is typed on never reaches the target as a `Referer`.
 > an issue, a PR, or a chat, and rotate `DEV_LOGIN_SECRET` if it turns up in one.
 > Production is unreachable this way — the tier gate keeps
 > the route unmounted, the inventory forbids the secret on production, and the
-> production deploy job **fails** while `DEV_LOGIN_SECRET` is set on
-> `osn-api-production`.
+> production release's plan guard **refuses** to deploy osn-api while
+> `DEV_LOGIN_SECRET` is set on `osn-api-production`.
 
 > [!important] Why `GET`, and why no button
 > The origin guard rejects a POST without a matching `Origin` header, so GET is
@@ -823,11 +862,12 @@ the checks already ask.
    enrol a passkey, sign out, sign back in. Proves ceremony state on the
    coordination store survives across requests, and that sign-up mail is delivered. The dev
    database starts empty, so an account, passkey or authenticator app from an
-   earlier dev tier is not there: sign up again. When "Verification code sent"
-   shows and no code arrives, search `osn-api-dev`'s Workers Logs for
+   earlier dev tier is not there: sign up again. Sign-up mails a link; open it
+   on any device and pick the number the waiting screen shows. When "Check your
+   email" shows and no link arrives, search `osn-api-dev`'s Workers Logs for
    `email.dispatch_failed`; its `status`, `resendError` and `resendDetail` say
-   why Resend refused ([[email#Observability]]). A refused send leaves nothing
-   pending, so "Resend code" sends a new one once the cause is fixed.
+   why Resend refused ([[email#Observability]]). A refused send leaves the
+   sign-up live, so "Resend link" sends another once the cause is fixed.
 4. Sign in on `https://host.cire.<D>` through the OIDC redirect. Proves the
    seeded `oauth_clients` row, the pairwise salt and the redirect URI agree. A
    consent row in `osn-db-dev` with no `organiser_sessions` row in `cire-db-dev`
@@ -896,15 +936,16 @@ production, and nothing here should ever grow one.
 ## 8. Known gaps
 
 - **The Pulse app has no dev tier.** `pulse-api` has no deploy job and no stack;
-  only pulse landing deploys to dev, built without `PUBLIC_APP_URL`.
+  only pulse landing deploys to dev, built without `PUBLIC_APP_URL`, and an
+  account deletion skips Pulse there.
 - **No staging.** `osn-db-staging` exists and stays unused; the dev tier is the
   single pre-production step by design.
 - **cire and musubi dev hosts are same-site.** Both live under one dev zone,
   while in production they are cross-site, so a defect that depends on them
   being cross-site does not show on dev.
 - **Unknown paths on the dev marketing sites answer 404.** cire landing, musubi
-  landing and pulse landing serve no `index.html` for an unknown path where
-  Pages did; musubi social and the cire organiser and vendor portals have a
+  landing and pulse landing serve no `index.html` for an unknown path, as the
+  production cire landing Worker does too; musubi social and the cire organiser and vendor portals have a
   single-page fallback ([[infrastructure-as-code#Sites]]).
 - **A rollback restores code only.** No rollback undoes a D1 migration
   ([[production-deploy]] §4), and a half-applied migration has no scripted

@@ -1,5 +1,5 @@
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { clearJwksCache } from "../src/jwks-cache";
 import { verifyIdToken } from "../src/verify-id-token";
@@ -168,5 +168,73 @@ describe("verifyIdToken", () => {
     });
 
     expect(claims?.osnProfileId).toBe("usr_alice");
+  });
+
+  // The JWKS path after a failed verify: only a signature mismatch earns one
+  // refetch, and the refetched key must verify the token or it is refused.
+  describe("through the JWKS path when a verify fails", () => {
+    const jwksOpts = { issuer: ISSUER, audience: AUDIENCE, nonce: "n-1" };
+
+    let jwkA: Record<string, unknown>;
+    let jwkB: Record<string, unknown>;
+    let rotatedSignKey: CryptoKey;
+
+    /** The JWKS the stub serves now; a case swaps it to rotate keys. */
+    let served: Record<string, unknown>[];
+    let fetchCount: number;
+    let savedFetch: typeof fetch;
+
+    beforeAll(async () => {
+      jwkA = { ...(await exportJWK(verifyKey)), kid, alg: "ES256", use: "sig" };
+      const rotated = await generateKeyPair("ES256");
+      rotatedSignKey = rotated.privateKey;
+      jwkB = { ...(await exportJWK(rotated.publicKey)), kid, alg: "ES256", use: "sig" };
+    });
+
+    beforeEach(() => {
+      served = [jwkA];
+      fetchCount = 0;
+      savedFetch = globalThis.fetch;
+      globalThis.fetch = (async () => {
+        fetchCount++;
+        return new Response(JSON.stringify({ keys: served }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as unknown as typeof fetch;
+    });
+
+    afterEach(() => {
+      globalThis.fetch = savedFetch;
+    });
+
+    it("verifies a token signed by a rotated key under the same kid, with one refetch", async () => {
+      const primed = await verifyIdToken(await mint({ nonce: "n-1" }), JWKS_URL, jwksOpts);
+      expect(primed?.sub).toBe("pw_abc123");
+      expect(fetchCount).toBe(1);
+
+      served = [jwkB];
+      const token = await mint(
+        { nonce: "n-1", osn_profile_id: "usr_rotated" },
+        { key: rotatedSignKey },
+      );
+
+      const claims = await verifyIdToken(token, JWKS_URL, jwksOpts);
+
+      expect(claims?.osnProfileId).toBe("usr_rotated");
+      expect(fetchCount).toBe(2);
+    });
+
+    it("does not refetch the JWKS for an expired token", async () => {
+      const token = await mint({ nonce: "n-1" }, { expired: true });
+
+      expect(await verifyIdToken(token, JWKS_URL, jwksOpts)).toBeNull();
+      expect(fetchCount).toBe(1);
+    });
+
+    it("refuses a token signed by unknown material under a known kid after the refetch", async () => {
+      const token = await mint({ nonce: "n-1" }, { key: otherSignKey });
+
+      expect(await verifyIdToken(token, JWKS_URL, jwksOpts)).toBeNull();
+    });
   });
 });

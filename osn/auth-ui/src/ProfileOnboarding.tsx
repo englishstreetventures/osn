@@ -1,9 +1,10 @@
 import { useAuth } from "@osn/client/solid";
 import { Button } from "@shared/ui/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@shared/ui/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 import { createSignal, Show } from "solid-js";
 
+import { AuthHeader } from "./AuthHeader";
 import { CreateProfileForm } from "./CreateProfileForm";
 
 /**
@@ -46,7 +47,7 @@ export function ProfileOnboarding(props: ProfileOnboardingProps) {
           </div>
         </CardHeader>
         <CardContent>
-          <p class="text-muted-foreground mb-3 text-sm">
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary mb-3">
             Profiles let you separate personal and professional presence. Create a second profile to
             try it out.
           </p>
@@ -57,17 +58,14 @@ export function ProfileOnboarding(props: ProfileOnboardingProps) {
       </Card>
 
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create a new profile</DialogTitle>
-          </DialogHeader>
-          <div class="p-4">
-            <CreateProfileForm
-              checkHandle={props.checkHandle}
-              onSuccess={() => setShowCreate(false)}
-              onCancel={() => setShowCreate(false)}
-            />
-          </div>
+        <DialogContent presentation="sheet" class="md:max-w-sm">
+          <AuthHeader host="dialog" title="Create a new profile" />
+          {/* The form draws its own padded body and its footer. */}
+          <CreateProfileForm
+            checkHandle={props.checkHandle}
+            onSuccess={() => setShowCreate(false)}
+            onCancel={() => setShowCreate(false)}
+          />
         </DialogContent>
       </Dialog>
     </Show>

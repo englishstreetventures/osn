@@ -341,7 +341,7 @@ export function Dashboard() {
         <Section
           title="Spend against declared complexity"
           question="Where does genuine waste separate from a hard problem?"
-          note="Only confirmed ratings are charted. An unconfirmed rating is an agent's own guess about the difficulty of work it then did, and acting on it would make this circular."
+          note="Only confirmed ratings are charted. An unconfirmed rating was made by backfill or after the work began, with its cost in view, and acting on it would make this circular."
         >
           <Show
             when={rated.points.length > 0}

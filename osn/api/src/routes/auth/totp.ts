@@ -3,12 +3,13 @@
  *
  * The step-up ceremony that CONSUMES a TOTP code lives with the other step-up
  * routes in `./step-up.ts`; these four are the credential's own lifecycle. See
- * `[[wiki/osn/totp]]`.
+ * `[[wiki/osn/totp]]`. Only the status admits a session of an account whose
+ * deletion is pending.
  */
 
 import { Elysia, t } from "elysia";
 
-import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
+import { resolveAccessTokenPrincipal, resolveAccountWindowPrincipal } from "../../lib/auth-derive";
 import type { AuthRouteContext } from "./context";
 import { errorResponse } from "./response-schemas";
 
@@ -44,6 +45,18 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
             set.status = 401;
             return { error: "unauthorized" };
           }
+          // Before the step-up token is read: a begin spends it and replaces
+          // the account's pending secret.
+          const staleErr = await ctx.liveSessionGate(
+            "totp_enroll_begin",
+            profile.accountId,
+            claims,
+            headers.cookie,
+          );
+          if (staleErr) {
+            set.status = 409;
+            return staleErr;
+          }
           const headerToken = headers["x-step-up-token"];
           const stepUpToken = body?.step_up_token ?? headerToken;
           if (!stepUpToken) {
@@ -67,6 +80,8 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           400: errorResponse,
           401: errorResponse,
           403: errorResponse,
+          // `session_stale`: the access token's session has ended.
+          409: errorResponse,
           429: errorResponse,
           500: errorResponse,
         },
@@ -99,7 +114,18 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           }
           // No step-up gate here, deliberately: `begin` carried it, and the
           // pending secret this verifies against exists only because a gated
-          // `begin` created it.
+          // `begin` created it. The session must still be live: confirming
+          // the code adds a factor to the account.
+          const staleErr = await ctx.liveSessionGate(
+            "totp_enroll_complete",
+            profile.accountId,
+            claims,
+            headers.cookie,
+          );
+          if (staleErr) {
+            set.status = 409;
+            return staleErr;
+          }
           return await run(
             auth.completeTotpEnrollment(
               profile.accountId,
@@ -123,6 +149,8 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           200: t.Object({ enrolled: t.Boolean() }),
           400: errorResponse,
           401: errorResponse,
+          // `session_stale`: the access token's session has ended.
+          409: errorResponse,
           429: errorResponse,
           500: errorResponse,
         },
@@ -153,6 +181,18 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
             set.status = 401;
             return { error: "unauthorized" };
           }
+          // Before the step-up token is read: one minted while the session was live
+          // is not spent once it has ended.
+          const staleErr = await ctx.liveSessionGate(
+            "totp_disable",
+            profile.accountId,
+            claims,
+            headers.cookie,
+          );
+          if (staleErr) {
+            set.status = 409;
+            return staleErr;
+          }
           const headerToken = headers["x-step-up-token"];
           const stepUpToken = body?.step_up_token ?? headerToken;
           if (!stepUpToken) {
@@ -179,6 +219,8 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           400: errorResponse,
           401: errorResponse,
           403: errorResponse,
+          // `session_stale`: the access token's session has ended.
+          409: errorResponse,
           429: errorResponse,
           500: errorResponse,
         },
@@ -204,13 +246,21 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           return rlErr;
         }
         try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+          // The one TOTP route a session of an account whose deletion is
+          // pending reaches: the step-up sheet reads it before offering the
+          // authenticator for the export or the cancel. Such a token answers
+          // only while the deletion is pending.
+          const claims = await resolveAccountWindowPrincipal(auth, headers.authorization);
           if (!claims) {
             set.status = 401;
             return { error: "unauthorized" };
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
+          const profile = await run(
+            claims.pendingDeletion
+              ? auth.findProfileByIdIncludingTombstoned(claims.profileId)
+              : auth.findProfileById(claims.profileId),
+          );
+          if (!profile || (claims.pendingDeletion && (profile.accountDeletedAt ?? null) === null)) {
             set.status = 401;
             return { error: "unauthorized" };
           }

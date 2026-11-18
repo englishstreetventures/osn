@@ -132,6 +132,13 @@ export type ProfileWithEmail = Profile & {
   email: string;
   /** Unix seconds of the account's most recent recovery; null if never. */
   lastRecoveredAt: number | null;
+  /**
+   * Unix seconds at which the account was soft-deleted; null while it is
+   * live. Set by the finders that read the whole `accounts` row, so a caller
+   * that mints a session can choose its audience without reading the account
+   * again. Absent from `findProfileById`, which returns no deleted account.
+   */
+  accountDeletedAt?: number | null;
 };
 
 /**

@@ -235,20 +235,24 @@ describe("Field", () => {
     expect(getComputedStyle(alert.querySelector("p")!).color).toBe(paintToken("--ui-danger"));
   });
 
-  it("hides a label from the eye without hiding it from a reader", () => {
-    const { getByLabelText } = render(() => (
-      <Field label="Guest name" labelHidden>
-        {(field) => <Input {...field} />}
-      </Field>
-    ));
-    const input = getByLabelText("Guest name");
-    const label = document.querySelector(`label[for='${input.id}']`)!;
+  // `labelHidden` wins over either label treatment.
+  it.each(["caps", "plain"] as const)(
+    "hides a %s label from the eye without hiding it from a reader",
+    (treatment) => {
+      const { getByLabelText } = render(() => (
+        <Field label="Guest name" labelHidden labelTreatment={treatment}>
+          {(field) => <Input {...field} />}
+        </Field>
+      ));
+      const input = getByLabelText("Guest name");
+      const label = document.querySelector(`label[for='${input.id}']`)!;
 
-    // `sr-only` is a 1px clipped box, not `display: none` — the distinction is
-    // the whole point, and it is only visible to a browser.
-    expect(getComputedStyle(label).display).not.toBe("none");
-    expect(label.getBoundingClientRect().width).toBeLessThan(2);
-  });
+      // `sr-only` is a 1px clipped box, not `display: none` — the distinction is
+      // the whole point, and it is only visible to a browser.
+      expect(getComputedStyle(label).display).not.toBe("none");
+      expect(label.getBoundingClientRect().width).toBeLessThan(2);
+    },
+  );
 });
 
 describe("Fieldset", () => {

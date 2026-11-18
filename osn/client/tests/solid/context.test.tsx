@@ -1,0 +1,667 @@
+import { Effect } from "effect";
+import { createRoot } from "solid-js";
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  ActiveProfileResetError,
+  AuthExpiredError,
+  ProfileManagementError,
+  StorageError,
+} from "../../src/errors";
+import type { OsnAuthRuntime, SessionChange } from "../../src/runtime";
+import { OsnAuth, type OsnAuthService } from "../../src/service";
+import { AuthProvider, useAuth } from "../../src/solid/context";
+
+const DEFAULT = "usr_default00001";
+const OTHER = "usr_other0000001";
+
+/**
+ * F19, the provider half: an unmounted `AuthProvider` must stop listening, or
+ * a later session change would write into a disposed tree.
+ */
+it("F19: AuthProvider unsubscribes from the runtime when it unmounts", () => {
+  const listeners = new Set<(change: SessionChange) => void>();
+  const unsubscribe = vi.fn();
+  const runtime: OsnAuthRuntime = {
+    authFetch: vi.fn(),
+    run: vi.fn(() => new Promise<never>(() => {})),
+    onSessionChange: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+        unsubscribe();
+      };
+    },
+  };
+
+  createRoot((dispose) => {
+    AuthProvider({ auth: runtime, children: null });
+    expect(listeners.size).toBe(1);
+    dispose();
+  });
+
+  expect(unsubscribe).toHaveBeenCalledTimes(1);
+  expect(listeners.size).toBe(0);
+});
+
+/**
+ * A runtime whose service answers from memory and records each operation the
+ * provider runs, so a test can see what a session change made it send.
+ */
+function fakeRuntime() {
+  const listeners = new Set<(change: SessionChange) => void>();
+  const ran: string[] = [];
+  let active = OTHER;
+  let loads = 0;
+  const service = {
+    loadSession: () =>
+      Effect.sync(() => {
+        ran.push("loadSession");
+        loads += 1;
+        return {
+          accessToken: `token-${loads}`,
+          idToken: null,
+          expiresAt: Date.now() + 60_000,
+          scopes: [],
+        };
+      }),
+    listProfiles: () =>
+      Effect.sync(() => {
+        ran.push("listProfiles");
+        return [];
+      }),
+    getActiveProfile: () =>
+      Effect.sync(() => {
+        ran.push("getActiveProfile");
+        return active;
+      }),
+  } as unknown as OsnAuthService;
+  const runtime: OsnAuthRuntime = {
+    authFetch: vi.fn(),
+    run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+    onSessionChange: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  /** What the real runtime does: change the service's state, then tell the listeners. */
+  const emit = (change: SessionChange) => {
+    if (change.kind === "profile-reset") active = change.profileId;
+    for (const listener of listeners) listener(change);
+  };
+  return { runtime, ran, emit };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function mount(runtime: OsnAuthRuntime) {
+  let auth!: ReturnType<typeof useAuth>;
+  const dispose = createRoot((disposeRoot) => {
+    AuthProvider({
+      auth: runtime,
+      get children() {
+        auth = useAuth();
+        return null;
+      },
+    });
+    return disposeRoot;
+  });
+  return { auth: () => auth, dispose };
+}
+
+it("F32/F33: a profile reset shows the new profile, reloads the session and lists nothing", async () => {
+  const { runtime, ran, emit } = fakeRuntime();
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().activeProfileId()).toBe(OTHER);
+  const before = ran.length;
+
+  emit({ kind: "profile-reset", profileId: DEFAULT });
+  await settle();
+
+  expect(auth().activeProfileId()).toBe(DEFAULT);
+  expect(auth().session()?.accessToken).toBe("token-2");
+  const after = ran.slice(before);
+  expect(after).toContain("loadSession");
+  expect(after).not.toContain("listProfiles");
+  dispose();
+});
+
+it("F32: an ended session goes to signed out with nothing sent", async () => {
+  const { runtime, ran, emit } = fakeRuntime();
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().session()).not.toBeNull();
+  const before = ran.length;
+
+  emit({ kind: "ended" });
+  await settle();
+
+  expect(auth().session()).toBeNull();
+  expect(auth().activeProfileId()).toBeNull();
+  expect(auth().profiles()).toBeNull();
+  expect(ran.slice(before)).toEqual([]);
+  dispose();
+});
+
+const alice = {
+  id: "usr_alice0000001",
+  handle: "alice",
+  email: "a@b.c",
+  displayName: null,
+  avatarUrl: null,
+};
+const bob = {
+  id: "usr_bob000000001",
+  handle: "bob",
+  email: "b@b.c",
+  displayName: null,
+  avatarUrl: null,
+};
+
+/**
+ * A runtime whose `listProfiles` answers each call from a queue of steps, so a
+ * test can fail one list, or end the session in the middle of one, the way
+ * the real runtime's `authFetch` does when its renewal is refused.
+ */
+function listingRuntime(
+  steps: Array<(emit: (change: SessionChange) => void) => Effect.Effect<unknown, unknown>>,
+  options: { failFirstLoad?: boolean } = {},
+) {
+  const listeners = new Set<(change: SessionChange) => void>();
+  let signedIn = true;
+  let failLoad = options.failFirstLoad ?? false;
+  const emit = (change: SessionChange) => {
+    if (change.kind === "ended") signedIn = false;
+    for (const listener of listeners) listener(change);
+  };
+  const listProfiles = vi.fn(() => {
+    const step = steps.shift();
+    return step ? step(emit) : Effect.never;
+  });
+  const service = {
+    loadSession: () =>
+      Effect.suspend(() => {
+        if (failLoad) {
+          failLoad = false;
+          return Effect.fail(new StorageError({ cause: "PLANTED" }));
+        }
+        return Effect.succeed(
+          signedIn
+            ? { accessToken: "token", idToken: null, expiresAt: Date.now() + 60_000, scopes: [] }
+            : null,
+        );
+      }),
+    setSession: () =>
+      Effect.sync(() => {
+        signedIn = true;
+      }),
+    logout: () =>
+      Effect.sync(() => {
+        signedIn = false;
+      }),
+    listProfiles,
+    getActiveProfile: () => Effect.succeed(alice.id),
+  } as unknown as OsnAuthService;
+  const runtime: OsnAuthRuntime = {
+    authFetch: vi.fn(),
+    run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+    onSessionChange: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  /** The session goes away with no `ended`: the next load finds none. */
+  const dropSessionQuietly = () => {
+    signedIn = false;
+  };
+  return { runtime, emit, listProfiles, dropSessionQuietly };
+}
+
+const serverFailure = () =>
+  new ProfileManagementError({ cause: "PLANTED", status: 500, code: "internal_error" });
+
+it("a failed relist keeps the list it had, and says why without throwing", async () => {
+  const { runtime } = listingRuntime([
+    () => Effect.succeed([alice, bob]),
+    () => Effect.fail(serverFailure()),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profiles()).toEqual([alice, bob]);
+
+  await auth().refetchProfiles();
+  await settle();
+
+  expect(() => auth().profiles()).not.toThrow();
+  expect(auth().profiles()).toEqual([alice, bob]);
+  expect(auth().profilesError()).toBeInstanceOf(ProfileManagementError);
+  dispose();
+});
+
+it("a relist that succeeds after a failure clears the error", async () => {
+  const { runtime } = listingRuntime([
+    () => Effect.fail(serverFailure()),
+    () => Effect.succeed([alice]),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profilesError()).toBeInstanceOf(ProfileManagementError);
+  expect(auth().profiles()).toBeNull();
+
+  await auth().refetchProfiles();
+  await settle();
+
+  expect(auth().profiles()).toEqual([alice]);
+  expect(auth().profilesError()).toBeUndefined();
+  dispose();
+});
+
+it("an ended session clears a list error it outlives", async () => {
+  const { runtime, emit } = listingRuntime([() => Effect.fail(serverFailure())]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profilesError()).toBeDefined();
+
+  emit({ kind: "ended" });
+  await settle();
+
+  expect(auth().profiles()).toBeNull();
+  expect(auth().profilesError()).toBeUndefined();
+  dispose();
+});
+
+it("a log out clears a list error it outlives", async () => {
+  const { runtime } = listingRuntime([() => Effect.fail(serverFailure())]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profilesError()).toBeDefined();
+
+  await auth().logout();
+  await settle();
+
+  expect(auth().session()).toBeNull();
+  expect(auth().profiles()).toBeNull();
+  expect(auth().profilesError()).toBeUndefined();
+  dispose();
+});
+
+// Another account's list must not stand in for this one's, even when this
+// one's list fails.
+it("adopting a session over another drops the old list, even if the new list fails", async () => {
+  const { runtime } = listingRuntime([
+    () => Effect.succeed([alice, bob]),
+    () => Effect.fail(serverFailure()),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profiles()).toEqual([alice, bob]);
+
+  await auth().adoptSession({
+    accessToken: "token-2",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  } as never);
+  await settle();
+
+  expect(auth().profiles() ?? null).toBeNull();
+  expect(auth().profilesError()).toBeInstanceOf(ProfileManagementError);
+  dispose();
+});
+
+// A failed load leaves the session resource in error, and reading
+// `session.latest` then rethrows that error.
+it("adopting a session after the stored one failed to load lists the profiles once", async () => {
+  const { runtime, listProfiles } = listingRuntime([() => Effect.succeed([alice])], {
+    failFirstLoad: true,
+  });
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(listProfiles).not.toHaveBeenCalled();
+
+  await expect(
+    auth().adoptSession({
+      accessToken: "token-2",
+      idToken: null,
+      expiresAt: Date.now() + 60_000,
+      scopes: [],
+    } as never),
+  ).resolves.toBeUndefined();
+  await settle();
+
+  expect(listProfiles).toHaveBeenCalledTimes(1);
+  expect(auth().profiles()).toEqual([alice]);
+  dispose();
+});
+
+// The real order: a list's own renewal is refused, so the runtime tells the
+// listeners the session ended before the list call itself rejects.
+it.each([
+  ["a server failure", serverFailure],
+  ["the session's end", () => new AuthExpiredError({})],
+])(
+  "a list that fails after the session ended (%s) leaves no error and no old list behind",
+  async (_, failure) => {
+    const { runtime } = listingRuntime([
+      () => Effect.succeed([alice, bob]),
+      (emit) =>
+        Effect.suspend(() => {
+          emit({ kind: "ended" });
+          return Effect.fail(failure());
+        }),
+      // The next account's list has not arrived yet.
+      () => Effect.never,
+    ]);
+    const { auth, dispose } = mount(runtime);
+    await settle();
+    expect(auth().profiles()).toEqual([alice, bob]);
+
+    await auth().refetchProfiles();
+    await settle();
+    expect(auth().session()).toBeNull();
+    expect(auth().profiles()).toBeNull();
+    expect(auth().profilesError()).toBeUndefined();
+
+    // Signed in again: neither the old list nor the old error comes back.
+    void auth().adoptSession({
+      accessToken: "token-2",
+      idToken: null,
+      expiresAt: Date.now() + 60_000,
+      scopes: [],
+    } as never);
+    await settle();
+    expect(auth().session()).not.toBeNull();
+    expect(auth().profiles() ?? null).toBeNull();
+    expect(auth().profilesError()).toBeUndefined();
+    dispose();
+  },
+);
+
+it("an expired session while listing leaves no error to show", async () => {
+  const { runtime } = listingRuntime([() => Effect.fail(new AuthExpiredError({}))]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profiles()).toBeNull();
+  expect(auth().profilesError()).toBeUndefined();
+  dispose();
+});
+
+// A first session turns the list's source on, which lists by itself; listing
+// again from `adoptSession` would send the same request twice on every
+// sign-in, against a rate-limited route.
+it("adopting a first session lists the profiles once", async () => {
+  const { runtime, emit, listProfiles } = listingRuntime([
+    () => Effect.succeed([alice]),
+    () => Effect.succeed([alice]),
+    () => Effect.succeed([alice]),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  emit({ kind: "ended" });
+  await settle();
+  const before = listProfiles.mock.calls.length;
+
+  await auth().adoptSession({
+    accessToken: "token-2",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  } as never);
+  await settle();
+
+  expect(listProfiles.mock.calls.length - before).toBe(1);
+  expect(auth().profiles()).toEqual([alice]);
+  dispose();
+});
+
+it("a list held when the session goes away by another path never shows in the next account", async () => {
+  const { runtime, emit, dropSessionQuietly } = listingRuntime([
+    () => Effect.succeed([alice, bob]),
+    () => Effect.fail(serverFailure()),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profiles()).toEqual([alice, bob]);
+
+  // A session reload that finds none, with no `ended` from the runtime.
+  dropSessionQuietly();
+  emit({ kind: "profile-reset", profileId: alice.id });
+  await settle();
+  expect(auth().session()).toBeNull();
+  expect(auth().profiles()).toBeNull();
+
+  // Another account signs in, and its first list fails.
+  await auth().adoptSession({
+    accessToken: "token-2",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  } as never);
+  await settle();
+
+  expect(auth().session()).not.toBeNull();
+  expect(auth().profiles()).toBeNull();
+  expect(auth().profilesError()).toBeInstanceOf(ProfileManagementError);
+  dispose();
+});
+
+it("adopting a session over another lists the profiles again", async () => {
+  const { runtime, listProfiles } = listingRuntime([
+    () => Effect.succeed([alice]),
+    () => Effect.succeed([alice, bob]),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  const before = listProfiles.mock.calls.length;
+
+  await auth().adoptSession({
+    accessToken: "token-2",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  } as never);
+  await settle();
+
+  expect(listProfiles.mock.calls.length - before).toBe(1);
+  expect(auth().profiles()).toEqual([alice, bob]);
+  dispose();
+});
+
+/** An unsigned JWT on audience `aud`: the provider reads it without verifying. */
+const tokenOn = (aud: string) => {
+  const enc = (o: object) =>
+    btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `${enc({ alg: "none" })}.${enc({ sub: DEFAULT, aud })}.sig`;
+};
+
+/**
+ * A session of an account whose deletion is pending reaches only the deletion
+ * status, the download and the restore: the provider says so, and lists no
+ * profiles, whose route would refuse it.
+ */
+it("a pending-deletion session lists no profiles, and the provider follows a change of audience", async () => {
+  const listeners = new Set<(change: SessionChange) => void>();
+  let aud = "osn-access";
+  const listProfiles = vi.fn(() => Effect.succeed([]));
+  const service = {
+    loadSession: () =>
+      Effect.sync(() => ({
+        accessToken: tokenOn(aud),
+        idToken: null,
+        expiresAt: Date.now() + 60_000,
+        scopes: [],
+      })),
+    listProfiles,
+    getActiveProfile: () => Effect.succeed(DEFAULT),
+  } as unknown as OsnAuthService;
+  const runtime: OsnAuthRuntime = {
+    authFetch: vi.fn(),
+    run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+    onSessionChange: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().pendingDeletion()).toBe(false);
+  expect(listProfiles).toHaveBeenCalledTimes(1);
+
+  // Another tab asked for the deletion: a renewal here brought a pending token.
+  aud = "osn-pending-deletion";
+  for (const listener of listeners) listener({ kind: "pending-deletion", pending: true });
+  await settle();
+
+  expect(auth().pendingDeletion()).toBe(true);
+  expect(auth().profiles()).toBeNull();
+  expect(listProfiles).toHaveBeenCalledTimes(1);
+
+  // Kept: the next renewal is ordinary again, and the list comes back.
+  aud = "osn-access";
+  for (const listener of listeners) listener({ kind: "pending-deletion", pending: false });
+  await settle();
+
+  expect(auth().pendingDeletion()).toBe(false);
+  expect(listProfiles).toHaveBeenCalledTimes(2);
+  dispose();
+});
+
+/**
+ * `renewSession` after a deletion is asked for: the page reads as pending
+ * before the renewal answers, so nothing the shell would send goes out; a
+ * pending account renews to its default profile, which is not a failure; and
+ * a renewal that fails leaves the page as its token says, not as pending.
+ */
+describe("renewSession", () => {
+  /** A provider whose service renews by `refresh` and loads `token()` as its session. */
+  function renewing(refresh: () => Effect.Effect<unknown, unknown>, token: () => string) {
+    const service = {
+      loadSession: () =>
+        Effect.sync(() => ({
+          accessToken: token(),
+          idToken: null,
+          expiresAt: Date.now() + 60_000,
+          scopes: [],
+        })),
+      refreshSession: refresh,
+      listProfiles: () => Effect.succeed([]),
+      getActiveProfile: () => Effect.succeed(DEFAULT),
+    } as unknown as OsnAuthService;
+    const runtime: OsnAuthRuntime = {
+      authFetch: vi.fn(),
+      run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+      onSessionChange: () => () => undefined,
+    };
+    return mount(runtime);
+  }
+
+  it("reads as pending while the renewal is still out", async () => {
+    let answer!: () => void;
+    const out = new Promise<void>((resolve) => (answer = resolve));
+    let aud = "osn-access";
+    const { auth, dispose } = renewing(
+      () => Effect.promise(() => out),
+      () => tokenOn(aud),
+    );
+    await settle();
+    expect(auth().pendingDeletion()).toBe(false);
+
+    const renewal = auth().renewSession({ pending: true });
+    expect(auth().pendingDeletion()).toBe(true);
+
+    aud = "osn-pending-deletion";
+    answer();
+    await renewal;
+    expect(auth().pendingDeletion()).toBe(true);
+    dispose();
+  });
+
+  it("resolves when a pending account renews to its default profile", async () => {
+    let aud = "osn-access";
+    const { auth, dispose } = renewing(
+      () =>
+        Effect.suspend(() => {
+          aud = "osn-pending-deletion";
+          return Effect.fail(
+            new ActiveProfileResetError({ profileId: DEFAULT, message: "reset to default" }),
+          );
+        }),
+      () => tokenOn(aud),
+    );
+    await settle();
+
+    await auth().renewSession({ pending: true });
+    expect(auth().pendingDeletion()).toBe(true);
+    dispose();
+  });
+
+  it("after a deletion, stays pending when the renewal fails: the deletion stands", async () => {
+    // Red on a page that puts the shell back, on a session it can no longer
+    // serve, the moment a renewal fails after the deletion was scheduled.
+    const { auth, dispose } = renewing(
+      () => Effect.fail(new StorageError({ cause: "PLANTED" })),
+      () => tokenOn("osn-access"),
+    );
+    await settle();
+
+    await expect(auth().renewSession({ pending: true })).rejects.toBeDefined();
+    expect(auth().pendingDeletion()).toBe(true);
+    dispose();
+  });
+
+  it("lists no profiles while the renewal that brought a pending token lands", async () => {
+    // Red on clearing the page's "pending soon" mark when the runtime says
+    // the audience changed, before the session refetch holds the new token:
+    // for that moment the old token reads as ordinary, the shell's profile
+    // list goes out on the pending session, and `/profiles/list` refuses it.
+    const listeners = new Set<(change: SessionChange) => void>();
+    let aud = "osn-access";
+    const listProfiles = vi.fn(() => Effect.succeed([]));
+    const service = {
+      loadSession: () =>
+        Effect.sync(() => ({
+          accessToken: tokenOn(aud),
+          idToken: null,
+          expiresAt: Date.now() + 60_000,
+          scopes: [],
+        })),
+      refreshSession: () =>
+        Effect.sync(() => {
+          aud = "osn-pending-deletion";
+          for (const listener of listeners) listener({ kind: "pending-deletion", pending: true });
+        }),
+      listProfiles,
+      getActiveProfile: () => Effect.succeed(DEFAULT),
+    } as unknown as OsnAuthService;
+    const runtime: OsnAuthRuntime = {
+      authFetch: vi.fn(),
+      run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+      onSessionChange: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const { auth, dispose } = mount(runtime);
+    await settle();
+    expect(listProfiles).toHaveBeenCalledTimes(1);
+
+    await auth().renewSession({ pending: true });
+    await settle();
+    expect(auth().pendingDeletion()).toBe(true);
+    expect(listProfiles).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  it("otherwise rejects, and the page reads as its token says", async () => {
+    const { auth, dispose } = renewing(
+      () => Effect.fail(new StorageError({ cause: "PLANTED" })),
+      () => tokenOn("osn-access"),
+    );
+    await settle();
+
+    await expect(auth().renewSession()).rejects.toBeDefined();
+    expect(auth().pendingDeletion()).toBe(false);
+    dispose();
+  });
+});

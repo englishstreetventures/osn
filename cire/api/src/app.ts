@@ -32,6 +32,8 @@ import {
   createClaimSignoutRoutes,
 } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
+import { createInternalAccountDeletionRoutes } from "./routes/internal-account-deletion";
+import { createInternalAccountExportRoutes } from "./routes/internal-account-export";
 import { createInternalRevokeRoutes } from "./routes/internal-revoke";
 import {
   createInviteImageServeRoutes,
@@ -40,6 +42,7 @@ import {
   createInviteResolveRoutes,
 } from "./routes/invite";
 import { createInviteFaqRoutes } from "./routes/invite-faq";
+import { createOrganiserAccountRoutes } from "./routes/organiser-account";
 import { createOrganiserChangeRoutes } from "./routes/organiser-changes";
 import { createOrganiserEnquiriesRoutes } from "./routes/organiser-enquiries";
 import { createOrganiserHandleSearchRoutes } from "./routes/organiser-handle-search";
@@ -104,6 +107,7 @@ import {
 import { createVendorEnquiriesRoutes } from "./routes/vendor-enquiries";
 import { createVendorPortalRoutes } from "./routes/vendor-portal";
 import { createVendorReadRoutes, createVendorWriteRoutes } from "./routes/vendors";
+import { createWeddingArchiveRoutes } from "./routes/wedding-archive";
 import { createDirectoryService } from "./services/directory";
 import { createEnquiryService } from "./services/enquiries";
 import type { AssetsBucket } from "./services/invite-assets";
@@ -119,6 +123,7 @@ import type {
   OsnOrganiserEmailLookup,
   OsnProfileDisplayResolver,
   OsnProfileOrgsResolver,
+  OsnRemovalBridge,
 } from "./services/osn-bridge";
 import { cacheAccountResolver, cacheProfileDisplayResolver } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
@@ -197,6 +202,16 @@ const defaultExportLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_0
  */
 const defaultGiftExportLimiter = createRateLimiter({ maxRequests: 3, windowMs: 60_000 });
 /**
+ * Default per-USER limiter for the whole-wedding archive
+ * (`POST …/archive`), checked before the shared export one, which an archive
+ * also spends. An archive reads what every CSV download reads together, and
+ * up to 900 R2 objects, so it is counted by the day: ten a day is more than an
+ * owner taking their wedding away needs, retries included, and adds about 1%
+ * to the reads the shared limiter already admits. Keys on `osnProfileId`;
+ * counts per isolate, as every export limiter here does.
+ */
+const defaultArchiveLimiter = createRateLimiter({ maxRequests: 10, windowMs: 86_400_000 });
+/**
  * Default per-USER limiter for the co-host add/remove endpoints, behind the
  * owner gate. It caps the ARC-sign + S2S handle-resolve amplifier on add (and
  * the management churn / handle-probe oracle); 20/min is generous for
@@ -250,6 +265,14 @@ const defaultSeatingPlanLimiter = createRateLimiter({ maxRequests: 10, windowMs:
  * anyone deletes or restores weddings by hand.
  */
 const defaultWeddingLifecycleLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
+
+/**
+ * Default per-user limiter for a host's removal of their Cire data: its
+ * preview, its confirmation and the removal share it. A person removes their
+ * data once; a removal of more than three owned weddings calls again a few
+ * times, and the screen reads its preview twice. Each call can reach osn-api.
+ */
+const defaultAccountRemovalLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 
 /**
  * Default per-IP limiter for the co-host autocomplete, mounted ahead of
@@ -465,6 +488,8 @@ export interface AppOptions {
   exportLimiter?: RateLimiterBackend;
   /** Override the gift-log download's own per-user rate limiter (useful for testing). */
   giftExportLimiter?: RateLimiterBackend;
+  /** Per-user limiter for the whole-wedding archive, before the shared export one. */
+  archiveLimiter?: RateLimiterBackend;
   /**
    * The realtime hub binding (`REALTIME_HUB`). Absent ⇒ host changes publish
    * nothing, and the Worker's `/realtime/*` answers 503. Most tests run that
@@ -498,6 +523,8 @@ export interface AppOptions {
   hostLimiter?: RateLimiterBackend;
   /** Override the wedding delete + restore rate limiter (useful for testing). */
   weddingLifecycleLimiter?: RateLimiterBackend;
+  /** Override the removal-of-a-host's-data rate limiter (useful for testing). */
+  accountRemovalLimiter?: RateLimiterBackend;
   /** Override the organiser recorded-RSVP rate limiter (useful for testing). */
   organiserRsvpLimiter?: RateLimiterBackend;
   /** Override the checklist write rate limiter (useful for testing). */
@@ -616,6 +643,13 @@ export interface AppOptions {
    * one is passed: the log stand-in is not delivery, and would log addresses.
    */
   organiserEmailLookup?: OsnOrganiserEmailLookup;
+  /**
+   * osn-api's step-up request calls (server-to-server over ARC,
+   * `step-up:verify`, and `graph:resolve-account` for the account check), for
+   * a host's removal of their Cire data. KEY-OPTIONAL: when omitted, the
+   * removal routes answer 503 and nothing else changes. Tests inject a stub.
+   */
+  accountRemovalBridge?: OsnRemovalBridge;
   /** Override the owner-notice daily email budget per key (useful for testing). */
   ownerNoticeEmailsPerDay?: number;
   /**
@@ -844,6 +878,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     accountLinkLimiter = defaultAccountLinkLimiter,
     exportLimiter = defaultExportLimiter,
     giftExportLimiter = defaultGiftExportLimiter,
+    archiveLimiter = defaultArchiveLimiter,
     inviteLimiter = defaultInviteLimiter,
     inviteDesigns,
     previewLimiter = defaultPreviewLimiter,
@@ -851,6 +886,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     remintLimiter = defaultRemintLimiter,
     hostLimiter = defaultHostLimiter,
     weddingLifecycleLimiter = defaultWeddingLifecycleLimiter,
+    accountRemovalLimiter = defaultAccountRemovalLimiter,
     organiserRsvpLimiter = defaultOrganiserRsvpLimiter,
     taskWriteLimiter = defaultTaskWriteLimiter,
     runSheetReadLimiter = defaultRunSheetReadLimiter,
@@ -874,6 +910,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     osnBlockCheck,
     resolveOsnProfileDisplays,
     organiserEmailLookup,
+    accountRemovalBridge,
     ownerNoticeEmailsPerDay,
     resolveOsnHandleSearch,
     resolveOsnConnectionSearch,
@@ -1143,6 +1180,17 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           limiter: internalRevokeLimiter,
         }),
       )
+      // osn-api's account-deletion preview and erasure. Mounted BEFORE the
+      // origin guard for the same reason: server-to-server, no browser
+      // `Origin`. ARC authenticates each call (lib/osn-arc.ts).
+      .use(
+        createInternalAccountDeletionRoutes(db, {
+          osnIssuer: osnIssuerUrl,
+          organiserOrigin,
+        }),
+      )
+      // osn-api's account export, cire's section of it: the same reasons.
+      .use(createInternalAccountExportRoutes(db, { osnIssuer: osnIssuerUrl, organiserOrigin }))
       // The digest's one-click stop link. Mounted BEFORE the origin guard: a
       // mail provider's one-click POST has no Origin, and the confirm page's
       // form posts from this API's own origin. A signed token authorises it.
@@ -1254,6 +1302,17 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           exportLimiter,
           options.effectDb,
         ),
+      )
+      // The whole wedding as one archive: its own daily limiter, then the
+      // shared export one. After the origin guard, since it is a POST.
+      .use(
+        createWeddingArchiveRoutes(db, osnAuthOptions, {
+          archiveLimiter,
+          exportLimiter,
+          effectDb: options.effectDb,
+          assets,
+          sheets: r2,
+        }),
       )
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
@@ -1498,6 +1557,17 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
         ),
       )
       .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter))
+      // A host removing their Cire data and keeping their Musubi account.
+      .use(
+        createOrganiserAccountRoutes(db, osnAuthOptions, {
+          limiter: accountRemovalLimiter,
+          bridge: accountRemovalBridge,
+          ownerNotices,
+          signals: weddingSignals,
+          organiserOrigin,
+          secureCookies: webOrigin.startsWith("https://"),
+        }),
+      )
       .use(createUnlockCodeRoutes(db, osnAuthOptions, unlockCodeLimiter))
       // The realtime fallback beacon.
       .use(createRealtimeFallbackRoutes({ limiter: realtimeFallbackLimiter }));
@@ -1559,7 +1629,13 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
   // price caches in the same isolate, so every cached read would be paid for
   // twice against the platform's Stripe quota.
   const upgradeCatalogue = createUpgradeCatalogue({ stripe, prices: upgradePrices });
-  const upgrades = createUpgradeService({ stripe, catalogue: upgradeCatalogue });
+  const upgrades = createUpgradeService({
+    stripe,
+    catalogue: upgradeCatalogue,
+    // A refund cire makes is told to the wedding's owners where cire can send
+    // owner mail.
+    notifyRefund: ownerNotices?.refundIssued,
+  });
   return withStripeWebhook
     .use(
       createUpgradeRoutes(db, osnAuthOptions, {

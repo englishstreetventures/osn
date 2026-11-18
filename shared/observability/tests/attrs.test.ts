@@ -14,8 +14,10 @@ import type { AuthMethod, AuthRateLimitedEndpoint } from "../src/metrics/attrs";
  *
  * The point of the pin is that adding a member costs an argument, not a
  * keystroke. So: **what makes a new `AuthMethod` legitimate.** Not "it is not
- * called OTP" — `email_recovery` is an emailed six-digit code, which is
- * precisely the shape that was removed. What separates it is where it lands.
+ * called OTP" — `email_recovery` is an emailed one-time secret, the family of
+ * factor that was removed as a primary login. What separates it is where it
+ * lands: its link only verifies the mailbox, and the tab that began gets the
+ * restricted session, never an ordinary one.
  * A primary login factor mints an `osn-access` session that reaches every route
  * and every downstream service. The two recovery factors mint a **restricted**
  * one: `aud: "osn-recovery"`, a 15-minute absolute lifetime that rotation
@@ -52,7 +54,14 @@ describe("AuthRateLimitedEndpoint", () => {
   it("covers every rate-limited route — no OTP/magic primary surface", () => {
     const members = {
       register_begin: true,
-      register_complete: true,
+      // Sign-up's emailed link. The candidates read and the confirm only mark
+      // an address as proved and never mint a session; the status route hands
+      // the session to the tab that began, which holds the claim secret. None
+      // is a login.
+      register_status: true,
+      register_resend: true,
+      email_link_confirm: true,
+      email_link_candidates: true,
       handle_check: true,
       passkey_login_begin: true,
       passkey_login_complete: true,
@@ -66,20 +75,32 @@ describe("AuthRateLimitedEndpoint", () => {
       recovery_generate: true,
       recovery_status: true,
       recovery_complete: true,
-      // The three unauthenticated account-recovery routes. `recovery_email_begin`
-      // is the only one of the three that sends mail, which is why it carries a
-      // per-ACCOUNT cap as well as this per-IP one.
+      // The unauthenticated account-recovery routes. `recovery_email_begin` and
+      // `recovery_email_resend` send mail, which is why their links carry a
+      // per-ACCOUNT cap as well as these per-IP ones. The email link is
+      // confirmed through the shared `email_link_confirm` and only verifies the
+      // mailbox; `recovery_email_status` hands the tab that began the
+      // RESTRICTED recovery session, which can only enrol a passkey.
       recovery_email_begin: true,
-      recovery_email_complete: true,
+      recovery_email_status: true,
+      recovery_email_resend: true,
       recovery_totp_complete: true,
       recovery_disown: true,
       step_up_passkey_begin: true,
       step_up_passkey_complete: true,
-      step_up_otp_begin: true,
-      step_up_otp_complete: true,
+      // Step-up and email change by emailed link. The link only verifies the
+      // mailbox; `step_up_email_status` hands the tab that began, signed in as
+      // the account that began, a purpose-bound step-up token, and
+      // `email_change_complete` needs a step-up token besides. Neither signs
+      // anyone in.
+      step_up_email_begin: true,
+      step_up_email_status: true,
+      step_up_email_resend: true,
       session_list: true,
       session_revoke: true,
       email_change_begin: true,
+      email_change_status: true,
+      email_change_resend: true,
       email_change_complete: true,
       security_event_list: true,
       security_event_ack: true,
@@ -93,6 +114,8 @@ describe("AuthRateLimitedEndpoint", () => {
       account_delete: true,
       account_restore: true,
       account_deletion_status: true,
+      account_deletion_preview: true,
+      account_data_link: true,
       oidc_authorize: true,
       oidc_authorize_context: true,
       oidc_authorize_decision: true,
@@ -103,15 +126,19 @@ describe("AuthRateLimitedEndpoint", () => {
       oidc_client_list: true,
       oidc_client_disable: true,
       step_up_totp_complete: true,
+      step_up_request_read: true,
+      step_up_request_confirm: true,
       totp_enroll_begin: true,
       totp_enroll_complete: true,
       totp_disable: true,
       totp_status: true,
     } as const satisfies Record<AuthRateLimitedEndpoint, true>;
-    // Runtime snapshot — catches a drop that the `satisfies` check would miss
-    // (it only complains on missing members, not extras).
-    expect(Object.keys(members)).toHaveLength(53);
-    // Negative: primary-login OTP/magic-link endpoints must not reappear.
+    // `satisfies` rejects a key missing from this object and a key the union
+    // lacks, so the two cannot drift apart. The count catches what it cannot:
+    // an endpoint removed from the union and this object together.
+    expect(Object.keys(members)).toHaveLength(64);
+    // Negative: primary-login OTP/magic-link endpoints must not reappear. An
+    // emailed link that verifies an address is not one: it signs nobody in.
     expect(Object.keys(members)).not.toContain("otp_begin");
     expect(Object.keys(members)).not.toContain("otp_complete");
     expect(Object.keys(members)).not.toContain("magic_begin");

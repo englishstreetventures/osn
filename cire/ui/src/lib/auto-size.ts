@@ -37,6 +37,19 @@
  * transition every frame and never finishing one. The tell is the **width**: a
  * content swap happens at a fixed width, a reflow does not. It is free to know —
  * the rect being measured for the height carries it.
+ *
+ * ## A disclosure that grows itself
+ *
+ * A `<details>` inside the content can animate its own height as it opens
+ * (`Disclosure`, where the engine has `interpolate-size`). Each frame of that
+ * growth is a change of content at a fixed width, and animating it would start
+ * a fresh transition every frame from the last height: the frame would trail
+ * the growth, cutting the content's foot by a frame's growth, then take one
+ * more transition to catch up. So while a disclosure inside grows, and for
+ * the change straight after, its last step, the frame follows the content
+ * with no transition of its own: one growth, one clock. A disclosure that
+ * opens at once — under reduced motion, or in an engine without
+ * `interpolate-size` — is an ordinary change, and the frame moves to it.
  */
 import { createSignal, onCleanup, onMount } from "solid-js";
 
@@ -65,6 +78,34 @@ export function autoSizeAnimates(from: number | null, to: number, cap = AUTO_SIZ
   return from <= cap && to <= cap;
 }
 
+/**
+ * Whether a `<details>` inside `content` is growing open on a height
+ * transition of its own. Its body slot, `::details-content`, is then shorter
+ * than what it holds. At rest, mounted open, or opened at once, the slot is as
+ * tall as its body. An engine with no `::details-content` reports no height,
+ * which parses to `NaN` and so is never shorter.
+ *
+ * The slack is a hundredth of a pixel. A slot still growing is short by at
+ * least a sixty-fourth, the smallest step layout takes, down to the last
+ * frames of an `--ease-out` tail. A computed length is written to six
+ * significant digits, off by under a thousandth below 1000px, so a slot at
+ * rest never reads as short.
+ */
+const GROWING_SLACK_PX = 0.01;
+
+function detailsGrowing(content: HTMLElement): boolean {
+  for (const details of content.querySelectorAll("details[open]")) {
+    const shown = Number.parseFloat(getComputedStyle(details, "::details-content").height);
+    const summary = details.querySelector(":scope > summary");
+    let body = 0;
+    for (const child of details.children) {
+      if (child !== summary) body += child.getBoundingClientRect().height;
+    }
+    if (shown < body - GROWING_SLACK_PX) return true;
+  }
+  return false;
+}
+
 export interface AutoSize {
   /** `ref` for the box that moves. Clipped and given a height while it does. */
   frame: (el: HTMLElement) => void;
@@ -87,6 +128,9 @@ export function createAutoSize(cap = AUTO_SIZE_CAP): AutoSize {
   // The content's width at the last measure. See "A reflow is not a change of
   // content" above.
   let lastWidth: number | null = null;
+  // Whether a disclosure inside was growing at the last change. See "A
+  // disclosure that grows itself" above.
+  let growing = false;
 
   /** Hand the box back to the layout. Safe to call when it never left. */
   function release() {
@@ -107,7 +151,7 @@ export function createAutoSize(cap = AUTO_SIZE_CAP): AutoSize {
     if (event.target === frameEl && event.propertyName === "height") release();
   }
 
-  function apply(next: number, width: number) {
+  function apply(content: HTMLElement, next: number, width: number) {
     if (!frameEl) return;
     const from = last;
     const reflowed = lastWidth !== null && lastWidth !== width;
@@ -115,8 +159,11 @@ export function createAutoSize(cap = AUTO_SIZE_CAP): AutoSize {
     if (from === next) return;
     last = next;
     setHeight(next);
+    // The change straight after a growth is its last step, so it follows too.
+    const grew = growing;
+    growing = detailsGrowing(content);
 
-    if (reflowed || !autoSizeAnimates(from, next, cap)) {
+    if (reflowed || growing || grew || !autoSizeAnimates(from, next, cap)) {
       release();
       return;
     }
@@ -146,7 +193,7 @@ export function createAutoSize(cap = AUTO_SIZE_CAP): AutoSize {
     // that collapses the moment it is put back.
     if (!contentEl?.isConnected) return;
     const rect = contentEl.getBoundingClientRect();
-    apply(rect.height, rect.width);
+    apply(contentEl, rect.height, rect.width);
   }
 
   function start() {

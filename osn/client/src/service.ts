@@ -1,24 +1,42 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 
 import {
+  ActiveProfileResetError,
   AuthExpiredError,
+  AuthFetchTransportError,
   ProfileManagementError,
   StorageError,
   TokenRefreshError,
 } from "./errors";
+import { errorCode, safeJson } from "./response-body";
+import type { SessionChange } from "./runtime";
 import { sessionFetch } from "./session-fetch";
 import { Storage } from "./storage";
 import {
-  decodeAccountSession,
   decodeCreateProfileResponse,
+  decodeDeleteProfileResponse,
   decodeListProfilesResponse,
+  decodeStoredAccount,
   decodeSwitchProfileResponse,
+  extractJwtLifetimeMs,
   extractJwtSub,
+  isPendingDeletionToken,
   parseTokenResponse,
 } from "./tokens";
-import type { AccountSession, HeldSession, PublicProfile, Session } from "./tokens";
+import type {
+  AccountSession,
+  HeldSession,
+  ProfileToken,
+  PublicProfile,
+  Session,
+  StoredAccount,
+} from "./tokens";
 
-const ACCOUNT_SESSION_KEY = "@osn/client:account_session";
+/** The storage key of the stored account (`StoredAccount`). */
+export const ACCOUNT_SESSION_KEY = "@osn/client:account_session";
+
+/** A fresh id for a new sign-in on this device (`StoredAccount.signInId`). */
+const newSignInId = () => crypto.randomUUID();
 
 /**
  * The JS-readable marker the issuer sets next to the HttpOnly session cookie.
@@ -67,6 +85,7 @@ function sessionToAccountSession(session: Session): AccountSession {
   return {
     hasSession: true,
     activeProfileId: profileId,
+    signInId: newSignInId(),
     profileTokens: {
       [profileId]: {
         accessToken: session.accessToken,
@@ -79,19 +98,93 @@ function sessionToAccountSession(session: Session): AccountSession {
 }
 
 /**
- * Returns the Authorization header value for the active profile's
- * access token, or null if no valid token is available.
+ * How long before its expiry an access token is renewed rather than sent: 30 s,
+ * the clock tolerance osn-api verifies with, or half the token's own lifetime
+ * when that is shorter. The cap keeps an issuer configured with a short TTL
+ * from turning every request into a `/token` rotation first. A token that
+ * carries no `iat`/`exp` gets the full 30 s.
  */
-function authHeader(account: AccountSession): Record<string, string> | null {
-  const pt = account.profileTokens[account.activeProfileId];
-  if (!pt || Date.now() >= pt.expiresAt) return null;
-  return {
-    Authorization: `Bearer ${pt.accessToken}`,
-    "Content-Type": "application/json",
-  };
+const ACCESS_TOKEN_RENEW_LEAD_MS = 30_000;
+
+function renewLeadMs(accessToken: string): number {
+  const lifetime = extractJwtLifetimeMs(accessToken);
+  return lifetime === null
+    ? ACCESS_TOKEN_RENEW_LEAD_MS
+    : Math.min(ACCESS_TOKEN_RENEW_LEAD_MS, lifetime / 2);
 }
 
-/** Remove expired profile tokens from an AccountSession, except the active profile. (S-M2, P-W3) */
+/** True when the token is missing, expired, or inside its renew lead. */
+function needsRenewal(token: ProfileToken | undefined): boolean {
+  return !token || Date.now() >= token.expiresAt - renewLeadMs(token.accessToken);
+}
+
+/**
+ * The text of the failure osn-api answers a grant with when a concurrent grant
+ * of the same cookie rotated it first. Mirrors `ROTATION_RACE_MESSAGE` in
+ * `@osn/api` (`src/lib/grant-failure.ts`); the issuer sends it as the body's
+ * `message`; `tests/token-grant-contract.test.ts` checks the two agree.
+ */
+const ROTATION_RACE_MESSAGE = "Session rotated by a concurrent grant";
+
+/**
+ * Did a `400 invalid_grant` leave the session's status unknown?
+ *
+ * osn-api refuses a grant with the same status whether the cookie is dead or a
+ * concurrent grant rotated it first, or the database blipped; in the last two
+ * the cookie is alive and the winning grant has already set its successor. The
+ * issuer names those two in the body's `message`, and only the body is read:
+ * the session marker is a cookie other origins can write, so it never decides
+ * whether a refusal ends the session.
+ */
+function grantRefusalLeftStatusUnknown(body: unknown): boolean {
+  if (typeof body !== "object" || body === null) return false;
+  const { error, message } = body as { error?: unknown; message?: unknown };
+  if (error !== "invalid_grant" || typeof message !== "string") return false;
+  return message.includes(ROTATION_RACE_MESSAGE) || /^DatabaseError\b/.test(message);
+}
+
+/**
+ * The longest pause a `Retry-After` on a refused-for-now grant can impose on
+ * renewal. The issuer is trusted; the cap keeps one odd header from stopping
+ * renewal for longer than a token lives.
+ */
+const RETRY_AFTER_MAX_MS = 60_000;
+
+/** `Retry-After` in milliseconds when it is a whole number of seconds. */
+function parseRetryAfterMs(header: string | null): number | undefined {
+  const value = header?.trim();
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  return Math.min(Number(value) * 1000, RETRY_AFTER_MAX_MS);
+}
+
+/**
+ * Pauses between renewals after one fails without a refusal: 2 s, doubling to
+ * 30 s, unless the issuer's `Retry-After` says otherwise. A renewal that gets
+ * a token ends the pause.
+ */
+const RENEW_BACKOFF_FIRST_MS = 2_000;
+const RENEW_BACKOFF_MAX_MS = 30_000;
+
+/** True when `input` is an absolute URL on the issuer's origin. */
+function onIssuerOrigin(input: string, issuerUrl: string): boolean {
+  try {
+    return new URL(input).origin === new URL(issuerUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** The stored value for `account`: never a token. */
+function storedValue(account: AccountSession): string {
+  const stored: StoredAccount = {
+    hasSession: account.hasSession,
+    activeProfileId: account.activeProfileId,
+    signInId: account.signInId,
+  };
+  return JSON.stringify(stored);
+}
+
+/** Remove expired profile tokens from an AccountSession, except the active profile, so memory holds no dead tokens. */
 function pruneExpiredTokens(account: AccountSession): void {
   const now = Date.now();
   for (const id of Object.keys(account.profileTokens)) {
@@ -119,11 +212,28 @@ export interface OsnAuthService {
    * credentials: "include"), reconstructing and persisting the account from
    * the token response. If no/expired cookie is present, resolves to `null`
    * (genuinely logged out) — never throws. Single-flighted so concurrent
-   * mounts don't double-hit `/token`.
+   * mounts don't double-hit `/token`. A session set, or ended, while that
+   * grant is out wins: the load resolves to the session the page holds then,
+   * or `null`, and the grant's answer is dropped.
    */
   readonly loadSession: () => Effect.Effect<Session | null, StorageError>;
 
-  readonly refreshSession: () => Effect.Effect<Session, TokenRefreshError | StorageError>;
+  /**
+   * Renews the active profile's access token through the refresh cookie and
+   * returns the active profile's session. The grant names the active profile,
+   * and the issuer mints for it while the account owns it. Single-flighted.
+   *
+   * Fails with `TokenRefreshError` (`refused` true when the issuer refused
+   * the grant, and the session has ended then), or with `ActiveProfileResetError` when the issuer minted for
+   * the default profile instead — the active one is gone — and the default
+   * profile is active now. Fails with `AuthExpiredError`, storing and
+   * resetting nothing, when the session was replaced or ended while the grant
+   * was out.
+   */
+  readonly refreshSession: () => Effect.Effect<
+    Session,
+    TokenRefreshError | ActiveProfileResetError | AuthExpiredError | StorageError
+  >;
 
   /**
    * Redeems the refresh cookie for a fresh token set and hands it back
@@ -159,88 +269,284 @@ export interface OsnAuthService {
    */
   readonly setSession: (session: Session) => Effect.Effect<void, StorageError>;
 
+  // The profile methods send through `authFetch`, so an expired token is
+  // renewed first. "No session" stays a `ProfileManagementError`; a session
+  // that ended on the way is an `AuthExpiredError`.
   readonly listProfiles: () => Effect.Effect<
     PublicProfile[],
-    ProfileManagementError | StorageError
+    ProfileManagementError | AuthExpiredError | StorageError
   >;
 
   readonly switchProfile: (
     profileId: string,
   ) => Effect.Effect<
     { session: Session; profile: PublicProfile },
-    ProfileManagementError | StorageError
+    ProfileManagementError | AuthExpiredError | StorageError
   >;
 
   readonly createProfile: (
     handle: string,
     displayName?: string,
-  ) => Effect.Effect<PublicProfile, ProfileManagementError | StorageError>;
+  ) => Effect.Effect<PublicProfile, ProfileManagementError | AuthExpiredError | StorageError>;
 
+  /**
+   * Deletes a profile of the account. Deleting the active profile makes
+   * another profile active, never none, so the next grant still names one:
+   * a profile this page holds a token for, else the account's default
+   * profile as the issuer's answer names it. An answer that names none
+   * leaves the deleted profile active, without a token; its next grant is
+   * refused, and that ends the session.
+   */
   readonly deleteProfile: (
     profileId: string,
-  ) => Effect.Effect<void, ProfileManagementError | StorageError>;
+  ) => Effect.Effect<void, ProfileManagementError | AuthExpiredError | StorageError>;
 
   readonly getActiveProfile: () => Effect.Effect<string | null, StorageError>;
 
   /**
-   * Access-token-aware fetch. Adds `Authorization: Bearer <accessToken>` and
-   * transparently retries once on a 401 after silent-refreshing the session.
-   * If the retry also 401s, surfaces `AuthExpiredError` and clears the
-   * cached session — callers should redirect to sign-in.
+   * Ends this page's session, with no request and without touching storage,
+   * when another tab has signed out or signed in since: the stored account is
+   * gone, or belongs to another sign-in. `createOsnAuthRuntime` calls it on
+   * every `storage` event for the stored account; every `authFetch` makes the
+   * same check first.
+   */
+  readonly checkStoredAccount: () => Effect.Effect<void, StorageError>;
+
+  /**
+   * `fetch` with the active profile's access token, renewed as needed. The
+   * contract is `AuthFetch`'s (`./runtime`): a token inside its renew lead is
+   * renewed before the request goes out, a 401 is renewed and retried once,
+   * and the session ends only on a refusal. `fetch`'s own rejection arrives as
+   * `AuthFetchTransportError`.
    *
-   * Short access-token TTL (5 min) makes this the expected fast path for
-   * first-party API calls; the refresh token sits in an HttpOnly cookie so
-   * the rotation is invisible to the user.
+   * `Authorization` is always the account's token, whatever `init` carried;
+   * nothing else in `init` is touched. `credentials` defaults to `"include"`.
    */
   readonly authFetch: (
-    input: RequestInfo | URL,
+    input: string,
     init?: RequestInit,
-  ) => Effect.Effect<Response, AuthExpiredError | StorageError>;
+  ) => Effect.Effect<
+    Response,
+    | AuthExpiredError
+    | TokenRefreshError
+    | ActiveProfileResetError
+    | AuthFetchTransportError
+    | StorageError
+  >;
 }
 
 export class OsnAuth extends Context.Service<OsnAuth, OsnAuthService>()("@osn/client/OsnAuth") {}
 
-export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, never, Storage> {
+export interface OsnAuthLiveOptions {
+  /**
+   * Called after the service ends the session or resets the active profile
+   * itself — never for `logout` or `setSession`, whose callers already know,
+   * nor for the profile a `switchProfile` makes active. `createOsnAuthRuntime` fans it out to its listeners.
+   */
+  readonly onSessionChange?: (change: SessionChange) => void;
+}
+
+export function createOsnAuthLive(
+  config: OsnAuthConfig,
+  options?: OsnAuthLiveOptions,
+): Layer.Layer<OsnAuth, never, Storage> {
   return Layer.effect(
     OsnAuth,
     Effect.gen(function* () {
       const storage = yield* Storage;
 
-      // P-W1: In-memory cache to avoid redundant storage reads + JSON.parse
+      // The session this page holds: the only place its tokens live.
       // undefined = not loaded, null = no session, AccountSession = loaded
       let cache: AccountSession | null | undefined;
+
+      // Profiles this page has deleted. A renewal or a switch that was out
+      // when one was deleted can come back with a token for it, minted before
+      // the delete committed; that token is never kept (`doRefresh`,
+      // `switchProfile`). Profile ids are never reused, so the set is never
+      // cleared.
+      const deletedProfiles = new Set<string>();
+
+      // Moves whenever the session this page holds is replaced or ended
+      // (`setSession`, `logout`, `endSession`), never when an answer refreshes
+      // it in place. A request notes it before it leaves, and its answer is
+      // applied only while it has not moved: an answer for a session the page
+      // no longer holds changes nothing and reaches no caller.
+      let sessionGeneration = 0;
+
+      /**
+       * The session this page held is replaced or ended. Requests made for it
+       * apply nothing from now on, no caller joins a renewal or bootstrap
+       * started for it, and its renewal pause goes with it.
+       */
+      const supersede = () => {
+        sessionGeneration += 1;
+        inFlightRefresh = null;
+        inFlightBootstrap = null;
+        renewBackoffMs = 0;
+        renewBlockedUntil = 0;
+      };
+
+      const supersededError = () =>
+        new AuthExpiredError({ cause: "the session changed while the request was out" });
+
+      const notify = (change: SessionChange) => options?.onSessionChange?.(change);
 
       // ---------------------------------------------------------------------------
       // Internal helpers for the multi-key account session model
       // ---------------------------------------------------------------------------
 
+      // Keeps the session in memory and writes its stored cut: storage never
+      // holds a token (`StoredAccount`).
       const saveAccountSession = (account: AccountSession) => {
         pruneExpiredTokens(account);
         cache = account;
-        return storage.set(ACCOUNT_SESSION_KEY, JSON.stringify(account));
+        return storage.set(ACCOUNT_SESSION_KEY, storedValue(account));
       };
 
+      /**
+       * The session this page holds, or, before the first call, the stored
+       * account with no token in hand: the first request renews, and
+       * `loadSession` rebuilds from the cookie. A stored value with fields
+       * past `StoredAccount`'s, an older client's tokens among them, is
+       * rewritten without them; nothing is taken from it but the two fields.
+       */
       const getAccountSession = () =>
         Effect.gen(function* () {
-          // P-W1: Return cached value if available
           if (cache !== undefined) return cache;
 
           const raw = yield* storage.get(ACCOUNT_SESSION_KEY);
-          if (raw) {
-            // S-H2: Validate storage data against schema before consuming
+          if (!raw) {
+            cache = null;
+            return null;
+          }
+          // Validate storage data against schema before consuming: any
+          // script on the origin can write to it.
+          let stored: ReturnType<typeof decodeStoredAccount>;
+          try {
+            stored = decodeStoredAccount(JSON.parse(raw));
+          } catch {
+            yield* storage.remove(ACCOUNT_SESSION_KEY);
+            cache = null;
+            return null;
+          }
+          const account: AccountSession = {
+            hasSession: stored.hasSession,
+            activeProfileId: stored.activeProfileId,
+            signInId: stored.signInId ?? newSignInId(),
+            profileTokens: {},
+            scopes: [],
+            idToken: null,
+          };
+          cache = account;
+          const clean = storedValue(account);
+          if (clean !== raw) yield* storage.set(ACCOUNT_SESSION_KEY, clean);
+          return account;
+        });
+
+      /**
+       * Ends the session this service holds: clears the cache and, unless
+       * `keepStored` (the stored account is another sign-in's), the stored
+       * account, then tells the listeners — once, however many callers end it.
+       * It does not call `/logout`: the cookie a refused grant carried can be
+       * another sign-in's live session (a sign-up still holding it, another
+       * tab's sign-in), which a logout would end. The session marker is the
+       * issuer's to retract.
+       */
+      const endSession = (keepStored = false) =>
+        Effect.gen(function* () {
+          const held = cache !== null && cache !== undefined;
+          supersede();
+          cache = null;
+          if (!keepStored) {
+            yield* storage.remove(ACCOUNT_SESSION_KEY).pipe(Effect.catch(() => Effect.void));
+          }
+          if (held) notify({ kind: "ended" });
+        });
+
+      /**
+       * The account, checked against what other tabs stored.
+       *
+       * Tabs share the stored account but nothing else: each holds its own
+       * tokens in memory and acts as the profile its own screen shows, so
+       * neither is taken from storage. A stored account that has gone means
+       * another tab signed out or saw the session end; one with another
+       * sign-in id means another tab signed out and someone signed in since.
+       * Either way the session ends here too, with no request, and a new
+       * sign-in's stored account is left alone.
+       */
+      const syncFromStorage = () =>
+        Effect.gen(function* () {
+          const loaded = cache !== undefined;
+          const account = yield* getAccountSession();
+          if (!loaded || !account) return account;
+
+          const generation = sessionGeneration;
+          const raw = yield* storage.get(ACCOUNT_SESSION_KEY);
+          // A session set or ended while storage was read is newer than what
+          // the read found.
+          if (sessionGeneration !== generation) return cache ?? null;
+          if (raw === null) {
+            yield* endSession();
+            return null;
+          }
+          let stored: ReturnType<typeof decodeStoredAccount> | null = null;
+          try {
+            stored = decodeStoredAccount(JSON.parse(raw));
+          } catch {
+            // Unreadable: it says nothing about which sign-in is stored.
+          }
+          if (stored && stored.signInId !== account.signInId) {
+            yield* endSession(true);
+            return null;
+          }
+          return account;
+        });
+
+      /**
+       * What a request was made for: the session generation when it left, and
+       * the stored sign-in it acts for (`null` when none was stored).
+       */
+      interface Mark {
+        readonly generation: number;
+        readonly signInId: string | null;
+      }
+
+      const markNow = () =>
+        Effect.gen(function* () {
+          const generation = sessionGeneration;
+          const account = yield* getAccountSession();
+          return { generation, signInId: account?.signInId ?? null } satisfies Mark;
+        });
+
+      /**
+       * Whether the answer to a request made at `mark` is for a session this
+       * page no longer holds, read just before the answer would be saved or
+       * the session ended: the session was replaced or ended here, or another
+       * tab has stored another sign-in, or none, since. Another tab's change
+       * ends the session here too, as `syncFromStorage` would on its event, so
+       * its stored account is never written over or removed. The generation is
+       * compared after the storage read, so nothing can replace the session
+       * between this check and the write that follows it.
+       */
+      const superseded = (mark: Mark) =>
+        Effect.gen(function* () {
+          const raw = yield* storage.get(ACCOUNT_SESSION_KEY);
+          if (sessionGeneration !== mark.generation) return true;
+          let signInId: string | null | undefined = null;
+          if (raw !== null) {
             try {
-              const account = decodeAccountSession(JSON.parse(raw)) as AccountSession;
-              cache = account;
-              return account;
+              // This page gives every stored account it reads a sign-in id
+              // (`getAccountSession`), so one without is another sign-in's,
+              // written by an older client: as `syncFromStorage` reads it.
+              signInId = decodeStoredAccount(JSON.parse(raw)).signInId ?? "";
             } catch {
-              yield* storage.remove(ACCOUNT_SESSION_KEY);
-              cache = null;
-              return null;
+              // Unreadable: it says nothing about which sign-in is stored.
+              signInId = undefined;
             }
           }
-
-          cache = null;
-          return null;
+          if (signInId === undefined || signInId === mark.signInId) return false;
+          yield* endSession(signInId !== null);
+          return true;
         });
 
       // ---------------------------------------------------------------------------
@@ -274,9 +580,18 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       //     gone/expired/rotated-out. The user IS logged out — fail fast, no
       //     retry (retrying a rejected grant is pointless and a rotated cookie
       //     replay would only trip reuse detection).
-      //   - TRANSIENT (429, 5xx): the cookie is probably still alive; the
-      //     server just couldn't answer. Retry with bounded backoff before
-      //     giving up so a momentary hiccup doesn't evict a live session.
+      //   - UNKNOWN (400 invalid_grant that the issuer marks as saying nothing
+      //     about the cookie — a concurrent grant won the rotation, or the
+      //     database blipped; see `grantRefusalLeftStatusUnknown`): the
+      //     cookie is alive, and after a race the browser already holds the
+      //     winner's successor. ONE retry after a short pause; a second
+      //     unknown answer is transient, never terminal.
+      //   - TRANSIENT (5xx): the cookie is probably still alive; the server
+      //     just couldn't answer. Retry with bounded backoff before giving up
+      //     so a momentary hiccup doesn't evict a live session.
+      //   - RATE LIMITED (429): the issuer asked for fewer requests, and a
+      //     retry inside the same window would be refused too. No retry; the
+      //     failure carries any `Retry-After` for `renew`'s pause.
       //   - NETWORK (fetch rejects): could be a dropped connection, but it is
       //     equally a CORS refusal — the browser reports both as the same
       //     opaque TypeError. A refused origin never becomes an allowed one on
@@ -292,38 +607,59 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         constructor(readonly status: number) {}
       }
 
+      // A 400 the issuer marks as leaving the cookie's status unknown — see
+      // UNKNOWN above.
+      class UnknownGrantError {
+        readonly _tag = "UnknownGrantError";
+        constructor(readonly status: number) {}
+      }
+
+      // A 429, with the pause the issuer asked for when it gave one.
+      class RateLimitedGrantError {
+        readonly _tag = "RateLimitedGrantError";
+        constructor(readonly retryAfterMs: number | undefined) {}
+      }
+
       // `fetch` itself rejected — no response came back at all.
       class NetworkGrantError {
         readonly _tag = "NetworkGrantError";
         constructor(readonly cause: unknown) {}
       }
 
-      // Bounded exponential backoff for transient /token failures. Three
-      // attempts total (~0 + 200ms + 400ms ≈ 0.6s worst case) keeps the
-      // cold-start path responsive while absorbing a single Worker cold-start
-      // or transient upstream blip. Terminal (4xx) failures short-circuit.
+      // Bounded exponential backoff for a /token 5xx. Three attempts total
+      // (~0 + 200ms + 400ms ≈ 0.6s worst case) keeps the cold-start path
+      // responsive while absorbing a single Worker cold-start or transient
+      // upstream blip. Terminal (4xx) failures and 429 short-circuit.
       const TOKEN_GRANT_RETRY_DELAYS_MS = [200, 400] as const;
 
       // Two attempts total for the network class — see NETWORK above.
       const NETWORK_GRANT_RETRY_DELAYS_MS = [200] as const;
 
-      const fetchTokenGrantOnce = () =>
+      // Long enough for the winning grant's response, and the successor
+      // cookie it sets, to reach the browser before the retry leaves.
+      const UNKNOWN_GRANT_RETRY_DELAY_MS = 250;
+
+      // `profileId` names the profile to mint for; with none the issuer mints
+      // for the account's default profile.
+      const fetchTokenGrantOnce = (profileId: string | undefined) =>
         Effect.gen(function* () {
           // The `fetch` call stands alone so that ONLY a transport failure can
           // be classified as network. `fetch` rejects with a `TypeError` for
           // transport failure specifically, but `TypeError` is a type JS reuses
           // for everything — with response handling inside this try, a genuine
           // parse or shape bug would be relabelled "network" and retried on the
-          // wrong ladder, and no signal would distinguish the two (S-L3).
+          // wrong ladder, and no signal would distinguish the two.
           const response = yield* Effect.tryPromise({
             try: () =>
               sessionFetch(`${config.issuerUrl}/token`, {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 credentials: "include",
-                body: new URLSearchParams({
-                  grant_type: "refresh_token",
-                }).toString(),
+                body: new URLSearchParams(
+                  profileId === undefined
+                    ? { grant_type: "refresh_token" }
+                    : { grant_type: "refresh_token", profile_id: profileId },
+                ).toString(),
               }),
             catch: (cause) =>
               cause instanceof Error && cause.name === "TypeError"
@@ -332,20 +668,35 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           });
 
           const raw = yield* Effect.tryPromise({
-            try: () => {
-              if (response.ok) return response.json() as Promise<unknown>;
-              // 4xx ⇒ terminal: cookie gone/expired/rotated. 429/5xx ⇒
-              // transient: throw a plain Error so the retry policy kicks in.
-              if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+            try: async () => {
+              if (response.ok) return (await response.json()) as unknown;
+              // 4xx ⇒ terminal: cookie gone/expired/rotated, unless the
+              // issuer marked a 400 as saying nothing about the cookie.
+              // 429 ⇒ rate limited. 5xx ⇒ transient: throw a plain Error so
+              // the retry policy kicks in.
+              if (response.status === 429) {
+                throw new RateLimitedGrantError(
+                  parseRetryAfterMs(response.headers.get("retry-after")),
+                );
+              }
+              if (response.status >= 400 && response.status < 500) {
+                const body: unknown = await response.json().catch(() => null);
+                if (response.status === 400 && grantRefusalLeftStatusUnknown(body)) {
+                  throw new UnknownGrantError(response.status);
+                }
                 throw new TerminalGrantError(response.status);
               }
               throw new Error(`Token grant failed (transient): ${response.status}`);
             },
-            // TerminalGrantError must pass through untouched so the retry
-            // policy can refuse to retry it. Everything else here — a transient
+            // The two refusal classes must pass through untouched so the retry
+            // policy can tell them apart. Everything else here — a transient
             // status, a body that will not parse — is a plain transient failure.
             catch: (cause) =>
-              cause instanceof TerminalGrantError ? cause : new TokenRefreshError({ cause }),
+              cause instanceof TerminalGrantError ||
+              cause instanceof UnknownGrantError ||
+              cause instanceof RateLimitedGrantError
+                ? cause
+                : new TokenRefreshError({ cause }),
           });
 
           return yield* Effect.try({
@@ -354,20 +705,54 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           });
         });
 
-      const fetchTokenGrant = () =>
+      // A grant whose session has gone sends nothing more: no caller can use
+      // its answer, and a retry would carry whatever cookie the jar holds now.
+      const grantGone = () =>
+        new TokenRefreshError({ cause: "the session this grant was for has gone" });
+
+      // `generation` is the session generation the grant was sent for, or
+      // `null` for a held session's, which no change of the page's session
+      // stops.
+      const fetchTokenGrant = (profileId: string | undefined, generation: number | null) =>
         Effect.gen(function* () {
           let lastError: TokenRefreshError = new TokenRefreshError({ cause: "no attempt" });
-          for (let attempt = 0; ; attempt += 1) {
-            const result = yield* Effect.result(fetchTokenGrantOnce());
+          let unknownRetried = false;
+          let attempt = 0;
+          for (;;) {
+            const result = yield* Effect.result(fetchTokenGrantOnce(profileId));
             if (result._tag === "Success") return result.success;
 
             const err = result.failure;
             // Terminal 4xx ⇒ genuinely logged out: stop immediately. Map to a
-            // TokenRefreshError so the public surface stays a single error type.
+            // TokenRefreshError so the public surface stays a single error
+            // type; `refused` is what tells callers the session is over.
             if (err instanceof TerminalGrantError) {
               return yield* Effect.fail(
-                new TokenRefreshError({ cause: `invalid_grant (${err.status})` }),
+                new TokenRefreshError({ cause: `invalid_grant (${err.status})`, refused: true }),
               );
+            }
+
+            if (err instanceof RateLimitedGrantError) {
+              return yield* Effect.fail(
+                new TokenRefreshError({
+                  cause: "token grant rate limited (429)",
+                  retryAfterMs: err.retryAfterMs,
+                }),
+              );
+            }
+
+            if (err instanceof UnknownGrantError) {
+              if (unknownRetried) {
+                return yield* Effect.fail(
+                  new TokenRefreshError({ cause: `invalid_grant (${err.status}), status unknown` }),
+                );
+              }
+              unknownRetried = true;
+              yield* Effect.sleep(`${UNKNOWN_GRANT_RETRY_DELAY_MS} millis`);
+              if (generation !== null && sessionGeneration !== generation) {
+                return yield* Effect.fail(grantGone());
+              }
+              continue;
             }
 
             const isNetwork = err instanceof NetworkGrantError;
@@ -375,7 +760,11 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             const delays = isNetwork ? NETWORK_GRANT_RETRY_DELAYS_MS : TOKEN_GRANT_RETRY_DELAYS_MS;
             const delay: number | undefined = delays[attempt];
             if (delay === undefined) return yield* Effect.fail(lastError);
+            attempt += 1;
             yield* Effect.sleep(`${delay} millis`);
+            if (generation !== null && sessionGeneration !== generation) {
+              return yield* Effect.fail(grantGone());
+            }
           }
         });
 
@@ -397,33 +786,76 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       // (Cross-TAB coordination — a Web Locks guard — is a further improvement
       // left for a follow-up; the server grace window already prevents
       // cross-tab races from revoking the family.)
+      //
+      // A caller that wants a profile joins any grant in flight, and keeps
+      // its result when that grant minted for the profile it wants — the
+      // default profile's renewal joining a reload's bootstrap, say. When it
+      // did not, the caller sends its own grant after that one, never
+      // alongside it, so two grants of one cookie never overlap.
+      //
+      // A grant belongs to the session generation it was sent in. A caller
+      // never takes the answer of one sent for an earlier session: it waits
+      // that grant out and sends its own.
       // -----------------------------------------------------------------------
       type GrantResult =
         | { readonly _tag: "Failure"; readonly failure: TokenRefreshError }
         | { readonly _tag: "Success"; readonly success: ReturnType<typeof parseTokenResponse> };
-      let inFlightGrant: Promise<GrantResult> | null = null;
+      interface GrantInFlight {
+        readonly profileId: string | undefined;
+        readonly generation: number | null;
+        readonly promise: Promise<GrantResult>;
+      }
+      let inFlightGrant: GrantInFlight | null = null;
 
-      const sharedTokenGrant = () =>
+      const startGrant = (
+        profileId: string | undefined,
+        generation: number | null,
+      ): GrantInFlight => {
+        const promise = Effect.runPromise(
+          Effect.result(fetchTokenGrant(profileId, generation)),
+        ) as Promise<GrantResult>;
+        const entry = { profileId, generation, promise };
+        inFlightGrant = entry;
+        void promise.finally(() => {
+          if (inFlightGrant === entry) inFlightGrant = null;
+        });
+        return entry;
+      };
+
+      // `generation` is the one the caller's request was made in; `null` is a
+      // held session's, which joins any grant in flight as before.
+      const sharedTokenGrant = (
+        profileId?: string,
+        generation: number | null = sessionGeneration,
+      ) =>
         Effect.gen(function* () {
-          if (!inFlightGrant) {
-            const promise = Effect.runPromise(
-              Effect.result(fetchTokenGrant()),
-            ) as Promise<GrantResult>;
-            inFlightGrant = promise;
-            void promise.finally(() => {
-              if (inFlightGrant === promise) inFlightGrant = null;
+          for (;;) {
+            if (generation !== null && sessionGeneration !== generation) {
+              return yield* Effect.fail(grantGone());
+            }
+            const entry = inFlightGrant ?? startGrant(profileId, generation);
+            const result = yield* Effect.tryPromise({
+              try: () => entry.promise,
+              catch: (cause) => new TokenRefreshError({ cause }),
             });
+            if (generation !== null && entry.generation !== generation) {
+              if (inFlightGrant === entry) inFlightGrant = null;
+              continue;
+            }
+            if (result._tag === "Failure") return yield* Effect.fail(result.failure);
+            if (
+              profileId === undefined ||
+              entry.profileId === profileId ||
+              extractJwtSub(result.success.accessToken) === profileId
+            ) {
+              return result.success;
+            }
+            if (inFlightGrant === entry) inFlightGrant = null;
           }
-          const result = yield* Effect.tryPromise({
-            try: () => inFlightGrant!,
-            catch: (cause) => new TokenRefreshError({ cause }),
-          });
-          if (result._tag === "Failure") return yield* Effect.fail(result.failure);
-          return result.success;
         });
 
       // -----------------------------------------------------------------------
-      // Single-flight refresh (S-H1 / P-W1).
+      // Single-flight refresh.
       //
       // Multiple concurrent authFetch calls that all 401 must NOT each fire
       // /token. The server rotates the session token on every grant (Copenhagen
@@ -433,55 +865,181 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       //
       // Store the in-flight refresh as a shared Promise<Result>. Concurrent
       // callers join it instead of kicking off a second /token roundtrip.
+      // `supersede` drops it, so a caller for a new session never joins one
+      // started for the session before.
       // -----------------------------------------------------------------------
 
       type RefreshResult =
-        | { readonly _tag: "Failure"; readonly failure: TokenRefreshError | StorageError }
+        | {
+            readonly _tag: "Failure";
+            readonly failure:
+              | TokenRefreshError
+              | ActiveProfileResetError
+              | AuthExpiredError
+              | StorageError;
+          }
         | { readonly _tag: "Success"; readonly success: Session };
       let inFlightRefresh: Promise<RefreshResult> | null = null;
 
+      // After a renewal fails without a refusal, `renew` sends nothing until
+      // this time. Set and cleared in `refreshSession`, once per renewal
+      // however many callers joined it, and cleared by `supersede`.
+      let renewBackoffMs = 0;
+      let renewBlockedUntil = 0;
+
+      const noteRenewal = (result: RefreshResult) => {
+        const failure = result._tag === "Failure" ? result.failure : null;
+        if (failure instanceof TokenRefreshError) {
+          if (failure.refused) return;
+          renewBackoffMs =
+            renewBackoffMs === 0
+              ? RENEW_BACKOFF_FIRST_MS
+              : Math.min(renewBackoffMs * 2, RENEW_BACKOFF_MAX_MS);
+          renewBlockedUntil = Date.now() + (failure.retryAfterMs ?? renewBackoffMs);
+          return;
+        }
+        if (failure instanceof StorageError) return;
+        // A token came back, whatever happened after it.
+        renewBackoffMs = 0;
+        renewBlockedUntil = 0;
+      };
+
       const doRefresh = () =>
         Effect.gen(function* () {
+          const generation = sessionGeneration;
           const account = yield* getAccountSession();
           if (!account) {
-            return yield* Effect.fail(new TokenRefreshError({ cause: "No session available" }));
+            return yield* Effect.fail(
+              new TokenRefreshError({ cause: "No session available", refused: true }),
+            );
           }
+          const mark: Mark = { generation, signInId: account.signInId };
 
-          // C3: session token is in the HttpOnly cookie; send credentials: include.
-          const next = yield* sharedTokenGrant();
+          // The session token is in the HttpOnly cookie; send credentials:
+          // include. The grant always names the active profile, so the issuer
+          // mints for it, and refuses it when the cookie's account does not
+          // own it — the cookie can be another account's. A grant naming none
+          // would be minted for the cookie account's default profile, whoever
+          // that is. An empty id goes out as `profile_id=`, which the issuer
+          // refuses. `wanted` is read now: a switch can change the active
+          // profile while the grant is out, and the answer is about the
+          // profile the grant named.
+          const wanted = account.activeProfileId;
+          const answer = yield* Effect.result(sharedTokenGrant(wanted, generation));
 
-          const profileId = extractJwtSub(next.accessToken) ?? account.activeProfileId;
-          account.profileTokens[profileId] = {
+          // The session was replaced or ended while the grant was out, here or
+          // in another tab. Whatever the issuer said is about that session:
+          // nothing is stored or reset, and the request that asked for the
+          // renewal is not sent.
+          if (yield* superseded(mark)) return yield* Effect.fail(supersededError());
+          if (answer._tag === "Failure") {
+            // A refusal ends the session, here, where nothing can have
+            // replaced it since the check above.
+            if (answer.failure.refused) yield* endSession();
+            return yield* Effect.fail(answer.failure);
+          }
+          const next = answer.success;
+
+          // The profile the issuer minted for. A token that does not say is
+          // never stored: filed under the active profile it could carry
+          // another profile's identity into a request made as this one.
+          const granted = extractJwtSub(next.accessToken);
+          if (granted === null) {
+            return yield* Effect.fail(
+              new TokenRefreshError({ cause: "the granted token names no profile" }),
+            );
+          }
+          // The profile was deleted while the grant was out: its token is not
+          // kept, where a later delete could make it active again, and the
+          // request made as it is not sent. The delete has already made
+          // another profile active.
+          if (deletedProfiles.has(granted)) {
+            return yield* Effect.fail(
+              new ActiveProfileResetError({
+                profileId: account.activeProfileId,
+                message: "The profile this request was made as is gone; nothing was sent",
+              }),
+            );
+          }
+          // Whether the account's deletion was pending under the token this
+          // replaces: a change either way is news to the page.
+          const before = account.profileTokens[granted]?.accessToken;
+          const wasPending = before !== undefined && isPendingDeletionToken(before);
+          const isPending = isPendingDeletionToken(next.accessToken);
+          account.profileTokens[granted] = {
             accessToken: next.accessToken,
             expiresAt: next.expiresAt,
           };
-          // C3: refresh token lives in the HttpOnly cookie; the fact that this
+          // The refresh token lives in the HttpOnly cookie; the fact that this
           // refresh call succeeded is itself proof the cookie is alive.
           account.hasSession = true;
           account.scopes = next.scopes;
           account.idToken = next.idToken;
 
+          // The issuer minted what the grant asked for. A switch that landed
+          // meanwhile stays: the token is stored, and the request that needed
+          // it goes out as the profile it was made as.
+          if (granted === wanted || account.activeProfileId === granted) {
+            yield* saveAccountSession(account);
+            if (wasPending !== isPending) notify({ kind: "pending-deletion", pending: isPending });
+            return next;
+          }
+
+          // The issuer minted another profile than the one named. osn-api
+          // refuses a profile the account does not own, and mints the default
+          // profile instead of a named one the account owns only for a
+          // restricted recovery session or an account scheduled for deletion.
+          // The request that needed its token is not sent.
+          if (account.activeProfileId !== wanted) {
+            // The page has switched to another profile since, which holds its
+            // own token: nothing to reset.
+            yield* saveAccountSession(account);
+            return yield* Effect.fail(
+              new ActiveProfileResetError({
+                profileId: account.activeProfileId,
+                message: "The profile this request was made as is gone; nothing was sent",
+              }),
+            );
+          }
+          // Fall back to the default profile, as a reload does.
+          account.activeProfileId = granted;
           yield* saveAccountSession(account);
-          return next;
+          notify({ kind: "profile-reset", profileId: granted });
+          return yield* Effect.fail(
+            new ActiveProfileResetError({
+              profileId: granted,
+              message: "The active profile is gone; the default profile is active",
+            }),
+          );
         });
+
+      const startRefresh = () => {
+        const generation = sessionGeneration;
+        // Result-wrapped so the shared promise never rejects — survives
+        // FiberFailure wrapping from runPromise across Effect versions.
+        const promise = (
+          Effect.runPromise(Effect.result(doRefresh())) as Promise<RefreshResult>
+        ).then((result) => {
+          // A renewal for a session that has gone neither sets nor clears the
+          // pause: the pause went with that session.
+          if (sessionGeneration === generation) noteRenewal(result);
+          return result;
+        });
+        inFlightRefresh = promise;
+        // Clear the cache once the refresh settles so the next 401 burst
+        // kicks off a fresh refresh rather than replaying a stale result.
+        void promise.finally(() => {
+          if (inFlightRefresh === promise) inFlightRefresh = null;
+        });
+        return promise;
+      };
 
       const refreshSession = () =>
         Effect.gen(function* () {
           // Join the in-flight refresh if one is already running.
-          if (!inFlightRefresh) {
-            // Result-wrapped so the shared promise never rejects — survives
-            // FiberFailure wrapping from runPromise across Effect versions.
-            const promise = Effect.runPromise(Effect.result(doRefresh())) as Promise<RefreshResult>;
-            inFlightRefresh = promise;
-            // Clear the cache once the refresh settles so the next 401 burst
-            // kicks off a fresh refresh rather than replaying a stale result.
-            void promise.finally(() => {
-              if (inFlightRefresh === promise) inFlightRefresh = null;
-            });
-          }
-
+          const flight = inFlightRefresh ?? startRefresh();
           const result = yield* Effect.tryPromise({
-            try: () => inFlightRefresh!,
+            try: () => flight,
             catch: (cause) => new TokenRefreshError({ cause }),
           });
           if (result._tag === "Failure") {
@@ -510,8 +1068,13 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       // so `adoptSession`/`setSession` refuse it at compile time — see
       // `HeldSession` in `./tokens`.
       // -----------------------------------------------------------------------
+      // A held session is not the page's, so the page's session changing
+      // says nothing about it: its grant carries no generation.
       const refreshHeldSession = (): Effect.Effect<HeldSession, TokenRefreshError> =>
-        Effect.map(sharedTokenGrant(), (session): HeldSession => ({ held: true, session }));
+        Effect.map(sharedTokenGrant(undefined, null), (session): HeldSession => ({
+          held: true,
+          session,
+        }));
 
       // -----------------------------------------------------------------------
       // Cold-start bootstrap (production login-loop fix).
@@ -527,18 +1090,53 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       // not double-hit /token — replaying a rotated cookie trips C2 reuse
       // detection). On any failure (no/expired cookie → non-2xx, or network),
       // resolve to null: genuinely logged out, fail-safe, no throw.
+      //
+      // A session set or ended while the grant is out wins: the load resolves
+      // to what the page holds then, and the grant's answer is dropped.
       // -----------------------------------------------------------------------
-      let inFlightBootstrap: Promise<RefreshResult> | null = null;
+      type BootstrapResult =
+        | { readonly _tag: "Failure"; readonly failure: StorageError }
+        | { readonly _tag: "Success"; readonly success: Session | null };
+      let inFlightBootstrap: Promise<BootstrapResult> | null = null;
 
-      const doBootstrap = () =>
+      // `wanted` is the profile the page was on before the reload; the
+      // issuer mints for it while the account owns it, and refuses the grant
+      // otherwise, which forgets the stored account below. Only a cold start,
+      // when the page holds no account, names none.
+      // `signInId` is the stored account's on a reload; a cold start with no
+      // stored account begins a new one.
+      const doBootstrap = (wanted: string | undefined, signInId: string | undefined) =>
         Effect.gen(function* () {
-          const next = yield* sharedTokenGrant();
+          const mark: Mark = { generation: sessionGeneration, signInId: signInId ?? null };
+          // Another tab's sign-in is stored and this page holds none of it:
+          // the answer would be dropped, so no grant is sent.
+          if (yield* superseded(mark)) return cache ? toSession(cache) : null;
+          const answer = yield* Effect.result(sharedTokenGrant(wanted, mark.generation));
+
+          // The session was replaced or ended while the grant was out, here or
+          // in another tab: the page keeps what it holds now, whatever the
+          // issuer said, and nothing is saved or forgotten.
+          if (yield* superseded(mark)) return cache ? toSession(cache) : null;
+
+          if (answer._tag === "Failure") {
+            // A refused grant means the cookie is gone: forget the stored
+            // account, so the next load does not spend a grant on it. A
+            // failure that says nothing about the cookie keeps it for the
+            // next load.
+            if (answer.failure.refused) {
+              cache = null;
+              yield* storage.remove(ACCOUNT_SESSION_KEY).pipe(Effect.catch(() => Effect.void));
+            }
+            return null;
+          }
+          const next = answer.success;
 
           // The access token's `sub` is the active profile id.
           const profileId = extractJwtSub(next.accessToken) ?? "default";
           const account: AccountSession = {
             hasSession: true,
             activeProfileId: profileId,
+            signInId: signInId ?? newSignInId(),
             profileTokens: {
               [profileId]: {
                 accessToken: next.accessToken,
@@ -552,31 +1150,31 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           return next;
         });
 
-      const bootstrapFromCookie = () =>
+      const startBootstrap = (wanted: string | undefined, signInId: string | undefined) => {
+        const promise = Effect.runPromise(
+          Effect.result(doBootstrap(wanted, signInId)),
+        ) as Promise<BootstrapResult>;
+        inFlightBootstrap = promise;
+        void promise.finally(() => {
+          if (inFlightBootstrap === promise) inFlightBootstrap = null;
+        });
+        return promise;
+      };
+
+      const bootstrapFromCookie = (wanted?: string, signInId?: string) =>
         Effect.gen(function* () {
-          if (!inFlightBootstrap) {
-            const promise = Effect.runPromise(
-              Effect.result(doBootstrap()),
-            ) as Promise<RefreshResult>;
-            inFlightBootstrap = promise;
-            void promise.finally(() => {
-              if (inFlightBootstrap === promise) inFlightBootstrap = null;
-            });
-          }
+          const flight = inFlightBootstrap ?? startBootstrap(wanted, signInId);
 
-          // The shared promise is Result-wrapped so it never rejects; any
-          // failure (bad cookie, network, storage) arrives as a Left and maps
-          // to null — a failed bootstrap means "logged out", never a throw.
-          // A defensive orElse covers the should-never-happen rejection too.
+          // The shared promise is Result-wrapped so it never rejects; a failed
+          // grant arrives as a null session and a storage failure as a Left,
+          // which maps to null too — a failed bootstrap means "logged out",
+          // never a throw. A defensive orElse covers the should-never-happen
+          // rejection.
           const result = yield* Effect.tryPromise({
-            try: () => inFlightBootstrap!,
+            try: () => flight,
             catch: (cause) => new TokenRefreshError({ cause }),
-          }).pipe(
-            Effect.map((r): Session | null => (r._tag === "Failure" ? null : r.success)),
-            Effect.orElseSucceed((): Session | null => null),
-          );
-
-          return result;
+          }).pipe(Effect.orElseSucceed((): BootstrapResult | null => null));
+          return result?._tag === "Success" ? result.success : null;
         });
 
       // loadSession — the session-load entry point the SolidJS resource calls
@@ -584,19 +1182,16 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       //
       //   1. No stored account → cold-start bootstrap from the HttpOnly cookie
       //      (post-login full-page navigation).
-      //   2. Stored account WITH a still-valid cached access token → return it
-      //      directly (the fast path; no /token roundtrip).
-      //   3. Stored account whose cached access token has EXPIRED but which
-      //      still believes it `hasSession` → rehydrate from the cookie. This
-      //      is the common reload case: access tokens live only in memory with
-      //      a 5-minute TTL, so the persisted copy in localStorage is almost
-      //      always stale on reload. Without this branch, `toSession` returns
-      //      null for an expired token and the user is bounced to sign-in even
-      //      though the 30-day refresh cookie is alive — the production
-      //      "logged out on every reload" bug. We reuse the same cookie grant
-      //      as the cold-start path (single-flighted, retry/backoff on
-      //      transient errors, fail-safe to null on a terminal invalid_grant).
-      const loadSession = () =>
+      //   2. A session this page already holds, with a still-valid access
+      //      token → return it directly (no /token roundtrip).
+      //   3. A stored account that believes it `hasSession`, but no valid
+      //      token in hand → rehydrate from the cookie. This is every reload:
+      //      access tokens live only in memory, so a reloaded page has none.
+      //      The grant names the profile the page was on. We reuse the same
+      //      cookie grant as the cold-start path (single-flighted,
+      //      retry/backoff on transient errors, fail-safe to null on a
+      //      terminal invalid_grant, which also forgets the stored account).
+      const loadSession = (): Effect.Effect<Session | null, StorageError> =>
         Effect.gen(function* () {
           const account = yield* getAccountSession();
           // No stored account AND no marker ⇒ this browser has never held a
@@ -613,15 +1208,20 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           const live = toSession(account);
           if (live) return live;
 
-          // Cached access token is expired (or absent). If the account still
-          // holds a server session, the refresh cookie should rehydrate it.
-          if (account.hasSession) return yield* bootstrapFromCookie();
+          // No valid token in hand. If the account still holds a server
+          // session, the refresh cookie should rehydrate it, as the profile
+          // the page was on. The grant always names it, as a renewal's does
+          // (`doRefresh`), so the issuer refuses it when the cookie is
+          // another account's.
+          if (account.hasSession) {
+            return yield* bootstrapFromCookie(account.activeProfileId, account.signInId);
+          }
           return null;
         });
 
       const logout = () =>
         Effect.gen(function* () {
-          // C3: server-side session destruction + cookie clearing
+          // Server-side session destruction + cookie clearing
           yield* Effect.tryPromise({
             try: () =>
               sessionFetch(`${config.issuerUrl}/logout`, {
@@ -632,21 +1232,176 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
               }),
             catch: () => new StorageError({ cause: "Logout request failed" }),
           }).pipe(Effect.catch(() => Effect.void));
+          // After `/logout`, not before: a request that left while it was out
+          // was made for the session it ended.
+          supersede();
           cache = null;
           yield* storage.remove(ACCOUNT_SESSION_KEY);
         });
 
-      const setSession = (session: Session) => saveAccountSession(sessionToAccountSession(session));
+      const setSession = (session: Session) =>
+        Effect.suspend(() => {
+          supersede();
+          return saveAccountSession(sessionToAccountSession(session));
+        });
+
+      // ---------------------------------------------------------------------------
+      // authFetch
+      // ---------------------------------------------------------------------------
+
+      /**
+       * Renew the active profile's token for a request. A refusal ends the
+       * session and surfaces as `AuthExpiredError`; a transient failure
+       * fails only this call and keeps the session for the next one. After a
+       * transient failure it sends nothing until the pause `noteRenewal` set
+       * is over. A renewal for a session replaced or ended meanwhile is an
+       * `AuthExpiredError` that ends nothing.
+       */
+      const renew = () =>
+        Effect.gen(function* () {
+          if (Date.now() < renewBlockedUntil) {
+            return yield* Effect.fail(
+              new TokenRefreshError({
+                cause: "renewal paused after a failed attempt",
+                message: "Could not renew the session; try again",
+              }),
+            );
+          }
+          const result = yield* Effect.result(refreshSession());
+          if (result._tag === "Success") return result.success;
+          const err = result.failure;
+          if (err instanceof TokenRefreshError) {
+            // The renewal has already ended the session.
+            if (err.refused) return yield* Effect.fail(new AuthExpiredError({ cause: err.cause }));
+            return yield* Effect.fail(
+              new TokenRefreshError({
+                cause: err.cause,
+                message: "Could not renew the session; try again",
+              }),
+            );
+          }
+          return yield* Effect.fail(err);
+        });
+
+      /**
+       * The token for a request whose held token is due for renewal. When the
+       * renewal fails without a refusal and the held token has not expired,
+       * the held token is good enough: the request goes out with it.
+       */
+      const renewOrKeep = (held: ProfileToken | undefined) =>
+        Effect.gen(function* () {
+          const renewed = yield* Effect.result(renew());
+          if (renewed._tag === "Success") return renewed.success.accessToken;
+          if (renewed.failure instanceof TokenRefreshError && held && Date.now() < held.expiresAt) {
+            return held.accessToken;
+          }
+          return yield* Effect.fail(renewed.failure);
+        });
+
+      const send = (input: string, init: RequestInit | undefined, accessToken: string) => {
+        const headers = new Headers(init?.headers);
+        // Always the account's token: a caller-supplied credential is never
+        // sent, so a 401 here can only be about this session.
+        headers.set("Authorization", `Bearer ${accessToken}`);
+        return Effect.tryPromise({
+          try: () => fetch(input, { credentials: "include", ...init, headers }),
+          catch: (cause) => new AuthFetchTransportError({ cause }),
+        });
+      };
+
+      /**
+       * authFetch — send with the active profile's access token, renewing it
+       * as needed.
+       *
+       * Access tokens are short-lived (5 min default), so most long-lived
+       * pages renew often. Renewing before the token expires keeps an expired
+       * token off the wire; retrying once on a 401 covers a token the server
+       * refused anyway. Only a refusal ends the session: a renewal that could
+       * not reach the issuer fails this call alone, unless the token in hand
+       * is still valid: then that token is sent.
+       *
+       * The token goes only to the issuer's origin. Any other URL is refused
+       * before anything is read or sent, as `fetch` refuses a bad URL.
+       *
+       * A request belongs to the session it was made for. Once that session
+       * is replaced or ended, the request is not renewed, not sent again and
+       * ends nothing, and its answer, whatever it was, reaches the caller as
+       * `AuthExpiredError` instead.
+       */
+      const authFetch = (input: string, init?: RequestInit) =>
+        Effect.gen(function* () {
+          if (!onIssuerOrigin(input, config.issuerUrl)) {
+            return yield* Effect.fail(
+              new AuthFetchTransportError({
+                cause: new TypeError("authFetch sends only to the issuer's origin"),
+              }),
+            );
+          }
+
+          // Noted before the account is read: a session set while it is read
+          // makes this request one for the session before.
+          const generation = sessionGeneration;
+          const account = yield* syncFromStorage();
+          if (!account) {
+            return yield* Effect.fail(new AuthExpiredError({ cause: "no session" }));
+          }
+          const mark: Mark = { generation, signInId: account.signInId };
+          const madeFor = () =>
+            sessionGeneration === generation ? Effect.void : Effect.fail(supersededError());
+
+          const held = account.profileTokens[account.activeProfileId];
+          const token = needsRenewal(held) ? yield* renewOrKeep(held) : held!.accessToken;
+          yield* madeFor();
+
+          const first = yield* send(input, init, token);
+          yield* madeFor();
+          if (first.status !== 401) return first;
+
+          // Renew + retry once.
+          const renewed = yield* renew();
+          yield* madeFor();
+          const second = yield* send(input, init, renewed.accessToken);
+          yield* madeFor();
+          // A token of an account whose deletion is pending reaches only the
+          // deletion status, the download and the restore. Refused after a
+          // renewal that minted one, the route does not serve the session;
+          // the renewal itself proved the session live, so nothing ends.
+          if (second.status === 401 && isPendingDeletionToken(renewed.accessToken)) return second;
+          if (second.status === 401) {
+            // Ends only this page's own sign-in: another tab's, stored while
+            // the retry was out, is left in place.
+            if (yield* superseded(mark)) return yield* Effect.fail(supersededError());
+            yield* endSession();
+            return yield* Effect.fail(
+              new AuthExpiredError({ cause: "refresh did not repair 401" }),
+            );
+          }
+          return second;
+        });
 
       // ---------------------------------------------------------------------------
       // Profile management methods (P4)
       // ---------------------------------------------------------------------------
 
-      // S-H1: Profile endpoints authenticate via Bearer access token (not
+      // Profile endpoints authenticate via Bearer access token (not
       // refresh token in body). The access token's `sub` claim identifies
-      // the caller's profile; the server resolves the owning account.
+      // the caller's profile; the server resolves the owning account. They
+      // send through `authFetch`, so an expired token is renewed first.
 
-      const listProfiles = () =>
+      /**
+       * One profile endpoint call, resolving to its JSON success body as
+       * `decode` reads it. "No session" is checked before anything is sent.
+       * `AuthExpiredError` passes through. Every other failure is a
+       * `ProfileManagementError`: with the response's status and the server's
+       * code for a refusal, the status alone for a success whose body is not
+       * JSON, status `0` when no response arrived, and neither when the call
+       * failed before it was sent or `decode` refused the body.
+       */
+      const profileRequest = <T>(
+        path: string,
+        init: { method: "GET" | "POST"; body?: string },
+        decode: (raw: unknown) => T,
+      ) =>
         Effect.gen(function* () {
           const account = yield* getAccountSession();
           if (!account) {
@@ -655,63 +1410,80 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             );
           }
 
-          const headers = authHeader(account);
-          if (!headers) {
+          const res = yield* authFetch(`${config.issuerUrl}${path}`, {
+            ...init,
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+          }).pipe(
+            Effect.mapError((cause): AuthExpiredError | ProfileManagementError => {
+              if (cause instanceof AuthExpiredError) return cause;
+              if (cause instanceof AuthFetchTransportError) {
+                return new ProfileManagementError({ cause: cause.cause, status: 0 });
+              }
+              return new ProfileManagementError({ cause });
+            }),
+          );
+
+          // `safeJson` never rejects: a body that is not JSON reads as null.
+          const body = yield* Effect.promise(() => safeJson<unknown>(res));
+          if (!res.ok || body === null) {
             return yield* Effect.fail(
-              new ProfileManagementError({ cause: "No valid access token" }),
+              new ProfileManagementError({
+                cause: new Error(
+                  `${res.ok ? "Invalid response" : "Request failed"}: ${res.status}`,
+                ),
+                status: res.status,
+                code: res.ok ? undefined : errorCode(body),
+              }),
             );
           }
-
-          // S-M4: Validate response schema
-          const res = yield* Effect.tryPromise({
-            try: async () => {
-              const r = await fetch(`${config.issuerUrl}/profiles/list`, {
-                method: "GET",
-                headers,
-                credentials: "include",
-              });
-              if (!r.ok) throw new Error(`Request failed: ${r.status}`);
-              return decodeListProfilesResponse(await r.json());
-            },
+          // Validate the response's shape
+          return yield* Effect.try({
+            try: () => decode(body),
             catch: (cause) => new ProfileManagementError({ cause }),
           });
-
-          return res.profiles as PublicProfile[];
         });
+
+      /** The account after a profile call: the one in hand may have been replaced meanwhile. */
+      const currentAccount = () =>
+        Effect.gen(function* () {
+          const account = yield* getAccountSession();
+          if (!account) {
+            return yield* Effect.fail(
+              new ProfileManagementError({ cause: "No session available" }),
+            );
+          }
+          return account;
+        });
+
+      const listProfiles = () =>
+        Effect.map(
+          profileRequest("/profiles/list", { method: "GET" }, decodeListProfilesResponse),
+          (res) => res.profiles as PublicProfile[],
+        );
 
       const switchProfile = (profileId: string) =>
         Effect.gen(function* () {
-          const account = yield* getAccountSession();
-          if (!account) {
-            return yield* Effect.fail(
-              new ProfileManagementError({ cause: "No session available" }),
-            );
-          }
+          const mark = yield* markNow();
+          const res = yield* profileRequest(
+            "/profiles/switch",
+            { method: "POST", body: JSON.stringify({ profile_id: profileId }) },
+            decodeSwitchProfileResponse,
+          );
+          // A switch made for a session replaced or ended meanwhile is not
+          // written into the one held now.
+          if (yield* superseded(mark)) return yield* Effect.fail(supersededError());
 
-          const headers = authHeader(account);
-          if (!headers) {
-            return yield* Effect.fail(
-              new ProfileManagementError({ cause: "No valid access token" }),
-            );
-          }
-
-          // S-M4: Validate response schema
-          const res = yield* Effect.tryPromise({
-            try: async () => {
-              const r = await fetch(`${config.issuerUrl}/profiles/switch`, {
-                method: "POST",
-                headers,
-                credentials: "include",
-                body: JSON.stringify({ profile_id: profileId }),
-              });
-              if (!r.ok) throw new Error(`Request failed: ${r.status}`);
-              return decodeSwitchProfileResponse(await r.json());
-            },
-            catch: (cause) => new ProfileManagementError({ cause }),
-          });
-
-          // S-L1: Use server-authoritative profile ID, not caller-supplied
+          // Use the server-authoritative profile ID, not the caller-supplied one
+          const account = yield* currentAccount();
           const serverProfileId = (res.profile as PublicProfile).id;
+          // The profile was deleted while the switch was out: its token is not
+          // kept and the active profile stays, as for a renewal (`doRefresh`).
+          if (deletedProfiles.has(serverProfileId)) {
+            return yield* Effect.fail(
+              new ProfileManagementError({ cause: "the profile was deleted during the switch" }),
+            );
+          }
           const expiresAt = Date.now() + res.expires_in * 1000;
           account.profileTokens[serverProfileId] = {
             accessToken: res.access_token,
@@ -731,78 +1503,47 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         });
 
       const createProfile = (handle: string, displayName?: string) =>
-        Effect.gen(function* () {
-          const account = yield* getAccountSession();
-          if (!account) {
-            return yield* Effect.fail(
-              new ProfileManagementError({ cause: "No session available" }),
-            );
-          }
-
-          const headers = authHeader(account);
-          if (!headers) {
-            return yield* Effect.fail(
-              new ProfileManagementError({ cause: "No valid access token" }),
-            );
-          }
-
-          const body = (
-            displayName === undefined ? { handle } : { handle, display_name: displayName }
-          ) satisfies Record<string, string>;
-
-          // S-M4: Validate response schema
-          const res = yield* Effect.tryPromise({
-            try: async () => {
-              const r = await fetch(`${config.issuerUrl}/profiles/create`, {
-                method: "POST",
-                headers,
-                credentials: "include",
-                body: JSON.stringify(body),
-              });
-              if (!r.ok) throw new Error(`Request failed: ${r.status}`);
-              return decodeCreateProfileResponse(await r.json());
+        Effect.map(
+          profileRequest(
+            "/profiles/create",
+            {
+              method: "POST",
+              body: JSON.stringify(
+                (displayName === undefined
+                  ? { handle }
+                  : { handle, display_name: displayName }) satisfies Record<string, string>,
+              ),
             },
-            catch: (cause) => new ProfileManagementError({ cause }),
-          });
-
-          return res.profile as PublicProfile;
-        });
+            decodeCreateProfileResponse,
+          ),
+          (res) => res.profile as PublicProfile,
+        );
 
       const deleteProfile = (profileId: string) =>
         Effect.gen(function* () {
-          const account = yield* getAccountSession();
-          if (!account) {
-            return yield* Effect.fail(
-              new ProfileManagementError({ cause: "No session available" }),
-            );
-          }
+          const mark = yield* markNow();
+          // A success is enough: the answer only names the account's default
+          // profile, and decoding it never fails the delete.
+          const answer = yield* profileRequest(
+            "/profiles/delete",
+            { method: "POST", body: JSON.stringify({ profile_id: profileId }) },
+            decodeDeleteProfileResponse,
+          );
+          if (yield* superseded(mark)) return yield* Effect.fail(supersededError());
 
-          const headers = authHeader(account);
-          if (!headers) {
-            return yield* Effect.fail(
-              new ProfileManagementError({ cause: "No valid access token" }),
-            );
-          }
-
-          yield* Effect.tryPromise({
-            try: async () => {
-              const r = await fetch(`${config.issuerUrl}/profiles/delete`, {
-                method: "POST",
-                headers,
-                credentials: "include",
-                body: JSON.stringify({ profile_id: profileId }),
-              });
-              if (!r.ok) throw new Error(`Request failed: ${r.status}`);
-              return (await r.json()) as unknown;
-            },
-            catch: (cause) => new ProfileManagementError({ cause }),
-          });
-
+          const account = yield* currentAccount();
+          deletedProfiles.add(profileId);
           delete account.profileTokens[profileId];
-          // S-M3: Handle deletion of the active profile gracefully
+          // Deleting the active profile makes another one active, never none:
+          // the next grant must name a profile, or the issuer would mint for
+          // the cookie account's default, whichever account that is. A
+          // profile this page holds a token for needs no grant; else the
+          // account's default, as the answer names it; else the deleted
+          // profile stays, without a token, and its next grant is refused.
           if (account.activeProfileId === profileId) {
-            const remaining = Object.keys(account.profileTokens);
-            account.activeProfileId = remaining.length > 0 ? remaining[0]! : "";
+            const held = Object.keys(account.profileTokens)[0];
+            account.activeProfileId =
+              held ?? Option.getOrUndefined(answer)?.default_profile_id ?? profileId;
           }
           yield* saveAccountSession(account);
         });
@@ -813,69 +1554,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           return account?.activeProfileId || null;
         });
 
-      /**
-       * authFetch — attach the current access token and silent-refresh once on 401.
-       *
-       * Rationale: access tokens are short-lived (5 min default) so the 401
-       * path is the common case for any long-lived session. Retrying once
-       * after a successful refresh makes the UX indistinguishable from a
-       * long-TTL token while capping XSS blast radius to ~5 min.
-       *
-       * Contract:
-       * - Adds `Authorization: Bearer <accessToken>` to the request headers
-       *   unless caller has already set one (caller-supplied wins).
-       * - On response.status === 401 exactly once, calls `refreshSession()`
-       *   and reissues the original request with the new token.
-       * - If refresh fails, or the retry also 401s, returns
-       *   `AuthExpiredError` and clears the cached session. Callers should
-       *   redirect to sign-in.
-       */
-      const authFetch = (input: RequestInfo | URL, init?: RequestInit) =>
-        Effect.gen(function* () {
-          const account = yield* getAccountSession();
-          if (!account) {
-            return yield* Effect.fail(new AuthExpiredError({ cause: "no session" }));
-          }
-          const current = account.profileTokens[account.activeProfileId];
-          if (!current) {
-            return yield* Effect.fail(new AuthExpiredError({ cause: "no access token" }));
-          }
-
-          const withAuth = (token: string): RequestInit => {
-            const headers = new Headers(init?.headers);
-            if (!headers.has("authorization")) {
-              headers.set("Authorization", `Bearer ${token}`);
-            }
-            return { credentials: "include", ...init, headers };
-          };
-
-          const first = yield* Effect.tryPromise({
-            try: () => fetch(input, withAuth(current.accessToken)),
-            catch: (cause) => new AuthExpiredError({ cause }),
-          });
-          if (first.status !== 401) return first;
-
-          // Silent refresh + retry once.
-          const refreshed = yield* Effect.result(refreshSession());
-          if (refreshed._tag === "Failure") {
-            cache = null;
-            yield* storage.remove(ACCOUNT_SESSION_KEY);
-            return yield* Effect.fail(new AuthExpiredError({ cause: refreshed.failure }));
-          }
-
-          const second = yield* Effect.tryPromise({
-            try: () => fetch(input, withAuth(refreshed.success.accessToken)),
-            catch: (cause) => new AuthExpiredError({ cause }),
-          });
-          if (second.status === 401) {
-            cache = null;
-            yield* storage.remove(ACCOUNT_SESSION_KEY);
-            return yield* Effect.fail(
-              new AuthExpiredError({ cause: "refresh did not repair 401" }),
-            );
-          }
-          return second;
-        });
+      const checkStoredAccount = () => Effect.asVoid(syncFromStorage());
 
       return {
         getSession,
@@ -889,6 +1568,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         createProfile,
         deleteProfile,
         getActiveProfile,
+        checkStoredAccount,
         authFetch,
       };
     }),

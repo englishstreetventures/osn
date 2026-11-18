@@ -1,220 +1,41 @@
-import {
-  importKeyFromJwk,
-  metricArcTokenVerification,
-  verifyArcToken,
-  type ArcTokenPayload,
-} from "@shared/crypto";
-
 /**
- * Lightweight in-memory ARC verifier for pulse-api.
+ * ARC (service-to-service) verification for pulse-api's `/internal/*` routes.
  *
- * Pulse only needs to accept ARC tokens from a small known set of issuers
- * (osn-api today; potentially zap-api in the future) so a full
- * `service_accounts` schema would be overkill. Public keys are registered
- * at runtime by the issuing service via `POST /internal/register-service`
- * (same shared-secret bootstrap as `osn/api/src/routes/graph-internal.ts`).
- *
- * Single source of truth: every ARC route on pulse-api calls `requireArc`,
- * which consults the in-memory registry below.
+ * osn-api is the only service that calls them. It publishes the public half
+ * of each key it signs with at `<osn issuer>/.well-known/arc-jwks.json`, and
+ * Pulse verifies its tokens against that set through
+ * `@shared/osn-auth-client/arc`, so a key any osn-api isolate published
+ * verifies at any Pulse isolate, with nothing registered here. The issuer
+ * origin is the one Pulse already pins for access tokens.
  */
+import { verifyOsnArcToken, type OsnArcVerification } from "@shared/osn-auth-client/arc";
 
-interface RegisteredKey {
-  readonly issuer: string;
-  readonly publicKey: CryptoKey;
-  readonly allowedScopes: ReadonlySet<string>;
-  readonly expiresAt: number | null; // unix seconds
-  revokedAt: number | null;
-}
+/** Pulse's ARC audience. */
+export const PULSE_ARC_AUDIENCE = "pulse-api";
 
-const keyRegistry = new Map<string, RegisteredKey>(); // kid -> key
-
-interface RegisterServiceKeyInput {
-  readonly serviceId: string;
-  readonly keyId: string;
-  readonly publicKeyJwk: string;
-  readonly allowedScopes: string;
-  readonly expiresAt?: number;
-}
-
-export class ServiceKeyMismatchError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ServiceKeyMismatchError";
-  }
-}
-
-export async function registerServiceKey(input: RegisterServiceKeyInput): Promise<void> {
-  // Refuse to overwrite a kid registered to a different serviceId.
-  // The single INTERNAL_SERVICE_SECRET is the trust root for both Pulse
-  // and Zap; without this guard, a holder could pivot across services
-  // by reusing another's kid.
-  const existing = keyRegistry.get(input.keyId);
-  if (existing && existing.issuer !== input.serviceId) {
-    throw new ServiceKeyMismatchError(
-      `kid ${input.keyId} is already bound to service ${existing.issuer}`,
-    );
-  }
-  const publicKey = await importKeyFromJwk(input.publicKeyJwk);
-  const scopes = new Set(
-    input.allowedScopes
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean),
-  );
-  keyRegistry.set(input.keyId, {
-    issuer: input.serviceId,
-    publicKey,
-    allowedScopes: scopes,
-    expiresAt: input.expiresAt ?? null,
-    revokedAt: null,
-  });
-}
-
-export function revokeServiceKey(keyId: string): void {
-  const existing = keyRegistry.get(keyId);
-  if (existing) existing.revokedAt = Math.floor(Date.now() / 1_000);
-}
-
-export function _resetServiceKeysForTests(): void {
-  keyRegistry.clear();
-}
-
-interface ArcCaller {
-  readonly iss: string;
-  readonly aud: string;
-  readonly scope: string;
-}
-
-function extractToken(authorization: string | undefined): string | null {
-  if (!authorization) return null;
-  const m = authorization.match(/^ARC\s+(.+)$/i);
-  return m ? m[1] : null;
-}
+/** Every scope Pulse lets osn-api use: erasure, export, the deletion preview and the session end. */
+export const PERMITTED_OSN_SCOPES: ReadonlySet<string> = new Set([
+  "account:erase",
+  "account:export",
+  "account:deletion-preview",
+  "account:sessions-revoke",
+]);
 
 /**
- * The one header claim we read before the signature is checked: the key ID
- * that tells us which registered public key to verify with.
+ * Admits a call osn-api signed for Pulse with `scope`; otherwise sets 401 and
+ * answers false. Every refusal looks the same to the caller.
  */
-interface PeekedArcHeader {
-  readonly kid: string;
-}
-
-/**
- * Decodes a base64url-encoded JWT segment to its JSON text. JWT segments use
- * base64url (RFC 7515 §2) — `atob()` only handles standard base64, so we
- * convert `-` → `+` and `_` → `/` first.
- */
-function decodeJwtSegment(segment: string): string {
-  const padded =
-    segment.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (segment.length % 4)) % 4);
-  return atob(padded);
-}
-
-/**
- * Parses a JWT header segment. Returns null when the segment isn't a JSON
- * object carrying a string `kid`. Throws on undecodable/non-JSON input —
- * callers wrap this in the same try/catch that guards the decode.
- */
-function parseArcHeader(segment: string): PeekedArcHeader | null {
-  const value: unknown = JSON.parse(decodeJwtSegment(segment));
-  if (typeof value !== "object" || value === null) return null;
-  if (!("kid" in value) || typeof value.kid !== "string") return null;
-  return { kid: value.kid };
-}
-
-function peekKid(token: string): string | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    return parseArcHeader(parts[0])?.kid ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * ARC token verification guard for Pulse Elysia routes. Mirrors the API
- * shape of osn-api's `requireArc` so route bodies look the same:
- *
- *   const caller = await requireArc(headers.authorization, set, AUDIENCE, SCOPE);
- *   if (!caller) return { error: "Unauthorized" };
- */
-export async function requireArc(
+export async function requireOsnArc(
   authorization: string | undefined,
   set: { status?: number | string },
-  expectedAudience: string,
-  requiredScope: string,
-): Promise<ArcCaller | null> {
-  // The early-exit branches below reject before `verifyArcToken` runs
-  // (which self-reports its own outcomes, incl. "ok"), so each one records
-  // the shared `arc.token.verification` counter itself — otherwise
-  // kid-unknown / kid-revoked / registry-scope-denied failures are invisible
-  // on dashboards and every 401 looks the same. The issuer attribute is only
-  // trustworthy once the kid resolves to a registered key; before that we
-  // label "unknown" (the recording helper also bounds cardinality).
-  const raw = extractToken(authorization);
-  if (!raw) {
-    metricArcTokenVerification("unknown", "malformed");
-    set.status = 401;
-    return null;
-  }
-  const kid = peekKid(raw);
-  if (!kid) {
-    metricArcTokenVerification("unknown", "malformed");
-    set.status = 401;
-    return null;
-  }
-  const registered = keyRegistry.get(kid);
-  if (!registered) {
-    metricArcTokenVerification("unknown", "unknown_issuer");
-    set.status = 401;
-    return null;
-  }
-  if (registered.revokedAt !== null) {
-    metricArcTokenVerification(registered.issuer, "revoked_key");
-    set.status = 401;
-    return null;
-  }
-  const nowSec = Math.floor(Date.now() / 1_000);
-  if (registered.expiresAt !== null && registered.expiresAt <= nowSec) {
-    metricArcTokenVerification(registered.issuer, "revoked_key");
-    set.status = 401;
-    return null;
-  }
-  if (!registered.allowedScopes.has(requiredScope.toLowerCase())) {
-    metricArcTokenVerification(registered.issuer, "scope_denied");
-    set.status = 401;
-    return null;
-  }
-  try {
-    // Pass the registered issuer as expectedIssuer so jose cryptographically
-    // binds the signed `iss` to the kid's registered service. The explicit
-    // post-verify equality check below is kept as defence-in-depth (and can be
-    // dropped one release after this adoption settles).
-    const payload: ArcTokenPayload = await verifyArcToken(
-      raw,
-      registered.publicKey,
-      expectedAudience,
-      requiredScope,
-      registered.issuer,
-    );
-    if (payload.iss !== registered.issuer) {
-      set.status = 401;
-      return null;
-    }
-    return { iss: payload.iss, aud: payload.aud, scope: payload.scope };
-  } catch {
-    set.status = 401;
-    return null;
-  }
+  verification: OsnArcVerification,
+  scope: string,
+): Promise<boolean> {
+  const verdict = await verifyOsnArcToken(authorization, verification, {
+    audience: PULSE_ARC_AUDIENCE,
+    scope,
+    allowedScopes: PERMITTED_OSN_SCOPES,
+  });
+  if (!verdict.ok) set.status = 401;
+  return verdict.ok;
 }
-
-/**
- * Allowlist of scopes pulse-api will accept on registration. Permitted
- * scopes are those Pulse will verify on inbound ARC tokens — keep tight.
- */
-export const PERMITTED_INBOUND_SCOPES = new Set([
-  "account:erase",
-  "account:export", // DSAR export fan-out from osn-api
-  "graph:read", // future-proofing for an osn-api fan-out that needs profile lookups
-]);

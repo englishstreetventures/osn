@@ -112,8 +112,10 @@ export const CardTone: Story<ThemeArgs> = {
           The default tone. Card's border, its 16px corner and the <Mono>well</Mono> fill; the
           summary row and the body pad themselves, so the whole row opens it. The leading{" "}
           <Mono>›</Mono> is the readable gold and turns a quarter as it opens. Click one to see the
-          body fade in and the marker turn; cire's fonts are not loaded here, so judge the face in
-          the app.
+          card grow open as the body fades in, and the marker turn. The lab declares neither cire's
+          fonts nor its <Mono>--dur-slow</Mono> and <Mono>--ease-out</Mono>, so the opening runs on
+          the part's 320ms fallback and the lab's own ease-out: judge the face and the pace in the
+          app.
         </>
       }
     >

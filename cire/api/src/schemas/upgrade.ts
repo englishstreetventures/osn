@@ -21,3 +21,20 @@ export const StartUpgradeSessionBody = Schema.Struct({
   module: Schema.optional(Schema.String.check(Schema.isMaxLength(MAX_MODULE_CHARS))),
 });
 export type StartUpgradeSessionBody = Schema.Schema.Type<typeof StartUpgradeSessionBody>;
+
+/**
+ * The Refund a platform `refund.failed` event carries, as far as cire reads
+ * it. Stripe signs the body, so this is not a trust boundary; it holds the
+ * values that reach a query and a log to a shape cire made. `purchaseId` is
+ * the `upg_<uuid>` cire puts in a refund's metadata, so a refund some other
+ * integration made, naming anything else, is not read as cire's.
+ */
+export const RefundFailedObject = Schema.Struct({
+  id: Schema.String.check(Schema.isMaxLength(255), Schema.isPattern(/^re_[A-Za-z0-9_]+$/)),
+  payment_intent: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(255)))),
+  metadata: Schema.Struct({
+    purchaseId: Schema.String.check(
+      Schema.isPattern(/^upg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+    ),
+  }),
+});

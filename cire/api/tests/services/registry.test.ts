@@ -84,7 +84,7 @@ const newItem = (over: Partial<{ title: string; quantityWanted: number }> = {}) 
   category: null,
 });
 
-/** A succeeded contribution, written directly (Stripe lands in PR 5). */
+/** A succeeded contribution, written directly rather than through Stripe. */
 function seedContribution(
   db: Db0,
   over: Partial<{
@@ -289,17 +289,6 @@ describe("the parting gift summary", () => {
 });
 
 describe("registry settings", () => {
-  it("reads as unpublished before any row exists", async () => {
-    const db = db0();
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
-    expect(snap.settings.published).toBe(false);
-    expect(snap.settings.cashGiftsEnabled).toBe(false);
-    expect(snap.settings.updatedAt).toBeNull();
-    expect(snap.settings.stripeConnected).toBe(false);
-    expect(snap.items).toEqual([]);
-    expect(snap.gifts).toEqual([]);
-  });
-
   it("upserts on first write and patches on the second", async () => {
     const db = db0();
     const first = await ok(
@@ -656,6 +645,8 @@ describe("registry items", () => {
     const b = await ok(db, registryService.createItem(newItem({ title: "B" })));
     const c = await ok(db, registryService.createItem(newItem({ title: "C" })));
     await ok(db, registryService.reorderItems(BOOTSTRAP_WEDDING_ID, [c.id, a.id, b.id]));
+    // Another wedding naming these items moves none of them.
+    await ok(db, registryService.reorderItems(OTHER, [b.id, a.id, c.id]));
     const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.items.map((i) => i.title)).toEqual(["C", "A", "B"]);
   });

@@ -3,7 +3,13 @@ import { cleanup, render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createSlidingPill, pillBox, pillStyle, type RectLike } from "../../src/lib/sliding-pill";
+import {
+  createSlidingPill,
+  type PillEase,
+  pillBox,
+  pillStyle,
+  type RectLike,
+} from "../../src/lib/sliding-pill";
 
 /**
  * happy-dom computes no layout: every rect is zero and there is no
@@ -131,34 +137,74 @@ describe("pillStyle", () => {
     expect(style.transition).toBe("none");
   });
 
-  it("animates transform and size once settled", () => {
-    const style = pillStyle({ x: 8, y: 44, width: 70, height: 32 }, true);
-    expect(style.transition).toContain("transform");
-    expect(style.transition).toContain("width");
-    expect(style.transition).toContain("height");
+  it("moves the rail's marker, place and size, on base and ease-out", () => {
+    const move = timings(pillStyle({ x: 8, y: 44, width: 70, height: 32 }, true).transition);
+    expect(Object.keys(move)).toEqual(["transform", "width", "height"]);
     // Tokens, not numbers — the reduced-motion switch overrides the duration.
     // Each falls back to the contract's, for a surface that defines no app token.
-    expect(style.transition).toContain("var(--dur-base,var(--ui-dur-base");
-    expect(style.transition).toContain("var(--ease-out,var(--ui-ease-out");
+    for (const timing of Object.values(move)) {
+      expect(timing).toContain("var(--dur-base,var(--ui-dur-base");
+      expect(timing).toContain("var(--ease-out,var(--ui-ease-out");
+    }
   });
 
-  it("moves on the spring when asked, falling back to the app's ease-out", () => {
-    const style = pillStyle({ x: 8, y: 44, width: 70, height: 32 }, true, "spring");
-    expect(style.transition).toContain("var(--ease-spring,var(--ease-out");
+  it("glides the glass's place on the firmer spring, on slow", () => {
+    const move = timings(
+      pillStyle({ x: 8, y: 44, width: 70, height: 32 }, true, "spring").transition,
+    );
+    expect(move.transform).toContain("var(--dur-slow,var(--ui-dur-slow");
+    // A surface with no glide falls back to ease-out, never to the bouncier
+    // house spring.
+    expect(move.transform).toContain("var(--ease-glide,var(--ease-out,var(--ui-ease-out");
+    expect(move.transform).not.toContain("--ease-spring");
+  });
+
+  it("eases the glass's size out on the same clock, so it never grows past its tab", () => {
+    const move = timings(
+      pillStyle({ x: 8, y: 44, width: 70, height: 32 }, true, "spring").transition,
+    );
+    for (const size of [move.width, move.height]) {
+      expect(size).toContain("var(--dur-slow,var(--ui-dur-slow");
+      expect(size).toContain("var(--ease-out,var(--ui-ease-out");
+      expect(size).not.toContain("--ease-glide");
+      expect(size).not.toContain("--ease-spring");
+    }
   });
 });
+
+/** A `transition` shorthand as each property's own timing, split at its top-level commas. */
+function timings(transition: unknown): Record<string, string> {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of String(transition)) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+    } else current += ch;
+  }
+  parts.push(current.trim());
+  return Object.fromEntries(
+    parts.map((part) => {
+      const space = part.indexOf(" ");
+      return [part.slice(0, space), part.slice(space + 1)];
+    }),
+  );
+}
 
 /**
  * A rail: track 100px down the page, two 36px rows 44px apart. The hook is
  * created inside `render` so it gets an owner, as it would in a component.
  */
-function mount() {
+function mount(ease?: PillEase) {
   rects.track = rect(0, 100, 220, 200);
   rects.one = rect(0, 108, 220, 36);
   rects.two = rect(0, 152, 220, 36);
   const [active, setActive] = createSignal("one");
   const utils = render(() => {
-    const pill = createSlidingPill(active);
+    const pill = createSlidingPill(active, { ease });
     return (
       <div ref={pill.track} data-testid="track">
         <span data-testid="pill" style={pill.style()} />
@@ -217,30 +263,15 @@ describe("createSlidingPill", () => {
     expect(pillEl().style.transition).toBe("none");
   });
 
-  it("travels on the spring when created with it", async () => {
-    rects.track = rect(0, 100, 220, 200);
-    rects.one = rect(0, 108, 220, 36);
-    rects.two = rect(0, 152, 220, 36);
-    const [active, setActive] = createSignal("one");
-    const utils = render(() => {
-      const pill = createSlidingPill(active, { ease: "spring" });
-      return (
-        <div ref={pill.track} data-testid="track">
-          <span data-testid="pill" style={pill.style()} />
-          <button ref={pill.item("one")} data-testid="one">
-            One
-          </button>
-          <button ref={pill.item("two")} data-testid="two">
-            Two
-          </button>
-        </div>
-      );
-    });
+  it("glides when created with the spring", async () => {
+    const { pillEl, setActive } = mount("spring");
     await settle();
     setActive("two");
-    expect(utils.getByTestId("pill").style.transition).toContain("--ease-spring");
+    expect(pillEl().style.transition).toContain("--ease-glide");
   });
 
+  // The rail's marker. The glass's jump is checked in Chromium, in
+  // `sliding-pill.browser.test.tsx`.
   it("jumps rather than slides for a reader who has turned motion down", async () => {
     const before = window.matchMedia;
     window.matchMedia = ((query: string) => ({

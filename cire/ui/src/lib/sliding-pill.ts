@@ -18,9 +18,9 @@
  * here, so a surface with no kill switch of its own is covered too). There is
  * no animation library in this package, by design.
  *
- * Two easings: `out`, the default, for a mark arriving at a row (the module
- * rail), and `spring`, the house spring, for the glass of a segmented strip
- * (`segmented-tabs.tsx`).
+ * Two moves: `out`, the default, for a mark arriving at a row (the module
+ * rail), and `spring`, for the glass of a segmented strip
+ * (`segmented-tabs.tsx`): its place on a firm spring, its size eased out.
  *
  * The consumer owns two rules the hook cannot enforce: the track must be a
  * containing block (`relative`), and the pill must be `absolute` with `inset-0`
@@ -77,16 +77,29 @@ export function samePlace(a: PillBox, b: PillBox): boolean {
 /** How the pill moves. */
 export type PillEase = "out" | "spring";
 
+const EASE_OUT = "var(--ease-out,var(--ui-ease-out,cubic-bezier(0.22,1,0.36,1)))";
+const DUR_BASE = "var(--dur-base,var(--ui-dur-base,200ms))";
+const DUR_SLOW = "var(--dur-slow,var(--ui-dur-slow,320ms))";
+
 /**
- * Each reads the app's own token first and the contract's after, so the pill
- * moves on a surface that maps only the contract. The spring falls back to
- * the app's ease-out where an app has no spring.
+ * The timing of the pill's place and of its size. Each reads the app's own
+ * token first and the contract's after, so the pill moves on a surface that
+ * maps only the contract.
+ *
+ * `spring` is the glass of a segmented strip, moving as the owner chose: its
+ * place glides on the app's `--ease-glide`, a spring firm enough to go no
+ * more than 3% past, and falls back to ease-out where an app has none, never
+ * to the bouncier `--ease-spring`. Its size eases out, so the glass never
+ * grows past the tab it lands on. Both run on `--dur-slow`, one clock, so the
+ * move reads as one event.
  */
 const MOVE = {
-  out: "var(--dur-base,var(--ui-dur-base,200ms)) var(--ease-out,var(--ui-ease-out,cubic-bezier(0.22,1,0.36,1)))",
-  spring:
-    "var(--dur-base,var(--ui-dur-base,200ms)) var(--ease-spring,var(--ease-out,var(--ui-ease-out,cubic-bezier(0.22,1,0.36,1))))",
-} as const satisfies Readonly<Record<PillEase, string>>;
+  out: { place: `${DUR_BASE} ${EASE_OUT}`, size: `${DUR_BASE} ${EASE_OUT}` },
+  spring: {
+    place: `${DUR_SLOW} var(--ease-glide,${EASE_OUT})`,
+    size: `${DUR_SLOW} ${EASE_OUT}`,
+  },
+} as const satisfies Readonly<Record<PillEase, { place: string; size: string }>>;
 
 /**
  * The pill's inline style.
@@ -101,6 +114,10 @@ const MOVE = {
  * pill that slid to a new place and then snapped to a new size would read as two
  * events. The pill is `position: absolute` and childless, so the layout it costs
  * is its own and touches no sibling.
+ *
+ * A change of place mid-move is a CSS transition retargeted: it starts from
+ * where the pill is on screen, so it never jumps, though it starts at the
+ * curve's own speed rather than the pill's.
  */
 export function pillStyle(
   box: PillBox | null,
@@ -108,13 +125,13 @@ export function pillStyle(
   ease: PillEase = "out",
 ): JSX.CSSProperties {
   if (!box) return { opacity: 0, transition: "none" };
-  const move = MOVE[ease];
+  const { place, size } = MOVE[ease];
   return {
     opacity: 1,
     transform: `translate3d(${box.x}px, ${box.y}px, 0)`,
     width: `${box.width}px`,
     height: `${box.height}px`,
-    transition: settled ? `transform ${move}, width ${move}, height ${move}` : "none",
+    transition: settled ? `transform ${place}, width ${size}, height ${size}` : "none",
   };
 }
 

@@ -21,3 +21,8 @@ deliberately, and it belongs with an `implementer`. Patch and minor sweeps are
 yours; if the brief mixes a major in with them, say so and take the rest.
 
 Run the repository's gates and report their real output.
+
+**Return once.** Before your final message, finish or stop every background
+task you started: gates, waits, reviewers. Unless your brief asks, do not wait
+on CI after a push; the session that dispatched you does. Each extra report
+costs that session a turn to read, so send one, with everything in it.

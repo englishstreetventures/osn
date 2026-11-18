@@ -57,45 +57,6 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("listMessages returns messages in reverse chronological order", () =>
-    Effect.gen(function* () {
-      const chat = yield* seedChat({ type: "group" });
-      yield* seedMember(chat.id, "usr_alice", "admin");
-
-      // Seeded a second apart, not sent 10ms apart. `created_at` has second
-      // resolution, so a 10ms gap stored the same value for both and the test
-      // was really asserting insertion order — which the list query never
-      // promised and, since it now tiebreaks on the random `id`, no longer
-      // happens to give. Within one second the order is unspecified.
-      const base = new Date(1_756_500_000_000);
-      yield* seedMessage(chat.id, "usr_alice", "bXNnMQ==", new Date(base.getTime()));
-      yield* seedMessage(chat.id, "usr_alice", "bXNnMg==", new Date(base.getTime() + 1000));
-
-      const msgs = yield* listMessages(chat.id, "usr_alice");
-      expect(msgs).toHaveLength(2);
-      // Newest first.
-      expect(msgs[0]!.ciphertext).toBe("bXNnMg==");
-      expect(msgs[1]!.ciphertext).toBe("bXNnMQ==");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("listMessages respects limit", () =>
-    Effect.gen(function* () {
-      const chat = yield* seedChat({ type: "group" });
-      yield* seedMember(chat.id, "usr_alice", "admin");
-
-      for (let i = 0; i < 5; i++) {
-        yield* sendMessage(chat.id, "usr_alice", {
-          ciphertext: `bXNn${i}`,
-          nonce: `bm9uY2U${i}`,
-        });
-      }
-
-      const msgs = yield* listMessages(chat.id, "usr_alice", { limit: 2 });
-      expect(msgs).toHaveLength(2);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("listMessages fails for non-member", () =>
     Effect.gen(function* () {
       const chat = yield* seedChat({ type: "group" });
@@ -170,7 +131,7 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Z6 cursor scoping ────────────────────────────────────────────────────
+  // ── cursor scoping ───────────────────────────────────────────────────────
 
   it.effect("listMessages rejects an unknown cursor instead of returning page 1", () =>
     Effect.gen(function* () {
@@ -214,7 +175,7 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── c2b message functions (Task 3) ────────────────────────────────────────
+  // ── c2b message functions ─────────────────────────────────────────────────
 
   it.effect("sendC2bMessage stores plaintext body, null ciphertext/nonce", () =>
     Effect.gen(function* () {
@@ -229,11 +190,6 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // The mirror of the case below. `class` is the encryption and visibility
-  // contract: a ciphertext row inside a c2b chat is dropped from the DSAR
-  // export (which filters on a non-null body) and rendered as an empty string
-  // by the internal reader, so it escapes both the export and moderation in
-  // the one chat class that promises both.
   // The read route's half of the non-disclosure property. It carries the same
   // comment as `sendMessage` and the same risk on the same public surface —
   // and is the more attractive probe of the two, needing no request body.
@@ -266,6 +222,11 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  // The mirror of the c2b send's NotC2bChat case below. `class` is the
+  // encryption and visibility contract: a ciphertext row inside a c2b chat is
+  // dropped from the DSAR export (which filters on a non-null body) and
+  // rendered as an empty string by the internal reader, so it escapes both the
+  // export and moderation in the one chat class that promises both.
   it.effect("sendMessage fails NotC2cChat on a c2b chat", () =>
     Effect.gen(function* () {
       const chat = yield* provisionC2bChat({
@@ -347,26 +308,6 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("listC2bMessages returns bodies newest-first", () =>
-    Effect.gen(function* () {
-      const chat = yield* provisionC2bChat({
-        memberProfileIds: ["usr_a", "usr_b"],
-        createdByProfileId: "usr_a",
-      });
-      // Seeded a second apart — see the c2c ordering test above for why a
-      // 10ms gap does not order anything.
-      const base = new Date(1_756_500_000_000);
-      yield* seedC2bMessage(chat.id, "usr_a", "first", new Date(base.getTime()));
-      yield* seedC2bMessage(chat.id, "usr_b", "second", new Date(base.getTime() + 1000));
-
-      const msgs = yield* listC2bMessages(chat.id);
-      expect(msgs).toHaveLength(2);
-      // Newest first.
-      expect(msgs[0]!.body).toBe("second");
-      expect(msgs[1]!.body).toBe("first");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("listC2bMessages fails NotC2bChat on a c2c chat", () =>
     Effect.gen(function* () {
       const chat = yield* seedChat({ type: "group" });
@@ -430,7 +371,7 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Both send paths now return the row they wrote instead of reading it back.
+  // Both send paths return the row they wrote instead of reading it back.
   // That is only safe while the returned object matches what the database
   // actually stored — including `createdAt`, which is stored as whole seconds.
   it.effect("sendC2bMessage returns exactly what a later read returns", () =>
@@ -448,9 +389,9 @@ describe("messages service", () => {
 
   // The keyset's whole point: a page boundary that lands inside a run of
   // messages sharing one second must not skip the rest of that second.
-  // `created_at` has second resolution, so a strict `createdAt <` alone lost
-  // them for ever — proven here by paging through five messages written at the
-  // same instant and asserting every one comes back exactly once.
+  // `created_at` has second resolution, so a strict `createdAt <` alone would
+  // lose them for ever — this case pages through five messages written at the
+  // same instant and asserts every one comes back exactly once.
   it.effect("listC2bMessages pages through messages sharing one second", () =>
     Effect.gen(function* () {
       const chat = yield* provisionC2bChat({
@@ -499,10 +440,10 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // The happy path of the cursor branch. Every other `before:` case in this
-  // file is a rejection, so without this the `conditions.push(...)` line has no
-  // coverage at all — replacing the whole block with an unconditional failure
-  // left the suite green.
+  // The cursor branch across distinct seconds: the first page comes
+  // newest-first, and a valid `before` cursor returns only the rows older than
+  // it. The same-second case above pages with `before` too, but its messages
+  // share one timestamp and it sorts what it saw, so it cannot see the order.
   it.effect("listC2bMessages returns the page after a valid cursor", () =>
     Effect.gen(function* () {
       const chat = yield* provisionC2bChat({

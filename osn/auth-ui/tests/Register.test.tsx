@@ -39,14 +39,29 @@ vi.mock("@shared/toast", () => ({
 }));
 
 import type { RegistrationClient } from "@osn/client";
-
+import { toast } from "@shared/toast";
 // Import after mocks so the component picks them up.
+import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
+
+import { hasPendingSignUp } from "../src/pending-sign-up";
 import { Register } from "../src/Register";
+import {
+  CONNECTION,
+  DETAILS,
+  PASSKEY_GENERAL,
+  PASSKEY_NOT_ADDED,
+  WAIT,
+  alertsText,
+  apiError,
+  ceremonyError,
+} from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
 
 interface ClientStub {
   checkHandle: ReturnType<typeof vi.fn>;
   beginRegistration: ReturnType<typeof vi.fn>;
-  completeRegistration: ReturnType<typeof vi.fn>;
+  registrationStatus: ReturnType<typeof vi.fn>;
+  resendRegistrationLink: ReturnType<typeof vi.fn>;
   passkeyRegisterBegin: ReturnType<typeof vi.fn>;
   passkeyRegisterComplete: ReturnType<typeof vi.fn>;
 }
@@ -55,10 +70,44 @@ function makeClientStub(): ClientStub {
   return {
     checkHandle: vi.fn(),
     beginRegistration: vi.fn(),
-    completeRegistration: vi.fn(),
+    registrationStatus: vi.fn(),
+    resendRegistrationLink: vi.fn(),
     passkeyRegisterBegin: vi.fn(),
     passkeyRegisterComplete: vi.fn(),
   };
+}
+
+/** A sign-up as `beginRegistration` answers it; `n` tells two apart. */
+function begun(n = 1) {
+  return {
+    requestId: `signup_00000000000${n}`,
+    claimSecret: String(n).repeat(64),
+    retireSecret: `${"f".repeat(63)}${n}`,
+    pairingCode: `4${n}`,
+    expiresAt: Math.floor(Date.now() / 1000) + 600,
+  };
+}
+
+/** What the completing status poll answers. */
+function completed() {
+  return {
+    status: "complete" as const,
+    profileId: "usr_abc",
+    handle: "alice",
+    email: "alice@example.com",
+    session: sampleSession,
+  };
+}
+
+/** A promise and the functions that settle it. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 // Cast site: the stub shape intentionally loosens RegistrationClient's
@@ -76,6 +125,12 @@ const sampleSession = {
   expiresAt: Date.now() + 60_000,
   scopes: [],
 };
+
+/** The number the waiting view shows, or null: the digits after its hidden "Your number:". */
+function shownNumber(): string | null {
+  const label = screen.queryByText("Your number:");
+  return label?.parentElement?.querySelector('[translate="no"]')?.textContent ?? null;
+}
 
 function fillEmail(value: string) {
   const input = screen.getByLabelText(/Email/) as HTMLInputElement;
@@ -101,6 +156,8 @@ describe("Register component", () => {
     stub = makeClientStub();
     hoisted.adoptSession.mockReset();
     hoisted.startRegistration.mockReset();
+    sessionStorage.clear();
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -110,13 +167,17 @@ describe("Register component", () => {
 
   describe("details step", () => {
     it("sanitises handle input: lowercases and strips invalid chars", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       const input = fillHandle("Alice WONDERLAND!");
       expect(input.value).toBe("alicewonderland");
     });
 
     it("flags handle as invalid format synchronously, no fetch", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       // Empty after sanitisation? No — we want a string that survives
       // sanitisation but fails HANDLE_RE. The sanitiser strips everything
       // except [a-z0-9_], so any input that survives is by construction valid.
@@ -128,7 +189,9 @@ describe("Register component", () => {
 
     it("debounces availability check and shows 'available'", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillHandle("alice");
       // Synchronously transitions to "checking".
       expect(screen.getByText(/Checking/)).toBeTruthy();
@@ -144,7 +207,9 @@ describe("Register component", () => {
 
     it("aborts the previous in-flight check before issuing a new one (P-W10)", async () => {
       stub.checkHandle.mockImplementation(() => new Promise(() => {}));
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillHandle("ali");
       await vi.advanceTimersByTimeAsync(350);
       expect(stub.checkHandle).toHaveBeenCalledTimes(1);
@@ -160,7 +225,9 @@ describe("Register component", () => {
 
     it("shows 'taken' when the server reports unavailable", async () => {
       stub.checkHandle.mockResolvedValue({ available: false });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillHandle("taken");
       await vi.advanceTimersByTimeAsync(350);
       await waitFor(() => {
@@ -174,7 +241,9 @@ describe("Register component", () => {
       // input was perfectly valid. Network/server failures must surface
       // separately so the user isn't told their handle is the wrong shape.
       stub.checkHandle.mockRejectedValue(new Error("network down"));
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillHandle("alice");
       await vi.advanceTimersByTimeAsync(350);
       await waitFor(() => {
@@ -187,27 +256,31 @@ describe("Register component", () => {
       stub.checkHandle.mockImplementation(
         () => new Promise(() => {}), // never resolves
       );
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillEmail("alice@example.com");
       fillHandle("alice");
       // Still "checking" — debounce hasn't fired but the synchronous status
       // change to "checking" is enough to keep detailsValid() false.
       const submit = screen.getByRole("button", {
-        name: /Send verification code/i,
+        name: /Send verification link/i,
       }) as HTMLButtonElement;
       expect(submit.disabled).toBe(true);
     });
 
     it("submit becomes enabled once email + handle + birthdate are all valid", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillEmail("alice@example.com");
       fillHandle("alice");
       fillBirthdate("1990-01-01");
       await vi.advanceTimersByTimeAsync(350);
       await waitFor(() => {
         const submit = screen.getByRole("button", {
-          name: /Send verification code/i,
+          name: /Send verification link/i,
         }) as HTMLButtonElement;
         expect(submit.disabled).toBe(false);
       });
@@ -217,7 +290,9 @@ describe("Register component", () => {
     // feedback — the submit button stays disabled and the copy explains why.
     it("keeps submit disabled and warns for an under-13 birthdate", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillEmail("alice@example.com");
       fillHandle("alice");
       const tenYearsAgo = new Date();
@@ -228,27 +303,31 @@ describe("Register component", () => {
         expect(screen.getByText(/13 and older/)).toBeTruthy();
       });
       const submit = screen.getByRole("button", {
-        name: /Send verification code/i,
+        name: /Send verification link/i,
       }) as HTMLButtonElement;
       expect(submit.disabled).toBe(true);
       expect(stub.beginRegistration).not.toHaveBeenCalled();
     });
   });
 
-  // The address verifies the account, is the emailed-code way back into an
+  // The address verifies the account, is the emailed way back into an
   // account whose passkeys are gone, and receives security notices. The form
   // said none of it, and the recovery job is the one that should steer which
   // address a person types in.
   describe("email explainer", () => {
     it("names the trigger, since a circled glyph announces nothing", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       const trigger = screen.getByLabelText("What this address is used for");
       expect(trigger.tagName).toBe("BUTTON");
       expect(trigger.textContent).toBe("i");
     });
 
     it("is a real button that cannot submit the form it sits in", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       const trigger = screen.getByLabelText("What this address is used for") as HTMLButtonElement;
       expect(trigger.getAttribute("type")).toBe("button");
       expect(trigger.disabled).toBe(false);
@@ -256,12 +335,14 @@ describe("Register component", () => {
     });
 
     it("gives all three uses of the address, naming the product it was given", async () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />
+      ));
       fireEvent.click(screen.getByLabelText("What this address is used for"));
 
       const panel = await screen.findByRole("dialog");
-      expect(panel.textContent).toMatch(/six-digit code/);
-      expect(panel.textContent).toMatch(/Kumiho account is not created until you enter it/);
+      expect(panel.textContent).toMatch(/a link here to confirm the address/);
+      expect(panel.textContent).toMatch(/Kumiho account is not created until you confirm it/);
       expect(panel.textContent).toMatch(/lose every device with a passkey/);
       expect(panel.textContent).toMatch(/Security notices/);
     });
@@ -273,7 +354,9 @@ describe("Register component", () => {
     // assertion would pass without proving anything.
     it("opening it does not submit the form or advance the step", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillEmail("alice@example.com");
       fillHandle("alice");
       fillBirthdate("1990-01-01");
@@ -281,7 +364,7 @@ describe("Register component", () => {
 
       const submit = await waitFor(() => {
         const b = screen.getByRole("button", {
-          name: /Send verification code/i,
+          name: /Send verification link/i,
         }) as HTMLButtonElement;
         expect(b.disabled).toBe(false);
         return b;
@@ -293,135 +376,805 @@ describe("Register component", () => {
       expect(stub.beginRegistration).not.toHaveBeenCalled();
       // Still on the details step: its submit button is the one on screen.
       expect(submit.isConnected).toBe(true);
-      expect(screen.queryByText(/Enter it below to verify/)).toBeNull();
+      expect(screen.queryByText(/Check your email/)).toBeNull();
     });
   });
 
-  describe("verify step", () => {
-    async function advanceToVerify() {
-      stub.checkHandle.mockResolvedValue({ available: true });
-      stub.beginRegistration.mockResolvedValue({ sent: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
-      fillEmail("alice@example.com");
-      fillHandle("alice");
-      fillBirthdate("1990-01-01");
-      await vi.advanceTimersByTimeAsync(350);
-      await waitFor(() => {
-        const submit = screen.getByRole("button", {
-          name: /Send verification code/i,
-        }) as HTMLButtonElement;
-        expect(submit.disabled).toBe(false);
-      });
-      const submit = screen.getByRole("button", { name: /Send verification code/i });
-      fireEvent.click(submit);
-      await waitFor(() => {
-        expect(screen.getByText(/We sent a 6-digit code/)).toBeTruthy();
-      });
-    }
+  /** Fills the details and submits them; resolves once the waiting view shows. */
+  async function submitDetailsAs(email = "alice@example.com", handle = "alice") {
+    stub.checkHandle.mockResolvedValue({ available: true });
+    fillEmail(email);
+    fillHandle(handle);
+    fillBirthdate("1990-01-01");
+    await vi.advanceTimersByTimeAsync(350);
+    await waitFor(() => {
+      const submit = screen.getByRole("button", {
+        name: /Send verification link/i,
+      }) as HTMLButtonElement;
+      expect(submit.disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+    await waitFor(() => expect(screen.getByText(/Check your email/)).toBeTruthy());
+  }
 
-    /** Type digits into the individual OTP boxes. */
-    function fillOtpDigits(digits: string) {
-      for (let i = 0; i < digits.length && i < 6; i++) {
-        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
-        fireEvent.input(input, { target: { value: digits[i] } });
-      }
-    }
+  function renderRegister(extra?: { onSuccess?: () => void; onCancel?: () => void }) {
+    return render(() => (
+      <Register
+        host="page"
+        client={asClient(stub)}
+        onCancel={extra?.onCancel ?? (() => {})}
+        onSuccess={extra?.onSuccess}
+        productName="Musubi"
+      />
+    ));
+  }
 
-    it("calls beginRegistration with the form values and advances to verify", async () => {
-      await advanceToVerify();
+  describe("waiting for the link", () => {
+    it("begins with the form values and waits on the link, polling with the request it got", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
       expect(stub.beginRegistration).toHaveBeenCalledWith({
         email: "alice@example.com",
         handle: "alice",
         birthdate: "1990-01-01",
         displayName: undefined,
       });
-    });
-
-    it("submit stays disabled until 6 digits are entered, then enables", async () => {
-      await advanceToVerify();
-      fillOtpDigits("123");
-      const submit = screen.getByRole("button", {
-        name: /Verify email/i,
-      }) as HTMLButtonElement;
-      expect(submit.disabled).toBe(true);
-
-      fillOtpDigits("123456");
-      expect(submit.disabled).toBe(false);
-    });
-
-    // The Resend code button renders the moment the verify step mounts,
-    // not only after a wrong code.
-    it("renders the Resend code button as soon as the verify step mounts (no error required)", async () => {
-      await advanceToVerify();
-      expect(screen.getByRole("button", { name: /Resend code/i })).toBeTruthy();
-    });
-
-    // Companion guard: the first OTP send must also start the 30s
-    // cooldown so the button can't be mashed on arrival. Without this,
-    // server-side rate-limit errors would replace the intended UX.
-    it("starts the 30s cooldown on the first OTP send and re-enables after it elapses", async () => {
-      await advanceToVerify();
-      const disabled = screen.getByRole("button", {
-        name: /Resend code \(\d+s\)/,
-      }) as HTMLButtonElement;
-      expect(disabled.disabled).toBe(true);
-      await vi.advanceTimersByTimeAsync(31_000);
-      await waitFor(() => {
-        const ready = screen.getByRole("button", { name: /^Resend code$/ }) as HTMLButtonElement;
-        expect(ready.disabled).toBe(false);
+      expect(stub.registrationStatus).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.registrationStatus).toHaveBeenCalledWith({
+        requestId: begun().requestId,
+        claimSecret: begun().claimSecret,
       });
     });
 
-    it("OTP input rejects non-digit characters", async () => {
-      stub.completeRegistration.mockResolvedValue({
-        profileId: "usr_abc",
-        session: sampleSession,
+    it("shows the number the begin gave on the waiting view, and never writes it to storage", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({
+        status: "pending",
+        pairingCode: begun().pairingCode,
       });
-      await advanceToVerify();
-      // Type non-digits into each box — completeRegistration should never fire.
-      for (let i = 0; i < 6; i++) {
-        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
-        fireEvent.input(input, { target: { value: "a" } });
+      renderRegister();
+      await submitDetailsAs();
+      expect(shownNumber()).toBe(begun().pairingCode);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+
+      const stored = JSON.parse(sessionStorage.getItem("osn.signup.pending") ?? "null") as Record<
+        string,
+        unknown
+      >;
+      expect(new Set(Object.keys(stored))).toEqual(
+        new Set(["claimSecret", "email", "expiresAt", "handle", "requestId", "retireSecret"]),
+      );
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)!;
+        expect(Object.values(JSON.parse(sessionStorage.getItem(key)!) as object)).not.toContain(
+          begun().pairingCode,
+        );
       }
-      expect(stub.completeRegistration).not.toHaveBeenCalled();
+    });
+
+    it("stops polling, and leaves no timer or listener behind, once the view is gone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      const view = renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      const calls = stub.registrationStatus.mock.calls.length;
+
+      view.unmount();
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stub.registrationStatus.mock.calls.length).toBe(calls);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("shows the expired view and stops polling when the request is gone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      const calls = stub.registrationStatus.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stub.registrationStatus.mock.calls.length).toBe(calls);
+      expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
+    });
+
+    it("sends a new link after expiry from the details, so Turnstile can run again, retiring the old request", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Send a new link/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Send a new link/i }));
+
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      expect((screen.getByLabelText(/Email/) as HTMLInputElement).value).toBe("alice@example.com");
+      await vi.advanceTimersByTimeAsync(350);
+      await waitFor(() => {
+        const submit = screen.getByRole("button", {
+          name: /Send verification link/i,
+        }) as HTMLButtonElement;
+        expect(submit.disabled).toBe(false);
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+    });
+
+    it("names the product where its wait says to look in the junk folder", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(screen.getByText(/^Can't find it\?/).textContent).toBe(
+        "Can't find it? Look in your junk or spam folder for an email about Musubi.",
+      );
+    });
+
+    it("keeps waiting through a poll that failed, and polls again", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus
+        .mockRejectedValueOnce(new Error("Failed to fetch"))
+        .mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(/Check your email/)).toBeTruthy();
+      expect(screen.queryByText(/Your link has expired/)).toBeNull();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(2);
+    });
+
+    it("resends a link for the same request, and says so only when one went", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.resendRegistrationLink
+        .mockResolvedValueOnce({ status: "sent" })
+        .mockResolvedValueOnce({ status: "limit" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/We sent a new link/)).toBeTruthy());
+      expect(stub.resendRegistrationLink).toHaveBeenCalledWith({
+        requestId: begun().requestId,
+        claimSecret: begun().claimSecret,
+      });
+      expect(stub.beginRegistration).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/all the links we can/i)).toBeTruthy());
+      expect(screen.queryByText(/We sent a new link/)).toBeNull();
+      const calls = stub.registrationStatus.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(stub.registrationStatus.mock.calls.length).toBeGreaterThan(calls);
+    });
+
+    it.each([
+      ["no answer", apiError("PLANTED-resend-offline", 0, ""), CONNECTION],
+      ["a 429", apiError("PLANTED-resend-429", 429, "rate_limited"), WAIT],
+    ])(
+      "says %s on a failed Resend as the map's sentence, and keeps polling",
+      async (_, error, sentence) => {
+        stub.beginRegistration.mockResolvedValue(begun());
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        stub.resendRegistrationLink.mockRejectedValueOnce(error);
+        renderRegister();
+        await submitDetailsAs();
+        await vi.advanceTimersByTimeAsync(30_000);
+        fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+        await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(sentence));
+        expect(alertsText()).not.toContain("PLANTED");
+        expect(screen.queryByText(/We sent a new link/)).toBeNull();
+        expect(screen.queryByText(/Your link has expired/)).toBeNull();
+        const calls = stub.registrationStatus.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(stub.registrationStatus.mock.calls.length).toBeGreaterThan(calls);
+      },
+    );
+
+    it("holds Cancel while Resend sends", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      const held = deferred<{ status: "sent" }>();
+      stub.resendRegistrationLink.mockReturnValueOnce(held.promise);
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await screen.findByRole("button", { name: /Sending…/ });
+      const cancel = screen.getByRole("button", { name: /^Cancel$/ }) as HTMLButtonElement;
+      expect(cancel.disabled).toBe(true);
+      held.resolve({ status: "sent" });
+      await waitFor(() => expect(cancel.disabled).toBe(false));
+    });
+
+    it("shows the expired view, stops polling and clears the stored wait when Resend answers expired", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.resendRegistrationLink.mockResolvedValueOnce({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(sessionStorage.getItem("osn.signup.pending")).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
+      const calls = stub.registrationStatus.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stub.registrationStatus.mock.calls.length).toBe(calls);
+    });
+
+    it("keeps the wait in memory when session storage refuses to write", async () => {
+      const setItem = vi.spyOn(sessionStorage, "setItem").mockImplementation(() => {
+        throw new DOMException("quota", "QuotaExceededError");
+      });
+      try {
+        stub.beginRegistration.mockResolvedValue(begun());
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        renderRegister();
+        await submitDetailsAs();
+        expect(setItem).toHaveBeenCalled();
+        expect(screen.getByText(/Check your email/)).toBeTruthy();
+        expect(screen.queryByText(/could(n't| not)/i)).toBeNull();
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(stub.registrationStatus).toHaveBeenCalledWith({
+          requestId: begun().requestId,
+          claimSecret: begun().claimSecret,
+        });
+      } finally {
+        setItem.mockRestore();
+      }
+    });
+
+    it("stops waiting on 'Start again' and retires that request on the next begin", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(stub.registrationStatus).not.toHaveBeenCalled();
+
+      fillEmail("alice@example.org");
+      await vi.advanceTimersByTimeAsync(350);
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+    });
+
+    it("retires the request a cancelled dialog left, when the next one begins", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      const first = renderRegister();
+      await submitDetailsAs();
+      fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
+      first.unmount();
+
+      renderRegister();
+      expect(screen.getByRole("button", { name: /Send verification link/i })).toBeTruthy();
+      await submitDetailsAs();
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+    });
+
+    it("polls at once when the person comes back to the tab", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(stub.registrationStatus).not.toHaveBeenCalled();
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends one poll when focus and visibility change land together", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      const held = deferred<{ status: "pending" }>();
+      stub.registrationStatus.mockReturnValue(held.promise);
+      renderRegister();
+      await submitDetailsAs();
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+      held.resolve({ status: "pending" });
+    });
+
+    it("adopts a completing answer that arrives after the person moved on, and drops a stale refusal", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      const late = deferred<unknown>();
+      stub.registrationStatus.mockReturnValueOnce(late.promise);
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      late.resolve(completed());
+      await waitFor(() => screen.getByRole("button", { name: /^Add a passkey$/ }));
+      expect(hoisted.adoptSession).not.toHaveBeenCalled();
+    });
+
+    it("publishes the session of a completing answer that lands after the dialog closed, and clears the stored wait", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      const late = deferred<unknown>();
+      stub.registrationStatus.mockReturnValueOnce(late.promise);
+      hoisted.adoptSession.mockResolvedValue(undefined);
+      const onCancel = vi.fn();
+      const view = renderRegister({ onCancel });
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      view.unmount();
+      late.resolve(completed());
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
+      expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
+      expect(sessionStorage.getItem("osn.signup.previous")).toBeNull();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+    });
+
+    it("drops a stale expired answer for a request it no longer waits on", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      const late = deferred<unknown>();
+      stub.registrationStatus.mockReturnValueOnce(late.promise).mockResolvedValue({
+        status: "pending",
+      });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      fillEmail("alice@example.org");
+      await vi.advanceTimersByTimeAsync(350);
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(screen.getByText(/Check your email/)).toBeTruthy());
+
+      late.resolve({ status: "expired" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.queryByText(/Your link has expired/)).toBeNull();
+    });
+
+    it("resumes the wait after a reload, polling at once for the number, and drops a stored wait that has expired", async () => {
+      const { pairingCode, ...request } = begun();
+      sessionStorage.setItem(
+        "osn.signup.pending",
+        JSON.stringify({ ...request, email: "alice@example.com", handle: "alice" }),
+      );
+      stub.registrationStatus.mockResolvedValue({ status: "pending", pairingCode });
+      const resumed = renderRegister();
+      expect(screen.getByText(/Check your email/)).toBeTruthy();
+      expect(screen.getByText(/alice@example.com/)).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stub.registrationStatus).toHaveBeenCalledWith({
+        requestId: begun().requestId,
+        claimSecret: begun().claimSecret,
+      });
+      await waitFor(() => expect(shownNumber()).toBe(pairingCode));
+      resumed.unmount();
+
+      sessionStorage.setItem(
+        "osn.signup.pending",
+        JSON.stringify({
+          ...begun(),
+          expiresAt: Math.floor(Date.now() / 1000) - 1,
+          email: "alice@example.com",
+          handle: "alice",
+        }),
+      );
+      renderRegister();
+      expect(screen.getByRole("button", { name: /Send verification link/i })).toBeTruthy();
+      expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
+    });
+
+    it("goes back to the details with a reason when the handle went while it waited", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      expect(screen.getByText(/taken while you waited/i)).toBeTruthy();
+    });
+
+    it("reads the reason out as an alert and puts focus on the handle field", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      expect(screen.getByRole("alert").textContent).toMatch(/taken while you waited/i);
+      expect(document.activeElement).toBe(screen.getByLabelText("Handle"));
+    });
+
+    it("ties the reason to the handle field, so it is read with the field that took focus", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      const alert = screen.getByRole("alert");
+      expect(alert.id).not.toBe("");
+      expect(screen.getByLabelText("Handle").getAttribute("aria-describedby")).toBe(alert.id);
+    });
+
+    it("drops the reason once the person changes the handle, and with it the field's description", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      const field = fillHandle("alice_2");
+      expect(screen.queryByText(/taken while you waited/i)).toBeNull();
+      expect(field.hasAttribute("aria-describedby")).toBe(false);
     });
   });
 
-  describe("passkey step (mandatory)", () => {
-    function fillOtpDigits(digits: string) {
-      for (let i = 0; i < digits.length && i < 6; i++) {
-        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
-        fireEvent.input(input, { target: { value: digits[i] } });
+  describe("the entry other tabs of the browser read", () => {
+    const LIVE = "osn.signup.live";
+
+    /** The shared entry as stored, or null. */
+    const live = () =>
+      JSON.parse(localStorage.getItem(LIVE) ?? "null") as Record<string, unknown> | null;
+
+    /** Every value `localStorage` holds. */
+    function localValues(): string[] {
+      const values: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        values.push(localStorage.getItem(localStorage.key(i)!) ?? "");
       }
+      return values;
     }
 
-    async function reachPasskey(extra?: { onSuccess?: () => void }) {
-      stub.checkHandle.mockResolvedValue({ available: true });
-      stub.beginRegistration.mockResolvedValue({ sent: true });
-      stub.completeRegistration.mockResolvedValue({
-        profileId: "usr_abc",
-        handle: "alice",
-        email: "alice@example.com",
-        session: sampleSession,
+    /** What a new tab of the same browser starts with: no session storage, the same local storage. */
+    function newTab(view: { unmount: () => void }) {
+      view.unmount();
+      sessionStorage.clear();
+      return renderRegister();
+    }
+
+    /** An entry another tab wrote for request `n`. */
+    function seedLive(n: number, expiresAt = Math.floor(Date.now() / 1000) + 600) {
+      localStorage.setItem(
+        LIVE,
+        JSON.stringify({
+          requestId: begun(n).requestId,
+          retireSecret: begun(n).retireSecret,
+          expiresAt,
+        }),
+      );
+    }
+
+    it("holds only the request, its retire secret and its expiry, after a begin and after a Resend", async () => {
+      const answer = begun();
+      stub.beginRegistration.mockResolvedValue(answer);
+      stub.registrationStatus.mockResolvedValue({
+        status: "pending",
+        pairingCode: answer.pairingCode,
       });
-      hoisted.adoptSession.mockResolvedValue(undefined);
-      render(() => (
-        <Register
-          client={asClient(stub)}
-          onCancel={() => {}}
-          onSuccess={extra?.onSuccess}
-          productName="Musubi"
-        />
-      ));
+      stub.resendRegistrationLink.mockResolvedValue({ status: "sent" });
+      renderRegister();
+      await submitDetailsAs();
+
+      const check = () => {
+        const entry = live()!;
+        expect(new Set(Object.keys(entry))).toEqual(
+          new Set(["expiresAt", "requestId", "retireSecret"]),
+        );
+        expect(entry).toMatchObject({
+          requestId: answer.requestId,
+          retireSecret: answer.retireSecret,
+          expiresAt: answer.expiresAt,
+        });
+        for (const value of localValues()) {
+          expect(value).not.toContain(answer.claimSecret);
+          expect(value).not.toContain("alice@example.com");
+          expect(value).not.toContain(`"${answer.pairingCode}"`);
+        }
+      };
+      check();
+
+      localStorage.removeItem(LIVE);
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/We sent a new link/)).toBeTruthy());
+      check();
+    });
+
+    it("lets a new tab, or one opened after the waiting tab closed, retire the earlier request for the same address in any case", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      const first = renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+
+      newTab(first);
+      await submitDetailsAs("Alice@Example.COM");
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+      await waitFor(() => expect(live()?.requestId).toBe(begun(2).requestId));
+    });
+
+    it("is sent by a new tab whatever address it begins for, since osn-api checks the address", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      const first = renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+
+      newTab(first);
+      await submitDetailsAs("bob@example.com", "bob");
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+    });
+
+    it("removes an expired or malformed entry when the view opens, and never sends it", async () => {
+      seedLive(1, Math.floor(Date.now() / 1000) - 1);
+      const expired = renderRegister();
+      expect(localStorage.getItem(LIVE)).toBeNull();
+      expired.unmount();
+
+      localStorage.setItem(LIVE, JSON.stringify({ requestId: begun(1).requestId }));
+      renderRegister();
+      expect(localStorage.getItem(LIVE)).toBeNull();
+
+      stub.beginRegistration.mockResolvedValue(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      await submitDetailsAs();
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toBeUndefined();
+    });
+
+    it("is removed once the account is made, and another request's entry is left alone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun(1));
+      stub.registrationStatus.mockResolvedValue(completed());
+      const view = renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /^Add a passkey$/ }));
+      expect(localStorage.getItem(LIVE)).toBeNull();
+      view.unmount();
+
+      sessionStorage.clear();
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()?.requestId).toBe(begun(1).requestId);
+      // Another tab began since, for its own request.
+      seedLive(3);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /^Add a passkey$/ }));
+      expect(live()?.requestId).toBe(begun(3).requestId);
+    });
+
+    it("is removed when the poll finds the request gone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      expect(localStorage.getItem(LIVE)).toBeNull();
+    });
+
+    it("is removed when Resend finds the request gone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.resendRegistrationLink.mockResolvedValueOnce({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      expect(localStorage.getItem(LIVE)).toBeNull();
+    });
+
+    it("is not written by a Resend over another request's entry", async () => {
+      stub.beginRegistration.mockResolvedValue(begun(1));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.resendRegistrationLink.mockResolvedValue({ status: "sent" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()?.requestId).toBe(begun(1).requestId);
+      // Another tab began since, for its own request.
+      seedLive(3);
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/We sent a new link/)).toBeTruthy());
+      expect(live()?.requestId).toBe(begun(3).requestId);
+    });
+
+    it("leaves the sign-up working when local storage refuses every call", async () => {
+      const refuse = () => {
+        throw new DOMException("denied", "SecurityError");
+      };
+      const spies = [
+        vi.spyOn(localStorage, "getItem").mockImplementation(refuse),
+        vi.spyOn(localStorage, "setItem").mockImplementation(refuse),
+        vi.spyOn(localStorage, "removeItem").mockImplementation(refuse),
+      ];
+      try {
+        stub.beginRegistration.mockResolvedValue(begun());
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        renderRegister();
+        await submitDetailsAs();
+        expect(stub.beginRegistration.mock.calls[0]![0].previous).toBeUndefined();
+        expect(screen.queryByText(/could(n't| not)/i)).toBeNull();
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(stub.registrationStatus).toHaveBeenCalledWith({
+          requestId: begun().requestId,
+          claimSecret: begun().claimSecret,
+        });
+      } finally {
+        for (const spy of spies) spy.mockRestore();
+      }
+    });
+
+    it("is kept on 'Start again', so another tab can still retire the request", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      expect(live()?.requestId).toBe(begun().requestId);
+    });
+
+    it("drops a stored previous of another shape rather than send it", async () => {
+      sessionStorage.setItem(
+        "osn.signup.previous",
+        JSON.stringify({ requestId: begun(1).requestId, claimSecret: begun(1).claimSecret }),
+      );
+      stub.beginRegistration.mockResolvedValue(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toBeUndefined();
+      expect(sessionStorage.getItem("osn.signup.previous")).toBeNull();
+    });
+
+    it("is removed when its request expires while the view is open", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(590_000);
+      expect(live()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(localStorage.getItem(LIVE)).toBeNull();
+    });
+
+    it("is removed by hasPendingSignUp once it has expired", () => {
+      seedLive(1, Math.floor(Date.now() / 1000) - 1);
+      expect(hasPendingSignUp()).toBe(false);
+      expect(localStorage.getItem(LIVE)).toBeNull();
+    });
+
+    it("leaves another tab's entry in place when a begin that carried it is refused, and does not send it again", async () => {
+      seedLive(3);
+      stub.beginRegistration
+        .mockRejectedValueOnce(apiError("PLANTED-refused", 400, "invalid_request"))
+        .mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.checkHandle.mockResolvedValue({ available: true });
+      renderRegister();
       fillEmail("alice@example.com");
       fillHandle("alice");
       fillBirthdate("1990-01-01");
       await vi.advanceTimersByTimeAsync(350);
-      fireEvent.click(screen.getByRole("button", { name: /Send verification code/i }));
-      await waitFor(() => screen.getByLabelText("Digit 1"));
-      fillOtpDigits("123456");
-      fireEvent.click(screen.getByRole("button", { name: /Verify email/i }));
-      await waitFor(() => screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toEqual({
+        requestId: begun(3).requestId,
+        retireSecret: begun(3).retireSecret,
+      });
+      expect(live()?.requestId).toBe(begun(3).requestId);
+
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toBeUndefined();
+    });
+
+    it("sends the request this tab left when it was for the address typed, though another tab's entry is newer", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      // Another tab began since, for another address.
+      seedLive(3);
+      fillEmail("ALICE@example.com");
+      await vi.advanceTimersByTimeAsync(350);
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+    });
+
+    it.each([
+      ["a 400 drops it", apiError("PLANTED-refused", 400, "invalid_request"), true],
+      ["a 429 keeps it", apiError("PLANTED-limited", 429, "rate_limited"), false],
+    ])(
+      "after a begin that carried previous is refused, %s for the next try",
+      async (_, error, dropped) => {
+        stub.beginRegistration
+          .mockResolvedValueOnce(begun(1))
+          .mockRejectedValueOnce(error)
+          .mockResolvedValueOnce(begun(2));
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        renderRegister();
+        await submitDetailsAs();
+        fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+        await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+        await vi.advanceTimersByTimeAsync(350);
+        fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+        await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+        expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+          requestId: begun(1).requestId,
+          retireSecret: begun(1).retireSecret,
+        });
+        await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+        await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(3));
+        expect(stub.beginRegistration.mock.calls[2]![0].previous).toEqual(
+          dropped
+            ? undefined
+            : { requestId: begun(1).requestId, retireSecret: begun(1).retireSecret },
+        );
+      },
+    );
+  });
+
+  describe("passkey step (mandatory)", () => {
+    async function reachPasskey(extra?: { onSuccess?: () => void }) {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue(completed());
+      hoisted.adoptSession.mockResolvedValue(undefined);
+      renderRegister(extra);
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /^Add a passkey$/ }));
     }
 
     // The passkey step is the whole reason this component holds `accessToken`
@@ -429,10 +1182,11 @@ describe("Register component", () => {
     // not by an adopted session. Adopting early published a session to the
     // app while the account still had zero passkeys — and in `@musubi/social`
     // that unmounted the dialog mid-flow, skipping enrollment entirely.
-    it("does not adopt the session after OTP verify — enrollment carries its own token", async () => {
+    it("does not adopt the session when the account is made — enrollment carries its own token", async () => {
       await reachPasskey();
       expect(hoisted.adoptSession).not.toHaveBeenCalled();
       expect(stub.passkeyRegisterBegin).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
     });
 
     it("adopts the session only once the credential is enrolled", async () => {
@@ -441,7 +1195,7 @@ describe("Register component", () => {
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
         expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
@@ -454,13 +1208,14 @@ describe("Register component", () => {
     it("leaves the user signed out when enrollment fails", async () => {
       await reachPasskey();
       stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
-      hoisted.startRegistration.mockRejectedValue(new Error("ceremony cancelled"));
+      hoisted.startRegistration.mockRejectedValue(new Error("PLANTED ceremony cancelled"));
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
-        expect(screen.getByText(/ceremony cancelled/)).toBeTruthy();
+        expect(screen.getByRole("alert").textContent).toContain(PASSKEY_GENERAL);
       });
+      expect(alertsText()).not.toContain("PLANTED");
       // No session, so no half-made account signed in behind a dismissed
       // dialog — the user is still on the step that can finish the job.
       expect(hoisted.adoptSession).not.toHaveBeenCalled();
@@ -476,14 +1231,15 @@ describe("Register component", () => {
       stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
-      hoisted.adoptSession.mockRejectedValue(new Error("storage unavailable"));
+      hoisted.adoptSession.mockRejectedValue(new Error("PLANTED storage unavailable"));
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
-        expect(screen.getByText(/storage unavailable/)).toBeTruthy();
+        expect(screen.getByRole("alert").textContent).toContain(PASSKEY_GENERAL);
       });
-      expect(screen.getByRole("button", { name: /Enroll credential/i })).toBeTruthy();
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(screen.getByRole("button", { name: /^Add a passkey$/ })).toBeTruthy();
     });
 
     it("happy path: enrolls a WebAuthn credential using the freshly-issued access token", async () => {
@@ -492,7 +1248,7 @@ describe("Register component", () => {
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
         expect(stub.passkeyRegisterComplete).toHaveBeenCalled();
@@ -524,7 +1280,7 @@ describe("Register component", () => {
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       // onSuccess now sits behind the adoptSession await, one microtask hop
       // further out than `waitFor`'s fake-timer loop drains on its own.
@@ -543,16 +1299,19 @@ describe("Register component", () => {
       const onSuccess = vi.fn();
       await reachPasskey({ onSuccess });
       stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
-      hoisted.startRegistration.mockRejectedValue(new Error("ceremony cancelled"));
+      hoisted.startRegistration.mockRejectedValue(
+        ceremonyError("NotAllowedError", "PLANTED ceremony cancelled"),
+      );
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
-        expect(screen.getByText(/ceremony cancelled/)).toBeTruthy();
+        expect(screen.getByRole("alert").textContent).toContain(PASSKEY_NOT_ADDED);
       });
+      expect(alertsText()).not.toContain("PLANTED");
       expect(onSuccess).not.toHaveBeenCalled();
       // Still on the passkey step — enrollment remains required.
-      expect(screen.getByRole("button", { name: /Enroll credential/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /^Add a passkey$/ })).toBeTruthy();
     });
 
     // onSuccess is optional — consumers that react to session()
@@ -563,7 +1322,7 @@ describe("Register component", () => {
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
         expect(screen.getByText(/You.re all set/)).toBeTruthy();
@@ -575,10 +1334,164 @@ describe("Register component", () => {
     });
   });
 
+  describe("error lines and waits", () => {
+    async function fillValidDetails(siteKey?: string) {
+      stub.checkHandle.mockResolvedValue({ available: true });
+      render(() => (
+        <Register
+          host="page"
+          client={asClient(stub)}
+          onCancel={() => {}}
+          turnstileSiteKey={siteKey}
+          productName="Musubi"
+        />
+      ));
+      fillEmail("alice@example.com");
+      fillHandle("alice");
+      fillBirthdate("1990-01-01");
+      await vi.advanceTimersByTimeAsync(350);
+    }
+
+    const send = () =>
+      screen.getByRole("button", { name: /Send verification link|Sending…/ }) as HTMLButtonElement;
+
+    it.each([
+      ["a 400", apiError("PLANTED-register-400"), DETAILS],
+      [
+        "a 422",
+        apiError("PLANTED-register-422", 422, "age_restricted"),
+        "You must be 13 or older to create an account.",
+      ],
+      ["a 429", apiError("PLANTED-register-429", 429, "rate_limited"), WAIT],
+    ])(
+      "a refused send reads %s as the map's sentence, above the button, with no toast",
+      async (_, error, sentence) => {
+        vi.mocked(toast.error).mockClear();
+        stub.beginRegistration.mockRejectedValue(error);
+        await fillValidDetails();
+        fireEvent.click(send());
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain(sentence);
+        expect(alertsText()).not.toContain("PLANTED");
+        expect(toast.error).not.toHaveBeenCalled();
+        // The line comes before the button it is about.
+        expect(
+          alert.compareDocumentPosition(send()) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      },
+    );
+
+    it("ties a malformed email to its field once the field is left", async () => {
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
+      const field = screen.getByLabelText(/Email/) as HTMLInputElement;
+      fireEvent.input(field, { target: { value: "alice@" } });
+      // Not announced on every keystroke.
+      expect(screen.queryByRole("alert")).toBeNull();
+      fireEvent.blur(field);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Please enter a valid email address");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+    });
+
+    it("describes the date of birth by its hint, then by the under-13 line", async () => {
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
+      const field = screen.getByLabelText(/Date of birth/) as HTMLInputElement;
+      const hint = screen.getByText("You must be 13 or older to create an account.");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(hint.id);
+      expect(field.getAttribute("aria-invalid")).toBeNull();
+
+      const tenYearsAgo = new Date();
+      tenYearsAgo.setUTCFullYear(tenYearsAgo.getUTCFullYear() - 10);
+      fillBirthdate(tenYearsAgo.toISOString().slice(0, 10));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Musubi is for users 13 and older");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+    });
+
+    // Only the button that started the wait shows it, and nothing leaves the
+    // dialog while it runs.
+    it("keeps the send busy, not disabled, and holds Cancel while it sends", async () => {
+      await fillValidDetails();
+      stub.beginRegistration.mockReturnValueOnce(new Promise(() => {}));
+      await waitFor(() => expect(send().disabled).toBe(false));
+      fireEvent.click(send());
+      const sending = await screen.findByRole("button", { name: /Sending…/ });
+      expect(sending.getAttribute("aria-busy")).toBe("true");
+      expect((sending as HTMLButtonElement).disabled).toBe(false);
+      const cancel = screen.getByRole("button", { name: /^Cancel$/ }) as HTMLButtonElement;
+      expect(cancel.disabled).toBe(true);
+      fireEvent.submit(sending.closest("form")!);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stub.beginRegistration).toHaveBeenCalledTimes(1);
+    });
+
+    describe("with the verification check on", () => {
+      let deliver: ((token: string) => void) | undefined;
+      let reset: ReturnType<typeof vi.fn>;
+
+      beforeEach(() => {
+        reset = vi.fn();
+        // Like Cloudflare's: a token on render, and another only once the
+        // challenge runs again after `reset`.
+        (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+          render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+            deliver = opts.callback;
+            deliver?.("tok-render");
+            return "widget-1";
+          }),
+          reset,
+          remove: vi.fn(),
+        };
+      });
+
+      afterEach(() => {
+        delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
+        document.getElementById("cf-turnstile-script")?.remove();
+      });
+
+      it("asks for a fresh token when the send is refused, and waits for it", async () => {
+        stub.beginRegistration.mockRejectedValueOnce(apiError("PLANTED-begin"));
+        await fillValidDetails("0x4AAAAAADnA2piUnbgG_kVw");
+        await waitFor(() => expect(send().disabled).toBe(false));
+        fireEvent.click(send());
+        await screen.findByRole("alert");
+        expect(reset).toHaveBeenCalled();
+        expect(send().disabled).toBe(true);
+        deliver?.("tok-2");
+        await waitFor(() => expect(send().disabled).toBe(false));
+      });
+
+      // A sign-up that sends runs one challenge: the spent token goes with the
+      // details step's widget, and the waiting view's Resend needs none.
+      it("runs no second challenge once the link is sent", async () => {
+        const challenges = (
+          globalThis as unknown as { turnstile: { render: ReturnType<typeof vi.fn> } }
+        ).turnstile.render;
+        stub.beginRegistration.mockResolvedValueOnce(begun());
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        await fillValidDetails("0x4AAAAAADnA2piUnbgG_kVw");
+        await waitFor(() => expect(send().disabled).toBe(false));
+        fireEvent.click(send());
+        await waitFor(() => expect(screen.getByText(/Check your email/)).toBeTruthy());
+        await vi.advanceTimersByTimeAsync(31_000);
+        expect(challenges).toHaveBeenCalledTimes(1);
+        expect(reset).not.toHaveBeenCalled();
+      });
+    });
+  });
+
   describe("WebAuthn-unsupported environment", () => {
     it("blocks the flow at the start with an informational screen", async () => {
       hoisted.webauthnSupported = false;
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       // No form fields render; only the fallback copy.
       expect(screen.queryByLabelText(/Email/)).toBeNull();
       expect(screen.getByText(/needs a passkey or security key/i)).toBeTruthy();
@@ -588,8 +1501,143 @@ describe("Register component", () => {
 
   it("Cancel button calls onCancel", () => {
     const onCancel = vi.fn();
-    render(() => <Register client={asClient(stub)} onCancel={onCancel} productName="Musubi" />);
+    render(() => (
+      <Register host="page" client={asClient(stub)} onCancel={onCancel} productName="Musubi" />
+    ));
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
     expect(onCancel).toHaveBeenCalled();
+  });
+});
+
+describe("Register in a dialog", () => {
+  withoutAnimations();
+  afterEach(cleanup);
+
+  it("names the dialog by its title, through one element", () => {
+    render(() => (
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent presentation="sheet">
+          <Register
+            host="dialog"
+            client={asClient(makeClientStub())}
+            onCancel={() => {}}
+            productName="Musubi"
+          />
+        </DialogContent>
+      </Dialog>
+    ));
+    const dialog = screen.getByRole("dialog", { name: "Create your Musubi account" });
+    const id = dialog.getAttribute("aria-labelledby");
+    expect(id).toBeTruthy();
+    expect(document.querySelectorAll(`[id="${id}"]`)).toHaveLength(1);
+  });
+
+  it("takes the host's words for Cancel", () => {
+    const onCancel = vi.fn();
+    render(() => (
+      <Register
+        host="page"
+        client={asClient(makeClientStub())}
+        onCancel={onCancel}
+        cancelLabel="Sign in instead"
+        productName="Musubi"
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in instead" }));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  /** The view in an open sheet, with the host's `onOpenChange` watched. */
+  function renderInDialog(onCancel = vi.fn(), onOpenChange = vi.fn()) {
+    render(() => (
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent presentation="sheet">
+          <Register
+            host="dialog"
+            client={asClient(makeClientStub())}
+            onCancel={onCancel}
+            productName="Musubi"
+          />
+        </DialogContent>
+      </Dialog>
+    ));
+    return { onCancel, onOpenChange };
+  }
+
+  // The header holds the title alone; Cancel leads the footer pair,
+  // calls the view's handler once and leaves closing to it.
+  it("puts Cancel first in the footer, beside the send, with no button in the header", () => {
+    const { onCancel, onOpenChange } = renderInDialog();
+    const title = screen.getByRole("heading", { name: "Create your Musubi account" });
+    expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect([...cancel.parentElement!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+      ["Cancel", "Send verification link"],
+    );
+    fireEvent.click(cancel);
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("takes no Cancel words in a dialog", () => {
+    render(() => (
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent presentation="sheet">
+          <Register
+            host="dialog"
+            client={asClient(makeClientStub())}
+            onCancel={() => {}}
+            productName="Musubi"
+            // @ts-expect-error A dialog's Cancel always reads "Cancel".
+            cancelLabel="Sign in instead"
+          />
+        </DialogContent>
+      </Dialog>
+    ));
+    expect(screen.queryByRole("button", { name: "Sign in instead" })).toBeNull();
+  });
+
+  // The footer's Cancel is the dialog's way out, so it holds while the send runs.
+  it("holds the footer's Cancel while the send runs", async () => {
+    const client = makeClientStub();
+    client.checkHandle.mockResolvedValue({ available: true });
+    client.beginRegistration.mockReturnValue(new Promise(() => {}));
+    const onCancel = vi.fn();
+    render(() => (
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent presentation="sheet">
+          <Register
+            host="dialog"
+            client={asClient(client)}
+            onCancel={onCancel}
+            productName="Musubi"
+          />
+        </DialogContent>
+      </Dialog>
+    ));
+    fillEmail("alice@example.com");
+    fillHandle("alice");
+    fillBirthdate("1990-01-01");
+    const send = () =>
+      screen.getByRole("button", { name: /Send verification link|Sending…/ }) as HTMLButtonElement;
+    await waitFor(() => expect(send().disabled).toBe(false));
+    fireEvent.click(send());
+    await screen.findByRole("button", { name: /Sending…/ });
+    const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+    expect(cancel.disabled).toBe(true);
+    fireEvent.click(cancel);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  // The footer sits inside the form, so Enter in a field submits.
+  it("keeps the send the form's submit, so Enter in a field sends it", () => {
+    renderInDialog();
+    const email = screen.getByLabelText("Email") as HTMLInputElement;
+    const send = screen.getByRole("button", {
+      name: "Send verification link",
+    }) as HTMLButtonElement;
+    expect(send.type).toBe("submit");
+    expect(send.form).not.toBeNull();
+    expect(send.form).toBe(email.form);
   });
 });

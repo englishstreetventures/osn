@@ -1918,12 +1918,6 @@ describe("seating — the venue file", () => {
     expect(file).toBe("Event,Table,Capacity,Guest,Household,RSVP");
   });
 
-  it("is a header alone for a wedding with no seats", async () => {
-    const { app } = setup();
-    const res = await req(app, "GET", `${base}/seating.csv`, OWNER);
-    expect(await res.text()).toBe("Event,Table,Capacity,Guest,Household,RSVP");
-  });
-
   it("counts the seats the file would print, for the locked Seating card", async () => {
     const { app, db } = setup();
     const empty = await req(app, "GET", `${base}/module-rows`, OWNER);

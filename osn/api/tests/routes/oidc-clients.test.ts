@@ -14,13 +14,13 @@
 
 import { createHash } from "node:crypto";
 
-import { makeLogEmailLive } from "@shared/email";
+import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
 import { Layer } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { settledHandle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
+import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 const REDIRECT_URI = "https://newrp.example.com/callback";
@@ -39,7 +39,7 @@ beforeAll(async () => {
 
 interface Harness {
   app: ReturnType<typeof createAuthRoutes>;
-  code: () => string | undefined;
+  recorded: () => readonly RecordedEmail[];
   sqlite: ReturnType<typeof createTestLayerWithSqlite>["sqlite"];
 }
 
@@ -50,14 +50,7 @@ function setup(): Harness {
   return {
     app,
     sqlite,
-    code: () => {
-      const all = rec.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => rec.recorded(),
   };
 }
 
@@ -66,21 +59,7 @@ async function register(
   email: string,
   handle: string,
 ): Promise<{ cookie: string; accessToken: string }> {
-  await settledHandle(
-    h.app,
-    new Request("http://localhost/register/begin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, handle, birthdate: "1990-01-01" }),
-    }),
-  );
-  const res = await h.app.handle(
-    new Request("http://localhost/register/complete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, code: h.code() }),
-    }),
-  );
+  const res = await registeredResponse(h.app, h.recorded, email, handle);
   const body = (await res.json()) as { session: { access_token: string } };
   const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0]!;
   return { cookie, accessToken: body.session.access_token };

@@ -1,7 +1,7 @@
 /**
  * Hold the unlock choreography until the event cards are actually in the DOM.
  *
- * The post-claim components — `EventCard` among them — are `lazy` (P-W1), so
+ * The post-claim components — `EventCard` among them — are `lazy`, so
  * they live in their own chunk. `InvitePage` warms that chunk at idle, but a
  * guest opening their invite for the first time on a phone can easily claim
  * before an idle callback has run, and then the chunk is still in flight when
@@ -28,7 +28,7 @@ const POLL_INTERVAL_MS = 16;
 /**
  * A sleep that can be called off. The chunk race below leaves a loser every
  * time, and on the warm path that loser is a 1.5s timer holding its closure
- * alive long after the invite has been revealed (P-I4).
+ * alive long after the invite has been revealed.
  */
 interface CancellableSleep {
   /** Resolves when the delay is up — or never, if it was called off first. */
@@ -65,7 +65,7 @@ export async function awaitEventCards(
 
   // Nothing resolved, so nothing can have rendered: polling for a card here
   // would be 300ms of dead wait bolted onto a reveal that has already been held
-  // for a second and a half (P-W2).
+  // for a second and a half.
   if (!loaded) return;
 
   // Resolving the chunk is not the same as having painted with it: Suspense
@@ -73,10 +73,10 @@ export async function awaitEventCards(
   // device gets the frames it needs and a fast one loses nothing.
   //
   // Bounded on the CLOCK, not on iterations. This poll runs at the busiest
-  // moment on the page — Solid mounting the card list while Motion drives the
-  // welcome fade — and under long tasks a 16ms timer routinely returns in 50ms
-  // or more, so counting ticks would quietly stretch a 300ms budget into
-  // seconds on exactly the phones it was written for (P-W3).
+  // moment on the page — Solid mounting the card list while the unlock reveal
+  // runs the welcome's rise — and under long tasks a 16ms timer routinely
+  // returns in 50ms or more, so counting ticks would quietly stretch a 300ms
+  // budget into seconds on exactly the phones it was written for.
   const deadline = Date.now() + CARD_RENDER_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (getSection()?.querySelector("[data-event-card]")) return;

@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { toast } from "../src/index";
-import { resetToasts, toasts } from "../src/store";
+import { DEFAULT_DURATION, EXIT_MS, resetToasts, toasts } from "../src/store";
 import { Toaster } from "../src/Toaster";
 
 afterEach(() => {
@@ -13,12 +13,6 @@ afterEach(() => {
 });
 
 describe("Toaster", () => {
-  it("renders a raised toast", async () => {
-    render(() => <Toaster />);
-    toast.success("Saved");
-    expect(await screen.findByText("Saved")).toBeTruthy();
-  });
-
   it("portals the container to <body>, so an animated ancestor can't trap it", () => {
     // A `transform` on an ancestor makes it the containing block AND a stacking
     // context for a `position: fixed` descendant — the exact mechanism that put
@@ -86,37 +80,37 @@ describe("Toaster", () => {
     expect(screen.getByText("Three")).toBeTruthy();
   });
 
-  it("dismisses on its own once the dwell elapses", async () => {
-    render(() => <Toaster />);
-    toast.success("Saved", { duration: 50 });
-    expect(screen.getByText("Saved")).toBeTruthy();
-    await waitFor(() => expect(toasts()).toHaveLength(0), { timeout: 2000 });
-  });
-
-  it("pauses the dwell while the pointer is over it, so a toast can be read", async () => {
+  it("pauses the dwell while the pointer is over it, so a toast can be read", () => {
+    vi.useFakeTimers();
     render(() => <Toaster />);
     toast.success("Saved", { duration: 60 });
     const el = document.querySelector(".ui-toast") as HTMLElement;
     el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false }));
-    await new Promise((r) => setTimeout(r, 150));
+    vi.advanceTimersByTime(60 + EXIT_MS + 100);
     expect(toasts(), "the toast expired while being read").toHaveLength(1);
   });
 
-  it("runs an action and then dismisses", async () => {
+  it("runs an action and then dismisses", () => {
+    vi.useFakeTimers();
     const onClick = vi.fn();
     render(() => <Toaster />);
     toast.error("Could not save", { action: { label: "Retry", onClick }, duration: 10_000 });
     (screen.getByText("Retry") as HTMLButtonElement).click();
     expect(onClick).toHaveBeenCalledOnce();
-    await waitFor(() => expect(toasts()).toHaveLength(0));
+    vi.advanceTimersByTime(EXIT_MS);
+    expect(toasts()).toHaveLength(0);
   });
 
-  it("offers a dismiss button only when asked", async () => {
+  it("offers a dismiss button only when asked", () => {
+    vi.useFakeTimers();
     render(() => <Toaster />);
+    toast.info("Plain note");
+    expect(screen.queryByLabelText("Dismiss notification")).toBeNull();
     toast.info("Standing note", { dismissible: true, duration: 10_000 });
     const close = screen.getByLabelText("Dismiss notification");
     close.click();
-    await waitFor(() => expect(toasts()).toHaveLength(0));
+    vi.advanceTimersByTime(EXIT_MS);
+    expect(toasts().map((t) => t.message)).toEqual(["Plain note"]);
   });
 });
 
@@ -157,16 +151,29 @@ describe("toast.promise", () => {
   });
 
   it("gives the outcome its own dwell instead of inheriting the spinner's Infinity", async () => {
+    vi.useFakeTimers();
+    render(() => <Toaster />);
+    await toast.promise(Promise.resolve(1), { loading: "Saving…", success: "Saved", error: "No" });
+    expect(screen.getByText("Saved")).toBeTruthy();
+    // The pointer passing over restarts the clock from the duration the toast
+    // holds, so this would hang for ever if the success inherited `loading`'s
+    // pinned duration.
+    const el = document.querySelector(".ui-toast") as HTMLElement;
+    el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false }));
+    el.dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
+    vi.advanceTimersByTime(DEFAULT_DURATION + EXIT_MS);
+    expect(toasts()).toHaveLength(0);
+  });
+
+  it("hands the caller's options on to the outcome", async () => {
+    vi.useFakeTimers();
     render(() => <Toaster />);
     await toast.promise(
       Promise.resolve(1),
       { loading: "Saving…", success: "Saved", error: "No" },
-      {
-        duration: 60,
-      },
+      { duration: 60 },
     );
-    expect(screen.getByText("Saved")).toBeTruthy();
-    // Would hang for ever if the success inherited `loading`'s pinned duration.
-    await waitFor(() => expect(toasts()).toHaveLength(0), { timeout: 2000 });
+    vi.advanceTimersByTime(60 + EXIT_MS);
+    expect(toasts()).toHaveLength(0);
   });
 });

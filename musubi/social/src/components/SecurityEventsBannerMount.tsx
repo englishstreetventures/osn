@@ -18,14 +18,12 @@ import { runPasskeyCeremony } from "../lib/webauthn-ceremony";
  * or an attacker holding the mailbox can swallow.
  */
 export default function SecurityEventsBannerMount(props: {
-  accessToken: string;
   onVisibleCountChange?: (count: number) => void;
 }) {
   return (
     <SecurityEventsBanner
       client={securityEventsClient}
       stepUpClient={stepUpClient}
-      accessToken={props.accessToken}
       runPasskeyCeremony={runPasskeyCeremony}
       totpClient={totpClient}
       productName={PRODUCT_NAME}

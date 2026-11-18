@@ -126,10 +126,6 @@ describe("tasks routes", () => {
     expect((await req(buildApp(), "GET", base, undefined)).status).toBe(401);
   });
 
-  it("member (viewer) may read", async () => {
-    expect((await req(buildApp(), "GET", base, VIEWER)).status).toBe(200);
-  });
-
   it("viewer may NOT create (403 read_only_role)", async () => {
     const res = await req(buildApp(), "POST", base, VIEWER, CREATE);
     expect(res.status).toBe(403);

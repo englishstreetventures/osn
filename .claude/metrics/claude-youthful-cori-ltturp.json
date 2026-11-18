@@ -1,0 +1,228 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "claude/youthful-cori-ltturp",
+    "base_sha": "db52b51cfa41d7bc5de8d2f99649341b8b933ead",
+    "head_sha": "01f0ee29b5d901ba85d7093e6a9465916e1e4420",
+    "generated_at": "2026-11-16T06:06:28.054Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none",
+    "issues": 0
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-15T12:17:54.173Z",
+    "last_ts": "2026-11-16T06:06:27.668Z",
+    "span_seconds": 64113,
+    "active_seconds": 5446,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 48.182336290000016,
+    "tokens": {
+      "input": 786,
+      "output": 227011,
+      "thinking": 76970,
+      "cache_write_5m": 369996,
+      "cache_write_1h": 1175949,
+      "cache_read": 81086753
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 782,
+          "output": 226152,
+          "thinking": 76797,
+          "cache_write_5m": 362844,
+          "cache_write_1h": 1175949,
+          "cache_read": 81082474
+        },
+        "usd_equivalent": 48.18096960000001,
+        "messages": 391
+      },
+      "claude-haiku-5-5": {
+        "tokens": {
+          "input": 4,
+          "output": 859,
+          "thinking": 173,
+          "cache_write_5m": 7152,
+          "cache_write_1h": 0,
+          "cache_read": 4279
+        },
+        "usd_equivalent": 0.00136669,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 484,
+          "output": 128266,
+          "thinking": 36216,
+          "cache_write_5m": 0,
+          "cache_write_1h": 1175949,
+          "cache_read": 67481103
+        },
+        "usd_equivalent": 38.96728920000001,
+        "messages": 242
+      },
+      "subagent": {
+        "tokens": {
+          "input": 302,
+          "output": 98745,
+          "thinking": 40754,
+          "cache_write_5m": 369996,
+          "cache_write_1h": 0,
+          "cache_read": 13605650
+        },
+        "usd_equivalent": 9.215047090000008,
+        "messages": 151
+      }
+    },
+    "effort": {
+      "medium": 244,
+      "xhigh": 79,
+      "high": 70
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 5,
+      "test": 3,
+      "docs": 4,
+      "config": 37,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 380,
+        "deleted": 415
+      },
+      "test": {
+        "added": 122,
+        "deleted": 6
+      },
+      "docs": {
+        "added": 17,
+        "deleted": 15
+      },
+      "config": {
+        "added": 247,
+        "deleted": 98
+      },
+      "source": {
+        "added": 32,
+        "deleted": 29
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/build-tools",
+      "cire/db",
+      "cire/envelope",
+      "cire/host",
+      "cire/infra",
+      "cire/invites",
+      "cire/landing",
+      "cire/ui",
+      "cire/vendor",
+      "musubi/infra",
+      "musubi/landing",
+      "musubi/social",
+      "osn/api",
+      "osn/client",
+      "osn/db",
+      "pulse/api",
+      "pulse/db",
+      "pulse/infra",
+      "pulse/landing",
+      "pulse/web",
+      "shared/billing",
+      "shared/crypto",
+      "shared/db-utils",
+      "shared/email",
+      "shared/infra",
+      "shared/observability",
+      "shared/osn-auth-client",
+      "shared/realtime",
+      "tools/lab",
+      "tools/oxlint",
+      "zap/api",
+      "zap/db",
+      "zap/infra"
+    ],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 6,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": 160810,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 357,
+      "Skill": 9,
+      "Edit": 6,
+      "ToolSearch": 6,
+      "mcp__github__actions_list": 4,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "mcp__github__issue_write": 4,
+      "mcp__github__issue_read": 3,
+      "mcp__github__add_issue_comment": 3,
+      "Read": 2,
+      "AskUserQuestion": 2,
+      "WebFetch": 2,
+      "Write": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 4
+    },
+    "skills": {
+      "review-deps": 1,
+      "write-wiki": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "web-fetch": 1,
+      "reviewer": 3
+    },
+    "requests": {
+      "main": 242,
+      "subagent": 151,
+      "with_tools": 382,
+      "with_one_tool": 360,
+      "context_median": 174889,
+      "context_p90": 410649
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 5,
+    "located": 5,
+    "acted_on": 3,
+    "paired": 3,
+    "acted_on_paired": 3,
+    "control_changed": 0,
+    "acted_on_by_test": 3,
+    "acted_on_paired_by_test": 3
+  }
+}

@@ -16,6 +16,86 @@
   },
   "openapi": "3.1.2",
   "paths": {
+    "/.well-known/arc-jwks.json": {
+      "get": {
+        "operationId": "getArcJwks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "keys": {
+                      "items": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "alg": {
+                            "const": "ES256",
+                            "type": "string"
+                          },
+                          "crv": {
+                            "type": "string"
+                          },
+                          "kid": {
+                            "type": "string"
+                          },
+                          "kty": {
+                            "type": "string"
+                          },
+                          "use": {
+                            "const": "sig",
+                            "type": "string"
+                          },
+                          "x": {
+                            "type": "string"
+                          },
+                          "y": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kid",
+                          "alg",
+                          "use"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "keys"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        }
+      }
+    },
     "/.well-known/jwks.json": {
       "get": {
         "operationId": "getJwks",
@@ -192,10 +272,38 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "choices": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "choice": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "successor_profile_id": {
+                          "maxLength": 64,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "choice"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                  },
                   "confirm_handle": {
                     "maxLength": 64,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "delete_everything": {
+                    "type": "boolean"
                   },
                   "step_up_token": {
                     "type": "string"
@@ -210,10 +318,38 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "properties": {
+                  "choices": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "choice": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "successor_profile_id": {
+                          "maxLength": 64,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "choice"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                  },
                   "confirm_handle": {
                     "maxLength": 64,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "delete_everything": {
+                    "type": "boolean"
                   },
                   "step_up_token": {
                     "type": "string"
@@ -228,10 +364,38 @@
             "multipart/form-data": {
               "schema": {
                 "properties": {
+                  "choices": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "choice": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "successor_profile_id": {
+                          "maxLength": 64,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "choice"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                  },
                   "confirm_handle": {
                     "maxLength": 64,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "delete_everything": {
+                    "type": "boolean"
                   },
                   "step_up_token": {
                     "type": "string"
@@ -274,6 +438,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "action": {
+                      "type": "string"
+                    },
                     "error": {
                       "type": "string"
                     },
@@ -345,6 +512,589 @@
               }
             },
             "description": "Response for status 403"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "could_not_check": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "open_actions": {
+                      "items": {
+                        "properties": {
+                          "app": {
+                            "type": "string"
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "display_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "handle": {
+                                  "type": "string"
+                                },
+                                "profile_id": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "enum": [
+                                    "admin",
+                                    "member"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "profile_id",
+                                "handle",
+                                "display_name",
+                                "role"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "choices": {
+                            "items": {
+                              "properties": {
+                                "choice": {
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "type": "string"
+                                },
+                                "erased_on": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "choice",
+                                "description",
+                                "erased_on"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "default_choice": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "link": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "organisation": {
+                            "properties": {
+                              "handle": {
+                                "type": "string"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "handle",
+                              "name"
+                            ],
+                            "type": "object"
+                          },
+                          "successor": {
+                            "properties": {
+                              "display_name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "handle": {
+                                "type": "string"
+                              },
+                              "profile_id": {
+                                "type": "string"
+                              },
+                              "role": {
+                                "enum": [
+                                  "admin",
+                                  "member"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "profile_id",
+                              "handle",
+                              "display_name",
+                              "role"
+                            ],
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "app",
+                          "kind",
+                          "label",
+                          "choices",
+                          "default_choice",
+                          "link"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/account/data-link": {
+      "post": {
+        "operationId": "sendAccountDataLink",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "sent": {
+                      "const": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "sent"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 202"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/account/deletion-preview": {
+      "get": {
+        "operationId": "getAccountDeletionPreview",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "could_not_check": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "open_actions": {
+                      "items": {
+                        "properties": {
+                          "app": {
+                            "type": "string"
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "display_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "handle": {
+                                  "type": "string"
+                                },
+                                "profile_id": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "enum": [
+                                    "admin",
+                                    "member"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "profile_id",
+                                "handle",
+                                "display_name",
+                                "role"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "choices": {
+                            "items": {
+                              "properties": {
+                                "choice": {
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "type": "string"
+                                },
+                                "erased_on": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "choice",
+                                "description",
+                                "erased_on"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "default_choice": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "link": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "organisation": {
+                            "properties": {
+                              "handle": {
+                                "type": "string"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "handle",
+                              "name"
+                            ],
+                            "type": "object"
+                          },
+                          "successor": {
+                            "properties": {
+                              "display_name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "handle": {
+                                "type": "string"
+                              },
+                              "profile_id": {
+                                "type": "string"
+                              },
+                              "role": {
+                                "enum": [
+                                  "admin",
+                                  "member"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "profile_id",
+                              "handle",
+                              "display_name",
+                              "role"
+                            ],
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "app",
+                          "kind",
+                          "label",
+                          "choices",
+                          "default_choice",
+                          "link"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "open_actions",
+                    "could_not_check"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
           },
           "429": {
             "content": {
@@ -588,12 +1338,24 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "sent": {
-                      "type": "boolean"
+                    "claimSecret": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "number"
+                    },
+                    "pairingCode": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "sent"
+                    "requestId",
+                    "claimSecret",
+                    "pairingCode",
+                    "expiresAt"
                   ],
                   "type": "object"
                 }
@@ -642,6 +1404,27 @@
               }
             },
             "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
           },
           "429": {
             "content": {
@@ -693,15 +1476,27 @@
         ]
       }
     },
-    "/account/email/complete": {
+    "/account/email/{requestId}/complete": {
       "post": {
         "operationId": "completeEmailChange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:emailchange)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "properties": {
-                  "code": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   },
                   "step_up_token": {
@@ -709,7 +1504,7 @@
                   }
                 },
                 "required": [
-                  "code",
+                  "claimSecret",
                   "step_up_token"
                 ],
                 "type": "object"
@@ -718,7 +1513,8 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "properties": {
-                  "code": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   },
                   "step_up_token": {
@@ -726,7 +1522,7 @@
                   }
                 },
                 "required": [
-                  "code",
+                  "claimSecret",
                   "step_up_token"
                 ],
                 "type": "object"
@@ -735,7 +1531,8 @@
             "multipart/form-data": {
               "schema": {
                 "properties": {
-                  "code": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   },
                   "step_up_token": {
@@ -743,7 +1540,7 @@
                   }
                 },
                 "required": [
-                  "code",
+                  "claimSecret",
                   "step_up_token"
                 ],
                 "type": "object"
@@ -766,6 +1563,429 @@
                     "email"
                   ],
                   "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/account/email/{requestId}/resend": {
+      "post": {
+        "operationId": "resendEmailChangeLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:emailchange)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "sent",
+                        "limit",
+                        "expired"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/account/email/{requestId}/status": {
+      "post": {
+        "operationId": "getEmailChangeStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:emailchange)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "pairingCode": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "confirmed",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "expired",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -944,6 +2164,27 @@
             },
             "description": "Response for status 403"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -997,6 +2238,41 @@
     "/account/restore": {
       "post": {
         "operationId": "restoreAccount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1057,6 +2333,62 @@
               }
             },
             "description": "Response for status 401"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 403"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
           },
           "429": {
             "content": {
@@ -1375,6 +2707,27 @@
             },
             "description": "Response for status 403"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -1539,6 +2892,47 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "error": {
+                          "const": "email_change_held",
+                          "type": "string"
+                        },
+                        "holdEndsAt": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "error",
+                        "holdEndsAt"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Response for status 403"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
                   "properties": {
                     "error": {
                       "type": "string"
@@ -1554,7 +2948,7 @@
                 }
               }
             },
-            "description": "Response for status 403"
+            "description": "Response for status 409"
           },
           "429": {
             "content": {
@@ -2086,6 +3480,498 @@
                       "type": "string"
                     },
                     "error_description": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        }
+      }
+    },
+    "/authorize/decline": {
+      "post": {
+        "operationId": "declineOidcAuthorizeRequest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "requestId": {
+                    "pattern": "^oar_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestId"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "requestId": {
+                    "pattern": "^oar_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestId"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "requestId": {
+                    "pattern": "^oar_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestId"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "redirectTo": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "redirectTo"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "error_description": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "error_description": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "error_description": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 503"
+          }
+        }
+      }
+    },
+    "/email-link/{requestId}/candidates": {
+      "post": {
+        "operationId": "getEmailLinkCandidates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:signup|recovery|stepup|emailchange)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "pairingCandidates": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "status": {
+                          "const": "ready",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "pairingCandidates"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "confirmed",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "expired",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        }
+      }
+    },
+    "/email-link/{requestId}/confirm": {
+      "post": {
+        "operationId": "confirmEmailLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:signup|recovery|stepup|emailchange)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "pairingPick": {
+                    "maxLength": 64,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret",
+                  "pairingPick"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "pairingPick": {
+                    "maxLength": 64,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret",
+                  "pairingPick"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "pairingPick": {
+                    "maxLength": 64,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret",
+                  "pairingPick"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "confirmed",
+                        "declined",
+                        "expired"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
                       "type": "string"
                     },
                     "message": {
@@ -3748,6 +5634,27 @@
             },
             "description": "Response for status 401"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -4854,13 +6761,24 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "status": {
-                      "const": "accepted",
+                    "claimSecret": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "number"
+                    },
+                    "pairingCode": {
+                      "type": "string"
+                    },
+                    "requestId": {
                       "type": "string"
                     }
                   },
                   "required": [
-                    "status"
+                    "requestId",
+                    "claimSecret",
+                    "pairingCode",
+                    "expiresAt"
                   ],
                   "type": "object"
                 }
@@ -4934,24 +6852,32 @@
         }
       }
     },
-    "/login/recovery/email/complete": {
+    "/login/recovery/email/{requestId}/resend": {
       "post": {
-        "operationId": "completeEmailRecovery",
+        "operationId": "resendEmailRecoveryLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:recovery)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "identifier": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "identifier",
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -4959,16 +6885,13 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "identifier": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "identifier",
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -4976,16 +6899,13 @@
             "multipart/form-data": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "identifier": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "identifier",
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -4995,6 +6915,195 @@
         },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "sent",
+                        "limit",
+                        "expired"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        }
+      }
+    },
+    "/login/recovery/email/{requestId}/status": {
+      "post": {
+        "operationId": "getEmailRecoveryStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:recovery)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "pairingCode": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "expired",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
@@ -5055,9 +7164,14 @@
                         "scope"
                       ],
                       "type": "object"
+                    },
+                    "status": {
+                      "const": "complete",
+                      "type": "string"
                     }
                   },
                   "required": [
+                    "status",
                     "session",
                     "profile"
                   ],
@@ -5065,7 +7179,7 @@
                 }
               }
             },
-            "description": "Response for status 200"
+            "description": "Response for status 201"
           },
           "400": {
             "content": {
@@ -5755,6 +7869,30 @@
             },
             "description": "Response for status 401"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "error_description": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -6241,6 +8379,30 @@
               }
             },
             "description": "Response for status 404"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "error_description": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
           },
           "429": {
             "content": {
@@ -7341,6 +9503,293 @@
         ]
       }
     },
+    "/organisations/{handle}/decline-ownership": {
+      "get": {
+        "operationId": "getOrganisationDeclineOwnership",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "declineUntil": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "declineUntil"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 403"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 404"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "declineOrganisationOwnership",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "outcome": {
+                      "enum": [
+                        "passed",
+                        "deleted"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "outcome"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 403"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 404"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/organisations/{handle}/members": {
       "get": {
         "operationId": "listOrganisationMembers",
@@ -8284,6 +10733,27 @@
             },
             "description": "Response for status 401"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -9046,6 +11516,27 @@
             },
             "description": "Response for status 403"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -9349,12 +11840,16 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "default_profile_id": {
+                      "type": "string"
+                    },
                     "deleted": {
                       "type": "boolean"
                     }
                   },
                   "required": [
-                    "deleted"
+                    "deleted",
+                    "default_profile_id"
                   ],
                   "type": "object"
                 }
@@ -9749,6 +12244,27 @@
               }
             },
             "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
           },
           "429": {
             "content": {
@@ -10581,6 +13097,27 @@
             },
             "description": "Response for status 403"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -10773,8 +13310,33 @@
                   "email": {
                     "type": "string"
                   },
+                  "emailVerificationToken": {
+                    "maxLength": 8192,
+                    "type": "string"
+                  },
                   "handle": {
                     "type": "string"
+                  },
+                  "nonceSecret": {
+                    "maxLength": 128,
+                    "type": "string"
+                  },
+                  "previous": {
+                    "properties": {
+                      "requestId": {
+                        "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      },
+                      "retireSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "requestId",
+                      "retireSecret"
+                    ],
+                    "type": "object"
                   },
                   "turnstileToken": {
                     "type": "string"
@@ -10800,8 +13362,33 @@
                   "email": {
                     "type": "string"
                   },
+                  "emailVerificationToken": {
+                    "maxLength": 8192,
+                    "type": "string"
+                  },
                   "handle": {
                     "type": "string"
+                  },
+                  "nonceSecret": {
+                    "maxLength": 128,
+                    "type": "string"
+                  },
+                  "previous": {
+                    "properties": {
+                      "requestId": {
+                        "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      },
+                      "retireSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "requestId",
+                      "retireSecret"
+                    ],
+                    "type": "object"
                   },
                   "turnstileToken": {
                     "type": "string"
@@ -10827,8 +13414,33 @@
                   "email": {
                     "type": "string"
                   },
+                  "emailVerificationToken": {
+                    "maxLength": 8192,
+                    "type": "string"
+                  },
                   "handle": {
                     "type": "string"
+                  },
+                  "nonceSecret": {
+                    "maxLength": 128,
+                    "type": "string"
+                  },
+                  "previous": {
+                    "properties": {
+                      "requestId": {
+                        "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      },
+                      "retireSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "requestId",
+                      "retireSecret"
+                    ],
+                    "type": "object"
                   },
                   "turnstileToken": {
                     "type": "string"
@@ -10851,12 +13463,28 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "sent": {
-                      "type": "boolean"
+                    "claimSecret": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "number"
+                    },
+                    "pairingCode": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "retireSecret": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "sent"
+                    "requestId",
+                    "claimSecret",
+                    "retireSecret",
+                    "pairingCode",
+                    "expiresAt"
                   ],
                   "type": "object"
                 }
@@ -10951,24 +13579,82 @@
         }
       }
     },
-    "/register/complete": {
+    "/register/email-verification-nonce": {
       "post": {
-        "operationId": "completeRegistration",
+        "operationId": "emailVerificationNonce",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "nonce": {
+                      "type": "string"
+                    },
+                    "nonceSecret": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "nonce",
+                    "nonceSecret"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 404"
+          }
+        }
+      }
+    },
+    "/register/{requestId}/resend": {
+      "post": {
+        "operationId": "resendRegistrationLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:signup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "email": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "email",
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -10976,16 +13662,13 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "email": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "email",
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -10993,16 +13676,13 @@
             "multipart/form-data": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "email": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "email",
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -11011,6 +13691,207 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "sent",
+                        "limit",
+                        "expired"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        }
+      }
+    },
+    "/register/{requestId}/status": {
+      "post": {
+        "operationId": "getRegistrationStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:signup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "pairingCode": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "expired",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "conflict",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
           "201": {
             "content": {
               "application/json": {
@@ -11048,9 +13929,14 @@
                         "scope"
                       ],
                       "type": "object"
+                    },
+                    "status": {
+                      "const": "complete",
+                      "type": "string"
                     }
                   },
                   "required": [
+                    "status",
                     "profileId",
                     "handle",
                     "email",
@@ -11343,6 +14229,27 @@
             },
             "description": "Response for status 401"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -11472,7 +14379,7 @@
             },
             "description": "Response for status 401"
           },
-          "429": {
+          "409": {
             "content": {
               "application/json": {
                 "schema": {
@@ -11491,100 +14398,7 @@
                 }
               }
             },
-            "description": "Response for status 429"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Response for status 500"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/step-up/otp/begin": {
-      "post": {
-        "operationId": "beginStepUpOtp",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "sent": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "sent"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Response for status 200"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Response for status 400"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Response for status 401"
+            "description": "Response for status 409"
           },
           "429": {
             "content": {
@@ -11636,23 +14450,22 @@
         ]
       }
     },
-    "/step-up/otp/complete": {
+    "/step-up/email/begin": {
       "post": {
-        "operationId": "completeStepUpOtp",
+        "operationId": "beginStepUpEmail",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
                   "purpose": {
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
+                      "cire_app_delete",
                       "recovery_generate",
                       "passkey_register",
                       "passkey_delete",
@@ -11665,7 +14478,7 @@
                   }
                 },
                 "required": [
-                  "code"
+                  "purpose"
                 ],
                 "type": "object"
               }
@@ -11673,15 +14486,14 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
                   "purpose": {
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
+                      "cire_app_delete",
                       "recovery_generate",
                       "passkey_register",
                       "passkey_delete",
@@ -11694,7 +14506,7 @@
                   }
                 },
                 "required": [
-                  "code"
+                  "purpose"
                 ],
                 "type": "object"
               }
@@ -11702,15 +14514,14 @@
             "multipart/form-data": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
                   "purpose": {
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
+                      "cire_app_delete",
                       "recovery_generate",
                       "passkey_register",
                       "passkey_delete",
@@ -11723,7 +14534,7 @@
                   }
                 },
                 "required": [
-                  "code"
+                  "purpose"
                 ],
                 "type": "object"
               }
@@ -11737,16 +14548,24 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "expires_in": {
+                    "claimSecret": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
                       "type": "number"
                     },
-                    "step_up_token": {
+                    "pairingCode": {
+                      "type": "string"
+                    },
+                    "requestId": {
                       "type": "string"
                     }
                   },
                   "required": [
-                    "step_up_token",
-                    "expires_in"
+                    "requestId",
+                    "claimSecret",
+                    "pairingCode",
+                    "expiresAt"
                   ],
                   "type": "object"
                 }
@@ -11795,6 +14614,458 @@
               }
             },
             "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/step-up/email/{requestId}/resend": {
+      "post": {
+        "operationId": "resendStepUpEmailLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:stepup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "sent",
+                        "limit",
+                        "expired"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/step-up/email/{requestId}/status": {
+      "post": {
+        "operationId": "getStepUpEmailStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:stepup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "pairingCode": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "expired",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "expires_in": {
+                          "type": "number"
+                        },
+                        "status": {
+                          "const": "complete",
+                          "type": "string"
+                        },
+                        "step_up_token": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "step_up_token",
+                        "expires_in"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
           },
           "429": {
             "content": {
@@ -11952,6 +15223,27 @@
             },
             "description": "Response for status 401"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -12015,8 +15307,10 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
+                      "cire_app_delete",
                       "recovery_generate",
                       "passkey_register",
                       "passkey_delete",
@@ -12042,8 +15336,10 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
+                      "cire_app_delete",
                       "recovery_generate",
                       "passkey_register",
                       "passkey_delete",
@@ -12069,8 +15365,10 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
+                      "cire_app_delete",
                       "recovery_generate",
                       "passkey_register",
                       "passkey_delete",
@@ -12155,6 +15453,394 @@
               }
             },
             "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/step-up/requests/{requestId}": {
+      "get": {
+        "operationId": "readAppStepUpRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "purpose": {
+                      "const": "cire_app_delete",
+                      "type": "string"
+                    },
+                    "return_host": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "purpose",
+                    "return_host"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 404"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/step-up/requests/{requestId}/confirm": {
+      "post": {
+        "operationId": "confirmAppStepUpRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "step_up_token"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "step_up_token"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "step_up_token"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "return_to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "return_to"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 403"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 404"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
           },
           "429": {
             "content": {
@@ -12221,8 +15907,10 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
+                      "cire_app_delete",
                       "recovery_generate",
                       "passkey_register",
                       "passkey_delete",
@@ -12250,8 +15938,10 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
+                      "cire_app_delete",
                       "recovery_generate",
                       "passkey_register",
                       "passkey_delete",
@@ -12279,8 +15969,10 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
+                      "cire_app_delete",
                       "recovery_generate",
                       "passkey_register",
                       "passkey_delete",
@@ -12366,6 +16058,27 @@
             },
             "description": "Response for status 401"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -12426,6 +16139,9 @@
                 "properties": {
                   "grant_type": {
                     "type": "string"
+                  },
+                  "profile_id": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -12439,6 +16155,9 @@
                 "properties": {
                   "grant_type": {
                     "type": "string"
+                  },
+                  "profile_id": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -12451,6 +16170,9 @@
               "schema": {
                 "properties": {
                   "grant_type": {
+                    "type": "string"
+                  },
+                  "profile_id": {
                     "type": "string"
                   }
                 },
@@ -12639,6 +16361,27 @@
             },
             "description": "Response for status 403"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -12813,6 +16556,27 @@
             },
             "description": "Response for status 403"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -12982,6 +16746,27 @@
               }
             },
             "description": "Response for status 401"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 409"
           },
           "429": {
             "content": {

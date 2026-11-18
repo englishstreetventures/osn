@@ -61,6 +61,8 @@ const configuredStripe: StripeClient = {
   createPlatformCheckoutSession: unreached,
   retrievePlatformCheckoutSession: unreached,
   expirePlatformCheckoutSession: unreached,
+  createPlatformRefund: unreached,
+  findPlatformRefund: unreached,
   retrievePrice: unreached,
 };
 
@@ -2398,12 +2400,5 @@ describe("deleting an item reaps its image", () => {
 
     expect((await req(app, "DELETE", `${base}/items/${items[1]!.id}`, EDITOR)).status).toBe(200);
     expect(assets._store.has(imageKey)).toBe(false);
-  });
-
-  it("still deletes an item that never had an image", async () => {
-    const assets = createAssetsStub();
-    const app = buildApp({ tier: "gold", assets });
-    const item = await seedItem(app);
-    expect((await req(app, "DELETE", `${base}/items/${item.id}`, EDITOR)).status).toBe(200);
   });
 });

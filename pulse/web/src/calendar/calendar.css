@@ -146,8 +146,8 @@
   cursor: pointer;
   border: 1px solid transparent;
   transition:
-    opacity 0.15s ease,
-    background 0.15s ease;
+    opacity var(--ui-dur-fast, 120ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
+    background var(--ui-dur-fast, 120ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .cal-confirm:disabled {

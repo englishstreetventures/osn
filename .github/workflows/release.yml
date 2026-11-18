@@ -43,7 +43,7 @@ jobs:
       # oxlint runs the vendored anti-slop plugin; verify it first, as ci.yml's
       # lint job does.
       - name: Verify vendored anti-slop matches its checksums
-        run: bash scripts/verify-vendored-anti-slop.sh
+        run: bash scripts/verify-vendored.sh tools/oxlint/anti-slop
 
       - uses: oven-sh/setup-bun@v2
         with:

@@ -14,9 +14,8 @@
     "dev:wrangler": "wrangler dev",
     "build": "wrangler deploy --dry-run --outdir dist",
     "test:migration-flow": "CIRE_D1_TIER=1 MIGRATION_FLOW=1 bun test tests/db/migrate-wrapper.test.ts",
-    "test": "bun test --preload ./tests/test-helpers/metrics-harness.ts",
+    "test": "bun test --preload ./tests/test-helpers/metrics-harness.ts --path-ignore-patterns='tests/db/d1-integration.test.ts'",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
-    "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
     "test:d1": "CIRE_D1_TIER=1 bun test tests/db/d1-integration.test.ts tests/db/migrate-wrapper.test.ts",
     "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
@@ -38,24 +37,26 @@
     "@shared/db-utils": "workspace:*",
     "@shared/email": "workspace:*",
     "@shared/feature-flags": "workspace:*",
+    "@shared/legal": "workspace:*",
     "@shared/observability": "workspace:*",
     "@shared/osn-auth-client": "workspace:*",
     "@shared/rate-limit": "workspace:*",
     "@shared/realtime": "workspace:*",
     "@shared/turnstile": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.0.7",
-    "elysia": "^1.4.30"
+    "effect": "4.1.4",
+    "elysia": "^1.4.30",
+    "fflate": "0.8.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
     "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/sdk-metrics": "2.12.0",
+    "@opentelemetry/sdk-metrics": "2.12.1",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
-    "jose": "6.2.14",
+    "jose": "6.2.17",
     "miniflare": "^4.20260730.0",
     "typescript": "7.1.0-beta",
-    "wrangler": "4.149.0"
+    "wrangler": "4.156.1"
   }
 }

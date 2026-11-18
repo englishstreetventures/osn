@@ -199,12 +199,14 @@ export function ConnectionsHero(props: ConnectionsHeroProps) {
         <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <a
             href={props.appUrl}
+            // oxlint-disable-next-line house/no-literal-motion -- a button's hover; this site defines no motion tokens
             class="border-accent bg-accent text-bg hover:text-accent font-body w-full rounded-md border px-7 py-3.5 text-sm font-medium tracking-wide transition-colors duration-200 hover:bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
           >
             Get started
           </a>
           <a
             href={props.exploreHref}
+            // oxlint-disable-next-line house/no-literal-motion -- a button's hover; this site defines no motion tokens
             class="border-border font-body text-text hover:border-accent hover:text-accent w-full rounded-md border bg-transparent px-7 py-3.5 text-sm font-medium tracking-wide transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
           >
             Explore the ecosystem

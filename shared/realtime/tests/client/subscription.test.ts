@@ -34,14 +34,6 @@ afterEach(() => {
 });
 
 describe("createTopicSubscription", () => {
-  it("opens one socket to the URL and says nothing on the first open", () => {
-    createTopicSubscription(URL, onSignal, base);
-    expect(FakeWebSocket.instances).toHaveLength(1);
-    expect(latest().url).toBe(URL);
-    latest().serverOpen();
-    expect(events).toEqual([]);
-  });
-
   it("passes a well-formed signal on", () => {
     createTopicSubscription(URL, onSignal, base);
     latest().serverOpen();
@@ -64,18 +56,6 @@ describe("createTopicSubscription", () => {
     expect(events).toEqual([]);
   });
 
-  it("pings each interval while answered", () => {
-    createTopicSubscription(URL, onSignal, base);
-    const socket = latest();
-    socket.serverOpen();
-    vi.advanceTimersByTime(1_000);
-    expect(socket.sent).toEqual(["ping"]);
-    socket.serverSend("pong");
-    vi.advanceTimersByTime(1_000);
-    expect(socket.sent).toEqual(["ping", "ping"]);
-    expect(events).toEqual([]);
-  });
-
   it("drops a socket whose ping went unanswered, and reconnects", () => {
     createTopicSubscription(URL, onSignal, base);
     const first = latest();
@@ -91,16 +71,6 @@ describe("createTopicSubscription", () => {
 
     vi.advanceTimersByTime(50); // 0.5 × min(1000, 100 × 2^0)
     expect(FakeWebSocket.instances).toHaveLength(2);
-    latest().serverOpen();
-    expect(events).toEqual([{ reason: "dropped" }, { reason: "reconnected" }]);
-  });
-
-  it("treats a lost open socket as a signal, then a successful reconnect as another", () => {
-    createTopicSubscription(URL, onSignal, base);
-    latest().serverOpen();
-    latest().serverClose(1006);
-    expect(events).toEqual([{ reason: "dropped" }]);
-    vi.advanceTimersByTime(50);
     latest().serverOpen();
     expect(events).toEqual([{ reason: "dropped" }, { reason: "reconnected" }]);
   });

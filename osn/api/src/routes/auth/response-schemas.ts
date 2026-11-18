@@ -300,6 +300,95 @@ export const accountDeletionStatusResponse = t.Union([
 ]);
 
 /**
+ * One thing the person must know about, or answer, before their account is
+ * deleted: an organisation one of their profiles owns (`app: "osn"`), or
+ * something an app holds (`app` names it). `id` is the action id a
+ * `DELETE /account` choice names: `osn:organisation:<orgId>`, or `<app>:…`.
+ * `choices` lists what the person may answer, each with a plain sentence and
+ * the date the data it keeps is erased (null when it keeps nothing past the
+ * deletion); an action with no choices is shown for information only.
+ * `default_choice` is what happens with no answer, and null on an action with
+ * choices means the deletion waits for one. `link` is where the person can
+ * deal with it in the app. `organisation`, `successor` and `candidates` come
+ * with an organisation only: `successor` is the member it passes to with no
+ * successor named, null when no one from another account is a member;
+ * `candidates` are the members a `successor` answer may name, in succession
+ * order, at most 50.
+ */
+export const accountDeletionOpenAction = t.Object({
+  id: t.String(),
+  app: t.String(),
+  kind: t.String(),
+  label: t.String(),
+  choices: t.Array(
+    t.Object({
+      choice: t.String(),
+      description: t.String(),
+      erased_on: t.Union([t.Number(), t.Null()]),
+    }),
+  ),
+  default_choice: t.Union([t.String(), t.Null()]),
+  link: t.Union([t.String(), t.Null()]),
+  organisation: t.Optional(t.Object({ id: t.String(), handle: t.String(), name: t.String() })),
+  successor: t.Optional(
+    t.Union([
+      t.Object({
+        profile_id: t.String(),
+        handle: t.String(),
+        display_name: t.Union([t.String(), t.Null()]),
+        role: t.Union([t.Literal("admin"), t.Literal("member")]),
+      }),
+      t.Null(),
+    ]),
+  ),
+  candidates: t.Optional(
+    t.Array(
+      t.Object({
+        profile_id: t.String(),
+        handle: t.String(),
+        display_name: t.Union([t.String(), t.Null()]),
+        role: t.Union([t.Literal("admin"), t.Literal("member")]),
+      }),
+    ),
+  ),
+});
+
+/**
+ * `GET /account/deletion-preview`: every open action of the account,
+ * organisations oldest first, then each app's; and each app that could not be
+ * asked, which holds the deletion until it answers.
+ */
+export const accountDeletionPreviewResponse = t.Object({
+  open_actions: t.Array(accountDeletionOpenAction),
+  could_not_check: t.Array(t.String()),
+});
+
+/**
+ * `DELETE /account` at 409: `session_stale` (the access token's session has
+ * ended); `could_not_check` (an app could not be asked) or `stale_choices` (an
+ * answer names an app action the fresh preview no longer lists), each with
+ * the fresh preview; or `open_actions` with the actions that still need an
+ * answer.
+ */
+export const accountDeletionConflictResponse = t.Object({
+  error: t.String(),
+  message: t.Optional(t.String()),
+  open_actions: t.Optional(t.Array(accountDeletionOpenAction)),
+  could_not_check: t.Optional(t.Array(t.String())),
+});
+
+/**
+ * `DELETE /account` at 400: `handle_mismatch`, `invalid_choice` with the
+ * `action` whose answer was refused, or whatever `publicError` maps a service
+ * failure to.
+ */
+export const accountDeletionBadRequestResponse = t.Object({
+  error: t.String(),
+  message: t.Optional(t.String()),
+  action: t.Optional(t.String()),
+});
+
+/**
  * `POST /account/restore`. A 200 with `cancelled: false` is a real outcome, not
  * an error: there was no pending deletion, or — the case that matters — the
  * grace window had already closed, so the downstream purge may be under way and

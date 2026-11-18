@@ -30,11 +30,11 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/componen
  * the celebration cue fire as the sheet unmounts — three state changes across
  * two components and two timers, with a CSS transition hanging off the last one.
  *
- * The card also renders inside the events section's themed wrapper here, with a
- * leftover inline `transform` of the kind `UnlockReveal.motion` leaves behind on
- * every `[data-event-card]`. A transformed ancestor creates a containing block
- * and a stacking context, so it is not inert scenery — it is the environment the
- * confirmation actually paints in.
+ * The card also renders inside the events section's themed wrapper here, with
+ * an inline `transform` on its `[data-event-card]`, the property the unlock
+ * reveal moves every card by. A transformed ancestor creates a containing
+ * block and a stacking context, so it is not inert scenery — it is the
+ * environment the confirmation can paint in.
  */
 
 const event: EventSummary = {
@@ -91,7 +91,7 @@ function Harness(props: { members?: FamilyMember[] }) {
 
   return (
     <section style={{ "background-color": "var(--invite-section-bg, transparent)" }}>
-      {/* The inline transform Motion One leaves on each card wrapper. */}
+      {/* A transform on the card wrapper, as the unlock reveal moves it. */}
       <div data-event-card style={{ transform: "translateY(0px)", opacity: "1" }}>
         <EventCard
           event={event}
@@ -210,8 +210,8 @@ describe("RSVP confirmation, end to end and painted", () => {
     // All three sampled inside ONE `waitFor` predicate, so they are read in a
     // single task. Asserted after the wait instead, they can straddle the
     // dwell's expiry — the poll sees "Saved", the runner stalls, and the sheet
-    // is gone by the time the next line runs. That margin shrank with the dwell
-    // (T-E1), and the assertion is about ORDERING, not duration, so it should
+    // is gone by the time the next line runs. That margin shrank with the dwell,
+    // and the assertion is about ORDERING, not duration, so it should
     // not have been leaning on the dwell being long in the first place.
     await vi.waitFor(() => {
       expect(document.querySelector("button[type='submit']")!.textContent).toContain("Saved");

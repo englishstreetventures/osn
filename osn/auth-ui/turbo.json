@@ -1,0 +1,20 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The `package` project reads only this package's files; the `repo`
+    // project (vitest.config.ts) also reads the two osn-api files that hold
+    // the link lockout's numbers, so only it reruns when those change.
+    "test": {
+      "dependsOn": ["^build", "test:repo"]
+    },
+    "test:repo": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/osn/api/src/services/auth/constants.ts",
+        "$TURBO_ROOT$/osn/api/src/lib/recovery-lockout-store.ts"
+      ]
+    }
+  }
+}

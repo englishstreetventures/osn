@@ -174,8 +174,10 @@ export function createProfileRoutes(
             set.status = 401;
             return { error: "unauthorized" };
           }
-          await run(profile.deleteProfile(principal.accountId, body.profile_id));
-          return { deleted: true };
+          const { defaultProfileId } = await run(
+            profile.deleteProfile(principal.accountId, body.profile_id),
+          );
+          return { deleted: true, default_profile_id: defaultProfileId };
         } catch (e) {
           const { status, body: errBody } = handleError(e);
           set.status = status;
@@ -187,7 +189,11 @@ export function createProfileRoutes(
           profile_id: t.String({ pattern: "^usr_[a-f0-9]{12}$" }),
         }),
         response: {
-          200: t.Object({ deleted: t.Boolean() }),
+          // `default_profile_id`: the account's default profile once this one
+          // is gone. A client that deleted the profile it was acting as names
+          // it in its next `POST /token` grant, so that grant still names a
+          // profile and is refused if the cookie belongs to another account.
+          200: t.Object({ deleted: t.Boolean(), default_profile_id: t.String() }),
           // Four refusals share this status: no such profile, a profile
           // belonging to another account, the account's last profile, and a
           // profile that still owns an organisation. All are `AuthError`, so

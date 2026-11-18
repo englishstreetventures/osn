@@ -27,10 +27,13 @@ export function AccountMenu(props: {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger class={props.triggerClass}>{props.children}</DropdownMenuTrigger>
+      {/* Focus comes back here when the profile switcher closes. */}
+      <DropdownMenuTrigger class={props.triggerClass} data-dialog-return="switcher">
+        {props.children}
+      </DropdownMenuTrigger>
       <DropdownMenuContent class="w-52">
         <DropdownMenuGroup>
-          <DropdownMenuLabel tone="identity">@{claims().handle ?? "..."}</DropdownMenuLabel>
+          <DropdownMenuLabel tone="identity">@{claims().handle ?? "…"}</DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => props.onSwitchProfile()}>Switch profile</DropdownMenuItem>

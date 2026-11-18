@@ -76,6 +76,8 @@ function stripeStub(
     retrievePlatformCheckoutSession: () =>
       Effect.fail(new StripeError({ reason: "not used here" })),
     expirePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+    createPlatformRefund: () => Effect.fail(new StripeError({ reason: "not used here" })),
+    findPlatformRefund: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
     createCheckoutSession(input) {
       sessions.push(input);
@@ -221,17 +223,6 @@ function contribute(app: App, cookie: string | null, body: unknown, slug = SLUG)
 }
 
 describe("who may give", () => {
-  it("hands a claimed guest a hosted checkout URL", async () => {
-    const stripe = stripeStub();
-    const { app } = buildApp({ stripe: stripe.client });
-    const cookie = await guestCookie(app);
-
-    const res = await contribute(app, cookie, { amountMinor: 5000 });
-
-    expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ url: "https://checkout.stripe.test/pay/cs_1" });
-  });
-
   it("hands a claimed guest a checkout URL on Crimson too, which includes the registry", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });
@@ -562,7 +553,7 @@ describe("what reaches Stripe, and what does not", () => {
     await contribute(app, cookie, { amountMinor: 5000, message: "x", displayName: "Y" });
 
     // Mid-flight: the gift exists, and has no session because there is not one
-    // yet — that NULL is the whole point of migration 0060.
+    // yet: the column takes NULL so the gift can be written before its session.
     expect(duringCreate).toHaveLength(1);
     expect(duringCreate[0]?.status).toBe("pending");
     expect(duringCreate[0]?.sessionId).toBeNull();

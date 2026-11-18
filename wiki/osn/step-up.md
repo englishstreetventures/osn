@@ -7,7 +7,8 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-10-30
+  - "[[email-links]]"
+last-reviewed: 2026-11-18
 ---
 
 # Step-up (sudo) tokens
@@ -17,8 +18,8 @@ The most sensitive endpoints require short-lived, high-assurance tokens. A stole
 ## When step-up is required
 
 There are **four** allow-lists, not three, and only three of them are config
-knobs. `recoveryGenerateAllowedAmr` is read by five separate verifiers despite
-its name, so widening it widens all five — the table below is by gate rather
+knobs. `recoveryGenerateAllowedAmr` is read by six separate verifiers despite
+its name, so widening it widens all six — the table below is by gate rather
 than by knob for exactly that reason.
 
 | Gate | Allow-list | `webauthn` | `otp` | `totp` |
@@ -26,13 +27,20 @@ than by knob for exactly that reason.
 | `POST /recovery/generate` | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `DELETE /account` | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `GET /account/export` (DSAR) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
+| `POST /account/restore` (cancel a pending deletion) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `POST /account/security-events/:id/ack` + `/ack-all` | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `/internal/step-up/verify` (Pulse / Zap app delete) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
+| `POST /step-up/requests/:id/confirm` (an app's step-up request: cire's removal of a host's data) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `POST /passkey/register/{begin,complete}` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `POST /totp/enroll/begin` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `DELETE /totp` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `DELETE /passkeys/:id` and `PATCH /passkeys/:id` (rename) | `passkeyDeleteAllowedAmr` | yes | **no** | **no** |
-| `POST /account/email/complete` | `emailChangeAllowedAmr` (`context.ts`) — the one set with no `AuthConfig` field | yes | yes | **no** |
+| `POST /account/email/:requestId/complete` | `emailChangeAllowedAmr` (`context.ts`) — the one set with no `AuthConfig` field | yes | yes | **no** |
+
+The `otp` column is the emailed factor: a link to the account's own address
+([[email-links#Step-up]]). The AMR value keeps the name `otp` because
+`passkeys.provenance_amr` rows store it (see Credential provenance below);
+renaming it would need a data migration for no change in meaning.
 
 Two rows are deliberately narrower than the rest, and both would be easy to
 widen by accident:
@@ -42,7 +50,7 @@ widen by accident:
   requiring one costs nothing.
 - **Email change keeps a set of its own, and no knob reaches it.** Its `otp` arm
   proves control of the **current** mailbox; a TOTP seed does not. Email change
-  is the silent pivot to permanent takeover, so it is the one gate where the two
+  is the pivot to permanent takeover, so it is the one gate where the two
   factors are not interchangeable — and the one a deployment may not widen. It
   lives in `context.ts` beside its three siblings rather than inline at the
   verifier, so all four sets are read in one place.
@@ -56,10 +64,11 @@ widen by accident:
 >
 > At `passkey_delete` the rest of the account's passkeys then go; the
 > last-passkey guard needs only one survivor and the new credential is one. At
-> `email_change` the second factor is an OTP to the **new** address, which the
-> caller chose — `POST /account/email/begin` is gated on the access token alone
-> — so the mailbox proof the narrow list was written for is not proof of the
-> *current* mailbox once the AMR arrived this way.
+> `email_change` the second factor is a link to the **new** address, which the
+> caller chose — `POST /account/email/begin` asks for no step-up, only an
+> access token and a live session — so the mailbox proof the narrow list was
+> written for is not proof of the *current* mailbox once the AMR arrived this
+> way.
 >
 > This is open to `otp` as much as to `totp`, and predates both TOTP and this
 > table. Closing it needs credential provenance — the AMR a passkey was
@@ -67,42 +76,156 @@ widen by accident:
 > one enrolled under a weaker factor. That is `englishstreetventures/osn#952`; the
 > walk-through is in [[totp#Threat model]].
 
-Everywhere else, `totp` is admitted precisely where an emailed OTP already is.
+Everywhere else, `totp` is admitted precisely where the emailed link already is.
 
 The caller presents the token either as an `X-Step-Up-Token` header or a `step_up_token` body field (email change uses body-only).
 
 ## Ceremony
 
-Two factors, both authenticated via the caller's existing Bearer access token:
+Three factors — a passkey, a link emailed to the account's own address and an authenticator app — each authenticated via the caller's existing Bearer access token:
 
 | Route | Purpose |
 |---|---|
 | `POST /step-up/passkey/begin` | WebAuthn assertion options, scoped to the caller's account |
 | `POST /step-up/passkey/complete` | Verifies signed assertion, returns `{ step_up_token, expires_in }` |
-| `POST /step-up/otp/begin` | Sends a 6-digit OTP to the account's verified email |
-| `POST /step-up/otp/complete` | Verifies code, returns `{ step_up_token, expires_in }` |
+| `POST /step-up/email/begin` | `{ purpose }`: mails a link to the account's own address for that purpose; answers `{ requestId, claimSecret, pairingCode, expiresAt }` |
+| `POST /step-up/email/:requestId/status` | `{ claimSecret }`: `pending`, `expired`, or, once the link is confirmed with the typed number, `complete` with `{ step_up_token, expires_in }` — once |
+| `POST /step-up/email/:requestId/resend` | Another link for the same request |
 | `POST /step-up/totp/complete` | Verifies a code from the account's authenticator app, returns `{ step_up_token, expires_in }` |
 
-Step-up OTPs are keyed separately from login OTPs — a login code cannot authorise a sensitive action, and a step-up code cannot complete a login.
+**Every ceremony route needs a live session.** Each route in the table
+refuses a caller whose session has ended with `409 { error: "session_stale" }`
+before it writes a challenge, opens, reads or resends a link request, checks a
+code or mints a token. The caller's session cookie, or its access token's
+`osn_sid` binding, must name an unrestricted, unexpired session of the account
+([[sessions#Access-token session binding (`osn_sid`)]]). An access token
+outlives its session by up to five minutes; in that window it can mint no
+step-up token, overwrite no parked passkey challenge, mail the owner nothing
+and spend none of the account's daily step-up links.
+
+**Every gate that spends a token checks the session again**, before it reads
+the token: each route in the table under "When step-up is required" that
+takes a token answers `409 session_stale` to a caller holding no live session, so a token minted
+while a session was live is not spent by that session's token once it has
+ended. `/internal/step-up/verify` makes no such check: Pulse calls it over ARC,
+and no user session reaches OSN on that hop.
+
+**A token is bound to the session that minted it.** Each ceremony route
+stamps the family of the caller's live session — the one its live-session
+check found — into the token as `osn_fam`. Every gate,
+`/internal/step-up/verify` included, refuses a token whose family has no
+live, unrestricted, unexpired session of the account left, so a token minted
+on a device outlives neither that device's sign-out nor its revocation, from
+whichever session or service it is presented. A renewal keeps the family,
+so a token survives the minting session's silent refresh. The check is the
+verifier's last before it claims the `jti`: a token it refuses stays unspent.
+It is a read, and the claim and the gate's write that follow do not repeat
+it; the window that leaves is stated in
+[`lib/live-session.ts`](../../osn/api/src/lib/live-session.ts).
+
+**`/internal/step-up/verify` checks whose profile it is for.** The calling
+app sends `profile_id`, the profile it verified its own caller as, and the
+route refuses a token that is not of the account owning that profile, before
+the `jti` is claimed: an app holds no account ids, so only OSN can tell that a
+token minted on one account is being spent against another's profile. Each
+app spends only its own deletion purpose — `pulse_app_delete` for `pulse-api`,
+`zap_app_delete` for `zap-api`, `cire_app_delete` for `cire-api` — and a
+refusal answers `{ ok: false, reason: "invalid" }`. cire's purpose is spent
+through an app step-up request only, never a token (below).
+
+The emailed link signs nobody in: the page it opens confirms the request, and
+only the tab that began, signed in as the same account and holding the claim
+secret, receives the token. The link's reader types the number that tab shows,
+so a blind guess is right one time in a hundred; a wrong one ends the request
+and counts toward a per-account lockout, whose fifth wrong number writes a
+`step_up_link_lockout` security event. A reader who did not ask can say so
+("I didn't ask for this"): that writes a `step_up_link_declined` security
+event, which the account's other devices show in the security banner, since
+it means someone signed in to the account asked to act and the owner said no.
+No notice is mailed. The whole contract is in [[email-links#Step-up]].
 
 TOTP has **no `begin`**: it is challenge-free, so there is nothing to mint, park
 or send. Whether the factor is available is what `GET /totp/status` answers. A
 TOTP code is single-use per RFC 6238 §5.2 and the step it matched is recorded
 against the credential — see [[totp]].
 
+### Request deadline
+
+Every `StepUpClient` call in `@osn/client` (`passkeyBegin`, `passkeyComplete`,
+`emailBegin`, `emailStatus`, `emailResend`, `totpComplete`) ends at
+`STEP_UP_DEADLINE_MS`, 15 s, while the page is in the foreground
+([step-up.ts](../../osn/client/src/step-up.ts)). The deadline covers the whole
+call: a token renewal `authFetch` makes first, the request, its 401 retry and
+the body read. Past it the client aborts the request and the call rejects with
+a `StepUpError` at status `0`, as a request that reached no server does, so
+`describeAuthError` gives the connection sentence; for an authenticator code
+its `code` sentence asks for a new code as well. `StepUpDialog` refuses
+Cancel, Escape, a press outside and going back while a passkey, link or code
+call it started runs. The deadline bounds each call in that wait, and each way
+out works again once the call fails. For a passkey, the browser's own prompt
+between begin and complete is not a call, and this client sets it no deadline.
+
+The `musubi-passkey` E2E flow leaves the step-up's first passkey begin
+unanswered, moves the page clock past the deadline, and checks that the page
+aborted the begin, that the line says it could not connect and that Cancel
+works again; `tools/e2e/tests/flows.test.ts` holds the flow's copy of
+`STEP_UP_DEADLINE_MS` equal to the client's.
+
+The deadline is a timer, so it runs late where the page's timers do: a hidden
+tab's timers are batched, and a frozen tab runs none until it resumes. On
+resume, an answer that came in time and the overdue deadline are both queued,
+in no fixed order, so the call can fail at status `0` for an answer the server
+already sent.
+
+15 s is a chosen figure, not a measured one. osn-api's own part is small: on
+the local stack the slowest step-up request the E2E suite sends took **15.4 ms**
+from send to last byte (`POST /step-up/passkey/begin`). The suite also calls
+`passkey/complete`, `email/begin` and `email/{id}/status`, but neither
+`totp/complete` nor `email/resend`. The figure is browser-seen over loopback,
+so it bounds osn-api's own time on that machine from above and says nothing
+about a deployed link.
+
+*Measured 2026-11-14 — HAR `time` of every `/step-up/*` POST that got a response, in the flow traces (`e2e-artifacts/traces/*/trace.zip`, the `*.network` entries) of a local `bun run test:e2e:repro` run, n=11*
+
+The network sets the bound. One call can send up to ten requests: a renewal of
+up to four `/token` attempts with up to 0.85 s of pauses between them
+([[sessions#Renewal in the browser]]), the call, and after a 401 a second such
+renewal and the call again. Most calls send one request. A call that needs
+every retry on a slow mobile link can still run out.
+
+Aborting does not un-send a request, so a call that failed at the deadline may
+already have acted on the server. A `passkeyBegin` leaves only a parked
+challenge, which the next begin replaces. The rest:
+
+| Call | What the server may have done | What the person does next |
+|---|---|---|
+| `passkeyComplete` | minted a step-up token that reaches nobody; it expires unused | runs the passkey again |
+| `totpComplete` | accepted the code and recorded its step | enters a new code: the same code again is refused as a replay and counts toward the five-attempt lockout ([[totp#Throttling, and the one place this repo fails closed differently]]), so `StepUpDialog` empties the code boxes and its line asks for a new code |
+| `emailBegin` | mailed the link, spending one of the account's 10 step-up links a day ([[email-links#Step-up]]) | asks again |
+| `emailResend` | mailed another link, spending one of the 10 links a day and one of the mailbox's 3 Resends a day ([[email-links#Step-up]]) | waits for the link already sent before pressing Resend again |
+| `emailStatus` | handed over the token in a `complete` answer the tab never read | finds the request `expired` on the next poll, and sends a new link |
+
+The deadline does not end a token renewal. Renewal is single-flight and sends
+without the call's signal, so while one renewal hangs, every step-up call that
+needs a renewal waits on it and fails at the deadline until the page loads
+again. A refusal that arrives after the call failed still ends the session
+through `onSessionChange`, but that call shows the connection sentence.
+
 ## Purpose binding
 
-An amr-only check says *how* the user proved themselves, not *what for*. Without more, a token minted to confirm an email change can be replayed against any other gate on the same allow-list — a confused deputy. So `/step-up/{passkey,otp}/complete` accept an optional `purpose`, stamped into the token as a `purpose` claim, and a gate that names a purpose refuses every token minted for a different one (`result="wrong_purpose"`).
+An amr-only check says *how* the user proved themselves, not *what for*. Without more, a token minted to confirm an email change can be replayed against any other gate on the same allow-list — a confused deputy. So `/step-up/{passkey,totp}/complete` accept an optional `purpose`, and `/step-up/email/begin` requires one, fixed when the link is sent; it is stamped into the token as a `purpose` claim, and a gate that names a purpose refuses every token minted for a different one (`result="wrong_purpose"`).
 
 | Value | Gate |
 |---|---|
 | `recovery_generate` | `POST /recovery/generate` |
 | `account_delete` | account deletion |
 | `account_export` | account export |
+| `account_restore` | `POST /account/restore`, which cancels a pending deletion |
 | `pulse_app_delete`, `zap_app_delete` | downstream app-data deletion, via `verifyStepUpForExternalPurpose` |
+| `cire_app_delete` | a host removing their Cire data, through an app step-up request (below) |
 | `passkey_register` | `POST /passkey/register/{begin,complete}` past the first credential |
 | `passkey_delete` | `DELETE /passkeys/:id` **and** `PATCH /passkeys/:id` — rename shares the claim |
-| `email_change` | `POST /account/email/complete` |
+| `email_change` | `POST /account/email/:requestId/complete` |
 | `security_event_ack` | both acknowledge paths |
 | `totp_enroll` | `POST /totp/enroll/begin` |
 | `totp_disable` | `DELETE /totp` |
@@ -110,6 +233,44 @@ An amr-only check says *how* the user proved themselves, not *what for*. Without
 The union lives in `StepUpPurpose` (`shared/observability/src/metrics/attrs.ts`), mirrored client-side as `StepUpPurpose` in `@osn/client` so the browser SDK stays free of a server dep. `StepUpDialog` takes a `purpose` prop and forwards it to whichever `/complete` route the user picks.
 
 A gate that names a purpose rejects a **purposeless** token too — there is no accept-legacy fallback, so any new client of such a gate must send `purpose`.
+
+**A pending-deletion session mints two purposes only.** The step-up routes admit the access token of an account whose deletion is pending ([[sessions#The pending-deletion session]]) for `account_export` and `account_restore`, and for nothing else: passkey and TOTP complete refuse it with no purpose or another one, before the challenge is taken or the code counted; email begin refuses another purpose; and email status and resend answer `expired`, sending nothing, for a link begun for another purpose, one begun before the deletion included. Passkey begin takes no purpose and only parks a challenge, so it admits the token. Tests: `osn/api/tests/routes/pending-deletion-session.test.ts`.
+
+## App step-up requests
+
+An app whose own pages cannot run a step-up asks for one through Musubi. cire's
+organiser portal is that app: it holds no OSN token (cire-api keeps a session
+cookie of its own, [[cire-auth]]), and passkeys are bound to Musubi's origin.
+The service is [`services/auth/app-step-up.ts`](../../osn/api/src/services/auth/app-step-up.ts);
+its state is the `app_step_up` ceremony store, holding ids and hashes only.
+
+| Step | Route | Who | What |
+|---|---|---|---|
+| Begin | `POST /internal/step-up/requests` | the app, over ARC (`step-up:verify`, issuer pinned per purpose: `cire-api` for `cire_app_delete`) | `{ profile_id, purpose, binding, return_to }`: `binding` is the hex SHA-256 of a secret only the app's cookie in the asking browser holds; `return_to` must be on the app's configured portal origin (`CIRE_ORGANISER_ORIGIN`, which the musubi stack sets; on a local run with none, any loopback origin; on a deployed tier with none, 503). Refused for a profile whose account is unknown or pending deletion. Kept 10 minutes, pending |
+| Read | `GET /step-up/requests/:id` | Musubi's `/confirm/:requestId` page, Bearer | `{ purpose, return_host }` for a pending request of the caller's account; 404 otherwise, and to any session of an account whose deletion is pending |
+| Confirm | `POST /step-up/requests/:id/confirm` | the same page, Bearer, a live session | spends a step-up token for the request's purpose; the request becomes confirmed for 5 minutes with the hash of a fresh code and the confirming session's family; answers `return_to` with `code=<code>` on its fragment's query |
+| Verify | `POST /internal/step-up/verify` with `request: { id, binding, code }` and no `token` | the app, over ARC | ok while the request is confirmed, the binding and the code match (constant-time), the profile's owner is the request's account and not pending deletion, and the confirming family still has a live session: answers `account_id` and every profile id of the account. Spends nothing |
+
+Why it holds against a stolen app session: someone holding a host's cire
+cookie can begin a request in their own browser, but the code goes to the
+browser of whoever confirms on Musubi, and the secret stays in the browser
+that began; neither holds both. The return address is pinned, so a leaked
+`step-up:verify` key cannot have a code sent anywhere else, and the confirm
+page is no open redirect. What stays open, by design:
+
+- A verify spends nothing, so one confirmation serves one browser's removal
+  for its 5 minutes: a removal of more than three owned weddings, or a refused
+  answer, continues without a new ceremony. Clearing the app's cookie ends the
+  browser's use of it; the request itself lives out its 5 minutes.
+- Confirm claims the step-up token before it marks the request. A store
+  failure there, or an answer the browser never reads, leaves the request
+  pending, or confirmed with a code nobody holds: the page says to start again
+  from the app.
+- If the app's session expires on the way back, its sign-in carries the
+  address, code included, to its login page and back. The code alone confirms
+  nothing without the browser's secret.
+
+Tests: `osn/api/tests/routes/app-step-up-requests.test.ts`.
 
 ## Token shape
 
@@ -123,6 +284,7 @@ ES256 JWT signed with the same key as access tokens (reuses `/.well-known/jwks.j
   "amr": ["webauthn"],
   "purpose": "recovery_generate",
   "jti": "<uuid>",
+  "osn_fam": "sfam_<familyId>",
   "iat": 1776988800,
   "exp": 1776989100
 }
@@ -134,6 +296,7 @@ ES256 JWT signed with the same key as access tokens (reuses `/.well-known/jwks.j
 - **amr** — RFC 8176 authentication-method-reference array. Verifier intersects with a caller-supplied allow-list. `issueStepUpToken` maps the ceremony factor to it through an exhaustive record (`passkey → webauthn`, `otp → otp`, `totp → totp`, `recovery_code → recovery`); a factor added without an entry is a compile error rather than a token no allow-list admits.
 - **purpose** — optional; present only when the caller named a ceremony. See **Purpose binding** above.
 - **pk_id**, **pk_provenance**, **pk_created_at** — the asserted credential's id, its `passkeys.provenance_amr` and its `created_at` in unix seconds. Present together, and only when the ceremony was a passkey assertion. See **Credential provenance** below.
+- **osn_fam** — the family of the session that minted the token (`sessions.family_id`), on every token. The verifier refuses a token without it, and one whose family has no live session left (see **Every gate that spends a token** above). The holder of the token can read it; no route takes a family id as input.
 - **jti** — single-use replay guard. Backed by a `StepUpJtiStore` interface (see `osn/api/src/services/auth/stores.ts`) with two implementations: an in-memory Map for the Bun dev server and tests, and `createDurableJtiStore` (`osn/api/src/lib/coordination/durable.ts`) on the coordination store, where the first `claim` of a token id wins in every isolate ([[coordination-store]]). It fails closed: a guard that cannot be reached refuses the token as "Step-up token could not be verified", and the refusal is not counted as a replay — a replay guard that is unreachable counts as a ceremony no one completed.
 
 TTL: 5 minutes. A used token's id stays claimed for the token's life, plus the
@@ -146,7 +309,7 @@ verifies, whatever the verifying isolate's clock or the store's says.
 
 `amr: ["webauthn"]` says a WebAuthn ceremony happened. It does not say whether
 the credential behind it was one the user has held for a year or one registered
-a minute ago under an emailed code — and for two gates that difference is the
+a minute ago under an emailed link — and for two gates that difference is the
 whole question, because a caller who can register a credential can assert it.
 
 So `passkeys.provenance_amr` records the **effective** strength of the ceremony
@@ -173,10 +336,10 @@ closes nothing.
 own 72-hour window it may perform these deletions itself, so a child it
 authorises cannot be made safer by restricting it. Raw inheritance would
 restrict every device in a lineage for the life of the account — and the common
-reason a user adds a device by OTP is that the first one is hard to reach.
+reason a user adds a device by email is that the first one is hard to reach.
 
-**Bootstrap is `webauthn`.** The account's first passkey follows an email-OTP
-registration, so a literal reading would stamp it `otp` — and through
+**Bootstrap is `webauthn`.** The account's first passkey follows a sign-up
+proved by an emailed link, so a literal reading would stamp it `otp` — and through
 inheritance that would restrict every credential the account ever derived from
 it. It is the account's root of trust.
 
@@ -272,7 +435,7 @@ the actions stay audited and notified.
 
 ## Verification
 
-`verifyStepUpToken(token, expectedAccountId, allowedAmr, expectedPurpose?)` rejects any of:
+`verifyStepUpToken(token, expectedAccountId, allowedAmr, expectedPurpose?, provenance?)` rejects any of:
 
 - Bad signature / expired
 - Wrong `aud`
@@ -281,6 +444,7 @@ the actions stay audited and notified.
 - No intersection between token `amr` and caller's allow-list
 - Token `purpose` ≠ `expectedPurpose`, when the caller names one (including a token with no `purpose` at all)
 - The credential-provenance rule refuses it (`result="provenance_blocked"`) — checked before the `jti` is consumed, so the token survives the refusal
+- No `osn_fam` (`result="invalid"`), or no live, unrestricted, unexpired session of the token's account in that family (`result="session_ended"`) — one indexed read, the last check before the `jti` is consumed. A replay of a spent token whose family has since ended counts as `session_ended`, not `jti_replay`. A database failure there refuses the token without consuming it: the gate answers 500
 
 Each outcome increments `osn.auth.step_up.verified{result}` with a distinct bounded label so the observability dashboard can distinguish "your ops team forgot to wire step-up through Settings" from "an attacker is trying to replay captured tokens".
 
@@ -288,7 +452,11 @@ Each outcome increments `osn.auth.step_up.verified{result}` with a distinct boun
 
 - `osn.auth.step_up.issued{factor}` — one per successful `/complete`; `factor` includes `totp`
 - `osn.auth.step_up.verified{result}` — one per gated-endpoint check
-- Spans: `auth.step_up.begin`, `auth.step_up.complete`
+- Spans: `auth.step_up.begin`, `auth.step_up.resend`, `auth.step_up.complete`, `auth.step_up.email_status`, `auth.step_up.link_send`
+- `osn.auth.email_link.sends{flow="step_up", result}` — step-up links sent, held back or failed
+- `osn.auth.step_up.lockout{result}` — wrong typed numbers on step-up links: `recorded`, `locked` (the count at or past five, or a right number refused while it holds), `unavailable` (the counter could not be read or written)
+- `osn.auth.security_event.recorded{kind}` — `step_up_link_declined` and `step_up_link_lockout` among its kinds, written after the answer (span `auth.email_link.event`)
+- `osn.auth.app_step_up.requests{stage, result}` — an app's step-up requests: `stage` `begin`, `confirm` or `verify`; `result` `ok`, `refused` or `error`. Spans `auth.app_step_up.begin`, `.confirm`, `.verify`; the store's operations count on `osn.auth.ceremony_store.operations` under `app_step_up`
 - Redaction: `stepUpToken` / `step_up_token` are in the logger deny-list
 
 ## Threat model
@@ -319,3 +487,16 @@ the headline threat, the attacker's inbox. It is a real lever for a TOTP
 recovery with the mailbox intact, and for an owner who also reads the mail; it is
 not a defence against someone who owns the inbox. What protects that owner is
 the asymmetry itself.
+
+**A completed email change mails the address it replaced.** The commit writes an
+`email_changed` security event in the same batch as the change, and the notice
+(`email-changed`, [[email]]) goes to the previous address once the change is on
+record. No step-up factor can acknowledge the `email_changed` row for 7 days
+after the change (`EMAIL_CHANGE_ACK_HOLD_SECONDS`, the change cap's window): an
+emailed link now goes to the new address, so for that week the row stays on the
+banner whoever holds it. Acknowledging it alone answers 403
+`email_change_held` with `holdEndsAt`; `ack-all` acknowledges every other row and
+leaves it. After the week it is acknowledged through the same gate as every other
+kind (`recoveryGenerateAllowedAmr`). The notice is sent once, best effort: a send
+that fails is counted (`osn.auth.security_event.notified`, `result: failed`) and
+not retried.

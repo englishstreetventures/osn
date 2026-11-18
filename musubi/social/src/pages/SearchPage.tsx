@@ -3,6 +3,8 @@ import { Input } from "@shared/ui/ui/input";
 import { For, onMount, Show } from "solid-js";
 
 import { OrganisationLink, PersonRow, useSearchActions } from "../components/SearchResultRows";
+import { SignedOutNote } from "../components/SignedOutNote";
+import { usePageTitle } from "../lib/page-title";
 import { createSearchController } from "../lib/search";
 
 /**
@@ -17,10 +19,13 @@ import { createSearchController } from "../lib/search";
  */
 export function SearchPage() {
   const { session } = useAuth();
-  const token = () => session()?.accessToken ?? "";
+  usePageTitle(() => "Search");
 
-  const controller = createSearchController(token, { limit: 15, orgLimit: 8 });
-  const actions = useSearchActions(token, controller);
+  const controller = createSearchController(() => Boolean(session()), {
+    limit: 15,
+    orgLimit: 8,
+  });
+  const actions = useSearchActions(controller);
 
   let inputRef: HTMLInputElement | undefined;
   // The tab exists to search, so the keyboard should already be up on arrival.
@@ -34,11 +39,7 @@ export function SearchPage() {
 
       <Show
         when={session()}
-        fallback={
-          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-            Sign in to search people and organisations.
-          </div>
-        }
+        fallback={<SignedOutNote>Sign in to search people and organisations.</SignedOutNote>}
       >
         {/* The "@" sits ahead of the box rather than over it: `Input` owns its
             padding, and this is the treatment `@shared/ui`'s own `UsernameInput`
@@ -47,7 +48,7 @@ export function SearchPage() {
           <label class="sr-only" for="search-page-input">
             Search people and organisations
           </label>
-          <span class="text-muted-foreground pointer-events-none text-sm" aria-hidden="true">
+          <span class="text-muted-foreground text-title pointer-events-none" aria-hidden="true">
             @
           </span>
           <Input
@@ -83,11 +84,11 @@ export function SearchPage() {
             }
           >
             <Show when={controller.people().length > 0}>
-              <h2 class="text-subtle text-meta mb-1 px-3">People</h2>
+              <h2 class="text-foreground text-title mb-1 px-3 font-medium">People</h2>
               <ul class="mb-6 flex flex-col gap-0.5">
                 <For each={controller.people()}>
                   {(person) => (
-                    <li class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                    <li class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
                       <PersonRow person={person} controller={controller} actions={actions} />
                     </li>
                   )}
@@ -96,14 +97,14 @@ export function SearchPage() {
             </Show>
 
             <Show when={controller.organisations().length > 0}>
-              <h2 class="text-subtle text-meta mb-1 px-3">Organisations</h2>
+              <h2 class="text-foreground text-title mb-1 px-3 font-medium">Organisations</h2>
               <ul class="flex flex-col gap-0.5">
                 <For each={controller.organisations()}>
                   {(organisation) => (
                     <li>
                       <OrganisationLink
                         organisation={organisation}
-                        class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors"
+                        class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5"
                       />
                     </li>
                   )}

@@ -13,9 +13,9 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-12
 ---
-# Invite design selector
+# Cire invite design selector
 
 A wedding's invite renders as one of several full template packs. The design id
 lives on `wedding_invite_customisations.design_id` (0045, default `classic`);
@@ -126,7 +126,7 @@ and it and `LoginSection.warm.test.tsx` pin when the download starts.
 
 The panel also records the restore hint (`noteClaimed`) when a code is
 claimed. The pack keeps the claim result, the reveal choreography
-(`revealed`, `formRef`, `welcomeRef`), the session restore and the events
+(`revealed`, `welcomeRef`), the session restore and the events
 section.
 
 The Pulse box sits above the events, so it must never arrive after them. It
@@ -263,8 +263,9 @@ the guest the page carries on. A pack renders it as the last child of its hero
 - **A hint, not a control.** `aria-hidden` and `pointer-events-none`; a tap
   goes to the hero beneath it.
 - **Motion is CSS, and it stops.** `animate-scroll-cue` (`styles/global.css`)
-  fades the glyph in 1s after load, drifts it 6px down and back twice, and
-  leaves it at rest. Fade and drift take 4.6s together: motion that starts by
+  fades the glyph in 1s after load on `--ease-out`, drifts it 6px down and
+  back twice on `--ease-in-out`, and leaves it at rest, every time scaled by
+  `--motion-scale`. Fade and drift take 4.6s together: motion that starts by
   itself and runs past five seconds needs a control to stop it (WCAG 2.2.2),
   so a longer or endless drift is not an option. Both play from the server's
   HTML, before the island hydrates.
@@ -441,14 +442,15 @@ event and the panel to open on.
     side by side, and never over the other. The property is written only through
     `setBadgeProgress`: as the badge is built, from the panel on screen (so a
     sheet opened on the form shows its words with no fade); on every switch;
-    and by the swipe and its spring, which write the share of the panels'
-    width they have covered on every frame, held between 0 and 1 so a pull
-    past either end moves the panels and not the words. Then nothing eases
-    (`data-dragging` turns the transition off); after a press the words ease
-    on `transition-badge-settle`, the panels' own `--dur-base` and
-    `--ease-out`, as inline
-    `transform`s so one transition list covers the opacity and the slide.
-    Under reduced motion the global clamp makes it instant.
+    by the drag, which writes the share of the panels' width they have
+    covered on every move, held between 0 and 1 so a pull past either end
+    moves the panels and not the words, with nothing easing
+    (`data-dragging` turns the transition off); and at a release, which writes
+    where the settle ends and lets the words ride the settle's own curve with
+    the panels (`data-settling`). After a press the words ease on
+    `transition-badge-settle`, the panels' own `--dur-base` and `--ease-out`,
+    as inline `transform`s so one transition list covers the opacity and the
+    slide. Under reduced motion the global clamp makes it instant.
   - **Its states.** Shown on the form always, and on the details while the
     form can be reached. Disabled (40% opacity) on the form while a save is
     in flight and while the sheet closes itself on a saved reply. A tap on it
@@ -485,9 +487,18 @@ event and the panel to open on.
   the form on the end side — with the other panel drawn beside it, `inert`
   until it lands. Let go past three tenths of the width, or after a flick,
   and it carries on; otherwise it springs back. Either way the panels ride a
-  critically damped spring (`SETTLE_SPRING`, 0.3s response, through
-  `motion`) that starts at the finger's speed, so a flick carries on and a
-  slow release does not jump; under reduced motion they land at once. Past
+  critically damped spring with a 0.3s response that starts at the finger's
+  speed, so a flick carries on and a slow release does not jump. It is a CSS
+  transition: at release `settleCurve` samples the spring from that speed
+  into a `linear()` easing, its first stretch at the release speed exactly
+  and ending where a fast flick would pass the rest, and the sheet writes
+  that easing and its time, stretched by `--motion-scale`, as
+  `--swipe-settle-ease` and `--swipe-settle-time` on the rail and the badge
+  while `data-settling` marks them. An engine without `linear()` (Chrome
+  before 113, Safari before 17.2) gets a `cubic-bezier()` with the same first
+  slope that never passes the rest and, released moving away from it, runs
+  no further the wrong way than the spring.
+  Under reduced motion the global clamp lands the panels at once. Past
   either end — back past where the drag began, or beyond the form's rest —
   the panels follow the finger on iOS's rubber band, `c·x·d / (d + c·x)`
   with `c = 0.55`, giving less the further it goes. A pull toward the side
@@ -496,7 +507,8 @@ event and the panel to open on.
   stop under the finger and follow it from there, and a catch that is only a
   tap, a held finger or a scroll lets the settle go on to where it was going,
   with that tap's click swallowed so it presses nothing on the moving panel.
-  The thresholds and the band are pure functions in
+  A catch reads the panels' place off their computed transform mid-transition.
+  The thresholds, the band and the curve are pure functions in
   [`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts).
   The wrapper is `touch-action: pan-y pinch-zoom`, so vertical scroll and
   zoom stay the browser's. A mouse drag, a drag that starts in a text field,
@@ -566,7 +578,9 @@ event and the panel to open on.
   `md` with the 44px floor (`min-h-11`), as `aria-pressed` toggles. The chosen
   answer wears the accent edge, the readable gold and a 2px ring at 60% of the
   gold, and no fill; an unchosen one under the pointer goes halfway, its edge
-  and ink a mix of rest and chosen with a 1px ring at 30%, on `--dur-base`.
+  and ink a mix of rest and chosen with a 1px ring at 30%. The hover runs on
+  `--dur-fast` and the choosing on `--dur-base`
+  ([`cire/invites/DESIGN.md`](../../cire/invites/DESIGN.md) §5).
   While a reply saves the pair is locked with `aria-disabled`: it keeps its
   look, so the answer just given stays legible, and takes no click. The pair
   sits side by side while its own box is 16rem or wider and stacks below
@@ -889,6 +903,14 @@ The FAQ's questions are its `Disclosure` in the rule tone: each entry draws the
 rule under it, the trailing `+` turns into × at the question's own size, and
 classic draws one rule above the first.
 
+**The dietary pills.** Under the pointer an unticked pill goes halfway, as the
+answer pair does, and its focus is the house outline 2px off its edge, drawn
+from the checkbox's own `:focus-visible`; the phone's scrolling track keeps 4px
+of room round each pill so the ring and the outline are not cut.
+
+**Motion.** The guest site's motion rules — the ladder, what moves on which
+rung, what must not move, and the reduced-motion clamp — are in
+[`cire/invites/DESIGN.md`](../../cire/invites/DESIGN.md) §5.
 **Motion.** The site carries the portals' ladder: `--dur-fast`, `--dur-base`
 and `--dur-slow`, shorter under `pointer: fine`, and the house easings, so
 Tailwind's `ease-out` class reads the house curve. A hover, a focus or a press
@@ -898,17 +920,92 @@ runs on `--dur-fast` and `--ease-out`; a choice being made — the answer pair
 Under the pointer an unticked dietary pill goes halfway, as the pair does, and
 its focus is the house outline 2px off its edge, drawn from the checkbox's
 own `:focus-visible`; the phone's scrolling track keeps 4px of room round
-each pill so the ring and the outline are not cut. The sheet's panel
-swap, the badge's words after a press, Respond's label ink following the bloom
-fill and the FAQ body's arrival run on `--dur-base`. Choreography longer than `--dur-slow` keeps
-its own timing:
+each pill so the ring and the outline are not cut.
 
-- the bloom fill, 500ms (`SWEEP_DURATION_MS` in `rsvp-responded.ts`);
-- the tick, 340ms after 180ms (`TICK_DURATION_MS`, `TICK_DELAY_MS`);
+A block that opens under a control grows through `Reveal` (`@cire/ui/reveal`),
+the owner's choice (2026-11-10, englishstreetventures/osn#2164): the dietary
+section after "Attending" and its "Anything else" field after "Other", the gift
+page's own amount after "Another amount", a gift's reserve form after Reserve,
+and the chosen member's email and musubi boxes, as one block, after "Who are
+you?". Its height grows from nothing as it fades in, on `--dur-slow` and
+`--ease-out` (`pace="slow"`), a rung slower than the portals' panels: a guest
+is reading, and the owner asked that these openings be felt. On `--dur-base` a
+desk covers three quarters of the dietary section's 340px in under 40ms.
+
+*Measured 2026-11-11 — Chromium at 1280px, the RSVP sheet's dietary section,
+its transitions paused at a quarter of `--dur-base`, which is 150ms under
+`pointer: fine` (37.5ms in)*
+
+It closes at once, because each block holds fields, and a block that is open
+when its state is restored — a reply on file, a household reopened from its
+session — paints open, with no motion. `Reveal` keeps 4px of room inside its
+clip, so a focus ring at a block's edge stays whole. When the reserve form
+closes with focus inside it — Cancel, Confirm once the reservation lands, Enter
+in a field — focus goes to the card's first action that can be pressed
+(Reserve or Change), or to the gift's title when none can, as when another
+household took the last one. Confirm is disabled while its claim is in flight,
+and the engine moves focus off it to the page then, so the card notes whether
+the claim went out from inside the form. A refused claim with some left keeps
+the form open, and focus goes back to Confirm. Focus the guest moved elsewhere
+meanwhile stays put. After a tap the moved focus draws no ring
+(`quiet-focus.ts`).
+
+The calendar and maps menus (`LinkMenu`) open as the portals' menus pop —
+scaled up from 0.96 and faded in from the corner at their trigger — a rung
+slower, on `--dur-base` and `--ease-out` (`menu-pop` in
+`src/styles/global.css`, which runs the shared `ui-enter` keyframe), and close
+at once.
+`tests/components/reveal-blocks.browser.test.tsx` and
+`tests/components/LinkMenu.browser.test.tsx` sample both.
+
+The sheet's panel swap, the badge's words after a press and Respond's label ink
+following the bloom fill run on `--dur-base`. An FAQ answer grows open on
+`--dur-slow` and `--ease-out`, its box and its fade together. Where the engine
+has no `interpolate-size` the box opens at once and the answer still fades in;
+for a guest who asked for less motion it opens at once with no fade
+(`cire/host/DESIGN.md` §4, A disclosure grows open and closes at once).
+Choreography longer than `--dur-slow` keeps its own timing, each time scaled
+by `--motion-scale`:
+
+- the bloom fill, 500ms on `--ease-out` (`SWEEP_DURATION_MS` in
+  `rsvp-responded.ts`);
+- the tick, 340ms after 180ms on `--ease-out` (`TICK_DURATION_MS`,
+  `TICK_DELAY_MS`), and the hold that ends its draw (`TOTAL_DURATION_MS`,
+  which `EventCard` multiplies by the scale);
 - the hero scroll cue's fade, delay and drift, and its 500ms fade on the first
   scroll;
 - the hero backdrop's 700ms fade-in and the closing band's 500ms width;
-- each pack's unlock reveal (`UnlockReveal.motion.ts`, Motion One).
+- each pack's unlock reveal, below.
+
+**The unlock reveal.** Once a household's code is accepted, the code form
+closes at once, the welcome rises while its heading shimmers, and a beat later
+the events rise, their cards one after another. The form never fades: it holds
+a live field and button, and a fading form would still take a tap or a key in
+a box that is going away. The motion is CSS keyframes (`unlock-rise` and
+`unlock-shimmer`, under "The unlock reveal" in `src/styles/global.css`), and
+[`components/unlock-reveal.ts`](../../cire/invites/src/components/unlock-reveal.ts)
+orders it: it marks each element with its step and its pack (`data-unlock`,
+`data-unlock-pack`), waits for the step to end, capped one second past that
+end, writes the end state inline and takes the marks off. Each pack keeps its
+own times, the same at a desk as on a phone, each scaled by `--motion-scale`;
+the sequence reads the scale off the root for the beat, which script times.
+Every step runs longer than `--dur-slow`, the cards are a stagger and the beat
+is a time script waits out, the cases [[house-lint-rules]] §Literal motion
+keeps a time for. Every rise runs on `--ease-out`:
+
+| Step | classic | gala |
+|---|---|---|
+| The welcome fades in, rising | 500ms, `--ease-out`, from 16px below | 400ms, `--ease-out`, from 10px below |
+| Its heading shimmers, alongside: opacity through four values on one ease-in-out | 1.2s, 0.4, 1, 0.85, 1 | 1s, 0.5, 1, 0.9, 1 |
+| The beat between the welcome's start and the events' | 200ms | 150ms |
+| The events section fades in, rising | 500ms, `--ease-out`, from 32px below | 400ms, `--ease-out`, from 20px below |
+| Card *n* (from 0) fades in, rising, after a delay | 450ms from 24px below, 150ms + *n* × 120ms | 350ms from 16px below, 100ms + *n* × 80ms |
+
+Under reduced motion the sequence starts no step and lands on the end state at
+once. `tests/designs/UnlockReveal.browser.test.ts` samples every frame of both
+packs' reveal against these numbers and fails a frame more than one frame off
+them, or a code form still in the layout on the first frame after the reveal
+starts.
 
 ## Edges in mobile Safari
 

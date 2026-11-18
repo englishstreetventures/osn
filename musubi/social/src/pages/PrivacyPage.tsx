@@ -1,4 +1,5 @@
 import { LEGAL_ENTITY, draftPending, isPlaceholder } from "@shared/legal";
+import { buttonVariants } from "@shared/ui/ui/button";
 import type { JSX } from "solid-js";
 
 import { LegalDocument } from "../components/LegalDocument";
@@ -23,7 +24,10 @@ export function PrivacyPage(): JSX.Element {
     </span>
   );
   const email = () => (
-    <a class="underline" href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
+    <a
+      class={buttonVariants({ variant: "link", size: "inline" })}
+      href={`mailto:${LEGAL_ENTITY.contactEmail}`}
+    >
       {LEGAL_ENTITY.contactEmail}
     </a>
   );
@@ -31,7 +35,7 @@ export function PrivacyPage(): JSX.Element {
   return (
     <LegalDocument
       title="Privacy Notice"
-      updated="2026-10-30"
+      updated="2026-11-17"
       draft={draftPending(LEGAL_ENTITY.regulator)}
     >
       <p>
@@ -60,7 +64,7 @@ export function PrivacyPage(): JSX.Element {
         For each signed-in device: a coarse label ("Firefox on macOS"), when it was last used, and a{" "}
         <em>hash</em> of the IP address — keyed with a secret, so it can be compared against itself
         for anomaly detection but not turned back into an address. Sessions expire 30 days after
-        last use. You can see and revoke every one of them in Settings.
+        last use.
       </p>
       <h3>Your social graph</h3>
       <p>
@@ -91,8 +95,8 @@ export function PrivacyPage(): JSX.Element {
       <p>
         Most of the above is processed because we cannot give you the account you asked for without
         it — contract, in GDPR terms (Art. 6(1)(b)). The IP hash, the passkey metadata and the
-        session timestamps rest on our legitimate interest in detecting abuse and showing you a
-        useful device list (Art. 6(1)(f)). The security audit trail is partly a legal obligation
+        session timestamps rest on our legitimate interest in detecting abuse and showing you which
+        passkeys you hold (Art. 6(1)(f)). The security audit trail is partly a legal obligation
         (Art. 6(1)(c), read with Art. 32). Connecting another app to your account is consent (Art.
         6(1)(a)), and consent you can withdraw.
       </p>
@@ -124,18 +128,27 @@ export function PrivacyPage(): JSX.Element {
 
       <h2>How long we keep it</h2>
       <p>
-        Account and profile data while the account is live. Deleting an account leaves a tombstone
-        for 30 days, which stops your handle being taken by someone else in the meantime, and is
-        then purged. Sessions: 30 days from last use. Security events: 12 months. Email-change
-        records: 90 days.
+        Account and profile data while the account is live. When you delete your account, we keep it
+        for 7 days in case you change your mind, then delete it, usually within a day of the date we
+        show you. After that, no one can take your handles for 30 days: to hold them we keep a{" "}
+        <em>hash</em> of each handle, keyed with a secret, not the handle itself. Each app deletes
+        what it holds about you at the same time, except what other people still rely on — an
+        upcoming event you host in Pulse can stay 14 days for its guests, and an encrypted message
+        you sent to a chat others are still in stays there without your name. A Cire wedding deleted
+        with your account is hidden at once and erased once any payment or gift for it has settled.
+        Sessions: 30 days from last use. Security events: 12 months, and email-change records: 90
+        days, including after the account is deleted.
       </p>
 
       <h2>Your rights</h2>
       <p>
         You can ask for a copy of everything we hold about you, correct it, delete it, object to the
-        processing that rests on legitimate interests, or withdraw a consent you gave. Much of it
-        you can do yourself in Settings — revoke a session, disconnect an app, change your email,
-        delete your account. For anything else, email {email()}. We answer within a month.
+        processing that rests on legitimate interests, or withdraw a consent you gave. Some of it
+        you can do yourself in Settings — download a copy of your data, disconnect an app, delete
+        your account. Before an account is deleted, we show you what happens to each organisation
+        you own and anything in another app that needs your answer, such as a Cire wedding you are
+        the only owner of; until the 7 days are up, you can sign in and choose Keep my account. For
+        anything else, email {email()}. We answer within a month.
       </p>
       <p>
         If you are unhappy with how we have handled it, you can complain to the{" "}

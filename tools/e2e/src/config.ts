@@ -44,12 +44,13 @@ export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
  * fails that flow. `previewCode` is the host household's code, which "Preview
  * invite" opens the invitation with.
  *
- * `fund` is a cash fund on the same list. The couple's settings take money,
- * but the stack's cire-api has a Stripe key and no Connect webhook secret, so
- * it could never record a gift and no guest may be offered the fund or the
- * money form. The locked flow checks the fund absent without a
- * claim, and the claimed flow checks it absent with one; the claimed flow
- * reads the fund's row from the database, so a drifted value fails there.
+ * `fund` is a cash fund on the same list, and the couple's settings take
+ * money. The locked flow checks the fund absent without a claim. The claimed
+ * and preview flows run against the stack's second cire-api, which holds a
+ * Stripe key and no Connect webhook secret, so it could never record a gift
+ * and offers no guest the fund or the money form; the claimed flow checks it
+ * absent with a claim, and reads the fund's row from that server's database,
+ * so a drifted value fails there.
  */
 export const CIRE_GIFT_LIST = {
   slug: "gift-wedding",
@@ -79,6 +80,24 @@ export const CIRE_GIFT_LIST = {
 export const ORGANISER_ADDRESS = "192.0.2.10";
 
 /**
+ * The client address `musubi-account-deletion` reaches osn-api from
+ * (TEST-NET-1, never routed). Every osn-api limiter that keys on the client
+ * address — `/profiles/list` takes ten a minute — is shared by the whole run
+ * from the suite's own address, and the Musubi flows run inside one minute:
+ * this flow's sign-ins, step-ups and profile lists spend their own windows.
+ * The stack's osn-api keeps a `cf-connecting-ip` the request sends
+ * (`OSN_E2E_CLIENT_ADDRESS`, `keepSentClientAddress` in osn/api).
+ */
+export const ACCOUNT_DELETION_ADDRESS = "192.0.2.11";
+
+/**
+ * The client address `cire-remove-my-data` reaches osn-api from (TEST-NET-1,
+ * never routed), for the same reason as {@link ACCOUNT_DELETION_ADDRESS}: its
+ * token grants, profile lists and step-ups spend their own windows.
+ */
+export const CIRE_REMOVAL_ADDRESS = "192.0.2.12";
+
+/**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because
  * Playwright loads this file under Node, which cannot run a workspace package's
  * TypeScript; `tests/config.test.ts` holds them equal to `DEV_APPS` in
@@ -95,8 +114,26 @@ export const PORTS = {
   cireLanding: 4323,
   /** The Resend stand-in osn-api sends OTP mail to. Not a dev app. */
   mail: 4590,
-  /** The Stripe stand-in cire-api's OAuth connect calls. Not a dev app. */
+  /** The Stripe stand-in every cire-api Stripe call goes to. Not a dev app. */
   stripe: 4591,
+  /**
+   * The mail provider stand-in for the browser Email Verification API: its
+   * DNS-over-HTTPS answers, metadata and keys (`src/issuer.ts`). Not a dev app.
+   */
+  issuer: 4592,
+  /**
+   * A second osn-api with the Email Verification API flag on, its own
+   * database and its own limiter windows. Musubi reaches it only in the flows
+   * that call `throughEmailVerificationApi`. Not a dev app.
+   */
+  osnApiEvt: 4593,
+  /**
+   * A second cire-api with a Stripe key and no Connect webhook secret, its own
+   * database and its own limiter windows: a deployment that must offer guests
+   * no money gift. The browser reaches it only in the flows that call
+   * `throughKeyOnlyCireApi`. Not a dev app.
+   */
+  cireApiKeyOnly: 4594,
 } as const;
 
 export type AppName = keyof typeof PORTS;
@@ -105,14 +142,40 @@ export const ORIGINS: Record<AppName, string> = Object.fromEntries(
   Object.entries(PORTS).map(([name, port]) => [name, `http://localhost:${port}`]),
 ) as Record<AppName, string>;
 
-/** The Resend key the stack's osn-api sends to the mail stand-in with; never real. */
+/**
+ * Cloudflare's Turnstile test sitekey that always passes and shows a visible
+ * widget. The stack's Musubi build carries it, so its forms render Turnstile;
+ * the fixtures answer for Turnstile's script and frame, and osn-api, holding no
+ * secret, checks no token.
+ */
+export const TURNSTILE_TEST_SITEKEY = "1x00000000000000000000AA";
+
+/** Turnstile's script and frame host, where the fixtures' stand-in answers. */
+export const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
+/** The Resend key the stack's osn-api and cire-api send to the mail stand-in with; never real. */
 export const E2E_RESEND_KEY = "re_e2e_local";
+
+/**
+ * The secret cire-api checks a platform Stripe event's signature with, and the
+ * Stripe stand-in signs the events the flows deliver with. Local only.
+ */
+export const STRIPE_PLATFORM_WEBHOOK_SECRET = "whsec_e2e_platform_not_a_real_secret";
+
+/**
+ * The Connect webhook's secret: cire-api checks a gift event's signature with
+ * it, and the Stripe stand-in signs a connected account's events with it. Not
+ * the platform's value, as no deployed tier may share one. Local only.
+ */
+export const STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_e2e_connect_not_a_real_secret";
 
 /** Names the request log uses for each API origin. Only these are recorded. */
 export const API_LABELS = {
   [ORIGINS.osnApi]: "osn-api",
+  [ORIGINS.osnApiEvt]: "osn-api-evt",
   [ORIGINS.pulseApi]: "pulse-api",
   [ORIGINS.cireApi]: "cire-api",
+  [ORIGINS.cireApiKeyOnly]: "cire-api-key-only",
 } satisfies Record<string, string>;
 
 /**
@@ -128,8 +191,10 @@ export const REALTIME_KEEPALIVE = { ping: "ping", pong: "pong", intervalMs: 25_0
 
 export const DB_FILES = {
   osn: resolve(STATE_DIR, "osn.db"),
+  osnEvt: resolve(STATE_DIR, "osn-evt.db"),
   pulse: resolve(STATE_DIR, "pulse.db"),
   cire: resolve(STATE_DIR, "cire.db"),
+  cireKeyOnly: resolve(STATE_DIR, "cire-key-only.db"),
 } as const;
 
 /** Shared by osn-api and pulse-api so pulse can register its ARC key. Local only. */
@@ -162,6 +227,19 @@ export const CIRE_OIDC = {
 } as const;
 
 /**
+ * A third-party relying party the seed registers and no flow signs in to.
+ * `musubi-passkey` opens its consent screen to read the "Third-party app" mark,
+ * then leaves without deciding, so its redirect URI, on a host reserved for
+ * examples, is never loaded. A public client: PKCE alone, no secret.
+ */
+export const THIRD_PARTY_OIDC = {
+  rowId: "oc_third_party_e2e",
+  clientId: "cid_third_party_e2e",
+  name: "Elsewhere",
+  redirectUri: "https://third-party.example/callback",
+} as const;
+
+/**
  * osn-api's dev sign-in (`GET /dev/login`, the form, local and dev tiers only, mounted
  * when this is set). It signs in as the fixed dev principal, whose profile id
  * owns cire's sample wedding (`DEV_OWNER_PROFILE_ID`) and the `CIRE_ORGANISER`
@@ -172,14 +250,28 @@ export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
 /**
  * The organiser weddings cire-api adds when the stack sets
  * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
- * which these values copy). All seven are on Gold; `profileId`, the profile
- * osn-api's `/dev/login` signs in as, owns six and is a helper on
- * `runSheetHelper`. The co-hosts are bare
+ * which these values copy). Each is on Gold but `enquiries`, on Crimson, and
+ * the two `upgrade` weddings, on Ivory, and `envelope`'s three have no seat;
+ * `profileId`, the profile osn-api's `/dev/login` signs in as, owns every other
+ * one and is a helper on `runSheetHelper`. The co-hosts are bare
  * profile ids: the local cire-api resolves no names, so the portal shows the
  * ids, and a flow finds each person by theirs.
  */
 export const CIRE_ORGANISER = {
   profileId: "usr_dev_bootstrap_owner",
+  /** The address osn-api's `/dev/login` gives `profileId`'s account, where
+   *  cire-api's owner notices to it land (`DEV_PRINCIPAL` in
+   *  osn/api/src/routes/auth/dev-login.ts). */
+  email: "dev@seed.osn.dev",
+  /**
+   * Two Ivory weddings the dev profile owns alone, for buying Gold through the
+   * Stripe stand-in: `bought` keeps its purchase and is granted Gold; `refunded`
+   * is deleted while its checkout is open, so its payment is refunded.
+   */
+  upgrade: {
+    bought: { weddingId: "wed_e2e_upgrade", name: "Upgrade Wedding" },
+    refunded: { weddingId: "wed_e2e_upgrade_refund", name: "Refund Wedding" },
+  },
   /** A wedding date and an empty checklist, for the starter checklist. */
   checklist: {
     weddingId: "wed_e2e_checklist",
@@ -247,10 +339,9 @@ export const CIRE_ORGANISER = {
   },
   /**
    * Money gifts on and a Stripe account that can charge, one cash fund and
-   * nothing to reserve, unpublished — on a stack whose cire-api cannot take a
-   * money gift (a Stripe key and no webhook secret). Its other owner, Kit,
-   * connected the account, so the dev profile may read its status and not
-   * open its onboarding links.
+   * two group gifts and nothing to reserve, unpublished. Its other owner,
+   * Kit, connected the account, so the dev profile may read its status and
+   * not open its onboarding links.
    */
   money: {
     weddingId: "wed_e2e_money",
@@ -277,6 +368,21 @@ export const CIRE_ORGANISER = {
    * the owner already has, through the Stripe stand-in.
    */
   oauth: { weddingId: "wed_e2e_oauth", name: "Garden Wedding" },
+  /**
+   * A Gold wedding with a published gift list and nothing on it, money gifts
+   * on and an Express account that can charge and pays out in AUD, which Kit,
+   * its second owner, connected: so the dev profile's other weddings are not
+   * offered it. One household, Parkes, of one guest, Pia. The owner adds a cash
+   * fund through the portal's form and Pia gives to it through the Stripe
+   * stand-in (`tests/support/cire-fund-gift.ts`).
+   */
+  fund: {
+    weddingId: "wed_e2e_fund",
+    slug: "fund-wedding",
+    accountId: "acct_e2e_fund",
+    connector: { hostId: "whost_e2e_fund_kit", profileId: "usr_e2e_kit" },
+    household: { familyId: "fam_e2e_fund", code: "PARKES-E2E-FD01", guestName: "Pia" },
+  },
   /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
    *  Cy Charlie at Table 2, all three having said yes. And an after party,
    *  inviting Ada, with no plan yet. */
@@ -304,6 +410,46 @@ export const CIRE_ORGANISER = {
     added: "gus.tanaka@e2e.test",
     /** Gus's address in the two sheets the flow previews; the second applies. */
     sheetAddresses: { first: "gus.first@e2e.test", second: "gus.second@e2e.test" },
+    /** The household a later sheet adds and Change history's Revert takes away. */
+    reverted: { household: "Ito", firstName: "Kai" },
+  },
+  /**
+   * Two households, Nguyen (whose code has been sent) and Patel, and two live
+   * unlock codes of one use each: `gold`, which the wedding already holds, and
+   * `crimson`, which raises it. `wrong` names no code. For redeeming a code,
+   * re-minting the family codes and deleting and restoring the wedding.
+   */
+  settings: {
+    weddingId: "wed_e2e_settings",
+    slug: "settings-wedding",
+    name: "Settings Wedding",
+    families: [
+      { id: "fam_e2e_settings_nguyen", code: "NGUYEN-E2E-ST01" },
+      { id: "fam_e2e_settings_patel", code: "PATEL-E2E-ST02" },
+    ],
+    codes: {
+      gold: { id: "ulc_e2e_settings_gold", code: "e2e0-901d-0000-0001" },
+      crimson: { id: "ulc_e2e_settings_crimson", code: "e2e0-c41f-0000-0002" },
+      wrong: "0000-0000-0000-0000",
+    },
+  },
+  /**
+   * On Crimson, with two live directory listings: `open`, not in the wedding,
+   * owned by the organisation that made it in the vendor portal with no vendor
+   * profile on it, so an enquiry to it waits on the listing and mints no claim
+   * link; and `quoted`, claimed, whose enquiry from this wedding the vendor has
+   * answered with a $4,800 quote.
+   */
+  enquiries: {
+    weddingId: "wed_e2e_enquiries",
+    open: { listingId: "dir_e2e_enq_florals", name: "Willow & Fern Florals", category: "florals" },
+    quoted: {
+      listingId: "dir_e2e_enq_strings",
+      enquiryId: "enq_e2e_strings",
+      name: "Harbour Strings",
+      category: "music_entertainment",
+      quotedMinor: 480_000,
+    },
   },
   /**
    * On Crimson with the Wax seal envelope over a hero with a title, a subtitle
@@ -319,6 +465,38 @@ export const CIRE_ORGANISER = {
     plainSlug: "plain-envelope-wedding",
     /** A shown hero and no envelope. */
     noneSlug: "no-envelope-wedding",
+  },
+} as const;
+
+/**
+ * The wedding whose event was saved before the editor checked an event's name,
+ * times and zone (`seedE2eLegacyEvent` in cire/api/src/db/setup.ts), and the
+ * edits `cire-event-details.flow.ts` makes to it.
+ */
+export const CIRE_LEGACY_EVENT = {
+  weddingId: "wed_e2e_legacy_event",
+  legacyId: "evt_e2e_legacy",
+  /** The values the seed stores on the legacy event. */
+  stored: {
+    name: "",
+    start_at: "2026-11-14T15:00",
+    end_at: "2026-11-14T17:00",
+    timezone: "AEST",
+  },
+  otherId: "evt_e2e_legacy_reception",
+  otherName: "Reception",
+  /** The edit to the other event that saves around the legacy one. */
+  address: "1 Garden Lane, Exampleville NSW 2001",
+  /** The fix: a name, a zone that resolves, and the Start re-entered. */
+  fixedName: "Welcome drinks",
+  fixedZone: "Australia/Sydney",
+  fixedStartTime: "16:00",
+  /** The legacy event as the fix stores it: both times stamped from the zone. */
+  fixed: {
+    name: "Welcome drinks",
+    start_at: "2026-11-14T16:00:00+11:00",
+    end_at: "2026-11-14T17:00:00+11:00",
+    timezone: "Australia/Sydney",
   },
 } as const;
 
@@ -420,6 +598,164 @@ export const PEOPLE = {
   musubiRetry: { email: "grace@e2e.test", handle: "e2e_grace", name: "Grace E2E" },
   pulseHost: { email: "host@e2e.test", handle: "e2e_host", name: "Host E2E" },
   pulseGuest: { email: "guest@e2e.test", handle: "e2e_guest", name: "Guest E2E" },
+  /** Signs up with a browser Email Verification API token: no link. */
+  musubiVerified: {
+    email: "hedy@mailbox.e2e.test",
+    handle: "e2e_hedy",
+    name: "Hedy E2E",
+  },
+  /** Signs up on the same osn-api with no token: the link goes. */
+  musubiVerifiedControl: {
+    email: "joan@mailbox.e2e.test",
+    handle: "e2e_joan",
+    name: "Joan E2E",
+  },
+} as const;
+
+/**
+ * The issuer stand-in (`src/issuer.ts`): the mail domain whose
+ * `_email-verification` record names it, and its host. Its answers reach only
+ * the osn-api told `OSN_EMAIL_VERIFICATION_EMULATOR_URL`. The host's address
+ * is TEST-NET-3, which the verifier's address check allows and nothing routes;
+ * every request to it goes to the stand-in instead.
+ */
+export const EVT_ISSUER = {
+  domain: "mailbox.e2e.test",
+  host: "issuer.e2e.test",
+  address: "203.0.113.10",
 } as const;
 
 export const BIRTHDATE = "1990-01-01";
+
+/**
+ * The account `musubi-recovery` gets back into through an emailed link. A row
+ * `seedOsn` writes, with one passkey on it that no authenticator in the run
+ * holds — the lost phone — so the new passkey is enrolled past an existing
+ * one, as a real recovery is. Its credential id is base64url, as an
+ * authenticator's is: enrolment lists it for the browser to exclude, and the
+ * browser decodes it, failing the ceremony on anything else.
+ */
+export const RECOVERY_PERSON = {
+  accountId: "acc_e2e_recover",
+  profileId: "usr_e2e_recover",
+  email: "recover@e2e.test",
+  passkeyUserId: "pku_e2e_recover",
+  handle: "e2e_recover",
+  name: "Recover E2E",
+  // base64url of "e2e lost phone credential".
+  lostPasskey: { id: "pk_e2e_lost", credentialId: "ZTJlIGxvc3QgcGhvbmUgY3JlZGVudGlhbA" },
+} as const;
+
+/**
+ * The host `cire-remove-my-data` removes from cire while keeping the Musubi
+ * account, and the other person whose weddings must come through untouched.
+ * Rows `seedOsn` writes: each account and profile, and the remover's live
+ * Musubi session, whose raw token the flow puts in its browser, as a sign-in
+ * would. The flow writes the cire organiser sessions itself, each row holding
+ * its token's SHA-256, as cire's own sign-in leaves it: two for the remover
+ * (one for a second browser that holds a confirmation's code but not the
+ * cookie that binds it) and one for the keeper. cire's weddings
+ * (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`): `alone`, the remover's
+ * alone; `shared`, theirs and the keeper's; `theirs`, the keeper's alone.
+ * Seeded, not signed up or signed in, so the flow spends none of the run's
+ * sign-up and sign-in windows. Readable tokens on purpose: fixtures of a
+ * local stack, like `DEV_LOGIN_SECRET`.
+ */
+export const CIRE_REMOVAL_PERSON = {
+  accountId: "acc_e2e_remover",
+  profileId: "usr_e2e_remover",
+  email: "remover@e2e.test",
+  passkeyUserId: "pku_e2e_remover",
+  handle: "e2e_remover",
+  name: "Remover E2E",
+  session: { token: "e2e-removal-person-session", familyId: "sfam_e2e_remover" },
+  cireSessions: ["e2e-removal-cire-session", "e2e-removal-cire-second-session"],
+  alone: { id: "wed_e2e_rm_alone", name: "Remover Alone Wedding" },
+  shared: { id: "wed_e2e_rm_shared", name: "Remover Shared Wedding" },
+  keeper: {
+    accountId: "acc_e2e_keeper",
+    profileId: "usr_e2e_keeper",
+    email: "keeper@e2e.test",
+    passkeyUserId: "pku_e2e_keeper",
+    handle: "e2e_keeper",
+    name: "Keeper E2E",
+    cireSession: "e2e-removal-keeper-cire-session",
+    theirs: { id: "wed_e2e_rm_theirs", name: "Keeper Wedding" },
+  },
+} as const;
+
+/**
+ * The account `musubi-account-deletion` deletes, keeps and deletes again. Rows
+ * `seedOsn` writes: the account, its one profile, an open Pulse enrolment (as
+ * Pulse's onboarding writes one) and one live session, whose raw token the
+ * flow puts in its browser's cookie jar, as a sign-in would, so it spends none
+ * of the run's sign-up or sign-in windows; and an organisation it owns, with an
+ * heir who also holds a seeded session. Its token is readable on purpose:
+ * it is a fixture of a local stack, like `DEV_LOGIN_SECRET`, and grants
+ * nothing anywhere else. cire's `wed_e2e_leaver` (`seedE2eOrganiser` in
+ * `cire/api/src/db/setup.ts`) has this profile as its only owner.
+ */
+export const DELETION_PERSON = {
+  accountId: "acc_e2e_leaver",
+  profileId: "usr_e2e_leaver",
+  email: "leaver@e2e.test",
+  passkeyUserId: "pku_e2e_leaver",
+  handle: "e2e_leaver",
+  name: "Leaver E2E",
+  enrolmentId: "aenr_e2e_leaver_pulse",
+  session: {
+    token: "e2e-deletion-person-session",
+    familyId: "sfam_e2e_leaver",
+  },
+  wedding: { id: "wed_e2e_leaver", name: "Leaver Wedding", seatId: "whost_e2e_leaver_owner" },
+  /**
+   * An organisation the person owns. `heir`, an admin from another account,
+   * receives it at the hard delete and declines it from the email's link,
+   * signed in through its own seeded session; it then passes to `member`.
+   */
+  organisation: { id: "org_e2e_leaver", handle: "e2e_leaver_org", name: "Leaver Org E2E" },
+  heir: {
+    accountId: "acc_e2e_heir",
+    profileId: "usr_e2e_heir",
+    email: "heir@e2e.test",
+    passkeyUserId: "pku_e2e_heir",
+    handle: "e2e_heir",
+    name: "Heir E2E",
+    session: { token: "e2e-deletion-heir-session", familyId: "sfam_e2e_heir" },
+  },
+  member: {
+    accountId: "acc_e2e_next",
+    profileId: "usr_e2e_next",
+    email: "next@e2e.test",
+    passkeyUserId: "pku_e2e_next",
+    handle: "e2e_next",
+    name: "Next E2E",
+  },
+} as const;
+
+/**
+ * Musubi's organisation pages (`musubi-org-detail`). The owner is osn-api's dev
+ * principal (`DEV_PRINCIPAL` in osn/api/src/routes/auth/dev-login.ts), signed in
+ * through `/dev/login/form`; `org` is the organisation the flow creates as them.
+ * `member` and `otherOrg` are rows `seedOsn` writes: a profile with no passkey,
+ * which the flow adds to `org` and removes again, and an organisation that
+ * profile owns and the dev principal does not belong to.
+ */
+export const MUSUBI_ORG = {
+  owner: { handle: "dev_bootstrap" },
+  org: { handle: "e2e_org", name: "E2E Org", renamed: "E2E Org Renamed" },
+  member: {
+    accountId: "acc_e2e_member",
+    profileId: "usr_e2e_member",
+    email: "member@e2e.test",
+    passkeyUserId: "pku_e2e_member",
+    handle: "e2e_member",
+    name: "Member E2E",
+  },
+  otherOrg: {
+    id: "org_e2e_other",
+    membershipId: "orgm_e2e_other",
+    handle: "e2e_other_org",
+    name: "Other Org E2E",
+  },
+} as const;

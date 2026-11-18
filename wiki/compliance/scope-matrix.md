@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-18
 ---
 
 # Compliance Scope Matrix
@@ -47,7 +47,7 @@ compliance obligations.
 | `@zap/api` org chats (M3) | customer chat transcripts under verified org | **B2B trigger for SOC 2 Type II.** Customer becomes a controller, OSN becomes processor → DPA required. |
 | `@zap/api` locality channels (M4) | locality opt-in (= location), broadcast subscriptions | GDPR Art. 9 if locality reveals special-category info; DSA broadcaster transparency |
 | `@cire/api` guest RSVP | family + guest names, RSVP status, **dietary free-text (Art. 9 special-category)**, guest claim code | GDPR Art. 6(1)(f) (organiser-controlled) + **Art. 9(2)(a) explicit consent for dietary**; DPIA filed ([[dpia/cire-guest-data]]); controller = organiser, processor = cire; cross-DB DSAR/deletion orphan |
-| `@cire/api` organiser import | raw organiser spreadsheets (R2 `cire-sheets`), bulk guest PII | GDPR storage-limitation — deleted with the guest data 1 year after the final event, and unreferenced objects reaped by a daily reconciler within one pass over the bucket, except while an operator has it stopped ([[retention]]); SOC 2 CC6 (separate D1/R2 access grant, [[access-control]]) |
+| `@cire/api` organiser import | raw organiser spreadsheets (R2 `cire-sheets`), bulk guest PII | GDPR storage-limitation — deleted with the guest data 1 year after the final event (3 years after creation when an event's date cannot be read), and unreferenced objects reaped by a daily reconciler within one pass over the bucket, except while an operator has it stopped ([[retention]]); SOC 2 CC6 (separate D1/R2 access grant, [[access-control]]) |
 | `@cire/api` vendor enquiries (S4) | `vendor_enquiries` linkage (`wedding_id`, `directory_vendor_id`, `status`, `quoted_minor`); `pending_body` (transient first-message text, stored only until the vendor claims the listing and the buffer is flushed); `directory_vendors.lead_forward_email` (a second address for the lead; nothing writes it — englishstreetventures/osn#1622); Zap c2b message bodies (server-visible personal data, routed via `@zap/api` — see [[data-map]] S4 rows) | GDPR Art. 6(1)(b) — contract (couple–vendor pre-contractual communications); Art. 6(1)(f) — legit interest in business lead routing (`lead_forward_email`). DSA Art. 30 **out of scope** (pre-contractual only; no on-platform contract concluded — see DSA section). |
 | `@cire/invites` Pinterest embed | guest IP / UA / behaviour (only once the guest switches on Pinterest moodboards) | ePrivacy + GDPR — consent-gated under its own `pinterest` switch (off until allowed, separate from Google Maps), outbound link shown whenever the board is not; Pinterest subprocessor row + transfer basis TODO ([[subprocessors]]) |
 | Pulse ticketing (deferred) | payment data | PCI-DSS SAQ-A via Stripe-hosted; never touches our DB |
@@ -64,7 +64,7 @@ What ships in the **first** compliance push. Later rounds harden it.
 2. `[[data-map]]` published as the Article 30 record of processing.
 3. `[[subprocessors]]` published with current DPAs on file.
 4. DSAR endpoints: `GET /account/export` (machine-readable JSON) and `DELETE /account` (full erasure with cross-service fan-out via ARC).
-5. Retention schedule enforced ([[retention]]) — telemetry retention already tight (Cloudflare keeps Workers traces 7 d and Workers Logs 3 d on Free, 7 d from 2026-12-01); production sessions auto-expire; security events retained 12 months; deleted-account tombstone retained 30 days.
+5. Retention schedule enforced ([[retention]]) — telemetry retention already tight (Cloudflare keeps Workers traces 7 d and Workers Logs 3 d on Free, 7 d from 2026-12-01); production sessions auto-expire; security events retained 12 months; a deleted account stays tombstoned for its 7-day window, and its handles stay held, as keyed hashes, for 30 days after the hard delete.
 6. Lawful basis declared per processing purpose in `[[data-map]]`.
 7. Breach response runbook ([[breach-response]]) with named DPO contact.
 8. Cookie banner on `@musubi/landing` only if/when analytics added.
@@ -89,7 +89,7 @@ Privacy because they are the criteria customers ask about.
 | CC9 — Risk Mitigation | Rate limiting, CORS, Origin guard, redaction deny-list, CSP | Vendor risk-assessment record per [[subprocessors]] |
 | C1 — Confidentiality | E2E (Signal/PQXDH), HMAC-peppered IPs, hashed tokens, redacted logs | Encryption-at-rest doc once Supabase migration lands |
 | A1 — Availability | Bun runtime, Turbo build, OTel SLOs (planned), post-deploy smoke check with automatic rollback, fail-closed rate limiter | Backup + DR plan ([[backup-dr]]); RTO/RPO declared |
-| P1–P8 — Privacy | This compliance directory, [[data-map]], [[dsar]] (planned) | Privacy notice published; consent records persisted |
+| P1–P8 — Privacy | This compliance directory, [[data-map]], [[dsar]] (self-service export and erasure shipped; the request log and the email channel planned) | Privacy notice published; consent records persisted |
 
 ### CCPA — first cut
 

@@ -970,6 +970,242 @@ describe("validateDraft — event field rules (E6)", () => {
       dispose();
     });
   });
+
+  it("flags a zone the API cannot resolve, after the required-zone check", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      const zoneErrors = () =>
+        validateDraft(store.draft)
+          .filter((e) => e.key === key && /timezone/i.test(e.message))
+          .map((e) => e.message);
+      for (const zone of ["AEST", "+10:00"]) {
+        store.updateEvent(key, { timezone: zone });
+        expect(zoneErrors()).toEqual(["Choose a timezone from the list."]);
+      }
+      store.updateEvent(key, { timezone: "" });
+      expect(zoneErrors()).toEqual(["Timezone is required."]);
+      for (const zone of [Intl.DateTimeFormat().resolvedOptions().timeZone, "australia/sydney"]) {
+        store.updateEvent(key, { timezone: zone });
+        expect(zoneErrors()).toEqual([]);
+      }
+      dispose();
+    });
+  });
+
+  it("asks for the time again when a stored Start or End has no usable offset", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      const messages = () =>
+        validateDraft(store.draft)
+          .filter((e) => e.key === key)
+          .map((e) => e.message);
+      store.updateEvent(key, { startAt: "2026-11-14T15:00", endAt: "2026-11-14T17:00" });
+      expect(messages()).toEqual(["Re-enter the start time.", "Re-enter the end time."]);
+      for (const startAt of [
+        "2026-11-14T15:00:00+99:99",
+        "2026-11-14T15:00:00+24:00",
+        "2026-11-14T15:00:00+10:60",
+      ]) {
+        store.updateEvent(key, { startAt, endAt: "whenever" });
+        expect(messages()).toEqual([
+          "Re-enter the start time.",
+          "End must be a valid date and time.",
+        ]);
+      }
+      // A stamped value passes in either offset spelling. A space around it
+      // does not: the save sends Start and End as held, as the API stores them.
+      for (const startAt of [
+        "2026-11-14T15:00:00+11:00",
+        "2026-11-14T15:00:00+1100",
+        "2026-11-14T15:00:00-05:00",
+        "2026-11-14T15:00:00Z",
+      ]) {
+        store.updateEvent(key, { startAt, endAt: "2026-11-14T17:00:00+11:00" });
+        expect(messages()).toEqual([]);
+      }
+      for (const startAt of [" 2026-11-14T15:00:00+11:00", "2026-11-14T15:00:00+11:00 "]) {
+        store.updateEvent(key, { startAt });
+        expect(messages()).toEqual(["Re-enter the start time."]);
+      }
+      dispose();
+    });
+  });
+
+  it("sends a Start and End as held, so an unchanged one reaches the API as stored", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load(
+        [{ ...EVENTS[0]!, startAt: " 2026-11-14T15:00:00+11:00 ", endAt: "   " }],
+        [],
+        [],
+        REVISION,
+      );
+      const [ceremony] = toDesiredState(store.draft).events;
+      expect(ceremony!.startAt).toBe(" 2026-11-14T15:00:00+11:00 ");
+      expect(ceremony!.endAt).toBe("   ");
+      dispose();
+    });
+  });
+});
+
+/**
+ * An event stored before the API checked its name, times and zone can hold
+ * values those checks refuse. A save is refused only for a field it changes
+ * or an event it adds, so the draft reports such a value as `stored`: shown,
+ * never a reason to keep Save shut.
+ */
+describe("validateDraft — a value stored before the checks", () => {
+  const LEGACY: EventRow = {
+    ...EVENTS[0]!,
+    name: "",
+    startAt: "2026-11-14T15:00",
+    endAt: "2026-11-14T17:00",
+    timezone: "AEST",
+  };
+
+  function legacyStore() {
+    const store = createGuestEventDraft();
+    store.load([LEGACY, EVENTS[1]!], GUESTS, [], REVISION);
+    return { store, key: store.draft.events.find((e) => e.id === LEGACY.id)!.key };
+  }
+
+  const messagesOf = (errors: { key: string; message: string }[], key: string) =>
+    errors.filter((e) => e.key === key).map((e) => e.message);
+
+  it("reports each legacy value as stored, and none as blocking", () => {
+    createRoot((dispose) => {
+      const { store, key } = legacyStore();
+      expect(messagesOf(store.storedErrors(), key)).toEqual([
+        "Event name is required.",
+        "Re-enter the start time.",
+        "Re-enter the end time.",
+        "Choose a timezone from the list.",
+      ]);
+      expect(store.storedErrors().every((e) => e.stored === true)).toBe(true);
+      expect(store.errors()).toEqual([]);
+      dispose();
+    });
+  });
+
+  it("blocks a legacy field changed to another value the checks refuse", () => {
+    createRoot((dispose) => {
+      const { store, key } = legacyStore();
+      store.updateEvent(key, { startAt: "2026-11-14T16:00", name: "   " });
+      // The Start the save now sets holds the zone too.
+      expect(messagesOf(store.errors(), key)).toEqual([
+        "Event name is required.",
+        "Re-enter the start time.",
+        "Choose a timezone from the list.",
+      ]);
+      // The End, left as stored, stays reported, and out of the way.
+      expect(messagesOf(store.storedErrors(), key)).toEqual(["Re-enter the end time."]);
+      dispose();
+    });
+  });
+
+  it("goes back to stored when the field is changed back", () => {
+    createRoot((dispose) => {
+      const { store, key } = legacyStore();
+      store.updateEvent(key, { timezone: "Sydney" });
+      expect(messagesOf(store.errors(), key)).toEqual(["Choose a timezone from the list."]);
+      store.updateEvent(key, { timezone: LEGACY.timezone });
+      expect(store.errors()).toEqual([]);
+      dispose();
+    });
+  });
+
+  it("holds an End of spaces the save sets, as the API does, and reports a stored one", () => {
+    createRoot((dispose) => {
+      const { store, key } = legacyStore();
+      store.updateEvent(key, { endAt: "   " });
+      expect(messagesOf(store.errors(), key)).toContain("End must be a valid date and time.");
+
+      const spaced = createGuestEventDraft();
+      spaced.load([{ ...EVENTS[0]!, endAt: "   " }], [], [], REVISION);
+      const spacedKey = spaced.draft.events[0]!.key;
+      expect(messagesOf(spaced.errors(), spacedKey)).toEqual([]);
+      expect(messagesOf(spaced.storedErrors(), spacedKey)).toEqual([
+        "End must be a valid date and time.",
+      ]);
+      dispose();
+    });
+  });
+
+  it.each([
+    ["a Start cleared", { startAt: "" }, "Start date & time is required."],
+    ["a Start with a date and no time", { startAt: "2026-11-14" }, "Start time is required."],
+    ["a Start of free text", { startAt: "soon" }, "Start must be a valid date and time."],
+    ["a Start with no offset", { startAt: "2026-11-14T16:00" }, "Re-enter the start time."],
+    ["an End with no offset", { endAt: "2026-11-14T18:00" }, "Re-enter the end time."],
+    ["a zone cleared", { timezone: "" }, "Timezone is required."],
+  ] as const)("blocks %s on a loaded event", (_case, patch, message) => {
+    // A loaded event with clean values: each field the save sets is held.
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, patch);
+      expect(messagesOf(store.errors(), key)).toContain(message);
+      expect(messagesOf(store.storedErrors(), key)).toEqual([]);
+      dispose();
+    });
+  });
+
+  it("holds the zone when the save sets only an End", () => {
+    createRoot((dispose) => {
+      const { store, key } = legacyStore();
+      store.updateEvent(key, { endAt: "2026-11-14T18:00:00+00:00" });
+      expect(messagesOf(store.errors(), key)).toEqual(["Choose a timezone from the list."]);
+      dispose();
+    });
+  });
+
+  it("holds the zone when the save sets a time, as the API does", () => {
+    // The drawer stamps a time's offset from its zone. On one that does not
+    // resolve it keeps the stored offset or writes `+00:00`, a value that reads
+    // as an instant and is hours out, so the zone must be fixed first.
+    createRoot((dispose) => {
+      const { store, key } = legacyStore();
+      store.updateEvent(key, { startAt: "2026-11-14T16:00:00+00:00" });
+      expect(messagesOf(store.errors(), key)).toEqual(["Choose a timezone from the list."]);
+      // Clearing the End sets no time, so the zone stays as stored.
+      store.updateEvent(key, { startAt: LEGACY.startAt, endAt: "" });
+      expect(store.errors()).toEqual([]);
+      dispose();
+    });
+  });
+
+  it("reports nothing once each field is fixed", () => {
+    createRoot((dispose) => {
+      const { store, key } = legacyStore();
+      store.updateEvent(key, {
+        name: "Ceremony",
+        timezone: "Australia/Sydney",
+        startAt: "2026-11-14T15:00:00+11:00",
+        endAt: "",
+      });
+      expect(messagesOf(store.errors(), key)).toEqual([]);
+      expect(messagesOf(store.storedErrors(), key)).toEqual([]);
+      dispose();
+    });
+  });
+
+  it("blocks a new event holding the same values", () => {
+    createRoot((dispose) => {
+      const { store } = legacyStore();
+      const added = store.addEvent();
+      store.updateEvent(added, {
+        name: LEGACY.name,
+        startAt: LEGACY.startAt,
+        endAt: LEGACY.endAt,
+        timezone: LEGACY.timezone,
+      });
+      expect(messagesOf(store.errors(), added)).toHaveLength(4);
+      expect(messagesOf(store.storedErrors(), added)).toEqual([]);
+      dispose();
+    });
+  });
 });
 
 describe("createGuestEventDraft — deletions reach the wire", () => {

@@ -23,13 +23,12 @@
     "db:studio": "drizzle-kit studio",
     "db:push": "bun run ../../scripts/cire-db-migrate.ts cire-db --local",
     "db:migrate:local": "bun run ../../scripts/cire-db-migrate.ts cire-db --local",
-    "db:migrate:prod": "bun run ../../scripts/cire-db-migrate.ts cire-db --env production --remote",
     "db:seed": "bash ../../scripts/cire-db-seed.sh",
     "db:reset": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:push && bun run db:seed"
   },
   "dependencies": {
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.0.7"
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
