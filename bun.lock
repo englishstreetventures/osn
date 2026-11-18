@@ -370,7 +370,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.44.0",
+      "version": "3.44.1",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.17",
@@ -669,7 +669,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.20.1",
+      "version": "0.21.0",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.1.4",
@@ -927,7 +927,7 @@
     },
     "tools/metrics": {
       "name": "@tools/metrics",
-      "version": "0.2.59",
+      "version": "0.2.60",
       "dependencies": {
         "@observablehq/plot": "^0.6.17",
         "@shared/ui": "workspace:*",
