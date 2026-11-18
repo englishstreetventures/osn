@@ -51,10 +51,12 @@ surface's `DESIGN.md` already hold the answer? A one-line change to a colour
 the system names is `design-mechanic`; a one-line change that adds a colour the
 system lacks is a design decision, and `designer`.
 
-**Ignore a rating carrying `complexity:unconfirmed`.** That label means an agent
-rated the issue and no human signed off. The session-metrics
+**Ignore a rating carrying `complexity:unconfirmed`.** That label marks a rating
+made by backfill, or after the work had begun, with its cost already in view.
+A rating with no such label was made from the issue body before work began,
+by the owner or by an agent rating on their behalf. The session-metrics
 tooling leaves unconfirmed ratings out so its charts cannot be circular
-(`tools/metrics/src/shape.ts:134`) — and a dispatch is the most
+(`tools/metrics/src/shape.ts:153`) — and a dispatch is the most
 consequential thing anyone acts on. Treat an unconfirmed rating as no rating,
 and say you chose from the task text alone.
 

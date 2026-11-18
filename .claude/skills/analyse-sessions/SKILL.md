@@ -43,7 +43,7 @@ Read three things off it and write them down before continuing:
 | Read | Because |
 |---|---|
 | How many cards | A single-digit sample supports no trend at all |
-| How many are `confirmed` | Unconfirmed ratings are an agent's own guess, and every difficulty comparison excludes them |
+| How many are `confirmed` | Unconfirmed ratings were made by backfill or after the work began, so they may have been fitted to the cost, and every difficulty comparison excludes them |
 | What share is `at-open` | Those cards are missing review-cycle cost. A remote session's container dies with its transcripts, so its cards stay `at-open` forever and the corpus under-reports |
 
 If nothing is rated, say so at the top of your answer. Most of the interesting
