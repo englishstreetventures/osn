@@ -100,7 +100,6 @@ describe("legal pages", () => {
    * hold-back after both rules.
    */
   it("the hosts' notice and the overview state both retention bounds and the hold-back", () => {
-    const flat = (page: string) => page.replace(/\s+/g, " ");
     for (const page of [hosts, privacy].map(flat)) {
       expect(page).toMatch(/one year after the wedding&rsquo;s final event/);
       expect(page).toMatch(
