@@ -301,7 +301,7 @@
     },
     "musubi/infra": {
       "name": "@musubi/infra",
-      "version": "0.6.7",
+      "version": "0.6.8",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.85",
         "@effect/platform-bun": "4.1.4",
@@ -338,7 +338,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.24.1",
+      "version": "0.25.0",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -370,7 +370,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.43.1",
+      "version": "3.44.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.17",
@@ -402,7 +402,7 @@
     },
     "osn/auth-ui": {
       "name": "@osn/auth-ui",
-      "version": "6.4.0",
+      "version": "6.4.1",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -424,7 +424,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "4.2.0",
+      "version": "4.3.0",
       "dependencies": {
         "effect": "4.1.4",
       },
@@ -459,7 +459,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.29.7",
+      "version": "0.29.8",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -544,7 +544,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.99",
+      "version": "0.24.100",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -581,7 +581,7 @@
     },
     "shared/billing": {
       "name": "@shared/billing",
-      "version": "0.1.20",
+      "version": "0.1.21",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -617,7 +617,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.15.6",
+      "version": "0.15.7",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -669,7 +669,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.20.0",
+      "version": "0.20.1",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.1.4",
@@ -717,7 +717,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.26.3",
+      "version": "0.26.4",
       "dependencies": {
         "@effect/opentelemetry": "4.1.4",
         "@opentelemetry/api": "^1.9.1",
@@ -748,7 +748,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.5.6",
+      "version": "0.5.7",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "6.2.17",
@@ -772,7 +772,7 @@
     },
     "shared/realtime": {
       "name": "@shared/realtime",
-      "version": "0.2.27",
+      "version": "0.2.28",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.1.4",
@@ -901,7 +901,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.79",
+      "version": "0.3.80",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@osn/auth-ui": "workspace:*",
@@ -972,7 +972,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.10.7",
+      "version": "0.10.8",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
