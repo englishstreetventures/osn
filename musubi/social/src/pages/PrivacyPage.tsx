@@ -57,12 +57,13 @@ export function PrivacyPage(): JSX.Element {
         that check only, and we do not store it.
       </p>
       <p>
-        Some browsers, including some versions of Chrome, can vouch for your email address when you
-        sign up, so you do not have to open a link we email you. When yours does, we look up your
-        address&rsquo;s domain — the part after the @ — through Cloudflare&rsquo;s public DNS
-        resolver, to find the email provider that vouches for it, and fetch that provider&rsquo;s
-        public keys. On a personal domain the domain alone can identify you. Neither the resolver
-        nor the provider is sent the rest of your address or your IP address.
+        Some email providers, such as Gmail, can vouch for your address when you sign up in a
+        browser that supports it, including some versions of Chrome, so you do not have to open a
+        link we email you. To do that, your browser asks your email provider for a signed token,
+        over your own connection, under your provider&rsquo;s terms. To check the token, we look up
+        your address&rsquo;s domain — the part after the @ — through Cloudflare&rsquo;s public DNS
+        resolver, and fetch your provider&rsquo;s public keys. On a personal domain the domain alone
+        can identify you. We send neither of them the rest of your address or your IP address.
       </p>
       <h3>Your profiles</h3>
       <p>

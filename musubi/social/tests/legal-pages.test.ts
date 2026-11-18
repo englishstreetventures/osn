@@ -101,6 +101,18 @@ describe("PrivacyPage.tsx", () => {
     expect(text).toMatch(/Cloudflare&rsquo;s public DNS resolver|Cloudflare's public DNS resolver/);
     expect(text).toMatch(/the part after the @/);
   });
+
+  /**
+   * The browser asks the email provider for the token itself, from the
+   * person's own connection (`wiki/osn/email-verification-api.md`), so only
+   * what osn-api sends may be described as withheld.
+   */
+  it("says the browser, not Musubi, asks the email provider", () => {
+    const text = flat(source);
+    expect(text).toMatch(/your browser asks your email provider/);
+    expect(text).toMatch(/We send neither/);
+    expect(text).not.toMatch(/Neither the resolver nor the provider is sent/);
+  });
 });
 
 describe("TermsPage.tsx", () => {
