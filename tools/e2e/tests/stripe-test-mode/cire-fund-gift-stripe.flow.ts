@@ -128,13 +128,13 @@ test(FLOW, async ({ page, browser, flow }) => {
       );
       await page.goto("about:blank");
       await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/settings`);
-      const response = await answer;
-      const body = (await response.json().catch(() => ({}))) as { chargesEnabled?: unknown };
-      return { status: response.status(), charges: body.chargesEnabled === true };
+      // The status alone: the page may leave before its body is read, and
+      // Playwright then waits on that body until the test's time runs out.
+      // What Stripe said is read from the row below.
+      return (await answer).status();
     },
   );
-  flow.check("stripe: cire-api reads the account from Stripe", 200, refreshed.status);
-  flow.check("stripe: Stripe says the account can take charges", true, refreshed.charges);
+  flow.check("stripe: cire-api reads the account from Stripe", 200, refreshed);
   const settings = queryOne<{ charges: number; currency: string | null }>(
     DB_FILES.cire,
     `SELECT stripe_charges_enabled AS charges, stripe_default_currency AS currency
