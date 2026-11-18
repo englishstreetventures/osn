@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-18
 ---
 
 # Testing Patterns
@@ -631,8 +631,9 @@ cire/dietary/src/index.ts:224:7
    to kill a mutant. A guard is equivalent only while what makes it redundant
    is pinned: a re-entry check behind a button that disables while it runs is
    equivalent only if a test fails when the button stops disabling.
-3. **Or name the browser test that kills it.** The `@cire/host` and
-   `@cire/invites` runs leave the browser tier out (below), so a mutant a
+3. **Or name the browser test that kills it.** The `@cire/host`,
+   `@cire/invites` and `@cire/waves` runs leave the browser tier out (below),
+   and `@cire/waves`' code has no other tier, so a mutant a
    `*.browser.test.tsx` already kills still reports as a survivor. Run that
    test against the mutant once, then name it in the pull request beside the
    survivor. Do not copy the browser test into jsdom to raise the score: that is
@@ -660,7 +661,7 @@ changed without one of the answers above.
 
 | Packages | Runner | What it runs per mutant |
 |---|---|---|
-| `@cire/host`, `@cire/invites`, `@cire/vendor`, `@cire/ui`, `@cire/landing`, `@cire/build-tools`, `@cire/invite-designs` | `@stryker-mutator/vitest-runner` | only the tests that cover the mutated line |
+| `@cire/host`, `@cire/invites`, `@cire/vendor`, `@cire/ui`, `@cire/waves`, `@cire/landing`, `@cire/build-tools`, `@cire/invite-designs` | `@stryker-mutator/vitest-runner` | only the tests that cover the mutated line |
 | `@cire/api`, `@cire/db`, `@cire/dietary`, `@cire/theme` | Stryker's `command` runner | the whole command — `bun test`, or `@cire/api`'s `STRYKER_TESTS` |
 | `@cire/infra` | Stryker's `command` runner | the whole suite, `bunx --bun vitest run`, under Bun: its tests evaluate the stacks with Bun's platform layer and read SQLite through `bun:sqlite`, which the vitest runner cannot, since it runs tests under Node. Four mutants at a time with a 60-second timeout: one per core starves each run past Stryker's default timeout. The sandbox keeps `musubi/`, whose declaration the cross-stack test imports, and `osn/`, whose `osn/api/wrangler.toml` it reads |
 

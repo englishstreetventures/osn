@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-18
 ---
 # Cire invite builder
 
@@ -1341,7 +1341,7 @@ endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 | `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SectionCard` (`hidden` prop; `visibility` prop renders the "Show on the invite" switch, the reason line and a visually hidden `<output>` live region, and sets the fieldset's `data-state`) / `Disclosure` / `InstantBadge` |
 | `invite/previews.tsx` | `HeroSample`+`HeroPreview` (crop-aware, desktop/phone toggle), `SectionSample`+`SectionPreview`, `DeviceToggle` |
 | `invite/PreviewPane.tsx` | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths |
-| `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button in the module's view bar |
+| `invite/NarrowPreview.tsx` | The SAME composed preview below the wide breakpoint, opened by the "Preview" button in the module's view bar with a wave from `@cire/waves`: the Gilded frame (`PreviewFrame`), or Distortion's second view (`?preview-wave=distortion`); the open and close states, focus, Escape and the wave's dynamic import |
 | `invite/DesignPicker.tsx` | Design radiogroup, roving tabindex, `aria-disabled` locked cards, thumbnails |
 | `invite/EnvelopePicker.tsx` | Envelope radiogroup ("None", then the `@cire/envelope` catalog) under the design cards: the same card layout and roving tabindex, the premium lock, a stored choice shown switched off, and the notes on why guests would not see it |
 | `invite/design-layout.ts` | Per-pack structural signature the previews render (hero anchoring, copy alignment, code-entry panel, events rule) — drift-guarded against the catalog |
@@ -1508,7 +1508,7 @@ the layout — the one thing a design pack actually *is* — was a fiction, so
 switching Classic → Gala changed the radio card and nothing else in the
 miniature. `invite/design-layout.ts` now names each pack's structural signature
 and `HeroSample`/`SectionSample` render it, in all three presentations at once
-(inline cards, sticky pane, mobile modal):
+(inline cards, sticky pane, narrow preview):
 
 | | `classic` | `gala` |
 |---|---|---|
@@ -1539,28 +1539,56 @@ names the pack it is showing ("Gala design"), because the packs differ in
 layout rather than colour: unlabelled, a re-shaped preview reads as a rendering
 glitch instead of the design changing.
 
-**Mobile preview modal (2026-07-30).** Below `@4xl/builder` there is no room
-for the sticky side pane, and the inline per-section previews only ever show
-the ACTIVE section. A "Preview" button in the module's view bar (hidden once
-the sticky pane can show instead — the same 56rem threshold, measured by the
-builder's `ResizeObserver`, so the two never both offer a way in) opens `invite/PreviewModal.tsx`: the exact
-same `PreviewPane` in a `<Portal>` dialog, so there is still only one composed
-markup source, just two presentations of it. `InviteBuilder.tsx` shares the
-`hero`/`story`/`welcome`/`events`/`closing` slot values between the sticky
-`<aside>` and the modal via five small per-slot helpers
-(`heroPreviewProps(d)`, `storyPreviewProps()`, …), each called at its own JSX
-prop position on BOTH consumers — e.g. `hero={heroPreviewProps(d)}` on both
-`<PreviewPane>` and `<PreviewModal>` — so a change to one slot's shape can't
-silently skip the other consumer. **Not** a single function returning the
-whole `PreviewPaneProps` object spread with `{...}` onto each consumer — that
-was the first cut, and it shipped a real live-preview regression (caught by
-`InviteBuilder.test.tsx`'s "opens the composed preview in a modal…" test, not
-by inspection): Solid's compiler makes an individual JSX prop reactive by
-wrapping its expression in a getter, so `hero={heroPreviewProps(d)}`
-re-evaluates every time `props.hero` is read inside a tracking scope. A
-spread of an already-computed plain object has no such getter — the object
-is built once, when the `<Show>` render-prop runs, and both the aside AND
-the modal would freeze at whatever the form looked like on first render.
+**The narrow preview: opened with a wave.** Below `@4xl/builder` there is no
+room for the sticky side pane, and the inline per-section previews only ever
+show the ACTIVE section. A "Preview" button in the module's view bar (hidden
+once the sticky pane can show instead — the same 56rem threshold, measured by
+the builder's `ResizeObserver`, so the two never both offer a way in; and on
+Codes, which edits nothing on the guest page) opens the exact same
+`PreviewPane` (`invite/NarrowPreview.tsx`), so there is still only one
+composed markup source. The button and the wave share that one gate.
+
+Two waves sit side by side until the owner chooses one
+(englishstreetventures/osn#2415, part of #1956), picked by the page's
+`?preview-wave=` parameter; the other comes out in a follow-up. Both live in
+`@cire/waves` ([[component-library]] §cire's waves) and load with a dynamic import,
+warmed when the pointer or focus reaches the button; an import that fails
+opens the preview with no wave.
+
+| | Gilded (default) | Distortion (`?preview-wave=distortion`) |
+|---|---|---|
+| Where the preview is | a frame fixed under the view bar, across the panel, to the window's foot, scrolling inside itself (`overscroll-behavior: contain`); portalled to `<body>`, because the shell's container boxes are the containing block of a fixed descendant | the wave's second view, in the form column's grid cell: the form column and the preview are its two views, as upstream lays them out |
+| Mounted | only while open, so a closed preview takes no token writes | whenever the button can show; the column is built once and moves into the wave's first view and back, never rebuilt |
+| The form | the builder `<section>` goes `inert` under the frame | the controller makes the hidden view `inert` and `aria-hidden` |
+| The wave | a View Transition cut by a circle on the front, the gold on a canvas over it; never pictures the page | upstream's lens over a picture of the column, taken at idle and while focus is inside |
+| The words | "Back to editing" at the hand-over | at the press, as upstream does |
+| The page | does not scroll | scrolls to the column's top on opening, back where it was on closing |
+
+Three states keep a frame under every wave: `wanted` (the button's choice),
+`mounted` (the Gilded frame in the DOM, closed) and `revealed` (the wave's
+target), so a wave never starts on a frame that is not there yet. Focus moves
+to the preview's "Live preview" heading when it has taken over and back to the
+button when the form has; Escape inside the preview, or on the button, goes
+back; choosing a section or a view, or the builder turning wide, closes it at
+once with no wave. The button carries no `aria-pressed`: its words say which
+way it goes. `InviteBuilder.test.tsx` opens and closes it in happy-dom, which
+has no View Transitions, so it runs the fade; `@cire/waves`' browser tests and
+the `cire-soft-shapes` E2E flow (`tools/e2e/tests/support/cire-preview-wave.ts`)
+run the waves themselves.
+
+`InviteBuilder.tsx` shares the `hero`/`story`/`welcome`/`events`/`closing`
+slot values between the sticky `<aside>` and the narrow preview via five small
+per-slot helpers (`heroPreviewProps(d)`, `storyPreviewProps()`, …), each
+called at its own JSX prop position on BOTH consumers — e.g.
+`hero={heroSlot()}` on both `<PreviewPane>` and `<PreviewView>` — so a change
+to one slot's shape can't silently skip the other consumer. **Not** a single
+function returning the whole `PreviewPaneProps` object spread with `{...}`
+onto each consumer: Solid's compiler makes an individual JSX prop reactive by
+wrapping its expression in a getter, so `hero={heroSlot()}` re-evaluates
+every time `props.hero` is read inside a tracking scope. A spread of an
+already-computed plain object has no such getter — the object is built once,
+when the `<Show>` render-prop runs, and both presentations would freeze at
+whatever the form looked like on first render.
 
 **Mobile preview proportions (2026-07-30 fix).** `HeroSample`'s title used
 `font-size: clamp(1.25rem, 6vw, 2rem)` — `vw` resolves against the real

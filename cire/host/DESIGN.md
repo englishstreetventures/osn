@@ -736,8 +736,32 @@ sets no `--ui-modal-*` timing. The guest site and the marketing site keep their
 own timing only for choreography longer than `--dur-slow`: an unlock reveal, a
 scroll reveal, a hero fade.
 
-Every duration is scaled by `--motion-scale`, so a reference behaviour can be
-slowed to 0.1× and judged frame by frame. Nothing in the app itself writes it.
+**The invite builder's preview waves: the named exceptions** (the owner's
+choice, 2026-11-18, englishstreetventures/osn#2415). Below the composed pane's
+width the builder's Preview button opens the preview with a wave from
+`@cire/waves`, and two stand side by side until the owner picks one
+(`?preview-wave=`, §7 The invite builder's two tiers). Both break four rules
+above, by name: they come from an animation package (one of them vendored,
+Distortion Waves); they run far longer than `--dur-slow`; they take their
+timing from the wave, not from a `--dur-*` rung; and `--motion-scale` does not
+slow them.
+
+| | Gilded (default) | Distortion |
+|---|---|---|
+| Run | 2.47 s, the front's ease `cubic-bezier(0.22, 1, 0.36, 1)` | upstream's: about 4.2 s forward and 2.9 s back for its `center` type |
+| The page while it runs | a View Transition holds the frame's picture until its mask has uncovered the whole frame — about 0.85 s of the run on a 390×844 phone — and in that time the page takes no input and the frame and its canvas paint above top-layer toasts and dialogs; the gold then fades on the live page | live throughout; the canvas takes no clicks |
+| Reduced motion, or what it needs is missing | an opacity fade on `--dur-slow` and `--ease-out` | upstream's 300 ms crossfade |
+
+*Measured 2026-11-18 — `handoverAt` (`cire/waves/src/gilded/wave.ts`) for the
+builder's frame at 390×844, source at the Preview button; `duration(defaultStyle("center"))`
+and its `returnSpeed` in `cire/waves/vendor/model.ts`*
+
+The View Transition rules are scoped to `:root.cire-gilded`, which the wave sets
+only while its own transition runs, so the theme cross-fade below never meets
+them.
+
+Every duration but the preview waves' is scaled by `--motion-scale`, so a
+reference behaviour can be slowed to 0.1× and judged frame by frame. Nothing in the app itself writes it.
 
 `prefers-reduced-motion: reduce` is a global kill switch in `@layer base`, not a
 per-component branch. It sets `transition-duration` and `animation-duration` with
@@ -745,7 +769,7 @@ per-component branch. It sets `transition-duration` and `animation-duration` wit
 inline still stops, and no hook needs a `matchMedia` check of its own. A view
 transition is the exception: the switch reaches none of its pseudo-elements, so
 the script that starts one checks `matchMedia` itself (the theme cross-fade,
-below).
+below, and the Gilded wave above).
 
 Two hooks carry the design law of §1, both from `@cire/ui` and shared with the
 vendor portal:
@@ -1957,7 +1981,11 @@ strips' two tiers — the four views, then Content's sections under their
 eyebrow, each tier one radio group. The module's
 strip hides, kept in the page, only once the pill has mounted
 (`ViewBar.replaceTabs`), so a builder still loading can always be left. Below
-the composed pane's width the Preview button joins the bar at the pill height.
+the composed pane's width the Preview button joins the bar at the pill height,
+and opens the composed preview with a wave (§4, The invite builder's preview
+waves): by default a frame fixed under the bar, on the page's ground, scrolling
+inside itself, with the builder inert beneath; its words turn to "Back to
+editing" once the preview has taken over, with no `aria-pressed`.
 Codes holds the invite message and no guest-page preview, since nothing there
 edits the page; an owner sees the code style's re-mint above it, an editor the
 message alone.

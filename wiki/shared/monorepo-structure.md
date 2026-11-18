@@ -46,6 +46,7 @@ packages:
   - "@cire/invite-designs"
   - "@cire/envelope"
   - "@cire/ui"
+  - "@cire/waves"
   - "@cire/dietary"
   - "@cire/guest-email"
   - "@cire/build-tools"
@@ -77,7 +78,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-18
 ---
 
 # Monorepo Structure
@@ -130,6 +131,7 @@ cire/
   db/                  # @cire/db — Drizzle schema + D1 migrations
   theme/               # @cire/theme — zero-dep shared theming validators (CSS-colour allow-list)
   ui/                  # @cire/ui — cire's house component layer on top of @shared/ui. Version-less like every @cire/* package
+  waves/               # @cire/waves — the two waves that open the invite builder's narrow preview: Gilded (ours) and Distortion (a Solid wrapper round Distortion Waves' core, vendored in `vendor/`, MIT)
   invite-designs/      # @cire/invite-designs — the invite design catalog: ids, names, free or premium (premium opens with Crimson)
   envelope/            # @cire/envelope — the envelope opening: its catalog (`.`, no DOM, read by cire-api; every envelope premium), the head boot script (`./boot`) and the Three.js scene and wax seal (`./scene`)
   dietary/             # @cire/dietary — the dietary-requirement vocabulary shared by cire-api and @cire/ui; no dependencies
