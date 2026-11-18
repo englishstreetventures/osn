@@ -11,22 +11,28 @@
  *   since its hand-over is a View Transition whose animations run on the
  *   document timeline, which Playwright's clock does not hold. Each held frame
  *   is shot with animations allowed: disabling them would end the transition.
- *   Released, the frame shows the composed preview with focus on its heading,
- *   the builder under it inert and the button reading "Back to editing"; Back
- *   is held once on its way out too, then runs to the end, and the builder is
- *   live again with focus back on the button.
+ *   Released, the frame shows the composed preview with focus on it (the
+ *   region "Live preview"), the builder under it inert and the button reading
+ *   "Back to editing"; Back is held once on its way out too, then runs to the
+ *   end, and the builder is live again with focus back on the button.
  * - **Distortion** (`?preview-wave=distortion`): the form column is the wave's
  *   first view. Its controller is read through `window.__cireWaves.distortion`;
  *   with the page clock paused mid-run, the canvas is shown and the wave
  *   running. Run to the end, the preview view is live and the form inert; Back
- *   returns the page to where it was scrolled.
+ *   returns the page to where it was scrolled. Its run is a function of the
+ *   frame's time from the first, so the paused clock jumps over the rest of a
+ *   run rather than drawing every frame of it in software GL, which keeps the
+ *   `cire-soft-shapes` flow inside its two minutes.
  * - Around Gilded: the frame lies under the bar and follows it as the page
- *   moves; the mask is centred on the button; Escape goes back; a section
- *   chosen, or a wide window, closes it at once; with the wave's module
- *   refused, the frame opens bare. Around Distortion: opening brings the
- *   column's top under the bar, Escape on the button goes back, and the page
- *   returns to where it was scrolled.
- * - **Reduced motion**, once each: no transition and no canvas, a fade.
+ *   moves; the mask is centred on the button; Escape goes back; Back pressed
+ *   while the gold still runs turns the wave; a section chosen, or a wide
+ *   window, closes it at once; with either wave's module refused, the frame
+ *   opens bare. Around Distortion: opening brings the column's top under the
+ *   bar, Escape on the button goes back, and the page returns to where it was
+ *   scrolled; a section chosen closes it at once; a wide window, or Codes,
+ *   takes the column out of the wave and back.
+ * - **Reduced motion**, once each: no transition and no canvas, a fade. The
+ *   Gilded one opens from the keyboard, so focus lands with the house ring.
  *
  * Only what repeats run to run is checked; the held frames are pictures.
  */
@@ -44,6 +50,8 @@ const PHONE = { width: 390, height: 844 } as const;
 const HELD = [0.18, 0.32, 0.5] as const;
 const FRAME = "[data-preview-frame]";
 const WAVE = "[data-distortion-wave]";
+const GILDED_MODULE = "**/cire/waves/src/gilded/gilded.ts*";
+const DISTORTION_MODULE = "**/cire/waves/src/distortion/DistortionWave.tsx*";
 
 /** The page's development hook, as `@cire/waves` writes it. */
 interface Hooks {
@@ -83,11 +91,48 @@ async function builderInert(page: Page): Promise<boolean> {
     .evaluate((el) => el.closest("section")?.hasAttribute("inert") ?? false);
 }
 
+/** The focused element's tag and name: its `aria-label`, or its words. */
 async function focused(page: Page): Promise<string> {
   return page.evaluate(() => {
     const el = document.activeElement;
-    return el ? `${el.tagName.toLowerCase()} ${el.textContent?.trim() ?? ""}` : "none";
+    if (!el) return "none";
+    const name = el.getAttribute("aria-label") ?? el.textContent?.trim() ?? "";
+    return `${el.tagName.toLowerCase()} ${name}`;
   });
+}
+
+/** Whether the page carries the Gilded transition's class. */
+async function gildedClass(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.documentElement.classList.contains("cire-gilded"));
+}
+
+/** Whether Distortion's view `which` is inert. */
+async function layerInert(page: Page, which: "content" | "revealed"): Promise<boolean> {
+  return page
+    .locator(`${WAVE} > [data-dw-layer="${which}"]`)
+    .evaluate((el) => el.hasAttribute("inert"));
+}
+
+/**
+ * Runs a Distortion wave the paused page clock has just started to its end:
+ * one frame starts the run's clock, the jump draws the next past the run's
+ * length, which ends it. Leaves the clock running again.
+ */
+async function distortionToEnd(page: Page): Promise<void> {
+  await page.clock.runFor(32);
+  await page.clock.fastForward(6000);
+  await page.clock.resume();
+  await page.waitForFunction(
+    () => (window as WithHooks).__cireWaves?.distortion?.()?.running === false,
+    undefined,
+    { timeout: 15_000 },
+  );
+}
+
+/** Chooses a view or a section from the phone's place menu. */
+async function choosePlace(page: Page, name: RegExp): Promise<void> {
+  await page.getByRole("button", { name: /Choose a view or section/ }).click();
+  await page.getByRole("menuitemradio", { name }).click();
 }
 
 /** The frame lies under the view bar, across it, to the window's foot. */
@@ -150,7 +195,9 @@ export async function builderPreviewWave(
   const frame = page.locator(FRAME);
   const gildedUrl = `${origin}/#/w/${wedding}/invite/content`;
   const distortionUrl = `${origin}/?preview-wave=distortion#/w/${wedding}/invite/content`;
+  // A query of their own, so each is a new document that has not loaded the module.
   const refusedUrl = `${origin}/?refused#/w/${wedding}/invite/content`;
+  const refusedDistortionUrl = `${origin}/?preview-wave=distortion&refused#/w/${wedding}/invite/content`;
 
   try {
     await page.setViewportSize(PHONE);
@@ -173,7 +220,7 @@ export async function builderPreviewWave(
     flow.check(
       "preview wave (gilded): the transition runs under its own class",
       true,
-      await page.evaluate(() => document.documentElement.classList.contains("cire-gilded")),
+      await gildedClass(page),
     );
     flow.check(
       "preview wave (gilded): the frame's picture is the one named",
@@ -211,7 +258,7 @@ export async function builderPreviewWave(
     flow.check(
       "preview wave (gilded): the transition's class is gone",
       false,
-      await page.evaluate(() => document.documentElement.classList.contains("cire-gilded")),
+      await gildedClass(page),
     );
     flow.check(
       "preview wave (gilded): the frame holds the composed preview",
@@ -224,8 +271,8 @@ export async function builderPreviewWave(
       await builderInert(page),
     );
     flow.check(
-      "preview wave (gilded): focus on the preview's heading",
-      "h2 Live preview",
+      "preview wave (gilded): focus on the preview",
+      "section Live preview",
       await focused(page),
     );
 
@@ -293,11 +340,47 @@ export async function builderPreviewWave(
       await expect(preview).toBeFocused();
     });
 
+    const tail = await flow.step(
+      "preview wave: Back pressed while the gold still runs turns the wave",
+      async () => {
+        await preview.click();
+        // The hand-over: the frame is live, the gold still fading on it.
+        await expect(back).toBeVisible({ timeout: 10_000 });
+        // Held in its tail, so the press lands with the run still going.
+        await hold(page, 0.7);
+        const gold = await page
+          .locator("canvas[data-gilded-fx]")
+          .evaluate((el) => (el as HTMLElement).style.display);
+        await back.click();
+        // The run in flight ended where it was going, and the wave back started.
+        await waveHeld(page);
+        await page.evaluate(() => (window as WithHooks).__cireWaves!.releaseGilded!());
+        await expect(frame).toHaveCount(0);
+        await expect(preview).toBeVisible();
+        return gold;
+      },
+    );
+    flow.check("preview wave (gilded): the gold still runs when Back is pressed", "block", tail);
+    flow.check(
+      "preview wave (gilded): turned mid-run, the transition's class is gone",
+      false,
+      await gildedClass(page),
+    );
+    flow.check(
+      "preview wave (gilded): turned mid-run, the builder is live again",
+      false,
+      await builderInert(page),
+    );
+    flow.check(
+      "preview wave (gilded): turned mid-run, focus back on the button",
+      "button Preview",
+      await focused(page),
+    );
+
     await flow.step("preview wave: choosing a section closes it at once", async () => {
       await preview.click();
       await expect(back).toBeVisible({ timeout: 10_000 });
-      await page.getByRole("button", { name: /Choose a view or section/ }).click();
-      await page.getByRole("menuitemradio", { name: /^Welcome/ }).click();
+      await choosePlace(page, /^Welcome/);
       await expect(frame).toHaveCount(0);
       await expect(preview).toBeVisible();
     });
@@ -324,8 +407,7 @@ export async function builderPreviewWave(
     await flow.step(
       "preview wave: with the wave's module refused, the frame opens bare",
       async () => {
-        await page.route("**/cire/waves/src/gilded/gilded.ts*", (route) => route.abort());
-        // A query of its own, so this is a new document that has not loaded the module.
+        await page.route(GILDED_MODULE, (route) => route.abort());
         await openBuilder(page, refusedUrl);
         await preview.click();
         await expect(frame).toBeVisible();
@@ -335,7 +417,7 @@ export async function builderPreviewWave(
     flow.check(
       "preview wave (gilded, module refused): no transition",
       false,
-      await page.evaluate(() => document.documentElement.classList.contains("cire-gilded")),
+      await gildedClass(page),
     );
     flow.check(
       "preview wave (gilded, module refused): the builder is inert under the frame",
@@ -345,8 +427,40 @@ export async function builderPreviewWave(
     await flow.step("preview wave: back from the bare frame", async () => {
       await back.click();
       await expect(frame).toHaveCount(0);
-      await page.unroute("**/cire/waves/src/gilded/gilded.ts*");
+      await page.unroute(GILDED_MODULE);
     });
+
+    await flow.step(
+      "preview wave: on Distortion's page with its module refused, the frame opens bare",
+      async () => {
+        await page.route(DISTORTION_MODULE, (route) => route.abort());
+        await openBuilder(page, refusedDistortionUrl);
+        await preview.click();
+        await expect(frame).toBeVisible();
+        await expect(back).toBeVisible();
+      },
+    );
+    flow.check(
+      "preview wave (distortion, module refused): no wave on the page",
+      0,
+      await page.locator(WAVE).count(),
+    );
+    flow.check(
+      "preview wave (distortion, module refused): the builder is inert under the frame",
+      true,
+      await builderInert(page),
+    );
+    await flow.step("preview wave: back from Distortion's bare frame", async () => {
+      await back.click();
+      await expect(frame).toHaveCount(0);
+      await expect(preview).toBeVisible();
+      await page.unroute(DISTORTION_MODULE);
+    });
+    flow.check(
+      "preview wave (distortion, module refused): back, the builder is live",
+      false,
+      await builderInert(page),
+    );
 
     // ── Distortion ───────────────────────────────────────────────────────
     await flow.step("preview wave: open the builder with Distortion", async () => {
@@ -372,11 +486,19 @@ export async function builderPreviewWave(
       window.scrollTo(0, 400);
       return window.scrollY;
     });
+    // Only whether it moved goes on the record: how far is the page's height.
+    flow.check(
+      "preview wave (distortion): the page is scrolled down first",
+      true,
+      scrolledBefore > 0,
+    );
 
     await flow.step("preview wave: press Preview with the clock paused mid-run", async () => {
       await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
       await preview.click();
-      await page.clock.runFor(1500);
+      // A frame starts the run's clock; the jump draws the next at 1.5 s.
+      await page.clock.runFor(32);
+      await page.clock.fastForward(1468);
       await shot(page, "distortion-1.5s");
     });
     flow.check(
@@ -402,48 +524,118 @@ export async function builderPreviewWave(
     flow.check("preview wave (distortion): the label changed at the press", 1, await back.count());
 
     await flow.step("preview wave: run Distortion to the end", async () => {
-      await page.clock.resume();
-      await page.waitForFunction(
-        () => (window as WithHooks).__cireWaves?.distortion?.()?.running === false,
-        undefined,
-        { timeout: 15_000 },
-      );
+      await distortionToEnd(page);
       await shot(page, "distortion-open");
     });
     flow.check(
       "preview wave (distortion): the form column is inert under the preview",
       true,
-      await page
-        .locator(`${WAVE} > [data-dw-layer="content"]`)
-        .evaluate((el) => el.hasAttribute("inert")),
+      await layerInert(page, "content"),
     );
     flow.check(
       "preview wave (distortion): the preview view is live",
       false,
-      await page
-        .locator(`${WAVE} > [data-dw-layer="revealed"]`)
-        .evaluate((el) => el.hasAttribute("inert")),
+      await layerInert(page, "revealed"),
     );
     flow.check(
-      "preview wave (distortion): focus on the preview's heading",
-      "h2 Live preview",
+      "preview wave (distortion): focus on the preview",
+      "section Live preview",
       await focused(page),
     );
 
     await flow.step("preview wave: Escape on the button goes back from Distortion", async () => {
       await back.focus();
+      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
       await page.keyboard.press("Escape");
       await expect(preview).toBeVisible();
-      await page.waitForFunction(
-        () => (window as WithHooks).__cireWaves?.distortion?.()?.running === false,
-        undefined,
-        { timeout: 15_000 },
-      );
+      await distortionToEnd(page);
     });
     flow.check(
       "preview wave (distortion): the page is back where it was scrolled",
-      scrolledBefore,
-      await page.evaluate(() => window.scrollY),
+      true,
+      (await page.evaluate(() => window.scrollY)) === scrolledBefore,
+    );
+
+    await flow.step(
+      "preview wave: choosing a section closes Distortion's preview at once",
+      async () => {
+        // Chosen while the wave still runs: it lasts about four seconds.
+        await preview.click();
+        await expect(back).toBeVisible();
+        await choosePlace(page, /^Welcome/);
+        await expect(preview).toBeVisible();
+        await page.waitForFunction(
+          () => (window as WithHooks).__cireWaves?.distortion?.()?.running === false,
+        );
+      },
+    );
+    flow.check(
+      "preview wave (distortion): closed by a section, the form column is live",
+      false,
+      await layerInert(page, "content"),
+    );
+    flow.check(
+      "preview wave (distortion): closed by a section, the preview view is inert",
+      true,
+      await layerInert(page, "revealed"),
+    );
+    flow.check(
+      "preview wave (distortion): closed by a section, it shows",
+      true,
+      await page.locator("#invite-welcome").isVisible(),
+    );
+
+    // The column moves out of the wave and back whenever the preview cannot
+    // open, and must come back whole and live each way.
+    const column = page.locator("#invite-welcome");
+    const outOfWave = () =>
+      column.evaluate((el) => !el.closest("[data-distortion-wave]") && !el.closest("[inert]"));
+    const inWave = () =>
+      page.locator(`${WAVE} > [data-dw-layer="content"]:not([inert]) #invite-welcome`).count();
+    await flow.step(
+      "preview wave: a wide window takes the column out of Distortion's wave",
+      async () => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await expect(page.locator(WAVE)).toHaveCount(0);
+        await expect(column).toBeVisible();
+      },
+    );
+    flow.check(
+      "preview wave (distortion): wide, the column stands outside the wave",
+      true,
+      await outOfWave(),
+    );
+    await flow.step("preview wave: back on a phone, the column is the wave's again", async () => {
+      await page.setViewportSize(PHONE);
+      await expect(page.locator(WAVE)).toHaveCount(1);
+      await expect(column).toBeVisible();
+    });
+    flow.check(
+      "preview wave (distortion): on a phone again, the column is the wave's first view",
+      1,
+      await inWave(),
+    );
+    await flow.step("preview wave: Codes takes the column out of Distortion's wave", async () => {
+      await choosePlace(page, /^Codes/);
+      await expect(page.locator(WAVE)).toHaveCount(0);
+      await expect(preview).toHaveCount(0);
+    });
+    flow.check(
+      "preview wave (distortion): on Codes, the column stands outside the wave",
+      true,
+      await column.evaluate(
+        (el) => !el.closest("[data-distortion-wave]") && !el.closest("[inert]"),
+      ),
+    );
+    await flow.step("preview wave: back on Content, the column is the wave's again", async () => {
+      await choosePlace(page, /^Content/);
+      await expect(page.locator(WAVE)).toHaveCount(1);
+      await expect(preview).toBeVisible();
+    });
+    flow.check(
+      "preview wave (distortion): on Content again, the column is the wave's first view",
+      1,
+      await inWave(),
     );
 
     // ── Reduced motion ───────────────────────────────────────────────────
@@ -464,15 +656,33 @@ export async function builderPreviewWave(
       await expect(preview).toBeVisible();
     });
 
-    await flow.step("preview wave: Gilded under reduced motion", async () => {
-      await openBuilder(page, gildedUrl);
-      await preview.click();
-      await expect(frame).toBeVisible();
-    });
+    const ring = await flow.step(
+      "preview wave: Gilded under reduced motion, opened from the keyboard",
+      async () => {
+        await openBuilder(page, gildedUrl);
+        await preview.focus();
+        await page.keyboard.press("Enter");
+        await expect(frame).toBeVisible();
+        await expect(frame).toBeFocused();
+        return frame.evaluate((el) => {
+          const style = getComputedStyle(el);
+          return (
+            el.matches(":focus-visible") &&
+            style.outlineStyle === "solid" &&
+            Number.parseFloat(style.outlineOffset) < 0
+          );
+        });
+      },
+    );
+    flow.check(
+      "preview wave (gilded, by key): focus lands on the preview with the house ring inside its edge",
+      true,
+      ring,
+    );
     flow.check(
       "preview wave (gilded, reduced motion): no transition",
       false,
-      await page.evaluate(() => document.documentElement.classList.contains("cire-gilded")),
+      await gildedClass(page),
     );
     flow.check(
       "preview wave (gilded, reduced motion): no canvas",
