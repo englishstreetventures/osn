@@ -358,9 +358,26 @@ describe("count-deletion-fanouts", () => {
     });
     await run(["count-deletion-fanouts"], codes.deps);
     expect(codes.text()).toContain("codes 10000");
+
+    // Only whole-number codes are printed: anything else in `code` is body text.
+    const mixed = harness({
+      env,
+      routes: {
+        [LIST]: [
+          json(403, {
+            success: false,
+            errors: [{ code: CANARY }, { code: 1.5 }, { code: `${CANARY}9` }, { code: 9109 }],
+          }),
+        ],
+      },
+    });
+    expect(await run(["count-deletion-fanouts"], mixed.deps)).toBe(1);
+    expect(mixed.text()).toContain("answered 403, codes 9109.");
+    expect(mixed.text()).not.toContain("1.5");
+    expectClean(mixed);
   });
 
-  test("C5: a network error, a 429 or a 5xx is tried again; three in a row refuse", async () => {
+  test("C5: a network error, a 429 or a 5xx is tried again after 1 s then 2 s; three in a row refuse, naming the last error's class alone", async () => {
     const h = harness({
       env,
       routes: {
@@ -376,13 +393,32 @@ describe("count-deletion-fanouts", () => {
     expect(h.out.at(-1)).toBe("  total: 0");
     expectClean(h);
 
+    const waits: number[] = [];
     const down = harness({
       env,
       routes: { [LIST]: [new TypeError(CANARY), json(500, {}), json(502, { e: CANARY })] },
+      deps: { sleep: async (ms) => void waits.push(ms) },
     });
     expect(await run(["count-deletion-fanouts"], down.deps)).toBe(1);
     expect(down.sent).toHaveLength(3);
+    expect(waits).toEqual([1000, 2000]);
+    expect(down.text()).toContain("the last answered 502");
     expectClean(down);
+
+    // The last try's error decides the message: its class, never its text.
+    const unreachable = harness({
+      env,
+      routes: {
+        [LIST]: [
+          new TypeError(`${CANARY}1`),
+          new TypeError(`${CANARY}2`),
+          new DOMException(`${CANARY}3 ${ACCOUNT}`, "TimeoutError"),
+        ],
+      },
+    });
+    expect(await run(["count-deletion-fanouts"], unreachable.deps)).toBe(1);
+    expect(unreachable.text()).toContain("did not complete (TimeoutError)");
+    expectClean(unreachable);
   });
 
   test("C6: a query answer of any other shape refuses and prints nothing from it", async () => {
@@ -543,7 +579,7 @@ describe("plan-register", () => {
     expectClean(h);
   });
 
-  test("P9: the real git lookup answers nothing for a commit it lacks and for a path that is not a file, printing nothing", () => {
+  test("P9: the real git lookup answers nothing for a commit it lacks and for a path that is not a file", () => {
     expect(gitShow("0".repeat(40), "cire/api/src/services/osn-bridge.ts")).toBeUndefined();
     expect(gitShow("HEAD", "cire/api/src/services/no-such-file.ts")).toBeUndefined();
     expect(gitShow("HEAD", "cire/api/src/services/osn-bridge.ts")).toContain("ARC_STEP_UP_SCOPE");
@@ -611,8 +647,21 @@ describe("register-cire-arc", () => {
     expect(Math.abs(now - Date.now() / 1000)).toBeLessThan(5);
   });
 
-  test("R3: a refusal from osn-api prints its status and a hint, never the body, and still revokes the key", async () => {
-    for (const status of [302, 400, 401, 403, 404, 409, 422, 429, 500, 501, 503]) {
+  test("R3: a refusal from osn-api prints its status and that status's hint, never the body, and still revokes the key", async () => {
+    const hints: [number, string][] = [
+      [302, "never follows with the bearer"],
+      [400, "a scope it does not permit"],
+      [401, "INTERNAL_SERVICE_SECRET is not the value osn-api holds"],
+      [403, "in front of osn-api"],
+      [404, "no such route"],
+      [409, "revoked or as another service's"],
+      [422, "body malformed"],
+      [429, "limited the rate"],
+      [500, "did not store the scopes"],
+      [501, "registration is off"],
+      [503, "unavailable"],
+    ];
+    for (const [status, hint] of hints) {
       const h = harness({
         env,
         routes: {
@@ -624,6 +673,7 @@ describe("register-cire-arc", () => {
       });
       expect(await run(["register-cire-arc"], h.deps)).toBe(1);
       expect(h.text()).toContain(`answered ${status}`);
+      expect({ status, hinted: h.text().includes(hint) }).toEqual({ status, hinted: true });
       expect(h.sent.map((s) => s.method)).toEqual(["POST", "DELETE"]);
       expectClean(h);
     }
@@ -668,6 +718,44 @@ describe("register-cire-arc", () => {
       expect(h.out.some((line) => line.startsWith("::warning::"))).toBe(true);
       expectClean(h);
     }
+  });
+
+  test("R10: the job registers the scopes it reads again at production cire-api's commit, not main's, and refuses one production osn-api does not permit", async () => {
+    const h = harness({
+      env,
+      routes: { [REGISTER]: [json(200, { ok: true })], [REVOKE]: [json(200, { ok: true })] },
+      deps: { readFile: () => 'const ARC_SCOPE = "graph:read";\n' },
+    });
+    expect(await run(["register-cire-arc"], h.deps)).toBe(0);
+    expect(h.shown).toEqual([
+      { commit: CIRE_COMMIT, path: "cire/api/src/services/osn-bridge.ts" },
+      { commit: OSN_COMMIT, path: "osn/api/src/routes/graph-internal.ts" },
+    ]);
+    expect(JSON.parse(h.sent[0]?.body ?? "")).toMatchObject({ allowedScopes: FIVE.join(",") });
+
+    const refused = harness({
+      env,
+      show: (_, path) =>
+        path.endsWith("osn-bridge.ts") ? `${BRIDGE}const ARC_NEW_SCOPE = "events:read";\n` : GRAPH,
+    });
+    expect(await run(["register-cire-arc"], refused.deps)).toBe(1);
+    expect(refused.text()).toContain("events:read");
+    expect(refused.sent).toEqual([]);
+  });
+
+  test("R11: an error no action expected prints its class alone", async () => {
+    const h = harness({
+      env,
+      deps: {
+        generatePublicJwk: async () => {
+          throw new RangeError(`${CANARY} ${BEARER}`);
+        },
+      },
+    });
+    expect(await run(["register-cire-arc"], h.deps)).toBe(1);
+    expect(h.out).toEqual(["::error::register-cire-arc failed (RangeError)."]);
+    expect(h.sent).toEqual([]);
+    expectClean(h);
   });
 
   test("R7: a production commit other than the one the check job read refuses before any request", async () => {
@@ -742,10 +830,17 @@ describe("the command line", () => {
     }
   });
 
-  test("X2: an unknown action, or none, exits 2", async () => {
+  test("X2: an unknown action, none, or a known one with anything after it exits 2", async () => {
     expect((await cli(["set-secret"])).exitCode).toBe(2);
     expect((await cli(["constructor"])).exitCode).toBe(2);
     expect((await cli([])).exitCode).toBe(2);
+    const h = harness({
+      env: { WINDOW_START: "2026-11-16T02:17:49Z", WINDOW_END: "2026-11-17T00:59:22Z" },
+    });
+    expect(await run(["check-window", "--force"], h.deps)).toBe(2);
+    expect(h.out).toEqual([
+      "::error::production-operator: usage: production-operator.ts <check-window|plan-register|register-cire-arc|count-deletion-fanouts>",
+    ]);
   });
 });
 
@@ -870,11 +965,51 @@ describe("the workflow", () => {
     }
   });
 
-  test("F7: every checkout leaves no token behind", () => {
-    const checkouts = Object.values(workflow.jobs)
-      .flatMap((job) => job.steps ?? [])
-      .filter((step) => step.uses?.startsWith("actions/checkout@"));
-    expect(checkouts).toHaveLength(3);
-    for (const step of checkouts) expect(step.with?.["persist-credentials"]).toBe(false);
+  test("F7: the check job runs each action's own check, and the register job refuses unless production is at the commit the check job showed", () => {
+    const scriptSteps = (job: string) =>
+      steps(job).filter((step) => step.run?.includes("scripts/"));
+    expect(
+      scriptSteps("check").map((step) => ({
+        id: step.id,
+        if: step.if,
+        run: step.run,
+        env: step.env,
+      })),
+    ).toEqual([
+      {
+        id: undefined,
+        if: "inputs.action == 'count-deletion-fanouts'",
+        run: "bun --no-install scripts/production-operator.ts check-window",
+        env: { WINDOW_START: "${{ inputs.window_start }}", WINDOW_END: "${{ inputs.window_end }}" },
+      },
+      {
+        id: "plan",
+        if: "inputs.action == 'register-cire-arc'",
+        run: "bun --no-install scripts/production-operator.ts plan-register",
+        env: { GITHUB_TOKEN: "${{ github.token }}" },
+      },
+    ]);
+    expect((workflow.jobs.check as { outputs?: unknown }).outputs).toMatchObject({
+      commit: "${{ steps.plan.outputs.commit }}",
+    });
+    expect(scriptSteps("register-cire-arc")[0]?.env).toEqual({
+      INTERNAL_SERVICE_SECRET: "${{ secrets.INTERNAL_SERVICE_SECRET }}",
+      EXPECTED_COMMIT: "${{ needs.check.outputs.commit }}",
+      GITHUB_TOKEN: "${{ github.token }}",
+    });
+    expect(scriptSteps("count-deletion-fanouts")[0]?.env).toMatchObject({
+      WINDOW_START: "${{ inputs.window_start }}",
+      WINDOW_END: "${{ inputs.window_end }}",
+    });
+    // The lookup reads deployment records, and the scopes at older commits.
+    for (const job of ["check", "register-cire-arc"]) {
+      expect(workflow.jobs[job]?.permissions).toEqual({
+        contents: "read",
+        deployments: "read",
+        actions: "read",
+      });
+      const checkout = steps(job).find((step) => step.uses?.startsWith("actions/checkout@"));
+      expect(checkout?.with?.["fetch-depth"]).toBe(0);
+    }
   });
 });
