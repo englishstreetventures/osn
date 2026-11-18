@@ -45,6 +45,7 @@ import { initTheme } from "../lib/preferences";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
 import { takeRemovalCode } from "../lib/removal-code";
 import { markRunSheetStale } from "../lib/run-sheet-store";
+import { onScheduleChanged } from "../lib/schedule-changed";
 import {
   clearStripeConnectParam,
   readStripeConnectReturn,
@@ -68,6 +69,7 @@ import { deletedWeddingsOf, restoreUntilLabel } from "../lib/wedding-lifecycle";
 import { normaliseWeddingRole, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingRole } from "../lib/wedding-roles";
 import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm";
+import GuestDataBoundNotice from "./GuestDataBoundNotice";
 import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
 import PanelLoading from "./PanelLoading";
@@ -224,6 +226,17 @@ function WeddingDashboard(props: {
         />
       }
     >
+      {/* Over every module, so a host who opens straight onto Guests reads it
+          too; it holds no rows, so it sits outside the cache scope. */}
+      <Show when={props.wedding.guestDataBound}>
+        {(bound) => (
+          <GuestDataBoundNotice
+            bound={bound()}
+            role={props.wedding.role}
+            onFix={() => props.onModule("events", "edit")}
+          />
+        )}
+      </Show>
       <WeddingCacheScope weddingId={props.weddingId}>
         <ModuleShell
           weddingId={props.weddingId}
@@ -506,6 +519,13 @@ function Dashboard(props: {
     document.addEventListener("visibilitychange", onVisibility);
     onCleanup(() => document.removeEventListener("visibilitychange", onVisibility));
   });
+
+  // Whether every event can be dated decides the guest-data warning the list
+  // carries, so a schedule change this tab commits reads the list again at
+  // once: the warning goes as the fix lands, and comes as soon as a save
+  // removes the last event of a wedding past its three years. `Date.now()`, so
+  // a read already in flight, which may predate the change, is not joined.
+  onMount(() => onCleanup(onScheduleChanged(() => void recheckWeddings(Date.now()))));
 
   // Everything below the dashboard fetches through this: the same `authFetch`,
   // plus a recheck of the list whenever the API refuses a wedding route.

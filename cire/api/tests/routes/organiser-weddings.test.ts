@@ -282,8 +282,86 @@ describe("GET /api/organiser/weddings", () => {
   });
 });
 
-// The list reads the caller's seats in one statement, then which of those
-// weddings hold a premium template, keyed on the first read's ids.
+/**
+ * Put the sample wedding past its three years from creation, with its first
+ * event's Start one the guest-data sweep cannot read (or with no events), so
+ * the list warns of the bound. Returns the event's name.
+ */
+function pastCreationBound(db: TestDb, opts: { noEvents?: boolean } = {}): string {
+  const fourYearsAgo = new Date();
+  fourYearsAgo.setUTCFullYear(fourYearsAgo.getUTCFullYear() - 4);
+  db.update(weddings)
+    .set({ createdAt: fourYearsAgo })
+    .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+    .run();
+  if (opts.noEvents) {
+    db.delete(events).where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID)).run();
+    return "";
+  }
+  const [first] = db
+    .select({ id: events.id, name: events.name })
+    .from(events)
+    .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+    .orderBy(events.sortOrder, events.id)
+    .limit(1)
+    .all();
+  db.update(events).set({ startAt: "TBD" }).where(eq(events.id, first!.id)).run();
+  return first!.name;
+}
+
+describe("GET /api/organiser/weddings: the guest-data bound", () => {
+  type Bound = { state: string; reason: string; events: string[]; eventCount: number };
+  async function boundFor(
+    app: ReturnType<typeof buildApp>["app"],
+    profileId: string,
+  ): Promise<Bound | undefined> {
+    const res = await get(app, "/api/organiser/weddings", profileId);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { weddings: { id: string; guestDataBound?: Bound }[] };
+    const wedding = body.weddings.find((w) => w.id === BOOTSTRAP_WEDDING_ID);
+    expect(wedding).toBeDefined();
+    return wedding!.guestDataBound;
+  }
+
+  // The seats that can set the events' dates are told; a viewer cannot act on
+  // it, and a helper is not shown the events at all.
+  it("tells an owner and an editor, naming the event, and not a viewer or a helper", async () => {
+    const { db, app } = buildApp();
+    const name = pastCreationBound(db);
+    for (const [profile, role] of [
+      ["usr_bound_editor", "editor"],
+      ["usr_bound_viewer", "viewer"],
+      ["usr_bound_helper", "helper"],
+    ] as const) {
+      db.insert(weddingHosts)
+        .values({
+          id: `whost_${profile}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: profile,
+          addedByOsnProfileId: BOOTSTRAP_OWNER,
+          role,
+          createdAt: new Date(),
+        })
+        .run();
+    }
+
+    const told = { state: "passed", reason: "unreadable-date", events: [name], eventCount: 1 };
+    expect(await boundFor(app, BOOTSTRAP_OWNER)).toMatchObject(told);
+    expect(await boundFor(app, "usr_bound_editor")).toMatchObject(told);
+    expect(await boundFor(app, "usr_bound_viewer")).toBeUndefined();
+    expect(await boundFor(app, "usr_bound_helper")).toBeUndefined();
+  });
+
+  it("says nothing of a wedding whose events all read", async () => {
+    const { app } = buildApp();
+    expect(await boundFor(app, BOOTSTRAP_OWNER)).toBeUndefined();
+  });
+});
+
+// The list reads the caller's seats, with each wedding's guest-data bound, in
+// one statement, then which of those weddings hold a premium template, keyed on
+// the first read's ids. Only a wedding warned for an event whose date cannot be
+// read costs a third, for that event's name.
 describe("GET /api/organiser/weddings cost", () => {
   it("costs two statements", async () => {
     const { app, db } = buildApp();
@@ -291,6 +369,24 @@ describe("GET /api/organiser/weddings cost", () => {
     const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
     expect(res.status).toBe(200);
     expect(statements).toHaveLength(2);
+  });
+
+  it("costs two statements for a wedding warned for having no events", async () => {
+    const { app, db } = buildApp();
+    pastCreationBound(db, { noEvents: true });
+    const statements = recordStatements(db);
+    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(statements).toHaveLength(2);
+  });
+
+  it("costs three statements for a wedding warned for an event it cannot date", async () => {
+    const { app, db } = buildApp();
+    pastCreationBound(db);
+    const statements = recordStatements(db);
+    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(statements).toHaveLength(3);
   });
 });
 

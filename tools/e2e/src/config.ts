@@ -516,6 +516,31 @@ export const CIRE_LEGACY_EVENT = {
 } as const;
 
 /**
+ * The two weddings close to the guest-data sweep's three years from creation
+ * (`seedE2eCreationBound` in cire/api/src/db/setup.ts), and what
+ * `cire-event-details.flow.ts` reads and writes on them.
+ */
+export const CIRE_BOUND = {
+  /** Created 2023-11-30 at noon UTC; its Ceremony's Start is a date alone. */
+  weddingId: "wed_e2e_bound",
+  displayName: "Undated Wedding",
+  ceremonyId: "evt_e2e_bound_ceremony",
+  ceremony: "Ceremony",
+  /** The day its three years run out, as the portal prints it. */
+  from: "30 November 2026",
+  /** A creation time three years and a quarter before the suite's clock,
+   *  epoch seconds (2023-07-01T12:00:00Z): past its bound. */
+  pastCreatedAt: 1_688_212_800,
+  /** The Start time the flow types into the Ceremony, and the Start it saves. */
+  startTime: "15:00",
+  fixedStartAt: "2027-02-06T15:00:00+11:00",
+  /** No events, created 2023-12-10 at noon UTC. */
+  emptyWeddingId: "wed_e2e_bound_empty",
+  emptyDisplayName: "Eventless Wedding",
+  emptyFrom: "10 December 2026",
+} as const;
+
+/**
  * The organiser's edit in `cire-event-details`: the sample wedding's Kitchen
  * Tea (`cire/db/seed/data/events.ts`) gains a venue name and a description.
  * No other flow reads Kitchen Tea, so the edit reaches none of them.

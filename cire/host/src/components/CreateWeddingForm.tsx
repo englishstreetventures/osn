@@ -33,6 +33,26 @@ export interface WeddingSummary {
   entitlements: string[];
   /** The tier's guest ceiling. Defaults to 100. */
   guestCap: number;
+  /** Sent only to an owner or an editor, and only when Cire is within 90 days
+   *  of deleting the wedding's guest list three years after it was created,
+   *  or past that day. `GuestDataBoundNotice` shows it. */
+  guestDataBound?: GuestDataBound;
+}
+
+/** Why, and from when, the guest-data sweep deletes a wedding's guest list by
+ *  its creation date: `GuestDataBound` in `cire/api/src/services/retention.ts`.
+ *  The API does every date sum; the portal only prints `from`. */
+export interface GuestDataBound {
+  /** `near`: within 90 days. `passed`: Cire deletes it at each daily run. */
+  state: "near" | "passed";
+  /** An event whose date and time Cire cannot read, or no events at all. */
+  reason: "unreadable-date" | "no-events";
+  /** The first instant Cire may delete it, ISO. */
+  from: string;
+  /** Up to three of the events Cire cannot date, in the editor's order. */
+  events: string[];
+  /** How many events Cire cannot date. */
+  eventCount: number;
 }
 
 /** A wedding an owner deleted and can still restore. The list endpoint sends

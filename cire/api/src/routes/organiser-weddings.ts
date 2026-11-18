@@ -22,6 +22,7 @@ import { markSharedService } from "../services/mark-shared";
 import { planningExportService } from "../services/planning-export";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { remintCodesService } from "../services/remint-codes";
+import { retentionService } from "../services/retention";
 import { rsvpExportService, toCsv } from "../services/rsvp-export";
 import { seatingExportService } from "../services/seating-export";
 import { downloadFidelity, stateExportService } from "../services/state-export";
@@ -127,10 +128,30 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
       return runCire(
         Effect.gen(function* () {
           const list = yield* weddingsService.listForMember(osnProfileId);
-          // Entitlement keys matter only to a wedding that can be opened.
-          const premium = yield* tierService.premiumTemplateHolders(list.weddings.map((w) => w.id));
+          // Entitlement keys matter only to a wedding that can be opened. A
+          // wedding warned for an event whose date the sweep cannot read is
+          // told which events; the two reads are independent.
+          const [premium, undated] = yield* Effect.all(
+            [
+              tierService.premiumTemplateHolders(list.weddings.map((w) => w.id)),
+              retentionService.undatedEventNames(
+                list.weddings
+                  .filter((w) => w.guestDataBound?.reason === "unreadable-date")
+                  .map((w) => w.id),
+              ),
+            ],
+            { concurrency: "unbounded" },
+          );
           for (const w of list.weddings) {
             w.entitlements = legacyEntitlementKeys(w.tier, premium.has(w.id));
+            const named = undated.get(w.id);
+            if (w.guestDataBound && named) {
+              w.guestDataBound = {
+                ...w.guestDataBound,
+                events: named.names,
+                eventCount: named.count,
+              };
+            }
           }
           return {
             weddings: list.weddings,

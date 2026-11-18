@@ -1273,6 +1273,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   budget (`seedE2eEnquiries`).
  * - `wed_e2e_legacy_event`: an event saved before the editor checked one
  *   (`seedE2eLegacyEvent`).
+ * - `wed_e2e_bound` and `wed_e2e_bound_empty`: created close to three years
+ *   before the suite's clock, one with an event whose date the guest-data
+ *   sweep cannot read and one with no events, so the portal warns of the
+ *   bound (`seedE2eCreationBound`).
  *
  * The envelope weddings have no seat (`seedE2eEnvelope`).
  *
@@ -1847,6 +1851,7 @@ function seedE2eOrganiser(db: TestDb): void {
   seedE2eEnquiries(db, now);
   seedE2eEnvelope(db, now);
   seedE2eLegacyEvent(db, now);
+  seedE2eCreationBound(db, now);
 }
 
 /**
@@ -2156,6 +2161,81 @@ function seedE2eLegacyEvent(db: TestDb, now: Date): void {
         slug: "reception",
         name: "Reception",
         startAt: "2026-11-14T18:00:00+11:00",
+        endAt: "",
+        timezone: "Australia/Sydney",
+        sortOrder: 1,
+      },
+    ])
+    .run();
+}
+
+/**
+ * Two weddings close to the guest-data sweep's three years from creation, for
+ * `cire-event-details.flow.ts`, each seated to the dev owner with one
+ * household. `wed_e2e_bound`, created 2023-11-30 at noon UTC, two months short
+ * of three years on the suite's clock (`CLOCK_T0`, 2026-10-01): its Ceremony's
+ * Start holds a date and no time, which the sweep cannot read and the editor
+ * asks the hosts to finish; its Reception reads. `wed_e2e_bound_empty`,
+ * created 2023-12-10 at noon UTC, has no events. Noon keeps each bound on the
+ * same day in every zone. Every value the flow checks is written out again as
+ * `CIRE_BOUND` in `tools/e2e/src/config.ts`; a change here goes there too.
+ */
+function seedE2eCreationBound(db: TestDb, now: Date): void {
+  const wedding = (id: string, slug: string, displayName: string, createdAt: Date) => {
+    db.insert(schema.weddings)
+      .values({
+        id,
+        slug,
+        displayName,
+        tier: "gold",
+        tierSource: "comp",
+        tierGrantedBy: "script:e2e-seed",
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .run();
+    seatDevOwner(db, id, `whost_${id}_owner`, now);
+    db.insert(schema.families)
+      .values({
+        id: `fam_${id}`,
+        weddingId: id,
+        publicId: `TEST-${id.toUpperCase()}`,
+        familyName: "Boundfamily",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  };
+  wedding(
+    "wed_e2e_bound",
+    "undated-wedding",
+    "Undated Wedding",
+    new Date("2023-11-30T12:00:00.000Z"),
+  );
+  wedding(
+    "wed_e2e_bound_empty",
+    "eventless-wedding",
+    "Eventless Wedding",
+    new Date("2023-12-10T12:00:00.000Z"),
+  );
+  db.insert(schema.events)
+    .values([
+      {
+        id: "evt_e2e_bound_ceremony",
+        weddingId: "wed_e2e_bound",
+        slug: "ceremony",
+        name: "Ceremony",
+        startAt: "2027-02-06",
+        endAt: "",
+        timezone: "Australia/Sydney",
+        sortOrder: 0,
+      },
+      {
+        id: "evt_e2e_bound_reception",
+        weddingId: "wed_e2e_bound",
+        slug: "reception",
+        name: "Reception",
+        startAt: "2027-02-06T18:00:00+11:00",
         endAt: "",
         timezone: "Australia/Sydney",
         sortOrder: 1,

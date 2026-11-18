@@ -1779,6 +1779,51 @@ between them waited out, a failure after one) and the dropped answer;
 `tests/components/OrganiserApp.removal-code.test.tsx` holds the code out of a
 sign-in bounce.
 
+### A wedding's guest list close to its three years
+
+`GuestDataBoundNotice.tsx` warns a wedding's owners and editors when Cire's
+guest-data sweep is within 90 days of deleting its guest list three years after
+the wedding was created, or past that day: the wedding has an event whose date
+and time Cire cannot read, or no events (the owner's choice on
+englishstreetventures/osn#2416). The decisions:
+
+- **One banner over the whole dashboard,** above the module shell and on every
+  module, so a host who opens straight onto Guests reads it too. Not sticky: it
+  scrolls away with the page. A helper's run-sheet seat has none.
+- **Only a seat that can fix it.** The API sends the bound to owners and
+  editors alone, and the notice checks `surfacesFor(role).canEdit` as well, so
+  a viewer, who cannot set a date, never sees it.
+- **A `Notice` at `md`, at the prose measure** (`max-w-prose`), `warn` from 90
+  days before and `danger` once the day has passed, so the mark changes shape
+  as well as colour. A standing note, never `alert`: it was there when the host
+  arrived.
+- **Three parts:** a first line in medium weight saying what happens and from
+  when ("From 30 November 2026, Cire will delete this wedding's guest list.",
+  or "Cire is deleting this wedding's guest list."); a sentence saying what the
+  guest list holds, why the three years apply (naming up to three events Cire
+  cannot date, then "and N more"; "Untitled event" for one with no name), and
+  what ends it; and an `outline` `sm` button, "Edit events" or "Add an event",
+  that opens Events → Edit through the dashboard's own navigation, so the
+  unsaved-changes guard still asks. The fix is never worded as a reprieve: once
+  every event reads, the guest list is kept until a year after the wedding's
+  last event, "which may be sooner".
+- **The day is the reader's.** The API sends the first instant the sweep may
+  delete; the notice prints its date in the reader's own zone, `en-AU` long
+  form, and does no date sums of its own (`lib/guest-data-bound.ts`).
+- **It goes as the fix lands.** A schedule change the tab commits reads the
+  wedding list again (`onScheduleChanged`), so the banner leaves on the save
+  that dates the last event, with no reload. Another tab clears at its next
+  read of the list.
+- **No motion of its own.** It arrives with the dashboard and goes at once, as
+  every `Notice` does: it holds a button, and a box collapsing away would leave
+  that button focusable in a box that is going.
+
+`tests/lib/guest-data-bound.test.ts` holds the words (the names, the reader's
+zone, an unknown state); `tests/components/GuestDataBoundNotice.test.tsx` holds
+who sees it. The `cire-event-details` end-to-end flow shoots the `warn` banner,
+for each reason, at 390 and 1280px in both ramps and the `danger` one at
+1280px, and clears the banner by saving a fix.
+
 ### Two rules that apply to all of them
 
 **Anything spread onto an element takes `SafeProps`.** Solid's `HTMLAttributes`

@@ -184,13 +184,113 @@ function cutoffDateString(now: Date): string {
  * {@link UNDATED_RETENTION_AFTER_CREATION_YEARS} calendar years before `at` (ms):
  * the column stores epoch SECONDS (`integer({ mode: "timestamp" })`), and a raw
  * expression over it bypasses drizzle's Date mapping, so the sweep compares it
- * against a bound number in that unit. A 29 February with no match that many
- * years back lands on 1 March, so the bound is never shorter than the years.
+ * against a bound number in that unit. A run on 29 February has no match that
+ * many years back and lands on 1 March at the run's time of day; a wedding
+ * created on that 1 March has its anniversary on the next one, so the cutoff
+ * is the start of that day. The sweep never takes a wedding before
+ * {@link creationBoundAt}, and takes it at every run after.
  */
-function creationCutoffSeconds(at: number): number {
+export function creationCutoffSeconds(at: number): number {
+  const run = new Date(at);
   const cutoff = new Date(at);
-  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - UNDATED_RETENTION_AFTER_CREATION_YEARS);
+  cutoff.setUTCFullYear(run.getUTCFullYear() - UNDATED_RETENTION_AFTER_CREATION_YEARS);
+  if (cutoff.getUTCMonth() !== run.getUTCMonth()) cutoff.setUTCHours(0, 0, 0, 0);
   return Math.floor(cutoff.getTime() / 1000);
+}
+
+/**
+ * When the sweep may first take a wedding by its creation:
+ * {@link UNDATED_RETENTION_AFTER_CREATION_YEARS} calendar years after
+ * `weddings.created_at` (epoch seconds). A wedding created on 29 February has
+ * no anniversary in a year without one, and the sweep's cutoff passes it at the
+ * start of 1 March, so that is its bound. The organiser portal shows this
+ * instant's date in the reader's own zone; the sweep never runs before it.
+ */
+export function creationBoundAt(createdAtSeconds: number): Date {
+  const created = new Date(createdAtSeconds * 1000);
+  const bound = new Date(created.getTime());
+  bound.setUTCFullYear(created.getUTCFullYear() + UNDATED_RETENTION_AFTER_CREATION_YEARS);
+  if (bound.getUTCMonth() !== created.getUTCMonth()) bound.setUTCHours(0, 0, 0, 0);
+  return bound;
+}
+
+/**
+ * How long before a wedding's {@link creationBoundAt} the organiser portal
+ * warns its owners and editors: 90 days, the owner's choice on
+ * englishstreetventures/osn#2416. In milliseconds.
+ */
+export const CREATION_BOUND_WARNING_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** Most events the warning names; the rest are counted. */
+const MAX_NAMED_UNDATED_EVENTS = 3;
+
+/**
+ * 1 when an event can be dated: its Start, and its End unless it is the ""
+ * no-stated-end sentinel, have the {@link DATE_FIRST} shape. Only such a value
+ * compares exactly against a cutoff as text.
+ *
+ * Plain `sql`, never `.as(…)`, here and in the sweep: an aliased expression
+ * renders as its bare alias inside HAVING and ORDER BY, which would move the
+ * cutoff rule onto a result-column alias.
+ */
+const eventDated = sql`(${events.startAt} glob ${DATE_FIRST} and (${events.endAt} = '' or ${events.endAt} glob ${DATE_FIRST}))`;
+
+/**
+ * 1 when an event cannot be dated. A check that comes out NULL counts as one
+ * that cannot, as the sweep's own count does.
+ */
+const eventUndated = sql`((case when ${eventDated} then 0 else 1 end) = 1)`;
+
+/**
+ * 1 when the wedding's stored creation time reads as epoch seconds: a number
+ * below the ceiling. Text sorts after every number, and a comparison that
+ * comes out NULL is 0.
+ */
+const creationReadable = sql<number>`coalesce(${outerColumn(weddings.createdAt)} < ${EPOCH_SECONDS_CEILING}, 0)`;
+
+/** Where a wedding stands against its three years from creation. */
+export type CreationBoundState = "near" | "passed";
+
+/**
+ * What the organiser portal is told about a wedding close to, or past, its
+ * three years from creation; absent for every other wedding.
+ */
+export interface GuestDataBound {
+  /** `near`: the sweep would take it at a run {@link CREATION_BOUND_WARNING_MS}
+   *  from now. `passed`: it would take it now. */
+  state: CreationBoundState;
+  /** Why it is on this bound: an event whose date cannot be read, or no events. */
+  reason: "unreadable-date" | "no-events";
+  /** {@link creationBoundAt}, as an ISO instant. */
+  from: string;
+  /** The names of the events whose date cannot be read, in the editor's order,
+   *  at most three; empty for a wedding with no events. */
+  events: string[];
+  /** How many events cannot be dated. */
+  eventCount: number;
+}
+
+/**
+ * The columns that say where each wedding stands against its three years from
+ * creation, for a select over `weddings` (with or without other tables). The
+ * same tests as the sweep's: a wedding it cannot date (an event that is not
+ * {@link eventDated}, or no events) whose creation time reads is `passed` when
+ * {@link creationCutoffSeconds} at `now` takes it, and `near` when it would
+ * take it {@link CREATION_BOUND_WARNING_MS} later. Two probes of
+ * `events_wedding_id_sort_idx` a wedding; no extra statement.
+ */
+export function creationBoundColumns(now: Date) {
+  const ofWedding = sql`${outerColumn(events.weddingId)} = ${outerColumn(weddings.id)}`;
+  const hasEvent = sql`exists (select 1 from ${events} where ${ofWedding})`;
+  const hasUndatedEvent = sql`exists (select 1 from ${events} where ${ofWedding} and ${eventUndated})`;
+  const createdBefore = (at: number) =>
+    sql`coalesce(${outerColumn(weddings.createdAt)} < ${creationCutoffSeconds(at)}, 0)`;
+  const onBound = sql`((${hasUndatedEvent} or not ${hasEvent}) and ${creationReadable})`;
+  return {
+    state: sql<CreationBoundState | null>`(case when ${onBound} then (case when ${createdBefore(now.getTime())} then 'passed' when ${createdBefore(now.getTime() + CREATION_BOUND_WARNING_MS)} then 'near' end) end)`,
+    noEvents: sql<number>`(not ${hasEvent})`,
+    createdAt: sql<number>`${outerColumn(weddings.createdAt)}`,
+  };
 }
 
 /**
@@ -209,6 +309,38 @@ type DueWedding =
     };
 
 export const retentionService = {
+  /**
+   * The events each of `weddingIds` holds whose date the sweep cannot read
+   * (not {@link eventDated}): their names in the editor's order (`sort_order`,
+   * then id), at most {@link MAX_NAMED_UNDATED_EVENTS}, and how many there are.
+   * One statement, or none for no weddings. A wedding absent from the map has
+   * no such event. Names are a host's free text, so nothing here logs them.
+   */
+  undatedEventNames(
+    weddingIds: readonly string[],
+  ): Effect.Effect<Map<string, { names: string[]; count: number }>, never, DbService> {
+    return Effect.gen(function* () {
+      const named = new Map<string, { names: string[]; count: number }>();
+      if (weddingIds.length === 0) return named;
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db
+          .select({ weddingId: events.weddingId, name: events.name })
+          .from(events)
+          .where(and(inArray(events.weddingId, jsonEachIn(weddingIds)), eventUndated))
+          .orderBy(asc(events.weddingId), asc(events.sortOrder), asc(events.id))
+          .all(),
+      );
+      for (const row of rows) {
+        const entry = named.get(row.weddingId) ?? { names: [], count: 0 };
+        if (entry.names.length < MAX_NAMED_UNDATED_EVENTS) entry.names.push(row.name);
+        entry.count += 1;
+        named.set(row.weddingId, entry);
+      }
+      return named;
+    }).pipe(Effect.withSpan("cire.retention.undatedEventNames"));
+  },
+
   /**
    * Enforce the guest-data retention promise of the privacy notices.
    *
@@ -295,14 +427,9 @@ export const retentionService = {
       const db = yield* DbService;
       const cutoff = cutoffDateString(now);
 
-      // An event the sweep can date: its Start, and its End unless it is the ""
-      // no-stated-end sentinel, have the DATE_FIRST shape. Only such a value
-      // compares exactly against the cutoff as text.
-      //
-      // Plain `sql`, never `.as(…)`, here and below: an aliased expression
-      // renders as its bare alias inside HAVING and ORDER BY, which would move
-      // the cutoff rule onto a result-column alias.
-      const dated = sql`(${events.startAt} glob ${DATE_FIRST} and (${events.endAt} = '' or ${events.endAt} glob ${DATE_FIRST}))`;
+      // An event the sweep can date (`eventDated`, shared with the organiser
+      // portal's warning). Plain `sql` below too, for the reason given there.
+      const dated = eventDated;
       // Each wedding's latest effective end over the events it can date; NULL
       // when it can date none. The inner two-arg max() is SQLite's SCALAR max —
       // it picks each row's effective end (end_at, or start_at when end_at is
@@ -333,10 +460,8 @@ export const retentionService = {
       // wedding: text sorts after every number, and a value in milliseconds
       // reads as a date far in the future.
       const dueByCreation = sql<number>`coalesce(${createdAt} < ${creationCutoffSeconds(now.getTime())}, 0)`;
-      // 1 when the wedding's stored creation time reads as epoch seconds: a
-      // number below the ceiling. Text sorts after every number, and a
-      // comparison that comes out NULL is 0.
-      const creationReadable = sql<number>`coalesce(${outerColumn(weddings.createdAt)} < ${EPOCH_SECONDS_CEILING}, 0)`;
+      // `creationReadable` (module scope): the stored creation time reads as
+      // epoch seconds.
       // 1 when the sweep keeps the wedding as one it cannot date: it is one,
       // and is not yet three years old.
       const kept = sql<number>`(${undated} and not ${dueByCreation})`;
