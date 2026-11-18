@@ -2,8 +2,9 @@
  * Delivery of the retention sweep's parting gift summary.
  *
  * The sweep deletes a wedding's guest data a year after its last event (three
- * years after its creation when it cannot read the event dates), and leaves
- * the couple a record on `registry_settings`: counts, totals and each
+ * years after its creation when it cannot read the event dates or the wedding
+ * has no events), and leaves the couple a record on `registry_settings`:
+ * counts, totals and each
  * money gift's amount and day, with no names. This is the half that
  * actually reaches them: it asks osn-api for every owner's address (cire stores
  * none of its own) and sends the wedding's summary to each of them — one email

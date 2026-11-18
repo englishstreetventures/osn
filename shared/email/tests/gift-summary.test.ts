@@ -176,9 +176,10 @@ describe("registry-gift-summary", () => {
 
   /**
    * The sweep deletes a wedding's guest data a year after its last event, or,
-   * when it cannot read the dates of the events, three years after the wedding
-   * was created. The opening says which, with the day it counted from, so the
-   * couple are never told of a last event that has no date.
+   * when it cannot read the dates of the events or the wedding has none, three
+   * years after the wedding was created. The opening says which, with the day
+   * it counted from, so the couple are never told of a last event that has no
+   * date.
    */
   it("says when the guest data went and the day it counted from, by the rule that applied", () => {
     const year = renderTemplate("registry-gift-summary", base);
@@ -193,10 +194,10 @@ describe("registry-gift-summary", () => {
     }
     for (const body of [created.text, created.html]) {
       expect(body).toContain("Three years have passed since Ama &");
-      // True of a wedding with no event it could date and of one with some:
-      // either way, not every date could be read.
+      // True of a wedding with no event it could date, of one with some, and
+      // of one with no events at all.
       expect(body).toContain(
-        "was created on Cire, on 2023-05-01, and we could not read the dates of all its events.",
+        "was created on Cire, on 2023-05-01, and we could not read the dates of all its events, or it has none.",
       );
       expect(body).not.toContain("A year has passed");
       expect(body).not.toContain("last event");

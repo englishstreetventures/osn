@@ -93,15 +93,20 @@ describe("legal pages", () => {
 
   /**
    * The guest-data sweep (`cire/api/src/services/retention.ts`) deletes a year
-   * after the final event, or, for a wedding with an event it cannot date,
-   * three calendar years after the wedding was created, whatever its other
-   * events' dates; either way it can hold a wedding back up to 30 days for the
-   * gift record. Every page that states the window states all of it, the
-   * hold-back after both rules.
+   * after the final event, or, for a wedding with an event it cannot date or
+   * with no events, three calendar years after the wedding was created,
+   * whatever its other events' dates; either way it can hold a wedding back up
+   * to 30 days for the gift record. Every page that states the window states
+   * all of it, the hold-back after both rules.
    */
   it("the hosts' notice and the overview state both retention bounds and the hold-back", () => {
     for (const page of [hosts, privacy].map(flat)) {
       expect(page).toMatch(/one year after the wedding&rsquo;s final event/);
+      // The guest information is what goes, never the wedding: the subject
+      // is named, not left to an "it" that could mean either.
+      expect(page).toMatch(
+        /If the wedding has no events, or we cannot read the date of one of them, guest information is deleted three years/,
+      );
       expect(page).toMatch(
         /three years after the wedding was created instead, whatever the other events&rsquo; dates/,
       );
@@ -111,6 +116,11 @@ describe("legal pages", () => {
         page.indexOf("whatever the other events"),
       );
     }
+    // The hosts are the ones who can remove every event, so their notice says
+    // what that does to a wedding past its three years.
+    expect(flat(hosts)).toMatch(
+      /removing every event deletes its guest information at the next daily run/,
+    );
   });
 
   it("the hosts' notice names the gift record the couple keep after the guest data goes", () => {

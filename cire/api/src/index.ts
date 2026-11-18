@@ -685,7 +685,8 @@ const handler: ExportedHandler<Env> = {
   //     (cire/ui guest-privacy-notice.astro): guest PII (guests/families/rsvps incl. dietary
   //     + consent, plus imports bookkeeping) is deleted 1 year after a wedding's
   //     final event, or 3 years after its creation when the sweep cannot read
-  //     an event's date. Reaps the `cire-sheets` CSVs it orphans (env.SHEETS).
+  //     an event's date or the wedding has no events. Reaps the `cire-sheets`
+  //     CSVs it orphans (env.SHEETS).
   //  4. `cire-assets` orphan reconciliation — best-effort deletes invite-image
   //     objects under `assets/` referenced by NO live DB row and older than a
   //     7-day grace window. Heavily guarded: aborts and deletes NOTHING if the

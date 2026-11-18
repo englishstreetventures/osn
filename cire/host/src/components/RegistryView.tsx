@@ -1514,7 +1514,8 @@ export default function RegistryView(props: RegistryViewProps) {
       <Show when={props.view === "gifts"}>
         {/* The record that outlives the detail. Written by the retention sweep a
             year after the last event (three years after the wedding was
-            created, when the sweep cannot read the event dates), in the same
+            created, when the sweep cannot read the event dates or it has no
+            events), in the same
             pass that deletes the households every gift hangs off — so this is
             not a summary OF the log below, it is what stands INSTEAD of it. The
             copy has to say that outright, or a couple reads an empty log as an

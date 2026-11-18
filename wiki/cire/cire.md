@@ -365,7 +365,7 @@ recorded in the OSN compliance programme:
 
 - [[data-map]] — cire section (fields, lawful basis, recipients); dietary Art. 9(2)(a) consent captured (PR #123), covering both `rsvps.dietary` and the `rsvps.dietary_presets` vocabulary; residual R2 retention + the age-gate note
 - [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category, presets and free text alike; consent asked once per submission and never pre-ticked for a member with no record; gating consent mitigation RESOLVED PR #123, sign-off pending residual retention items)
-- [[retention]] — cire rows: guest data swept a year after the final event, or three years after creation for a wedding the sweep cannot date (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open
+- [[retention]] — cire rows: guest data swept a year after the final event, or three years after creation for a wedding the sweep cannot date or with no events (PR #132) + expired guest sessions swept daily (PR #127); R2 objects reaped with their rows and by the daily reconcilers, with the cached copies of images left as residuals
 - [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed
 - privacy notice — guest site publishes `/privacy` + `/terms`
 - [[dsar]] — cross-DB reachability, the account export's cire section and the owner's whole-wedding download, and what an OSN account deletion does in cire

@@ -170,7 +170,8 @@ export interface GiftSummaryGift {
  *
  * Present ONLY after the retention sweep: a year after the last event (three
  * years after the wedding was created, when the sweep cannot read its event
- * dates) the guest households are deleted, and every claim and contribution
+ * dates or it has no events) the guest households are deleted, and every
+ * claim and contribution
  * goes with them. No
  * name, no household, no note — a record carrying those would be the deletion
  * undone in the field next door. It keeps the counts, a total per currency and

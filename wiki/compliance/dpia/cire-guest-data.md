@@ -12,7 +12,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-19
 ---
 
 # DPIA — Cire guest data (special-category dietary)
@@ -166,7 +166,8 @@ final sign-off now turns only on the residual retention gaps below.
   processor terms. Neither is written yet: the organiser terms do not name the
   owners' duties or a point of contact, nor that cire deletes a wedding's guest
   data three years after its creation when one of its event dates cannot be
-  read, before the wedding if it is planned further out (§3), and the guest notice
+  read or it has no events, before the wedding if it is planned further out
+  (§3), and the guest notice
   (`cire/ui/src/guest-privacy-notice.astro`, "Who decides what") does not say a
   guest may exercise their rights against any owner.
 - **Scale.** Per-wedding guest counts (tens to low hundreds today; multi-tenant
@@ -452,9 +453,14 @@ final sign-off now turns only on the residual retention gaps below.
   after it was created (`weddings.created_at`), whatever its other events'
   dates, and a host who fixes the event puts it back on the year rule. A wedding
   planned more than 3 years ahead with one unreadable event can therefore lose
-  its guest data before a readable event of it, which the owner accepted. Each
-  run logs how many such weddings it keeps while they hold guest data, and how
-  many it deleted by their creation (counts, no id, no date). A wedding its owners delete is purged whole 7–8 days later (later if
+  its guest data before a readable event of it, which the owner accepted. A
+  wedding with no events, never given one or with every one removed, has its
+  guest data deleted on the same bound, and adding an event puts it on the year
+  rule. Each run logs how many weddings it keeps because it cannot date them
+  while they hold guest data: one with an unreadable event, or one with no
+  events whose creation time is not epoch seconds. It also logs how many it
+  deleted by their creation, weddings with an unreadable event and weddings
+  with no events on separate lines (counts, no id, no date). A wedding its owners delete is purged whole 7–8 days later (later if
   the daily purge cap or a payment still settling defers it): every row by
   cascade, and its sheet and image objects ([[cire-auth#Soft-deleted weddings]]).
 - **What outlives the sweep (2026-10-15).** The sweep leaves the couple a record
@@ -479,6 +485,7 @@ final sign-off now turns only on the residual retention gaps below.
 | Dietary free-text reveals more than intended (religion, medical condition) | Medium | Medium | Free-text invites over-disclosure; mitigated by form copy + minimisation guidance, not technically enforceable. |
 | Indefinite retention of guest PII + raw CSVs (incl. across reverts) | High | Medium | Mitigated: the 1-year guest-data sweep (rows and their sheets) and the purge of a deleted wedding (every row, both R2 buckets); a sheet whose delete failed is reaped by the daily `cire-sheets` reconciler within one pass over the bucket ([[retention]]). Residuals: browser copies of public images can live a year, the couple's Stripe Express account and Zap enquiry chats outlive the purge, and while an operator has the reconcilers stopped (a `reconcile/stop` object or `CIRE_R2_RECONCILE_DISABLED`, around a database restore) orphaned sheets wait for them — emailed to the operator daily, 14 days at most by the runbook. |
 | A wedding with an event whose date the sweep cannot read loses its guest data three years after it was created, before a readable event of it still ahead, and loses whatever guest data is added after that at the next daily run | Low | Medium | Both write doors refuse an unreadable Start, so it needs a revert to old rows and a wedding planned more than three years out. The hosts' notice states the rule and that fixing the event's date puts the wedding back on the one-year rule, and the events editor asks the hosts to fix such a date. **Accepted by the owner, 2026-11-18** ([[retention]]). Whether the organiser portal should warn before or after the three years is open as osn#2416. |
+| A wedding more than three years old whose events are all removed, or that is given households before its first event, loses its guest data at the next daily run, inside its final event's year, and with it the change history a revert of the removal needs | Low | Medium | Needs a wedding planned or kept for more than three years. The editor asks the hosts to confirm a save that removes every event (the spreadsheet door does not), and the hosts' notice says that removing every event from a wedding three years old deletes its guest information at the next daily run. **Accepted by the owner, 2026-11-19** (osn#2410, osn#2418): the rule stands with no hold after a change, and the organiser-portal warning of osn#2416 is to cover a wedding with no events too. |
 | Guest spreadsheets or invite photos permanently deleted by the daily R2 orphan reconciler while the rows naming them are missing — a bad migration, a wrong bulk delete, a `cire-db` restore — with no versioning or second copy of `cire-sheets` or `cire-assets` to restore from ([[backup-dr]]) | Low | High | Mitigated: only objects R2 says are 7 days old are judged; a failed or empty reference read, a database paired with another environment's bucket, or a lookup that loses its control deletes nothing; at most 500 objects a run; a run whose rows naming the bucket's objects fell by more than half holds, emails the operator, and keeps holding against the earlier count for up to 7 runs; an operator's `reconcile/stop` object stops a reconciler without a deploy, and the restore runbook in [[backup-dr]] sets it first; every delete batch logs a warning. Residuals: no backup of either bucket; a loss under half the rows is not held; a hold lasts 7 runs and a stop relies on an operator acting on the email; an empty table or a total wipe aborts every run with a warning log and sends no email. |
 | An organiser's OSN account deletion leaves their data, or a wedding no one owns, in cire | Low | Medium | Mitigated: the account deletion reaches cire over ARC. The account cannot be deleted while it is the only owner of a live wedding it has not answered for: the person adds another owner, deletes the wedding, or chooses to have it deleted. At the erasure cire removes their seats, deletes a wedding left with no owner in the same batch (the purge then takes it, guest data and all), and clears every column that names them; nothing of the person is kept ([[dsar#Cire (wedding-invite) data]]). Residual: a guest's reply or consent record an organiser attested stays with the wedding, unnamed, as the evidence it is. |
 | A guest's gift amount and day outlive the year in the couple's record | Medium | Low | Kept unnamed, with no note or Stripe identifier, a day rather than a time, at most 200 lines a wedding; read only by the wedding's members and mailed to its owners. The couple can still match a line to the payer in their own Stripe account — but they were the recipients and hold that record anyway, so the residual is that cire keeps a copy past the year. Guests are told in the privacy notice; the record goes when the couple delete the wedding. |

@@ -1079,7 +1079,8 @@ export const registrySettings = sqliteTable(
     // Gifts are guest data: `registry_claims` and `registry_contributions` both
     // hang off `families`, so the retention sweep's family delete cascades them
     // away a year after the wedding (three years after its creation when the
-    // sweep cannot read its event dates), and the couple's record of what arrived goes
+    // sweep cannot read its event dates or it has no events), and the couple's
+    // record of what arrived goes
     // with it. This row is KEPT by that sweep (it carries no guest PII and the
     // published invite depends on it), which makes it the right home for a
     // parting summary: written just before the delete — counts, totals and each
