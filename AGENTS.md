@@ -76,6 +76,8 @@ bun run test:e2e             # end-to-end suite: boots the stack, writes e2e-art
                              # (CI's E2E job: once, rerun whole if it fails)
 bun run test:e2e:repro       # it, twice, failing unless results.json matches byte for byte
                              # (a daily CI job runs it, not pull requests)
+bun run test:e2e:stripe      # one gift flow against a Stripe sandbox (a nightly CI job;
+                             # needs STRIPE_TEST_SECRET_KEY and STRIPE_TEST_CONNECTED_ACCOUNT)
 bun run test:scripts         # bun tests under scripts/
 bun run --cwd cire/<pkg> test:mutation --changed  # Stryker on changed lines, cire only
 bun run --cwd <pkg> test:run # one package, once

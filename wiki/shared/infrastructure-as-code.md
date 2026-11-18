@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-18
 ---
 
 # Infrastructure as code (Alchemy)
@@ -390,6 +390,8 @@ Run it by hand against an investigation stage the same way, with that stage's gu
 `shared/infra/tests/secrets/inventory.test.ts` checks that each Worker's code reads every required and optional name declared for it, and that osn-api requires every secret `osn/api/wrangler.toml` marks `REQUIRED non-local`.
 
 [`WORKFLOW_SECRETS`](../../shared/infra/src/secrets/inventory.ts) lists, per tier, the Environment secrets only workflows read: no Worker holds them and none is a credential. On dev they are `ASTRO_KEY`, which the cire stack job's guest-site build reads, and `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, the Access service token the smoke checks of the dev browser hosts send ([[dev-environment#The smoke check's service token]]); production has none. `shared/infra/tests/secrets/environments.test.ts` reads every workflow and fails when a job bound to an Environment reads a name that is neither required nor optional for that tier, or when `WORKFLOW_SECRETS` is not exactly what those jobs read beyond Worker secrets and credentials.
+
+One Environment sits outside the tiers: `stripe-test-mode`, which the nightly gift against Stripe's test mode reads its sandbox key from ([[testing-patterns#A gift against Stripe's test mode]]). No Worker holds that key and `secrets:check-github` does not look for it. The same test lists such Environments in `OUTSIDE_TIERS`, each with exactly the secrets its jobs read (`STRIPE_TEST_SECRET_KEY` here), and fails on a read from any Environment it lists neither as a tier nor there.
 
 On dev, cire-api's `OSN_API_URL` is a var derived from the dev domain, not a secret; passing it as a dev secret throws `UndeclaredSecretsError`. Production keeps it as a secret. zap-api's dev Worker requires `INTERNAL_SERVICE_SECRET`.
 
