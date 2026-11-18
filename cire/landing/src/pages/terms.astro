@@ -67,7 +67,7 @@ const draft = draftPending(LEGAL_ENTITY.governingLaw)
   <p>
     You buy a plan from us. Stripe takes the payment on our behalf, and we never see your card
     details. Prices include GST. If you need a tax invoice, ask us at
-    <span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span>. Refunds are
+    <a href={`mailto:${LEGAL_ENTITY.supportEmail}`}><span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span></a>. Refunds are
     handled under our <a href="/refunds/">Refund Policy</a>.
   </p>
 
@@ -139,6 +139,6 @@ const draft = draftPending(LEGAL_ENTITY.governingLaw)
 
   <h2>Contact</h2>
   <p>
-    Questions about these terms: <span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span>.
+    Questions about these terms: <a href={`mailto:${LEGAL_ENTITY.supportEmail}`}><span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span></a>.
   </p>
 </LegalPage>

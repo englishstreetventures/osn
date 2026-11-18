@@ -32,6 +32,19 @@ describe("Pulse site legal pages", () => {
     expect(terms).not.toMatch(/you accept when you sign in/);
   });
 
+  /** A link inside the text is in the body ink and underlined: never told
+   *  apart by colour alone, and never in the ember, which is under 4.5:1. */
+  it("draws a link inside the text in the body ink, underlined", () => {
+    const layout = readFileSync(
+      join(import.meta.dirname, "..", "src", "layouts", "LegalLayout.astro"),
+      "utf8",
+    );
+    const rule =
+      layout.match(/\.legal p:not\(\.legal-back\) a,\s*\.legal li a \{([^}]*)\}/)?.[1] ?? "";
+    expect(rule).toMatch(/color: var\(--color-text\)/);
+    expect(rule).toMatch(/text-decoration: underline/);
+  });
+
   it("names the courts of the governing state", () => {
     expect(terms).toMatch(/the courts of that state have non-exclusive jurisdiction/);
   });

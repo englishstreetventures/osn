@@ -34,7 +34,7 @@ const draft = draftPending()
     <strong>14 days of purchase</strong>, provided you haven&rsquo;t substantially used what it
     added (for example, guests added beyond what your earlier plan holds, or gifts taken through
     the registry). Just email
-    <span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span> with your order details.
+    <a href={`mailto:${LEGAL_ENTITY.supportEmail}`}><span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span></a> with your order details.
   </p>
 
   <h2>If a payment cannot upgrade your wedding</h2>
@@ -71,6 +71,6 @@ const draft = draftPending()
 
   <h2>Contact</h2>
   <p>
-    Refund requests and questions: <span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span>.
+    Refund requests and questions: <a href={`mailto:${LEGAL_ENTITY.supportEmail}`}><span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span></a>.
   </p>
 </LegalPage>

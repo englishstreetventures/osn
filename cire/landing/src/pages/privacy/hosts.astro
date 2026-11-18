@@ -183,7 +183,7 @@ const draft = draftPending()
     You may have rights to access, correct, delete or port your information, and to object to
     certain uses — under the Australian Privacy Act, and for people in the EEA or UK, the GDPR and
     UK GDPR. To exercise them, contact us at
-    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>. You can also complain to a regulator —
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}><span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a>. You can also complain to a regulator —
     in Australia, the Office of the Australian Information Commissioner (OAIC), or your local data
     protection authority.
   </p>
@@ -198,6 +198,6 @@ const draft = draftPending()
   <p>
     <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (trading as Cire),
     <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
-    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>.
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}><span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a>.
   </p>
 </LegalPage>

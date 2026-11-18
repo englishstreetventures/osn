@@ -63,6 +63,15 @@ const { title, siteName, back } = Astro.props
         color: var(--ui-accent-ink);
       }
 
+      /* A link inside the text is underlined, so it never differs from the
+         words around it by colour alone: the gold and the body ink are close.
+         The back link stands on its own line and keeps its own rule. */
+      .legal p:not(.legal-back) a,
+      .legal li a {
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
       /* A link label, so sentence case, as cire's link labels are. */
       .legal-back a {
         font-family: var(--ui-font-body);

@@ -300,6 +300,17 @@ describe("legal pages", () => {
     expect(text).toMatch(/18 or older/);
   });
 
+  /** Every mailbox a page names is a `mailto:` link, the same way on every
+   *  page. */
+  it("names each mailbox as a link", () => {
+    for (const page of [terms, refunds, privacy, hosts, vendors]) {
+      const plain = flat(page).match(
+        /(?<!mailto:\$\{LEGAL_ENTITY\.\w+\}`\}> ?)<span class=\{ph\(LEGAL_ENTITY\.(privacy|support)Email\)\}>/g,
+      );
+      expect(plain).toBeNull();
+    }
+  });
+
   it("the vendors' notice states the age to run a listing", () => {
     expect(flat(vendors)).toMatch(/18 or older/);
   });
