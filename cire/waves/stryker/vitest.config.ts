@@ -3,11 +3,14 @@
  * repo root, so `root` pins it back to this package, where the `include` and
  * `setupFiles` paths of `vitest.config.ts` are written from.
  *
- * Stryker's Vitest runner also starts every project in the config, and the
- * `browser` project needs a Chromium per mutant, so this drops it and keeps
- * the fast tier. A mutant only the browser tier can kill reports as a
- * survivor; the pull request names the browser test or E2E step that kills it
- * (wiki/conventions/testing-patterns.md §What to do with a survivor).
+ * Unlike the other cire packages, this one keeps the `browser` project: both
+ * waves are WebGL 2, View Transitions and layout, which only Chromium has, so
+ * the browser tests are the only tests that run their code. Dropping them, as
+ * `cire/ui` does for speed, would leave every mutant uncovered. A run is
+ * slower for it (a Chromium page per test), which `--changed` keeps to the
+ * branch's lines. Set `VITEST_BROWSER_EXECUTABLE_PATH` as for
+ * `bun run test:browser` where the installed Chromium does not match the
+ * pinned Playwright.
  */
 
 import { fileURLToPath } from "node:url";
@@ -19,11 +22,4 @@ import base from "../vitest.config.ts";
 export default defineConfig({
   ...base,
   root: fileURLToPath(new URL("..", import.meta.url)),
-  test: {
-    ...base.test,
-    projects: base.test?.projects?.filter(
-      (project) =>
-        typeof project !== "object" || !("test" in project) || project.test?.name !== "browser",
-    ),
-  },
 });

@@ -57,8 +57,9 @@ export function previewWaveFrom(search: string): PreviewWave {
   return new URLSearchParams(search).get("preview-wave") === "distortion" ? "distortion" : "gilded";
 }
 
-// One import per wave per page. A failure is forgotten, so the next press
-// tries again rather than keeping a chunk a deploy took away.
+// One import per wave per page. A failure is forgotten, so a later press asks
+// again; a browser that keeps a failed module (Chromium does, as the module map
+// says to) refuses at once, and the preview opens with no wave.
 let gildedLoad: Promise<GildedModule> | undefined;
 let distortionLoad: Promise<DistortionModule> | undefined;
 

@@ -20,6 +20,12 @@
  *   with the page clock paused mid-run, the canvas is shown and the wave
  *   running. Run to the end, the preview view is live and the form inert; Back
  *   returns the page to where it was scrolled.
+ * - Around Gilded: the frame lies under the bar and follows it as the page
+ *   moves; the mask is centred on the button; Escape goes back; a section
+ *   chosen, or a wide window, closes it at once; with the wave's module
+ *   refused, the frame opens bare. Around Distortion: opening brings the
+ *   column's top under the bar, Escape on the button goes back, and the page
+ *   returns to where it was scrolled.
  * - **Reduced motion**, once each: no transition and no canvas, a fade.
  *
  * Only what repeats run to run is checked; the held frames are pictures.
@@ -84,6 +90,40 @@ async function focused(page: Page): Promise<string> {
   });
 }
 
+/** The frame lies under the view bar, across it, to the window's foot. */
+async function frameUnderBar(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const frame = document.querySelector("[data-preview-frame]")?.getBoundingClientRect();
+    const bar = document.querySelector("[data-view-bar]")?.getBoundingClientRect();
+    if (!frame || !bar) return false;
+    const near = (a: number, b: number) => Math.abs(a - b) <= 1;
+    return (
+      near(frame.top, bar.bottom) &&
+      near(frame.left, bar.left) &&
+      near(frame.width, bar.width) &&
+      near(frame.bottom, window.innerHeight)
+    );
+  });
+}
+
+/** The held mask's circle sits on the middle of the Preview button. */
+async function maskOnButton(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const mask = document.documentElement.style.getPropertyValue("--cire-gilded-mask");
+    const at = /circle at ([\d.-]+)px ([\d.-]+)px/.exec(mask);
+    const frame = document.querySelector("[data-preview-frame]")?.getBoundingClientRect();
+    const button = [...document.querySelectorAll("[data-view-bar] button")]
+      .find(
+        (b) => b.textContent?.trim() === "Preview" || b.textContent?.trim() === "Back to editing",
+      )
+      ?.getBoundingClientRect();
+    if (!at || !frame || !button) return false;
+    const x = button.left + button.width / 2 - frame.left;
+    const y = button.top + button.height / 2 - frame.top;
+    return Math.abs(Number(at[1]) - x) <= 1 && Math.abs(Number(at[2]) - y) <= 1;
+  });
+}
+
 async function openBuilder(page: Page, url: string): Promise<void> {
   await page.goto(url);
   await page.addStyleTag({ content: HIDE_DEV_TOOLBAR });
@@ -110,6 +150,7 @@ export async function builderPreviewWave(
   const frame = page.locator(FRAME);
   const gildedUrl = `${origin}/#/w/${wedding}/invite/content`;
   const distortionUrl = `${origin}/?preview-wave=distortion#/w/${wedding}/invite/content`;
+  const refusedUrl = `${origin}/?refused#/w/${wedding}/invite/content`;
 
   try {
     await page.setViewportSize(PHONE);
@@ -143,6 +184,16 @@ export async function builderPreviewWave(
       "preview wave (gilded): the gold is drawn on its canvas",
       1,
       await page.locator("canvas[data-gilded-fx]").count(),
+    );
+    flow.check(
+      "preview wave (gilded): the frame lies under the view bar, across it, to the foot",
+      true,
+      await frameUnderBar(page),
+    );
+    flow.check(
+      "preview wave (gilded): the mask's circle is centred on the Preview button",
+      true,
+      await maskOnButton(page),
     );
     for (const p of HELD) {
       await flow.step(`preview wave: shoot the Gilded wave at ${p}`, async () => {
@@ -178,15 +229,31 @@ export async function builderPreviewWave(
       await focused(page),
     );
 
-    await flow.step("preview wave: hold Back on its way out, then let it go", async () => {
-      await hold(page, HELD[1]);
-      await back.click();
-      await waveHeld(page);
-      await shot(page, `gilded-back-${HELD[1].toFixed(2)}`);
-      await page.evaluate(() => (window as WithHooks).__cireWaves!.releaseGilded!());
-      await expect(frame).toHaveCount(0);
-      await expect(preview).toBeVisible();
-    });
+    const heldBack = await flow.step(
+      "preview wave: hold Back on its way out, then let it go",
+      async () => {
+        await hold(page, HELD[1]);
+        await back.click();
+        await waveHeld(page);
+        await shot(page, `gilded-back-${HELD[1].toFixed(2)}`);
+        // The words change at the hand-over, not at the press.
+        const words = await back.count();
+        await page.evaluate(() => (window as WithHooks).__cireWaves!.releaseGilded!());
+        await expect(frame).toHaveCount(0);
+        await expect(preview).toBeVisible();
+        return words;
+      },
+    );
+    flow.check(
+      "preview wave (gilded): held on its way back, the button still says Back",
+      1,
+      heldBack,
+    );
+    flow.check(
+      "preview wave (gilded): the canvas goes with the frame",
+      0,
+      await page.locator("canvas[data-gilded-fx]").count(),
+    );
     flow.check("preview wave (gilded): the builder is live again", false, await builderInert(page));
     flow.check(
       "preview wave (gilded): focus back on the button",
@@ -194,12 +261,91 @@ export async function builderPreviewWave(
       await focused(page),
     );
 
-    await flow.step("preview wave: run the Gilded wave out and back unheld", async () => {
+    await flow.step("preview wave: run the Gilded wave out unheld", async () => {
       await preview.click();
       await expect(back).toBeVisible({ timeout: 10_000 });
       await expect(frame).toBeVisible();
-      await back.click();
+    });
+    const followed = await flow.step(
+      "preview wave: scroll the page under the open frame",
+      async () => {
+        const barFoot = await page.evaluate(
+          () => document.querySelector("[data-view-bar]")!.getBoundingClientRect().bottom,
+        );
+        await page.evaluate(() => window.scrollBy(0, 120));
+        await page.waitForFunction(
+          (was) =>
+            document.querySelector("[data-view-bar]")!.getBoundingClientRect().bottom !== was,
+          barFoot,
+        );
+        await expect.poll(() => frameUnderBar(page)).toBe(true);
+        return true;
+      },
+    );
+    flow.check(
+      "preview wave (gilded): the frame follows the bar as the page moves",
+      true,
+      followed,
+    );
+    await flow.step("preview wave: Escape inside the frame runs it back", async () => {
+      await page.keyboard.press("Escape");
       await expect(frame).toHaveCount(0, { timeout: 10_000 });
+      await expect(preview).toBeFocused();
+    });
+
+    await flow.step("preview wave: choosing a section closes it at once", async () => {
+      await preview.click();
+      await expect(back).toBeVisible({ timeout: 10_000 });
+      await page.getByRole("button", { name: /Choose a view or section/ }).click();
+      await page.getByRole("menuitemradio", { name: /^Welcome/ }).click();
+      await expect(frame).toHaveCount(0);
+      await expect(preview).toBeVisible();
+    });
+    flow.check(
+      "preview wave (gilded): closed by a section, the builder is live",
+      false,
+      await builderInert(page),
+    );
+    await flow.step("preview wave: it opens again after, and a wide window closes it", async () => {
+      await preview.click();
+      await expect(back).toBeVisible({ timeout: 10_000 });
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await expect(frame).toHaveCount(0);
+      await expect(preview).toHaveCount(0);
+      await page.setViewportSize(PHONE);
+      await expect(preview).toBeVisible();
+    });
+    flow.check(
+      "preview wave (gilded): closed by a wide window, the builder is live",
+      false,
+      await builderInert(page),
+    );
+
+    await flow.step(
+      "preview wave: with the wave's module refused, the frame opens bare",
+      async () => {
+        await page.route("**/cire/waves/src/gilded/gilded.ts*", (route) => route.abort());
+        // A query of its own, so this is a new document that has not loaded the module.
+        await openBuilder(page, refusedUrl);
+        await preview.click();
+        await expect(frame).toBeVisible();
+        await expect(back).toBeVisible();
+      },
+    );
+    flow.check(
+      "preview wave (gilded, module refused): no transition",
+      false,
+      await page.evaluate(() => document.documentElement.classList.contains("cire-gilded")),
+    );
+    flow.check(
+      "preview wave (gilded, module refused): the builder is inert under the frame",
+      true,
+      await builderInert(page),
+    );
+    await flow.step("preview wave: back from the bare frame", async () => {
+      await back.click();
+      await expect(frame).toHaveCount(0);
+      await page.unroute("**/cire/waves/src/gilded/gilded.ts*");
     });
 
     // ── Distortion ───────────────────────────────────────────────────────
@@ -221,7 +367,11 @@ export async function builderPreviewWave(
       1,
       await page.locator(`${WAVE} [data-dw-layer="content"] #invite-design`).count(),
     );
-    const scrolledBefore = await page.evaluate(() => window.scrollY);
+    // Down the page, so opening has to bring the column's top under the bar.
+    const scrolledBefore = await page.evaluate(() => {
+      window.scrollTo(0, 400);
+      return window.scrollY;
+    });
 
     await flow.step("preview wave: press Preview with the clock paused mid-run", async () => {
       await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
@@ -229,6 +379,15 @@ export async function builderPreviewWave(
       await page.clock.runFor(1500);
       await shot(page, "distortion-1.5s");
     });
+    flow.check(
+      "preview wave (distortion): opening brings the column's top under the bar",
+      true,
+      await page.evaluate(() => {
+        const wave = document.querySelector("[data-distortion-wave]")!.getBoundingClientRect();
+        const bar = document.querySelector("[data-view-bar]")!.getBoundingClientRect();
+        return Math.abs(wave.top - bar.bottom) <= 1;
+      }),
+    );
     const midRun = await page.evaluate(() => (window as WithHooks).__cireWaves!.distortion!());
     flow.check(
       "preview wave (distortion): the wave is running mid-run",
@@ -265,9 +424,15 @@ export async function builderPreviewWave(
         .locator(`${WAVE} > [data-dw-layer="revealed"]`)
         .evaluate((el) => el.hasAttribute("inert")),
     );
+    flow.check(
+      "preview wave (distortion): focus on the preview's heading",
+      "h2 Live preview",
+      await focused(page),
+    );
 
-    await flow.step("preview wave: go back from Distortion", async () => {
-      await back.click();
+    await flow.step("preview wave: Escape on the button goes back from Distortion", async () => {
+      await back.focus();
+      await page.keyboard.press("Escape");
       await expect(preview).toBeVisible();
       await page.waitForFunction(
         () => (window as WithHooks).__cireWaves?.distortion?.()?.running === false,
