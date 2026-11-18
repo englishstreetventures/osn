@@ -15,6 +15,7 @@ pre-commit:
       # which blocks the commit. Excluded here so lefthook never names them.
       exclude:
         - ".agents/**"
+        - "shared/distortion-waves/vendor/**"
       run: bash scripts/verify-vendored-anti-slop.sh && bunx --bun oxlint -c oxlintrc.json {staged_files}
     format:
       glob: "*.{js,jsx,ts,tsx}"
@@ -26,6 +27,7 @@ pre-commit:
       # throws it away.
       exclude:
         - "tools/oxlint/anti-slop/**"
+        - "shared/distortion-waves/vendor/**"
         - ".agents/**"
       run: bun fmt --no-script {staged_files}
       stage_fixed: true
