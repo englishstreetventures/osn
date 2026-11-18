@@ -87,7 +87,7 @@ Read each body and its labels; the blockers and open choices are in the body, no
 | An open PR names it (`/tmp/open-prs.json`), or its parent is In Progress or In Review | Skipped as held. |
 | Anything else | A batch candidate. |
 
-An unrated item goes through `rate-complexity`, with the owner if they are here and its unattended path if not. Work may go ahead on an unconfirmed rating; never confirm a rating yourself.
+An unrated item goes through `rate-complexity`, which rates it from its body and applies the label without asking the owner. Work may go ahead on it at once.
 
 ## Step 5 — Form the batch
 

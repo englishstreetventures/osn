@@ -5,7 +5,7 @@ related:
   - "[[review-findings]]"
   - "[[agent-tooling]]"
   - "[[index]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-18
 ---
 
 # GitHub Issues setup
@@ -72,13 +72,13 @@ letter in its ID. The migration enforced that with a gate over its manifest;
 now that issues are filed by hand, the `write-issue` skill carries the rule.
 
 A `complexity:` rating — `1`, `2`, `3`, `5` or `8` — is declared **before**
-work starts, by the `write-issue` skill when the issue is filed (or by `/new-feat` for an unrated issue it picks up), through the `rate-complexity` skill, which proposes
-a number from the issue body alone and asks the owner to confirm or amend it.
+work starts, by the `write-issue` skill when the issue is filed (or by `/new-feat` for an unrated issue it picks up), through the `rate-complexity` skill, which picks
+a number from the issue body alone and applies it without asking the owner, who has delegated that approval.
 The timing carries the whole value: the rating is the denominator every
 session-metrics query divides spend by, and one made at pull-request time, with
 a token total on screen, gets talked into agreeing with whatever the work cost.
-`complexity:unconfirmed` marks a rating no human signed off on — an agent's
-guess standing alone, mostly from backfilling issues that predate the label.
+`complexity:unconfirmed` marks a rating that cannot serve as a denominator: one
+made by backfilling issues that predate the label, or after the work had begun.
 See `wiki/conventions/session-metrics.md`.
 
 `needs:decision` is the one label that says nothing about what an issue *is*.

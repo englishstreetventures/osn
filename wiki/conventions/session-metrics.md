@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-18
 ---
 
 # Session Metrics
@@ -54,8 +54,8 @@ outliers are a **query over raw fields**, never a stored field.
 
 The rating lives on the **issue**, as a `complexity:` label, and it is set
 **before work starts** — the `write-issue` skill does it when the issue is filed, through the
-`rate-complexity` skill (`.claude/skills/rate-complexity/SKILL.md`), which proposes a number from the issue body alone and
-asks the owner to confirm or amend it.
+`rate-complexity` skill (`.claude/skills/rate-complexity/SKILL.md`), which picks a number from the issue body alone and
+applies it without asking the owner, who has delegated that approval.
 
 The timing is not a detail. A rating made at pull-request time, with a token
 total already on screen, gets talked into agreeing with whatever the work cost,
@@ -70,7 +70,7 @@ score the task it struggled with as hard.
 | `complexity:3` | One package, but something must be designed |
 | `complexity:5` | Several packages, or a contract others depend on |
 | `complexity:8` | Cross-cutting, or the shape is unknown at the start |
-| `complexity:unconfirmed` | An agent's rating that no human signed off on |
+| `complexity:unconfirmed` | A rating made by backfill, or after the work had begun |
 
 Fibonacci, so `usd_equivalent ÷ declared` is a real division. The rubric rates
 the **problem**, not the change: a one-line fix to a race condition is not a 1.

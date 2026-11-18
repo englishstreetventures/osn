@@ -1,6 +1,6 @@
 ---
 name: rate-complexity
-description: Use when an issue needs its complexity declared — proposing a rating from the issue body alone and getting the owner to confirm or amend it, or backfilling a rating onto an existing unrated issue. Invoked by write-issue on every issue it opens and by new-feat on an unrated issue it picks up; also the backfill path for issues opened before the label existed.
+description: Use when an issue needs its complexity declared — reading the issue body alone and applying a rating without asking the owner, or backfilling a rating onto an existing unrated issue. Invoked by write-issue on every issue it opens and by new-feat on an unrated issue it picks up; also the backfill path for issues opened before the label existed.
 ---
 
 Declare how hard an issue is, **before anyone starts work on it**.
@@ -49,23 +49,22 @@ tokens or a migration; it changes a contract another package imports; it needs a
 decision nobody has made yet. Signals that lower one: an identical change exists
 in the repository already; the issue body names the file and the fix.
 
-## Mode A — with the owner (the normal path)
+## Mode A — the normal path (the owner has delegated approval)
 
-Used by `write-issue` on every issue it opens, and by `new-feat` on an unrated issue it picks up.
+Used by `write-issue` on every issue it opens, and by `new-feat` on an unrated issue it picks up. The owner has delegated the approval: rate it and apply the label, and never ask them to confirm or amend it.
 
 1. Read the issue body — **only** the body. Not the branch, not the code, not
    the conversation that led to it.
-2. Propose one number and one sentence of justification naming the rubric row.
-3. Ask the owner to confirm or amend, offering the neighbouring values.
-4. Apply the label they land on:
+2. Choose one number, and write one sentence of justification naming the rubric row where the report or the issue thread will show it.
+3. Apply the label, with no `complexity:unconfirmed`:
 
 ```bash
 gh issue edit 412 --repo englishstreetventures/osn --add-label "complexity:3"
 ```
 
-If the owner is not reachable — an unattended run — apply the rating **and**
-`complexity:unconfirmed`, then carry on. A rating nobody confirmed is still far
-better than none; the marker keeps it separable in queries.
+Rate before any work starts and before any cost is on screen, as above. A rating
+made after the work has begun is contaminated: add `complexity:unconfirmed` to it
+and say so.
 
 ## Mode B — backfill (no owner)
 
@@ -91,10 +90,10 @@ Six, on both `englishstreetventures/osn` and `englishstreetventures/osn-tracker`
 | Label | Meaning |
 |---|---|
 | `complexity:1` … `complexity:8` | The declared rating (1, 2, 3, 5, 8) |
-| `complexity:unconfirmed` | No human signed off on it — an agent's rating, standing alone |
+| `complexity:unconfirmed` | Rated by backfill, or after the work had begun, so it cannot serve as a denominator |
 
-An issue with a rating and no `complexity:unconfirmed` was confirmed by the
-owner. Exclude unconfirmed ratings from any query you intend to act on:
+An issue with a rating and no `complexity:unconfirmed` was rated from its body
+before work began, by the owner or by an agent the owner has delegated to. Exclude unconfirmed ratings from any query you intend to act on:
 
 ```bash
 gh issue list --repo englishstreetventures/osn --label "complexity:1" --search "-label:complexity:unconfirmed"
