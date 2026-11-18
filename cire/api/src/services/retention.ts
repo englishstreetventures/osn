@@ -90,9 +90,10 @@ export const UNDATED_RETENTION_AFTER_CREATION_YEARS = 3;
 export const GIFT_SUMMARY_HOLD_BACK_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * Most weddings one sweep will take. The cohort is every wedding whose last
- * event passed a year ago and that still holds something the sweep deletes —
- * a household or an import. After a run of failed crons, or a busy season a
+ * Most weddings one sweep will take. The cohort is every wedding past its
+ * retention date — a year after its last event, or three years after its
+ * creation for one the sweep cannot date — that still holds something the
+ * sweep deletes: a household or an import. After a run of failed crons, or a busy season a
  * year later, it can be arbitrarily large.
  *
  * The cap bounds work, not bound parameters. D1 allows 100 per statement
@@ -129,7 +130,7 @@ export const GIFT_SUMMARY_MAX_LISTED = 200;
  * may spend; 1,500 measured at that line (`wiki/cire/cire-registry.md`
  * §What the couple keeps has the figures). A wedding that would pass it waits
  * for the next run, unless it is past the hold-back ceiling
- * ({@link GIFT_SUMMARY_HOLD_BACK_MS}): the privacy notice's year outranks the
+ * ({@link GIFT_SUMMARY_HOLD_BACK_MS}): the privacy notice's window outranks the
  * budget, so that wedding is taken, but lists only as many new gifts as the
  * budget still has room for and counts the rest as not listed. A wedding that
  * lists nothing this run — no money gift, or a returning wedding with nothing
@@ -197,10 +198,11 @@ type DueWedding =
 
 export const retentionService = {
   /**
-   * Enforce the 1-year guest-data retention promise of the privacy notice.
+   * Enforce the guest-data retention promise of the privacy notices.
    *
    * For every wedding whose **latest event date** is more than
-   * `RETENTION_AFTER_FINAL_EVENT_MS` before `now`, delete the personal data:
+   * `RETENTION_AFTER_FINAL_EVENT_MS` before `now` (or, for one the sweep cannot
+   * date, see Selection below), delete the personal data:
    * the wedding's `rsvps` (names + RSVP status + special-category dietary text +
    * the Art. 9(2)(a) `dietaryConsentAt`/`dietaryConsentVersion` records),
    * `guests`, and `families` rows, plus its `imports` bookkeeping rows. The

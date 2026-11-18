@@ -1032,6 +1032,12 @@ describe("RegistryView — gifts received", () => {
     // The day of the sweep, not either end of the gift range.
     expect(screen.getByText(/we deleted your guests' details/)).toHaveTextContent("2026");
     expect(screen.getByText(/we deleted your guests' details/)).toHaveTextContent("17");
+    // The record names no period, since it cannot know which rule applied; the
+    // hosts' notice, one click away, states both.
+    expect(screen.getByRole("link", { name: /our privacy notice/ })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/\/privacy\/hosts\/$/),
+    );
   });
 
   it("puts the first gift's date first and the last gift's date last", async () => {

@@ -667,6 +667,8 @@ describe("retentionService.sweepExpiredGuestData", () => {
     });
     expect(firstRun).toBe(MAX_WEDDINGS_PER_SWEEP);
     expect(undatedLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
+    // Every wedding this run deleted was due by the year rule.
+    expect(createdBoundLines(logs)).toEqual([]);
     // The one wedding the cap left behind is the most recent, not an
     // arbitrary one.
     expect({
@@ -680,6 +682,48 @@ describe("retentionService.sweepExpiredGuestData", () => {
     expect(await runOn(db, retentionService.sweepExpiredGuestData(now))).toBe(2);
     expect(guestCount(db, newest.guestId)).toBe(0);
     expect(guestCount(db, byCreation.guestId)).toBe(0);
+  });
+
+  it("takes the weddings due by their creation oldest first, after the weddings the year rule makes due, when the cap leaves room for one", async () => {
+    const db = freshDb();
+    const now = new Date("2026-06-17T04:00:00.000Z");
+    const day = 24 * 60 * 60 * 1000;
+    const start = Date.parse("2023-01-01T00:00:00.000Z");
+    // One place fewer than the cap for the year rule's weddings, so a single
+    // place is left for the two weddings due by their creation.
+    const dated = await runOn(
+      db,
+      Effect.gen(function* () {
+        const out = [];
+        for (let i = 0; i < MAX_WEDDINGS_PER_SWEEP - 1; i++) {
+          const date = new Date(start + i * day).toISOString().slice(0, 10);
+          out.push(yield* makeWedding({ eventDates: [date] }));
+        }
+        return out;
+      }),
+    );
+    // The newer one is inserted first, so row order cannot stand in for the
+    // ORDER BY.
+    const newer = makeWeddingWithTimes(
+      db,
+      [{ startAt: "TBD by the couple", endAt: "" }],
+      new Date("2022-01-01T00:00:00.000Z"),
+    );
+    const older = makeWeddingWithTimes(
+      db,
+      [{ startAt: "TBD by the couple", endAt: "" }],
+      new Date("2021-01-01T00:00:00.000Z"),
+    );
+
+    expect(await runOn(db, retentionService.sweepExpiredGuestData(now))).toBe(
+      MAX_WEDDINGS_PER_SWEEP,
+    );
+
+    expect(dated.filter((w) => guestCount(db, w.guestId) > 0)).toEqual([]);
+    expect({
+      older: guestCount(db, older.guestId),
+      newer: guestCount(db, newer.guestId),
+    }).toEqual({ older: 0, newer: 1 });
   });
 
   it("counts and logs a sweep whose cohort read fails", async () => {
@@ -797,19 +841,25 @@ describe("retentionService.sweepExpiredGuestData", () => {
       // An hour short of three calendar years, though more than 1,095 days:
       // the years are calendar years, so the anniversary is never early.
       new Date("2023-06-17T05:00:00.000Z"),
+      // Three calendar years to the second: kept until the next run.
+      new Date("2023-06-17T04:00:00.000Z"),
     ];
     const young = youngAt.map((at) =>
       makeWeddingWithTimes(db, [{ startAt: "TBD by the couple", endAt: "" }], at),
     );
+    // Due by the year rule in the same run, so the line below counts only the
+    // weddings deleted by their creation, not every wedding the run deleted.
+    const dated = await runOn(db, makeWedding({ eventDates: ["2025-03-01"] }));
 
     const logs = await captureLogs(() =>
       runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
     );
 
     expect(guestCount(db, old.guestId)).toBe(0);
-    expect(young.map((w) => guestCount(db, w.guestId))).toEqual([1, 1]);
+    expect(guestCount(db, dated.guestId)).toBe(0);
+    expect(young.map((w) => guestCount(db, w.guestId))).toEqual([1, 1, 1]);
     // The kept count is the young ones alone; the deleted one has its own line.
-    expect(undatedLines(logs)).toEqual([expect.stringContaining('"weddings":2')]);
+    expect(undatedLines(logs)).toEqual([expect.stringContaining('"weddings":3')]);
     expect(createdBoundLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
     // Counts only: no id, no stored value, no creation date in any form.
     for (const secret of [

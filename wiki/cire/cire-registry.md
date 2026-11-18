@@ -53,7 +53,7 @@ One row per wedding, keyed by `wedding_id` (PK + FK cascade). **An absent row re
 | `stripe_connected_at` (migration `20261105131915`) | When the account was connected to this row, cire's clock: written only by the statement that fills the id, copied by a reuse from its source. A deauthorization clears rows connected at or before Stripe's event, so a reconnect after it stays; `account.updated` and the refresh never move it. A trigger clears it and the type whenever the id is cleared, by any Worker |
 | `stripe_connected_by_osn_profile_id` | The owner who connected the account, and so the only one who may open its onboarding links (see [Only the connecting owner](#connecting-the-account-built)). Written in the statement that fills a NULL `stripe_account_id`, kept while the id is kept, cleared with it. NULL beside an account means nobody is on record, and then no owner may. It is also what lets that owner give the account to another wedding of theirs |
 | `stripe_deauthorized_at`, `stripe_deauthorized_account_id` | What a revocation leaves behind. `account.application.deauthorized` NULLs `stripe_account_id` — that is what disarms the guest gate and what lets the couple reconnect, since the attach path only ever fills a NULL — so these two are the only record of which account the wedding's earlier gifts settled into. Nothing in the product reads them |
-| `gift_summary_json`, `gift_summary_at` (migration 0058)                                              | What the couple keeps after the 1-year sweep takes the detail: counts, per-currency totals and each money gift's amount, currency and day — no household, no name, no note. Written by the sweep itself, in the delete's batch |
+| `gift_summary_json`, `gift_summary_at` (migration 0058)                                              | What the couple keeps after the guest-data sweep takes the detail: counts, per-currency totals and each money gift's amount, currency and day — no household, no name, no note. Written by the sweep itself, in the delete's batch |
 
 ### `registry_items`
 
@@ -340,7 +340,7 @@ A group gift is one named item — an espresso machine, a sofa — that several 
 
 ### What the couple keeps (built)
 
-Guest data goes at one year, and gifts go with it — the household, the name a guest typed, the note they wrote. That is right for the personal detail and wrong for the fact that people gave: a couple who opens the registry two years on should not find that their wedding received nothing.
+Guest data goes at one year (three years after its creation for a wedding the sweep cannot date), and gifts go with it — the household, the name a guest typed, the note they wrote. That is right for the personal detail and wrong for the fact that people gave: a couple who opens the registry two years on should not find that their wedding received nothing.
 
 So the sweep counts before it deletes. `sweepExpiredGuestData` counts each wedding's gifts straight after the cohort read (`countGiftSummaries`) and writes one JSON blob per wedding on `registry_settings` in the same D1 batch as the delete — a row the sweep does not touch, because it hangs off the wedding rather than off a guest:
 

@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -30,6 +30,7 @@ import {
   minorToInput,
   parseMinor,
 } from "../lib/money";
+import { CIRE_MARKETING_URL } from "../lib/osn";
 import {
   ensureRegistryLoaded,
   type GiftLogEntry,
@@ -1527,9 +1528,17 @@ export default function RegistryView(props: RegistryViewProps) {
                 Your record of gifts
               </Eyebrow>
               <p class="text-text-muted text-ui-sm">
-                On {band().sweptOn}, as our privacy notice says, we deleted your guests' details —
-                who gave each gift, and the notes they wrote. We kept the amount and the day of each
-                cash gift, and these totals.
+                On {band().sweptOn}, as{" "}
+                <a
+                  href={`${CIRE_MARKETING_URL}/privacy/hosts/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={proseLinkClass()}
+                >
+                  our privacy notice<span class="sr-only"> (opens in a new tab)</span>
+                </a>{" "}
+                says, we deleted your guests' details — who gave each gift, and the notes they
+                wrote. We kept the amount and the day of each cash gift, and these totals.
               </p>
               <Show when={band().claimsTotal > 0}>
                 <span class="text-text text-ui-md">
