@@ -1425,6 +1425,23 @@ describe("the Stripe test-mode job runs nightly and by hand, and holds its key i
     }
     expect(after.filter((step) => step.uses === "actions/upload-artifact@v4")).toHaveLength(1);
   });
+
+  // The run step executes the installed packages and Chromium holding the key,
+  // and any workflow on main can write the caches the setup would restore.
+  test("installs without the shared bun and Chromium caches, and bounds the Stripe CLI download", () => {
+    const setups = steps.filter((step) => step.uses === "./.github/actions/e2e-setup");
+    expect(setups.map((step) => step.with?.cache)).toEqual(["false"]);
+    const action = Bun.YAML.parse(
+      readFileSync(join(root, ".github/actions/e2e-setup/action.yml"), "utf8"),
+    ) as CompositeAction;
+    const restores = (action.runs.steps ?? []).filter((step) =>
+      ["~/.bun/install/cache", "~/.cache/ms-playwright"].includes(String(step.with?.path)),
+    );
+    expect(restores).toHaveLength(2);
+    for (const step of restores) expect(step.if).toBe("inputs.cache != 'false'");
+    const cli = steps.find((step) => step.name === "Install the Stripe CLI");
+    expect(cli?.["timeout-minutes"]).toBeLessThanOrEqual(5);
+  });
 });
 
 describe("ci.yml's browser legs run every package with a `test:browser` script, once", () => {

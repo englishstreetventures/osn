@@ -11,7 +11,9 @@
  *    `STRIPE_TEST_CONNECTED_ACCOUNT`: fails, naming the variable;
  *  - otherwise reads the `stripe-test-mode` Environment from GitHub and fails
  *    unless only the `main` branch may deploy from it, so no other branch's
- *    workflow can read the key; then writes `run=true`.
+ *    job can deploy from the Environment; then writes `run=true`. It cannot
+ *    see a secret's scope: a key stored at repository or organisation scope
+ *    would pass, so the owner keeps it in the Environment alone.
  *
  * With no flag it runs:
  *  1. The same key and account check; a refusal stops it before any port
@@ -31,8 +33,10 @@
  *
  * `stripe listen`'s output goes to `e2e-artifacts/logs/stripe-listen.log`
  * with every secret redacted and any other account's events left out. The
- * key reaches cire-api, `stripe listen` and the Playwright runner, and no
- * other process (`baseEnv` in `stack.ts`).
+ * key reaches cire-api, `stripe listen`, and the Playwright runner and its
+ * worker, whose flow calls Stripe. No other app gets it (`baseEnv` in
+ * `stack.ts`), and the browser is launched without it
+ * (`playwright.stripe-test-mode.config.ts`).
  *
  * Its imports up front are node built-ins and `./stripe-test-mode` alone:
  * anything that reaches `config.ts` would fix the clock before step 2.
@@ -113,8 +117,10 @@ async function preflight(env: Env): Promise<number> {
       ? decision.reason
       : env["GITHUB_REPOSITORY"]
         ? branchPolicyRefusal(
-            await readEnvironment(env, ""),
-            await readEnvironment(env, "/deployment-branch-policies"),
+            ...(await Promise.all([
+              readEnvironment(env, ""),
+              readEnvironment(env, "/deployment-branch-policies"),
+            ])),
           )
         : "GITHUB_REPOSITORY is not set: the preflight reads the Environment from GitHub Actions";
   if (refusal !== null) {

@@ -306,3 +306,24 @@ describe("the preflight and the run, refusing what they cannot check", () => {
     );
   });
 });
+
+// The browser runs Stripe's own pages; only the worker calls Stripe, so only
+// the worker holds the key. Playwright gives the browser the runner's whole
+// environment unless the config names one.
+describe("the test-mode Playwright config", () => {
+  test("launches the browser without the key, keeping the rest of the environment", async () => {
+    const value = key("sk", "test");
+    process.env["STRIPE_TEST_SECRET_KEY"] = value;
+    try {
+      const { default: config } = await import("../playwright.stripe-test-mode.config");
+      const env = config.use?.launchOptions?.env ?? {};
+      expect(Object.keys(env).length).toBeGreaterThan(0);
+      expect(env).not.toHaveProperty("STRIPE_TEST_SECRET_KEY");
+      expect(Object.values(env)).not.toContain(value);
+      expect(env["PATH"]).toBe(process.env["PATH"]);
+      expect(config.testDir).toBe("./tests/stripe-test-mode");
+    } finally {
+      delete process.env["STRIPE_TEST_SECRET_KEY"];
+    }
+  });
+});

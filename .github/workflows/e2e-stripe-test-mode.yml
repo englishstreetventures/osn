@@ -15,14 +15,17 @@ name: E2E Stripe test mode
 # secret. It is not a required check.
 #
 # Its values live in the `stripe-test-mode` Environment, which only the main
-# branch may deploy from, so no other branch's workflow can read the key:
+# branch may deploy from, and never at repository or organisation scope, where
+# `secrets.` would find a key of the same name for any branch's job:
 #   - secret `STRIPE_TEST_SECRET_KEY`: a Stripe sandbox's test-mode key
 #     (`sk_test_`, or `rk_test_`), a sandbox used for nothing else;
 #   - variable `STRIPE_TEST_CONNECTED_ACCOUNT`: that sandbox's Australian
 #     connected account the gift is charged on.
 # With no key the job skips, successfully, with a notice in its summary. A key
 # that is not a test-mode one, a missing account, or an Environment that
-# admits any branch but main fails the preflight before anything installs.
+# admits any branch but main fails the preflight before anything installs. The
+# preflight cannot see a secret's scope; the owner keeps the key in the
+# Environment alone.
 on:
   schedule:
     # 04:41 UTC daily, off the hour that every scheduled workflow asks for.
@@ -68,12 +71,17 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: bun tools/e2e/src/stripe-test-mode-launcher.ts --preflight
 
+      # No cache: the run step executes this code holding the key, and any
+      # workflow on main can write the bun and Chromium caches.
       - uses: ./.github/actions/e2e-setup
         if: steps.preflight.outputs.run == 'true'
+        with:
+          cache: "false"
 
       # A pinned release, checked against the digest committed here.
       - name: Install the Stripe CLI
         if: steps.preflight.outputs.run == 'true'
+        timeout-minutes: 3
         env:
           STRIPE_CLI_VERSION: 1.55.12
           STRIPE_CLI_SHA256: 89d0bbec0970917a07fbd4d3a98afecf95b08f88f0687362c4a94447a0610245
@@ -81,7 +89,7 @@ jobs:
           dir="$RUNNER_TEMP/stripe-cli"
           mkdir -p "$dir"
           tarball="$dir/stripe.tar.gz"
-          curl -fsSL --retry 3 -o "$tarball" \
+          curl -fsSL --retry 3 --connect-timeout 20 --max-time 120 -o "$tarball" \
             "https://github.com/stripe/stripe-cli/releases/download/v${STRIPE_CLI_VERSION}/stripe_${STRIPE_CLI_VERSION}_linux_x86_64.tar.gz"
           echo "${STRIPE_CLI_SHA256}  ${tarball}" | sha256sum --check --strict
           tar -xzf "$tarball" -C "$dir" stripe
