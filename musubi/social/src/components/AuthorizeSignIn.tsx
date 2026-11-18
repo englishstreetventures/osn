@@ -72,6 +72,7 @@ export function AuthorizeSignIn(props: {
           client={registrationClient}
           turnstileSiteKey={TURNSTILE_SITEKEY}
           productName={PRODUCT_NAME}
+          legal={{ termsHref: "/terms", privacyHref: "/privacy" }}
           cancelLabel="Sign in instead"
           onCancel={() => setMode("signIn")}
           onSuccess={() => props.onSuccess()}

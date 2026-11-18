@@ -76,6 +76,7 @@ export function AuthDialogs(props: {
             client={registrationClient}
             turnstileSiteKey={TURNSTILE_SITEKEY}
             productName={PRODUCT_NAME}
+            legal={{ termsHref: "/terms", privacyHref: "/privacy" }}
             onCancel={() => props.onShowRegisterChange(false)}
             onSuccess={() => props.onShowRegisterChange(false)}
           />

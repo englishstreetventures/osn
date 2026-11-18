@@ -16,7 +16,9 @@
  * consent screen, its first-party mark and the chosen profile's name; on the
  * third-party one, its "Third-party app" chip and its scope rows. On the way it
  * reads the shared parts the auth views draw: the create-account dialog's
- * plain field labels and the date of birth's hint, the sign-in dialog's label
+ * plain field labels and the date of birth's hint, its "Terms of Service"
+ * opening the terms in a tab of their own with the typed address kept, the
+ * sign-in dialog's label
  * and its standalone "Lost your passkey?" link, Continue busy while
  * `/login/passkey/begin` is held, `/authorize`'s "Create one" link inside
  * its sentence, and Discover's "Search for someone" inside its empty note. It
@@ -234,8 +236,29 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   const sendHeld = holdMethod("POST");
   await page.route(registerBegin, sendHeld.handler);
   try {
-    await flow.step("register: details", async () => {
+    await flow.step("register: type the address", async () => {
       await page.getByLabel("Email").fill(ada.email);
+    });
+    // The agreement line's "Terms of Service" opens the terms in a tab of its
+    // own, so the form keeps what was typed while they are read.
+    const termsTab = await flow.step("register: read the terms in a tab of their own", async () => {
+      const link = registerDialog.getByRole("link", { name: "Terms of Service", exact: true });
+      await expect(link).toBeVisible();
+      const [opened] = await Promise.all([page.waitForEvent("popup"), link.click()]);
+      const heading = opened.getByRole("heading", { level: 1 });
+      await expect(heading).toHaveText("Terms of Service");
+      const read = { path: new URL(opened.url()).pathname, heading: await heading.innerText() };
+      await opened.close();
+      return read;
+    });
+    flow.check("register: the Terms link opens /terms", "/terms", termsTab.path);
+    flow.check("register: the new tab is the terms", "Terms of Service", termsTab.heading);
+    flow.check(
+      "register: the address is still typed after reading the terms",
+      ada.email,
+      await page.getByLabel("Email").inputValue(),
+    );
+    await flow.step("register: details", async () => {
       await page.getByLabel("Handle").fill(ada.handle);
       await page.getByLabel("Date of birth").fill("1990-01-01");
       await page.getByLabel("Display name (optional)").fill(ada.name);

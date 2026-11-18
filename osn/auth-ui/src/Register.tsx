@@ -8,7 +8,7 @@ import {
 } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
-import { Button } from "@shared/ui/ui/button";
+import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { Field } from "@shared/ui/ui/field";
 import { InfoPopover } from "@shared/ui/ui/info-popover";
 import { Input } from "@shared/ui/ui/input";
@@ -99,6 +99,12 @@ interface RegisterBaseProps {
   turnstileSiteKey?: string;
   /** Product name shown in this dialog's copy — e.g. "Musubi". */
   productName: string;
+  /**
+   * The host's own terms of service and privacy notice. The details step says
+   * that creating an account agrees to the first and acknowledges the second,
+   * linking each in a tab of its own so the form keeps what was typed.
+   */
+  legal: { termsHref: string; privacyHref: string };
 }
 
 /**
@@ -160,6 +166,7 @@ export function Register(props: RegisterProps) {
   const emailErrorId = createUniqueId();
   const birthdateErrorId = createUniqueId();
   const handleTakenId = createUniqueId();
+  const agreementId = createUniqueId();
   // Turnstile token — REQUIRED only when a sitekey is provided.
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
   const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
@@ -759,12 +766,15 @@ export function Register(props: RegisterProps) {
               cancelDisabled={busyNow()}
               action={
                 // Invalid only while idle: the send spends the token, and a
-                // refused one drops it before the wait ends.
+                // refused one drops it before the wait ends. Described by the
+                // agreement line, so a screen reader hears what the send
+                // agrees to where it is pressed.
                 <Button
                   type="submit"
                   {...stepAction(props.host)}
                   busy={sending()}
                   disabled={!sending() && !detailsValid()}
+                  aria-describedby={agreementId}
                 >
                   {sending() ? "Sending…" : "Send verification link"}
                 </Button>
@@ -893,6 +903,31 @@ export function Register(props: RegisterProps) {
                 onToken={setTurnstileToken}
                 onReady={(c) => (resetTurnstile = c.reset)}
               />
+
+              {/* Each link opens a tab of its own, so reading the host's page
+                  keeps every field here as typed. Neither is held while the
+                  send runs: neither leaves the view. */}
+              <p id={agreementId} class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+                By creating an account you agree to the{" "}
+                <a
+                  href={props.legal.termsHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={buttonVariants({ variant: "link", size: "inline" })}
+                >
+                  Terms of Service
+                </a>{" "}
+                and acknowledge the{" "}
+                <a
+                  href={props.legal.privacyHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={buttonVariants({ variant: "link", size: "inline" })}
+                >
+                  Privacy Notice
+                </a>
+                .
+              </p>
 
               <Show when={detailsError()}>
                 {(msg) => (
