@@ -36,6 +36,7 @@ import {
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
   createOrganiserEmailLookupFromEnv,
+  createRemovalBridgeFromEnv,
   createOrgMembershipResolverFromEnv,
   createProfileDisplayResolverFromEnv,
   createProfileOrgsResolverFromEnv,
@@ -580,6 +581,14 @@ const handler: ExportedHandler<Env> = {
               arcKeyId: env.CIRE_API_ARC_KEY_ID,
             })) ?? undefined)
           : undefined,
+        // A host's removal of their Cire data: absent the ARC key, its routes
+        // answer 503.
+        accountRemovalBridge:
+          (await createRemovalBridgeFromEnv({
+            osnApiUrl: env.OSN_API_URL,
+            arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+            arcKeyId: env.CIRE_API_ARC_KEY_ID,
+          })) ?? undefined,
         resolveOsnHandleSearch,
         resolveOsnConnectionSearch,
         turnstileVerifier,

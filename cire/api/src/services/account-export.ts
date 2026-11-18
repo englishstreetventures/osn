@@ -54,12 +54,13 @@ export type CireExportLine =
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
- * The portal's origin as a link may carry it: `https:`, or `http:` on a
+ * The portal's origin as a link to it may carry it: `https:`, or `http:` on a
  * loopback host for a local run (osn-api's own rule for app addresses); null
- * otherwise. `createApp` has already parsed it: an origin that does not parse
- * stops the app being built.
+ * otherwise, and for anything that is not an origin. Shared by the account
+ * export's download links and the deletion preview's open actions.
  */
-function linkOrigin(origin: string): string | null {
+export function linkOrigin(origin: string): string | null {
+  if (!URL.canParse(origin)) return null;
   const url = new URL(origin);
   if (url.protocol === "https:") return url.origin;
   return url.protocol === "http:" && LOOPBACK.has(url.hostname) ? url.origin : null;

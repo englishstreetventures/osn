@@ -1030,7 +1030,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                       weddingId={props.weddingId}
                       weddingSlug={props.weddingSlug}
                       canManage={props.canManage}
-                      coHosts={props.canManage ? undefined : settingsLink("hosts")}
+                      coHosts={settingsLink("hosts")}
                     />
                   </Show>
                 </Show>

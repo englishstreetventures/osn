@@ -39,6 +39,7 @@ export interface CeremonyStores {
   authorizeRequests: CeremonyStore<PendingAuthorizeRequest>;
   recoveryDisownTokens: CeremonyStore<RecoveryDisownToken>;
   emailLinks: CeremonyStore<EmailLinkChallenge>;
+  appStepUpRequests: CeremonyStore<AppStepUpRequest>;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +235,36 @@ export interface EmailLinkClaim {
 // In-memory bounds (pending registrations, pending CDL, login challenges)
 // are now enforced inside the ceremony store (CEREMONY_STORE_MAX) rather than
 // per-call-site, so the old MAX_* constants are gone.
+
+/**
+ * An app's request that the person confirm an action on Musubi, by request id
+ * (`services/auth/app-step-up.ts`). The app begins it over ARC for one
+ * profile; the person confirms it with a step-up on Musubi; the app verifies
+ * it over ARC. Holds hashes only: `binding` is the SHA-256 of a secret only the
+ * app's cookie in the asking browser holds, and `codeHash` the SHA-256 of the
+ * code Musubi hands that browser back.
+ */
+export type AppStepUpRequest =
+  | {
+      readonly state: "pending";
+      readonly accountId: string;
+      readonly purpose: "cire_app_delete";
+      /** Hex SHA-256 of the app's browser secret. */
+      readonly binding: string;
+      /** Where Musubi sends the person once they confirm. */
+      readonly returnTo: string;
+    }
+  | {
+      readonly state: "confirmed";
+      readonly accountId: string;
+      readonly purpose: "cire_app_delete";
+      readonly binding: string;
+      readonly returnTo: string;
+      /** Hex SHA-256 of the code handed back on confirm. */
+      readonly codeHash: string;
+      /** The confirming session's family: the request lasts no longer than it. */
+      readonly familyId: string;
+    };
 
 export interface CrossDeviceRequest {
   requestId: string;
@@ -468,6 +499,7 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       observer,
     ),
     emailLinks: createInMemoryCeremonyStore<EmailLinkChallenge>("email_link", observer),
+    appStepUpRequests: createInMemoryCeremonyStore<AppStepUpRequest>("app_step_up", observer),
   };
 }
 

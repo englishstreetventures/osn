@@ -8,7 +8,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-18
 ---
 
 # Step-up (sudo) tokens
@@ -30,6 +30,7 @@ than by knob for exactly that reason.
 | `POST /account/restore` (cancel a pending deletion) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `POST /account/security-events/:id/ack` + `/ack-all` | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `/internal/step-up/verify` (Pulse / Zap app delete) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
+| `POST /step-up/requests/:id/confirm` (an app's step-up request: cire's removal of a host's data) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `POST /passkey/register/{begin,complete}` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `POST /totp/enroll/begin` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `DELETE /totp` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
@@ -128,8 +129,9 @@ route refuses a token that is not of the account owning that profile, before
 the `jti` is claimed: an app holds no account ids, so only OSN can tell that a
 token minted on one account is being spent against another's profile. Each
 app spends only its own deletion purpose — `pulse_app_delete` for `pulse-api`,
-`zap_app_delete` for `zap-api` — and a refusal answers
-`{ ok: false, reason: "invalid" }`.
+`zap_app_delete` for `zap-api`, `cire_app_delete` for `cire-api` — and a
+refusal answers `{ ok: false, reason: "invalid" }`. cire's purpose is spent
+through an app step-up request only, never a token (below).
 
 The emailed link signs nobody in: the page it opens confirms the request, and
 only the tab that began, signed in as the same account and holding the claim
@@ -220,6 +222,7 @@ An amr-only check says *how* the user proved themselves, not *what for*. Without
 | `account_export` | account export |
 | `account_restore` | `POST /account/restore`, which cancels a pending deletion |
 | `pulse_app_delete`, `zap_app_delete` | downstream app-data deletion, via `verifyStepUpForExternalPurpose` |
+| `cire_app_delete` | a host removing their Cire data, through an app step-up request (below) |
 | `passkey_register` | `POST /passkey/register/{begin,complete}` past the first credential |
 | `passkey_delete` | `DELETE /passkeys/:id` **and** `PATCH /passkeys/:id` — rename shares the claim |
 | `email_change` | `POST /account/email/:requestId/complete` |
@@ -232,6 +235,42 @@ The union lives in `StepUpPurpose` (`shared/observability/src/metrics/attrs.ts`)
 A gate that names a purpose rejects a **purposeless** token too — there is no accept-legacy fallback, so any new client of such a gate must send `purpose`.
 
 **A pending-deletion session mints two purposes only.** The step-up routes admit the access token of an account whose deletion is pending ([[sessions#The pending-deletion session]]) for `account_export` and `account_restore`, and for nothing else: passkey and TOTP complete refuse it with no purpose or another one, before the challenge is taken or the code counted; email begin refuses another purpose; and email status and resend answer `expired`, sending nothing, for a link begun for another purpose, one begun before the deletion included. Passkey begin takes no purpose and only parks a challenge, so it admits the token. Tests: `osn/api/tests/routes/pending-deletion-session.test.ts`.
+
+## App step-up requests
+
+An app whose own pages cannot run a step-up asks for one through Musubi. cire's
+organiser portal is that app: it holds no OSN token (cire-api keeps a session
+cookie of its own, [[cire-auth]]), and passkeys are bound to Musubi's origin.
+The service is [`services/auth/app-step-up.ts`](../../osn/api/src/services/auth/app-step-up.ts);
+its state is the `app_step_up` ceremony store, holding ids and hashes only.
+
+| Step | Route | Who | What |
+|---|---|---|---|
+| Begin | `POST /internal/step-up/requests` | the app, over ARC (`step-up:verify`, issuer pinned per purpose: `cire-api` for `cire_app_delete`) | `{ profile_id, purpose, binding, return_to }`: `binding` is the hex SHA-256 of a secret only the app's cookie in the asking browser holds; `return_to` must be on the app's configured portal origin (`CIRE_ORGANISER_ORIGIN`, which the musubi stack sets; on a local run with none, any loopback origin; on a deployed tier with none, 503). Refused for a profile whose account is unknown or pending deletion. Kept 10 minutes, pending |
+| Read | `GET /step-up/requests/:id` | Musubi's `/confirm/:requestId` page, Bearer | `{ purpose, return_host }` for a pending request of the caller's account; 404 otherwise, and to any session of an account whose deletion is pending |
+| Confirm | `POST /step-up/requests/:id/confirm` | the same page, Bearer, a live session | spends a step-up token for the request's purpose; the request becomes confirmed for 5 minutes with the hash of a fresh code and the confirming session's family; answers `return_to` with `code=<code>` on its fragment's query |
+| Verify | `POST /internal/step-up/verify` with `request: { id, binding, code }` and no `token` | the app, over ARC | ok while the request is confirmed, the binding and the code match (constant-time), the profile's owner is the request's account and not pending deletion, and the confirming family still has a live session: answers `account_id` and every profile id of the account. Spends nothing |
+
+Why it holds against a stolen app session: someone holding a host's cire
+cookie can begin a request in their own browser, but the code goes to the
+browser of whoever confirms on Musubi, and the secret stays in the browser
+that began; neither holds both. The return address is pinned, so a leaked
+`step-up:verify` key cannot have a code sent anywhere else, and the confirm
+page is no open redirect. What stays open, by design:
+
+- A verify spends nothing, so one confirmation serves one browser's removal
+  for its 5 minutes: a removal of more than three owned weddings, or a refused
+  answer, continues without a new ceremony. Clearing the app's cookie ends the
+  browser's use of it; the request itself lives out its 5 minutes.
+- Confirm claims the step-up token before it marks the request. A store
+  failure there, or an answer the browser never reads, leaves the request
+  pending, or confirmed with a code nobody holds: the page says to start again
+  from the app.
+- If the app's session expires on the way back, its sign-in carries the
+  address, code included, to its login page and back. The code alone confirms
+  nothing without the browser's secret.
+
+Tests: `osn/api/tests/routes/app-step-up-requests.test.ts`.
 
 ## Token shape
 
@@ -417,6 +456,7 @@ Each outcome increments `osn.auth.step_up.verified{result}` with a distinct boun
 - `osn.auth.email_link.sends{flow="step_up", result}` — step-up links sent, held back or failed
 - `osn.auth.step_up.lockout{result}` — wrong typed numbers on step-up links: `recorded`, `locked` (the count at or past five, or a right number refused while it holds), `unavailable` (the counter could not be read or written)
 - `osn.auth.security_event.recorded{kind}` — `step_up_link_declined` and `step_up_link_lockout` among its kinds, written after the answer (span `auth.email_link.event`)
+- `osn.auth.app_step_up.requests{stage, result}` — an app's step-up requests: `stage` `begin`, `confirm` or `verify`; `result` `ok`, `refused` or `error`. Spans `auth.app_step_up.begin`, `.confirm`, `.verify`; the store's operations count on `osn.auth.ceremony_store.operations` under `app_step_up`
 - Redaction: `stepUpToken` / `step_up_token` are in the logger deny-list
 
 ## Threat model

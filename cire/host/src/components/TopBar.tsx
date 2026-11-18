@@ -42,6 +42,7 @@ export default function TopBar(props: {
   onWedding: (wedding: WeddingSummary) => void;
   onAll: () => void;
   onSecurity: () => void;
+  onRemoveData: () => void;
   onSignOut: () => void;
   onOpenPalette: () => void;
 }) {
@@ -152,6 +153,7 @@ export default function TopBar(props: {
           <ProfileMenu
             session={props.session}
             onSecurity={props.onSecurity}
+            onRemoveData={props.onRemoveData}
             onSignOut={props.onSignOut}
           />
         </div>

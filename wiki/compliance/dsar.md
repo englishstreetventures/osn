@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-18
 ---
 
 # DSAR Runbook
@@ -26,6 +26,7 @@ runbook, two regimes, because the operational steps overlap.
 | `POST /account/data-link` | The account holder: Musubi's "Send me a link" | `@osn/api` — mails the account's own address a link to the download page, never the data ([[#Emails]]) | Immediate |
 | `DELETE /account` | The account holder, self-service: Musubi's Settings → Account → Danger zone ([[#Musubi's screens]]) | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
 | `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window | 7 d (account) / 14 d (events) |
+| `DELETE /api/organiser/account` (cire-api, Flow B) | A host removes their Cire data without losing OSN: "Remove my Cire data" in the portal's account menu | `@cire/api` — the account erasure's `host` scope, after a step-up confirmed on Musubi ([[cire-auth#A host removes their Cire data]]) | Immediate |
 | `dsar@osn.example` (planned, alias on landing) | Anyone via email | Identity team inbox | 30 d (GDPR) / 45 d (CCPA) |
 | Postal address (planned, on landing) | Anyone via mail | Identity team inbox | Same |
 | Authorised agent | Third party with notarised authority | Same email + verification | Same; verification adds days, log it |
@@ -98,7 +99,7 @@ Most fields are user-editable in `@musubi/social` (handle change, displayName, a
 Status: **shipped**. Two flows:
 
 - **Flow A — full OSN account delete.** `DELETE /account` on osn-api. Soft-deletes the account at once. Once the 7-day grace window has passed, the six-hourly cron calls every app over ARC with the person's answers (`runFanOutRetrySweep`, [[#The apps' open actions and the app contract]]), then hard-deletes it (`account-erasure.runHardDeleteSweep`).
-- **Flow B — per-app delete (leave Pulse).** `DELETE /account` on pulse-api. Soft-deletes the user's Pulse-scoped data; hosted public events get a 14-day public-cancellation window (audience-commitment, independent of the account grace) before being hard-deleted. Pulse calls back to osn-api `/internal/app-enrollment/leave` to flip `app_enrollments.left_at`. The OSN account stays alive — the user can keep using Zap / OSN identity.
+- **Flow B — per-app delete.** A host removes their Cire data with `DELETE /api/organiser/account` on cire-api, at once ([[#Cire (wedding-invite) data]]). To leave Pulse, `DELETE /account` on pulse-api. Soft-deletes the user's Pulse-scoped data; hosted public events get a 14-day public-cancellation window (audience-commitment, independent of the account grace) before being hard-deleted. Pulse calls back to osn-api `/internal/app-enrollment/leave` to flip `app_enrollments.left_at`. The OSN account stays alive — the user can keep using Zap / OSN identity.
 
 Use `DELETE /account` ([`routes/account-erasure.ts`](../../osn/api/src/routes/account-erasure.ts), [`services/account-erasure.ts`](../../osn/api/src/services/account-erasure.ts)). The request needs the profile's handle typed (`confirm_handle`), a live session, every app able to answer a fresh preview, an answer for each open action that needs one, organisation or app, or `delete_everything: true` instead (below), and a step-up token for `account_delete`, read last, so a refused request spends no token. Three stages:
 
@@ -219,12 +220,12 @@ Each pass reads up to 100 due jobs: those that have never failed first (`hard_de
 Musubi's Settings → Account ([[social]]) holds the person's side of Flow A:
 
 - **Your data.** "Download my data" (an `account_export` step-up, then `GET /account/export`, saved as a file; one a day) and "Send me a link" (`POST /account/data-link`, [[#Emails]]).
-- **Danger zone → "Delete account…".** A flow: what is deleted and what stays, and the seven days; the download again; each open action from `GET /account/deletion-preview`, grouped by app, with its choices as the server describes them, its erase date and its link (a cire wedding's link opens it in Cire, where its exports are downloaded; Musubi builds no Cire address); one "Delete everything" switch; the handle typed; an `account_delete` step-up; `DELETE /account`. An app that could not be checked blocks the flow and is named; each refusal (409 `open_actions`, `stale_choices`, `could_not_check`; 400 `invalid_choice`, `choices_with_delete_everything`, `handle_mismatch`; 403 `step_up_required`) returns the person to the step they can act on. On the 202 the page renews its token onto the pending audience at once.
+- **"Delete account…" in Danger zone.** A flow: what is deleted and what stays, and the seven days; the download again; each open action from `GET /account/deletion-preview`, grouped by app, with its choices as the server describes them, its erase date and its link (a cire wedding's link opens its download page in Cire, which also offers to add another owner; Musubi builds no Cire address, and follows an app's link only when it is `https:`, or `http:` to this machine, which osn-api forwards from a local run alone); one "Delete everything" switch; the handle typed; an `account_delete` step-up; `DELETE /account`. An app that could not be checked blocks the flow and is named; each refusal (409 `open_actions`, `stale_choices`, `could_not_check`; 400 `invalid_choice`, `choices_with_delete_everything`, `handle_mismatch`; 403 `step_up_required`) returns the person to the step they can act on. On the 202 the page renews its token onto the pending audience at once.
 - **The window.** While the deletion is pending, every sign-in to Musubi, and the device that asked, show one screen in place of the app: the date, "Keep my account" (an `account_restore` step-up, then `POST /account/restore`; the page renews onto the ordinary audience and the app comes back) and "Download my data". `@osn/client` keeps such a session rather than ending it on the first refused route ([[sessions#The pending-deletion session]]).
 
 A person keeps the account by signing in to Musubi before the date — with a passkey, or with their email address (sign-in by handle finds nothing during the window) — and choosing "Keep my account". Signing in to Pulse or cire during the window lands on Musubi's `/authorize`, which refuses the account (`access_denied`) and shows no window screen.
 
-No "Remove my data" link sits under Settings → Connected apps: no app has a leave screen yet (Pulse has the leave route only; cire's is later work).
+No "Remove my data" link sits in Musubi's Connected apps settings: Musubi keeps no address of an app's portal, and cire's portal origin reaches osn-api only inside one call's answer. A host removes their Cire data from cire's own portal, which sends them to Musubi's `/confirm/<request id>` page for the step-up and back ([[step-up#App step-up requests]]). Pulse has the leave route only.
 
 #### Emails
 
@@ -283,9 +284,9 @@ owners, each with an `owner` seat. Two consequences:
     open action, `cire:wedding:<id>`, with one choice, `delete`, and no
     default, so `DELETE /account` answers 409 `open_actions` until the person
     answers it, chooses "delete everything", adds another owner (the action's
-    link opens the wedding's owners in the host portal, and the action is then
-    gone) or deletes the wedding. A wedding with another owner is not an
-    action.
+    link opens the wedding's download page in the host portal, which also
+    offers to add another owner, and the action is then gone) or deletes the
+    wedding. A wedding with another owner is not an action.
   - *Soft delete.* Only the person's organiser sessions end. The weddings and
     seats are untouched, so a cancel loses nothing.
   - *Erasure,* per wedding the account has an owner seat in, one D1 batch:
@@ -301,16 +302,27 @@ owners, each with an `owner` seat. Two consequences:
     as the entries below say (`'deleted'` where the column cannot be NULL, or
     beside a time that stays or where NULL would say the guest or household
     wrote it). cire answers that it keeps nothing.
-  - Leaving cire while keeping the account is not built (account-deletion
-    design, phase 6). An operator handles such a request by hand, as an
-    erasure request from an organiser, by the same rules as the erasure
-    above, which the hosts' privacy notice
+  - *A host removing their Cire data* and keeping the account
+    ([[cire-auth#A host removes their Cire data]]): the same erasure, at once,
+    for every profile of the account, after a step-up the person confirms on
+    Musubi, and only once each wedding they alone own is answered `delete`.
+    It runs with the `host` scope, which leaves their vendor listing claims and
+    their guest account links as they are; everything else above goes, their
+    organiser sessions included, and the other owners of each wedding they
+    leave are emailed. A wedding left with no owner is deleted at once and the
+    purge takes it, later while a payment for it settles. They can sign in
+    to cire again later and start with no weddings.
+  - A host who cannot sign in to the organiser portal can still ask by email.
+    An operator handles that request by hand, as an erasure request from an
+    organiser, by the same rules as the removal above, which the hosts'
+    privacy notice
     ([`hosts.astro`](../../cire/landing/src/pages/privacy/hosts.astro), "How
     long we keep it") promises: tell the person which live weddings they
     alone own and point them to each one's download; delete none of those
     until they have added another owner or agreed to its deletion in writing;
     then remove their seats and notice rows, soft-delete each wedding left
-    with no owner, and clear every column that names one of their profiles.
+    with no owner, and clear every column that names one of their profiles as
+    a host.
 - **Co-owners in an owner's export (Art. 15(4)).** An owner's own data
   includes the seats on their weddings, and those name other people: every
   other owner's and co-host's profile id, who added each seat

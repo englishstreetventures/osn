@@ -9,7 +9,13 @@ import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Select } from "@shared/ui/ui/select";
 import { createUniqueId, For, Match, Show, Switch } from "solid-js";
 
-import { appName, formatDay, needsAnswer, type Answer } from "../lib/account-deletion";
+import {
+  appName,
+  followableLink,
+  formatDay,
+  needsAnswer,
+  type Answer,
+} from "../lib/account-deletion";
 
 /**
  * Why an action is marked: it needs an answer and has none, its `successor`
@@ -32,11 +38,6 @@ function memberName(member: {
     ? `${member.display_name} (@${member.handle})`
     : `@${member.handle}`;
   return member.role === "admin" ? `${who} · Admin` : who;
-}
-
-/** Only an https link is followed: the apps send nothing else. */
-function safeLink(link: string | null): string | null {
-  return link?.startsWith("https://") ? link : null;
 }
 
 export interface OpenActionCardProps {
@@ -65,7 +66,7 @@ export function OpenActionCard(props: OpenActionCardProps) {
   const only = () => (props.action.choices.length === 1 ? props.action.choices[0] : undefined);
   const lineMark = () =>
     props.mark === "unanswered" || props.mark === "refused" ? props.mark : undefined;
-  const link = () => safeLink(props.action.link);
+  const link = () => followableLink(props.action.link);
 
   const choose = (choice: string) =>
     props.onAnswer({

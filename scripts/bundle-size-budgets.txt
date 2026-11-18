@@ -49,7 +49,7 @@
 
 cire/invites   worker  200900   # measured 190660
 # cire/host is set for the dropped list row that settles into its slot.
-cire/host      static  390175   # measured 378475
+cire/host      static  405514   # measured 393814
 # cire/vendor is set for the enquiry thread and the theme, haptics and auto-size helpers it takes from @cire/ui.
 cire/vendor    static  103718   # measured 99379
 cire/landing   static  52425    # measured 40725

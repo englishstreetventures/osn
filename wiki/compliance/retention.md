@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-18
 ---
 
 # Retention
@@ -37,7 +37,7 @@ already enforces some of them; the rest need a sweeper job.
 | `accounts.last_recovered_at` | Until the next recovery overwrites it, an accepted `POST /recovery/disown` of that same recovery clears it (a disown token carrying an older `recovered_at` leaves it alone), or the `accounts` row is hard-deleted. It goes stale rather than wrong — both windows it opens compare it against a 72-hour deadline, so a value older than that is inert — and it is deliberately NOT swept: clearing it early would reopen the email-change gate the recovery closed | App code | OK | Identity |
 | `totp_credentials` | While the credential exists. Deleted on `DELETE /totp`, and with passkeys and recovery codes at the account's hard delete. Kept through the 7-day deletion window, so the person can sign in and cancel; a session of the account in that window reaches only the deletion status, the export and the cancel ([[dsar]]). | App code | OK | Identity |
 | `cdl_requests` | 5 min TTL; in-memory expiry on poll | App code | OK; consider lazy eviction (cdl) | Identity |
-| Ceremony entries: WebAuthn challenges, pending registrations and emailed-link requests (sign-up, recovery, step-up, email change), pending email changes and TOTP enrolments, cross-device requests, recovery disown tokens | Each entry's TTL: 2 to 10 min, 72 h for a disown token | Coordination store: expiry exact on read, then an alarm deletes the entry ([[coordination-store]]); in memory on the Bun dev server | OK | Identity |
+| Ceremony entries: WebAuthn challenges, pending registrations and emailed-link requests (sign-up, recovery, step-up, email change), pending email changes and TOTP enrolments, cross-device requests, recovery disown tokens, app step-up requests | Each entry's TTL: 2 to 10 min, 72 h for a disown token, and for an app step-up request 10 min pending and 5 min once confirmed | Coordination store: expiry exact on read, then an alarm deletes the entry ([[coordination-store]]); in memory on the Bun dev server | OK | Identity |
 | Sign-up link strike counter (`registration_link_lockout:<probe key>`, coordination store; the probe key of the address as typed, lowercased, [[email-links]]) | 24 h window from its first strike | 24 h window, expires with it: the alarm deletes the counter when the window ends; in memory on the Bun dev server | OK | Identity |
 | Sign-up first-link cap (`auth.registration_first_link_cap:<probe key>`, coordination store; the probe key of the address's mailbox key, [[email-links]]) | 1 h window from the mailbox's first link | Expires with its window: the alarm deletes the counter; in memory on the Bun dev server | OK | Identity |
 | `oauth_authorization_codes` (OIDC) | 60 s TTL. Deleted on redemption (`DELETE … RETURNING`), on consent revoke (in-flight purge), and on account erasure; abandoned rows reaped by `runExpiredAuthCodeSweep` on the Worker `scheduled` cron. | App code + scheduled sweep | OK | Identity |

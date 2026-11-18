@@ -14,7 +14,11 @@
  *    (`upgrade-refund`) goes to every owner, once, after Stripe accepted the
  *    refund. It names no actor and no reason, and spends a refund budget of
  *    the wedding's own, so refunds and owner changes cannot use up each
- *    other's.
+ *    other's;
+ *  - an owner who removed their Cire data and so left the wedding
+ *    (`wedding-owner-change`, as one who stepped down) goes to the owners who
+ *    remain, not to the one who left, and spends the wedding's budget only:
+ *    cire keeps nothing naming the person afterwards, a budget row included.
  *
  * Each names who acted. The actor gets their own copy because a session
  * someone else is using is exactly the case where the real owner needs to
@@ -282,7 +286,9 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
           ? [`actor:${actorOsnProfileId}`]
           : kind === "upgrade_refund"
             ? [`refund:${weddingId}`]
-            : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
+            : kind === "owner_left"
+              ? [`wedding:${weddingId}`]
+              : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
       const allowed = yield* spend(keys, inputs.length, now);
       const budgeted = inputs.slice(0, allowed);
       if (budgeted.length === 0) return "throttled" as const;
@@ -357,6 +363,40 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
             named: [input.actorOsnProfileId, input.subjectOsnProfileId],
             render,
           };
+        }),
+      );
+    },
+
+    /**
+     * An owner left the wedding by removing their Cire data, which another
+     * owner keeps. Told to the owners who remain: the one who left confirmed
+     * it on Musubi and is told on screen.
+     */
+    ownerLeft(input: {
+      readonly weddingId: string;
+      readonly leaverOsnProfileId: string;
+    }): Effect.Effect<void, never, DbService> {
+      return deliverVoid("owner_left", input.weddingId, input.leaverOsnProfileId, new Date(), () =>
+        Effect.gen(function* () {
+          const wedding = yield* weddingOwners(input.weddingId);
+          if (!wedding) return null;
+          const recipients: Recipient[] = wedding.owners
+            .filter((id) => id !== input.leaverOsnProfileId)
+            .map((osnProfileId) => ({ osnProfileId, audience: "owner" as const }));
+          const render: RenderFor = (_recipient, to, displays) => ({
+            template: "wedding-owner-change",
+            to,
+            data: {
+              weddingName: wedding.name,
+              actorName: nameOf(displays, input.leaverOsnProfileId),
+              subjectName: nameOf(displays, input.leaverOsnProfileId),
+              change: "removed",
+              audience: "owner",
+              self: true,
+              portalUrl: deps.portalUrl,
+            },
+          });
+          return { recipients, named: [input.leaverOsnProfileId], render };
         }),
       );
     },

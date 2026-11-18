@@ -1,0 +1,218 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/cire-remove-my-data",
+    "base_sha": "b49ff143b469429ccdc9ca135bb1d6bf86ff47df",
+    "head_sha": "9bccb467b8cd710a5dc416b8898f99ac96536ce4",
+    "generated_at": "2026-11-17T14:35:39.689Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2385,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:8",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 8,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-17T01:16:47.507Z",
+    "last_ts": "2026-11-17T14:35:33.786Z",
+    "span_seconds": 47926,
+    "active_seconds": 15062,
+    "compactions": 1
+  },
+  "spend": {
+    "usd_equivalent": 243.19836999999944,
+    "tokens": {
+      "input": 2686,
+      "output": 1098390,
+      "thinking": 462749,
+      "cache_write_5m": 8059796,
+      "cache_write_1h": 0,
+      "cache_read": 452302115
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 2686,
+          "output": 1098390,
+          "thinking": 462749,
+          "cache_write_5m": 8059796,
+          "cache_write_1h": 0,
+          "cache_read": 452302115
+        },
+        "usd_equivalent": 243.19836999999944,
+        "messages": 1303
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 4
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 2686,
+          "output": 1098390,
+          "thinking": 462749,
+          "cache_write_5m": 8059796,
+          "cache_write_1h": 0,
+          "cache_read": 452302115
+        },
+        "usd_equivalent": 243.19836999999944,
+        "messages": 1307
+      }
+    },
+    "effort": {
+      "xhigh": 928,
+      "high": 375
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 30,
+      "docs": 19,
+      "config": 2,
+      "source": 56
+    },
+    "loc": {
+      "generated": {
+        "added": 22,
+        "deleted": 0
+      },
+      "test": {
+        "added": 3539,
+        "deleted": 30
+      },
+      "docs": {
+        "added": 279,
+        "deleted": 49
+      },
+      "config": {
+        "added": 381,
+        "deleted": 0
+      },
+      "source": {
+        "added": 3514,
+        "deleted": 115
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "cire/ui",
+      "musubi/infra",
+      "musubi/social",
+      "osn/api",
+      "osn/auth-ui",
+      "osn/client",
+      "shared/observability",
+      "shared/openapi",
+      "shared/swift",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 22
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 1086,
+      "Read": 164,
+      "Edit": 77,
+      "Write": 39,
+      "Skill": 20,
+      "ToolSearch": 9,
+      "SubagentHandback": 9,
+      "Agent": 7,
+      "TaskStop": 6,
+      "SendMessage": 3,
+      "WebFetch": 1,
+      "Monitor": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 8,
+      "max_edits_one_file": 30
+    },
+    "skills": {
+      "new-feat": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "design-system": 1,
+      "write-wiki": 2,
+      "emil-design-eng": 1,
+      "apple-design": 1,
+      "find-animation-opportunities": 1,
+      "web-design-guidelines": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-state": 1,
+      "review-design": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "designer": 1,
+      "reviewer": 5
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 1303,
+      "with_tools": 1287,
+      "with_one_tool": 1201,
+      "context_median": 253045,
+      "context_p90": 745854
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 18,
+    "located": 9,
+    "acted_on": 4,
+    "paired": 9,
+    "acted_on_paired": 4,
+    "control_changed": 0,
+    "acted_on_by_test": 3,
+    "acted_on_paired_by_test": 3
+  }
+}

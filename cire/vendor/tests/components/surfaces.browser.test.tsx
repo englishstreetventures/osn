@@ -36,7 +36,12 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
   signOutToLogin: async () => {},
 }));
 
-import { signInCardClass } from "@cire/ui/sign-in-card-class";
+import {
+  signInCardClass,
+  signInFrameClass,
+  signInHeaderClass,
+  signInTitleClass,
+} from "@cire/ui/sign-in-card-class";
 import cardSource from "@cire/ui/sign-in-card.astro?raw";
 import SignInPanel, { type SignInAuth } from "@cire/ui/sign-in-panel";
 
@@ -96,6 +101,13 @@ function vendorSignInCard(): string {
   const label = /vendor: "([^"]+)"/.exec(cardSource)?.[1];
   expect(label, "sign-in-card.astro has no vendor label").toBeDefined();
   let html = cardSource.slice(cardSource.indexOf("---", 3) + 3);
+  html = replaceOnce(html, "class={signInFrameClass}", `class="${signInFrameClass}"`);
+  html = replaceOnce(html, "class={signInHeaderClass}", `class="${signInHeaderClass}"`);
+  html = replaceOnce(
+    html,
+    "class={`${signInTitleClass} leading-ui-none`}",
+    `class="${signInTitleClass} leading-ui-none"`,
+  );
   html = replaceOnce(html, "class={eyebrowClass()}", `class="${eyebrowClass()}"`);
   html = replaceOnce(html, "{LABEL[portal]}", label!);
   html = replaceOnce(

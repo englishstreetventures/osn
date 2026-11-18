@@ -87,6 +87,7 @@ export const OSN_METRICS = {
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   authSessionStaleRefused: "osn.auth.session.stale_refused",
   authCireSessionRevocations: "osn.auth.cire_session.revocations",
+  authAppStepUpRequests: "osn.auth.app_step_up.requests",
   authRecoveryLockout: "osn.auth.recovery.lockout",
   authStepUpLockout: "osn.auth.step_up.lockout",
   authRecoveryEmailBegin: "osn.auth.recovery.email_begin",
@@ -649,6 +650,8 @@ export type LiveSessionGateEndpoint =
   | "step_up_email_status"
   | "step_up_email_resend"
   | "step_up_totp_complete"
+  | "step_up_request_read"
+  | "step_up_request_confirm"
   | "recovery_generate"
   | "email_change_begin"
   | "email_change_resend"
@@ -716,6 +719,25 @@ export const metricCireSessionRevocation = (
   trigger: CireSessionRevokeTrigger,
   result: CireSessionRevokeResult,
 ): void => authCireSessionRevocations.inc({ trigger, result });
+
+// ---------------------------------------------------------------------------
+// App step-up requests (services/auth/app-step-up.ts)
+// ---------------------------------------------------------------------------
+
+/** Which step of an app's step-up request: begun by the app, confirmed on Musubi, verified by the app. */
+export type AppStepUpStage = "begin" | "confirm" | "verify";
+/** `ok`, `refused` (any answer that was not ok), or `error` (a store or database fault). */
+export type AppStepUpResult = "ok" | "refused" | "error";
+type AppStepUpAttrs = { stage: AppStepUpStage; result: AppStepUpResult };
+
+const authAppStepUpRequests = createCounter<AppStepUpAttrs>({
+  name: OSN_METRICS.authAppStepUpRequests,
+  description: "App step-up requests begun, confirmed and verified, by outcome",
+  unit: "{request}",
+});
+
+export const metricAppStepUpRequest = (stage: AppStepUpStage, result: AppStepUpResult): void =>
+  authAppStepUpRequests.inc({ stage, result });
 
 // ---------------------------------------------------------------------------
 // Ceremony / pending-state stores

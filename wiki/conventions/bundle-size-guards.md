@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-18
 ---
 
 # Guards with a threshold
@@ -237,7 +237,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 378475 B | 390175 B *(re-baselined, englishstreetventures/osn#2176 — see below)* |
+| cire/host | static | 393814 B | 405514 B *(re-baselined, englishstreetventures/osn#2385 — see below)* |
 | cire/vendor | static | 99379 B | 103718 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
 | cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -490,6 +490,27 @@ cire/host build`, which ends with `../../scripts/guard-bundle-size.sh .`, on
 `feat/shared-sortable-settle` at `0af4b5734`, twice; the `main` figure is the
 same build with `shared/sortable/src` taken from `origin/main` `65aad70ad`,
 which leaves every source the build reads as it is there.*
+
+### `cire/host` re-baselined for Remove my Cire data
+
+A host can remove their Cire data from the account menu
+(englishstreetventures/osn#2385). The cost is the removal screen, a `lazy()`
+chunk of 5,695 B fetched only when the screen opens, and the menu item, the done
+page, the code handling and the calls the portal loads at once. No dependency is
+added. Splitting the screen out made the first load 1,870 B smaller than with
+the screen in the main chunk, and added four files to the total.
+
+| Build | Measured | Threshold |
+|---|---:|---:|
+| `main` | **385199 B**, 91 files | 390175 B, 4976 B of headroom |
+| with the removal | **393814 B**, 95 files (+8615) | **405514 B** (+11700) |
+
+*Measured 2026-11-18 — `rm -rf cire/host/dist && CLAUDECODE= bun run --cwd
+cire/host build`, which ends with `../../scripts/guard-bundle-size.sh .`, on
+`feat/cire-remove-my-data` at `78053b3dd`; the `main` figure is the guard's line
+in CI's Build & Test job on `db8c42810`, the branch's base, run 43994079271. The
+chunk figures are `gzip -9` per file from the same build, and the first-load
+comparison is the same build at `f1782495d`, before the split.*
 
 ### `cire/invites` re-baselined after the zod override
 

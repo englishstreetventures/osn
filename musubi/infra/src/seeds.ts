@@ -27,6 +27,7 @@ const CIRE_API_ARC_SCOPES = [
   "graph:resolve-account",
   "org:read",
   "account:email-read",
+  "step-up:verify",
 ];
 
 const ORIGIN = /^https:\/\/[a-z0-9.-]+$/;

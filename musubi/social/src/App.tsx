@@ -91,6 +91,10 @@ const SettingsPage = lazy(() =>
 const DeleteAccountPage = lazy(() =>
   import("./pages/DeleteAccountPage").then((m) => ({ default: m.DeleteAccountPage })),
 );
+// An app's step-up request, which the app sends the person to in the same tab.
+const ConfirmRequestPage = lazy(() =>
+  import("./pages/ConfirmRequestPage").then((m) => ({ default: m.ConfirmRequestPage })),
+);
 const AuthorizePage = lazy(() =>
   import("./pages/AuthorizePage").then((m) => ({ default: m.AuthorizePage })),
 );
@@ -336,6 +340,7 @@ export default function App() {
       />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/settings/delete-account" component={DeleteAccountPage} />
+      <Route path="/confirm/:requestId" component={ConfirmRequestPage} />
       <Route path="/authorize" component={AuthorizePage} />
       <Route path="/verify/:requestId" component={VerifyEmailLinkPage} />
       {/* Reachable signed-out on purpose: a notice you can only read once you have

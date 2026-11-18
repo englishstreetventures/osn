@@ -600,6 +600,28 @@ its three motions that are not a colour or opacity change.
   shell's failed-load line ("Musubi could not finish loading. Reload and try
   again.", an inline danger `Notice` with `alert`).
   `tests/components/DeletionWindow.browser.test.tsx` holds it.
+- **An app's step-up request**: `/confirm/:requestId`
+  (`ConfirmRequestPage.tsx`), where an app that cannot run a step-up itself
+  (cire's organiser portal) sends the person in the same tab. A shell page, not
+  a bare route, so a signed-out reader gets `SignedOutNote` and the shell's own
+  sign-in, and a session pending deletion gets the window screen as on every
+  shell route. Its head is "Confirm a request" over "An app asked you to
+  confirm it's you on Musubi."; then one `Card` at `padding="md"`: the
+  purpose's heading at `text-title` and 500 ("Remove your Cire data"), what the
+  app asks in full ink, what the app will do in the secondary ink, the host it
+  sends the person back to at 500, breaking anywhere, and one right-aligned
+  "Confirm it's you" (`default`, `sm`, `max-md:h-10`), which opens the step-up
+  sheet and is busy "Confirming…" then "Taking you back…". A refused step-up is
+  the danger line under the card's heading. A request used, run out or
+  another account's is one card, "This request has ended", saying to start
+  again from the app; a read that failed is the failed-load line with Try
+  again. While it reads, one `ResponsiveSkeleton` card stands at the ready
+  card's height: 294px below `md`, 232px from it.
+
+  *Measured 2026-11-17 — the ready card's `getBoundingClientRect().height` in
+  Chromium (Vitest browser tier, the return host `host.cireweddings.com`): 294px
+  at 390px, 232px at 1280px. `tests/pages/ConfirmRequestPage.browser.test.tsx`
+  holds the placeholder to 2px of it at both widths.*
 
 ## Responsive layout
 
@@ -951,7 +973,8 @@ roster's Remove ("Removing…"), Try again on a bare route's failed card
 ("Checking…"), Settings → Security's Remove, Save, "Add an
 authenticator app" and Generate while the read they act on is out
 ("Checking…"), Download my data ("Downloading…"), Send me a link
-("Sending…"), Delete my account ("Deleting…"), Keep my account
+("Sending…"), Delete my account ("Deleting…"), an app's request's "Confirm
+it's you" ("Confirming…", then "Taking you back…" while the tab leaves), Keep my account
 ("Restoring…"), an organisation's Decline ("Declining…") and the Delete in
 its confirmation dialog ("Deleting…"). The
 rail's results panel shows the same words as text, since
@@ -1073,7 +1096,7 @@ outline (§Focus). Every text field in the views is `@shared/ui`'s `Input` (or
 | `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, inside Settings' card, so their rows are nested 8px cards; the last under the app's own "Recovery codes" heading, `text-title` at 500 over a `text-body` intro, as the panels' own headings read. While the section's code loads, `SecurityLoading` draws the passkeys' head and one row, a block for each width as the view's own placeholder does | `components/SecuritySection.tsx` (lazy), in `pages/SettingsPage.tsx` |
 | `SecurityEventsBanner` | The account banner stack, above every signed-in page | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx` |
 | `ProfileOnboarding` | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm` | `pages/SettingsPage.tsx` |
-| `StepUpDialog` | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner`, or the data download, the account's deletion and its undo (`components/StepUpSheet.tsx`, through `createStepUp` in `lib/step-up.tsx`, which loads the sheet with the passkey ceremony on the first ask) — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as Musubi's dialogs are by default | — |
+| `StepUpDialog` | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner`, or the data download, the account's deletion and its undo, or an app's request on `/confirm/:requestId` (`components/StepUpSheet.tsx`, through `createStepUp` in `lib/step-up.tsx`, which loads the sheet with the passkey ceremony on the first ask) — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as Musubi's dialogs are by default | — |
 
 **When the session ends.** The runtime ends a session when the issuer refuses
 to renew it, and when another tab signs out or signs in to another account.

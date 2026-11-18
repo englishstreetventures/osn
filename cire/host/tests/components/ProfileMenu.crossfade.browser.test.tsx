@@ -53,7 +53,14 @@ function transitionAnimations() {
  * waited for, not read at once.
  */
 async function openMenu() {
-  render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+  render(() => (
+    <ProfileMenu
+      session={SESSION}
+      onSecurity={() => {}}
+      onRemoveData={() => {}}
+      onSignOut={() => {}}
+    />
+  ));
   const trigger = await screen.findByRole("button", { name: /account menu/i });
   fireEvent.pointerDown(trigger, { button: 0 });
   const menu = await waitFor(() => screen.getByRole("menu"));

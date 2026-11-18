@@ -44,7 +44,14 @@ const findTrigger = () => screen.findByRole("button", { name: /account menu/i })
 
 describe("the profile menu's motion", () => {
   it("pops in on open, and on Escape leaves at once with focus on its trigger", async () => {
-    render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+    render(() => (
+      <ProfileMenu
+        session={SESSION}
+        onSecurity={() => {}}
+        onRemoveData={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
     const trigger = await findTrigger();
     fireEvent.pointerDown(trigger, { button: 0 });
     const open = await waitFor(() => screen.getByRole("menu"));
@@ -68,7 +75,14 @@ describe("the profile menu's version line", () => {
   for (const theme of ["light", "dark"] as const) {
     it(`reads at ${WCAG_TEXT_MIN}:1 on the menu, ${theme}`, async () => {
       document.documentElement.dataset.theme = theme;
-      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      render(() => (
+        <ProfileMenu
+          session={SESSION}
+          onSecurity={() => {}}
+          onRemoveData={() => {}}
+          onSignOut={() => {}}
+        />
+      ));
       fireEvent.pointerDown(await findTrigger(), { button: 0 });
       const open = await waitFor(() => screen.getByRole("menu"));
       await Promise.all(open.getAnimations().map((a) => a.finished));
@@ -88,7 +102,14 @@ describe("the profile menu's version line", () => {
  */
 describe("the profile menu's depth", () => {
   it("floats raised, lit by the inner lip, on the floating shadow, at 10px", async () => {
-    render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+    render(() => (
+      <ProfileMenu
+        session={SESSION}
+        onSecurity={() => {}}
+        onRemoveData={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
     fireEvent.pointerDown(await findTrigger(), { button: 0 });
     const panel = await waitFor(() => screen.getByRole("menu"));
     const style = getComputedStyle(panel);

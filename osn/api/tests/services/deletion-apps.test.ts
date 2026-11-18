@@ -177,6 +177,32 @@ describe("previewDeletionApps", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it.effect("follows an http link to this machine on a local run only", () =>
+    Effect.gen(function* () {
+      // The local and E2E stacks run on http over loopback: their links work
+      // there, and a deployed tier still holds the deletion on any http link.
+      const local = { ...action, link: "http://localhost:4322/#/w/wed_1/settings/export" };
+      pulseAnswer = () => ({ body: { openActions: [local] } });
+      const config = apps.config();
+      expect((yield* previewDeletionApps({ ...config, local: true }, input))[0]).toEqual({
+        app: "pulse",
+        status: "checked",
+        actions: [local],
+      });
+      expect((yield* previewDeletionApps({ ...config, local: false }, input))[0]).toEqual({
+        app: "pulse",
+        status: "could_not_check",
+      });
+      for (const link of ["http://localhost.example/e/1", "javascript:alert(1)"]) {
+        pulseAnswer = () => ({ body: { openActions: [{ ...action, link }] } });
+        expect({
+          link,
+          preview: (yield* previewDeletionApps({ ...config, local: true }, input))[0],
+        }).toEqual({ link, preview: { app: "pulse", status: "could_not_check" } });
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("holds the deletion when an app does not answer in time, and counts a timeout", () =>
     Effect.gen(function* () {
       const counted = vi.spyOn(metrics, "metricAccountDeletionAppPreview");

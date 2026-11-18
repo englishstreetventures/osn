@@ -43,6 +43,7 @@ import { moduleDef } from "../lib/module-nav";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/preferences";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
+import { takeRemovalCode } from "../lib/removal-code";
 import { markRunSheetStale } from "../lib/run-sheet-store";
 import {
   clearStripeConnectParam,
@@ -70,6 +71,7 @@ import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm"
 import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
 import PanelLoading from "./PanelLoading";
+import RemovalDone from "./RemovalDone";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
 import { OwnerOnlyNote } from "./WeddingExport";
@@ -89,6 +91,10 @@ const CommandPalette = lazy(() => import("./CommandPalette"));
  *  loads the same chunk. Split out so an organiser who never opens it never
  *  pays for it. */
 const RunSheetView = lazy(() => import("./RunSheetView"));
+
+/** "Remove my Cire data": a screen a host opens once in the life of their
+ *  account, so it is a chunk of its own, fetched when they open it. */
+const RemoveCireData = lazy(() => import("./RemoveCireData"));
 
 /**
  * How long after the last check the portal asks the API again, when the tab
@@ -338,7 +344,12 @@ function whenNoModalOpen(show: () => void): void {
   open.addEventListener("close", () => whenNoModalOpen(show), { once: true });
 }
 
-function Dashboard() {
+function Dashboard(props: {
+  /** The code Musubi sent the person back with, taken from the address on the way in. */
+  removalCode: string | undefined;
+  /** The person removed their Cire data: their sessions are gone. */
+  onRemoved: () => void;
+}) {
   const auth = useAuth();
   const { authFetch, logout, session } = auth;
   // Locally-tracked weddings so a freshly-created one shows up without a
@@ -577,6 +588,8 @@ function Dashboard() {
   // is the source of truth for render; the listener just mirrors external hash
   // changes back into it (it never writes the hash, so no feedback loop).
   function onHashChange() {
+    // A code typed or pasted into the address goes as it does on the way in.
+    takeRemovalCode();
     setRouteSignal(parseRoute(window.location.hash));
   }
   onMount(() => {
@@ -603,18 +616,23 @@ function Dashboard() {
   // anything. Every move is a moment to ask.
   createEffect(on(route, recheckIfDue, { defer: true }));
 
-  function selectView(next: "weddings" | "security") {
-    if (next === "security")
+  function selectView(next: "weddings" | "security" | "remove-data") {
+    if (next === "weddings") setRoute(LIST_ROUTE, "push");
+    else
       setRoute(
         {
-          view: "security",
+          view: next,
           weddingId: null,
           module: DEFAULT_MODULE,
           sub: defaultSub(DEFAULT_MODULE),
         },
         "push",
       );
-    else setRoute(LIST_ROUTE, "push");
+  }
+
+  /** "Remove my Cire data" opens a wedding's Settings view: its download, or its owners. */
+  function openWeddingSettings(weddingId: string, sub: "export" | "hosts") {
+    setRoute({ view: "weddings", weddingId, module: "settings", sub }, "push");
   }
 
   function selectWedding(wedding: WeddingSummary) {
@@ -1039,7 +1057,24 @@ function Dashboard() {
 
   /** What the top bar names when no wedding is open. With one open, the
    *  switcher names it instead and this is unused. */
-  const sectionLabel = () => (view() === "security" ? "Security" : "All weddings");
+  const sectionLabel = () =>
+    view() === "security"
+      ? "Security"
+      : view() === "remove-data"
+        ? "Your Cire data"
+        : "All weddings";
+
+  /**
+   * The code the address carried on the way in, for the removal screen's
+   * first mount only: a screen opened again after Cancel reads what is kept,
+   * which Cancel cleared.
+   */
+  let arrivedCode = props.removalCode;
+  const takeArrivedCode = () => {
+    const code = arrivedCode;
+    arrivedCode = undefined;
+    return code;
+  };
 
   return (
     <AuthContext.Provider value={watchedAuth}>
@@ -1057,6 +1092,7 @@ function Dashboard() {
               onWedding={selectWedding}
               onAll={backToList}
               onSecurity={() => selectView("security")}
+              onRemoveData={() => selectView("remove-data")}
               onSignOut={() => void signOut()}
               onOpenPalette={() => setPalette(true)}
             />
@@ -1087,6 +1123,18 @@ function Dashboard() {
             <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
               <Show when={view() === "security"}>
                 <SecurityPanel />
+              </Show>
+
+              <Show when={view() === "remove-data"}>
+                <Suspense fallback={<PanelLoading />}>
+                  <RemoveCireData
+                    code={takeArrivedCode()}
+                    canOpen={(weddingId) => weddings()?.some((w) => w.id === weddingId) ?? false}
+                    onOpen={openWeddingSettings}
+                    onCancel={backToList}
+                    onDone={props.onRemoved}
+                  />
+                </Suspense>
               </Show>
 
               <Show when={view() === "weddings"}>
@@ -1181,12 +1229,22 @@ export default function OrganiserApp() {
   // Back after sign-out must not bring the signed-in page back from the
   // back/forward cache; see `lib/bfcache.ts`.
   onMount(() => onCleanup(reloadOnRestore()));
+  // Once the person has removed their Cire data, their sessions are gone: the
+  // dashboard, which would ask the API again and be sent to sign in, gives way
+  // to the page that says so.
+  const [removed, setRemoved] = createSignal(false);
+  // Before the session is known: a sign-in bounce copies the address into
+  // `/login/?returnTo=…`, so the code Musubi sent back is kept and taken out
+  // of the address first (`lib/removal-code.ts`).
+  const removalCode = takeRemovalCode();
 
   return (
     <AuthProvider config={{ apiBase: CIRE_API_URL }}>
-      <RequireAuth>
-        <Dashboard />
-      </RequireAuth>
+      <Show when={!removed()} fallback={<RemovalDone />}>
+        <RequireAuth>
+          <Dashboard removalCode={removalCode} onRemoved={() => setRemoved(true)} />
+        </RequireAuth>
+      </Show>
       {/* `topLayer` because this app's dialogs are `showModal()` dialogs
           (`@shared/ui`'s `Modal`), which paint in the top layer — above every
           stacking context, so no `z-index` on the toast container could reach

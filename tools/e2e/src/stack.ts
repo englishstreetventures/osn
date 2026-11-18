@@ -385,6 +385,9 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
         PUBLIC_CIRE_API_URL: ORIGINS.cireApi,
         PUBLIC_CIRE_WEB_URL: ORIGINS.cireInvites,
         PUBLIC_MARKETING_URL: ORIGINS.cireLanding,
+        // Where "Remove my Cire data" sends the person to confirm: this
+        // stack's Musubi.
+        PUBLIC_OSN_ACCOUNT_URL: ORIGINS.musubi,
       },
     },
     {

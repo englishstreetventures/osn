@@ -55,6 +55,7 @@ import { Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, outerColumn } from "../db";
 import { metricAccountDeletionWedding } from "../metrics";
+import { archivePageOf, linkOrigin } from "./account-export";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -120,6 +121,23 @@ export type ErasureResult =
   | { readonly status: "done"; readonly kept: ReadonlyArray<KeptItem> }
   | { readonly status: "not_finished" };
 
+/** What one call did to a wedding a profile of the account owned. */
+export interface OwnedOutcome {
+  readonly weddingId: string;
+  /**
+   * `deleted`: this call deleted it, no other owner being left;
+   * `seat_removed`: this call did not delete it — another owner keeps it, or
+   * it was deleted already and stays so.
+   */
+  readonly outcome: "deleted" | "seat_removed";
+  /**
+   * The account's profiles whose owner seat on it went: the only profiles a
+   * notice to its other owners may name, since naming another would tell
+   * them two profiles are one person.
+   */
+  readonly leavers: ReadonlyArray<string>;
+}
+
 class AccountErasureError extends Data.TaggedError("AccountErasureError")<{
   readonly reason: string;
 }> {}
@@ -132,24 +150,17 @@ const quoted = (name: string): string =>
 const inProfiles = (column: AnySQLiteColumn, profileIds: ReadonlyArray<string>): SQL =>
   inArray(column, jsonEachIn(profileIds));
 
-/** An owner seat on `weddingId` held by none of `profileIds`. */
-const otherOwnerOn = (weddingId: SQL | string, profileIds: ReadonlyArray<string>): SQL =>
+/**
+ * An owner seat on `weddingId` held by none of `profileIds`: the rule both the
+ * preview and a host's removal list (`services/account-removal.ts`) read sole
+ * ownership by.
+ */
+export const otherOwnerOn = (weddingId: SQL | string, profileIds: ReadonlyArray<string>): SQL =>
   sql`EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} = 'owner' AND ${weddingHosts.osnProfileId} NOT IN ${jsonEachIn(profileIds)})`;
 
 // ---------------------------------------------------------------------------
 // Preview
 // ---------------------------------------------------------------------------
-
-/** `origin` with nothing after it, when it is https; else null, which the contract cannot carry. */
-function httpsOrigin(origin: string): string | null {
-  if (!URL.canParse(origin)) return null;
-  const url = new URL(origin);
-  return url.protocol === "https:" ? url.origin : null;
-}
-
-/** Where a wedding's owners are managed in the organiser portal (`cire/host/src/lib/dashboard-route.ts`). */
-const hostsPanelOf = (origin: string, weddingId: string): string =>
-  `${origin}/#/w/${weddingId}/settings/hosts`;
 
 const DELETE_ONE =
   "Deleted with its guests, replies and invite when your account is deleted. Download its guest list and other exports from Cire first if you want a copy. Any other wedding you are the only owner of by then is deleted too.";
@@ -160,8 +171,9 @@ const DELETE_MANY =
  * What deleting the account of `profileIds` would leave open in cire: one
  * action per live wedding whose owner seats are all the account's, with one
  * choice, `delete`, and no default, so the deletion waits until the person
- * answers it, adds another owner (the action's link opens the wedding's
- * owners in the portal, and the action is then gone), or deletes the wedding.
+ * answers it, adds another owner, or deletes the wedding. The action's link
+ * opens the wedding's download page in the portal, which offers the download
+ * and, beside it, the way to add another owner (the action is then gone).
  * Past {@link MAX_PREVIEW_ACTIONS}, one action, `cire:weddings:all`, stands
  * for them all. A wedding with another owner, or one the person holds a lower
  * seat on, needs no answer: their seat goes and the wedding stays.
@@ -196,7 +208,7 @@ function preview(input: {
       catch: (e) => new AccountErasureError({ reason: String(e) }),
     });
 
-    const origin = httpsOrigin(input.organiserOrigin);
+    const origin = linkOrigin(input.organiserOrigin);
     if (sole.length > MAX_PREVIEW_ACTIONS) {
       return [
         {
@@ -215,7 +227,7 @@ function preview(input: {
       label: `You are the only owner of ${quoted(row.name)}. Add another owner in Cire to keep it, or it is deleted when your account is.`,
       choices: [{ choice: "delete", description: DELETE_ONE, erasedOn: null }],
       defaultChoice: null,
-      link: origin ? hostsPanelOf(origin, row.weddingId) : null,
+      link: origin ? archivePageOf(origin, row.weddingId) : null,
     }));
   }).pipe(Effect.withSpan("cire.account_deletion.preview"));
 }
@@ -233,6 +245,14 @@ interface EraseInput {
   readonly accountId: string;
   readonly profileIds: ReadonlyArray<string>;
   readonly now?: Date;
+  /**
+   * `account` (the default): the account is being deleted, and everything
+   * cire holds of it goes. `host`: the person is leaving cire as a host and
+   * keeping the account, so their vendor listing claims and their guest
+   * account links stay; seats, weddings, sessions and the rest go as for an
+   * account.
+   */
+  readonly scope?: "account" | "host";
 }
 
 /**
@@ -249,7 +269,7 @@ function eraseOwnedWedding(
   weddingId: string,
   profileIds: ReadonlyArray<string>,
   now: Date,
-): Effect.Effect<void, AccountErasureError, DbService> {
+): Effect.Effect<OwnedOutcome | null, AccountErasureError, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const results = yield* Effect.tryPromise({
@@ -282,7 +302,7 @@ function eraseOwnedWedding(
                 inProfiles(weddingHosts.osnProfileId, profileIds),
               ),
             )
-            .returning({ role: weddingHosts.role }),
+            .returning({ role: weddingHosts.role, osnProfileId: weddingHosts.osnProfileId }),
         ]),
       catch: (e) => new AccountErasureError({ reason: String(e) }),
     }).pipe(
@@ -293,13 +313,15 @@ function eraseOwnedWedding(
       ),
     );
     const deleted = (results[0] as ReadonlyArray<{ id: string }>).length > 0;
-    const removed = (results[2] as ReadonlyArray<{ role: string }>).length > 0;
-    if (!removed) return;
+    const seats = results[2] as ReadonlyArray<{ role: string; osnProfileId: string }>;
+    if (seats.length === 0) return null;
+    const leavers = seats.filter((seat) => seat.role === "owner").map((seat) => seat.osnProfileId);
     const outcome = deleted ? "deleted" : "seat_removed";
     metricAccountDeletionWedding(outcome);
     yield* Effect.logInfo("account erasure: a wedding the person owned").pipe(
       Effect.annotateLogs({ weddingId, outcome }),
     );
+    return { weddingId, outcome, leavers } as const;
   }).pipe(Effect.withSpan("cire.account_deletion.wedding", { attributes: { weddingId } }));
 }
 
@@ -310,8 +332,10 @@ const clearedIn = (column: AnySQLiteColumn, profiles: ReadonlyArray<string>, to:
 /**
  * Everything of the account outside the weddings it owns, in one batch: seats
  * below owner and every notice row with no owner seat behind it, organiser
- * sessions, guest account links (by the account or a profile), Stripe OAuth
- * states, the profiles' budget rows, and every column that names a profile,
+ * sessions, guest account links (by the account or a profile; not for the
+ * `host` scope), Stripe OAuth states, the profiles' budget rows, and every
+ * column that names a profile (a vendor listing's claim columns not for the
+ * `host` scope),
  * nullable ones to NULL (or {@link DELETED_PROFILE} where NULL means
  * something else, or `''` on the RSVP change log, where NULL means the
  * household's own change), and those that cannot be NULL to
@@ -329,6 +353,7 @@ function eraseAccountRows(input: EraseInput) {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const p = input.profileIds;
+    const host = input.scope === "host";
     const ownerSeatOfRow = sql`EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${outerColumn(hostRsvpNotices.weddingId)} AND ${weddingHosts.osnProfileId} = ${outerColumn(hostRsvpNotices.osnProfileId)} AND ${weddingHosts.role} = 'owner')`;
 
     const results = yield* Effect.tryPromise({
@@ -339,16 +364,33 @@ function eraseAccountRows(input: EraseInput) {
             .where(and(inProfiles(hostRsvpNotices.osnProfileId, p), sql`NOT ${ownerSeatOfRow}`)),
           db
             .delete(weddingHosts)
-            .where(and(inProfiles(weddingHosts.osnProfileId, p), ne(weddingHosts.role, "owner"))),
-          db.delete(organiserSessions).where(inProfiles(organiserSessions.osnProfileId, p)),
+            .where(and(inProfiles(weddingHosts.osnProfileId, p), ne(weddingHosts.role, "owner")))
+            .returning({ weddingId: weddingHosts.weddingId }),
+          // Only once no owner seat of the profiles is left: a seat made owner
+          // since the call's first read answers not finished, and the person
+          // keeps a session to call again with.
           db
-            .delete(guestAccountLinks)
+            .delete(organiserSessions)
             .where(
-              or(
-                eq(guestAccountLinks.osnAccountId, input.accountId),
-                inProfiles(guestAccountLinks.osnProfileId, p),
+              and(
+                inProfiles(organiserSessions.osnProfileId, p),
+                sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${inProfiles(weddingHosts.osnProfileId, p)} AND ${weddingHosts.role} = 'owner')`,
               ),
             ),
+          // A guest's link to their account: guest data, not the host's, so a
+          // host leaving cire keeps it.
+          ...(host
+            ? []
+            : [
+                db
+                  .delete(guestAccountLinks)
+                  .where(
+                    or(
+                      eq(guestAccountLinks.osnAccountId, input.accountId),
+                      inProfiles(guestAccountLinks.osnProfileId, p),
+                    ),
+                  ),
+              ]),
           db
             .delete(registryStripeOAuthStates)
             .where(inProfiles(registryStripeOAuthStates.osnProfileId, p)),
@@ -379,21 +421,26 @@ function eraseAccountRows(input: EraseInput) {
             .update(guests)
             .set({ emailAttestedByOsnProfileId: DELETED_PROFILE })
             .where(inProfiles(guests.emailAttestedByOsnProfileId, p)),
-          // A claim the person was waiting on is cleared whole.
-          db
-            .update(directoryVendors)
-            .set({
-              claimedByProfileId: clearedIn(directoryVendors.claimedByProfileId, p, null),
-              reviewOrgId: sql`CASE WHEN ${inProfiles(directoryVendors.reviewProfileId, p)} THEN NULL ELSE ${directoryVendors.reviewOrgId} END`,
-              reviewRequestedAt: sql`CASE WHEN ${inProfiles(directoryVendors.reviewProfileId, p)} THEN NULL ELSE ${directoryVendors.reviewRequestedAt} END`,
-              reviewProfileId: clearedIn(directoryVendors.reviewProfileId, p, null),
-            })
-            .where(
-              or(
-                inProfiles(directoryVendors.claimedByProfileId, p),
-                inProfiles(directoryVendors.reviewProfileId, p),
-              ),
-            ),
+          // A claim the person was waiting on is cleared whole. A vendor
+          // listing is the vendor side's, so a host leaving cire keeps it.
+          ...(host
+            ? []
+            : [
+                db
+                  .update(directoryVendors)
+                  .set({
+                    claimedByProfileId: clearedIn(directoryVendors.claimedByProfileId, p, null),
+                    reviewOrgId: sql`CASE WHEN ${inProfiles(directoryVendors.reviewProfileId, p)} THEN NULL ELSE ${directoryVendors.reviewOrgId} END`,
+                    reviewRequestedAt: sql`CASE WHEN ${inProfiles(directoryVendors.reviewProfileId, p)} THEN NULL ELSE ${directoryVendors.reviewRequestedAt} END`,
+                    reviewProfileId: clearedIn(directoryVendors.reviewProfileId, p, null),
+                  })
+                  .where(
+                    or(
+                      inProfiles(directoryVendors.claimedByProfileId, p),
+                      inProfiles(directoryVendors.reviewProfileId, p),
+                    ),
+                  ),
+              ]),
           db
             .update(registrySettings)
             .set({ stripeConnectedByOsnProfileId: null })
@@ -485,20 +532,35 @@ function eraseAccountRows(input: EraseInput) {
       ),
     );
     const [owned] = results[results.length - 1] as ReadonlyArray<{ owned: number }>;
-    return { ownerSeatsLeft: Number(owned?.owned ?? 0) };
+    const lower = results[1] as ReadonlyArray<{ weddingId: string }>;
+    return {
+      ownerSeatsLeft: Number(owned?.owned ?? 0),
+      lowerSeatWeddings: [...new Set(lower.map((row) => row.weddingId))],
+    };
   }).pipe(Effect.withSpan("cire.account_deletion.cleanup"));
 }
 
 /**
- * Erases the account in cire, at the end of its deletion window: each wedding
- * a profile owns ({@link MAX_OWNED_WEDDINGS_PER_CALL} a call, oldest seat
- * first; deleted when no other owner is left), then, once none is left,
- * everything else of the account. cire keeps nothing about the person, so a
- * finished call answers no kept item. Answers `not_finished` while owned
- * weddings remain or a seat was made owner since the first read; osn-api calls
- * again.
+ * Erases the account in cire, at the end of its deletion window or when the
+ * person leaves cire as a host (`scope`): each wedding a profile owns
+ * ({@link MAX_OWNED_WEDDINGS_PER_CALL} a call, oldest seat first; deleted when
+ * no other owner is left), then, once none is left, everything else of the
+ * account. cire keeps nothing about the person as a host, so a finished call
+ * answers no kept item. Answers `not_finished` while owned weddings remain or
+ * a seat was made owner since the first read; the caller calls again. Beside
+ * the result, what the call did to each wedding the person owned, for the
+ * notices a removal sends.
  */
-function erase(input: EraseInput): Effect.Effect<ErasureResult, AccountErasureError, DbService> {
+function eraseWithOutcomes(input: EraseInput): Effect.Effect<
+  {
+    readonly result: ErasureResult;
+    readonly owned: ReadonlyArray<OwnedOutcome>;
+    /** Weddings a seat below owner went from, on the call that ran the clean-up. */
+    readonly lowerSeatWeddings: ReadonlyArray<string>;
+  },
+  AccountErasureError,
+  DbService
+> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const owned = yield* Effect.tryPromise({
@@ -522,15 +584,35 @@ function erase(input: EraseInput): Effect.Effect<ErasureResult, AccountErasureEr
     });
 
     const now = input.now ?? new Date();
+    const outcomes: OwnedOutcome[] = [];
     for (const { weddingId } of owned.slice(0, MAX_OWNED_WEDDINGS_PER_CALL)) {
-      yield* eraseOwnedWedding(weddingId, input.profileIds, now);
+      const outcome = yield* eraseOwnedWedding(weddingId, input.profileIds, now);
+      if (outcome) outcomes.push(outcome);
     }
-    if (owned.length > MAX_OWNED_WEDDINGS_PER_CALL) return { status: "not_finished" } as const;
+    const notFinished = (lowerSeatWeddings: ReadonlyArray<string>) => ({
+      result: { status: "not_finished" } as const,
+      owned: outcomes,
+      lowerSeatWeddings,
+    });
+    if (owned.length > MAX_OWNED_WEDDINGS_PER_CALL) return notFinished([]);
 
-    const { ownerSeatsLeft } = yield* eraseAccountRows(input);
-    if (ownerSeatsLeft > 0) return { status: "not_finished" } as const;
-    return { status: "done", kept: [] } as const;
-  }).pipe(Effect.withSpan("cire.account_deletion.erase"));
+    const { ownerSeatsLeft, lowerSeatWeddings } = yield* eraseAccountRows(input);
+    if (ownerSeatsLeft > 0) return notFinished(lowerSeatWeddings);
+    return {
+      result: { status: "done", kept: [] } as const,
+      owned: outcomes,
+      lowerSeatWeddings,
+    };
+  }).pipe(
+    Effect.withSpan("cire.account_deletion.erase", {
+      attributes: { scope: input.scope ?? "account" },
+    }),
+  );
 }
 
-export const accountErasureService = { preview, erase };
+/** {@link eraseWithOutcomes}, its result alone: what osn-api's erasure call answers from. */
+function erase(input: EraseInput): Effect.Effect<ErasureResult, AccountErasureError, DbService> {
+  return eraseWithOutcomes(input).pipe(Effect.map(({ result }) => result));
+}
+
+export const accountErasureService = { preview, erase, eraseWithOutcomes };

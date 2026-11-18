@@ -106,6 +106,9 @@ export interface Env {
   // cire-api's origin: the deletion reaches cire here, and so does the
   // organiser-session revoke (bearer: CIRE_INTERNAL_REVOKE_SECRET below).
   CIRE_API_URL?: string;
+  // cire's organiser portal: where Musubi sends a person back after they
+  // confirm a cire step-up request. `appStepUpReturnConfig` reads it.
+  CIRE_ORGANISER_ORIGIN?: string;
   OSN_DELETION_ABSENT_APPS?: string;
   // Jobs one deletion fan-out pass reaches, and accounts one hard-delete pass
   // erases. Unset: 4, inside Workers Free's 50 queries a cron run. Production

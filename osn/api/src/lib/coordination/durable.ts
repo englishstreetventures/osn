@@ -54,6 +54,7 @@ import {
   TOTP_LOCKOUT_THRESHOLD,
 } from "../../services/auth/constants";
 import type {
+  AppStepUpRequest,
   CeremonyStores,
   ChallengeClaimStore,
   ChallengeClaimStoreName,
@@ -297,6 +298,7 @@ export function createDurableCoordination(
     authorizeRequests: ceremony<PendingAuthorizeRequest>("oidc_authorize_request"),
     recoveryDisownTokens: ceremony<RecoveryDisownToken>("recovery_disown"),
     emailLinks: ceremony<EmailLinkChallenge>("email_link"),
+    appStepUpRequests: ceremony<AppStepUpRequest>("app_step_up"),
   };
 
   const accountErasureRateLimiters: AccountErasureRateLimiters = {

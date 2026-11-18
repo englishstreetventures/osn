@@ -16,7 +16,7 @@ related:
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-18
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1834,7 +1834,7 @@ and the chosen `kid` as `CIRE_API_ARC_KEY_ID`, then register the **public** half
 curl -X POST "$OSN_ISSUER_URL/graph/internal/register-service" \
   -H "Authorization: Bearer $INTERNAL_SERVICE_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{"serviceId":"cire-api","keyId":"<CIRE_API_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"graph:read,graph:resolve-account,org:read,account:email-read"}'
+  -d '{"serviceId":"cire-api","keyId":"<CIRE_API_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"graph:read,graph:resolve-account,org:read,account:email-read,step-up:verify"}'
 ```
 
 (`POST /graph/internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is
@@ -1842,12 +1842,16 @@ unset, 401 on a bad bearer, and 409 when the `kid` belongs to another service
 (`kid_serviceid_mismatch`) or has been revoked (`kid_revoked`) — a revoked key is
 replaced under a new `kid`; `osn/api/src/routes/graph-internal.ts`.)
 
-cire-api requests four scopes, the `ARC_*_SCOPE` constants of
+cire-api requests five scopes, the `ARC_*_SCOPE` constants of
 `cire/api/src/services/osn-bridge.ts`: `graph:read`, `graph:resolve-account`,
-`org:read` and `account:email-read`, the last for the organiser-address lookup
-(`POST /internal/accounts/emails`), which refuses `graph:read`. A registration
-holds exactly the scopes its last call listed. On dev the musubi stack seeds this
-registration with all four, so nobody runs this command there
+`org:read`, `account:email-read`, for the organiser-address lookup
+(`POST /internal/accounts/emails`), which refuses `graph:read`, and
+`step-up:verify`, for a host's removal of their Cire data
+(`/internal/step-up/requests` and `/internal/step-up/verify`). Run it again
+after the release that adds a scope has deployed osn-api: until then a host's
+removal answers 503. A registration holds exactly the scopes its last call
+listed. On dev the musubi stack seeds this registration with all five, so
+nobody runs this command there
 ([[infrastructure-as-code#Seeds and the ARC registration]]).
 
 > **Vendors (Phase 2): re-run this command per environment after the `@osn/api` `PERMITTED_SCOPES` change deploys.**

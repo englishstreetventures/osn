@@ -97,6 +97,10 @@ export type AuthRateLimiters = Readonly<{
    * `begin` — TOTP is challenge-free, so the ceremony is one call.
    */
   stepUpTotpComplete: RateLimiterBackend;
+  /** An app step-up request's read, by Musubi's confirm page (authenticated). */
+  stepUpRequestRead: RateLimiterBackend;
+  /** An app step-up request's confirm (authenticated, spends a step-up token). */
+  stepUpRequestConfirm: RateLimiterBackend;
   /** TOTP enrolment begin (authenticated, step-up gated, mints a secret). */
   totpEnrollBegin: RateLimiterBackend;
   /** TOTP enrolment complete (authenticated, verifies the first code). */
@@ -263,6 +267,10 @@ export const AUTH_RATE_LIMITS = {
   // guessing a six-digit code is the per-account lockout, which no rotating
   // fleet can spread across (`lib/recovery-lockout-store.ts`).
   stepUpTotpComplete: { ns: "step_up_totp_complete", maxRequests: 10, windowMs: MINUTE_MS },
+  // An app's step-up request: the confirm page reads it once on load and again
+  // on a retry; the confirm follows one step-up, like a ceremony's complete.
+  stepUpRequestRead: { ns: "step_up_request_read", maxRequests: 30, windowMs: MINUTE_MS },
+  stepUpRequestConfirm: { ns: "step_up_request_confirm", maxRequests: 10, windowMs: MINUTE_MS },
   totpEnrollBegin: { ns: "totp_enroll_begin", maxRequests: 5, windowMs: MINUTE_MS },
   totpEnrollComplete: { ns: "totp_enroll_complete", maxRequests: 10, windowMs: MINUTE_MS },
   totpDisable: { ns: "totp_disable", maxRequests: 10, windowMs: MINUTE_MS },

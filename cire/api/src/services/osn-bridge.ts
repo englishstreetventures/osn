@@ -3,8 +3,9 @@ import { importKeyFromJwk, signArcToken } from "@shared/crypto/jwk";
 /**
  * Server-to-server bridge to osn-api: guest account linking, the co-host add
  * (handle lookup and the block check), the co-host list's names and photos, the
- * co-host autocomplete, the vendor portal's organisation checks, and the
- * organiser email lookup. The ONLY file in cire/api that makes an outbound S2S
+ * co-host autocomplete, the vendor portal's organisation checks, the
+ * organiser email lookup, and the step-up request a host's removal of their
+ * Cire data spends. The ONLY file in cire/api that makes an outbound S2S
  * call to osn-api.
  *
  * Why this is hand-rolled rather than reusing pulse/osn `outbound-arc.ts`:
@@ -21,8 +22,8 @@ import { importKeyFromJwk, signArcToken } from "@shared/crypto/jwk";
  * `CIRE_API_ARC_PRIVATE_KEY` wrangler secret); the matching public key is
  * pre-registered in osn-api's `service_accounts` table under serviceId
  * `cire-api`, allowed every scope this file signs with — the `ARC_*_SCOPE`
- * constants below: `graph:read`, `graph:resolve-account`, `org:read` and
- * `account:email-read`. Workers have
+ * constants below: `graph:read`, `graph:resolve-account`, `org:read`,
+ * `account:email-read` and `step-up:verify`. Workers have
  * no long-lived process, so the ephemeral-key + startup self-registration +
  * rotation dance that pulse-api uses does not apply here — see
  * `[[wiki/cire/cire-auth]]`.
@@ -50,6 +51,12 @@ const ARC_ORG_READ_SCOPE = "org:read";
  * withdrawn on its own.
  */
 const ARC_ACCOUNT_EMAIL_SCOPE = "account:email-read";
+/**
+ * Scope for the app step-up request a host's removal of their Cire data
+ * spends: osn-api's `POST /internal/step-up/requests` and `/step-up/verify`,
+ * each of which also pins its purpose to the issuer `cire-api`.
+ */
+const ARC_STEP_UP_SCOPE = "step-up:verify";
 /**
  * How long a co-host call waits for osn-api before giving up: the add's handle
  * lookup and block check, and the autocomplete's two searches. Giving up
@@ -1124,6 +1131,140 @@ export async function createOrgMembershipResolverFromEnv(env: {
   const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
   if (!arcPrivateKey) return failSoft;
   return createArcOrgMembershipResolver({
+    osnApiUrl: env.osnApiUrl,
+    arcPrivateKey,
+    arcKeyId: env.arcKeyId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// A host's removal of their Cire data: the step-up request
+// ---------------------------------------------------------------------------
+
+/** What osn-api answered a begin: the request's id, or why it began none. */
+export type OsnStepUpBegun =
+  | { readonly ok: true; readonly requestId: string }
+  /** No live profile by that id, or its account's deletion is pending. */
+  | { readonly ok: false; readonly reason: "not_found" }
+  /** The return address is not cire's organiser portal, or osn-api has none configured. */
+  | { readonly ok: false; readonly reason: "refused" };
+
+/** What osn-api answered a verify: the account and every profile of it, or a refusal. */
+export type OsnStepUpVerified =
+  | { readonly ok: true; readonly accountId: string; readonly profileIds: string[] }
+  | { readonly ok: false };
+
+/**
+ * The calls a host's removal of their Cire data makes to osn-api over ARC.
+ * Each throws on a transport failure, a timeout or a 5xx, so the route can
+ * tell "osn-api is unavailable" from a refusal.
+ */
+export interface OsnRemovalBridge {
+  /** Begins an app step-up request for `profileId` (`POST /internal/step-up/requests`). */
+  begin(input: {
+    readonly profileId: string;
+    /** Hex SHA-256 of the secret the asking browser's cookie holds. */
+    readonly binding: string;
+    /** Where Musubi sends the person back: the removal screen of the portal. */
+    readonly returnTo: string;
+  }): Promise<OsnStepUpBegun>;
+  /** Verifies a confirmed request (`POST /internal/step-up/verify`); spends nothing. */
+  verify(input: {
+    readonly profileId: string;
+    readonly requestId: string;
+    readonly binding: string;
+    readonly code: string;
+  }): Promise<OsnStepUpVerified>;
+  /** The account behind `profileId`: the cross-check of what verify answers. */
+  readonly resolveAccount: OsnAccountResolver;
+}
+
+/** The step-up purpose a host's removal of their Cire data spends. */
+const REMOVAL_PURPOSE = "cire_app_delete";
+
+export function createArcRemovalBridge(config: ArcResolverConfig): OsnRemovalBridge {
+  const base = config.osnApiUrl.replace(/\/+$/, "");
+  const post = async (path: string, body: unknown): Promise<Response> => {
+    const token = await signArcToken(config.arcPrivateKey, {
+      iss: ARC_ISSUER,
+      aud: ARC_AUDIENCE,
+      scope: ARC_STEP_UP_SCOPE,
+      kid: config.arcKeyId,
+    });
+    const res = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { authorization: `ARC ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(OSN_LOOKUP_TIMEOUT_MS),
+    });
+    if (res.status >= 500) throw new Error(`osn-api POST ${path} returned ${res.status}`);
+    return res;
+  };
+
+  return {
+    async begin(input) {
+      const res = await post("/internal/step-up/requests", {
+        purpose: REMOVAL_PURPOSE,
+        profile_id: input.profileId,
+        binding: input.binding,
+        return_to: input.returnTo,
+      });
+      if (res.status === 404) return { ok: false, reason: "not_found" };
+      if (!res.ok) return { ok: false, reason: "refused" };
+      const data = (await res.json()) as { request_id?: unknown };
+      if (typeof data.request_id !== "string" || data.request_id.length === 0) {
+        throw new Error("osn-api step-up request answer has no request_id");
+      }
+      return { ok: true, requestId: data.request_id };
+    },
+    async verify(input) {
+      const res = await post("/internal/step-up/verify", {
+        purpose: REMOVAL_PURPOSE,
+        profile_id: input.profileId,
+        request: { id: input.requestId, binding: input.binding, code: input.code },
+      });
+      if (!res.ok) return { ok: false };
+      const data = (await res.json()) as {
+        ok?: unknown;
+        account_id?: unknown;
+        profile_ids?: unknown;
+      };
+      if (data.ok !== true) return { ok: false };
+      if (
+        typeof data.account_id !== "string" ||
+        !Array.isArray(data.profile_ids) ||
+        !data.profile_ids.every((id): id is string => typeof id === "string")
+      ) {
+        throw new Error("osn-api step-up verify answer is outside its shape");
+      }
+      return { ok: true, accountId: data.account_id, profileIds: data.profile_ids };
+    },
+    resolveAccount: (() => {
+      const resolve = createArcAccountResolver(config);
+      // The lookup's own bound, as `begin` and `verify` have.
+      return (profileId: string, options?: { signal?: AbortSignal }) =>
+        resolve(profileId, {
+          signal: options?.signal ?? AbortSignal.timeout(OSN_LOOKUP_TIMEOUT_MS),
+        });
+    })(),
+  };
+}
+
+/**
+ * The removal bridge from raw env material, the sibling of
+ * {@link createOrganiserEmailLookupFromEnv}. `null` when any piece is absent or
+ * the key does not import: the removal routes then answer 503, and nothing
+ * else changes.
+ */
+export async function createRemovalBridgeFromEnv(env: {
+  osnApiUrl?: string;
+  arcPrivateKeyJwk?: string;
+  arcKeyId?: string;
+}): Promise<OsnRemovalBridge | null> {
+  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) return null;
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return null;
+  return createArcRemovalBridge({
     osnApiUrl: env.osnApiUrl,
     arcPrivateKey,
     arcKeyId: env.arcKeyId,

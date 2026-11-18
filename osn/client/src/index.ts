@@ -1,4 +1,5 @@
 export * from "./account";
+export * from "./app-step-up";
 export * from "./api-error";
 export * from "./authorize";
 export * from "./connections";

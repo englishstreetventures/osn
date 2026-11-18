@@ -137,6 +137,7 @@ function mount(wedding: WeddingSummary | null) {
         onWedding={() => {}}
         onAll={() => {}}
         onSecurity={() => {}}
+        onRemoveData={() => {}}
         onSignOut={() => {}}
         onOpenPalette={() => {}}
       />

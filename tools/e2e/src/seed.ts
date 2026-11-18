@@ -33,6 +33,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import {
   CIRE_OIDC,
   CLOCK_T0,
+  CIRE_REMOVAL_PERSON,
   DELETION_PERSON,
   MUSUBI_ORG,
   PULSE_OIDC,
@@ -67,10 +68,12 @@ export async function generateCireArcKey(): Promise<CireArcKey> {
 }
 
 /**
- * The one scope cire-api's ARC tokens need on this stack: the owners'
- * addresses (`/internal/accounts/emails`), for its owner notices.
+ * The scopes cire-api's ARC tokens need on this stack: the owners' addresses
+ * (`/internal/accounts/emails`), for its owner notices; and, for a host's
+ * removal of their Cire data, the step-up request (`/internal/step-up/*`) and
+ * the account behind a profile (`/graph/internal/profile-account`).
  */
-const CIRE_API_ARC_SCOPES = "account:email-read";
+const CIRE_API_ARC_SCOPES = "account:email-read,step-up:verify,graph:resolve-account";
 
 function freshDatabase(path: string): Database {
   if (existsSync(path)) {
@@ -313,12 +316,39 @@ export function seedOsn(path: string, cireArc?: CireArcKey): void {
           .run();
       }
 
+      // `cire-remove-my-data`'s two people: the remover, signed in to Musubi,
+      // and the keeper, who is mailed when the remover leaves their wedding.
+      const remover = CIRE_REMOVAL_PERSON;
+      for (const person of [remover, remover.keeper]) {
+        db.insert(accounts)
+          .values({
+            id: person.accountId,
+            email: person.email,
+            passkeyUserId: person.passkeyUserId,
+            createdAt: at,
+            updatedAt: at,
+          })
+          .run();
+        db.insert(users)
+          .values({
+            id: person.profileId,
+            accountId: person.accountId,
+            handle: person.handle,
+            displayName: person.name,
+            isDefault: true,
+            createdAt: at,
+            updatedAt: at,
+          })
+          .run();
+      }
+
       // Sessions as a sign-in leaves them: the row holds the token's SHA-256,
       // never the token. Each lasts the run (the suite clock starts at
       // `CLOCK_T0`), and its first grant rotates it as any other.
       for (const [accountId, session] of [
         [leaver.accountId, leaver.session],
         [leaver.heir.accountId, leaver.heir.session],
+        [remover.accountId, remover.session],
       ] as const) {
         db.insert(sessions)
           .values({

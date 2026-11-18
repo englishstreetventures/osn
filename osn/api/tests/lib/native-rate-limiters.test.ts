@@ -54,6 +54,8 @@ function fallbackBundle(): AuthRateLimiters {
         "stepUpEmailStatus",
         "stepUpEmailResend",
         "stepUpTotpComplete",
+        "stepUpRequestRead",
+        "stepUpRequestConfirm",
         "totpDisable",
         "totpEnrollBegin",
         "totpEnrollComplete",
