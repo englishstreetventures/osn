@@ -1566,8 +1566,10 @@ opens the preview with no wave.
 Three states keep a frame under every wave: `wanted` (the button's choice),
 `mounted` (the Gilded frame in the DOM, closed) and `revealed` (the wave's
 target), so a wave never starts on a frame that is not there yet. Focus moves
-to the preview's "Live preview" heading when it has taken over and back to the
-button when the form has; Escape inside the preview, or on the button, goes
+to the preview itself, a region named "Live preview" that draws no heading of
+its own (the pane's first line, "Live invite preview", names it), when it has
+taken over, with the house ring drawn inside its edge after a key press, and
+back to the button when the form has; Escape inside the preview, or on the button, goes
 back; choosing a section or a view, or the builder turning wide, closes it at
 once with no wave. The button carries no `aria-pressed`: its words say which
 way it goes. `InviteBuilder.test.tsx` opens and closes it in happy-dom, which

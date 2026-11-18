@@ -631,9 +631,8 @@ cire/dietary/src/index.ts:224:7
    to kill a mutant. A guard is equivalent only while what makes it redundant
    is pinned: a re-entry check behind a button that disables while it runs is
    equivalent only if a test fails when the button stops disabling.
-3. **Or name the browser test that kills it.** The `@cire/host`,
-   `@cire/invites` and `@cire/waves` runs leave the browser tier out (below),
-   and `@cire/waves`' code has no other tier, so a mutant a
+3. **Or name the browser test that kills it.** The `@cire/host` and
+   `@cire/invites` runs leave the browser tier out (below), so a mutant a
    `*.browser.test.tsx` already kills still reports as a survivor. Run that
    test against the mutant once, then name it in the pull request beside the
    survivor. Do not copy the browser test into jsdom to raise the score: that is
@@ -706,6 +705,10 @@ What the configs depend on, and what breaks without it:
   project**, because the vitest runner starts every project and a Chromium per
   mutant is not affordable. A
   mutant only the browser tier can kill reports as a survivor.
+- **`@cire/waves`' config keeps the `browser` project**: its code runs only in
+  Chromium, so dropping it leaves every mutant uncovered and Stryker stops with
+  "No tests were executed". Set `VITEST_BROWSER_EXECUTABLE_PATH` for the run as
+  for `test:browser`.
 - **`@cire/host`'s script sets `TZ=Australia/Sydney`.** The vitest runner forces
   the `threads` pool, where a project's `env: { TZ }` cannot take effect, and the
   zone-dependent tests then fail the dry run.

@@ -2148,20 +2148,22 @@ focus or a click, and the pulse on the pieces alone. Stories:
 `@cire/waves` holds the two waves the invite builder's narrow preview opens
 with (englishstreetventures/osn#2415), kept for use elsewhere in cire as well;
 the builder picks by `?preview-wave=` ([[cire-invite-builder]] §Organiser UI,
-"The narrow preview"). It is not a general part: one surface uses it, so it lives under
-`cire/`, where a change redeploys the cire sites alone, not under `shared/`.
+"The narrow preview: opened with a wave"). It is not a general part: one surface uses it, so it lives under
+`cire/`, where a change redeploys the cire sites alone, not under `shared/`:
+`scripts/deploy-surfaces.ts` redeploys cire/host, the one surface that bundles
+it, and `scripts/tests/deploy-surface-map.test.ts` fails if that filter drops it.
 
 | Export | What it is | Fallbacks |
 |---|---|---|
 | `@cire/waves/gilded` — `GildedWave` | Ours. Takes a frame the caller positions and owns its `hidden`. A change of `revealed` runs a same-document View Transition: the frame's picture is held and cut by a feathered circle on the wave's front (`--cire-gilded-mask`, rules scoped to `:root.cire-gilded`), and a WebGL 2 canvas draws the gold band, its crest, the colour left on the frame's edges and the dust. Front, mask and gold come from one function of progress (`src/gilded/wave.ts`). It never pictures the page | no WebGL 2, or shaders that will not build: the transition alone. No View Transitions, or reduced motion: an opacity fade on `--dur-slow` |
-| `@cire/waves/distortion` — `DistortionWave` | A Solid port of the React wrapper of Jakub Antalik's Distortion Waves round its core, vendored unedited in `cire/waves/vendor/` (MIT). Upstream's defaults: it pictures the element for its lens, takes the first picture at idle, uses the type's own palette. No `overlay` slot | reduced motion or no WebGL 2: the controller's 300 ms crossfade. A controller call that throws: the crossfade from then on |
+| `@cire/waves/distortion` — `DistortionWave` | A Solid port of the React wrapper of Jakub Antalik's Distortion Waves round its core, vendored unedited in `cire/waves/vendor/` (MIT). Upstream's defaults: it pictures the element for its lens, takes the first picture at idle, uses the type's own palette. No `overlay` slot; the handle carries `reset`, the element and the controller. The MIT notice ships in the bundle as `DistortionWave.licence`, since a minified Vite 8 build keeps no comment | reduced motion or no WebGL 2: the controller's 300 ms crossfade. A controller call that throws: the crossfade from then on |
 
 Both are dynamic imports in the builder, so neither is in the portal's first
 load. Both are exceptions to the motion ladder (`cire/host/DESIGN.md` §4):
 an animation library, a run longer than `--dur-slow`, and timings that do not
 follow `--motion-scale`. In a development build `window.__cireWaves` holds the
 E2E flow's hooks; `tests/hooks.test.ts` fails a production bundle that carries
-them. The browser tests (`cire/waves/tests/*.browser.test.*`) take one failure
+them, or that lacks upstream's notice. The browser tests (`cire/waves/tests/*.browser.test.*`) take one failure
 mode each; `cire/waves/README.md` has the rest.
 
 ### cire's `Button`, as a vocabulary
