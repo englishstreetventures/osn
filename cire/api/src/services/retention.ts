@@ -14,7 +14,7 @@ import {
   weddings,
 } from "@cire/db";
 import { jsonEachIn, rowsChanged } from "@shared/db-utils";
-import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Cause, Data, Effect } from "effect";
 
@@ -74,10 +74,12 @@ export const RETENTION_AFTER_FINAL_EVENT_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
  * Guest-data retention for a wedding with an event the sweep cannot date: this
- * many calendar years after the wedding was created (`weddings.created_at`), or
- * a year after the last event it can date, whichever is later. The same three
- * privacy notices state it, and the parting email says "three years have
- * passed", so the years are calendar years: the anniversary is never early.
+ * many calendar years after the wedding was created (`weddings.created_at`),
+ * whatever the dates of its other events say. A wedding planned further ahead
+ * than that can lose its guest data before a readable event of it; the owner
+ * chose this. The same three privacy notices state it, and the parting email
+ * says "three years have passed", so the years are calendar years: the
+ * anniversary is never early.
  */
 export const UNDATED_RETENTION_AFTER_CREATION_YEARS = 3;
 
@@ -184,17 +186,11 @@ function creationCutoffSeconds(at: number): number {
 /**
  * A wedding the sweep found due, and what its retention counts from: its final
  * event, or, for a wedding with an event it cannot date, its creation in epoch
- * seconds, with its latest dated event, if any, which it also had to be a year
- * past.
+ * seconds.
  */
 type DueWedding =
   | { readonly weddingId: string; readonly rule: "final-event"; readonly finalEventAt: string }
-  | {
-      readonly weddingId: string;
-      readonly rule: "created";
-      readonly createdAt: number;
-      readonly finalEventAt: string | null;
-    };
+  | { readonly weddingId: string; readonly rule: "created"; readonly createdAt: number };
 
 export const retentionService = {
   /**
@@ -215,12 +211,11 @@ export const retentionService = {
    * event only when every event's `start_at`, and every `end_at` but the `""`
    * no-stated-end sentinel, has that shape. A wedding with any other value is
    * never dated on a guess — `TBD` sorts after every date, `1st Nov 2026`
-   * before every cutoff. It is due {@link UNDATED_RETENTION_AFTER_CREATION_YEARS} calendar years
-   * after `weddings.created_at`, and not before its dated events, if any, are
-   * all past the cutoff; until then it is kept. While it is kept, holds guest
-   * data and its dated events are all past the cutoff, every run counts it in
-   * one warning line, and a run that deletes such weddings counts them in
-   * another. Both lines carry the count and nothing else.
+   * before every cutoff. It is due {@link UNDATED_RETENTION_AFTER_CREATION_YEARS}
+   * calendar years after `weddings.created_at`, whatever its dated events say,
+   * and kept until then. While it is kept and holds guest data, every run
+   * counts it in one warning line, and a run that deletes such weddings counts
+   * them in another. Both lines carry the count and nothing else.
    *
    * Each event's **effective end** is `end_at`, falling back to `start_at`
    * when `end_at` is `""` (End is optional in the events sheet) — `""` sorts
@@ -322,8 +317,8 @@ export const retentionService = {
       // them. A swept wedding keeps its events, so without this the oldest
       // swept weddings would fill the cap on every run and no newer wedding
       // would ever be reached. In HAVING, after the cutoff test, so the probes
-      // run once per wedding past it (or with nothing it can date) rather than
-      // once per event row; the wedding id is `outerColumn` so each probe
+      // run once per wedding past it (or with an event it cannot date) rather
+      // than once per event row; the wedding id is `outerColumn` so each probe
       // correlates to its group.
       const holdsGuestData = sql`(exists (select 1 from ${families} where ${outerColumn(families.weddingId)} = ${outerColumn(events.weddingId)}) or exists (select 1 from ${imports} where ${outerColumn(imports.weddingId)} = ${outerColumn(events.weddingId)}) or exists (select 1 from ${emailSuppressions} where ${outerColumn(emailSuppressions.weddingId)} = ${outerColumn(events.weddingId)}))`;
       const rows = yield* dbQuery(() =>
@@ -343,11 +338,11 @@ export const retentionService = {
           })
           .from(events)
           .groupBy(events.weddingId)
-          // Every dated event past the cutoff, or no dated event at all. A
-          // wedding with no undated event is due; one with an undated event
-          // is due once it is three years old, and the rest are read so they
-          // can be counted.
-          .having(and(lt(sql`coalesce(${finalEventAt}, '')`, cutoff), holdsGuestData))
+          // A wedding whose events all read, once its final event is past the
+          // cutoff; and every wedding with an event the sweep cannot date,
+          // whatever its other dates say: due once it is three years old, and
+          // read before then so it can be counted.
+          .having(and(or(undated, lt(finalEventAt, cutoff)), holdsGuestData))
           // Bounded — see MAX_WEDDINGS_PER_SWEEP. Due weddings first, so a
           // kept wedding takes only a place no due wedding needs. Among them,
           // the weddings whose dates all read (createdAt NULL) lead, the
@@ -376,14 +371,7 @@ export const retentionService = {
         r.kept !== 0
           ? []
           : r.createdAt !== null
-            ? [
-                {
-                  weddingId: r.weddingId,
-                  rule: "created",
-                  createdAt: r.createdAt,
-                  finalEventAt: r.finalEventAt,
-                },
-              ]
+            ? [{ weddingId: r.weddingId, rule: "created", createdAt: r.createdAt }]
             : r.finalEventAt !== null
               ? [{ weddingId: r.weddingId, rule: "final-event", finalEventAt: r.finalEventAt }]
               : [],
@@ -419,20 +407,20 @@ export const retentionService = {
       // GIFT_SUMMARY_HOLD_BACK_MS past its retention date is deleted without
       // its record rather than kept indefinitely: the privacy notice's window
       // outranks the keepsake. Measured from its retention date: a year after
-      // the final event, or, for a wedding due by its creation, the later of
-      // its three years and the year after its last dated event, the two
-      // bounds that had to pass for it to be due. With the cron running daily,
-      // that is the run count since it fell due for a wedding that joined the
-      // cohort on time. One that joins late — kept for an event the sweep
-      // could not date until a host fixed it, or whose final event a host
-      // moved back — can be past the ceiling on its first run here, with one
-      // attempt at its record.
+      // the final event, or, for a wedding due by its creation, three years
+      // after that creation, whatever its dated events say. With the cron
+      // running daily, that is the run count since it fell due for a wedding
+      // that joined the cohort on time. One that joins late — kept for an
+      // event the sweep could not date until a host fixed it, whose final
+      // event a host moved back, or whose dates all read until a revert
+      // brought back one that does not — can be past the ceiling on its first
+      // run here, with one attempt at its record.
       const ceilingAt = now.getTime() - GIFT_SUMMARY_HOLD_BACK_MS;
       const ceiling = cutoffDateString(new Date(ceilingAt));
       const creationCeiling = creationCutoffSeconds(ceilingAt);
       // Read before the count, which never defers a wedding past it.
       const pastCeiling = expired.flatMap((r) =>
-        (r.finalEventAt ?? "") < ceiling && (r.rule !== "created" || r.createdAt < creationCeiling)
+        (r.rule === "created" ? r.createdAt < creationCeiling : r.finalEventAt < ceiling)
           ? [r.weddingId]
           : [],
       );

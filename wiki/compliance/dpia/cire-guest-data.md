@@ -447,11 +447,12 @@ final sign-off now turns only on the residual retention gaps below.
   past, and the sheets their `imports` rows name are reaped from R2 in the same
   sweep. The sweep reads a final event only from Starts and Ends that begin with
   their date: a wedding with any other value has its guest data deleted 3 years
-  after it was created (`weddings.created_at`), or a year after its last dated
-  event, whichever is later, and a host who fixes the event puts it back on the
-  year rule. Each run logs how many such weddings it keeps while they
-  hold guest data with every dated event a year past, and how many it deleted by
-  their creation (counts, no id, no date). A wedding its owners delete is purged whole 7–8 days later (later if
+  after it was created (`weddings.created_at`), whatever its other events'
+  dates, and a host who fixes the event puts it back on the year rule. A wedding
+  planned more than 3 years ahead with one unreadable event can therefore lose
+  its guest data before a readable event of it, which the owner accepted. Each
+  run logs how many such weddings it keeps while they hold guest data, and how
+  many it deleted by their creation (counts, no id, no date). A wedding its owners delete is purged whole 7–8 days later (later if
   the daily purge cap or a payment still settling defers it): every row by
   cascade, and its sheet and image objects ([[cire-auth#Soft-deleted weddings]]).
 - **What outlives the sweep (2026-10-15).** The sweep leaves the couple a record

@@ -797,9 +797,10 @@ describe("retentionService.sweepExpiredGuestData", () => {
     for (const secret of [weddingId, ...stored]) expect(logs).not.toContain(secret);
   });
 
-  it("does not count an upcoming wedding that also holds an event it cannot date", async () => {
-    // Its dated event is still ahead, so it would be kept anyway; it joins the
-    // count once that event is past the cutoff.
+  it("keeps and counts a young wedding it cannot date even when a readable event is still ahead", async () => {
+    // The readable event does not decide when its guest data goes: the event
+    // it cannot date puts it on the three years from its creation, so it is
+    // kept for that, and counted with the rest.
     const db = freshDb();
     const { guestId } = makeWeddingWithTimes(db, [
       { startAt: "2027-01-10T10:00:00+11:00", endAt: "" },
@@ -811,7 +812,7 @@ describe("retentionService.sweepExpiredGuestData", () => {
     );
 
     expect(guestCount(db, guestId)).toBe(1);
-    expect(undatedLines(logs)).toEqual([]);
+    expect(undatedLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
   });
 
   it("does not count a wedding it cannot date that holds no guest data", async () => {
@@ -829,7 +830,7 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
   // A wedding with an event the sweep cannot date has no final event to count a
   // year from. Its guest data goes three years after the wedding was created
-  // instead, and never earlier than the year after an event it can date.
+  // instead, whatever its readable dates say.
   it("deletes a wedding it cannot date three years after it was created, and keeps and counts younger ones", async () => {
     const db = freshDb();
     // Swept on 2026-06-17: three years and a day.
@@ -873,47 +874,51 @@ describe("retentionService.sweepExpiredGuestData", () => {
     }
   });
 
-  it("deletes a wedding created more than three years ago once its dated events are a year past, with an event it cannot date", async () => {
+  // The owner's rule: one event the sweep cannot date puts the whole wedding on
+  // the three years from its creation, whatever its readable events say. A
+  // wedding planned more than three years ahead can therefore lose its guest
+  // data before its readable event, which the owner accepted.
+  it.each([
+    {
+      shape: "a readable event a year and more past",
+      readable: { startAt: "2025-03-01T10:00:00+11:00", endAt: "2025-03-01T12:00:00+11:00" },
+    },
+    {
+      shape: "a readable event three months past",
+      readable: { startAt: "2026-03-14T10:00:00+11:00", endAt: "2026-03-14T12:00:00+11:00" },
+    },
+    {
+      shape: "a readable event still to come",
+      readable: { startAt: "2027-01-10T10:00:00+11:00", endAt: "" },
+    },
+  ])(
+    "deletes a wedding created four years before the run with an event it cannot date and $shape",
+    async ({ readable }) => {
+      const db = freshDb();
+      const { guestId } = makeWeddingWithTimes(
+        db,
+        [readable, { startAt: "TBD by the couple", endAt: "" }],
+        new Date(SWEEP_AT.getTime() - 4 * YEAR_MS),
+      );
+
+      const logs = await captureLogs(() =>
+        runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+      );
+
+      expect(guestCount(db, guestId)).toBe(0);
+      expect(createdBoundLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
+    },
+  );
+
+  it("keeps a wedding created four years before the run whose dates all read, its final event two months past", async () => {
+    // The three years from creation applies only to a wedding with an event the
+    // sweep cannot date; this one is on the year rule alone.
     const db = freshDb();
     const { guestId } = makeWeddingWithTimes(
       db,
-      [
-        { startAt: "2025-03-01T10:00:00+11:00", endAt: "2025-03-01T12:00:00+11:00" },
-        { startAt: "TBD by the couple", endAt: "" },
-      ],
+      [{ startAt: "2026-04-15T10:00:00+10:00", endAt: "2026-04-15T12:00:00+10:00" }],
       new Date(SWEEP_AT.getTime() - 4 * YEAR_MS),
     );
-
-    const logs = await captureLogs(() =>
-      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
-    );
-
-    expect(guestCount(db, guestId)).toBe(0);
-    expect(createdBoundLines(logs)).toEqual([expect.stringContaining('"weddings":1')]);
-  });
-
-  it.each([
-    {
-      shape: "every date readable, its final event two months before the run",
-      times: [{ startAt: "2026-04-15T10:00:00+10:00", endAt: "2026-04-15T12:00:00+10:00" }],
-    },
-    {
-      shape: "an event it cannot date and a readable event still to come",
-      times: [
-        { startAt: "TBD by the couple", endAt: "" },
-        { startAt: "2027-01-10T10:00:00+11:00", endAt: "" },
-      ],
-    },
-    {
-      shape: "an event it cannot date and a readable event three months past",
-      times: [
-        { startAt: "TBD by the couple", endAt: "" },
-        { startAt: "2026-03-14T10:00:00+11:00", endAt: "2026-03-14T12:00:00+11:00" },
-      ],
-    },
-  ])("keeps a wedding created four years before the run with $shape", async ({ times }) => {
-    const db = freshDb();
-    const { guestId } = makeWeddingWithTimes(db, times, new Date(SWEEP_AT.getTime() - 4 * YEAR_MS));
 
     const logs = await captureLogs(() =>
       runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
@@ -2748,14 +2753,14 @@ describe("the gift summary hold-back ceiling", () => {
       pastCeiling: { createdAt: "2023-05-17T04:00:00.000Z", dated: [] },
     },
     {
-      shape: "a dated event whose year ended after its three years",
-      // Created long before, so its retention date is a year after its dated
-      // event: held on the 30th day past that, as a wedding that can be dated.
-      onCeiling: { createdAt: "2022-01-01T00:00:00.000Z", dated: ["2025-05-18"] },
-      pastCeiling: { createdAt: "2022-01-01T00:00:00.000Z", dated: ["2025-05-17"] },
+      shape: "a readable event three months past",
+      // The readable event does not move its retention date, which is still
+      // three years after its creation: the 30 days count from there alone.
+      onCeiling: { createdAt: "2023-05-18T04:00:00.000Z", dated: ["2026-03-14"] },
+      pastCeiling: { createdAt: "2023-05-17T04:00:00.000Z", dated: ["2026-03-14"] },
     },
   ])(
-    "counts the 30 days from the retention date of a wedding it cannot date, with $shape",
+    "counts the 30 days from the three years of a wedding it cannot date, with $shape",
     async ({ onCeiling: onCeilingAt, pastCeiling: pastCeilingAt }) => {
       const db = freshDb();
       const undatableGifted = async ({
