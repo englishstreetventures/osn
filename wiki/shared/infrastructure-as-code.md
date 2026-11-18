@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-16
 ---
 
 # Infrastructure as code (Alchemy)
