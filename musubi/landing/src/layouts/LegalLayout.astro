@@ -52,6 +52,13 @@ const { title } = Astro.props
         color: var(--color-accent);
       }
 
+      /* A link inside the text is underlined, so it never differs from the words
+         around it by colour alone. The back link stands on its own line. */
+      .legal p:not(.legal-back) a,
+      .legal li a {
+        text-decoration: underline;
+      }
+
       .legal .draft-banner {
         border: 1px solid var(--color-accent-dim);
         background: var(--color-surface-raised);

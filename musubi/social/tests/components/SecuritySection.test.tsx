@@ -45,6 +45,13 @@ const clients = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/lib/authClients", () => clients);
+// The reads go through the page cache, which `SecurityCache.test.tsx` covers.
+vi.mock("../../src/lib/security-data", () => ({
+  passkeyList: {},
+  authenticatorStatus: {},
+  recoveryCodesStatus: {},
+  useSettingsRead: () => ({}),
+}));
 vi.mock("../../src/lib/webauthn-ceremony", () => ({ runPasskeyCeremony: () => {} }));
 vi.mock("../../src/lib/webauthn-registration", () => ({ runPasskeyRegistration: () => {} }));
 

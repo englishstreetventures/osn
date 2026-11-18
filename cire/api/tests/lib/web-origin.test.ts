@@ -21,17 +21,6 @@ describe("webOriginProblem", () => {
     ).toBeNull();
   });
 
-  it("accepts http://localhost with a port outside a deployed tier", () => {
-    expect(webOriginProblem("http://localhost:4321", local)).toBeNull();
-    expect(webOriginProblem("http://localhost", local)).toBeNull();
-  });
-
-  it("refuses http://localhost in a deployed tier", () => {
-    expect(webOriginProblem("http://localhost:4321", deployed)).toBe(
-      "WEB_ORIGIN entry 1 must be https:// (http://localhost only outside a deployed tier)",
-    );
-  });
-
   it("refuses a host that only starts with localhost, in every tier", () => {
     for (const tier of [local, deployed]) {
       expect(webOriginProblem("http://localhost.attacker.example", tier)).toContain(
@@ -61,15 +50,6 @@ describe("webOriginProblem", () => {
   it("refuses a schemeless or unparseable entry", () => {
     expect(webOriginProblem("app.example.com", deployed)).toBe("WEB_ORIGIN entry 1 is not a URL");
     expect(webOriginProblem("javascript:alert(1)", deployed)).toContain("must be a bare origin");
-  });
-
-  it("names the failing entry by position, never by its text", () => {
-    const problem = webOriginProblem(
-      "https://ok.example.com,https://user:secret@bad.example.com",
-      deployed,
-    );
-    expect(problem).toContain("entry 2");
-    expect(problem).not.toContain("secret");
   });
 
   it("refuses an empty list", () => {

@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import openapi from "../../../shared/openapi/osn.json";
 import {
+  AccountDeletionRefusedError,
   AccountError,
   createAccountClient,
   type AccountClient,
@@ -226,6 +227,7 @@ describe("account deletion client against shared/openapi/osn.json", () => {
       link: true,
       organisation: true,
       successor: true,
+      candidates: true,
     };
     const CHOICE: Record<keyof AccountDeletionOpenAction["choices"][number], true> = {
       choice: true,
@@ -252,6 +254,103 @@ describe("account deletion client against shared/openapi/osn.json", () => {
     expect(fieldsOf(action?.properties?.["choices"]?.items)).toEqual(keysOf(CHOICE));
     expect(fieldsOf(action?.properties?.["organisation"])).toEqual(keysOf(ORGANISATION));
     expect(fieldsOf(action?.properties?.["successor"])).toEqual(keysOf(SUCCESSOR));
+    // A candidate is a member as the successor is.
+    expect(fieldsOf(action?.properties?.["candidates"]?.items)).toEqual(keysOf(SUCCESSOR));
+  });
+
+  it("exportAccount reaches the route the spec has, the step-up token in its header", async () => {
+    const exported = vi.fn().mockResolvedValue(
+      new Response('{"end":true}\n', {
+        status: 200,
+        headers: { "content-disposition": 'attachment; filename="acme-account-export.ndjson"' },
+      }),
+    );
+    vi.stubGlobal("fetch", exported);
+    const file = await client.exportAccount({ stepUpToken: "eyJexport" });
+    const [url, init] = exported.mock.calls[0] as [string, RequestInit];
+    expect(new URL(url).pathname).toBe("/account/export");
+    expect(new Headers(init.headers).get("x-step-up-token")).toBe("eyJexport");
+    expect(operation("get", "/account/export")).toBeDefined();
+    expect(file.fileName).toBe("acme-account-export.ndjson");
+    expect(await file.blob.text()).toBe('{"end":true}\n');
+  });
+
+  it("sendDataLink reaches the route the spec has and reads its answer", async () => {
+    const request = await sent(() => client.sendDataLink(), { sent: true });
+    expect({ method: request.method, path: request.path }).toEqual({
+      method: "post",
+      path: "/account/data-link",
+    });
+    expect(fieldsOf(responseSchema("post", "/account/data-link", "202"))).toEqual(
+      new Set(["sent"]),
+    );
+  });
+});
+
+/**
+ * Each refusal that names what to look at again carries it to the caller, so
+ * the screen can land the person on it. Red when the body is dropped, which is
+ * what a plain `AccountError` does.
+ */
+describe("deleteAccount refusals carry what to look at again", () => {
+  const action = {
+    id: "cire:wedding:wed_1",
+    app: "cire",
+    kind: "wedding_sole_owner",
+    label: "You are the only owner.",
+    choices: [{ choice: "delete", description: "Deleted.", erased_on: null }],
+    default_choice: null,
+    link: null,
+  };
+  const refuse = (status: number, body: unknown) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+  const refusal = async () => {
+    try {
+      await client.deleteAccount({ confirmHandle: "alice", stepUpToken: "t" });
+    } catch (err) {
+      return err;
+    }
+    throw new Error("expected a refusal");
+  };
+
+  it("open_actions: the actions still waiting", async () => {
+    refuse(409, { error: "open_actions", open_actions: [action] });
+    const err = await refusal();
+    expect(err).toBeInstanceOf(AccountDeletionRefusedError);
+    expect((err as AccountDeletionRefusedError).code).toBe("open_actions");
+    expect((err as AccountDeletionRefusedError).openActions).toEqual([action]);
+  });
+
+  it.each(["stale_choices", "could_not_check"] as const)(
+    "%s: the server's fresh preview",
+    async (code) => {
+      refuse(409, { error: code, open_actions: [action], could_not_check: ["zap"] });
+      const err = (await refusal()) as AccountDeletionRefusedError;
+      expect(err).toBeInstanceOf(AccountDeletionRefusedError);
+      expect(err.preview).toEqual({ open_actions: [action], could_not_check: ["zap"] });
+    },
+  );
+
+  it("invalid_choice: the action refused", async () => {
+    refuse(400, { error: "invalid_choice", action: "osn:organisation:org_1" });
+    const err = (await refusal()) as AccountDeletionRefusedError;
+    expect(err).toBeInstanceOf(AccountDeletionRefusedError);
+    expect(err.action).toBe("osn:organisation:org_1");
+  });
+
+  it("any other refusal stays a plain AccountError with its code", async () => {
+    refuse(400, { error: "handle_mismatch" });
+    const err = (await refusal()) as AccountError;
+    expect(err).not.toBeInstanceOf(AccountDeletionRefusedError);
+    expect(err.code).toBe("handle_mismatch");
   });
 
   it("deleteAccount and cancelAccountDeletion declare the bodies their routes answer with", () => {

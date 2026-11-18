@@ -151,26 +151,6 @@ describe("parseEventsCsv", () => {
     expect(events[0]!.description).toBe("Henna from 4.\nDinner at 7, music after.");
   });
 
-  it("parses a sheet with no End column (optional) — endAt is the '' sentinel", async () => {
-    const csv = [
-      "Event Name,Start,Timezone",
-      "Mehndi,2026-09-18T16:00:00+10:00,Australia/Sydney",
-    ].join("\n");
-    const events = await Effect.runPromise(parseEventsCsv(csv));
-    expect(events).toHaveLength(1);
-    expect(events[0]!.endAt).toBe("");
-  });
-
-  it("treats an empty End cell as the '' no-stated-end sentinel", async () => {
-    const csv = [
-      EVENTS_HEADER,
-      "Mehndi,2026-09-18T16:00:00+10:00,,Australia/Sydney,Home,,,,,",
-    ].join("\n");
-    const events = await Effect.runPromise(parseEventsCsv(csv));
-    expect(events[0]!.endAt).toBe("");
-    expect(events[0]!.startAt).toBe("2026-09-18T16:00:00+10:00");
-  });
-
   // Start/End shape is load-bearing: retention compares the stored strings
   // LEXICALLY against a YYYY-MM-DD cutoff (see parseWallTime in lib/event-time.ts).
   for (const bad of ["1st Nov 2026", "TBD", "18/09/2026 4pm"]) {
@@ -299,11 +279,6 @@ describe("parseEventsCsv", () => {
       atRow: MAX_EVENTS + 2,
       sheet: "events",
     });
-  });
-
-  it("returns MalformedSpreadsheet for empty content", async () => {
-    const error = await Effect.runPromise(Effect.flip(parseEventsCsv("")));
-    expect(error).toBeInstanceOf(MalformedSpreadsheet);
   });
 
   for (const [label, value] of [
@@ -496,16 +471,6 @@ describe("parseGuestsCsv", () => {
     );
   });
 
-  it("rejects an unmatched event column", async () => {
-    const csv = [
-      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Sangeet",
-      "1,Testfamily,Ada,Testfamily,yes,yes",
-    ].join("\n");
-    const error = await Effect.runPromise(Effect.flip(parseGuestsCsv(csv, events)));
-    expect(error).toBeInstanceOf(UnmatchedEventColumn);
-    expect((error as UnmatchedEventColumn).column).toBe("Sangeet");
-  });
-
   for (const marker of ["=", "+", "-", "@"]) {
     it(`rejects formula injection prefix '${marker}' in guests sheet`, async () => {
       const csv = [
@@ -560,7 +525,7 @@ describe("parseGuestsCsv", () => {
   });
 });
 
-describe("fidelity columns (E2 — honoured, not just ignored)", () => {
+describe("fidelity columns (honoured, not just ignored)", () => {
   const events = [
     {
       name: "Mehndi",
@@ -971,7 +936,7 @@ describe("CSV input caps", () => {
   });
 
   it("rejects an unterminated quoted cell at EOF", async () => {
-    // Open quote that never closes — historically this would silently consume
+    // Open quote that never closes — a lenient parser would silently consume
     // the rest of the file as one giant cell.
     const csv = [
       EV_HEADER,

@@ -20,8 +20,7 @@ import { insertWedding } from "../test-helpers/wedding";
 
 /**
  * osn-api's account-export call on cire-api: who may make it, what it refuses,
- * and what it answers about the person's seats. Each test names its failure
- * mode in `NEW-FEAT.md` (C1–C11).
+ * and what it answers about the person's seats.
  */
 
 const EXPORT = "/internal/account-export";
@@ -98,7 +97,7 @@ const records = (all: Record<string, unknown>[]) =>
   all.map((line) => line.record as Record<string, unknown>);
 
 describe("ARC on the account export (refusals)", () => {
-  it("C1: no token is refused before anything is read", async () => {
+  it("no token is refused before anything is read", async () => {
     const { db, app } = setup();
     insertWedding(db, { id: "w1", slug: "w1", displayName: "One", owners: [P] });
     const reads = failStatements(db, () => true);
@@ -109,7 +108,7 @@ describe("ARC on the account export (refusals)", () => {
     reads.restore();
   });
 
-  it("C2: a token from an issuer other than osn-api is refused", async () => {
+  it("a token from an issuer other than osn-api is refused", async () => {
     const { app } = setup();
     const res = await post(
       app,
@@ -119,7 +118,7 @@ describe("ARC on the account export (refusals)", () => {
     expect(res.status).toBe(401);
   });
 
-  it("C3: a token for another app's audience is refused", async () => {
+  it("a token for another app's audience is refused", async () => {
     const { app } = setup();
     const res = await post(
       app,
@@ -129,7 +128,7 @@ describe("ARC on the account export (refusals)", () => {
     expect(res.status).toBe(401);
   });
 
-  it("C2: a forged, an expired or a Bearer-sent token is refused before anything is read", async () => {
+  it("a forged, an expired or a Bearer-sent token is refused before anything is read", async () => {
     const { db, app } = setup();
     insertWedding(db, { id: "w1", slug: "w1", displayName: "One", owners: [P] });
     const other = await generateArcKeyPair();
@@ -146,7 +145,7 @@ describe("ARC on the account export (refusals)", () => {
     reads.restore();
   });
 
-  it("C4: a deletion scope does not open the export", async () => {
+  it("a deletion scope does not open the export", async () => {
     const { app } = setup();
     for (const scope of ["account:erase", "account:deletion-preview"]) {
       const res = await post(app, await arc.token(scope), exportBody());
@@ -175,7 +174,7 @@ describe("ARC on the account export (refusals)", () => {
     ).toHaveLength(1);
   });
 
-  it("C5: a body outside the contract is refused", async () => {
+  it("a body outside the contract is refused", async () => {
     const { app } = setup();
     const token = await arc.token("account:export");
     for (const body of [
@@ -201,7 +200,7 @@ describe("ARC on the account export (refusals)", () => {
 });
 
 describe("what the export answers about the person's seats", () => {
-  it("C6: only the named profiles' seats, other owners counted and never named", async () => {
+  it("only the named profiles' seats, other owners counted and never named", async () => {
     const { db, app } = setup();
     insertWedding(db, { id: "w_shared", slug: "shared", displayName: "Shared", owners: [] });
     seat(db, "w_shared", CO, "owner", CO, new Date("2026-08-01T00:00:00Z"));
@@ -256,7 +255,7 @@ describe("what the export answers about the person's seats", () => {
     expect(text.split(CO).length - 1).toBe(1);
   });
 
-  it("C7: a deleted wedding tells an owner and the one who deleted it, and nobody else", async () => {
+  it("a deleted wedding tells an owner and the one who deleted it, and nobody else", async () => {
     const { db, app } = setup();
     const deletedAt = new Date("2026-10-01T00:00:00Z");
     const restoreUntil = new Date((deletedAt.getTime() / 1000 + RESTORE_WINDOW_S) * 1000);
@@ -312,7 +311,7 @@ describe("what the export answers about the person's seats", () => {
     });
   });
 
-  it("C6: two of the account's own profiles on one wedding are not each other's other owner", async () => {
+  it("two of the account's own profiles on one wedding are not each other's other owner", async () => {
     const { db, app } = setup();
     insertWedding(db, { id: "w_both", slug: "both", displayName: "Both", owners: [P, P2] });
     insertWedding(db, {
@@ -336,7 +335,7 @@ describe("what the export answers about the person's seats", () => {
     });
   });
 
-  it("C8: past the seat cap, the answer ends with a degraded line", async () => {
+  it("past the seat cap, the answer ends with a degraded line", async () => {
     const { db, app } = setup();
     for (let i = 0; i <= MAX_EXPORT_SEATS; i++) {
       insertWedding(db, { id: `w_${i}`, slug: `w-${i}`, displayName: `W ${i}`, owners: [P] });
@@ -349,7 +348,7 @@ describe("what the export answers about the person's seats", () => {
     expect(all.at(-1)).toEqual({ degraded: "cire", reason: "too_many_weddings" });
   });
 
-  it("C8: exactly at the seat cap, the answer is whole", async () => {
+  it("exactly at the seat cap, the answer is whole", async () => {
     const { db, app } = setup();
     for (let i = 0; i < MAX_EXPORT_SEATS; i++) {
       insertWedding(db, { id: `w_${i}`, slug: `w-${i}`, displayName: `W ${i}`, owners: [P] });
@@ -359,7 +358,7 @@ describe("what the export answers about the person's seats", () => {
     expect(all.some((line) => "degraded" in line)).toBe(false);
   });
 
-  it("C9: a call naming no profile gets an empty answer", async () => {
+  it("a call naming no profile gets an empty answer", async () => {
     const { db, app } = setup();
     insertWedding(db, { id: "w1", slug: "w1", displayName: "One", owners: [P] });
     const res = await post(app, await arc.token("account:export"), exportBody([]));
@@ -367,7 +366,7 @@ describe("what the export answers about the person's seats", () => {
     expect(await res.text()).toBe("");
   });
 
-  it("C9: a person with no seat gets an empty answer", async () => {
+  it("a person with no seat gets an empty answer", async () => {
     const { db, app } = setup();
     insertWedding(db, { id: "w1", slug: "w1", displayName: "One", owners: [STRANGER] });
     const res = await post(app, await arc.token("account:export"), exportBody());
@@ -375,7 +374,7 @@ describe("what the export answers about the person's seats", () => {
     expect(await res.text()).toBe("");
   });
 
-  it("C10: a failed read answers 500 and logs no profile id", async () => {
+  it("a failed read answers 500 and logs no profile id", async () => {
     const { db, app } = setup();
     insertWedding(db, { id: "w1", slug: "w1", displayName: "One", owners: [P] });
     const before = await counterValue(CIRE_METRICS.accountExportRequests, { result: "error" });
@@ -399,7 +398,7 @@ describe("what the export answers about the person's seats", () => {
     );
   });
 
-  it("C11: the download link needs an https portal, or http on a loopback host", async () => {
+  it("the download link needs an https portal, or http on a loopback host", async () => {
     for (const [origin, link] of [
       ["http://host.example.test", null],
       ["ftp://localhost", null],

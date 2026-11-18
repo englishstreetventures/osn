@@ -1,6 +1,6 @@
 import { AuthContext } from "@osn/client/solid";
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
 import type { Component } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
@@ -62,6 +62,7 @@ vi.mock("../../src/lib/api", () => ({
 }));
 vi.mock("@osn/auth-ui/ProfileOnboarding", () => ({ ProfileOnboarding: () => null }));
 vi.mock("../../src/lib/authClients", () => ({
+  accountClient: { getAccountDeletionPreview: () => reads.hold("preview") },
   registrationClient: { checkHandle: () => Promise.resolve({ available: true }) },
   connectionsClient: { list: () => reads.hold("apps") },
   passkeysClient: { list: () => reads.hold("passkeys") },
@@ -70,6 +71,10 @@ vi.mock("../../src/lib/authClients", () => ({
   recoveryClient: { getRecoveryCodesStatus: () => Promise.resolve({ active: 10, total: 10 }) },
 }));
 vi.mock("../../src/lib/webauthn-ceremony", () => ({ runPasskeyCeremony: () => {} }));
+vi.mock("../../src/components/ShellDialogs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/components/ShellDialogs")>()),
+  useShellDialogs: () => ({ load: () => Promise.resolve(), open: () => {} }),
+}));
 vi.mock("../../src/lib/webauthn-registration", () => ({ runPasskeyRegistration: () => {} }));
 // Each lazy section suspends on its own held read, so its Suspense fallback
 // stays on screen until the test lets the section's code "arrive".
@@ -103,6 +108,7 @@ vi.mock("../../src/components/SecuritySection", async (importOriginal) => {
 });
 
 import { ConnectionsPage } from "../../src/pages/ConnectionsPage";
+import { DeleteAccountPage } from "../../src/pages/DeleteAccountPage";
 import { DiscoverPage } from "../../src/pages/DiscoverPage";
 import { OrganisationsPage } from "../../src/pages/OrganisationsPage";
 import { OrgDetailPage } from "../../src/pages/OrgDetailPage";
@@ -338,5 +344,64 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
       "Work laptop",
     );
     expect(height.landed).toBeCloseTo(height.held, 0);
+  });
+});
+
+/**
+ * Step 2 of the account's deletion, while the apps are asked. What lands is
+ * the "Delete everything" card, then 24px to an app's section: its name, then
+ * its actions' cards 12px apart. The placeholder holds the card's height, the
+ * gap and the name's line; an action's card is as tall as what its app says,
+ * so those two blocks are not held. One block per side of `md`, at a
+ * 360–430px phone's height, so it runs at 390px and on desktop.
+ */
+describe.each([390, 1440])("the deletion flow's step 2 placeholder at %ipx", (width) => {
+  beforeEach(async () => {
+    await page.viewport(width, 2400);
+  });
+
+  it("holds the Delete everything card, the gap and an app's name", async () => {
+    renderAt("/settings/delete-account", "/settings/delete-account", DeleteAccountPage);
+    screen.getByRole("button", { name: "Continue" }).click();
+    const region = await busyRegion(4);
+    await page.screenshot({ path: `${SHOTS}/delete-account-step-2-${width}.png` });
+    const [card, name] = shownBlocks(region).map((block) => block.getBoundingClientRect());
+    const held = { card: card!.height, gap: name!.top - card!.bottom, name: name!.height };
+
+    reads.release("preview", {
+      open_actions: [
+        {
+          id: "pulse:event:ev_1",
+          app: "pulse",
+          kind: "events_hosted",
+          label: "You host “Sunday Picnic”.",
+          choices: [
+            {
+              choice: "cancel",
+              description: "Cancelled when your account is deleted.",
+              erased_on: null,
+            },
+            {
+              choice: "delete",
+              description: "Deleted when your account is deleted.",
+              erased_on: null,
+            },
+          ],
+          default_choice: "cancel",
+          link: null,
+        },
+      ],
+      could_not_check: [],
+    });
+    const heading = await screen.findByRole("heading", { level: 3, name: "Pulse" });
+    await waitFor(() => expect(document.querySelector("[aria-busy]")).toBeNull());
+    // The section's sibling before it: the card that holds "Delete everything".
+    const everything = heading.closest("section")!.previousElementSibling!;
+    within(everything as HTMLElement).getByRole("checkbox", { name: "Delete everything" });
+    const landedCard = everything.getBoundingClientRect();
+    const landedName = heading.getBoundingClientRect();
+    expect(landedCard.height).toBeCloseTo(held.card, 0);
+    expect(landedName.top - landedCard.bottom).toBeCloseTo(held.gap, 0);
+    expect(landedName.height).toBeCloseTo(held.name, 0);
   });
 });

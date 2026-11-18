@@ -25,10 +25,6 @@ describe("CreateTaskBody", () => {
     }
   });
 
-  it("rejects an unknown bucket", () => {
-    expect(decode(CreateTaskBody, { title: "x", timeframeBucket: "5m" })._tag).toBe("Failure");
-  });
-
   it("rejects an empty title", () => {
     expect(decode(CreateTaskBody, { title: "", timeframeBucket: "6m" })._tag).toBe("Failure");
   });

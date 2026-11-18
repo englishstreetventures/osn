@@ -19,8 +19,10 @@ import { osnArc } from "../helpers/osn-arc";
 
 /**
  * Route-level coverage for the `/internal` group: the shared-secret
- * registration gate and the ARC-gated `account-export` DSAR endpoint.
- * Message content is never read — only chat-membership metadata is emitted.
+ * registration gate; the ARC-gated `account-export` DSAR endpoint, which emits
+ * chat memberships and c2b message bodies but never c2c ciphertext; the
+ * `chat:c2b` routes cire uses to provision a chat and send and list its
+ * messages; and the account-deletion preview and erasure only osn-api may call.
  */
 
 // The same secret the osn-api stand-in mints its kid MAC under, and long
@@ -155,8 +157,6 @@ describe("zap internal routes — ARC-gated account-export", () => {
     expect(parsed.section).toBe("zap.chats");
     expect(parsed.record.chatId).toBe(chat.id);
     expect(parsed.record.role).toBe("admin");
-    // Message content must never appear in the export.
-    expect(text).not.toContain("ciphertext");
   });
 
   it("returns an empty body for an empty profile set", async () => {
@@ -236,7 +236,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
     expect(text).toContain("Hello from host!");
     expect(text).toContain("Hi there!");
 
-    // Must contain the new zap.c2b_messages section.
+    // Must contain the zap.c2b_messages section.
     expect(text).toContain("zap.c2b_messages");
 
     // The c2c ciphertext must NEVER appear.
@@ -262,7 +262,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
     }
   });
 
-  it("c2b export is bounded and ordered newest-first (P-W1 hardening)", async () => {
+  it("c2b export orders messages newest-first", async () => {
     const layer = createTestLayer();
     const app = createInternalRoutes(layer, osn.verification);
 
@@ -533,27 +533,11 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
     const res = await get(app, "/internal/chats/chat_fake/messages", `ARC ${arc}`, {
       limit: "abc",
     });
-    // Elysia rejects the non-numeric query param before reaching the handler.
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
-  });
-
-  // ── provision ────────────────────────────────────────────────────────────
-
-  it("POST /internal/chats → 201 + chatId with a valid chat:c2b token", async () => {
-    const app = createInternalRoutes(createTestLayer(), osn.verification);
-    const arc = await registerC2bAndMintToken(app, privateKey, publicKeyJwk);
-
-    const res = await post(
-      app,
-      "/internal/chats",
-      { memberProfileIds: ["usr_guest", "usr_host"], createdByProfileId: "usr_host" },
-      `ARC ${arc}`,
-    );
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { chatId: string };
-    expect(typeof body.chatId).toBe("string");
-    expect(body.chatId).toMatch(/^chat_/);
+    // 422 is Elysia's status for a query that fails the route's TypeBox
+    // schema, answered before the handler runs. It is not the route's own 400
+    // for a `ValidationError`, and the handler answers 404 for `chat_fake`, so
+    // only the query schema can give it.
+    expect(res.status).toBe(422);
   });
 
   // ── send + list roundtrip ────────────────────────────────────────────────
@@ -572,6 +556,7 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
     );
     expect(provRes.status).toBe(201);
     const { chatId } = (await provRes.json()) as { chatId: string };
+    expect(chatId).toMatch(/^chat_/);
 
     // Send a message.
     const sendRes = await post(
@@ -623,8 +608,8 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
       `ARC ${arc}`,
     );
 
-    // Previously this answered 200 with page 1, so a caller paginating with a
-    // stale cursor looped over the newest page instead of being told.
+    // Answering 200 with page 1 would send a caller paginating with a stale
+    // cursor round the newest page for ever instead of telling it.
     const res = await get(app, `/internal/chats/${chatId}/messages`, `ARC ${arc}`, {
       before: "msg_nonexistent",
     });

@@ -8,9 +8,10 @@
  * stack does not run (`standInForCireHub`), and, in a flow that asks for it,
  * for Cloudflare Turnstile (`standInForTurnstile`); and it collects every
  * Content-Security-Policy message a page logs. Flows touch the stack only through
- * the browser, the API request context and the read-only helpers here. The one
- * helper that writes, `refuseNextMailTo`, writes to the mail stand-in, which is
- * not part of the stack.
+ * the browser, the API request context and the read-only helpers here, with two
+ * exceptions: `refuseNextMailTo` writes to the mail stand-in, which is not part
+ * of the stack, and `writeRow` writes one row to a stack database, for a state
+ * no route or clock reaches.
  */
 
 import { createHmac } from "node:crypto";
@@ -587,7 +588,9 @@ export function queryOne<T>(
 
 /**
  * Writes to a stack database, for a state the browser cannot reach: a race the
- * servers refuse from any page. Waits out the server's own write lock.
+ * servers refuse from any page, or a deadline the suite's real-time clock does
+ * not reach (`musubi-account-deletion` moves its deletion job past its window).
+ * Waits out the server's own write lock, and throws unless one row changed.
  */
 export function writeRow(dbPath: string, sql: string, ...params: Array<string | number>): void {
   const db = new DatabaseSync(dbPath);
@@ -627,6 +630,24 @@ export async function claimFromOrganiserAddress(context: BrowserContext): Promis
 }
 
 /**
+ * Sends every osn-api request `context` makes from `address` rather than from
+ * the machine the suite runs on, as `claimFromOrganiserAddress` does for
+ * cire-api's claims: the stack's osn-api keeps a sent `cf-connecting-ip`
+ * (`OSN_E2E_CLIENT_ADDRESS`), so the context's sign-ins, step-ups and profile
+ * lists spend that address's limiter windows, not the suite's. The headers are
+ * the request's own (`allHeaders`, which keeps `Origin` for CORS) plus the
+ * address. The route stays for the rest of the flow, for the reason
+ * `claimFromOrganiserAddress` gives.
+ */
+export async function callOsnApiFrom(context: BrowserContext, address: string): Promise<void> {
+  await context.route(`${ORIGINS.osnApi}/**`, async (route: Route) =>
+    route.continue({
+      headers: { ...(await route.request().allHeaders()), "cf-connecting-ip": address },
+    }),
+  );
+}
+
+/**
  * Holds the browser's `method` requests to the URL it is routed on until
  * `release` runs; the preflight and every other method go on. Route it with
  * `page.route(url, handler)`, and once released undo it with
@@ -661,6 +682,27 @@ export async function throughEmailVerificationApi(context: BrowserContext): Prom
   await context.route(`${ORIGINS.osnApi}/**`, (route: Route) =>
     route.continue({
       url: route.request().url().replace(ORIGINS.osnApi, ORIGINS.osnApiEvt),
+    }),
+  );
+}
+
+/**
+ * Sends every request `context` makes to cire-api to the stack's second
+ * cire-api, `cireApiKeyOnly`, which holds a Stripe key and no Connect webhook
+ * secret: a deployment that must offer guests no money gift. The guest site
+ * names one cire-api; this is how a flow reaches the other. Playwright reports
+ * each such request, and its response, at the second server's URL, so the
+ * flow waits on `ORIGINS.cireApiKeyOnly` and its request lines read
+ * `cire-api-key-only`. The guest site's server render still reads the first
+ * cire-api. Every claim spends the second server's limiter window, which
+ * `tools/e2e/tests/flows.test.ts` counts apart for the flows that call this.
+ * The route stays for the rest of the flow, as `claimFromOrganiserAddress`
+ * explains; it does not chain with that one, so a flow calls one or the other.
+ */
+export async function throughKeyOnlyCireApi(context: BrowserContext): Promise<void> {
+  await context.route(`${ORIGINS.cireApi}/**`, (route: Route) =>
+    route.continue({
+      url: route.request().url().replace(ORIGINS.cireApi, ORIGINS.cireApiKeyOnly),
     }),
   );
 }
@@ -936,8 +978,19 @@ function organiserSessions(): number {
   return row?.n ?? 0;
 }
 
-/** Signs in to Pulse through OSN and finishes Pulse's first-run onboarding. */
-export async function signInToPulse(flow: Flow, page: Page, who: string): Promise<void> {
+/**
+ * Signs in to Pulse through OSN, which lands a new account on Pulse's
+ * first-run onboarding at `/welcome`. With `onboarding` "skip" it presses
+ * "Skip for now" there and ends on `/`, and pulse-api writes no onboarding row. With
+ * "stay" it checks the page is on `/welcome` and leaves it there, so the
+ * caller can walk the steps (`walkPulseOnboarding` in `pulse-onboarding.ts`).
+ */
+export async function signInToPulse(
+  flow: Flow,
+  page: Page,
+  who: string,
+  onboarding: "skip" | "stay" = "skip",
+): Promise<void> {
   const authorizePages: string[] = [];
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame() && frame.url().startsWith(`${ORIGINS.musubi}/authorize`)) {
@@ -950,11 +1003,17 @@ export async function signInToPulse(flow: Flow, page: Page, who: string): Promis
     await page.getByRole("button", { name: "Continue with musubi" }).click();
   });
 
-  await flow.step(`${who}: finish onboarding`, async () => {
-    await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
-    await page.getByRole("button", { name: "Skip for now" }).click();
-    await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/`);
-  });
+  if (onboarding === "skip") {
+    await flow.step(`${who}: finish onboarding`, async () => {
+      await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
+      await page.getByRole("button", { name: "Skip for now" }).click();
+      await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/`);
+    });
+  } else {
+    await flow.step(`${who}: land on /welcome`, async () => {
+      await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
+    });
+  }
 
   flow.check(`${who}: Musubi /authorize page not shown`, 0, authorizePages.length);
   // The consent screen is the only thing that reads the context, so a

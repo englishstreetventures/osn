@@ -377,6 +377,13 @@ body {
  * `--pulse-accent-soft` is a tint of the CORAL — the right answer to a
  * different mapping, and wrong here by exactly the amount coral differs from
  * ink.
+ *
+ * ## `--ui-choice-edge` is `--subtle`, not `--input`
+ *
+ * An unchosen radio, box or switch track has only its edge to say it is
+ * there, and `--input` gives it 1.10-1.31:1 on pulse's grounds. `--subtle`
+ * clears 3:1 on every ground in both themes; the text fields keep `--input`'s
+ * lighter edge, as Musubi's do.
  */
 :root {
   --ui-ground: var(--background);
@@ -387,6 +394,7 @@ body {
 
   --ui-hairline: var(--border);
   --ui-hairline-strong: var(--input);
+  --ui-choice-edge: var(--subtle);
 
   --ui-ink: var(--foreground);
   --ui-ink-secondary: var(--muted-foreground);

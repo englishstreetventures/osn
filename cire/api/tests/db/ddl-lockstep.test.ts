@@ -18,9 +18,9 @@ import { DDL } from "../../src/db/setup";
 //   1. cire/db/migrations/*.sql — what production D1 actually is,
 //   2. the DDL string in src/db/setup.ts — what every bun:sqlite test runs on,
 //   3. cire/db/src/schema.ts — what Drizzle believes at query-build time.
-// Before this test the mirror was comment-enforced only: a migration that
-// skipped the mirror let the whole cire/api suite pass against a shape D1
-// rejects. Here we apply the full migration chain to one in-memory DB, the
+// A migration that skips a mirror would let the whole cire/api suite pass
+// against a shape D1 rejects, so this test fails it. Here we apply the full
+// migration chain to one in-memory DB, the
 // test DDL to another, and diff a NORMALISED structural snapshot of each
 // (tables, columns, foreign keys, indexes, checks); the Drizzle schema is
 // introspected via getTableConfig and diffed against the migrated DB too.
@@ -355,7 +355,7 @@ function snapshotAndClose(db: Database): SchemaSnapshot {
 
 const migrated = snapshotAndClose(applyMigrations());
 
-describe("T-S1 lockstep: migrations chain", () => {
+describe("lockstep: migrations chain", () => {
   // Wrangler applies every `*.sql` directly in the directory and nothing
   // else, so anything beside them is a migration that would never run: a
   // drizzle-kit folder, a `meta/` journal, a stray file.
@@ -416,7 +416,7 @@ describe("lockstep: the baseline ↔ the archived chain", () => {
   });
 });
 
-describe("T-S1 lockstep: setup.ts test DDL ↔ migrated D1 shape", () => {
+describe("lockstep: setup.ts test DDL ↔ migrated D1 shape", () => {
   const mirror = snapshotAndClose(applyMirrorDdl());
 
   it("declares the same set of tables", () => {
@@ -443,7 +443,7 @@ describe("T-S1 lockstep: setup.ts test DDL ↔ migrated D1 shape", () => {
 // comparison only — with the foreign keys and indexes that use it — and must
 // still exist after the chain, so the entry goes when its column does.
 const UNDECLARED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  // Dropped by englishstreetventures/osn#1636.
+  // Goes when englishstreetventures/osn#1636 lands.
   tasks: ["assigned_host_id"],
 };
 
@@ -459,7 +459,7 @@ function withoutUndeclared(table: string, shape: TableShape): TableShape {
   };
 }
 
-describe("T-S1 lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
+describe("lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
   it("declares the same set of tables", () => {
     expect(drizzleTables.map((t) => getTableConfig(t).name).toSorted()).toEqual(
       Object.keys(migrated.tables).toSorted(),

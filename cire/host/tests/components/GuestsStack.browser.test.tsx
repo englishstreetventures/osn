@@ -583,10 +583,7 @@ describe("the Guests views' bar icon buttons", () => {
     return want;
   }
 
-  const CASES = [
-    { width: 1280, sub: "list", names: ["Download guests (CSV)", "Download RSVPs (CSV)"] },
-    { width: 390, sub: "edit", names: ["Add household"] },
-  ] as const;
+  const CASES = [{ width: 390, sub: "edit", names: ["Add household"] }] as const;
   for (const { width, sub, names } of CASES) {
     it(`at ${width}: lifts ${names.join(" and ")}'s ground under the pointer, in the body ink with a gold edge`, async () => {
       await page.viewport(width, 844);

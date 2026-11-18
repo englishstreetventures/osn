@@ -115,6 +115,7 @@ describe("AuthRateLimitedEndpoint", () => {
       account_restore: true,
       account_deletion_status: true,
       account_deletion_preview: true,
+      account_data_link: true,
       oidc_authorize: true,
       oidc_authorize_context: true,
       oidc_authorize_decision: true,
@@ -130,9 +131,10 @@ describe("AuthRateLimitedEndpoint", () => {
       totp_disable: true,
       totp_status: true,
     } as const satisfies Record<AuthRateLimitedEndpoint, true>;
-    // Runtime snapshot — catches a drop that the `satisfies` check would miss
-    // (it only complains on missing members, not extras).
-    expect(Object.keys(members)).toHaveLength(61);
+    // `satisfies` rejects a key missing from this object and a key the union
+    // lacks, so the two cannot drift apart. The count catches what it cannot:
+    // an endpoint removed from the union and this object together.
+    expect(Object.keys(members)).toHaveLength(62);
     // Negative: primary-login OTP/magic-link endpoints must not reappear. An
     // emailed link that verifies an address is not one: it signs nobody in.
     expect(Object.keys(members)).not.toContain("otp_begin");

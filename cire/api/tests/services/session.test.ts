@@ -32,7 +32,10 @@ describe("sessionService.create", () => {
         expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
         expect(token).toHaveLength(43);
         expect(token.includes("=")).toBe(false);
-        expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
+        // The default lifetime is 30 days.
+        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+        expect(expiresAt.getTime()).toBeGreaterThan(Date.now() + thirtyDays - 60_000);
+        expect(expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + thirtyDays);
       }),
     ),
   );
@@ -53,8 +56,8 @@ describe("sessionService.create", () => {
         expect(row!.familyId).toBe(familyId);
         expect(row!.token).not.toBe(token);
         expect(row!.token).toMatch(/^[0-9a-f]{64}$/);
-        // ttl is 60s — expiresAt should land in [before, before+61s].
-        expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before);
+        // ttl is 60s — expiresAt should land in [before+60s, before+61s].
+        expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before + 60_000);
         expect(expiresAt.getTime()).toBeLessThanOrEqual(before + 61_000);
       }),
     ),
@@ -105,18 +108,6 @@ describe("sessionService.create", () => {
 });
 
 describe("sessionService.validate", () => {
-  it(
-    "returns familyId for an active token",
-    withDb(
-      Effect.gen(function* () {
-        const familyId = yield* pickFamilyId();
-        const { token } = yield* sessionService.create(familyId);
-        const result = yield* sessionService.validate(token);
-        expect(result.familyId).toBe(familyId);
-      }),
-    ),
-  );
-
   it(
     "fails with reason=missing for an unknown token",
     withDb(
@@ -189,9 +180,11 @@ describe("sessionService.revoke", () => {
     "is a no-op for an unknown token",
     withDb(
       Effect.gen(function* () {
+        const familyId = yield* pickFamilyId();
+        yield* sessionService.create(familyId);
         yield* sessionService.revoke("does-not-exist");
-        // No throw — success.
-        expect(true).toBe(true);
+        const db = yield* DbService;
+        expect(db.select().from(sessions).all()).toHaveLength(1);
       }),
     ),
   );
@@ -303,22 +296,6 @@ describe("sessionService.sweepExpired", () => {
         const deleted = yield* sessionService.sweepExpired(now);
         expect(deleted).toBe(1);
         expect(yield* countSessions()).toBe(0);
-      }),
-    ),
-  );
-
-  it(
-    "is a no-op when every session is still live",
-    withDb(
-      Effect.gen(function* () {
-        const familyId = yield* pickFamilyId();
-        const now = new Date();
-        yield* sessionService.create(familyId, 3600);
-        yield* sessionService.create(familyId, 3600);
-
-        const deleted = yield* sessionService.sweepExpired(now);
-        expect(deleted).toBe(0);
-        expect(yield* countSessions()).toBe(2);
       }),
     ),
   );

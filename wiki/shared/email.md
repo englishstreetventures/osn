@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-16
 ---
 
 # Email Transport
@@ -104,6 +104,11 @@ it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
 | `totp-disabled`          | `{ instanceName }`                  | `disableTotp` |
 | `cross-device-login`     | `{ instanceName }`                  | `notifyCrossDeviceLoginByAccountId` |
 | `email-changed`          | `{ newEmail, instanceName }` — the renderer masks the address (`a•••@example.com`) and keeps it out of the subject | `completeEmailChange`, through `notifySecurityEventTo`, to the address the change replaced |
+| `account-deletion-scheduled` | `{ instanceName, deletesAt, appUrl, deleteEverything, plan: [{ label, outcome, keptUntil }] }` | `DELETE /account` on a new schedule, through `notifySecurityEventTo` to the address the route read with the profile — see [[dsar#Emails]] |
+| `account-deletion-cancelled` | `{ instanceName, appUrl }` | `POST /account/restore` when it cancels, through `notifySecurityEventTo`, the same way |
+| `account-deleted` | `{ instanceName, handles, handlesHeldUntil, kept: [{ app, what, erasedOn, requestUrl }], organisations: [{ handle, newOwnerHandle }] }` — names each organisation by handle only | the hard-delete sweep, once its batch removed the account, to the address it had |
+| `organisation-ownership-received` | `{ instanceName, organisationHandle, declineUrl, declineUntil, cause }` — names the organisation by handle only | the hard-delete sweep for each organisation passed on, and `POST /organisations/:handle/decline-ownership` for the next owner |
+| `account-data-link` | `{ instanceName, url }` — a link to the download page, never the data | `POST /account/data-link` |
 
 cire-api sends from the same catalogue:
 
@@ -144,9 +149,11 @@ Each template draws its own HTML in inline styles, inside the same `wrap`
 frame: the system font stack, `#0a0a0a` ink, 480px wide. A message that asks
 the reader to open one link draws it as a button, and every button is the same
 one: `display:inline-block;padding:12px 24px;background:#0a0a0a;color:#fff;text-decoration:none;border-radius:6px`,
-at the text's own weight. `link-registration` and `vendor-claim-invite` draw it
-today. The link also appears as text under the button, in `#666`, for a client
-that drops the button's styles. The button and the page the link opens use one
+at the text's own weight. Every template draws it through `emailButton`
+([`templates/button.ts`](../../shared/email/src/templates/button.ts)), and
+`tests/templates.test.ts` fails on a button drawn any other way. The link also
+appears as text under the button, in `#666`, for a client that drops the
+button's styles. The button and the page the link opens use one
 verb: `link-registration` says "Confirm" in its subject, its heading and its
 button, as [[email-links]]'s page does.
 

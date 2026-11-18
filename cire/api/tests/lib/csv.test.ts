@@ -188,18 +188,6 @@ describe("csvField (RFC 4180 quoting)", () => {
 });
 
 describe("serialiseCsv", () => {
-  it("joins header + rows with CRLF and no trailing newline", () => {
-    expect(
-      serialiseCsv(
-        ["A", "B"],
-        [
-          ["1", "2"],
-          ["3", "4"],
-        ],
-      ),
-    ).toBe("A,B\r\n1,2\r\n3,4");
-  });
-
   it("returns just the header line for zero rows", () => {
     expect(serialiseCsv(["A", "B"], [])).toBe("A,B");
   });

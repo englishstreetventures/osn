@@ -1,6 +1,6 @@
 {
   "name": "@osn/auth-ui",
-  "version": "6.2.4",
+  "version": "6.4.0",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -17,6 +17,7 @@
     "./ConfirmLinkPage": "./src/ConfirmLinkPage.tsx",
     "./CreateProfileForm": "./src/CreateProfileForm.tsx",
     "./DialogActions": "./src/DialogActions.tsx",
+    "./InlineAction": "./src/InlineAction.tsx",
     "./PasskeysView": "./src/PasskeysView.tsx",
     "./pending-recovery": "./src/pending-recovery.ts",
     "./pending-sign-up": "./src/pending-sign-up.ts",
@@ -25,6 +26,7 @@
     "./Register": "./src/Register.tsx",
     "./SecurityEventsBanner": "./src/SecurityEventsBanner.tsx",
     "./SessionsView": "./src/SessionsView.tsx",
+    "./settings-read": "./src/settings-read.ts",
     "./SignIn": "./src/SignIn.tsx",
     "./StepUpDialog": "./src/StepUpDialog.tsx",
     "./TotpView": "./src/TotpView.tsx",

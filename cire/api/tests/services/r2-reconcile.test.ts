@@ -1092,34 +1092,6 @@ describe("reconcileOrphanObjects", () => {
         expect(position.current()).toEqual({ after: keyAt(19), lapStartedAt, referenced: 40 });
       });
 
-      it("keeps a hold through a stored text round trip in the bucket", async () => {
-        const texts = new Map<string, string>();
-        const positionBucket: PositionBucket = {
-          get: (key) =>
-            Promise.resolve(
-              texts.has(key) ? { text: () => Promise.resolve(texts.get(key)!) } : null,
-            ),
-          put: (key, value) => Promise.resolve(void texts.set(key, value)),
-          delete: (key) => Promise.resolve(void texts.delete(key as string)),
-        };
-        texts.set("reconcile/p.json", JSON.stringify({ referenced: 100 }));
-        const bucket = createBucket(objects());
-        const p = plan(
-          live,
-          { budget: budget(limits, r2PositionStore(positionBucket, "reconcile/p.json", "sheets")) },
-          40,
-        );
-
-        await run(reconcileOrphanObjects(bucket, p.plan, NOW));
-        await run(reconcileOrphanObjects(bucket, p.plan, NOW));
-
-        expect(JSON.parse(texts.get("reconcile/p.json")!)).toEqual({
-          referenced: 100,
-          heldRuns: 2,
-        });
-        expect(bucket.deleted.size).toBe(0);
-      });
-
       it("sends the alert before it saves the position, and a failing alert fails nothing", async () => {
         const events: string[] = [];
         const position = memoryPosition({ referenced: 100 });

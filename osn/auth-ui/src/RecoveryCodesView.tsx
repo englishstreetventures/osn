@@ -1,6 +1,7 @@
 import {
   describeAuthError,
   type RecoveryClient,
+  type RecoveryCodesStatus,
   type StepUpClient,
   type StepUpToken,
   type TotpClient,
@@ -11,10 +12,11 @@ import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 import { Notice } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
-import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { AuthHeader } from "./AuthHeader";
 import { LoadFailed } from "./LoadFailed";
+import { ownRead, writeEnd, type SettingsRead, type WriteEnd } from "./settings-read";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 import { stepAction, ViewStep } from "./ViewParts";
 
@@ -43,6 +45,11 @@ import { stepAction, ViewStep } from "./ViewParts";
  * - Regenerating invalidates any previous set server-side, so it asks for
  *   confirmation first — the easy footgun is rotating the set while the
  *   previous codes are still taped to a fridge somewhere.
+ * - The count may be one the host remembered, being read again behind it
+ *   (`read`). Generate is busy from the press until that read lands, and
+ *   chooses between the warning and the step-up from what it says. A new set
+ *   forgets the old count at once, so it is never shown again; the count is
+ *   read again behind the codes on screen.
  */
 
 export interface RecoveryCodesViewProps {
@@ -70,6 +77,12 @@ export interface RecoveryCodesViewProps {
   onSaved?: () => void;
   /** Product name the downloaded file is named after — e.g. "Musubi". */
   productName: string;
+  /**
+   * The status, read by the host (Musubi's page cache), which may draw it
+   * from memory and read it again behind it. Read once, when the view mounts.
+   * Omitted, the view reads `client.getRecoveryCodesStatus()` itself.
+   */
+  read?: SettingsRead<RecoveryCodesStatus>;
 }
 
 /**
@@ -104,7 +117,8 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   const [acknowledged, setAcknowledged] = createSignal(false);
   const [pending, setPending] = createSignal(false);
   const [confirmRotate, setConfirmRotate] = createSignal(false);
-  const [reloadKey, setReloadKey] = createSignal(0);
+  // Generate pressed while the count is read again: busy until it lands.
+  const [checking, setChecking] = createSignal(false);
 
   // The freshly-shown codes are the ONLY copy the client ever holds, and the
   // previous set is already revoked server-side by the time they render — so
@@ -156,25 +170,11 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
 
   // Fails soft: a status read that errors leaves the count unknown rather than
   // stranding the user on an error screen with no way to make codes. The
-  // read never throws, so nothing reaches the host's error boundary; the
-  // failure travels beside the count instead, for the line that says so.
-  const [status] = createResource(reloadKey, async () => {
-    try {
-      return { count: await props.client.getRecoveryCodesStatus(), error: null };
-    } catch (failure) {
-      return { count: null, error: failure };
-    }
-  });
+  // failure is never a count: it shows in the count's place, with Try again.
+  const status = props.read ?? ownRead(() => props.client.getRecoveryCodesStatus());
 
-  // Read only once the first status read has landed: the button label checks
-  // `firstLoad()` first, and `requestGenerate` waits on `locked()`. From then
-  // on `status.latest` keeps the last count through a refetch, where
-  // `status()` would join the host's Suspense boundary and blank the panel.
-  const count = () => status.latest?.count ?? null;
-  const readFailure = () => {
-    const latest = status.latest;
-    return latest && latest.count === null ? { error: latest.error } : null;
-  };
+  const count = () => status.value() ?? null;
+  const readFailure = status.failure;
   const hasCodes = () => {
     const s = count();
     return s != null && s.total > 0;
@@ -187,24 +187,30 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
     return s == null || s.total > 0;
   };
 
+  // The skeleton and the disabled "Checking…" stand for a count not yet
+  // known: before the first read lands, and after a new set until it is read
+  // again — the old set's count is never shown once it is gone. A read behind
+  // a count already shown leaves it on screen.
+  const firstLoad = () => status.state() === "pending";
+
   // Freezes the generate button while a ceremony is in flight, so a double
-  // click can't queue a second rotation behind the first — and until the first
-  // status read lands, since before that the panel can't tell a first set from
-  // a rotation and would warn a brand-new user about codes they don't have.
-  const locked = () => busy() || pending() || status.loading;
+  // click can't queue a second rotation behind the first — and while the
+  // count is unknown, since then the panel can't tell a first set from a
+  // rotation and would warn a brand-new user about codes they don't have.
+  const locked = () => busy() || pending() || checking() || firstLoad();
 
-  // The skeleton and the "Checking…" label are for the COLD read only.
-  // `status.loading` is also true on the refetch `acknowledge()` triggers, and
-  // gating on it would withdraw an already-known count from the screen for a
-  // round-trip — the same "don't blank a warm value" rule that put `hasCodes()`
-  // and `mayHaveCodes()` on `.latest`. `state`, not `.latest`: until the first
-  // read lands `.latest` is the resource's own read, which joins the host's
-  // Suspense boundary and would swap the whole Settings tab for its fallback.
-  const firstLoad = () => status.state === "pending";
-
-  function requestGenerate() {
+  async function requestGenerate() {
     if (locked()) return;
     setError(null);
+    // The count on screen may be one remembered and being read again: wait
+    // for that read, busy from the press, and decide from what it says.
+    setChecking(true);
+    try {
+      await status.settled();
+    } finally {
+      setChecking(false);
+    }
+    if (locked()) return;
     // Rotation is destructive — the existing set is revoked the moment the new
     // one is minted. Gate it behind an explicit confirmation dialog. A brand-new
     // account (no codes to lose) skips straight to the ceremony.
@@ -224,15 +230,18 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
     setPending(false);
     setBusy(true);
     setError(null);
+    const finish: (end: WriteEnd<RecoveryCodesStatus>) => void = status.write();
     try {
       const res = await props.client.generateRecoveryCodes({
         stepUpToken: token.token,
       });
       setCodes(res.codes);
       setAcknowledged(false);
-      // No status refetch here: the codes list has replaced the status line,
-      // and `acknowledge()` refetches once the user leaves it.
+      // The old set's count goes now, and the new one is read behind the
+      // codes on screen. The codes themselves never reach the read.
+      finish("unknown");
     } catch (e) {
+      finish(writeEnd(e));
       setError(describeAuthError(e));
     } finally {
       setBusy(false);
@@ -264,7 +273,6 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   function acknowledge() {
     setAcknowledged(true);
     setCodes(null);
-    setReloadKey((k) => k + 1);
     props.onSaved?.();
   }
 
@@ -293,11 +301,11 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
                     <LoadFailed
                       lead="Your recovery codes didn't load."
                       error={failure().error}
-                      onRetry={() => setReloadKey((k) => k + 1)}
+                      onRetry={status.retry}
                     />
                   )}
                 </Show>
-                {/* `.latest`, so a refetch keeps the count on screen. */}
+                {/* The count, kept on screen while it is read again behind it. */}
                 <Show when={count()}>
                   {(s) => (
                     <Show
@@ -327,18 +335,19 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
                 </Notice>
               )}
             </Show>
-            {/* Busy only for the generate this button started; the first
-                read and an open step-up hold it disabled. */}
+            {/* Busy only for a wait this button started — its generate, or
+                the read again it waits on; a count not yet known and an open
+                step-up hold it disabled. */}
             <Button
               onClick={requestGenerate}
-              busy={busy()}
-              disabled={!busy() && (pending() || status.loading)}
+              busy={busy() || checking()}
+              disabled={!busy() && !checking() && (pending() || firstLoad())}
             >
               {busy()
                 ? "Generating…"
                 : // Same reason as the skeleton: say why the button is
                   // disabled instead of leaving it looking dead.
-                  firstLoad()
+                  checking() || firstLoad()
                   ? "Checking…"
                   : hasCodes()
                     ? "Generate new codes"
@@ -367,7 +376,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
           </div>
           <Checkbox
             size="sm"
-            class="max-md:min-h-11 max-md:justify-center"
+            touch
             checked={acknowledged()}
             onChange={setAcknowledged}
             label="I've saved these codes somewhere safe."

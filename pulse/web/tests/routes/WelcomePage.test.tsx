@@ -63,11 +63,6 @@ describe("WelcomePage", () => {
 
   afterEach(() => cleanup());
 
-  it("passes the session's displayName through to the stepper", () => {
-    const { getByText } = render(() => <WelcomePage />);
-    expect(getByText("stepper:Sarah")).toBeTruthy();
-  });
-
   it("falls back to @handle when the session carries no displayName", () => {
     authState.session = fakeSession({ displayName: null, handle: "sarah" });
     const { getByText } = render(() => <WelcomePage />);

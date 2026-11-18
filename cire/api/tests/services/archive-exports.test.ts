@@ -36,7 +36,7 @@ import { recordStatements } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 /**
- * B8 in `NEW-FEAT.md`: each file the archive adds stops its read one row past
+ * Each file the archive adds stops its read one row past
  * its ceiling, in the database, so a wedding holding more never makes the
  * Worker receive, sort or print a row the file would not hold.
  */
@@ -192,7 +192,7 @@ const cases: {
   },
 ];
 
-describe("B8: each archive file stops its read one row past its ceiling", () => {
+describe("each archive file stops its read one row past its ceiling", () => {
   for (const { file, ceiling, table, seed, build } of cases) {
     it(file, async () => {
       const db = createDb(":memory:");
@@ -209,10 +209,10 @@ describe("B8: each archive file stops its read one row past its ceiling", () => 
 });
 
 /**
- * B10 in `NEW-FEAT.md`: each file the archive adds prints every column from its
+ * Each file the archive adds prints every column from its
  * own field, so no part of what a couple takes away is dropped or swapped.
  */
-describe("B10: each archive file prints every column from its own field", () => {
+describe("each archive file prints every column from its own field", () => {
   const at = new Date("2026-09-01T10:00:00Z");
 
   function wedding() {

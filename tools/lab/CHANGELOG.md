@@ -1,5 +1,46 @@
 # @tools/lab
 
+## 0.3.79
+
+### Patch Changes
+
+- db8c428: `Checkbox`, `RadioGroup` and `Switch` draw on one rule: the control sits on its words' first line whatever their length, 8px from them, at prose leading; a chosen radio's 8px dot sits in the centre of its 16px circle; options are 8px apart in a column and 16px in a row; keyboard focus is the house outline, 2px off. `align` is gone (every control sits on the first line). `RadioGroup` and `Checkbox` take `touch`: below `md` each row is a 44px target and the space between options stays even, with nothing around it moving. `RadioGroupItem` takes a `description`. Musubi's deletion flow and the recovery-codes box use `touch` in place of their own row classes; Pulse's attendance setting puts each option's line under its words, and Pulse maps `--ui-choice-edge` to its `--subtle`, so an unchosen radio's edge clears 3:1 (it was 1.10–1.31:1 on `--input`, an edge nobody could see on a dark card); Pulse's and Musubi's contract tests hold the choice edge at 3:1 on every ground in both themes.
+- db8c428: Account deletion gets its emails and the calls its screens need.
+
+  - `@shared/email`: five templates — `account-deletion-scheduled`, `account-deletion-cancelled`, `account-deleted`, `organisation-ownership-received` and `account-data-link`. Text another party wrote is escaped and never in a subject; every one names an organisation by its handle only. Every template draws its button through one helper, `emailButton`: the recovery, step-up and email-change links' buttons take 6px corners at the text's own weight, as every other button already did.
+  - `@osn/api`: `DELETE /account` mails the scheduled notice (the date, how to keep the account and download the data, and what each answer does, from the request's own preview); `POST /account/restore` mails the cancelled one. The hard delete reads the address, the held handles and what each app kept before its batch, and once the batch has removed the account mails the old address and each organisation's new owner, side by side, each send giving up after 10 seconds (at most 10 ownership notices one by one on a transport with no batch send); a pass whose batch removed nothing mails nothing. The cron and the local sweeper provide the email transport to it; local sweeps run on the app's runtime and skip a tick while a pass runs. New `POST /account/data-link` mails the account a link to its download page (per IP, then three a day per account). New `POST /organisations/:handle/decline-ownership`: a member who received an organisation by succession may hand it back within 30 days; it passes on as the hard delete would pass it, or is deleted, and the decliner leaves it in the same batch, the next owner mailed. `GET` on the same path answers whether the caller may decline it, and until when, with the same refusals, and writes nothing. `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation. The deletion preview's organisation actions carry `candidates`, the members a successor answer may name, read beside the organisations at most 50 an organisation. CORS exposes `Content-Disposition` and `Retry-After`. The local Bun server keys its per-address limiters on a sent `cf-connecting-ip` when `OSN_E2E_CLIENT_ADDRESS=1`, which only the E2E stack sets.
+  - `@osn/db`: `organisations.owner_inherited_at` (migration `20261116094005_organisation_owner_inherited_at`), NULL for every existing row.
+  - `@osn/client`: a 401 after a renewal that minted a pending-deletion token reaches the caller and ends nothing; `onSessionChange` gains `pending-deletion`; `isPendingDeletionToken`. The Solid provider gains `pendingDeletion` and `renewSession`, and lists no profiles for a pending-deletion session. `deleteAccount` throws `AccountDeletionRefusedError` with the open actions, fresh preview or refused action; new `exportAccount`, `sendDataLink`, `declineOwnership` and `declineOwnershipStatus`.
+  - `@shared/observability`: `OrgAction` gains `decline_ownership`; the auth rate-limit endpoint union gains `account_data_link`.
+  - `@tools/lab`: the auth-ui stories' hand-built auth contexts carry `pendingDeletion` and `renewSession`.
+  - `@shared/design-tokens`: a contract colour, `--ui-choice-edge`, for the edge of an unchosen radio, checkbox or switch track, owing 3:1. It falls back to `--ui-hairline-strong`, so an app that does not map it looks as before, and the conformance check measures it unmapped as that token, under that token's waiver (`COLOR_FALLBACKS`, `colorFallback`).
+  - `@shared/ui`: `RadioGroup`'s circle, `Checkbox`'s box, `Switch`'s track and the unticked native box draw their edge in `--ui-choice-edge`.
+  - `@osn/auth-ui`: `InlineAction`, the underlined button that ends an error line, is exported as `@osn/auth-ui/InlineAction`.
+  - `@musubi/infra`: the dev stack's env check lists `OSN_E2E_CLIENT_ADDRESS` as left unset on dev: only the Bun dev server reads it, for the E2E suite.
+
+- Updated dependencies [db8c428]
+- Updated dependencies [db8c428]
+  - @shared/ui@0.18.0
+  - @osn/auth-ui@6.4.0
+  - @osn/client@4.2.0
+  - @shared/design-tokens@0.10.0
+
+## 0.3.78
+
+### Patch Changes
+
+- Updated dependencies [d0e0687]
+  - @osn/auth-ui@6.3.0
+
+## 0.3.77
+
+### Patch Changes
+
+- 0789495: The cire button story's `bar` icon specimen is named "Add household", a
+  control that still draws that look, rather than the RSVP download, which is
+  now a labelled pill.
+- b49154c: The `SegmentedTabs` story sets the portals' new `--glass-ring`, so its light panel shows the chosen glass's readable-gold ring at 80% as the portals draw it.
+
 ## 0.3.76
 
 ### Patch Changes

@@ -244,15 +244,13 @@ describe("not-found handler", () => {
     expect(await jsonBody(res)).toEqual({ error: "Not found" });
   });
 
-  // `GET /api/primary-wedding` was a PUBLIC, unauthenticated read returning the
-  // most-recently-created wedding's slug. On a multi-tenant product that let any
-  // anonymous caller learn whose invite was newest, and made the guest bare
-  // domain serve one arbitrary couple's invite. It was deleted rather than
-  // rescoped — there is no correct single wedding to resolve.
-  //
-  // A removal made for a disclosure reason deserves a contract, not just an
-  // absent file: a re-mount during a merge or revert would otherwise be silent.
-  it("no longer serves the removed public primary-wedding lookup", async () => {
+  // No route returns a single "primary" wedding. A PUBLIC, unauthenticated read
+  // of the most-recently-created wedding's slug would let any anonymous caller
+  // learn whose invite is newest, and make the guest bare domain serve one
+  // arbitrary couple's invite; on a multi-tenant product there is no correct
+  // single wedding to resolve. The 404 is the contract, so a re-mount during a
+  // merge or revert fails here rather than passing silently.
+  it("does not serve a public primary-wedding lookup", async () => {
     const res = await appRequest(app, "/api/primary-wedding");
     expect(res.status).toBe(404);
   });
@@ -303,14 +301,11 @@ describe("unhandled errors", () => {
       }),
     );
 
-    // This used to isolate our `onError` line out of the capture, because
-    // Effect v3's *default* logger also emitted a separate DEBUG "Fiber
-    // terminated…" stack dump. Two things changed under v4: `Logger.layer`
-    // replaces the whole active set, so there is no default logger left to
-    // emit that dump; and the local renderer is indented, so our own entry is
-    // no longer one line and a line filter would only ever catch a fragment of
-    // it. The whole capture IS our entry now — which makes the negative
-    // assertion below strictly stronger, since nothing is filtered out of it.
+    // The assertions read the whole capture, unfiltered. `Logger.layer`
+    // replaces the whole active logger set, so no default logger adds lines of
+    // its own; and the local renderer indents an entry over several lines, so a
+    // line filter would only catch a fragment of it. With nothing filtered out,
+    // the negative assertion below covers everything the request logged.
 
     // The structured entry + the error NAME are present (triage signal).
     expect(out).toContain("unhandled request error");
@@ -318,8 +313,8 @@ describe("unhandled errors", () => {
     // the error NAME survives: drizzle wraps a failed statement on both drivers
     expect(out).toContain("DrizzleQueryError");
     // The raw SQLite message (a D1-internal echo) must NOT appear anywhere —
-    // "no such table: families" is exactly what would have leaked under the old
-    // `message: error.message` log.
+    // "no such table: families" is what a `message: error.message` log field
+    // would leak.
     expect(out).not.toContain("no such table");
   });
 });

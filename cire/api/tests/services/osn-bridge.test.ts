@@ -326,22 +326,14 @@ describe("createAccountResolverFromEnv", () => {
 
   // A PRESENT-but-INVALID ARC key must be treated EXACTLY like an absent one:
   // the builder returns null (⇒ feature disabled, POST answers 503) and NEVER
-  // throws. A throw here propagated out of the Worker setup path and 500'd every
-  // authenticated request (the production dashboard login-loop incident).
+  // throws. A throw here would propagate out of the Worker setup path and
+  // answer 500 to every authenticated request.
   it.each([
     ["non-JSON garbage", "{not-json"],
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    let resolve: unknown;
-    expect(async () => {
-      resolve = await createAccountResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
-    resolve = await createAccountResolverFromEnv({
+    const resolve = await createAccountResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
       arcKeyId: "kid-env",
@@ -549,15 +541,20 @@ describe("createArcBlockCheck", () => {
   });
 
   it("starts each call's time bound afresh", async () => {
+    const signals: (AbortSignal | null | undefined)[] = [];
     globalThis.fetch = mockFetch(async (_url, init) => {
-      if (init?.signal?.aborted) throw init.signal.reason;
+      signals.push(init?.signal);
       return new Response(JSON.stringify({ blocked: false }), { status: 200 });
     });
     const check = createArcBlockCheck(await config(20));
 
     expect(await check("usr_a", "usr_b")).toBe(false);
-    await Bun.sleep(60);
     expect(await check("usr_a", "usr_b")).toBe(false);
+    // A bound made once would hand both calls the one signal, spent 20 ms in.
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).not.toBe(signals[0]);
   });
 });
 
@@ -637,13 +634,6 @@ describe("createHandleResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    expect(async () => {
-      await createHandleResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
     const resolve = await createHandleResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
@@ -813,13 +803,6 @@ describe("createHandleSearchResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    expect(async () => {
-      await createHandleSearchResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
     const resolve = await createHandleSearchResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
@@ -1017,13 +1000,6 @@ describe("createConnectionSearchResolverFromEnv", () => {
     ["plain string", "garbage"],
     ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
   ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
-    expect(async () => {
-      await createConnectionSearchResolverFromEnv({
-        osnApiUrl: "https://osn.example",
-        arcPrivateKeyJwk: badJwk,
-        arcKeyId: "kid-env",
-      });
-    }).not.toThrow();
     const resolve = await createConnectionSearchResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,

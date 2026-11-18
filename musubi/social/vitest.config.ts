@@ -23,6 +23,7 @@ import { defineConfig } from "vitest/config";
 import {
   emulateMedia,
   failRequests,
+  paintedBox,
   restoreRequests,
 } from "./tests/test-support/browser-commands.ts";
 
@@ -79,7 +80,7 @@ export default defineConfig({
             instances: [{ browser: "chromium" }],
             // Lets a test switch on a contrast theme (forced colours) for
             // itself, or fail a module's request as a dropped network would.
-            commands: { emulateMedia, failRequests, restoreRequests },
+            commands: { emulateMedia, failRequests, paintedBox, restoreRequests },
           },
         },
       },

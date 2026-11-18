@@ -44,12 +44,13 @@ export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
  * fails that flow. `previewCode` is the host household's code, which "Preview
  * invite" opens the invitation with.
  *
- * `fund` is a cash fund on the same list. The couple's settings take money,
- * but the stack's cire-api has a Stripe key and no Connect webhook secret, so
- * it could never record a gift and no guest may be offered the fund or the
- * money form. The locked flow checks the fund absent without a
- * claim, and the claimed flow checks it absent with one; the claimed flow
- * reads the fund's row from the database, so a drifted value fails there.
+ * `fund` is a cash fund on the same list, and the couple's settings take
+ * money. The locked flow checks the fund absent without a claim. The claimed
+ * and preview flows run against the stack's second cire-api, which holds a
+ * Stripe key and no Connect webhook secret, so it could never record a gift
+ * and offers no guest the fund or the money form; the claimed flow checks it
+ * absent with a claim, and reads the fund's row from that server's database,
+ * so a drifted value fails there.
  */
 export const CIRE_GIFT_LIST = {
   slug: "gift-wedding",
@@ -79,6 +80,17 @@ export const CIRE_GIFT_LIST = {
 export const ORGANISER_ADDRESS = "192.0.2.10";
 
 /**
+ * The client address `musubi-account-deletion` reaches osn-api from
+ * (TEST-NET-1, never routed). Every osn-api limiter that keys on the client
+ * address — `/profiles/list` takes ten a minute — is shared by the whole run
+ * from the suite's own address, and the Musubi flows run inside one minute:
+ * this flow's sign-ins, step-ups and profile lists spend their own windows.
+ * The stack's osn-api keeps a `cf-connecting-ip` the request sends
+ * (`OSN_E2E_CLIENT_ADDRESS`, `keepSentClientAddress` in osn/api).
+ */
+export const ACCOUNT_DELETION_ADDRESS = "192.0.2.11";
+
+/**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because
  * Playwright loads this file under Node, which cannot run a workspace package's
  * TypeScript; `tests/config.test.ts` holds them equal to `DEV_APPS` in
@@ -95,7 +107,7 @@ export const PORTS = {
   cireLanding: 4323,
   /** The Resend stand-in osn-api sends OTP mail to. Not a dev app. */
   mail: 4590,
-  /** The Stripe stand-in cire-api's OAuth connect calls. Not a dev app. */
+  /** The Stripe stand-in every cire-api Stripe call goes to. Not a dev app. */
   stripe: 4591,
   /**
    * The mail provider stand-in for the browser Email Verification API: its
@@ -108,6 +120,13 @@ export const PORTS = {
    * that call `throughEmailVerificationApi`. Not a dev app.
    */
   osnApiEvt: 4593,
+  /**
+   * A second cire-api with a Stripe key and no Connect webhook secret, its own
+   * database and its own limiter windows: a deployment that must offer guests
+   * no money gift. The browser reaches it only in the flows that call
+   * `throughKeyOnlyCireApi`. Not a dev app.
+   */
+  cireApiKeyOnly: 4594,
 } as const;
 
 export type AppName = keyof typeof PORTS;
@@ -136,12 +155,20 @@ export const E2E_RESEND_KEY = "re_e2e_local";
  */
 export const STRIPE_PLATFORM_WEBHOOK_SECRET = "whsec_e2e_platform_not_a_real_secret";
 
+/**
+ * The Connect webhook's secret: cire-api checks a gift event's signature with
+ * it, and the Stripe stand-in signs a connected account's events with it. Not
+ * the platform's value, as no deployed tier may share one. Local only.
+ */
+export const STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_e2e_connect_not_a_real_secret";
+
 /** Names the request log uses for each API origin. Only these are recorded. */
 export const API_LABELS = {
   [ORIGINS.osnApi]: "osn-api",
   [ORIGINS.osnApiEvt]: "osn-api-evt",
   [ORIGINS.pulseApi]: "pulse-api",
   [ORIGINS.cireApi]: "cire-api",
+  [ORIGINS.cireApiKeyOnly]: "cire-api-key-only",
 } satisfies Record<string, string>;
 
 /**
@@ -160,6 +187,7 @@ export const DB_FILES = {
   osnEvt: resolve(STATE_DIR, "osn-evt.db"),
   pulse: resolve(STATE_DIR, "pulse.db"),
   cire: resolve(STATE_DIR, "cire.db"),
+  cireKeyOnly: resolve(STATE_DIR, "cire-key-only.db"),
 } as const;
 
 /** Shared by osn-api and pulse-api so pulse can register its ARC key. Local only. */
@@ -304,10 +332,9 @@ export const CIRE_ORGANISER = {
   },
   /**
    * Money gifts on and a Stripe account that can charge, one cash fund and
-   * nothing to reserve, unpublished — on a stack whose cire-api cannot take a
-   * money gift (a Stripe key and no webhook secret). Its other owner, Kit,
-   * connected the account, so the dev profile may read its status and not
-   * open its onboarding links.
+   * two group gifts and nothing to reserve, unpublished. Its other owner,
+   * Kit, connected the account, so the dev profile may read its status and
+   * not open its onboarding links.
    */
   money: {
     weddingId: "wed_e2e_money",
@@ -334,6 +361,21 @@ export const CIRE_ORGANISER = {
    * the owner already has, through the Stripe stand-in.
    */
   oauth: { weddingId: "wed_e2e_oauth", name: "Garden Wedding" },
+  /**
+   * A Gold wedding with a published gift list and nothing on it, money gifts
+   * on and an Express account that can charge and pays out in AUD, which Kit,
+   * its second owner, connected: so the dev profile's other weddings are not
+   * offered it. One household, Parkes, of one guest, Pia. The owner adds a cash
+   * fund through the portal's form and Pia gives to it through the Stripe
+   * stand-in (`tests/support/cire-fund-gift.ts`).
+   */
+  fund: {
+    weddingId: "wed_e2e_fund",
+    slug: "fund-wedding",
+    accountId: "acct_e2e_fund",
+    connector: { hostId: "whost_e2e_fund_kit", profileId: "usr_e2e_kit" },
+    household: { familyId: "fam_e2e_fund", code: "PARKES-E2E-FD01", guestName: "Pia" },
+  },
   /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
    *  Cy Charlie at Table 2, all three having said yes. And an after party,
    *  inviting Ada, with no plan yet. */
@@ -595,6 +637,55 @@ export const RECOVERY_PERSON = {
   name: "Recover E2E",
   // base64url of "e2e lost phone credential".
   lostPasskey: { id: "pk_e2e_lost", credentialId: "ZTJlIGxvc3QgcGhvbmUgY3JlZGVudGlhbA" },
+} as const;
+
+/**
+ * The account `musubi-account-deletion` deletes, keeps and deletes again. Rows
+ * `seedOsn` writes: the account, its one profile, an open Pulse enrolment (as
+ * Pulse's onboarding writes one) and one live session, whose raw token the
+ * flow puts in its browser's cookie jar, as a sign-in would, so it spends none
+ * of the run's sign-up or sign-in windows; and an organisation it owns, with an
+ * heir who also holds a seeded session. Its token is readable on purpose:
+ * it is a fixture of a local stack, like `DEV_LOGIN_SECRET`, and grants
+ * nothing anywhere else. cire's `wed_e2e_leaver` (`seedE2eOrganiser` in
+ * `cire/api/src/db/setup.ts`) has this profile as its only owner.
+ */
+export const DELETION_PERSON = {
+  accountId: "acc_e2e_leaver",
+  profileId: "usr_e2e_leaver",
+  email: "leaver@e2e.test",
+  passkeyUserId: "pku_e2e_leaver",
+  handle: "e2e_leaver",
+  name: "Leaver E2E",
+  enrolmentId: "aenr_e2e_leaver_pulse",
+  session: {
+    token: "e2e-deletion-person-session",
+    familyId: "sfam_e2e_leaver",
+  },
+  wedding: { id: "wed_e2e_leaver", name: "Leaver Wedding", seatId: "whost_e2e_leaver_owner" },
+  /**
+   * An organisation the person owns. `heir`, an admin from another account,
+   * receives it at the hard delete and declines it from the email's link,
+   * signed in through its own seeded session; it then passes to `member`.
+   */
+  organisation: { id: "org_e2e_leaver", handle: "e2e_leaver_org", name: "Leaver Org E2E" },
+  heir: {
+    accountId: "acc_e2e_heir",
+    profileId: "usr_e2e_heir",
+    email: "heir@e2e.test",
+    passkeyUserId: "pku_e2e_heir",
+    handle: "e2e_heir",
+    name: "Heir E2E",
+    session: { token: "e2e-deletion-heir-session", familyId: "sfam_e2e_heir" },
+  },
+  member: {
+    accountId: "acc_e2e_next",
+    profileId: "usr_e2e_next",
+    email: "next@e2e.test",
+    passkeyUserId: "pku_e2e_next",
+    handle: "e2e_next",
+    name: "Next E2E",
+  },
 } as const;
 
 /**

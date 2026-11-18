@@ -16,12 +16,14 @@ import { existsSync } from "node:fs";
 
 import {
   accounts,
+  appEnrollments,
   oauthClients,
   organisationMembers,
   organisations,
   passkeys,
   serviceAccountKeys,
   serviceAccounts,
+  sessions,
   users,
 } from "@osn/db/schema";
 import { applySchema as applyOsnSchema } from "@osn/db/testing";
@@ -31,6 +33,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import {
   CIRE_OIDC,
   CLOCK_T0,
+  DELETION_PERSON,
   MUSUBI_ORG,
   PULSE_OIDC,
   RECOVERY_PERSON,
@@ -115,7 +118,9 @@ function thirdPartyClient() {
 /**
  * osn-api: the schema, Pulse and cire registered as first-party OIDC clients,
  * one third-party client, `MUSUBI_ORG`'s member profile with the organisation
- * it owns, and `RECOVERY_PERSON` with the passkey they have lost.
+ * it owns, `RECOVERY_PERSON` with the passkey they have lost, and
+ * `DELETION_PERSON` with a Pulse enrolment, a live session and an
+ * organisation whose heir holds a live session too.
  */
 export function seedOsn(path: string, cireArc?: CireArcKey): void {
   const sqlite = freshDatabase(path);
@@ -226,13 +231,113 @@ export function seedOsn(path: string, cireArc?: CireArcKey): void {
           })
           .run();
       }
+
+      const leaver = DELETION_PERSON;
+      db.insert(accounts)
+        .values({
+          id: leaver.accountId,
+          email: leaver.email,
+          passkeyUserId: leaver.passkeyUserId,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      db.insert(users)
+        .values({
+          id: leaver.profileId,
+          accountId: leaver.accountId,
+          handle: leaver.handle,
+          displayName: leaver.name,
+          isDefault: true,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      const atSec = Math.floor(CLOCK_T0 / 1000);
+      db.insert(appEnrollments)
+        .values({
+          id: leaver.enrolmentId,
+          accountId: leaver.accountId,
+          app: "pulse",
+          joinedAt: atSec,
+        })
+        .run();
+
+      // Its organisation: the heir, an admin, joined before the member.
+      for (const other of [leaver.heir, leaver.member]) {
+        db.insert(accounts)
+          .values({
+            id: other.accountId,
+            email: other.email,
+            passkeyUserId: other.passkeyUserId,
+            createdAt: at,
+            updatedAt: at,
+          })
+          .run();
+        db.insert(users)
+          .values({
+            id: other.profileId,
+            accountId: other.accountId,
+            handle: other.handle,
+            displayName: other.name,
+            isDefault: true,
+            createdAt: at,
+            updatedAt: at,
+          })
+          .run();
+      }
+      db.insert(organisations)
+        .values({
+          id: leaver.organisation.id,
+          handle: leaver.organisation.handle,
+          name: leaver.organisation.name,
+          ownerId: leaver.profileId,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      const members = [
+        { profileId: leaver.profileId, role: "admin" as const, joined: 0 },
+        { profileId: leaver.heir.profileId, role: "admin" as const, joined: 1 },
+        { profileId: leaver.member.profileId, role: "member" as const, joined: 2 },
+      ];
+      for (const m of members) {
+        db.insert(organisationMembers)
+          .values({
+            id: `orgm_e2e_leaver_${m.joined}`,
+            organisationId: leaver.organisation.id,
+            profileId: m.profileId,
+            role: m.role,
+            createdAt: new Date(CLOCK_T0 + m.joined * 1000),
+          })
+          .run();
+      }
+
+      // Sessions as a sign-in leaves them: the row holds the token's SHA-256,
+      // never the token. Each lasts the run (the suite clock starts at
+      // `CLOCK_T0`), and its first grant rotates it as any other.
+      for (const [accountId, session] of [
+        [leaver.accountId, leaver.session],
+        [leaver.heir.accountId, leaver.heir.session],
+      ] as const) {
+        db.insert(sessions)
+          .values({
+            id: createHash("sha256").update(session.token).digest("hex"),
+            accountId,
+            familyId: session.familyId,
+            createdAt: atSec,
+            authenticatedAt: atSec,
+            expiresAt: atSec + 30 * 24 * 60 * 60,
+          })
+          .run();
+      }
     })();
   } finally {
     sqlite.close();
   }
 }
 
-/** pulse-api: the schema only. The flow creates the one event it needs. */
+/** pulse-api: the schema only. The flow creates every row it reads. */
 export function seedPulse(path: string): void {
   const sqlite = freshDatabase(path);
   try {

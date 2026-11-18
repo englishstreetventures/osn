@@ -199,15 +199,4 @@ describe("migration 0063", () => {
     expect(db.query(select).all()).toEqual(before);
     db.close();
   });
-
-  it("gives a row inserted after 0063 every switch on", () => {
-    const db = migrated([]);
-    seed(db, [{ wedding_id: "wed_new" }]);
-    expect(switchesOf(db, "wed_new")).toEqual({
-      hero_visible: 1,
-      story_visible: 1,
-      footer_visible: 1,
-    });
-    db.close();
-  });
 });

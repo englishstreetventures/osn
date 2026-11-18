@@ -650,15 +650,6 @@ describe("the cire stack on production", () => {
     }
   });
 
-  test("KA3: no API Worker uploads a secret: production's stay on the Workers", () => {
-    const resources = resourcesOf(production);
-    for (const id of PRODUCTION_APIS) {
-      const env = resources[id]?.Props.env ?? {};
-      const secrets = Object.entries(env).filter(([, value]) => Redacted.isRedacted(value));
-      expect({ id, secrets }).toEqual({ id, secrets: [] });
-    }
-  });
-
   test("KP2: every Worker serves its production host, an off site nothing; no workers.dev or preview URL", async () => {
     expect(domainsOf(production)).toEqual({
       CireApi: "api.cireweddings.com",

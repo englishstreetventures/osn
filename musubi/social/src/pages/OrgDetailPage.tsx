@@ -4,19 +4,21 @@ import { describeAuthError, OrgClientError, type OrgMember } from "@osn/client";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { Chip } from "@shared/ui/ui/chip";
-import { Dialog } from "@shared/ui/ui/dialog";
+import { Dialog, DialogDescription } from "@shared/ui/ui/dialog";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
-import { useParams, useNavigate } from "@solidjs/router";
-import { createSignal, For, Show } from "solid-js";
+import { useParams, useNavigate, useSearchParams } from "@solidjs/router";
+import { createResource, createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
+import { formatDay } from "../lib/account-deletion";
 import { orgClient } from "../lib/api";
 import { scopeMark } from "../lib/page-cache";
 import {
@@ -122,8 +124,13 @@ export function OrgDetailPage() {
     }
   }
 
+  // Delete asks first, in the app's dialog: Cancel, then a red Delete.
+  const [confirmDelete, setConfirmDelete] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
+
   async function handleDelete() {
-    if (!confirm("Delete this organisation? This cannot be undone.")) return;
+    if (deleting()) return;
+    setDeleting(true);
     const handle = params.handle;
     try {
       const mark = scopeMark();
@@ -146,6 +153,69 @@ export function OrgDetailPage() {
       suggestions.invalidate();
     } catch (err) {
       toast.error(`Couldn't delete the organisation. ${describeAuthError(err)}`);
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
+
+  // `?decline=1`: the "you now own" email's link. The owner may hand back an
+  // organisation that came to them by succession, within 30 days. The link
+  // alone shows nothing: the card appears only when the server says this
+  // caller may decline it now, so a link cannot tell a stranger they own it.
+  const [search] = useSearchParams();
+  const [declineStanding] = createResource(
+    () => (search.decline === "1" ? params.handle : null),
+    (handle) => orgClient.declineOwnershipStatus(handle),
+  );
+  // Read by state, not by calling the resource: a call in flight would raise
+  // the nearest Suspense, and a call after a refusal would throw.
+  const offerDecline = () => declineStanding.state === "ready" && !declineRefused();
+  const declineUntil = () =>
+    declineStanding.state === "ready"
+      ? formatDay(Date.parse(declineStanding.latest.declineUntil) / 1_000)
+      : "";
+  const [declining, setDeclining] = createSignal(false);
+  /** A press of Decline was refused: the card gives way to the closed line. */
+  const [declineRefused, setDeclineRefused] = createSignal(false);
+  // 403 or 409, read or pressed: the link is for someone else, or its 30 days
+  // have passed. Either way the same line, in one look, and no card.
+  const declineClosed = () => {
+    if (declineRefused()) return true;
+    if (declineStanding.state !== "errored") return false;
+    const status = statusOf(declineStanding.error);
+    return status === 403 || status === 409;
+  };
+
+  async function handleDecline() {
+    if (declining()) return;
+    setDeclining(true);
+    const handle = params.handle;
+    try {
+      const mark = scopeMark();
+      const { outcome } = await orgClient.declineOwnership(handle);
+      toast.success(outcome === "deleted" ? "Organisation deleted" : "Organisation passed on");
+      navigate("/organisations");
+      // Either way the person is no longer in it: gone from their list at once.
+      organisationDetail.drop(handle);
+      organisationMembers.drop(handle);
+      myOrganisations.update(
+        [],
+        (value) => ({
+          ...value,
+          organisations: value.organisations.filter((o) => o.handle !== handle),
+        }),
+        mark,
+      );
+      myOrganisations.invalidate();
+      suggestions.invalidate();
+    } catch (err) {
+      // 403: not the owner. 409: created here, or received over 30 days ago.
+      const status = statusOf(err);
+      if (status === 403 || status === 409) setDeclineRefused(true);
+      else toast.error(`Couldn't decline the organisation. ${describeAuthError(err)}`);
+    } finally {
+      setDeclining(false);
     }
   }
 
@@ -207,7 +277,7 @@ export function OrgDetailPage() {
             <>
               {/* Header */}
               <div class="mb-8 flex flex-wrap items-start justify-between gap-3">
-                <div class="flex items-center gap-4">
+                <div class="flex min-w-0 items-center gap-4">
                   <Avatar class="h-14 w-14">
                     <Show when={safeAvatarUrl(orgData().avatarUrl)}>
                       {(url) => (
@@ -221,8 +291,11 @@ export function OrgDetailPage() {
                     </Show>
                     <AvatarFallback>{orgData().name.slice(0, 2).toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <div>
-                    <h1 class="text-foreground text-display font-medium">{orgData().name}</h1>
+                  {/* Its admins wrote the name, so it breaks anywhere. */}
+                  <div class="min-w-0">
+                    <h1 class="text-foreground text-display font-medium wrap-anywhere">
+                      {orgData().name}
+                    </h1>
                     <p class="text-muted-foreground text-body">@{orgData().handle}</p>
                     <Show when={orgData().description}>
                       <p class="text-muted-foreground text-body mt-1">{orgData().description}</p>
@@ -237,12 +310,43 @@ export function OrgDetailPage() {
                     variant="ghostDanger"
                     size="sm"
                     class="max-md:h-10"
-                    onClick={handleDelete}
+                    onClick={() => setConfirmDelete(true)}
                   >
                     Delete
                   </Button>
                 </div>
               </div>
+
+              <Show when={declineClosed()}>
+                <Notice tone="info" size="sm" class="mb-8" alert={declineRefused()}>
+                  You can no longer decline this organisation here. If you own it, you can still
+                  delete it.
+                </Notice>
+              </Show>
+              <Show when={offerDecline()}>
+                <Card padding="md" class="mb-8 flex flex-col gap-3">
+                  <h2 class="text-foreground text-title font-medium">
+                    This organisation passed to you
+                  </h2>
+                  <p class="text-muted-foreground text-body">
+                    It is yours because its owner deleted their account, or the member before you
+                    declined it. You can decline it until {declineUntil()}.
+                  </p>
+                  <p class="text-muted-foreground text-body">
+                    If you decline, it passes to its next admin or member, or is deleted if there is
+                    none, and you leave it.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    class="self-start max-md:h-10"
+                    busy={declining()}
+                    onClick={() => void handleDecline()}
+                  >
+                    {declining() ? "Declining…" : "Decline"}
+                  </Button>
+                </Card>
+              </Show>
 
               {/* Members */}
               <div>
@@ -325,6 +429,35 @@ export function OrgDetailPage() {
           )}
         </Show>
       </div>
+
+      {/* Delete's confirmation: a confirmation dialog in the form dialog's
+          shape, its commit red. Closed only by Cancel, the scrim or Escape
+          while nothing runs. */}
+      <Dialog
+        open={confirmDelete()}
+        onOpenChange={(open) => {
+          if (!open && !deleting()) setConfirmDelete(false);
+        }}
+      >
+        <ResponsiveDialogContent>
+          <AuthHeader host="dialog" title="Delete this organisation?" />
+          <div class="p-4">
+            <DialogDescription>This cannot be undone.</DialogDescription>
+          </div>
+          <DialogActions onCancel={() => setConfirmDelete(false)} cancelDisabled={deleting()}>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              class="max-md:h-10"
+              busy={deleting()}
+              onClick={() => void handleDelete()}
+            >
+              {deleting() ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogActions>
+        </ResponsiveDialogContent>
+      </Dialog>
 
       {/* Edit dialog */}
       <Dialog open={showEdit()} onOpenChange={setShowEdit}>

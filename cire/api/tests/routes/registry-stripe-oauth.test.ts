@@ -28,8 +28,7 @@ import { insertWedding, ownerSeat } from "../test-helpers/wedding";
 
 /**
  * Connecting a Stripe account the couple already have, through Stripe Connect
- * OAuth. Each case below is one way the connect must refuse, from the failure
- * list written before the code (NEW-FEAT.md):
+ * OAuth. Each case below is one way the connect must refuse:
  *
  *   - a `state` is good once, for the owner who started it, for the wedding it
  *     names, inside its time — and a bad one never reaches Stripe, where a
@@ -251,7 +250,7 @@ function otherWeddingWith(db: TestDb, accountId: string, connector: string, owne
 }
 
 describe("starting a connect", () => {
-  it("sends the owner to Stripe's authorize page with a state bound to them (17)", async () => {
+  it("sends the owner to Stripe's authorize page with a state bound to them", async () => {
     const { app, db } = buildApp();
     const res = await post(app, `${base}/oauth`, OWNER);
     expect(res.status).toBe(200);
@@ -271,7 +270,7 @@ describe("starting a connect", () => {
     expect(row?.stateHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("replaces the owner's earlier state when they start again (17)", async () => {
+  it("replaces the owner's earlier state when they start again", async () => {
     const { app, db } = buildApp();
     const first = await start(app);
     const second = await start(app);
@@ -280,14 +279,14 @@ describe("starting a connect", () => {
     expect((await callback(app, { state: first, code: "ac_1" })).outcome).toBe("expired");
   });
 
-  it("refuses an editor and a stranger (6)", async () => {
+  it("refuses an editor and a stranger", async () => {
     const { app, db } = buildApp();
     expect((await post(app, `${base}/oauth`, EDITOR)).status).toBe(403);
     expect((await post(app, `${base}/oauth`, STRANGER)).status).toBe(403);
     expect(stateRows(db)).toHaveLength(0);
   });
 
-  it("refuses a wedding that already has an account, with the settings (7)", async () => {
+  it("refuses a wedding that already has an account, with the settings", async () => {
     const { app, db } = buildApp();
     otherWeddingWith(db, "acct_x", OWNER, [OWNER]);
     db.update(registrySettings)
@@ -302,7 +301,7 @@ describe("starting a connect", () => {
     expect(stateRows(db)).toHaveLength(0);
   });
 
-  it("does not exist when OAuth is not configured (15)", async () => {
+  it("does not exist when OAuth is not configured", async () => {
     const { app } = buildApp({ oauth: null });
     expect((await post(app, `${base}/oauth`, OWNER)).status).toBe(404);
     const landing = await appRequest(app, `${CALLBACK}?state=x&code=y`, { method: "GET" });
@@ -327,7 +326,7 @@ describe("starting a connect", () => {
 });
 
 describe("the callback refuses every state but the one it issued", () => {
-  it("connects with the state it issued, once (2)", async () => {
+  it("connects with the state it issued, once", async () => {
     const oauth = oauthStub();
     const stripe = stripeStub();
     const { app, db } = buildApp({ oauth: oauth.client, stripe: stripe.client });
@@ -351,7 +350,7 @@ describe("the callback refuses every state but the one it issued", () => {
     expect(oauth.exchanged).toEqual(["ac_good"]);
   });
 
-  it("refuses a forged state and keeps the real one (1)", async () => {
+  it("refuses a forged state and keeps the real one", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app);
@@ -362,7 +361,7 @@ describe("the callback refuses every state but the one it issued", () => {
     expect((await callback(app, { state, code: "ac_y" })).outcome).toBe("connected");
   });
 
-  it("refuses a state past its time, and uses it up (3)", async () => {
+  it("refuses a state past its time, and uses it up", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app);
@@ -374,7 +373,7 @@ describe("the callback refuses every state but the one it issued", () => {
     expect(stateRows(db)).toHaveLength(0);
   });
 
-  it("refuses one wedding's state under another wedding's name (4)", async () => {
+  it("refuses one wedding's state under another wedding's name", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     insertWedding(db, { id: "wed_b", slug: "wedding-b", displayName: "B", owners: [OWNER] });
@@ -386,7 +385,7 @@ describe("the callback refuses every state but the one it issued", () => {
     expect(oauth.exchanged).toEqual([]);
   });
 
-  it("refuses another owner's state, and leaves it for them (5)", async () => {
+  it("refuses another owner's state, and leaves it for them", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app, OWNER);
@@ -397,7 +396,7 @@ describe("the callback refuses every state but the one it issued", () => {
     expect(stateRows(db)).toHaveLength(1);
   });
 
-  it("sends a signed-out browser to sign in and keeps the state (6)", async () => {
+  it("sends a signed-out browser to sign in and keeps the state", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app);
@@ -431,7 +430,7 @@ describe("the callback refuses every state but the one it issued", () => {
     expect(stateRows(db)).toHaveLength(0);
   });
 
-  it("never puts query input in the redirect (19)", async () => {
+  it("never puts query input in the redirect", async () => {
     const { app } = buildApp();
     const state = await start(app);
     const crafted = await callback(app, {
@@ -448,7 +447,7 @@ describe("the callback refuses every state but the one it issued", () => {
 });
 
 describe("the callback refuses what the wedding cannot take", () => {
-  it("refuses a caller who stopped owning the wedding, before the exchange (13)", async () => {
+  it("refuses a caller who stopped owning the wedding, before the exchange", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app, SECOND);
@@ -462,7 +461,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(oauth.exchanged).toEqual([]);
   });
 
-  it("refuses a wedding deleted after the start, using the state up (26)", async () => {
+  it("refuses a wedding deleted after the start, using the state up", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app);
@@ -475,7 +474,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(stateRows(db)).toHaveLength(0);
   });
 
-  it("refuses a wedding that gained an account meanwhile, without the exchange (7)", async () => {
+  it("refuses a wedding that gained an account meanwhile, without the exchange", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app);
@@ -493,7 +492,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(oauth.exchanged).toEqual([]);
   });
 
-  it("names a refused code as rejected and never logs Stripe's words (8)", async () => {
+  it("names a refused code as rejected and never logs Stripe's words", async () => {
     const oauth = oauthStub({
       exchange: () =>
         Effect.fail(new StripeError({ reason: "rejected", status: 400, code: "invalid_grant" })),
@@ -509,7 +508,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(text).not.toContain("ac_secret_code");
   });
 
-  it("names cire's own faults unavailable: a bad key, a rate limit, no network (8)", async () => {
+  it("names cire's own faults unavailable: a bad key, a rate limit, no network", async () => {
     for (const error of [
       new StripeError({ reason: "rejected", status: 401, code: "invalid_request_error" }),
       new StripeError({ reason: "rejected", status: 429 }),
@@ -521,7 +520,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     }
   });
 
-  it("stores nothing from a reply with no account or the wrong scope, and hands it back (9)", async () => {
+  it("stores nothing from a reply with no account or the wrong scope, and hands it back", async () => {
     const oauth = oauthStub({
       exchange: () => Effect.fail(new OAuthReplyError({ connectedAccountId: "acct_wrong_scope" })),
     });
@@ -532,7 +531,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(oauth.deauthorized).toEqual(["acct_wrong_scope"]);
   });
 
-  it("hands back an account it cannot read, or one that is not Standard (10)", async () => {
+  it("hands back an account it cannot read, or one that is not Standard", async () => {
     for (const account of [null, { ...STANDARD, type: "express" }]) {
       const oauth = oauthStub();
       const { app, db } = buildApp({ oauth: oauth.client, stripe: stripeStub(account).client });
@@ -543,7 +542,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     }
   });
 
-  it("refuses an account that pays out in another currency, and hands it back (11)", async () => {
+  it("refuses an account that pays out in another currency, and hands it back", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({
       oauth: oauth.client,
@@ -555,7 +554,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(oauth.deauthorized).toEqual([STANDARD.id]);
   });
 
-  it("refuses an account another couple's wedding uses, and leaves it there (12)", async () => {
+  it("refuses an account another couple's wedding uses, and leaves it there", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     // A planner's account: on a wedding whose owners are not this wedding's.
@@ -567,7 +566,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(oauth.deauthorized).toEqual([]);
   });
 
-  it("lets the same couple bring an account from their other wedding (12)", async () => {
+  it("lets the same couple bring an account from their other wedding", async () => {
     const { app, db } = buildApp();
     otherWeddingWith(db, STANDARD.id, OWNER, [OWNER, SECOND]);
     const state = await start(app);
@@ -576,7 +575,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(settingsRow(db)?.stripeConnectedByOsnProfileId).toBe(OWNER);
   });
 
-  it("refuses an account on the couple's other wedding that another owner connected (12)", async () => {
+  it("refuses an account on the couple's other wedding that another owner connected", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     otherWeddingWith(db, STANDARD.id, SECOND, [OWNER, SECOND]);
@@ -585,7 +584,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(oauth.deauthorized).toEqual([]);
   });
 
-  it("answers a lost race as already connected, handing back only an unused account (13)", async () => {
+  it("answers a lost race as already connected, handing back only an unused account", async () => {
     // Filled once the app is built; the exchange runs after that.
     const held: { db?: TestDb } = {};
     const oauth = oauthStub({
@@ -636,7 +635,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(text).toContain(STANDARD.id);
   });
 
-  it("redirects a rate-limited callback, never answering JSON (27)", async () => {
+  it("redirects a rate-limited callback, never answering JSON", async () => {
     const { app } = buildApp({
       callbackLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
@@ -647,7 +646,7 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(limited.cacheControl).toBe("no-store");
   });
 
-  it("redirects a defect, never answering JSON (27)", async () => {
+  it("redirects a defect, never answering JSON", async () => {
     const oauth = oauthStub({ exchange: () => Effect.die(new Error("boom")) });
     const { app } = buildApp({ oauth: oauth.client });
     const state = await start(app);
@@ -658,7 +657,7 @@ describe("the callback refuses what the wedding cannot take", () => {
 });
 
 describe("what a Standard account changes", () => {
-  it("stores the type on a wedding whose registry is already open (14)", async () => {
+  it("stores the type on a wedding whose registry is already open", async () => {
     const { app, db } = buildApp();
     openedRegistry(db);
     const state = await start(app);
@@ -666,7 +665,7 @@ describe("what a Standard account changes", () => {
     expect(settingsRow(db)?.stripeAccountType).toBe("standard");
   });
 
-  it("refuses an onboarding link for it, even to its connector (16)", async () => {
+  it("refuses an onboarding link for it, even to its connector", async () => {
     const stripe = stripeStub();
     const { app } = buildApp({ stripe: stripe.client });
     const state = await start(app);
@@ -677,7 +676,7 @@ describe("what a Standard account changes", () => {
     expect(stripe.calls.filter((c) => c.startsWith("createAccountLink"))).toEqual([]);
   });
 
-  it("tells owners the type and nobody else (18)", async () => {
+  it("tells owners the type and nobody else", async () => {
     const { app } = buildApp();
     const state = await start(app);
     await callback(app, { state, code: "ac_x" });
@@ -699,7 +698,7 @@ describe("what a Standard account changes", () => {
     expect((await read(OWNER)).connectsExistingStripe).toBe(true);
   });
 
-  it("says the site connects no existing account without OAuth (15)", async () => {
+  it("says the site connects no existing account without OAuth", async () => {
     const { app } = buildApp({ oauth: null });
     const res = await appRequest(app, `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/registry`, {
       headers: { Authorization: `Bearer ${await auth.sign(OWNER)}` },
@@ -709,7 +708,7 @@ describe("what a Standard account changes", () => {
     ).toBe(false);
   });
 
-  it("is copied by a reuse into an open registry, and cleared by a revocation (14)", async () => {
+  it("is copied by a reuse into an open registry, and cleared by a revocation", async () => {
     const { app, db } = buildApp();
     const state = await start(app);
     await callback(app, { state, code: "ac_x" });
@@ -742,7 +741,7 @@ describe("what a Standard account changes", () => {
   });
 });
 
-describe("a revocation that predates a connection leaves it (25)", () => {
+describe("a revocation that predates a connection leaves it", () => {
   const run = <A>(db: TestDb, effect: Effect.Effect<A, never, DbService>) =>
     Effect.runPromise(effect.pipe(Effect.provideService(DbService, db)));
 
@@ -780,7 +779,7 @@ describe("a revocation that predates a connection leaves it (25)", () => {
 });
 
 describe("credentials, tier and input the connect refuses", () => {
-  it("sends a dead session or a malformed token to sign in, keeping the state (T-E2)", async () => {
+  it("sends a dead session or a malformed token to sign in, keeping the state", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app);
@@ -806,7 +805,7 @@ describe("credentials, tier and input the connect refuses", () => {
     expect(stateRows(db)).toHaveLength(1);
   });
 
-  it("starts for a session cookie and refuses no credential (T-E2)", async () => {
+  it("starts for a session cookie and refuses no credential", async () => {
     const { app, db } = buildApp();
     expect((await post(app, `${base}/oauth`)).status).toBe(401);
     expect(stateRows(db)).toHaveLength(0);
@@ -819,7 +818,7 @@ describe("credentials, tier and input the connect refuses", () => {
     expect(stateRows(db)).toHaveLength(1);
   });
 
-  it("refuses a wedding below Gold at the start, and one lowered before the return (T-E3)", async () => {
+  it("refuses a wedding below Gold at the start, and one lowered before the return", async () => {
     const below = buildApp({ tier: "ivory" });
     expect((await post(below.app, `${base}/oauth`, OWNER)).status).toBe(402);
     expect(stateRows(below.db)).toHaveLength(0);
@@ -832,7 +831,7 @@ describe("credentials, tier and input the connect refuses", () => {
     expect(oauth.exchanged).toEqual([]);
   });
 
-  it("answers a return with no code, or one no Stripe code is, as rejected (T-E5)", async () => {
+  it("answers a return with no code, or one no Stripe code is, as rejected", async () => {
     const returns: Record<string, string>[] = [{}, { code: "a".repeat(257) }];
     for (const params of returns) {
       const oauth = oauthStub();
@@ -844,7 +843,7 @@ describe("credentials, tier and input the connect refuses", () => {
     }
   });
 
-  it("redirects a request with no address it can key the limiter on (T-S3)", async () => {
+  it("redirects a request with no address it can key the limiter on", async () => {
     const { app } = buildApp();
     const res = await app.fetch(new Request(`http://localhost${CALLBACK}?state=x&code=y`));
     expect(res.status).toBe(302);
@@ -855,7 +854,7 @@ describe("credentials, tier and input the connect refuses", () => {
   });
 });
 
-describe("an account Stripe connected that cire then cannot store (T-E4)", () => {
+describe("an account Stripe connected that cire then cannot store", () => {
   it("hands it back when the caller stops owning the wedding during the exchange", async () => {
     for (const change of ["demoted", "deleted"] as const) {
       const held: { db?: TestDb } = {};
@@ -901,11 +900,11 @@ describe("an account Stripe connected that cire then cannot store (T-E4)", () =>
   });
 });
 
-describe("what the state review found (G-)", () => {
+describe("the Stripe account when the wedding changes around it", () => {
   const run = <A>(db: TestDb, effect: Effect.Effect<A, never, DbService>) =>
     Effect.runPromise(effect.pipe(Effect.provideService(DbService, db)));
 
-  it("clears a revoked account whose row a refresh stamped after the event (G-H1)", async () => {
+  it("clears a revoked account whose row a refresh stamped after the event", async () => {
     const { app, db } = buildApp();
     const state = await start(app);
     await callback(app, { state, code: "ac_x" });
@@ -923,7 +922,7 @@ describe("what the state review found (G-)", () => {
     expect(settingsRow(db)?.stripeAccountId ?? null).toBeNull();
   });
 
-  it("refuses an account once the wedding's currency changed during the exchange (G-M2)", async () => {
+  it("refuses an account once the wedding's currency changed during the exchange", async () => {
     const held: { db?: TestDb } = {};
     const oauth = oauthStub({
       duringExchange: () =>
@@ -941,7 +940,7 @@ describe("what the state review found (G-)", () => {
     expect(oauth.deauthorized).toEqual([STANDARD.id]);
   });
 
-  it("clears a wedding that took the account while cire was handing it back (G-M1)", async () => {
+  it("clears a wedding that took the account while cire was handing it back", async () => {
     const held: { db?: TestDb } = {};
     const oauth = oauthStub({
       duringDeauthorize: () => {
@@ -979,7 +978,7 @@ describe("what the state review found (G-)", () => {
     expect(logs).toContain("stripe account handed back while a wedding connected it");
   });
 
-  it("names a deleted wedding that still holds the account, not other owners (G-L3)", async () => {
+  it("names a deleted wedding that still holds the account, not other owners", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     otherWeddingWith(db, STANDARD.id, "usr_someone", ["usr_someone"]);

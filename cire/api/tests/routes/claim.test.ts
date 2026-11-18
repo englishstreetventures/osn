@@ -64,7 +64,7 @@ beforeAll(() => {
 });
 
 // Tests simulate the Cloudflare edge by setting `cf-connecting-ip` — the
-// fail-closed limiter (C4) denies requests without a resolvable IP, so every
+// fail-closed limiter denies requests without a resolvable IP, so every
 // rate-limited route needs one in tests.
 const post = (body: unknown) =>
   Effect.promise(() =>
@@ -126,6 +126,8 @@ describe("POST /api/claim", () => {
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
         expect(data.familyName).toBe("Testfamily");
+        // A guest household's claim, not the host preview.
+        expect(data.preview).toBe(false);
         expect(data.members).toHaveLength(1);
         expect(data.members[0]!.firstName).toBe("Ada");
         expect(typeof data.members[0]!.guestId).toBe("string");
@@ -232,7 +234,7 @@ describe("POST /api/claim", () => {
 // The per-IP limiter must gate the real endpoint, not just exist as a
 // plugin — a refactor that drops `.use(rateLimitMiddleware(...))` from
 // `createClaimRoutes` should fail here.
-describe("POST /api/claim rate limiting (S-C2)", () => {
+describe("POST /api/claim rate limiting", () => {
   it("returns 429 with Retry-After once the per-IP limit is exhausted", async () => {
     const rlApp = createApp(db, {
       claimLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
@@ -259,11 +261,11 @@ describe("POST /api/claim rate limiting (S-C2)", () => {
   });
 });
 
-// migration 0019: each EventSummary carries imageUrl — the first-party path to
-// the event's optional image (or null when none). The path's ?v= is the server-
-// derived FNV digest of the R2 key, never the timestamp the wedding-slot images
+// Each EventSummary carries imageUrl — the first-party path to the event's
+// optional image (or null when none). The path's ?v= is the server-derived
+// FNV digest of the R2 key, never the timestamp the wedding-slot images
 // use (events have no updated_at).
-describe("POST /api/claim event imageUrl (migration 0019)", () => {
+describe("POST /api/claim event imageUrl", () => {
   it("populates imageUrl for an event with a key, null for the rest", async () => {
     // Point one seeded event at an R2 key directly (no upload needed — the public
     // claim payload only needs the column populated).
@@ -354,7 +356,7 @@ describe("POST /api/claim event imageUrl (migration 0019)", () => {
 
 // The FAQ is written for the invited household, like the events: it rides the
 // claim response and never the public invite read.
-describe("POST /api/claim FAQ (migration 0064)", () => {
+describe("POST /api/claim FAQ", () => {
   const seedFaq = (id: string, question: string, sortOrder: number) =>
     db
       .insert(weddingFaqs)
@@ -790,7 +792,7 @@ describe("POST /api/claim/signout", () => {
     // …and the token is dead SERVER-side, which is the half that matters. A
     // cleared cookie alone would leave a live credential for anyone who
     // captured the token; this is what makes the control a real sign-out
-    // rather than the local-state reset it started as.
+    // rather than a local-state reset.
     expect((await getSession(cookie)).status).toBe(401);
   });
 

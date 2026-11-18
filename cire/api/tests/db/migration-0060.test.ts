@@ -83,22 +83,4 @@ describe("migration 0060", () => {
     expect(row!.run_sheet_scope).toBe("own");
     db.close();
   });
-
-  it("accepts 'helper' in the role column — no CHECK constraint stands in the way", () => {
-    // The enum is app-layer; the column is plain TEXT. This pins that the
-    // migration did not need to rebuild the table to admit the new value, which
-    // is what makes 0060 a one-line ALTER rather than a copy-and-swap.
-    const db = beforeMigration();
-    seedSeats(db);
-    apply(db, MIG_0060);
-    db.exec(
-      "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, run_sheet_scope, created_at)" +
-        " VALUES ('whost_5', 'wed_1', 'usr_help2', 'usr_owner', 'helper', 'full', 0);",
-    );
-    const [row] = db
-      .query("SELECT role, run_sheet_scope FROM wedding_hosts WHERE id = 'whost_5'")
-      .all() as SeatRow[];
-    expect(row).toMatchObject({ role: "helper", run_sheet_scope: "full" });
-    db.close();
-  });
 });

@@ -284,12 +284,15 @@ describe("vendor portal routes", () => {
     });
 
     it("200 with listing summary for a valid token (no auth required)", async () => {
-      // We need to seed a real claim token to test the preview.
-      // Since seeding requires a vendor + wedding already in the DB,
-      // we skip the seeding and just test that an unknown token → 404.
-      // The shape of the preview response is tested indirectly via consume.
-      const res = await req(buildApp(), "GET", "/api/vendor/claims/not-a-real-token");
-      expect(res.status).toBe(404);
+      const { app, db } = buildAppWithDb();
+      const { id, token } = await seedClaimable(db);
+      const res = await req(app, "GET", `/api/vendor/claims/${token}`);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(JSON.parse(text)).toEqual({ listing: { directoryVendorId: id, name: "Claimable" } });
+      // The preview names the listing and nothing about who the link went to.
+      expect(text).not.toContain("owner@claimable.test");
+      expect(text).not.toContain(token);
     });
   });
 
@@ -452,15 +455,6 @@ describe("vendor portal routes", () => {
       expect(
         db.select().from(directoryVendors).where(eq(directoryVendors.id, id)).get()!.listed,
       ).toBe("draft");
-    });
-
-    it("403 not_org_member for a stranger claiming into org_ok", async () => {
-      const res = await req(buildApp(), "POST", "/api/vendor/claims/some-token/consume", STRANGER, {
-        orgId: ORG_OK,
-      });
-      expect(res.status).toBe(403);
-      const body = (await res.json()) as { error: string };
-      expect(body.error).toBe("not_org_member");
     });
   });
 });

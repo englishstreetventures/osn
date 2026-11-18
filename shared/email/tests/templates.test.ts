@@ -181,6 +181,29 @@ describe("renderTemplate", () => {
       amountFormatted: "A$1,200.00",
       threadUrl: "https://example.test/thread/1",
     },
+    "account-data-link": { instanceName: "Musubi", url: "https://example.test/settings#account" },
+    "account-deleted": {
+      instanceName: "Musubi",
+      handles: ["ada"],
+      handlesHeldUntil: 1_800_000_000,
+      kept: [{ app: "Pulse", what: "An event", erasedOn: null, requestUrl: null }],
+      organisations: [{ handle: "adaco", newOwnerHandle: null }],
+    },
+    "account-deletion-cancelled": { instanceName: "Musubi", appUrl: "https://example.test" },
+    "account-deletion-scheduled": {
+      instanceName: "Musubi",
+      deletesAt: 1_800_000_000,
+      appUrl: "https://example.test",
+      deleteEverything: false,
+      plan: [{ label: "You own Ada Co.", outcome: "It is deleted.", keptUntil: null }],
+    },
+    "organisation-ownership-received": {
+      instanceName: "Musubi",
+      organisationHandle: "adaco",
+      declineUrl: "https://example.test/organisations/adaco?decline=1",
+      declineUntil: 1_800_000_000,
+      cause: "owner_deleted",
+    },
     "link-registration": {
       url: "https://example.test/verify/signup_0123456789ab#secret",
       ttlMinutes: 10,
@@ -282,6 +305,21 @@ describe("renderTemplate", () => {
       expect(out.html.length).toBeGreaterThan(0);
     }
   });
+
+  it("draws every button as the email page's one button", () => {
+    // `wiki/shared/email.md` §How a message looks: one button, 6px corners,
+    // at the text's own weight. A template that draws its own drifts.
+    const button =
+      "display:inline-block;padding:12px 24px;background:#0a0a0a;color:#fff;text-decoration:none;border-radius:6px";
+    const drawn = (Object.keys(fixtures) as readonly EmailTemplate[]).flatMap((template) =>
+      [...renderTemplate(template, fixtures[template]).html.matchAll(/<a [^>]*style="([^"]*)"/g)]
+        .map((match) => match[1]!)
+        .filter((style) => style.includes("inline-block"))
+        .map((style) => ({ template, style })),
+    );
+    expect(drawn.length).toBeGreaterThan(5);
+    expect(drawn.filter((b) => b.style !== button)).toEqual([]);
+  });
 });
 
 /**
@@ -293,6 +331,29 @@ describe("renderTemplate", () => {
 describe("account emails name the instance passed in", () => {
   const instanceName = "Acme & <Co>";
   const accountEmails = {
+    "account-data-link": { instanceName, url: "https://example.test/settings#account" },
+    "account-deleted": {
+      instanceName,
+      handles: ["ada"],
+      handlesHeldUntil: 1_800_000_000,
+      kept: [],
+      organisations: [],
+    },
+    "account-deletion-cancelled": { instanceName, appUrl: "https://example.test" },
+    "account-deletion-scheduled": {
+      instanceName,
+      deletesAt: 1_800_000_000,
+      appUrl: "https://example.test",
+      deleteEverything: false,
+      plan: [],
+    },
+    "organisation-ownership-received": {
+      instanceName,
+      organisationHandle: "adaco",
+      declineUrl: "https://example.test/organisations/adaco?decline=1",
+      declineUntil: 1_800_000_000,
+      cause: "owner_deleted",
+    },
     "link-registration": {
       url: "https://example.test/verify/signup_0123456789ab#secret",
       ttlMinutes: 10,

@@ -54,4 +54,21 @@ describe("privacy.tsx", () => {
   it("does not claim a consent ask that pulse has not built", () => {
     expect(source).not.toMatch(/ask before recording it/i);
   });
+
+  /**
+   * An OSN account deletion reaches Pulse at the end of its 7 days
+   * (`pulse/api/src/services/accountErasure.ts`, `purgeAccount`): the person's
+   * RSVPs, close friends, messages and Pulse profile go; each upcoming event
+   * they host is cancelled and kept 14 days for its guests, or deleted then if
+   * they answered delete; past events they hosted go.
+   */
+  it("says what deleting the Musubi account does to Pulse data", () => {
+    const text = source.replace(/\s+/g, " ");
+    expect(text).toMatch(/If you delete your Musubi account/);
+    expect(text).toMatch(/when the account goes, 7 days after you ask/);
+    expect(text).toMatch(/your RSVPs, close friends, the messages you sent and your Pulse profile/);
+    expect(text).toMatch(
+      /cancelled and kept 14 days for its guests, or, if you chose that when you asked, deleted then/,
+    );
+  });
 });

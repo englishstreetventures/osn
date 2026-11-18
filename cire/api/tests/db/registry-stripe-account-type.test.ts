@@ -46,7 +46,7 @@ describe("registry_settings.stripe_account_type", () => {
     expect(() => set(null)).not.toThrow();
   });
 
-  it("clears the type and the connect time whenever the id is cleared, by any writer (G-L2)", () => {
+  it("clears the type and the connect time whenever the id is cleared, by any writer", () => {
     const { client, now } = seeded();
     client
       .prepare(

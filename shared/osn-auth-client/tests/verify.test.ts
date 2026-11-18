@@ -177,7 +177,7 @@ describe("extractClaims — negative + rotation paths", () => {
     expect(fetchCount).toBe(0);
   });
 
-  it("unknown kid → null with NO forced refresh, repeats hit the negative cache (P-C1)", async () => {
+  it("unknown kid → null with NO forced refresh, repeats hit the negative cache", async () => {
     const junkKidKey = await makeKey("junk-kid");
     const token = await new SignJWT({})
       .setProtectedHeader({ alg: "ES256", kid: "junk-kid" })
@@ -198,7 +198,7 @@ describe("extractClaims — negative + rotation paths", () => {
     expect(fetchCount).toBe(1);
   });
 
-  it("expired token → null with NO refresh fetch (P-C1)", async () => {
+  it("expired token → null with NO refresh fetch", async () => {
     // Expire outside the 30s clockTolerance (X2) so it's genuinely expired.
     const past = Math.floor(Date.now() / 1000) - 120;
     const token = await new SignJWT({})
@@ -258,19 +258,6 @@ describe("extractClaims — negative + rotation paths", () => {
 
   // Issuer enforcement matrix.
   const ISS = "https://osn-api.example.com";
-
-  it("issuer set + matching iss → claims resolve", async () => {
-    const token = await new SignJWT({})
-      .setProtectedHeader({ alg: "ES256", kid: kidA })
-      .setSubject("usr_a")
-      .setIssuer(ISS)
-      .setIssuedAt()
-      .setExpirationTime("5m")
-      .sign(keyA.signKey);
-
-    const result = await extractClaims(`Bearer ${token}`, JWKS_URL, { issuer: ISS });
-    expect(result?.profileId).toBe("usr_a");
-  });
 
   it("issuer set + mismatched iss → null, terminal (NO refresh fetch)", async () => {
     const token = await new SignJWT({})

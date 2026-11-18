@@ -404,7 +404,7 @@ describe("tableExportService.eventsCsv", () => {
   );
 
   it(
-    "counts invited guests per event (host families excluded)",
+    "counts invited guests per event",
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;

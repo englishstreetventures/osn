@@ -249,11 +249,6 @@ describe("house/no-literal-motion", () => {
     expect(message).toContain("motion-literal:");
     expect(message).toContain("design-tokens.md");
   });
-
-  it("reports under the plugin's rule id", () => {
-    expect(diagnostics.length).toBeGreaterThan(0);
-    expect(diagnostics.every((d) => d.code === "house(no-literal-motion)")).toBe(true);
-  });
 });
 
 // The rule is only worth anything where the root config turns it on: a

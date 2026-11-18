@@ -1,5 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
-import { Effect, Fiber, Logger, References, Result } from "effect";
+import { Clock, Effect, Fiber, Logger, References, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,18 +62,60 @@ const otp: SendEmailInput = {
 
 const transport = () => makeResendEmailLive({ apiKey: KEY, fromAddress: "hello@example.test" });
 
-async function sendOnce(
+/** One send through the Resend transport under a capturing logger, not yet run. */
+function sending(
   wrap: <A, E, R>(eff: Effect.Effect<A, E, R>) => Effect.Effect<A, unknown, R> = (eff) => eff,
 ) {
   const { entries, layer } = capture();
-  const result = await Effect.runPromise(
-    Effect.gen(function* () {
-      const email = yield* EmailService;
-      return yield* wrap(email.send(otp));
-    }).pipe(Effect.provide(transport()), Effect.provide(layer), Effect.result),
-  );
+  const result = Effect.gen(function* () {
+    const email = yield* EmailService;
+    return yield* wrap(email.send(otp));
+  }).pipe(Effect.provide(transport()), Effect.provide(layer), Effect.result);
   return { entries, result };
 }
+
+async function sendOnce() {
+  const { entries, result } = sending();
+  return { entries, result: await Effect.runPromise(result) };
+}
+
+/**
+ * Runs `body` on the test clock with a count of the sleeps fibers have started
+ * on it: a caller's timeout starts one, and so does the body read's timeout.
+ * `TestClock.adjust` wakes only the sleeps already started, and the body read
+ * starts its timeout only after `fetch`'s promise settles, so a case waits
+ * with {@link until} for the sleep it means to end before it moves the clock.
+ */
+const countingSleeps = <A, E, R>(
+  body: (sleeps: { readonly started: number }) => Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> => {
+  const sleeps = { started: 0 };
+  return Effect.clockWith((clock) =>
+    body(sleeps).pipe(
+      Effect.provideService(Clock.Clock, {
+        ...clock,
+        sleep: (duration) =>
+          Effect.suspend(() => {
+            sleeps.started += 1;
+            return clock.sleep(duration);
+          }),
+      }),
+    ),
+  );
+};
+
+/** Yields macrotask turns, never a timed wait, until `ready()` holds. */
+const until = (ready: () => boolean) =>
+  Effect.promise(async () => {
+    for (let turn = 0; turn < 1_000; turn += 1) {
+      if (ready()) return;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    throw new Error("still not ready after 1,000 turns");
+  });
+
+const interrupted = (entries: readonly Entry[]) =>
+  entries.filter((e) => e.message === "email.dispatch_interrupted");
 
 const failures = (entries: readonly Entry[]) =>
   entries.filter((e) => e.message === "email.dispatch_failed");
@@ -209,29 +251,48 @@ describe("Resend transport: a failed send is logged", () => {
     });
   });
 
-  it("logs a send a caller's timeout cut off, with the status once the response had arrived", async () => {
-    responder = () => new Promise<Response>(() => {});
-    const hung = await sendOnce((eff) => eff.pipe(Effect.timeout("50 millis")));
-    expect(hung.entries.filter((e) => e.message === "email.dispatch_interrupted")).toEqual([
-      {
-        level: "Warn",
-        message: "email.dispatch_interrupted",
-        annotations: { template: "link-email-change" },
-      },
-    ]);
+  effectIt.effect(
+    "logs a send a caller's timeout cut off, with the status once the response had arrived",
+    () =>
+      countingSleeps((sleeps) =>
+        Effect.gen(function* () {
+          responder = () => new Promise<Response>(() => {});
+          const hung = sending((eff) => eff.pipe(Effect.timeout("50 millis")));
+          const hanging = yield* Effect.forkChild(hung.result);
+          yield* until(() => sleeps.started === 1);
+          yield* TestClock.adjust("49 millis");
+          expect(interrupted(hung.entries)).toEqual([]);
+          yield* TestClock.adjust("1 millis");
+          yield* Fiber.join(hanging);
+          expect(interrupted(hung.entries)).toEqual([
+            {
+              level: "Warn",
+              message: "email.dispatch_interrupted",
+              annotations: { template: "link-email-change" },
+            },
+          ]);
 
-    // The refusal arrives, then its body never finishes: the caller's timeout
-    // lands during the body read, and the status is already known.
-    responder = () => new Response(new ReadableStream({ start() {} }), { status: 403 });
-    const stalled = await sendOnce((eff) => eff.pipe(Effect.timeout("100 millis")));
-    expect(stalled.entries.filter((e) => e.message === "email.dispatch_interrupted")).toEqual([
-      {
-        level: "Warn",
-        message: "email.dispatch_interrupted",
-        annotations: { template: "link-email-change", status: 403 },
-      },
-    ]);
-  });
+          // The refusal arrives, then its body never finishes: the caller's timeout
+          // lands during the body read, and the status is already known.
+          responder = () => new Response(new ReadableStream({ start() {} }), { status: 403 });
+          const stalled = sending((eff) => eff.pipe(Effect.timeout("100 millis")));
+          const stalling = yield* Effect.forkChild(stalled.result);
+          // The caller's timeout, then the body read's.
+          yield* until(() => sleeps.started === 3);
+          yield* TestClock.adjust("99 millis");
+          expect(interrupted(stalled.entries)).toEqual([]);
+          yield* TestClock.adjust("1 millis");
+          yield* Fiber.join(stalling);
+          expect(interrupted(stalled.entries)).toEqual([
+            {
+              level: "Warn",
+              message: "email.dispatch_interrupted",
+              annotations: { template: "link-email-change", status: 403 },
+            },
+          ]);
+        }),
+      ),
+  );
 
   it("logs a refused batch with its template, size and status, and no recipient from it", async () => {
     responder = () =>
@@ -373,28 +434,47 @@ describe("Resend transport: a failed send is logged", () => {
     });
   });
 
-  it("aborts the request to Resend when a caller's timeout cuts a send or a batch off", async () => {
-    const signals: (AbortSignal | undefined)[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((_input: string | URL | Request, init?: RequestInit) => {
-        signals.push(init?.signal ?? undefined);
-        return new Promise<Response>(() => {});
-      }),
-    );
-    await sendOnce((eff) => eff.pipe(Effect.timeout("50 millis")));
-    expect(signals.at(-1)?.aborted).toBe(true);
+  effectIt.effect(
+    "aborts the request to Resend when a caller's timeout cuts a send or a batch off",
+    () => {
+      const signals: (AbortSignal | undefined)[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+          signals.push(init?.signal ?? undefined);
+          return new Promise<Response>(() => {});
+        }),
+      );
+      return countingSleeps((sleeps) =>
+        Effect.gen(function* () {
+          const send = yield* Effect.forkChild(
+            sending((eff) => eff.pipe(Effect.timeout("50 millis"))).result,
+          );
+          yield* until(() => sleeps.started === 1 && signals.length === 1);
+          yield* TestClock.adjust("49 millis");
+          expect(signals.at(-1)?.aborted).toBe(false);
+          yield* TestClock.adjust("1 millis");
+          yield* Fiber.join(send);
+          expect(signals.at(-1)?.aborted).toBe(true);
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const email = yield* EmailService;
-        if (!email.sendBatch) throw new Error("the Resend transport has no sendBatch");
-        return yield* Effect.result(email.sendBatch([otp]).pipe(Effect.timeout("50 millis")));
-      }).pipe(Effect.provide(transport())),
-    );
-    expect(signals).toHaveLength(2);
-    expect(signals.at(-1)?.aborted).toBe(true);
-  });
+          const batch = yield* Effect.forkChild(
+            Effect.gen(function* () {
+              const email = yield* EmailService;
+              if (!email.sendBatch) throw new Error("the Resend transport has no sendBatch");
+              return yield* Effect.result(email.sendBatch([otp]).pipe(Effect.timeout("50 millis")));
+            }).pipe(Effect.provide(transport())),
+          );
+          yield* until(() => sleeps.started === 2 && signals.length === 2);
+          yield* TestClock.adjust("49 millis");
+          expect(signals.at(-1)?.aborted).toBe(false);
+          yield* TestClock.adjust("1 millis");
+          yield* Fiber.join(batch);
+          expect(signals).toHaveLength(2);
+          expect(signals.at(-1)?.aborted).toBe(true);
+        }),
+      );
+    },
+  );
 
   it("does not read an error body that declares more than 4096 bytes", async () => {
     const read = { pulled: false };
@@ -429,25 +509,28 @@ describe("Resend transport: reading a refusal's body", () => {
           { status: 403 },
         );
       const { entries, layer } = capture();
-      return Effect.gen(function* () {
-        const email = yield* EmailService;
-        const sending = yield* Effect.forkChild(Effect.result(email.send(otp)));
-        // Let the body read's timer reach the test clock before moving it.
-        yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 20)));
+      return countingSleeps((sleeps) =>
+        Effect.gen(function* () {
+          const email = yield* EmailService;
+          const send = yield* Effect.forkChild(Effect.result(email.send(otp)));
+          // The body read's timeout, started once the refusal has arrived.
+          yield* until(() => sleeps.started === 1);
 
-        yield* TestClock.adjust("1900 millis");
-        expect(sending.pollUnsafe()).toBeUndefined();
+          yield* TestClock.adjust("1900 millis");
+          expect(send.pollUnsafe()).toBeUndefined();
 
-        yield* TestClock.adjust("100 millis");
-        const result = yield* Fiber.join(sending);
-        expect(Result.isFailure(result) && result.failure).toMatchObject({
-          reason: "dispatch_failed",
-        });
-        expect(failures(entries).map((e) => e.annotations)).toEqual([
-          { template: "link-email-change", reason: "dispatch_failed", status: 403 },
-        ]);
-        expect(read.cancelled).toBe(true);
-      }).pipe(Effect.provide(transport()), Effect.provide(layer));
+          yield* TestClock.adjust("100 millis");
+          expect(send.pollUnsafe()).toBeDefined();
+          const result = yield* Fiber.join(send);
+          expect(Result.isFailure(result) && result.failure).toMatchObject({
+            reason: "dispatch_failed",
+          });
+          expect(failures(entries).map((e) => e.annotations)).toEqual([
+            { template: "link-email-change", reason: "dispatch_failed", status: 403 },
+          ]);
+          expect(read.cancelled).toBe(true);
+        }).pipe(Effect.provide(transport()), Effect.provide(layer)),
+      );
     },
   );
 });

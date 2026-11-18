@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # Social
@@ -42,8 +42,9 @@ The app ships as a web build only.
 | `/search` | `SearchPage` | People + organisations search (`GET /recommendations/search`), grouped under section headings, with real action buttons. The mobile shell's Search tab; reachable at any width |
 | `/discover` | `DiscoverPage` | Contact suggestions (`GET /recommendations/connections`) — mutual connections and shared organisations, each card saying which. See [[social-graph]] |
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
-| `/organisations/:handle` | `OrgDetailPage` | Org detail + member management, addressed by handle like every organisation route. Any signed-in profile sees the organisation; only members see its roster (the API answers anyone else `403`, and the page says so). A handle with no organisation shows "Organisation not found." |
-| `/settings` | `SettingsPage` | Profile / Account / **Security** (passkeys — add, rename, delete — then the authenticator app, then recovery codes; each change step-up gated) / Connected apps tabs. Which tab opens comes from the URL fragment (`/settings#security`), read off the router's location — so a deep link from another origin, Back/Forward, a tab click and an in-app link to a tab all behave the same. The Security tab is lazy-loaded (`SecuritySection` chunk). The WebAuthn wrappers each view uses are in [[#Where the WebAuthn runtime ships]]. |
+| `/organisations/:handle` | `OrgDetailPage` | Org detail + member management, addressed by handle like every organisation route. Any signed-in profile sees the organisation; only members see its roster (the API answers anyone else `403`, and the page says so). A handle with no organisation shows "Organisation not found." With `?decline=1` — where the "you now own" email links — it asks the API whether this person may decline it (`orgClient.declineOwnershipStatus`), and only on a yes shows "This organisation passed to you", the last day to decline, and **Decline** (`orgClient.declineOwnership`): it passes to its next admin or member, or is deleted, and the person leaves it. A link opened by anyone else claims nothing: 403 `not_owner` and 409 `not_declinable`, from either call, say it can no longer be declined there ([[identity-model]]) |
+| `/settings/delete-account` | `DeleteAccountPage` | Deleting the account: [[#Deleting the account]]. A page at every width, lazy-loaded |
+| `/settings` | `SettingsPage` | Profile / **Account** (email and profile id; "Your data" — "Download my data" and "Send me a link"; Danger zone — "Delete account…", a link to `/settings/delete-account`) / **Security** (passkeys — add, rename, delete — then the authenticator app, then recovery codes; each change step-up gated) / Connected apps tabs. Which tab opens comes from the URL fragment (`/settings#security`), read off the router's location — so a deep link from another origin, Back/Forward, a tab click and an in-app link to a tab all behave the same. The Security tab is lazy-loaded (`SecuritySection` chunk). The WebAuthn wrappers each view uses are in [[#Where the WebAuthn runtime ships]]. |
 | `/authorize` | `AuthorizePage` | The OIDC consent screen — another app asking to sign the user in with their Musubi account. Lazy-loaded, and the one route on a **bare layout**: no sidebar, nothing to click but the decision. Full contract in [[authorize-ui]]. |
 
 `BARE_ROUTES` in `src/App.tsx` is the allow-list that strips the sidebar. Add
@@ -67,6 +68,17 @@ mounted, so it holds its place and offers no dialog that cannot open. Every app 
 (`src/lib/page-title.ts`).
 The mobile UX audit and the design rules the responsive work follows live in
 [[social-mobile-ux]] and `DESIGN.md` §Responsive layout.
+
+## Deleting the account
+
+Flow A of [[dsar]], from the person's side. `@osn/client`'s `createAccountClient` is `accountClient` in `src/lib/authClients.ts`.
+
+- **Your data** (`AccountDataActions`, on the Account tab and the flow's first step): "Download my data" asks for an `account_export` step-up (`createStepUp`, `src/lib/step-up.tsx`, which loads `StepUpSheet` — `@osn/auth-ui`'s `StepUpDialog` — on the first ask), then `exportAccount` and saves the file (`src/lib/save-file.ts`; one a day). "Send me a link" calls `sendDataLink`: an email with a link to `/settings#account`, never the data (three a day).
+- **The flow** (`DeleteAccountPage`, "Step n of 3"): what happens, and Your data again; what needs an answer, from `getAccountDeletionPreview`, grouped by app (`osn` shows as Musubi), each action an `OpenActionCard` with its choices named by the server's own descriptions, its erase date, its "Open in <app>" link when the link is https, and for an organisation's `successor` a "New owner" select over `candidates`; a "Delete everything" switch, which keeps the answers on screen but sends none; then the handle typed and an `account_delete` step-up. Only answered actions go in `choices`. An app that could not be checked blocks Continue and is named, with Try again. Each refusal lands where the person can act (`src/lib/account-deletion.ts` merges a fresh preview into the answers): 409 `open_actions` and 400 `invalid_choice` mark the action on step 2, 409 `stale_choices` loads the fresh preview with a notice and keeps the answers whose action still exists, 409 `could_not_check` blocks, 400 `handle_mismatch` is a field error, 403 `step_up_required` steps up again, 409 `session_stale` signs out and opens sign-in, 429 and no answer each say so. On the 202 (or `already_pending`) the page calls `useAuth().renewSession({ pending: true })` at once; a renewal that fails leaves the page pending, and the window screen's own requests renew it.
+- **The window screen** (`DeletionWindow`, lazy): while `useAuth().pendingDeletion()` is true, `AppShell` draws it **in place of** the shell, `ShellNotices`, `AccountBanners` and the page, so nothing sends a request the pending session cannot make and the page cache is never bound. It reads `getAccountDeletionStatus` for the date ("We delete it on <date>"), and offers "Keep my account" (an `account_restore` step-up, `cancelAccountDeletion`, `renewSession()`, a "Your account is back" toast), "Download my data" and "Sign out". `cancelled: false` reads the status again: still pending, it says it is too late, with Sign out; not pending (another device kept it first), the app comes back. A 401 from the status read signs out. Bare routes keep their own layout.
+- **Connected apps** has no "Remove my data" link: no app has a leave screen yet.
+
+Tests: `tests/pages/DeleteAccountPage.test.tsx` (each refusal's landing, the request each answer sends), `tests/App.pending-deletion.test.tsx` (nothing of the shell mounts while pending), `tests/components/DeletionWindow.test.tsx`, `tests/components/AccountDataActions.test.tsx`, `tests/pages/OrgDetailPage.test.tsx`, and the layout in `tests/pages/DeleteAccountPage.browser.test.tsx`, `tests/components/DeletionWindow.browser.test.tsx`, `tests/pages/SettingsPage.account.browser.test.tsx`, `tests/pages/OrgDetailPage.decline.browser.test.tsx`; end to end, `tools/e2e/tests/flows/musubi-account-deletion.flow.ts`.
 
 ## Account-health banners
 
@@ -107,9 +119,12 @@ email is the only account-wide identifier available, and a key built from it
 would leave one person's address in storage for the next person on a shared
 device. A dismissed prompt makes no request at all.
 
-Nothing caches "this account has codes". Another device can use a code or
-replace the set at any time, and `active` drops to `0` once the last code is
-used, so one read goes stale. See [[recovery-codes]].
+The prompt caches nothing: it reads "this account has codes" afresh on each
+sign-in and profile change. Another device can use a code or replace the set
+at any time, and `active` drops to `0` once the last code is used, so one read
+goes stale. Settings' Security tab keeps its count in the page cache for the
+session and reads it again on every visit ([[#Page data]]). See
+[[recovery-codes]].
 
 `AccountBanners` wraps the pair in an `ErrorBoundary` that renders nothing. Both
 banners read endpoints limited to 30 requests a minute **per IP**, a Solid
@@ -164,7 +179,7 @@ The two delete shapes are deliberately different and must not be merged. `graph.
 
 ## Page data
 
-The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, Settings' Security views, the shell's prompts and the bare routes read on their own); how it is keyed, cleared and read is in [[frontend-patterns#Page data: one cache, keyed by the session]]. A page seen before draws its last rows at once and reads them again behind them; a first load draws as many placeholders as that page last landed, one when nothing is known (`DESIGN.md` §Empty states and failed loads). The queries are in `src/lib/page-data.ts`:
+The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, the shell's prompts and the bare routes read on their own); how it is keyed, cleared and read is in [[frontend-patterns#Page data: one cache, keyed by the session]]. A page seen before draws its last rows at once and reads them again behind them; a first load draws as many placeholders as that page last landed, one when nothing is known (`DESIGN.md` §Empty states and failed loads). The queries are in `src/lib/page-data.ts`:
 
 | Query | Page | Read |
 |---|---|---|
@@ -173,6 +188,7 @@ The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, Sett
 | `myOrganisations` | Organisations | `GET /organisations` |
 | `organisationDetail`, `organisationMembers` | An organisation, by handle | `GET /organisations/:handle`, `/organisations/:handle/members` |
 | `connectedApps` | Settings' Connected apps | `GET /oidc/connections` |
+| `passkeyList`, `authenticatorStatus`, `recoveryCodesStatus` (`src/lib/security-data.ts`) | Settings' Security, all three on the one tab | `GET /passkeys`, `/totp/status`, `/recovery/status` |
 
 The data routes' `preload`s (`App.tsx`) call a function each page module exports (`preloadConnections`, `preloadDiscover`, `preloadOrganisations`, `preloadOrganisation`), through the same `import()` as the page, so the entry chunk gains no import site. The shell names a query without loading it: search marks pages stale with `invalidatePages` and the names in `src/lib/page-names.ts`, and `PageCacheScope` mounts inside the lazy `ShellNotices`.
 
@@ -190,8 +206,13 @@ What each mutation writes, with the scope mark taken before its request:
 | An organisation | delete | its entry and roster forgotten, so a stale link is a first load that answers "not found"; its row taken off the list |
 | An organisation | remove member | the row taken off, suggestions stale |
 | Connected apps | revoke | the list read again, Revoke busy until it lands |
+| Security | rename or remove a passkey | its outcome written at once (the name sent, the row gone), then all three Security reads read again |
+| Security | add a passkey, add or remove the authenticator, generate recovery codes | that read forgotten at once (its placeholder, never the rows before), then all three read again; an authenticator's confirm, which runs no step-up of its own, reads only the authenticator |
+| Security | a write the server refused (400–499), an enrolment started, a passkey add that ends before its last call | the rows kept on the screen that wrote, all three read again: the step-up before each moved a factor's "Last used". osn-api answers 400 for an error it does not recognise, which can follow a write that landed, so the tab gone when the write ends, or left while that read is out, forgets the rows |
 
-Row actions wait for a read of their list that is out, and act only on a row still there (`src/lib/row-actions.ts`). `tests/lib/page-cache.test.tsx` holds each way the cache can fail; `tests/components/PageCacheScope.test.tsx` holds, through the real `AuthProvider` (with a fake runtime, hence `effect` among the dev dependencies), that a profile switch, a sign-out then another account, and a session end then another account each show none of the rows before; `tests/components/PlaceholderRows.browser.test.tsx` holds the placeholder count. `musubi-org-detail` hovers Discover and finds its suggestions read before the click, comes back to the organisations list with its read held and finds the renamed row drawn and no placeholder, and finds a deleted organisation's stale link drawing one.
+Row actions wait for a read of their list that is out, and act only on a row still there (`src/lib/row-actions.ts`).
+
+The Security tab's three views are `@osn/auth-ui`'s, so they take their reads as a `SettingsRead` (`osn/auth-ui/src/settings-read.ts`), which `useSettingsRead` builds from a query in `SecuritySection`. Each write tells its read how it ended (`WriteEnd`): an exact outcome, `"unchanged"`, or `"unknown"`, whose rows are forgotten; a write that settles after the session changed (a profile switch keeps the tab mounted) is always `"unknown"` and never writes its outcome into the new session's rows. Anything the views act on while a read is out — Remove, Save, the authenticator's Add and Remove, Generate — is busy from the press ("Checking…"), waits for the read, and acts only on what it answers. None of the three reads takes a step-up token, so nothing cached outlives or needs one, and the authenticator's setup key and new recovery codes are write answers that never reach the cache. `tests/components/SecurityCache.test.tsx` holds each way the tab can show a row a write may have changed; `tests/components/SecurityCacheScope.browser.test.tsx` holds, through the real `AuthProvider` with the tab mounted throughout, that no session sees the Security rows of the one before it, and that a write which settles after its account has gone writes nothing into the next. `musubi-passkey` comes back to the tab with its reads held and finds the rows in the first frame that draws it, renames the passkey and comes back with the read again held to find only the new name, and finds a first load after signing in again. `tests/lib/page-cache.test.tsx` holds each way the cache can fail; `tests/components/PageCacheScope.test.tsx` holds, through the real `AuthProvider` (with a fake runtime, hence `effect` among the dev dependencies), that a profile switch, a sign-out then another account, and a session end then another account each show none of the rows before; `tests/components/PlaceholderRows.browser.test.tsx` holds the placeholder count. `musubi-org-detail` hovers Discover and finds its suggestions read before the click, comes back to the organisations list with its read held and finds the renamed row drawn and no placeholder, and finds a deleted organisation's stale link drawing one.
 
 ## Dev
 

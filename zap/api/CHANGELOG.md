@@ -1,5 +1,31 @@
 # @zap/api
 
+## 0.10.7
+
+### Patch Changes
+
+- 6e266e1: Tests only: 12 cases and one assertion go, each against a remaining case seen failing with that case's behaviour broken; the non-numeric `limit` 422, the D1 non-member refusal and the erasure's parameter binding could not fail and now can, and the concurrent duplicate add reaches its unique-constraint catch on every run. The D1 tier gains a case that the consent gate fails closed and a check that a direct message lands exactly two members.
+
+## 0.10.6
+
+### Patch Changes
+
+- Updated dependencies [db8c428]
+  - @shared/observability@0.26.3
+  - @shared/crypto@0.15.6
+  - @shared/osn-auth-client@0.5.6
+
+## 0.10.5
+
+### Patch Changes
+
+- Updated dependencies [adec70d]
+  - @shared/crypto@0.15.5
+  - @shared/observability@0.26.2
+  - @shared/db-utils@0.9.5
+  - @shared/osn-auth-client@0.5.5
+  - @zap/db@0.7.3
+
 ## 0.10.4
 
 ### Patch Changes

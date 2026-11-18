@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # Component Library (Zaidan)
@@ -89,7 +89,7 @@ shared/ui/src/
     ├── button.tsx          ← Button + buttonVariants (CVA)
     ├── card.tsx            ← Card, CardHeader, CardTitle, …
     ├── checkbox.tsx        ← Checkbox — a box ticked to say yes, saved with a form (native)
-    ├── choice.ts           ← the box, label and note slot Checkbox and RadioGroupItem share
+    ├── choice.ts           ← the boxes, the row rule and the note slot Checkbox, RadioGroupItem and Switch share
     ├── chip.tsx            ← Chip
     ├── control.ts          ← controlClass, sizes, fills, faces, heights — the box Input, Textarea and Select share
     ├── dialog.tsx          ← Dialog, DialogContent, … (Kobalte)
@@ -628,9 +628,9 @@ them per member, as the lab's Playground, `button.browser.test.tsx` and
 
 #### Focus
 
-Keyboard focus draws a 2px `--ui-focus` ring, which is a box shadow, and hides the outline only while focused (`focus-visible:outline-hidden`) rather than removing it. A Windows contrast theme (forced colours) drops box shadows and paints that hidden outline in a system colour, 2px wide and 2px off, so focus stays visible there; outside the theme it computes as no outline at all. A pointer press draws neither. `buttonVariants` carries the classes, so a link styled as a button gets the same. The drawn `Checkbox` box, the drawn radio circle and the switch track spell their contrast-theme mark another way (`forced-colors:peer-focus-visible:outline-2`, whose colour is `currentColor`): the same style, width and offset, but the theme paints the checkbox's and `Button`'s in different system colours — under Chromium's emulation on macOS, `rgb(0, 0, 0)` for the box and `rgba(5, 0, 73, 0.8)` for `Button`. `Button`'s ring and outline are fixed at 2px and do not follow `--ui-focus-width` or `--ui-focus-offset`. The defaults are `base:` and so lose to any call site: an `outline-*` class passed to `Button`, or an unlayered app rule that sets `outline` on `:focus-visible`, takes the theme's only focus mark away. `shared/ui/tests/button.browser.test.tsx` holds the contrast theme; `shared/ui/tests/button-default.browser.test.tsx` holds every computed style outside it as a snapshot; and the `token-contract` browser tests in `@musubi/social` and `@pulse/web` check the outline under each app's own stylesheet. See [[browser-tests#Current coverage]].
+Keyboard focus draws a 2px `--ui-focus` ring, which is a box shadow, and hides the outline only while focused (`focus-visible:outline-hidden`) rather than removing it. A Windows contrast theme (forced colours) drops box shadows and paints that hidden outline in a system colour, 2px wide and 2px off, so focus stays visible there; outside the theme it computes as no outline at all. A pointer press draws neither. `buttonVariants` carries the classes, so a link styled as a button gets the same. The drawn `Checkbox` box, the drawn radio circle and the switch track draw the house outline itself on focus, in every theme ([[#Choice controls — Checkbox, RadioGroup and Switch]]): the same style, width and offset as `Button`'s contrast-theme mark, but the theme paints the box's and `Button`'s in different system colours — under Chromium's emulation on macOS, `rgb(0, 0, 0)` for the box and `rgba(5, 0, 73, 0.8)` for `Button`. `Button`'s ring and outline are fixed at 2px and do not follow `--ui-focus-width` or `--ui-focus-offset`. The defaults are `base:` and so lose to any call site: an `outline-*` class passed to `Button`, or an unlayered app rule that sets `outline` on `:focus-visible`, takes the theme's only focus mark away. `shared/ui/tests/button.browser.test.tsx` holds the contrast theme; `shared/ui/tests/button-default.browser.test.tsx` holds every computed style outside it as a snapshot; and the `token-contract` browser tests in `@musubi/social` and `@pulse/web` check the outline under each app's own stylesheet. See [[browser-tests#Current coverage]].
 
-*Measured 2026-11-06 — a probe in `shared/ui`'s browser tier on macOS: under `emulateMedia({ forcedColors: "active" })`, Tab to a drawn `Checkbox` and to a `Button` and read `getComputedStyle(el).outlineColor` on the box and on the button*
+*Measured 2026-11-17 — a probe in `shared/ui`'s browser tier on macOS: under `emulateMedia({ forcedColors: "active" })`, Tab to a drawn `Checkbox` and to a `Button` and read `getComputedStyle(el).outlineColor` on the box and on the button*
 
 #### Press
 
@@ -1270,25 +1270,44 @@ slide is not on `translate`, is in [[design-tokens#Motion]];
 `shared/ui/tests/overlay-motion.browser.test.tsx` ("a sheet's slide") holds
 it, and the lab's `DialogSheetSlide` story shows it ([[component-lab]]).
 
-### Checkbox and RadioGroup — native, in two boxes
+### Choice controls — Checkbox, RadioGroup and Switch
 
 `Checkbox`, `RadioGroup` and `RadioGroupItem` are native `<input>`s inside their `<label>`, like `Switch`, with nothing from Kobalte: Space ticks a box, the arrow keys move between radios of one `name`, a click anywhere on the label ticks or chooses, and `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input itself. Both are controlled, as `Switch` is: the element is put back to the value it was given and `onChange` asks for the new one, so a change the caller refuses never shows as made. A `RadioGroup`'s `value` is required (`""` for none chosen yet); its `name` defaults to a fresh id, since native radios only exclude each other within one name.
 
+**One rule for all three.** Every box, radio and switch in every app is drawn by it; a call site passes no class that moves the control, its gap or its row's height.
+
+| What | The rule |
+|---|---|
+| Control | The drawn box and circle 16px, the switch's track 20×36, the native box and radio 13px. None shrinks beside long words |
+| Resting edge | An unchosen control's edge is `--ui-choice-edge`, at 3:1 or more on every ground and surface, light and dark, in every app that draws one: Musubi and pulse map it to their `--subtle`, cire's apps draw their `--ui-hairline-strong` ([[design-tokens]]). Each app's contract test holds it |
+| Dot | A chosen drawn radio's dot is 8px, the one cell of the circle's grid, so layout centres it: 3px of ground between it and the 1px edge. A chosen box's edge takes the accent, as a chosen circle's does |
+| Alignment | The control sits on the words' first line, whatever their length: a slot one line tall (`FIRST_LINE`, `h-lh`) centres it, and the row aligns to the start. Words are set at prose leading (`leading-ui-normal`), drawn and native alike. A box with no words, as in a table cell, is the row on its own |
+| Gap to the words | 8px, all three, both boxes |
+| Between options | 8px in a column, 16px in a row (twice the gap to the words, so each control reads with its own), both boxes |
+| Touch | `touch` on `RadioGroup` or `Checkbox`: below `md` each row is padded above and below by half of what one line falls short of 44px (`max(0px, (44px − 1lh) / 2)`), so a one-line row is a 44px target and a longer one grows by its lines. A group's rows abut, so the space between options is the same whatever their length, and no two targets overlap; the group, or a lone box's row, is pulled back by the same amount, so it sits where it would without `touch` and only what answers a tap grows. No app draws a switch below 44px, so `Switch` takes no `touch` |
+| Focus | The house outline from the hidden input's `:focus-visible` on the drawn box, circle and track: 2px of `--ui-focus`, 2px off, at once (the drawn parts fade `color`, `background-color` and `border-color` only). The native box draws the same outline on itself. An outline, so a contrast theme keeps it |
+| Hover | An unchosen, enabled control's edge turns `--ui-ink-secondary` while its row is under the pointer: the native box's own `:hover`, the drawn box's and circle's through the row (`group/choice`) |
+| Disabled | The drawn box, circle and track 50%, the unticked native box 40%; the words stay at full ink, and a caller that dims them (Musubi's deletion flow) dims them itself |
+
+`shared/ui/tests/choice-geometry.browser.test.tsx` holds the rule in Chromium: the dot's centre on the circle's within 0.5px as painted at device pixel ratios 1 and 2, light and dark, beside one line and three; every control on its first line within 0.5px beside one, two and three lines; 8px to the words for all five; a column's options evenly apart, and with `touch` below `md`, 44px rows that abut with the group unmoved; the focus outline on the drawn circle, box and track. `musubi/social/tests/pages/DeleteAccountPage.browser.test.tsx` holds it on the deletion flow's step 2 at 390px and 1280px in both themes.
+
+*Measured 2026-11-17 — `bun run --cwd shared/ui test:browser` (`choice-geometry.browser.test.tsx`): dot off centre ≤ 0.04px; every control ≤ 0.02px off its first line; a `touch` column of one-, three-, one- and two-line options 44, 84.94, 44 and 64.47px tall, abutting, 29px between their words.*
+
 | Prop | Values | What it does |
 |---|---|---|
-| `box` | `drawn` (default), `native` | `drawn` hides the input and paints a 16px box beside it: small corner, ground fill, accent and a tick (a dot for a radio) when chosen, `ring-2` from the input's `:focus-visible`. Pulse draws this. `native` shows the browser's own input: ticked, the platform's blue and tick; unticked, no fill, a 1px `--ui-hairline-strong` edge, a 2px corner (a radio round), `--ui-ink-secondary` under the pointer, 40% when disabled, only the edge fading. Both states 13px, so ticking moves nothing; the house focus outline (2px, 2px off, `--ui-focus`). Cire draws every box this way |
-| `size` | `md` (default), `sm` | The label's step: `text-ui-base` or `text-ui-sm`. On `RadioGroup` for every item |
-| `align` | `center` (default), `start` | `start` centres the box on the label's first line, for a label that wraps. A drawn label sets leading 1 beside a centred box, pulse's look, and prose leading at `start`, so its second line reads and its first line holds the 16px box |
-| `orientation` (`RadioGroup`) | `horizontal` (default), `vertical` | Native: 16px between radios in a row, 8px in a column. Drawn: 8px either way. Layout only, so no `aria-orientation` |
-| `label` | JSX | Inside the `<label>`, so a link or a second line is the caller's. Native labels are body ink (`--ui-ink`) at prose leading, 8px from the box |
-| `description` (`Checkbox`) | JSX | Inside the label under the words, `text-ui-sm` secondary ink. The box is then named by `label` alone (`aria-labelledby`) and described by this |
+| `box` | `drawn` (default), `native` | `drawn` hides the input and paints a 16px box beside it: small corner (round for a radio), ground fill, a `--ui-choice-edge` edge, the accent and a tick (a dot for a radio) when chosen. Musubi and pulse draw this. `native` shows the browser's own input: ticked, the platform's blue and tick; unticked, no fill, a 1px `--ui-choice-edge` edge, a 2px corner (a radio round), `--ui-ink-secondary` under the pointer, 40% when disabled, only the edge fading. Both states 13px, so ticking moves nothing. Cire draws every box this way |
+| `size` | `md` (default), `sm` | The words' step: `text-ui-base` or `text-ui-sm`. On `RadioGroup` for every item |
+| `orientation` (`RadioGroup`) | `horizontal` (default), `vertical` | 16px between radios in a row, 8px in a column. Layout only, so no `aria-orientation` |
+| `touch` (`RadioGroup`, `Checkbox`) | boolean | Below `md`, 44px targets that move nothing (the rule above) |
+| `label` | JSX | Inside the `<label>`, so a link or a second line is the caller's. Native labels are body ink (`--ui-ink`); drawn labels take the ink they sit in |
+| `description` (`Checkbox`, `RadioGroupItem`) | JSX | Inside the label under the words, `text-ui-sm` secondary ink. The input is then named by `label` alone (`aria-labelledby`) and described by this, joined with the caller's own `aria-describedby` |
 | `note` (`Checkbox`) | JSX | Under the row, outside the label, indented by the box and its gap so its first word sits under the label's. A click on it ticks nothing; the box is described by it. A note that resolves to nothing draws nothing and is not referenced |
 
 The outer element of a `Checkbox` is a `<div>` holding the label and the note, each at its own width, so a note that comes and goes never remounts the input, and only the box and its words answer a click. A cire app also draws every bare native box with the same values in a base-layer rule (`cire/host/DESIGN.md` §4, Checkboxes and radios), for the native inputs that sit outside the parts.
 
-Two guarantees hold beyond a plain client render, for `Switch` too. A page the browser restores (a reload, a back navigation the cache missed) can tick an input before it hydrates, and hydration writes no property, so each part puts the caller's value back once mounted: a box never shows a state the caller does not hold, which matters most for a consent box. And a Windows contrast theme drops `box-shadow` and repaints backgrounds, so the drawn box, circle and switch track draw keyboard focus as an outline there, and the chosen dot and the switch's thumb keep the text colour. `tests/choice-restore.browser.test.tsx` holds both.
+Two guarantees hold beyond a plain client render, for `Switch` too. A page the browser restores (a reload, a back navigation the cache missed) can tick an input before it hydrates, and hydration writes no property, so each part puts the caller's value back once mounted: a box never shows a state the caller does not hold, which matters most for a consent box. And a Windows contrast theme drops `box-shadow` and repaints backgrounds, so the focus mark is an outline, which the theme keeps, and the chosen dot and the switch's thumb keep the text colour. `tests/choice-restore.browser.test.tsx` holds both.
 
-The drawn box keeps the DOM shape Kobalte's parts had — a clipped input, then the painted box — so pulse's forms read it unchanged. The vendor portal's listing editor draws the native box (`box="native"`), and its soft-shapes test reads the 13px box with a 2px corner. `tests/checkbox.browser.test.tsx` and `tests/radio-group.browser.test.tsx` hold both boxes in Chromium.
+The drawn box keeps the DOM shape Kobalte's parts had — a clipped input, then the painted box — inside the first-line slot. The vendor portal's listing editor draws the native box (`box="native"`), and its soft-shapes test reads the 13px box with a 2px corner. `tests/checkbox.browser.test.tsx` and `tests/radio-group.browser.test.tsx` hold both boxes in Chromium.
 
 ### Simple styled components (Input, Label, Card, Textarea, Select)
 
@@ -1864,33 +1883,38 @@ error rather than needing a trip to the source.
 ### cire's `SegmentedTabs` — one glass track, three meanings
 
 The portals' segmented controls are one part (`cire/ui/src/segmented-tabs.tsx`,
-owner's choice on englishstreetventures/osn#1845): a 28px track — a 1px hairline
-on the surface at 30%, 2px inside — and 22px choices in sentence case at the
-extra-small step, the secondary ink at normal weight at rest and the readable
-accent ink at medium weight when chosen. The weight is the cue that is not
-colour, since the glass and the inks alone read under 3:1 between the chosen
-choice and the rest; a hidden copy of each word at medium weight holds its
-width, so a choice moving shifts nothing, and each choice names itself with
-`aria-label` so that copy is never read. The chosen one sits on glass: the raised surface at
-55% under the accent at 14% (composited into one colour, so a test can read
-what the label sits on), an inner lip, a light inner edge (`--glass-edge`, an
-app token; white at 10% when unset), a hairline ring, the first lift and a
-12px frosted backdrop. The glass glides at `--dur-slow`: its place on
-`--ease-glide`, a spring that goes 3% past (falling back to the app's
-ease-out, never to the bouncier `--ease-spring`), its size on `--ease-out`, so
-it never grows past the choice (host `DESIGN.md` §4). It moves inside
-its own layer clipped to the track's shape, so an overshoot is cut by the
-track and no focus ring is. Under the pointer an unchosen choice goes halfway:
-half the tint, an ink between the two. A hover's colours come and go on
-`--dur-fast` with `--ease-out`; a choice being made arrives on `--dur-base`
+owner's choice on englishstreetventures/osn#1845): a 28px track — a 1px
+hairline on the surface at 30%, 2px inside — and 22px choices in sentence case
+at the extra-small step, the secondary ink at normal weight at rest and the
+readable accent ink at medium weight when chosen. The weight is the cue that is
+not colour, since the inks read under 3:1 between the chosen choice and the
+rest, and in the dark theme the glass does too; a hidden copy of each word at
+medium weight holds its width, so a choice moving shifts nothing, and each
+choice names itself with `aria-label` so that copy is never read. The chosen
+one sits on glass: the raised surface at 55% under the accent at 14%
+(composited into one colour, so a test can read what the label sits on), an
+inner lip, a light inner edge (`--glass-edge`, an app token; white at 10% when
+unset), an outer ring (`--glass-ring`, an app token; the hairline at 0.5px when
+unset), the first lift and a 12px frosted backdrop. In the portals' light theme
+the ring is readable gold at 80% and 1px, and it is what sets the glass 3:1
+apart from its track: the gold word needs a pale glass to read at 4.5:1, so on
+a pale track the fill alone cannot (host `DESIGN.md` §7,
+`cire/host/tests/styles/glass-contrast.browser.test.tsx`). The glass glides at
+`--dur-slow`: its place on `--ease-glide`, a spring that goes 3% past (falling
+back to the app's ease-out, never to the bouncier `--ease-spring`), its size on
+`--ease-out`, so it never grows past the choice (host `DESIGN.md` §4). It moves
+inside its own layer clipped to the track's shape, so an overshoot is cut by
+the track and no focus ring is. Under the pointer an unchosen choice goes
+halfway: half the tint, an ink between the two. A hover's colours come and go
+on `--dur-fast` with `--ease-out`; a choice being made arrives on `--dur-base`
 with `--ease-in-out` (the one motion rule, host `DESIGN.md` §4; a browser takes
 a transition from the state it moves to, so the choice giving the mark up runs
-on the fast clock). Colours fade on named properties, so
-the 2px ring at 2px never fades in; a reader who turned motion down gets no
-slide and no fade. The frosted backdrop is filtered again on every frame of a
-slide: a cost on low-end phones that the owner's frosted look accepts. In a
-contrast theme the chosen choice keeps a 1px outline in the theme's text
-colour, since the theme drops the glass.
+on the fast clock). Colours fade on named properties, so the 2px ring at 2px
+never fades in; a reader who turned motion down gets no slide and no fade. The
+frosted backdrop is filtered again on every frame of a slide: a cost on low-end
+phones that the owner's frosted look accepts. In a contrast theme the chosen
+choice keeps a 1px outline in the theme's text colour, since the theme drops
+the glass.
 
 `semantics` keeps each strip's meaning: `tabs` (a named tablist, one tab stop,
 arrows, Home and End moving focus, Enter or a click choosing), `radio` (a

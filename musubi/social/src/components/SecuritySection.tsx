@@ -4,6 +4,12 @@ import { TotpView } from "@osn/auth-ui/TotpView";
 
 import { PRODUCT_NAME } from "../lib/auth";
 import { passkeysClient, recoveryClient, stepUpClient, totpClient } from "../lib/authClients";
+import {
+  authenticatorStatus,
+  passkeyList,
+  recoveryCodesStatus,
+  useSettingsRead,
+} from "../lib/security-data";
 import { runPasskeyCeremony } from "../lib/webauthn-ceremony";
 import { runPasskeyRegistration } from "../lib/webauthn-registration";
 
@@ -23,12 +29,18 @@ import { runPasskeyRegistration } from "../lib/webauthn-registration";
  * the authenticator next because it is the recovery factor a user is most
  * likely to set up; recovery codes last because they are the fallback for
  * when even that is gone.
+ *
+ * Each view reads through the page cache (`lib/security-data.ts`): the tab
+ * shown again draws what it last had at once and reads it again behind it.
  */
 export interface SecuritySectionProps {
   profileId: string;
 }
 
 export default function SecuritySection(props: SecuritySectionProps) {
+  const passkeys = useSettingsRead(passkeyList);
+  const authenticator = useSettingsRead(authenticatorStatus);
+  const recoveryCodes = useSettingsRead(recoveryCodesStatus);
   return (
     <div class="flex flex-col gap-8">
       <PasskeysView
@@ -38,6 +50,7 @@ export default function SecuritySection(props: SecuritySectionProps) {
         runPasskeyCeremony={runPasskeyCeremony}
         runPasskeyRegistration={runPasskeyRegistration}
         totpClient={totpClient}
+        read={passkeys}
       />
 
       <section class="flex flex-col gap-4 border-t pt-8">
@@ -45,6 +58,7 @@ export default function SecuritySection(props: SecuritySectionProps) {
           client={totpClient}
           stepUpClient={stepUpClient}
           runPasskeyCeremony={runPasskeyCeremony}
+          read={authenticator}
         />
       </section>
 
@@ -64,6 +78,7 @@ export default function SecuritySection(props: SecuritySectionProps) {
           runPasskeyCeremony={runPasskeyCeremony}
           totpClient={totpClient}
           productName={PRODUCT_NAME}
+          read={recoveryCodes}
         />
       </section>
     </div>

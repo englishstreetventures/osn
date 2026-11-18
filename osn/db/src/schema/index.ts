@@ -672,6 +672,13 @@ export const organisations = sqliteTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => users.id),
+    /**
+     * Unix seconds when the owner received the organisation by succession —
+     * the hard delete of the previous owner's account, or a decline by the
+     * member it passed to before — and so may decline it for 30 days. NULL
+     * for an owner who created it. Written only with `owner_id`, by those two.
+     */
+    ownerInheritedAt: integer("owner_inherited_at"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

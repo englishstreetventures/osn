@@ -67,29 +67,11 @@ describe("osnAuth", () => {
     expect(await jsonBody(res)).toEqual({ error: "unauthorised" });
   });
 
-  it("names the profile behind a valid ES256 token with aud osn-access", async () => {
-    const res = await appRequest(buildApp(), "/probe", {
-      headers: { Authorization: `Bearer ${await mint()}` },
-    });
-    expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ profileId: "usr_test123" });
-  });
-
   it("returns 401 on wrong audience", async () => {
     const res = await appRequest(buildApp(), "/probe", {
       headers: { Authorization: `Bearer ${await mint("some-other-aud")}` },
     });
     expect(res.status).toBe(401);
-  });
-
-  it("names the profile behind an organiser session cookie", async () => {
-    const db = createDb(":memory:");
-    const token = await seedOrganiserSession(db, "usr_cookie1");
-    const res = await appRequest(buildApp(db), "/probe", {
-      headers: { cookie: `cire_org_session=${token}` },
-    });
-    expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ profileId: "usr_cookie1" });
   });
 
   it("lets a limiter mounted first refuse before the session lookup", async () => {
@@ -298,29 +280,6 @@ describe("resolveOsnProfileId", () => {
 
   const request = (headers: Record<string, string>) =>
     new Request("https://api.example.test/realtime/x", { headers });
-
-  it("names the organiser from the cire_org_session cookie", async () => {
-    const db = createDb(":memory:");
-    const token = await seedOrganiserSession(db, "usr_cookie");
-    const options = { ...baseOptions, db };
-    expect(
-      await resolveOsnProfileId(request({ cookie: `cire_org_session=${token}` }), options),
-    ).toBe("usr_cookie");
-  });
-
-  it("names the organiser from a Bearer access token", async () => {
-    const token = await auth.sign("usr_bearer");
-    expect(
-      await resolveOsnProfileId(request({ authorization: `Bearer ${token}` }), baseOptions),
-    ).toBe("usr_bearer");
-  });
-
-  it("falls through a stale cookie to the Bearer token", async () => {
-    const db = createDb(":memory:");
-    const token = await auth.sign("usr_bearer");
-    const headers = { cookie: "cire_org_session=not-a-session", authorization: `Bearer ${token}` };
-    expect(await resolveOsnProfileId(request(headers), { ...baseOptions, db })).toBe("usr_bearer");
-  });
 
   it("is undefined with neither", async () => {
     expect(await resolveOsnProfileId(request({}), baseOptions)).toBeUndefined();

@@ -100,6 +100,7 @@ be used as a class somewhere too, which means the invite preview works by luck;
 | `--status-no-ink`, `--status-maybe-ink`         | the glyph on the red and tint circles; **≥ 4.5:1** on its circle    |
 | `--focus`                                       | the focus ring                                                      |
 | `--inner-lip`, `--elev-1`, `--elev-2`           | depth                                                               |
+| `--glass-edge`, `--glass-ring`                  | the chosen glass's lit inner edge and its outer ring: the ring is the hairline at 0.5px in dark and `--gold-ink` at 80% and 1px in light (the owner's choice on #2371), **≥ 3:1** on the track there (§7, `SegmentedTabs`) |
 | `--pill-ground`                                 | the ground a non-primary pill sits on: the surface at 30%, the glass track's own (§4, One pill language) |
 | `--pill-sm-height`                              | a small pill's height, 28px (§4, One form-field height)             |
 
@@ -240,8 +241,8 @@ region a reader moves to, or data; a line that only decorates is not drawn
 (the owner's choice). The RSVPs view draws no
 intro: the chosen sub-tab says "RSVPs" on screen, and a hidden `<h2>` gives a
 reader moving by headings the name the visible intros of Households and Edit
-give theirs. Its download is the bar's icon button after the reply key (§4,
-One pill language).
+give theirs. Its download ends the bar's first row, after the event strip,
+and on a phone the search row (§4, One pill language, A page's download).
 
 **An eyebrow over a heading says what the screen does not** (the owner's
 choice, englishstreetventures/osn#1991). Where the module's header, the open
@@ -475,8 +476,9 @@ box (by default the parts draw pulse's own). Its label is body ink — a consent
 statement too, which reads more easily than the secondary ink did — at
 `text-ui-sm`, or `text-ui-base` where the row is a form's own line (the
 checklist starter, the gift list's visibility and "Let guests give money"),
-8px from the box, at prose leading; a label that wraps takes `align="start"`,
-the box on its first line. Radios sit 16px apart in a row, so each reads with
+8px from the box, at prose leading, the box on its first line whatever the
+label's length (`@shared/ui`'s one rule, `wiki/shared/component-library.md`
+§Choice controls). Radios sit 16px apart in a row, so each reads with
 its own word, and 8px apart in a column (the owner's choice). A line under a
 box that says what ticking does is the box's `description`, inside the label
 in the secondary ink; a line about the box that holds a link — the notice an
@@ -529,15 +531,39 @@ one row:
   the ink turns the body ink, with a gold edge; while what it opens is open it
   stands on the raised surface in the body ink and its hairline, whatever the
   pointer does (the owner's choice). It is an icon button that
-  stands alone in a page's chrome — the reply key, the guest list's and the
-  RSVP page's Downloads, Add household on a narrow panel and the
-  getting-started guide's Dismiss. A row's icon action, repeated once per
+  stands alone in a page's chrome — the reply key, the RSVP page's download on
+  a phone, Add household on a narrow panel and the getting-started guide's
+  Dismiss. A row's icon action, repeated once per
   row — a household's four actions and its "⋯" — is `quiet` at `icon`: the
   same circle, its hover a gold edge and readable gold, held while what it
   opens is open. `round` stays the guest sheet's ×. A dialog's or a drawer's
   own × — the event drawer's Close, the module drawer's Close modules —
   stays `bare`: it belongs to the frame it closes, not to a bar of the page's pills, and a
   hairline circle in a panel's head would read as one more of its actions.
+- **A page's download** is one button wherever it is drawn
+  (`DownloadButton`, `src/components/CsvExportButton.tsx`): `outline` at
+  `sm`, the 28px pill, led by the `download` glyph at 14px, stroke 1.75, and
+  its words, "Download <what> CSV" — events, guests, RSVPs, gifts, seating.
+  The owner chose the icon with its words for every download, and the guest
+  list alone on the Households tab, the RSVP sheet being the RSVPs tab's
+  (englishstreetventures/osn#2357: "Button should have both icon and
+  'Download events CSV'"). It sits beside the intro on Events and
+  Households, beside Print on the seating chart, and on the registry above
+  the gift log, under its totals. While the file is fetched its words read
+  "Exporting <what>…" and it is `aria-disabled`, so a second press spends
+  nothing from the owner's export limit and the focus a keyboard press left
+  on it stays; a toast says how it went, where the seating chart says only a
+  failure, in its own live region. Settings' per-module downloads
+  (`LockedExport`) and the import panel's template and round-trip downloads
+  keep their own look (§The whole wedding as one download).
+  Two places are the builder's choice, which the owner has not ruled on
+  (englishstreetventures/osn#2357). On RSVPs it ends the view bar's first
+  row, after the event strip, which scrolls when the row runs short: the
+  second row, beside the search box, the reply filter and the key, has no
+  room for its words at 1280px with the sidebar open. On a phone it ends the
+  search row as the bar's icon button, its words hidden text, its name and
+  its tooltip, as the reply key beside it is drawn: that row has about 358px
+  for the search box, the sort select, the key and the download.
 - **A block pressed to choose** — the code-style and re-mint radio cards
   (14px), a design or an envelope card (16px, both `invite/picker-card.ts`) — is marked as `choice` marks an answer, at
   its own corner: a gold edge and a 2px ring at 60%, no wash; under the
@@ -1255,7 +1281,7 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | `SkeletonOutline` | A loading placeholder that is the real row drawn hollow (§4, Hollow rows): the view renders its own markup from a typed sample inside it. `aria-hidden` and `inert`, so nothing inside is read, focused or pressed; the region that holds it and what replaces it carries `aria-busy`, and an outline lent to the view bar, outside that region, needs none. It renders in the browser only (`client:only`). It takes no `class`: its children bring their own layout. A part of the row that is a disc or a chip takes `data-skeleton="block"`, a button drawn as words `data-skeleton="text"`. Its children are a still picture: a part that changes inside them after it mounts is not redrawn, so a layout that changes renders a new outline. |
 | `MessageThread`                                                 | An enquiry thread, the same in both portals: the messages oldest first in segments, each opened by a centred time line, and the reply box under them (§An enquiry thread). Your words on a 20% gold wash, theirs on half the surface inside a hairline, both at the 16px corner, `px-4 py-2.5`, the base step in full ink, 3/4 of the column wide. |
 | `Note`                                                          | Cire's standing note: `Notice`'s `accent` tone led by a ✦, drawn as `Notice`'s circled icons are (inline, `aria-hidden`, in the tone's readable gold, sized from the text step) with "Note" read in its place; `sm` unless a size is asked for. **Placed only where the owner asks for one** (englishstreetventures/osn#1868: "I'll let you know when to use a cire note"); a standing note anywhere else is `Notice`'s unmarked `accent`. Not on the marketing site, whose readable gold is its metal gold, not inside the invite preview, which re-declares the couple's palette below the root, and not on `--bg-deep`, where its words read 4.35:1 in light; `tests/styles/notice-contrast.browser.test.tsx` holds it and every `Notice` tone at 4.5:1 on the page, the card's three fills, the raised surface and the run sheet's coming-up row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `SegmentedTabs`, `GLASS_FILL`                                   | Every segmented control in the portals: one 28px glass track (`h-7`, the surface at 30% inside a 1px hairline, 2px padding) holding 22px choices, and one frosted highlight — the raised surface at 55% under the accent at 14%, a lit inner edge (`--glass-edge`, white 10% dark and 70% light), `--inner-lip` and `--elev-1` — that glides to the chosen one on `--dur-slow`, its place on `--ease-glide` and its size on `--ease-out` so it never grows past the choice (`createSlidingPill`, §4; the move is the owner's choice, #2164), and jumps for a reader who turned motion down. Labels in sentence case at normal tracking, `text-ui-xs`, idle in the secondary ink, chosen in the readable gold at medium weight (the cue that is not colour, the owner's choice on #1845); under the pointer an unchosen one goes halfway. A hover's colours move on `--dur-fast` with `--ease-out`, a choice being made on `--dur-base` with `--ease-in-out` (§4, One motion rule). A choice may lead with its icon, carry a count or a "New" after its word, and go icon-only below its call site's width, its label then its name and its `data-tip` — the whole strip, or one choice beside others that keep their words. Three meanings: `tabs` (a tablist, manual activation: the arrows, Home and End move focus and Enter or Space chooses), `radio` (a radiogroup with one tab stop, the checked radio, whose arrows move and choose, wrapping, and whose choice the call site may refuse) and `current` (buttons, `aria-current="page"`). `scroll` lets a strip scroll sideways inside 4px of room for the ring, revealing a choice without moving the page. Where the portal draws it: a module's views (`ModuleShell`), the Edit modes (`EditWorkspace`), the RSVP page's events (`RsvpView`, `scroll`) and its reply filter (`radio`, `scroll`, §Chips), the invite builder's sections under Content, and the vendor portal's two views. `GLASS_FILL` (`@cire/ui/lib/glass`) is the glass without its place, for a lone glass pill: the invite builder's place on a phone. |
+| `SegmentedTabs`, `GLASS_FILL`                                   | Every segmented control in the portals: one 28px glass track (`h-7`, the surface at 30% inside a 1px hairline, 2px padding) holding 22px choices, and one frosted highlight — the raised surface at 55% under the accent at 14%, a lit inner edge (`--glass-edge`, white 10% dark and 70% light), an outer ring (`--glass-ring`: the hairline at 0.5px in dark; in light `--gold-ink` at 80% and 1px, the owner's choice on #2371 ("C: gold-ink at 80%"), which sets the glass 3.58:1 apart from its track on the page and 3.61:1 on a card, where the pale glass under a gold word could not differ from a pale track by more than about 1.2:1 — englishstreetventures/osn#2356, `tests/styles/glass-contrast.browser.test.tsx`), `--inner-lip` and `--elev-1` — that glides to the chosen one on `--dur-slow`, its place on `--ease-glide` and its size on `--ease-out` so it never grows past the choice (`createSlidingPill`, §4; the move is the owner's choice, #2164), and jumps for a reader who turned motion down. Labels in sentence case at normal tracking, `text-ui-xs`, idle in the secondary ink, chosen in the readable gold at medium weight (the cue that is not colour, the owner's choice on #1845); under the pointer an unchosen one goes halfway. A hover's colours move on `--dur-fast` with `--ease-out`, a choice being made on `--dur-base` with `--ease-in-out` (§4, One motion rule). A choice may lead with its icon, carry a count or a "New" after its word, and go icon-only below its call site's width, its label then its name and its `data-tip` — the whole strip, or one choice beside others that keep their words. Three meanings: `tabs` (a tablist, manual activation: the arrows, Home and End move focus and Enter or Space chooses), `radio` (a radiogroup with one tab stop, the checked radio, whose arrows move and choose, wrapping, and whose choice the call site may refuse) and `current` (buttons, `aria-current="page"`). `scroll` lets a strip scroll sideways inside 4px of room for the ring, revealing a choice without moving the page. Where the portal draws it: a module's views (`ModuleShell`), the Edit modes (`EditWorkspace`), the RSVP page's events (`RsvpView`, `scroll`) and its reply filter (`radio`, `scroll`, §Chips), the invite builder's sections under Content, and the vendor portal's two views. `GLASS_FILL` (`@cire/ui/lib/glass`) is the glass without its place, for a lone glass pill: the invite builder's place on a phone, and the round chevron beside it, which wears the same ring in light because the two are one button. |
 | `Wordmark`, `WordmarkPlaceholder`                               | The top bar's way home, "✦ Cire": a button named by its label alone ("Cire — all weddings"), the ✦ in readable gold at rest and under the pointer, "Cire" in the display face at `md`, light, wide tracking, in a 6px box that takes the surface at 60% under the pointer. `Button`'s own ring; the box pulls 4px left and none right, so the ring clears the divider by 4px. Only the wash fades, on `--dur-fast`. `WordmarkPlaceholder` is the same box and glyphs with nothing to press, which `index.astro`'s boot bar renders to HTML, so the island's swap moves nothing. |
 | `SignInCard`, `SignInPanel`, `signInCardClass`                 | The login page, the same on both portals but for the portal's name: "Cire · Host portal" over a roman "Sign in", and the opaque `xl` card with its top edge lit by `--inner-lip`, at a 30rem measure set at the top of the page so the header never moves while the island fills the card. The panel: copy at the small step, one large pill, a danger `Notice` for a declined, failed or unavailable sign-in; after the press "Connecting to musubi…" at full strength, a second press ignored and announced, and the button back after a back-forward restore or ten seconds. It resumes on `?returnTo` only when it is a same-origin path. The card, the measure, the type, the label and the pending state are the owner's choices. |
 | `PersonAvatar`, `avatarTriggerClass`                           | A person's photo, drawn only from an https URL with no `Referer`, with a page-wide set of URLs that failed. `blank`, a face in a stack or a list: the empty avatar (§Who holds a task), with `ring` for the stack's 2px band in the page's colour outside the circle. `initial`, an account's circle: a hairline with no fill of its own, photo or letter, the letter as §3 sets it. `avatarTriggerClass` is the 36px button the account menu opens from: the portals' pill ground (`--pill-ground`) and `Button`'s ring; the avatar's edge turns `--gold-dim` under its pointer. The fill is the trigger's because the guest site's account card lays no ground under a gold word. |
@@ -1680,8 +1706,8 @@ cannot hover it. Where the badges are icons with nothing written beside them —
 the RSVP meta line's provenance — one button in the view bar opens a key that
 names every one, with what it says: "What the reply icons mean", a 28px
 `info` glyph on the bar's icon button (`bar` at `icon`), the last control in
-the bar's second row (on a phone, in the search row) but for the owner's
-download after it, on the raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
+the bar's second row (on a phone, in the search row, the owner's download
+after it), on the raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
 Depth). One stop for the page, not one per row.
 
 On a guest's meta line (§Names and meta lines) a provenance badge is an icon
@@ -1930,9 +1956,10 @@ height with a placeholder the size of each (§4, Skeletons), so the bar is the
 same height while the RSVP replies load as after, at both widths. A module
 with one view has no bar.
 
-**What each Guests tab lends it.** RSVPs: a divider and the event strip in the
-first row; the slim search and the reply filter in the second; on a phone the
-search and the sort select in the second and the reply filter in a third.
+**What each Guests tab lends it.** RSVPs: a divider, the event strip and an
+owner's download in the first row; the slim search, the reply filter and the
+reply key in the second; on a phone the search, the sort select, the key and
+the download in the second and the reply filter in a third.
 Households: the count and the search in the first row, and on a phone the
 search alone. Edit: a divider, the mode switch and Add household, icons alone
 below 36rem. "Showing n of m" and the tallies stay in the panel, under the bar.

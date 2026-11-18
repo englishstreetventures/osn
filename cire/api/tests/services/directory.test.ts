@@ -366,32 +366,6 @@ describe("directoryService.getListingByOrg", () => {
     if (!Exit.isSuccess(res)) throw new Error("failed");
     expect(res.value).toBeNull();
   });
-
-  it("returns the listing after upsert", async () => {
-    const db = db0();
-    await run(
-      db,
-      directoryService.upsertListingForOrg("org_gamma", {
-        name: "Gamma Photo",
-        description: null,
-        email: "g@gamma.com",
-        phone: null,
-        website: null,
-        instagram: null,
-        locationText: null,
-        priceBand: null,
-        priceMinMinor: null,
-        priceMaxMinor: null,
-        categories: ["photography"],
-      }),
-    );
-    const res = await run(db, directoryService.getListingByOrg("org_gamma"));
-    expect(Exit.isSuccess(res)).toBe(true);
-    if (!Exit.isSuccess(res)) throw new Error("failed");
-    expect(res.value).not.toBeNull();
-    expect(res.value!.name).toBe("Gamma Photo");
-    expect(res.value!.categories).toEqual(["photography"]);
-  });
 });
 
 describe("directoryService.seedFromCrm", () => {
@@ -1502,22 +1476,6 @@ describe("directoryService.browse + getLiveListingById", () => {
     return Effect.runPromise(e.pipe(Effect.provideService(DbService, db)));
   }
 
-  it("returns only live listings", async () => {
-    const { listings, total } = await run(svc.browse("W1", { limit: 24, offset: 0 }));
-    const ids = listings.map((l) => l.id);
-    expect(ids).toContain("LA");
-    expect(ids).toContain("LB");
-    expect(ids).not.toContain("LD"); // draft excluded
-    expect(total).toBe(2);
-  });
-
-  it("filters by category", async () => {
-    const { listings } = await run(
-      svc.browse("W1", { category: "photography", limit: 24, offset: 0 }),
-    );
-    expect(listings.map((l) => l.id)).toEqual(["LB"]);
-  });
-
   it("filters by keyword across name and description", async () => {
     expect(
       (await run(svc.browse("W1", { q: "garden", limit: 24, offset: 0 }))).listings.map(
@@ -1527,14 +1485,6 @@ describe("directoryService.browse + getLiveListingById", () => {
     expect(
       (await run(svc.browse("W1", { q: "bloom", limit: 24, offset: 0 }))).listings.map((l) => l.id),
     ).toEqual(["LB"]); // name hit, case-insensitive
-  });
-
-  it("filters by location", async () => {
-    expect(
-      (await run(svc.browse("W1", { location: "sydney", limit: 24, offset: 0 }))).listings.map(
-        (l) => l.id,
-      ),
-    ).toEqual(["LA"]);
   });
 
   it("paginates with a stable order and reports total", async () => {

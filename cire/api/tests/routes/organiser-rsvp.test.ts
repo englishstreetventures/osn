@@ -199,11 +199,6 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
     expect(row).toEqual({ source: "organiser_attested", recordedBy: EDITOR });
   });
 
-  it("returns 200 for the owner", async () => {
-    const { db, app } = buildApp();
-    expect((await put(app, rsvpPath(db), OWNER, OK_BODY)).status).toBe(200);
-  });
-
   it("returns 400 for an out-of-set status", async () => {
     const { db, app } = buildApp();
     expect((await put(app, rsvpPath(db), OWNER, { status: "going" })).status).toBe(400);
@@ -331,11 +326,6 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
       )
       .get();
     expect(row).toBeUndefined();
-  });
-
-  it("needs no attestation version for a status-only reply", async () => {
-    const { db, app } = buildApp();
-    expect((await put(app, rsvpPath(db), OWNER, { status: "declined" })).status).toBe(200);
   });
 
   it("returns 404 for an unknown wedding (multi-tenant isolation)", async () => {

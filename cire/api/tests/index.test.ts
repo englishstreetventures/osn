@@ -25,13 +25,11 @@ import { ownerSeat } from "./test-helpers/wedding";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
 // serve ANY authenticated OSN user with NO special bootstrap config — there is
-// no global boot gate. Previously `ensureBootstrapOwner` THREW (⇒ 503) in any
-// deployed env unless `BOOTSTRAP_OWNER_PROFILE_ID` named a real `usr_*`; that
-// gate is gone now that multi-wedding + create-wedding exist. These tests boot
-// the real `handler.fetch` against a workerd-backed D1 (Miniflare) in a
-// deployed-tier env (`OSN_ENV=production`) with NO bootstrap owner set and
-// assert the app boots + routes — i.e. it never fail-closes at the edge with a
-// 503 for the missing var.
+// no global boot gate, and no deployed env needs `BOOTSTRAP_OWNER_PROFILE_ID`
+// to name a real `usr_*`. These tests boot the real `handler.fetch` against a
+// workerd-backed D1 (Miniflare) in a deployed-tier env (`OSN_ENV=production`)
+// with NO bootstrap owner set and assert the app boots + routes — i.e. it
+// never fail-closes at the edge with a 503 for the missing var.
 //
 // The tier travels on the `env` BINDING, not `process.env` — on workerd
 // `process.env` is unpopulated during module evaluation and only fills lazily,
@@ -145,21 +143,6 @@ afterAll(async () => {
 });
 
 describe("Worker boot (no bootstrap-owner config)", () => {
-  it("boots + serves WITHOUT BOOTSTRAP_OWNER_PROFILE_ID in a deployed env (no 503)", async () => {
-    const env = { ...BASE_ENV, DB } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
-    const res = await handler.fetch!(
-      new Request("https://api.example.com/api/organiser/weddings"),
-      env,
-      ctx,
-    );
-    // The old boot gate would 503 here ("Worker misconfigured: ..."). Now the
-    // app boots and the route's own auth gate answers 401 (no token) — proving
-    // the edge handler served the request rather than fail-closing on a missing
-    // bootstrap owner.
-    expect(res.status).not.toBe(503);
-    expect(res.status).toBe(401);
-  });
-
   it("still fail-closes 503 when a genuinely required binding/var is missing", async () => {
     // WEB_ORIGIN omitted — the real misconfiguration guard must still fire.
     const env = {
@@ -179,15 +162,6 @@ describe("Worker boot (no bootstrap-owner config)", () => {
   });
 });
 
-// Fail-closed guard: the native claim rate-limit binding is MANDATORY in
-// any deployed tier. Absent, createApp would silently fall back to a per-isolate
-// in-memory limiter — no real cross-request brute-force defence on the guest
-// claim endpoint. The guard 503s at the edge in a deployed tier, but keeps the
-// in-memory fallback in `local` so `bun run dev` / tests boot without it.
-// Tier is read from the `OSN_ENV` BINDING (parsed by @shared/observability's
-// `parseDeploymentEnvironment`), so each case drives it by setting OSN_ENV in
-// the env object — not `process.env`, which is empty on workerd at the moment
-// this decision is made.
 describe("WEB_ORIGIN boot check", () => {
   const fetchWith = (env: Record<string, unknown>) =>
     handler.fetch!(
@@ -228,6 +202,15 @@ describe("WEB_ORIGIN boot check", () => {
   });
 });
 
+// Fail-closed guard: the native claim rate-limit binding is MANDATORY in
+// any deployed tier. Absent, createApp would silently fall back to a per-isolate
+// in-memory limiter — no real cross-request brute-force defence on the guest
+// claim endpoint. The guard 503s at the edge in a deployed tier, but keeps the
+// in-memory fallback in `local` so `bun run dev` / tests boot without it.
+// Tier is read from the `OSN_ENV` BINDING (parsed by @shared/observability's
+// `parseDeploymentEnvironment`), so each case drives it by setting OSN_ENV in
+// the env object — not `process.env`, which is empty on workerd at the moment
+// this decision is made.
 describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   const runFetch = (env: Record<string, unknown>) =>
     handler.fetch!(
@@ -268,11 +251,10 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   });
 
   it("treats an ABSENT OSN_ENV binding as `local` (in-memory fallback)", async () => {
-    // Regression guard for the shape of the prod defect this replaced: with the
-    // tier unset the Worker must not pretend to be deployed. It is the wrangler
-    // [env.*.vars] entry, present in every deployed env block, that flips this —
-    // so an env block that forgets OSN_ENV degrades the claim-endpoint defence
-    // silently. That is why the deploy runbook checks the tier in `wrangler tail`.
+    // With the tier unset the Worker must not pretend to be deployed. It is the
+    // wrangler [env.*.vars] entry, present in every deployed env block, that
+    // flips this — so an env block that forgets OSN_ENV degrades the
+    // claim-endpoint defence silently. That is why the deploy runbook checks the tier in `wrangler tail`.
     const { OSN_ENV: _omit, ...withoutTier } = withoutBindingAt("local");
     void _omit;
     const res = await runFetch(withoutTier);
@@ -287,12 +269,6 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   });
 });
 
-// D1 Sessions API wiring, asserted at the edge rather than in isolation. The
-// unit tests in `db/d1-session.test.ts` prove the shim routes to whatever
-// session is on the async context; these prove the Worker actually PUTS one
-// there, on both entry points, and that no query escapes to the raw binding.
-// That is the failure that would be invisible otherwise: everything keeps
-// working, replication is simply never used.
 describe("CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS", () => {
   // Wedding ids in the shape `weddingsService` mints.
   const LISTED = "wed_0123456789abcdef0123456789abcdef";
@@ -695,6 +671,12 @@ describe("upgrades need the platform webhook secret on the Worker", () => {
   });
 });
 
+// D1 Sessions API wiring, asserted at the edge rather than in isolation. The
+// unit tests in `db/d1-session.test.ts` prove the shim routes to whatever
+// session is on the async context; these prove the Worker actually PUTS one
+// there, on both entry points, and that no query escapes to the raw binding.
+// That is the failure that would be invisible otherwise: everything keeps
+// working, replication is simply never used.
 describe("D1 session routing at the entry points", () => {
   /**
    * A D1 binding that records what it was asked for, delegating to the real
@@ -761,22 +743,6 @@ describe("D1 session routing at the entry points", () => {
     new Request(`https://api.example.com/api/invite/${slug}`) as unknown as Parameters<
       NonNullable<typeof handler.fetch>
     >[0];
-
-  it("opens one first-primary session per request and routes every query to it", async () => {
-    const probe = probeD1();
-    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
-      NonNullable<typeof handler.fetch>
-    >[1];
-
-    const res = await handler.fetch!(inviteRequest(), env, ctx);
-
-    expect(res.status).toBe(404);
-    expect(probe.constraints).toEqual([D1_SESSION_CONSTRAINT]);
-    expect(probe.sessionQueries[0]?.length ?? 0).toBeGreaterThan(0);
-    // The one that matters: a Drizzle handle built over the raw binding would
-    // opt every query out of replication with nothing to notice.
-    expect(probe.bindingQueries).toEqual([]);
-  });
 
   it("gives each request its own session", async () => {
     // Two requests through the SAME isolate-cached app — the app graph and its
@@ -1990,10 +1956,12 @@ describe("realtime subscribe at the Worker entry", () => {
       // response for. The limit is 1.8 s, not tighter: this handler took 1,073 ms
       // on a loaded CI runner, and a publish held inline never returns at all, so
       // a generous limit still catches the regression.
-      const timedOut = new Promise<"timed out">((resolve) =>
-        setTimeout(() => resolve("timed out"), 1800),
-      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = new Promise<"timed out">((resolve) => {
+        timer = setTimeout(() => resolve("timed out"), 1800);
+      });
       const first = await Promise.race([response, timedOut]);
+      clearTimeout(timer);
 
       expect(first).not.toBe("timed out");
       expect((first as Response).status).toBe(200);

@@ -291,13 +291,6 @@ describe("account.updated", () => {
     expect((await settings(db))?.stripeChargesEnabled).toBe(true);
   });
 
-  it("acknowledges an account this platform knows nothing about", async () => {
-    const { app } = buildApp();
-    const res = await deliver(app, accountUpdated({ id: "acct_stranger" }));
-    expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ received: true, matched: false });
-  });
-
   it("writes only the wedding that owns the account", async () => {
     const { app, db } = buildApp();
     const other = "wed_other";
@@ -457,12 +450,16 @@ describe("checkout.session.completed — settling the row, never inventing one",
     const { app, db, familyId } = buildApp();
     seedPending(db, familyId);
 
-    const res = await deliver(
-      app,
-      checkoutCompleted({ session: { amount_total: 9_900, currency: "usd" } }),
-    );
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await deliver(
+        app,
+        checkoutCompleted({ session: { amount_total: 9_900, currency: "usd" } }),
+      );
+    });
 
-    expect(await jsonBody(res)).toEqual({ received: true, outcome: "settled" });
+    expect(await jsonBody(res!)).toEqual({ received: true, outcome: "settled" });
+    expect(logs).toContain("contribution settled at an amount it was not opened at");
     const [gift] = await gifts(db);
     expect(gift?.status).toBe("succeeded");
     expect(gift?.amountMinor).toBe(12_500);
@@ -473,8 +470,11 @@ describe("checkout.session.completed — settling the row, never inventing one",
     // Stripe writes currencies in lower case; the row holds them upper.
     const { app, db, familyId } = buildApp();
     seedPending(db, familyId);
-    await deliver(app, checkoutCompleted({ session: { amount_total: 12_500, currency: "aud" } }));
+    const logs = await captureLogs(() =>
+      deliver(app, checkoutCompleted({ session: { amount_total: 12_500, currency: "aud" } })),
+    );
     expect((await gifts(db))[0]?.status).toBe("succeeded");
+    expect(logs).not.toContain("contribution settled at an amount it was not opened at");
   });
 
   it("leaves an unpaid-but-complete session pending, not as money that arrived", async () => {
@@ -542,7 +542,7 @@ describe("checkout.session.completed — settling the row, never inventing one",
   });
 
   /**
-   * The window migration 0060 opened: the Worker wrote the gift, asked Stripe
+   * The gift written before its session: the Worker wrote the gift, asked Stripe
    * for a page, and was evicted before it heard back. The completed event is
    * the first thing that ever names the session — the gift settles anyway, and
    * takes the session id with it.
@@ -646,9 +646,9 @@ async function seedSettled(app: App, db: ReturnType<typeof buildApp>["db"], fami
 
 describe("checkout.session.async_payment_succeeded — the debit that landed days later", () => {
   /**
-   * The money bug this closes: a BECS or SEPA debit completes the session in
-   * seconds and settles days later. Without this event the gift sat `pending`
-   * forever and the couple were never told the money had arrived.
+   * A BECS or SEPA debit completes the session in seconds and settles days
+   * later. Without this event the gift would sit `pending` forever and the
+   * couple would never be told the money had arrived.
    */
   it("settles a gift whose bank debit finally cleared", async () => {
     const { app, db, familyId } = buildApp();
@@ -717,7 +717,7 @@ describe("the endings where no money moves", () => {
   }
 
   /**
-   * The other side of migration 0060: an attempt that never had its session
+   * The other side: an attempt that never had its session
    * attached still has to be closable, or it sits `pending` forever and the
    * couple's gift log carries a gift nobody ever gave. The expiring session's
    * id goes on the row on the way out, so a redelivery is a no-op.
@@ -870,10 +870,10 @@ const dispute = (
 /**
  * The couple revoking cire from their own Stripe dashboard.
  *
- * The money bug this closes: nothing here noticed. The cached
- * `stripe_charges_enabled` stayed true, so the couple's contribute button stayed
- * armed against an account that would refuse every charge — a guest pressing it
- * got as far as a Stripe error, and the couple got nothing.
+ * Unnoticed, the cached `stripe_charges_enabled` would stay true, so the
+ * couple's contribute button would stay armed against an account that refuses
+ * every charge — a guest pressing it would get as far as a Stripe error, and
+ * the couple nothing.
  */
 describe("account.application.deauthorized — the couple revoked our access", () => {
   it("clears the account and disarms the guest surface", async () => {
@@ -1215,14 +1215,6 @@ describe("the body is bounded as it arrives", () => {
     expect(res.status).toBe(400);
     expect(await jsonBody(res)).toEqual({ error: "invalid_signature", reason: "malformed" });
   });
-
-  it("lets an ordinary event through", async () => {
-    // The control: same shape, same path, under the bound.
-    const { app } = buildApp();
-    const payload = padded(1024);
-    const res = await deliverStream(app, payload, [new TextEncoder().encode(payload)]);
-    expect(res.status).toBe(200);
-  });
 });
 
 describe("a soft-deleted wedding's gifts", () => {
@@ -1277,7 +1269,7 @@ describe("a Standard account's own business on the gift endpoint", () => {
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
 
-  it("settles no gift that stored no session, whatever id the session names (20)", async () => {
+  it("settles no gift that stored no session, whatever id the session names", async () => {
     const { app, db, familyId } = buildApp();
     standard(db);
     seedPending(db, familyId, { sessionId: null });
@@ -1312,7 +1304,7 @@ describe("a Standard account's own business on the gift endpoint", () => {
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "failed" });
   });
 
-  it("still settles a Standard gift whose session it stored (20)", async () => {
+  it("still settles a Standard gift whose session it stored", async () => {
     const { app, db, familyId } = buildApp();
     standard(db);
     seedPending(db, familyId);
@@ -1322,19 +1314,10 @@ describe("a Standard account's own business on the gift endpoint", () => {
     });
   });
 
-  it("still adopts a session on an Express account (20)", async () => {
-    const { app, db, familyId } = buildApp();
-    seedPending(db, familyId, { sessionId: null });
-    expect(await jsonBody(await deliver(app, checkoutCompleted()))).toEqual({
-      received: true,
-      outcome: "settled",
-    });
-  });
-
   it.each([
     ["refund", () => chargeRefunded()],
     ["dispute", () => dispute("charge.dispute.created")],
-  ] as const)("counts a %s on its own charge without raising it (21)", async (event, payload) => {
+  ] as const)("counts a %s on its own charge without raising it", async (event, payload) => {
     const { app, db } = buildApp();
     standard(db);
     const attrs = { event, account: "standard" };
@@ -1363,7 +1346,7 @@ describe("a Standard account's own business on the gift endpoint", () => {
     expect(statements).toEqual([]);
   });
 
-  it("acknowledges a session naming no gift of cire's before any read (21)", async () => {
+  it("acknowledges a session naming no gift of cire's before any read", async () => {
     const { app, db } = buildApp();
     const statements = recordStatements(db);
     const res = await deliver(

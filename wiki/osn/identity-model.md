@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-16
 ---
 # Identity Model
 
@@ -107,6 +107,7 @@ Organisations are independent entities that are **composed of profiles, not acco
 | `handle` | `text UNIQUE` | Shared namespace with user handles |
 | `name` | `text` | Display name |
 | `ownerId` | `text FK → users.id` | A profile, not an account |
+| `ownerInheritedAt` | `integer`, nullable | Unix seconds when the owner received it by succession (below); NULL for an owner who created it |
 
 ### Organisation Members
 
@@ -129,9 +130,9 @@ Never rewrite the file to recover. By then `osn-db-dev` has almost always applie
 
 **Key invariants:**
 - Multiple profiles from the same account **can be in the same org** — one might be admin, another a member. This is by design.
-- Org ownership is per-profile, and it changes in one place only: the hard delete of the owner's account passes each organisation it owns to the successor the person named, else the longest-standing other admin, else the longest-standing other member (made admin), and deletes it when there is none or the person chose `delete` ([[dsar#Organisations the person owns]]). No route transfers ownership, and `deleteProfile` refuses a profile that owns an organisation.
+- Org ownership is per-profile, and it changes in two places only, both by succession. The hard delete of the owner's account passes each organisation it owns to the successor the person named, else the longest-standing other admin, else the longest-standing other member (made admin), and deletes it when there is none or the person chose `delete` ([[dsar#Organisations the person owns]]). And the member it passed to may **decline** it (`POST /organisations/:handle/decline-ownership`, `declineOwnership`) within 30 days of receiving it, as `owner_inherited_at` records (`GET` on the same path answers whether the caller may, and until when, with the same refusals, writing nothing): it passes on by the same order, leaving out the decliner's own account, or is deleted when there is none, and the decliner leaves it. Each new owner by succession gets `owner_inherited_at` = now and an email with the decline link ([[dsar#Emails]]). An owner who created the organisation cannot decline it (409 `not_declinable`), and nor can one who received it more than 30 days ago; either can delete it. No route hands an organisation to a member of the owner's choosing, and `deleteProfile` refuses a profile that owns an organisation, and deletes nothing once its profile has become an owner since its read (each statement carries the check).
 - The `listMembers` service return **never includes `accountId`** — defence in depth against correlation leakage.
-- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. `ownerId` changes only at the hard delete of the owner's account, in the batch that also deletes that owner's membership rows. So `addMember`'s owner-only admin grant, which inserts from the caller's own admin row, grants nothing after a stale read of the owner; and `updateMemberRole` writes only while `organisations.owner_id` is still the caller, and otherwise refuses with the message the checks give now.
+- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. `ownerId` changes only by succession — the hard delete of the owner's account, or a decline — each in a batch that also deletes the old owner's membership rows (the decline deletes the decliner's row first, while the owner is still the decliner, so the guard every statement carries still holds). So `addMember`'s owner-only admin grant, which inserts from the caller's own admin row, grants nothing after a stale read of the owner; `updateMemberRole` writes only while `organisations.owner_id` is still the caller; and the owner's own `removeMember` and `deleteOrganisation` write only while the caller still owns the organisation: an old owner's write in flight across a decline changes nothing and is refused with the message the checks give now. Tests: `osn/api/tests/services/organisation.test.ts` ("an old owner's removal held across a decline…", "…delete held across a decline…", `declineOwnership`), and on D1 `osn/api/tests/d1/account-hard-delete.test.ts` ("a decline of an organisation received by succession, on D1").
 
 ## Token Model
 

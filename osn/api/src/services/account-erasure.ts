@@ -23,6 +23,8 @@ import {
 import type { DeletionJob } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { commitBatch, jsonEachIn, rowsChanged } from "@shared/db-utils";
+import { EmailService, type EmailServiceImpl, type SendEmailInput } from "@shared/email";
+import type { KeptAfterDeletion } from "@shared/email/templates";
 import type { AppEnrollmentApp } from "@shared/observability/metrics";
 import {
   and,
@@ -41,7 +43,7 @@ import {
 } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { alias, type AnySQLiteColumn, type SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
-import { Cause, Data, Effect } from "effect";
+import { Cause, Data, Effect, Option } from "effect";
 
 import { canBatch } from "../lib/batch";
 import { bound } from "../lib/bound";
@@ -70,6 +72,7 @@ import {
   type KeptItem,
 } from "./deletion-apps";
 import { jobPredatesRestoreRecord } from "./deletion-job-shape";
+import { OWNERSHIP_DECLINE_WINDOW_SECONDS, successorRow } from "./organisation-succession";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -769,23 +772,6 @@ export const organisationDefaultChoice = (org: OwnedOrganisation): "transfer" | 
   org.successor?.role === "admin" ? "transfer" : null;
 
 /**
- * `organisation_members` of `orgId` whose profile belongs to an account other
- * than `accountId`, best successor first: admins before members ('admin'
- * sorts before 'member', the only two roles the triggers allow), then the
- * longest-standing, then by id. That is the order of
- * `org_members_succession_idx`, so the read walks the index and stops at the
- * first member from another account. `column` picks what the subquery answers.
- */
-const successorRow = (
-  column: "id" | "profile_id",
-  orgId: SQL | AnySQLiteColumn,
-  accountId: string,
-) =>
-  sql`(SELECT m.${sql.raw(column)} FROM organisation_members m JOIN users u ON u.id = m.profile_id
-    WHERE m.organisation_id = ${orgId} AND u.account_id <> ${accountId}
-    ORDER BY m.role, m.created_at, m.id LIMIT 1)`;
-
-/**
  * The profile `orgId` passes to at the hard delete of `accountId`: the
  * successor named for it in `named` (a JSON object of organisation id to
  * profile id) while that profile is still a member from another account, else
@@ -852,6 +838,62 @@ export const listOwnedOrganisations = (
     }));
   });
 
+/** Most members a preview offers as a named successor for one organisation. */
+const MAX_SUCCESSOR_CANDIDATES = 50;
+
+/** A member a `successor` answer may name. */
+export interface SuccessorCandidate {
+  readonly orgId: string;
+  readonly profileId: string;
+  readonly handle: string;
+  readonly displayName: string | null;
+  readonly role: "admin" | "member";
+}
+
+/**
+ * The members a `successor` answer may name in each organisation a profile of
+ * `accountId` owns — every member whose profile belongs to another account —
+ * in succession order (admins first, then the longest-standing), at most
+ * {@link MAX_SUCCESSOR_CANDIDATES} an organisation. One statement, keyed on
+ * the account alone, so it runs beside {@link listOwnedOrganisations} rather
+ * than after it. Each organisation's members come from a correlated
+ * subquery with its own LIMIT, which walks `org_members_succession_idx` and
+ * stops at the cap, whatever the organisation's size.
+ */
+export const listSuccessorCandidates = (
+  accountId: string,
+): Effect.Effect<ReadonlyArray<SuccessorCandidate>, AccountErasureDbError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const firstMembers = sql`(SELECT m.id FROM organisation_members m
+      JOIN users u ON u.id = m.profile_id
+      WHERE m.organisation_id = ${organisations.id} AND u.account_id <> ${accountId}
+      ORDER BY m.role, m.created_at, m.id
+      LIMIT ${MAX_SUCCESSOR_CANDIDATES})`;
+    return yield* Effect.tryPromise({
+      try: () =>
+        db
+          .select({
+            orgId: organisations.id,
+            profileId: organisationMembers.profileId,
+            handle: users.handle,
+            displayName: users.displayName,
+            role: organisationMembers.role,
+          })
+          .from(organisations)
+          .innerJoin(organisationMembers, sql`${organisationMembers.id} IN ${firstMembers}`)
+          .innerJoin(users, eq(users.id, organisationMembers.profileId))
+          .where(inArray(organisations.ownerId, profilesOf(db, accountId)))
+          .orderBy(
+            asc(organisations.id),
+            asc(organisationMembers.role),
+            asc(organisationMembers.createdAt),
+            asc(organisationMembers.id),
+          ),
+      catch: (cause) => new AccountErasureDbError({ cause }),
+    });
+  });
+
 /** One answer as `DELETE /account` received it. */
 export interface ErasureChoiceAnswer {
   readonly action: string;
@@ -897,15 +939,19 @@ const appOfAction = (action: string): AppPreview["app"] | null =>
  *
  * In order: an answer is refused (`invalid`) when its action is answered
  * twice, its choice is not one the action offers, or it names a successor who
- * is not a member of that organisation from another account (one read, for
- * every named successor at once); then an answer to an app action the fresh
- * preview does not list makes the whole set `stale`; then every action with
- * choices and no default must have an answer (`open`). On success answers the
- * choices to store, keyed by action id.
+ * is not a member of that organisation from another account; then an answer
+ * to an app action the fresh preview does not list makes the whole set
+ * `stale`; then every action with choices and no default must have an answer
+ * (`open`). On success answers the choices to store, keyed by action id.
+ *
+ * A named successor among the same preview's `candidates` is a member from
+ * another account already; only the others are read, in one statement for all
+ * of them.
  */
 export const checkErasureChoices = (
   accountId: string,
   owned: ReadonlyArray<OwnedOrganisation>,
+  candidates: ReadonlyArray<SuccessorCandidate>,
   apps: ReadonlyArray<AppPreview>,
   answers: ReadonlyArray<ErasureChoiceAnswer>,
 ): Effect.Effect<ErasureChoicesCheck, AccountErasureDbError, Db> =>
@@ -958,7 +1004,9 @@ export const checkErasureChoices = (
       chosen.set(answer.action, { choice: answer.choice });
     }
 
-    if (named.length > 0) {
+    const offered = new Set(candidates.map((c) => `${c.orgId} ${c.profileId}`));
+    const unread = named.filter((n) => !offered.has(`${n.orgId} ${n.profileId}`));
+    if (unread.length > 0) {
       const { db } = yield* Db;
       const members = yield* Effect.tryPromise({
         try: () =>
@@ -972,14 +1020,14 @@ export const checkErasureChoices = (
             .where(
               and(
                 ne(users.accountId, accountId),
-                inArray(organisationMembers.organisationId, jsonEachIn(named.map((n) => n.orgId))),
-                inArray(organisationMembers.profileId, jsonEachIn(named.map((n) => n.profileId))),
+                inArray(organisationMembers.organisationId, jsonEachIn(unread.map((n) => n.orgId))),
+                inArray(organisationMembers.profileId, jsonEachIn(unread.map((n) => n.profileId))),
               ),
             ),
         catch: (cause) => new AccountErasureDbError({ cause }),
       });
       const isMember = new Set(members.map((m) => `${m.orgId} ${m.profileId}`));
-      const stranger = named.find((n) => !isMember.has(`${n.orgId} ${n.profileId}`));
+      const stranger = unread.find((n) => !isMember.has(`${n.orgId} ${n.profileId}`));
       if (stranger) return { kind: "invalid", action: stranger.action } as const;
     }
 
@@ -1293,6 +1341,28 @@ export interface HardDeleteResult {
 const NOTHING_DELETED: HardDeleteResult = { deleted: false, transfers: [], orgsDeleted: 0 };
 
 /**
+ * An organisation the account owned, as the hard delete's batch read it before
+ * any of its writes: who it passes to (null when it is deleted), with that
+ * profile's handle and account address, for the notices sent once the batch
+ * has removed the account.
+ */
+interface OwnedAtHardDelete {
+  readonly orgId: string;
+  readonly handle: string;
+  readonly successorProfileId: string | null;
+  readonly successorHandle: string | null;
+  readonly successorEmail: string | null;
+}
+
+/** A hard delete and what its notices need: the organisations it read, and whether it removed the account row. */
+interface HardDeleteOutcome {
+  readonly result: HardDeleteResult;
+  readonly owned: ReadonlyArray<OwnedAtHardDelete>;
+  /** True only when this batch's `accounts` delete removed the row. */
+  readonly accountRemoved: boolean;
+}
+
+/**
  * A job's stored `choices`, as the hard delete uses them: each named
  * successor by organisation id, and each organisation to delete. `transfer`
  * needs nothing: it is what happens with no answer. An action id that is not
@@ -1369,6 +1439,167 @@ const recordHardDeleteFailure = (accountId: string, nowSec: number, cause: Cause
  */
 const HARD_DELETE_FAILURES_BEFORE_STOP = 3;
 
+/** Where the deletion's notices point, and the name they sign with. */
+export interface DeletionNotices {
+  /** The app's origin (`frontendOrigin`): where an organisation's page is. */
+  readonly appUrl: string;
+  /** The identity instance, e.g. "Musubi". */
+  readonly instanceName: string;
+}
+
+/** Most ownership notices one account's hard delete sends in a pass: one Resend batch. */
+const MAX_OWNERSHIP_NOTICES = 100;
+
+/**
+ * Most ownership notices one account's hard delete sends in a pass on a
+ * transport with no batch send, where each is a subrequest of its own.
+ */
+const MAX_SINGLE_OWNERSHIP_NOTICES = 10;
+
+/** How long a hard delete's notice send may take before the sweep gives up on it. */
+const NOTICE_SEND_TIMEOUT = "10 seconds";
+
+/** The app's name as people know it, for the kept items an app reported. */
+const APP_NAMES = new Map<string, string>([
+  ["pulse", "Pulse"],
+  ["zap", "Zap"],
+  ["cire", "Cire"],
+]);
+
+/** Each handle a restore record holds, as the profiles had them before the soft delete. */
+const heldHandles = (restore: string | null): string[] => {
+  if (restore === null) return [];
+  try {
+    const parsed = JSON.parse(restore) as { profiles?: unknown };
+    if (!Array.isArray(parsed.profiles)) return [];
+    return parsed.profiles.flatMap((profile: unknown) => {
+      const handle = (profile as { handle?: unknown } | null)?.handle;
+      return typeof handle === "string" && handle.length > 0 ? [handle] : [];
+    });
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * What each app reported it keeps, from `app_outcomes`. A value that does not
+ * read as the contract wrote it is left out: the notice still goes.
+ */
+const keptByApps = (stored: string | null): KeptAfterDeletion[] => {
+  if (stored === null) return [];
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return [];
+    return Object.entries(parsed).flatMap(([app, outcome]: [string, unknown]) => {
+      const kept = (outcome as { status?: unknown; kept?: unknown } | null)?.kept;
+      if (!Array.isArray(kept)) return [];
+      return kept.flatMap((item: unknown) => {
+        const { what, erasedOn, requestUrl } = (item ?? {}) as {
+          what?: unknown;
+          erasedOn?: unknown;
+          requestUrl?: unknown;
+        };
+        if (typeof what !== "string") return [];
+        return [
+          {
+            app: APP_NAMES.get(app) ?? app,
+            what,
+            erasedOn: typeof erasedOn === "number" ? erasedOn : null,
+            requestUrl: typeof requestUrl === "string" ? requestUrl : null,
+          },
+        ];
+      });
+    });
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * After a hard delete removed the account: `account-deleted` to the address it
+ * had and, alongside it, `organisation-ownership-received` to each member an
+ * organisation passed to — at most {@link MAX_OWNERSHIP_NOTICES} in one batch,
+ * or {@link MAX_SINGLE_OWNERSHIP_NOTICES} one by one on a transport with no
+ * batch send. Best effort: each send gives up after
+ * {@link NOTICE_SEND_TIMEOUT}, a failure is logged with the template alone,
+ * never an address or an id, and the sweep goes on. The account is gone by
+ * then, so a send that gives up loses only its email.
+ */
+const sendHardDeleteNotices = (
+  mailer: EmailServiceImpl,
+  notices: DeletionNotices,
+  row: {
+    readonly email: string;
+    readonly restore: string | null;
+    readonly appOutcomes: string | null;
+  },
+  owned: ReadonlyArray<OwnedAtHardDelete>,
+  nowSec: number,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const notSent = (template: string) => (cause: unknown) =>
+      Effect.logWarning("account.deletion notice not sent", {
+        template,
+        ...safeErrorSummary(cause),
+      });
+    const deleted =
+      row.email.length === 0
+        ? Effect.void
+        : mailer.send({
+            template: "account-deleted",
+            to: row.email,
+            data: {
+              instanceName: notices.instanceName,
+              handles: heldHandles(row.restore),
+              handlesHeldUntil: nowSec + HANDLE_HOLD_AFTER_ERASURE_SECONDS,
+              kept: keptByApps(row.appOutcomes),
+              organisations: owned.map((org) => ({
+                handle: org.handle,
+                newOwnerHandle: org.successorProfileId === null ? null : org.successorHandle,
+              })),
+            },
+          });
+
+    const heirs = owned.flatMap((org) =>
+      org.successorProfileId !== null && org.successorEmail
+        ? [{ handle: org.handle, email: org.successorEmail }]
+        : [],
+    );
+    const cap = mailer.sendBatch ? MAX_OWNERSHIP_NOTICES : MAX_SINGLE_OWNERSHIP_NOTICES;
+    if (heirs.length > cap) {
+      yield* Effect.logWarning("account.deletion ownership notices over the cap", {
+        unsent: heirs.length - cap,
+      });
+    }
+    const inputs: SendEmailInput[] = heirs.slice(0, cap).map((heir) => ({
+      template: "organisation-ownership-received",
+      to: heir.email,
+      data: {
+        instanceName: notices.instanceName,
+        organisationHandle: heir.handle,
+        declineUrl: `${notices.appUrl}/organisations/${encodeURIComponent(heir.handle)}?decline=1`,
+        declineUntil: nowSec + OWNERSHIP_DECLINE_WINDOW_SECONDS,
+        cause: "owner_deleted",
+      },
+    }));
+    const ownership =
+      inputs.length === 0
+        ? Effect.void
+        : mailer.sendBatch
+          ? mailer.sendBatch(inputs)
+          : Effect.forEach(inputs, (input) => mailer.send(input), { discard: true });
+    yield* Effect.all(
+      [
+        deleted.pipe(Effect.timeout(NOTICE_SEND_TIMEOUT), Effect.catch(notSent("account-deleted"))),
+        ownership.pipe(
+          Effect.timeout(NOTICE_SEND_TIMEOUT),
+          Effect.catch(notSent("organisation-ownership-received")),
+        ),
+      ],
+      { concurrency: 2, discard: true },
+    );
+  }).pipe(Effect.withSpan("account.deletion.notify"));
+
 /**
  * Single sweeper pass. Hard-deletes, at most `batchSize` of them, every
  * account whose deletion_jobs row has crossed `hard_delete_at` AND whose every
@@ -1385,12 +1616,16 @@ const HARD_DELETE_FAILURES_BEFORE_STOP = 3;
  * each account is processed in its own batch, after its own claim.
  */
 export const runHardDeleteSweep = (
-  opts: { batchSize?: number; nowMs?: number } = {},
+  opts: { batchSize?: number; nowMs?: number; notices?: DeletionNotices } = {},
 ): Effect.Effect<{ purged: number }, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const batchSize = opts.batchSize ?? 100;
     const nowSec = Math.floor((opts.nowMs ?? Date.now()) / 1_000);
+    // The notices go only where the caller provides a transport and says
+    // where the app is; a sweep without either erases as before and mails
+    // nothing.
+    const mailer = yield* Effect.serviceOption(EmailService);
 
     // The gating predicate is in SQL, not a filter after the read: a handful
     // of permanently-stuck apps (a pending mark) would otherwise fill the
@@ -1404,8 +1639,14 @@ export const runHardDeleteSweep = (
             accountId: deletionJobs.accountId,
             purgeStartedAt: deletionJobs.purgeStartedAt,
             choices: deletionJobs.choices,
+            // What the account-deleted notice needs, read now: the job and
+            // the account go in the hard delete's batch.
+            email: accounts.email,
+            restore: deletionJobs.restore,
+            appOutcomes: deletionJobs.appOutcomes,
           })
           .from(deletionJobs)
+          .innerJoin(accounts, eq(accounts.id, deletionJobs.accountId))
           .where(and(lte(deletionJobs.hardDeleteAt, nowSec), allAppsDone()))
           .orderBy(
             sql`${deletionJobs.hardDeleteFailedAt} ASC NULLS FIRST`,
@@ -1424,16 +1665,23 @@ export const runHardDeleteSweep = (
         });
         break;
       }
-      const outcome = yield* hardDeleteAccount(row, nowSec).pipe(
-        Effect.map((done) => ({ failed: false, done })),
+      const outcome = yield* hardDeleteWithOutcome(row, nowSec).pipe(
+        Effect.map((done) => ({ failed: false, done: done.result, notice: done })),
         Effect.catchCause((cause) =>
           recordHardDeleteFailure(row.accountId, nowSec, cause).pipe(
-            Effect.as({ failed: true, done: NOTHING_DELETED }),
+            Effect.as({ failed: true, done: NOTHING_DELETED, notice: null }),
           ),
         ),
       );
       failedInARow = outcome.failed ? failedInARow + 1 : 0;
       if (!outcome.done.deleted) continue;
+      if (
+        outcome.notice?.accountRemoved === true &&
+        opts.notices !== undefined &&
+        Option.isSome(mailer)
+      ) {
+        yield* sendHardDeleteNotices(mailer.value, opts.notices, row, outcome.notice.owned, nowSec);
+      }
       metricAccountDeletionCompleted("hard", "sweeper");
       if (outcome.done.transfers.length > 0) {
         metricAccountDeletionOrganisation("transferred", outcome.done.transfers.length);
@@ -1477,6 +1725,20 @@ export const hardDeleteAccount = (
   job: Pick<DeletionJob, "accountId" | "purgeStartedAt" | "choices">,
   nowSec: number,
 ): Effect.Effect<HardDeleteResult, AccountErasureDbError | ErasureChoicesError, Db> =>
+  hardDeleteWithOutcome(job, nowSec).pipe(Effect.map((outcome) => outcome.result));
+
+const successorAccount = alias(accounts, "successor_account");
+
+/**
+ * {@link hardDeleteAccount}, with what its notices need: each owned
+ * organisation and where it went, read by the batch's first statement, and
+ * whether the batch removed the account row (a second pass over an account
+ * already gone removes nothing, and sends nothing).
+ */
+const hardDeleteWithOutcome = (
+  job: Pick<DeletionJob, "accountId" | "purgeStartedAt" | "choices">,
+  nowSec: number,
+): Effect.Effect<HardDeleteOutcome, AccountErasureDbError | ErasureChoicesError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const { accountId } = job;
@@ -1485,12 +1747,43 @@ export const hardDeleteAccount = (
       job.purgeStartedAt === null &&
       !(yield* claimPurge(accountId, nowSec, { appsDone: true }))
     ) {
-      return NOTHING_DELETED;
+      return { result: NOTHING_DELETED, owned: [], accountRemoved: false };
     }
 
     const profiles = profilesOf(db, accountId);
     const namedJson = JSON.stringify(Object.fromEntries(named));
     const kept = notInArray(organisations.id, jsonEachIn(deletes));
+
+    // 0. Each owned organisation and who it passes to, by the transfer's own
+    //    rule, read before any statement writes, as `promote` reads it: the
+    //    notices sent once the account is gone. No query of its own: it rides
+    //    the batch.
+    const ownedNow = db
+      .select({
+        orgId: organisations.id,
+        handle: organisations.handle,
+        successorProfileId: sql<
+          string | null
+        >`CASE WHEN ${organisations.id} IN ${jsonEachIn(deletes)} THEN NULL ELSE ${successorOf(organisations.id, accountId, namedJson)} END`.as(
+          "successor_profile_id",
+        ),
+      })
+      .from(organisations)
+      .where(inArray(organisations.ownerId, profiles))
+      .as("owned_now");
+    const readOwned = db
+      .select({
+        orgId: ownedNow.orgId,
+        handle: ownedNow.handle,
+        successorProfileId: ownedNow.successorProfileId,
+        // Named apart: D1 answers a batched select keyed by column name, and
+        // the organisation's own `handle` would fold over the profile's.
+        successorHandle: sql<string | null>`${successorProfile.handle}`.as("successor_handle"),
+        successorEmail: sql<string | null>`${successorAccount.email}`.as("successor_email"),
+      })
+      .from(ownedNow)
+      .leftJoin(successorProfile, eq(successorProfile.id, ownedNow.successorProfileId))
+      .leftJoin(successorAccount, eq(successorAccount.id, successorProfile.accountId));
 
     // 1. The successor of each organisation that will pass on becomes an
     //    admin, if a member. The same rule as the transfer below, read before
@@ -1513,6 +1806,9 @@ export const hardDeleteAccount = (
       .update(organisations)
       .set({
         ownerId: successorOf(organisations.id, accountId, namedJson),
+        // The new owner received it by succession, and may decline it for
+        // `OWNERSHIP_DECLINE_WINDOW_SECONDS` from now.
+        ownerInheritedAt: nowSec,
         updatedAt: new Date(nowSec * 1_000),
       })
       .where(
@@ -1576,11 +1872,11 @@ export const hardDeleteAccount = (
         .update(handleHolds)
         .set({ accountId: null, releaseAt: nowSec + HANDLE_HOLD_AFTER_ERASURE_SECONDS })
         .where(eq(handleHolds.accountId, accountId)),
-      // 9. The job, the clients the account registered, the account. The
-      //    job goes only while every app's mark still reads done; otherwise
-      //    it stays, the `accounts` delete below fails on the job's foreign
-      //    key, and D1 rolls the whole batch back, so the fan-out reaches
-      //    every app before the account is erased.
+      // 9. The job and the clients the account registered; the account goes
+      //    last, below. The job goes only while every app's mark still reads
+      //    done; otherwise it stays, the `accounts` delete fails on the job's
+      //    foreign key, and D1 rolls the whole batch back, so the fan-out
+      //    reaches every app before the account is erased.
       db.delete(deletionJobs).where(and(eq(deletionJobs.accountId, accountId), allAppsDone())),
       // Clients the account REGISTERED (owner side): disable them and
       // sever the ownership link. The rows themselves stay — other users'
@@ -1591,41 +1887,62 @@ export const hardDeleteAccount = (
         .update(oauthClients)
         .set({ disabledAt: Math.floor(Date.now() / 1_000), ownerAccountId: null })
         .where(eq(oauthClients.ownerAccountId, accountId)),
-      // Kept on purpose, as security records (Art. 6(1)(c)+(f)), for the
-      // retention window wiki/compliance/retention.md sets for each:
-      //   - security_events   — 12 months
-      //   - email_changes     — 90 days
-      // Both retain the now-orphaned `account_id`. PII linkage is broken
-      // because `users.handle` was redacted at soft-delete and the
-      // `accounts.email` row is gone here.
-      db.delete(accounts).where(eq(accounts.id, accountId)),
     ];
+    // Last, the account. Its RETURNING says whether this batch removed it, so
+    // a pass over an account already gone sends no notice.
+    //
+    // Kept on purpose, as security records (Art. 6(1)(c)+(f)), for the
+    // retention window wiki/compliance/retention.md sets for each:
+    //   - security_events   — 12 months
+    //   - email_changes     — 90 days
+    // Both retain the now-orphaned `account_id`. PII linkage is broken
+    // because `users.handle` was redacted at soft-delete and the
+    // `accounts.email` row is gone here.
+    const dropAccount = db
+      .delete(accounts)
+      .where(eq(accounts.id, accountId))
+      .returning({ id: accounts.id });
 
-    const { transfers, dropped } = yield* Effect.tryPromise({
+    const { owned, transfers, dropped, removed } = yield* Effect.tryPromise({
       // Atomic batch on D1; one statement at a time on bun:sqlite. Either
-      // way the transfer's and the organisation delete's RETURNING rows come
-      // back.
+      // way the owned read's rows and the transfer's, the organisation
+      // delete's and the account delete's RETURNING rows come back.
       try: async () => {
         if (canBatch(db)) {
-          const [, moved, , gone] = await db.batch([
+          const results = await db.batch([
+            readOwned,
             promote,
             transfer,
             dropMemberships,
             dropOrganisations,
             ...rest,
+            dropAccount,
           ]);
-          return { transfers: moved, dropped: gone.length };
+          const [read, , moved, , gone] = results;
+          const account = results.at(-1) as ReadonlyArray<{ id: string }>;
+          return {
+            owned: read,
+            transfers: moved,
+            dropped: gone.length,
+            removed: account.length > 0,
+          };
         }
+        const read = await readOwned;
         await promote;
         const moved = await transfer;
         await dropMemberships;
         const gone = await dropOrganisations;
         await inOrder(rest);
-        return { transfers: moved, dropped: gone.length };
+        const account = await dropAccount;
+        return { owned: read, transfers: moved, dropped: gone.length, removed: account.length > 0 };
       },
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
-    return { deleted: true, transfers, orgsDeleted: dropped };
+    return {
+      result: { deleted: true, transfers, orgsDeleted: dropped },
+      owned,
+      accountRemoved: removed,
+    };
   });
 
 /** Jobs one fan-out pass reaches, and accounts one hard-delete pass erases, by default. */
@@ -1722,7 +2039,11 @@ export const runFanOutRetrySweep = (opts: {
                 purgeStartedAt: deletionJobs.purgeStartedAt,
                 choices: deletionJobs.choices,
                 deleteEverything: deletionJobs.deleteEverything,
-                profileIds: sql<string>`(SELECT json_group_array(p.id) FROM users p WHERE p.account_id = ${deletionJobs.accountId})`,
+                // The job's own account, qualified: a select that reads one
+                // table writes a column in a `sql` field bare, and a bare
+                // `"account_id"` inside this subquery would bind to `p`'s own,
+                // naming every profile in the database.
+                profileIds: sql<string>`(SELECT json_group_array(p.id) FROM users p WHERE p.account_id = ${sql`${deletionJobs.accountId}`})`,
               })
               .from(deletionJobs)
               .where(and(lte(deletionJobs.hardDeleteAt, nowSec), someAppPending()))

@@ -1,5 +1,32 @@
 # @osn/api
 
+## 0.29.7
+
+### Patch Changes
+
+- 2aca4d6: The local Bun servers listen on the address their own variable names: `OSN_LOCAL_HOSTNAME` for `@osn/api`, `PULSE_LOCAL_HOSTNAME` for `@pulse/api`. Unset, as under `bun run dev`, each listens on every interface. `@musubi/infra`'s check of what osn-api reads on dev lists `OSN_LOCAL_HOSTNAME` among the names the dev stack leaves unset.
+
+## 0.29.6
+
+### Patch Changes
+
+- Updated dependencies [db8c428]
+  - @shared/observability@0.26.3
+  - @shared/crypto@0.15.6
+  - @shared/osn-auth-client@0.5.6
+
+## 0.29.5
+
+### Patch Changes
+
+- Updated dependencies [adec70d]
+  - @shared/crypto@0.15.5
+  - @shared/observability@0.26.2
+  - @shared/db-utils@0.9.5
+  - @shared/osn-auth-client@0.5.5
+  - @pulse/db@0.20.21
+  - @zap/db@0.7.3
+
 ## 0.29.4
 
 ### Patch Changes

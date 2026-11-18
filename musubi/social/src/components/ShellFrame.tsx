@@ -15,7 +15,7 @@ import { PRODUCT_NAME } from "../lib/auth";
  * otherwise carry alone.
  */
 
-const LOAD_FAILED = `${PRODUCT_NAME} could not finish loading. Reload and try again.`;
+export const LOAD_FAILED = `${PRODUCT_NAME} could not finish loading. Reload and try again.`;
 
 /**
  * The theme toggle's square: 28px in the rail, 40px in the phone top bar,

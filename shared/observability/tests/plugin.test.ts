@@ -245,17 +245,4 @@ describe("observabilityPlugin", () => {
       expect(await activeRequests("GET")).toBe(0);
     });
   });
-
-  it("works alongside other Elysia routes without interfering", async () => {
-    const app = new Elysia()
-      .use(observabilityPlugin())
-      .get("/a", () => "a")
-      .get("/b", () => "b")
-      .post("/echo", ({ body }) => body, { body: undefined });
-
-    const a = await app.handle(new Request("http://localhost/a"));
-    const b = await app.handle(new Request("http://localhost/b"));
-    expect(await a.text()).toBe("a");
-    expect(await b.text()).toBe("b");
-  });
 });

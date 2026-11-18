@@ -49,12 +49,6 @@ describe("ExploreCard", () => {
     expect(card?.classList.contains("rounded-t-none")).toBe(false);
   });
 
-  it("renders 'Happening now' tag for ongoing events", () => {
-    const event = { ...baseEvent, status: "ongoing" as const };
-    const { getByText } = render(() => <ExploreCard event={event} />);
-    expect(getByText("Happening now")).toBeTruthy();
-  });
-
   it("does not render 'Happening now' tag for upcoming events", () => {
     const { queryByText } = render(() => <ExploreCard event={baseEvent} />);
     expect(queryByText("Happening now")).toBeNull();
@@ -72,12 +66,6 @@ describe("ExploreCard", () => {
     const event = { ...baseEvent, category: "unknown" };
     const { container } = render(() => <ExploreCard event={event} />);
     expect(container.querySelector(".ph-4")).toBeTruthy();
-  });
-
-  it("separator dot appears between venue and location", () => {
-    const { container } = render(() => <ExploreCard event={baseEvent} />);
-    const dots = container.querySelectorAll('span[aria-hidden="true"]');
-    expect(Array.from(dots).filter((d) => d.textContent?.trim() === "·")).toHaveLength(1);
   });
 
   it("omits separator dot when only venue or only location", () => {

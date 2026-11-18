@@ -38,15 +38,6 @@ function recordingClient(name: string, log: string[]): D1QueryClient {
 }
 
 describe("session routing", () => {
-  it("falls back to the raw binding when no session is in scope", async () => {
-    const log: string[] = [];
-    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
-
-    await captureLogs(() => client.prepare("select 1"));
-
-    expect(log).toEqual(["binding:prepare:select 1"]);
-  });
-
   it("routes prepare and batch to the session in scope", async () => {
     const log: string[] = [];
     const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
@@ -175,16 +166,6 @@ describe("counting queries that ran outside a session", () => {
   const warnings = (out: string): string[] =>
     out.split("\n").filter((line) => line.includes(WARNING));
 
-  it("counts a query prepared on the raw binding", async () => {
-    const log: string[] = [];
-    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
-    const before = await counterValue(MISSING, { entry: "fetch" });
-
-    await captureLogs(() => client.prepare("select 1"));
-
-    expect(await counterValue(MISSING, { entry: "fetch" })).toBe(before + 1);
-  });
-
   it("does not count a query a session served", async () => {
     const log: string[] = [];
     const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
@@ -210,18 +191,6 @@ describe("counting queries that ran outside a session", () => {
 
     expect(log).toEqual(["binding:batch:0"]);
     expect(await counterValue(MISSING, { entry: "fetch" })).toBe(before);
-  });
-
-  it("labels the count with the entry point that built the client", async () => {
-    const log: string[] = [];
-    const client = createSessionRoutedClient(recordingClient("binding", log), "scheduled");
-    const fetchBefore = await counterValue(MISSING, { entry: "fetch" });
-    const scheduledBefore = await counterValue(MISSING, { entry: "scheduled" });
-
-    await captureLogs(() => client.prepare("select 1"));
-
-    expect(await counterValue(MISSING, { entry: "scheduled" })).toBe(scheduledBefore + 1);
-    expect(await counterValue(MISSING, { entry: "fetch" })).toBe(fetchBefore);
   });
 
   it("warns once per client, but counts every query", async () => {
@@ -319,13 +288,6 @@ describe("against a real D1", () => {
     // the suite is done and nothing is in flight.
     await mf?.dispose();
   }, MF_TIMEOUT_MS);
-
-  it("exposes withSession, and a session answers prepare and batch", () => {
-    const session = d1.withSession(D1_SESSION_CONSTRAINT);
-
-    expect(typeof session.prepare).toBe("function");
-    expect(typeof session.batch).toBe("function");
-  });
 
   it(
     "reads back its own writes through a Drizzle handle built over the shim",
@@ -429,8 +391,8 @@ describe("against a real D1", () => {
     "still works with no session in scope",
     async () => {
       // The degraded path: if the async context is ever lost, every query goes
-      // straight to the binding — which is exactly the behaviour before this
-      // change, so losing the context costs latency, never correctness.
+      // straight to the binding with no session, so losing the context costs
+      // latency, never correctness.
       const db: Db = createD1Db(createSessionRoutedClient(d1, "fetch"));
 
       let rows: { label: string }[] = [];

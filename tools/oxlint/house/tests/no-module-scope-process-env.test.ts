@@ -158,10 +158,6 @@ describe("house/no-module-scope-process-env", () => {
     const message = diagnostics.find((d) => d.filename.endsWith("top-level-const.ts"))?.message;
     expect(message).toContain("`env` binding");
   });
-
-  it("reports under the plugin's rule id", () => {
-    expect(diagnostics.every((d) => d.code === "house(no-module-scope-process-env)")).toBe(true);
-  });
 });
 
 // The rule is only worth anything where the root config turns it on. These

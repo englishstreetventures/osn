@@ -5,7 +5,8 @@
  */
 
 import { OsnApiError } from "./api-error";
-import { reach, readJson } from "./auth-fetch";
+import { reach, readJson, responseError } from "./auth-fetch";
+import { errorCode, safeJson } from "./response-body";
 import type { AuthFetch } from "./runtime";
 
 export interface AccountClientConfig {
@@ -20,6 +21,50 @@ export class AccountError extends OsnApiError {
     super(message, status, code);
     this.name = "AccountError";
   }
+}
+
+/**
+ * `deleteAccount` refused with what the person must look at again, from the
+ * refusal's body:
+ *
+ * - `open_actions` (409): the actions still waiting for an answer;
+ * - `stale_choices` (409): an answer names an app action the server's fresh
+ *   preview no longer lists — the fresh preview;
+ * - `could_not_check` (409): an app could not be asked — the fresh preview,
+ *   whose `could_not_check` names it;
+ * - `invalid_choice` (400): the action whose answer was refused.
+ */
+export class AccountDeletionRefusedError extends AccountError {
+  declare readonly code: "open_actions" | "stale_choices" | "could_not_check" | "invalid_choice";
+  /** With `open_actions`: the actions that still need an answer. */
+  declare readonly openActions: readonly AccountDeletionOpenAction[] | undefined;
+  /** With `stale_choices` and `could_not_check`: the server's fresh preview. */
+  declare readonly preview: AccountDeletionPreview | undefined;
+  /** With `invalid_choice`: the action whose answer was refused. */
+  declare readonly action: string | undefined;
+
+  constructor(
+    status: number,
+    code: AccountDeletionRefusedError["code"],
+    detail: {
+      openActions?: readonly AccountDeletionOpenAction[];
+      preview?: AccountDeletionPreview;
+      action?: string;
+    },
+  ) {
+    super(`Account deletion refused: ${code}`, status, code);
+    this.name = "AccountDeletionRefusedError";
+    Object.defineProperty(this, "openActions", { value: detail.openActions, enumerable: true });
+    Object.defineProperty(this, "preview", { value: detail.preview, enumerable: true });
+    Object.defineProperty(this, "action", { value: detail.action, enumerable: true });
+  }
+}
+
+/** A downloaded copy of the account's data. */
+export interface AccountExport {
+  readonly blob: Blob;
+  /** The name the server gave the file, when the browser can read it; null otherwise. */
+  readonly fileName: string | null;
 }
 
 /** An email change this tab began: what it keeps, and the number it shows. */
@@ -132,6 +177,21 @@ export interface AccountClient {
    * may make; each app's open actions; and each app that could not be asked.
    */
   getAccountDeletionPreview(): Promise<AccountDeletionPreview>;
+
+  /**
+   * Downloads a copy of the account's data (`GET /account/export`), with a
+   * fresh step-up token for `account_export`. One download a day per account:
+   * the next is refused at 429. A session whose account's deletion is pending
+   * may call it.
+   */
+  exportAccount(input: { stepUpToken: string; signal?: AbortSignal }): Promise<AccountExport>;
+
+  /**
+   * Emails the account's own address a link to the page that downloads its
+   * data (`POST /account/data-link`). The email holds no data and the link
+   * no token. Three a day per account; the next is refused at 429.
+   */
+  sendDataLink(): Promise<{ sent: true }>;
 }
 
 /** One answer to an open action, for `deleteAccount`. */
@@ -183,6 +243,16 @@ export interface AccountDeletionOpenAction {
     readonly display_name: string | null;
     readonly role: "admin" | "member";
   } | null;
+  /**
+   * The members a `successor` answer may name, in succession order, at most
+   * 50: every member from another account. Organisations only.
+   */
+  readonly candidates?: ReadonlyArray<{
+    readonly profile_id: string;
+    readonly handle: string;
+    readonly display_name: string | null;
+    readonly role: "admin" | "member";
+  }>;
 }
 
 /** `GET /account/deletion-preview`'s answer. */
@@ -253,7 +323,19 @@ async function postLinkCall(
   return readJson<LinkAnswer>(AccountError, res);
 }
 
-async function deleteJson<T>(authFetch: AuthFetch, url: string, body: unknown): Promise<T> {
+/** The refusal codes whose body tells the person what to look at again. */
+const DETAILED_REFUSALS = new Set([
+  "open_actions",
+  "stale_choices",
+  "could_not_check",
+  "invalid_choice",
+]);
+
+/**
+ * `DELETE /account`. A refusal that carries what to look at again is an
+ * {@link AccountDeletionRefusedError}; every other is an `AccountError`.
+ */
+async function sendDelete(authFetch: AuthFetch, url: string, body: unknown) {
   const res = await reach(
     AccountError,
     url,
@@ -265,7 +347,43 @@ async function deleteJson<T>(authFetch: AuthFetch, url: string, body: unknown): 
     },
     authFetch,
   );
-  return readJson<T>(AccountError, res);
+  if (!res.ok) {
+    const answer = await safeJson<{
+      open_actions?: unknown;
+      could_not_check?: unknown;
+      action?: unknown;
+    }>(res);
+    const code = errorCode(answer);
+    if (answer !== null && code !== undefined && DETAILED_REFUSALS.has(code)) {
+      const openActions = Array.isArray(answer.open_actions)
+        ? (answer.open_actions as readonly AccountDeletionOpenAction[])
+        : undefined;
+      const preview =
+        openActions !== undefined && Array.isArray(answer.could_not_check)
+          ? {
+              open_actions: openActions,
+              could_not_check: answer.could_not_check as readonly string[],
+            }
+          : undefined;
+      throw new AccountDeletionRefusedError(
+        res.status,
+        code as AccountDeletionRefusedError["code"],
+        {
+          openActions: code === "open_actions" ? openActions : undefined,
+          preview: code === "stale_choices" || code === "could_not_check" ? preview : undefined,
+          action: typeof answer.action === "string" ? answer.action : undefined,
+        },
+      );
+    }
+    throw responseError(AccountError, res, answer);
+  }
+  return readJson<{ scheduled_for: number; already_pending: boolean }>(AccountError, res);
+}
+
+/** The file name a `Content-Disposition: attachment; filename="…"` header gives, if readable. */
+function attachmentName(header: string | null): string | null {
+  const match = header?.match(/filename="([^"]+)"/);
+  return match?.[1] ?? null;
 }
 
 async function getJson<T>(authFetch: AuthFetch, url: string): Promise<T> {
@@ -341,11 +459,7 @@ export function createAccountClient(config: AccountClientConfig): AccountClient 
           successor_profile_id: c.successorProfileId,
         }));
       }
-      return deleteJson<{ scheduled_for: number; already_pending: boolean }>(
-        authFetch,
-        `${base}/account`,
-        body,
-      );
+      return sendDelete(authFetch, `${base}/account`, body);
     },
     cancelAccountDeletion: (input) =>
       postJson<{ cancelled: boolean }>(authFetch, `${base}/account/restore`, {
@@ -373,6 +487,29 @@ export function createAccountClient(config: AccountClientConfig): AccountClient 
         throw new AccountError("Unexpected deletion preview answer", 200);
       }
       return { open_actions: raw.open_actions, could_not_check: raw.could_not_check };
+    },
+    exportAccount: async (input) => {
+      const res = await reach(
+        AccountError,
+        `${base}/account/export`,
+        {
+          method: "GET",
+          credentials: "include",
+          headers: { "X-Step-Up-Token": input.stepUpToken },
+          signal: input.signal,
+        },
+        authFetch,
+      );
+      if (!res.ok) throw responseError(AccountError, res, await safeJson(res));
+      return {
+        blob: await res.blob(),
+        fileName: attachmentName(res.headers.get("content-disposition")),
+      };
+    },
+    sendDataLink: async () => {
+      const raw = await postJson<{ sent?: unknown }>(authFetch, `${base}/account/data-link`, {});
+      if (raw.sent !== true) throw new AccountError("Unexpected data link answer", 202);
+      return { sent: true };
     },
   };
 }

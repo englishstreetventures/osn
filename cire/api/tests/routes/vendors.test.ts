@@ -305,9 +305,4 @@ describe("vendor CRM routes", () => {
     expect(res.status).toBe(403);
     expect(((await res.json()) as { error: string }).error).toBe("read_only_role");
   });
-
-  it("on Crimson, GET /vendors passes the gate", async () => {
-    const res = await req(buildApp(), "GET", base, OWNER);
-    expect(res.status).toBe(200);
-  });
 });

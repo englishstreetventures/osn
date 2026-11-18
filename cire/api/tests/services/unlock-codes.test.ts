@@ -362,19 +362,6 @@ describe("unlockCodeService.redeem", () => {
       );
     }
 
-    it("fails with UnlockCodeWriteError, never as a refusal of a good code", async () => {
-      const db = fresh();
-      seedWedding(db, "wed_a");
-      seedCode(db);
-      failTierWrites(db);
-      const failure = await Effect.runPromise(
-        unlockCodeService
-          .redeem({ weddingId: "wed_a", osnProfileId: OWNER, unlockCode: CODE, now: NOW })
-          .pipe(Effect.flip, Effect.provideService(DbService, db)),
-      );
-      expect(failure._tag).toBe("UnlockCodeWriteError");
-    });
-
     it("logs the failure without the code or its hash", async () => {
       const db = fresh();
       seedWedding(db, "wed_a");

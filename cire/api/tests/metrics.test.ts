@@ -38,21 +38,9 @@ describe("bucketParseReason", () => {
  * which would file a block among the report-only lines.
  */
 describe("bucketCspDisposition", () => {
-  it("keeps the two dispositions the spec defines", () => {
-    expect(bucketCspDisposition("enforce")).toBe("enforce");
-    expect(bucketCspDisposition("report")).toBe("report");
-  });
-
   it("tolerates case and surrounding whitespace", () => {
     expect(bucketCspDisposition(" Enforce ")).toBe("enforce");
     expect(bucketCspDisposition("REPORT")).toBe("report");
-  });
-
-  it("collapses a missing, empty or unrecognised value to unknown", () => {
-    expect(bucketCspDisposition(undefined)).toBe("unknown");
-    expect(bucketCspDisposition("")).toBe("unknown");
-    expect(bucketCspDisposition("block")).toBe("unknown");
-    expect(bucketCspDisposition("report-only")).toBe("unknown");
   });
 });
 

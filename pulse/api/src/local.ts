@@ -115,7 +115,12 @@ if (nonLocal && trustedProxyCountUnconfigured) {
   ).catch(() => undefined);
 }
 
-app.listen({ port, reusePort: false });
+// Unset, the server listens on every interface, as under `bun run dev`. The
+// E2E stack names a loopback address: the secrets it hands this server are
+// committed placeholders, so no other machine may reach it.
+const hostname = process.env.PULSE_LOCAL_HOSTNAME || undefined;
+
+app.listen({ hostname, port, reusePort: false });
 
 // Register our ephemeral public key with osn/api and schedule automatic
 // rotation. Exits the process only on unrecoverable errors (missing secret in

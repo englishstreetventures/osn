@@ -15,7 +15,9 @@ const themesFor = (choice: ThemeChoice): CireTheme[] =>
 /**
  * The portal tokens the glass reads beyond the contract, as the host portal
  * sets them: its glide (the `cubic-bezier` it declares before its `linear()`
- * one), its inner lip and first lift, and the glass's light edge.
+ * one), its inner lip and first lift, and the glass's light edge and ring
+ * (the portal's `--border` and `--gold-ink`, which the contract's hairline and
+ * accent ink carry here).
  */
 const PORTAL = {
   dark: {
@@ -23,12 +25,14 @@ const PORTAL = {
     "--inner-lip": "inset 0 1px 0 oklch(100% 0 0 / 0.045)",
     "--elev-1": "0 1px 2px oklch(0% 0 0 / 0.32)",
     "--glass-edge": "oklch(100% 0 0 / 0.1)",
+    "--glass-ring": "0 0 0 0.5px var(--ui-hairline)",
   },
   light: {
     "--ease-glide": "cubic-bezier(0.36, 1.3, 0.3, 1)",
     "--inner-lip": "inset 0 1px 0 oklch(100% 0 0 / 0.6)",
     "--elev-1": "0 1px 2px oklch(30% 0.02 340 / 0.12)",
     "--glass-edge": "oklch(100% 0 0 / 0.7)",
+    "--glass-ring": "0 0 0 1px color-mix(in srgb, var(--ui-accent-ink) 80%, transparent)",
   },
 } satisfies Record<CireTheme, JSX.CSSProperties>;
 

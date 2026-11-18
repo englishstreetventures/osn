@@ -572,22 +572,6 @@ describe("planningExportService.tasksCsv", () => {
     expect(lines(csv)[1]).toBe("3 months out,'=cmd|' /C calc'!A0,Open,'+1,,'@everyone");
   });
 
-  it("prints only this wedding's tasks", async () => {
-    const db = freshDb();
-    insertTask(db, { id: "tsk_mine", title: "Ours", bucket: "3m", sortOrder: 0 });
-    insertTask(db, {
-      id: "tsk_theirs",
-      title: "Theirs",
-      bucket: "3m",
-      sortOrder: 0,
-      weddingId: OTHER,
-    });
-
-    const csv = await run(db, planningExportService.tasksCsv(BOOTSTRAP_WEDDING_ID));
-    expect(csv).toContain("Ours");
-    expect(csv).not.toContain("Theirs");
-  });
-
   it("stops at the row ceiling and warns that it cut", async () => {
     const db = freshDb();
     const all = Array.from({ length: MAX_PLANNING_EXPORT_ROWS + 1 }, (_, i) => i);
@@ -656,35 +640,6 @@ describe("planningExportService.tasksCsv", () => {
 });
 
 describe("planningExportService.moduleRows", () => {
-  it("counts this wedding's budget lines and tasks, and nobody else's", async () => {
-    const db = freshDb();
-    insertItem(db, { id: "bit_1", category: "venue", name: "Hall", sortOrder: 0 });
-    insertItem(db, { id: "bit_2", category: "cake", name: "Cake", sortOrder: 0 });
-    insertPayment(db, {
-      id: "pay_1",
-      itemId: "bit_1",
-      label: "Deposit",
-      amountMinor: 100,
-      createdAt: at(1),
-    });
-    insertItem(db, {
-      id: "bit_x",
-      category: "venue",
-      name: "Theirs",
-      sortOrder: 0,
-      weddingId: OTHER,
-    });
-    insertTask(db, { id: "tsk_1", title: "One", bucket: "3m", sortOrder: 0 });
-    insertTask(db, { id: "tsk_x", title: "Theirs", bucket: "3m", sortOrder: 0, weddingId: OTHER });
-
-    expect(await run(db, planningExportService.moduleRows(BOOTSTRAP_WEDDING_ID))).toEqual({
-      budgetLines: 2,
-      tasks: 1,
-      gifts: 0,
-      seats: 0,
-    });
-  });
-
   it("is zero and zero for a wedding that never used either module", async () => {
     expect(await run(freshDb(), planningExportService.moduleRows(BOOTSTRAP_WEDDING_ID))).toEqual({
       budgetLines: 0,

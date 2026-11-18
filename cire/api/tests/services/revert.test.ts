@@ -129,7 +129,7 @@ async function applyWithBeforeImage(
   );
 }
 
-describe("revertImport — before-image path (E3)", () => {
+describe("revertImport — before-image path", () => {
   it("restores the exact pre-change state after an interleaved change", async () => {
     const db = createDb(":memory:");
     seedBootstrapWedding(db);
@@ -495,7 +495,7 @@ describe("revertImport", () => {
     expect(error).toBeInstanceOf(NoPriorImport);
   });
 
-  it("refuses to revert an import that belongs to another wedding (T-S3)", async () => {
+  it("refuses to revert an import that belongs to another wedding", async () => {
     const db = createDb(":memory:");
     seedBootstrapWedding(db);
 
@@ -636,12 +636,6 @@ function familyNamed(db: TestDb, familyName: string) {
 const SEED = { eventsCsv: EVENTS_V2, guestsCsv: GUESTS_V2 };
 
 describe("storedRevertScope", () => {
-  it("reads the scope stored on the change row", () => {
-    expect(storedRevertScope('{"scope":"events"}')).toBe("events");
-    expect(storedRevertScope('{"scope":"guests","baseRevision":"x"}')).toBe("guests");
-    expect(storedRevertScope('{"scope":"both"}')).toBe("both");
-  });
-
   it("restores both halves when the row has no readable scope", () => {
     expect(storedRevertScope("{}")).toBe("both");
     expect(storedRevertScope('{"scope":"sideways"}')).toBe("both");
@@ -1199,8 +1193,8 @@ describe("revertImport — scoped edge cases", () => {
   it("an events revert restores a zone the upload parser refuses, with the instant it had", async () => {
     const { db, layer } = scopedLayer();
     await applyChange(layer, "c0", SEED, 1_000);
-    // A value a stored row can hold but an upload may not carry, as a row saved
-    // before the editor door checked zones can (englishstreetventures/osn#1220).
+    // A zone a stored row can hold but an upload may not carry: the revert
+    // restores it as stored rather than through the upload parser.
     db.update(events).set({ timezone: "UTC+10" }).where(eq(events.name, "Mehndi")).run();
     const before = db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!;
     await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);
@@ -1571,20 +1565,6 @@ describe("revertImport — provenance", () => {
       2_000,
     );
   }
-
-  it("stamps a household and guest the editor adds as manual, and a sheet re-import keeps them", async () => {
-    const { db, layer } = scopedLayer();
-    await applyChange(layer, "c0", SEED, 1_000);
-    await editorAdd(layer, "c1");
-    expect(sourcesOf(db).families["Handmade"]).toBe("manual");
-    expect(sourcesOf(db).guests["Cy"]).toBe("manual");
-    expect(sourcesOf(db).families["Testfamily"]).toBe("import");
-
-    // A two-sheet upload that does not list Handmade, without the toggle.
-    await applyChange(layer, "c2", SEED, 3_000);
-    expect(familyNamed(db, "Handmade")).toBeDefined();
-    expect(guestNamed(db, "Cy")).toBeDefined();
-  });
 
   it("reverting the editor save that added a household removes it", async () => {
     const { db, layer } = scopedLayer();

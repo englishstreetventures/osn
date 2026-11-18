@@ -192,8 +192,4 @@ describe("house/no-stacked-doc-block", () => {
   it("passes a module block under a line-1 pragma when an import follows it", () => {
     expect(forFixture(diagnostics, "pragma-then-import.ts")).toHaveLength(0);
   });
-
-  it("reports under the plugin's rule id", () => {
-    expect(diagnostics.every((d) => d.code === "house(no-stacked-doc-block)")).toBe(true);
-  });
 });

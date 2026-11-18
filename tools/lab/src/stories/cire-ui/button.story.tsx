@@ -265,7 +265,7 @@ export const PortalPills: Story<ThemeArgs> = {
                     >
                       <span aria-hidden="true">⋯</span>
                     </Button>
-                    <Specimen variant="bar" size="icon" label="Download RSVPs (CSV)" />
+                    <Specimen variant="bar" size="icon" label="Add household" />
                     <Button
                       variant="bar"
                       size="icon"

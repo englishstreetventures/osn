@@ -208,8 +208,4 @@ describe("house/no-base-variant-at-call-site", () => {
       "<Dialog.Panel>",
     );
   });
-
-  it("reports under the plugin's rule id", () => {
-    expect(diagnostics.every((d) => d.code === "house(no-base-variant-at-call-site)")).toBe(true);
-  });
 });

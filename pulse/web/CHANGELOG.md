@@ -1,5 +1,41 @@
 # @osn/pulse
 
+## 0.24.99
+
+### Patch Changes
+
+- Updated dependencies [2aca4d6]
+  - @pulse/api@0.29.7
+
+## 0.24.98
+
+### Patch Changes
+
+- 9ea44d7: The privacy notices and terms say what deleting a Musubi account does: it is deleted once 7 days have passed, usually within a day of the date shown, and can be kept until then by signing in and choosing Keep my account; its handles are held for 30 days by a keyed hash; each app deletes what it holds except what others still rely on. Musubi's notice and terms name only what Settings can do (download your data, disconnect an app, delete your account), and a test fails when either names an action Settings has no control for. A Cire wedding deleted with the account is said to wait for any payment still settling. Pulse's notice says what happens to RSVPs and hosted events. The two marketing sites say where an account is deleted, and links inside the Musubi marketing site's legal text are underlined.
+
+## 0.24.97
+
+### Patch Changes
+
+- 1806e46: Cut unit tests whose behaviour a named E2E step or another test was seen to catch under a mutation, and delete the unused `EventList` and `EventCard` components and the unused tab helpers.
+
+## 0.24.96
+
+### Patch Changes
+
+- db8c428: `Checkbox`, `RadioGroup` and `Switch` draw on one rule: the control sits on its words' first line whatever their length, 8px from them, at prose leading; a chosen radio's 8px dot sits in the centre of its 16px circle; options are 8px apart in a column and 16px in a row; keyboard focus is the house outline, 2px off. `align` is gone (every control sits on the first line). `RadioGroup` and `Checkbox` take `touch`: below `md` each row is a 44px target and the space between options stays even, with nothing around it moving. `RadioGroupItem` takes a `description`. Musubi's deletion flow and the recovery-codes box use `touch` in place of their own row classes; Pulse's attendance setting puts each option's line under its words, and Pulse maps `--ui-choice-edge` to its `--subtle`, so an unchosen radio's edge clears 3:1 (it was 1.10–1.31:1 on `--input`, an edge nobody could see on a dark card); Pulse's and Musubi's contract tests hold the choice edge at 3:1 on every ground in both themes.
+- Updated dependencies [db8c428]
+- Updated dependencies [db8c428]
+  - @shared/ui@0.18.0
+  - @shared/design-tokens@0.10.0
+  - @pulse/api@0.29.6
+
+## 0.24.95
+
+### Patch Changes
+
+- @pulse/api@0.29.5
+
 ## 0.24.94
 
 ### Patch Changes

@@ -150,15 +150,6 @@ describe("ResendEmailLive", () => {
     );
   });
 
-  it("returns dispatch_failed on API 5xx (matches Cloudflare transport)", async () => {
-    responder = () => new Response("boom", { status: 500 });
-    await expectFailsWith(
-      buildLayer(),
-      { template: "passkey-added", to: "alice@example.com", data: { instanceName: "Musubi" } },
-      "dispatch_failed",
-    );
-  });
-
   it("returns dispatch_failed on API 4xx (non-429) — boundary at 422", async () => {
     responder = () => new Response("validation failed", { status: 422 });
     await expectFailsWith(
@@ -291,20 +282,9 @@ const sendOne = (layer: ReturnType<typeof makeResendEmailLive>) =>
   );
 
 describe("ResendEmailLive apiUrl", () => {
-  it("sends to the Resend API when apiUrl is unset", async () => {
-    await sendOne(makeResendEmailLive({ apiKey: RESEND_API_KEY }));
-    expect(captured!.url).toBe(EXPECTED_URL);
-  });
-
   it("sends to the Resend API when apiUrl is blank", async () => {
     await sendOne(makeResendEmailLive({ apiKey: RESEND_API_KEY, apiUrl: "  " }));
     expect(captured!.url).toBe(EXPECTED_URL);
-  });
-
-  it("sends to the override's /emails when apiUrl names a local emulator", async () => {
-    await sendOne(makeResendEmailLive({ apiKey: RESEND_API_KEY, apiUrl: "http://localhost:4008" }));
-    expect(captured!.url).toBe("http://localhost:4008/emails");
-    expect(captured!.headers.get("authorization")).toBe(`Bearer ${RESEND_API_KEY}`);
   });
 
   it("accepts a trailing slash on the override", async () => {

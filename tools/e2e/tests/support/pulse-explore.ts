@@ -5,7 +5,8 @@
  * 768px and its one line from there up, the active tab's coral underline on
  * the header's bottom border, the hero's stats under the headline on a phone,
  * the header pinned only from 768px up, Home marked as the current tab, the
- * greeting's date and "View all"'s chevron each kept on one line with what
+ * tabs, Host pill and notification bell a signed-in or signed-out viewer gets,
+ * the greeting's date and "View all"'s chevron each kept on one line with what
  * they follow, and the create form's two times stacked on a phone. The rules
  * are `pulse/DESIGN.md` §Explore Page Layout. Then the header's motion and
  * focus: what its controls fade and on what timing, the search's focus
@@ -76,8 +77,19 @@ interface Layout {
   readonly viewAllIcon: Box;
   /** The text of every tab marked `aria-current="page"`. */
   readonly currentTabs: readonly string[];
+  /** The text of every tab in the nav, in order. */
+  readonly tabLabels: readonly string[];
+  /** Whether the row draws the Host pill and the notification bell. */
+  readonly hostPill: boolean;
+  readonly bell: boolean;
   readonly placeholderFits: boolean;
 }
+
+/** What the nav holds for each viewer: signed in, or signed out. */
+const NAV = {
+  host: { tabs: "Home | Calendar | Hosting", signedInControls: true },
+  guest: { tabs: "Home", signedInControls: false },
+} as const;
 
 /**
  * Reads the header's geometry. The brand row is the header's first child, the
@@ -85,7 +97,7 @@ interface Layout {
  * headline's, the date the greeting's `<b>` and the separator the element
  * before it, and the action the row's Host or "Continue with musubi" pill —
  * the one on the brand's line on a phone. "View all" is the featured section's
- * link, below the header.
+ * link, below the header. The bell is the row's button named "Notifications".
  */
 function measure(page: Page): Promise<Layout> {
   return page.evaluate((searchName) => {
@@ -104,9 +116,12 @@ function measure(page: Page): Promise<Layout> {
     );
     const viewAllText = viewAll?.firstChild ? document.createRange() : null;
     if (viewAll?.firstChild && viewAllText) viewAllText.selectNodeContents(viewAll.firstChild);
-    const action = [...(row?.querySelectorAll("button") ?? [])].find((b) =>
+    const buttons = [...(row?.querySelectorAll("button") ?? [])];
+    const action = buttons.find((b) =>
       ["Host", "Continue with musubi"].includes(b.textContent?.trim() ?? ""),
     );
+    const drawn = (el: Element | undefined) =>
+      el !== undefined && el.getBoundingClientRect().width > 0;
     if (!header || !input) throw new Error("explore header: header or search missing");
     const ctx = document.createElement("canvas").getContext("2d");
     if (!ctx) throw new Error("explore header: no 2d context");
@@ -130,6 +145,11 @@ function measure(page: Page): Promise<Layout> {
       currentTabs: [...(row?.querySelectorAll('nav [aria-current="page"]') ?? [])].map(
         (el) => el.textContent?.trim() ?? "",
       ),
+      tabLabels: [...(row?.querySelectorAll("nav button") ?? [])].map(
+        (el) => el.textContent?.trim() ?? "",
+      ),
+      hostPill: drawn(buttons.find((b) => b.textContent?.trim() === "Host")),
+      bell: drawn(buttons.find((b) => b.getAttribute("aria-label") === "Notifications")),
       placeholderFits: ctx.measureText(input.placeholder).width <= input.clientWidth,
     };
   }, SEARCH_NAME);
@@ -167,13 +187,23 @@ async function shoot(page: Page, view: string, width: number): Promise<void> {
 /**
  * The explore page's layout at each width, for `who` — `host` signed in with
  * the bell, Host and avatar and three tabs, `guest` signed out with "Continue
- * with musubi" and Home alone.
+ * with musubi" and Home alone. The nav's contents are checked once, at the
+ * first width.
  */
-export async function exploreLayout(flow: Flow, page: Page, who: string): Promise<void> {
+export async function exploreLayout(flow: Flow, page: Page, who: "host" | "guest"): Promise<void> {
+  const nav = NAV[who];
   await flow.step(`explore: ${who} opens the explore page`, async () => {
     await page.goto(`${ORIGINS.pulseWeb}/`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(page.getByRole("textbox", { name: SEARCH_NAME })).toBeVisible();
+    // Waits for the viewer's own action pill, so a signed-in header is never
+    // read before its session arrives.
+    await expect(
+      page.getByRole("button", {
+        name: nav.signedInControls ? "Host" : "Continue with musubi",
+        exact: true,
+      }),
+    ).toBeVisible();
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
   });
 
@@ -184,6 +214,16 @@ export async function exploreLayout(flow: Flow, page: Page, who: string): Promis
       return measure(page);
     });
     const phone = size.width < MD;
+
+    if (size === SIZES[0]) {
+      flow.check(`explore: ${who}: the nav's tabs`, nav.tabs, layout.tabLabels.join(" | "));
+      flow.check(`explore: ${who}: the Host pill is drawn`, nav.signedInControls, layout.hostPill);
+      flow.check(
+        `explore: ${who}: the notification bell is drawn`,
+        nav.signedInControls,
+        layout.bell,
+      );
+    }
 
     flow.check(`${at}: no sideways scroll`, true, layout.scrollWidth <= layout.innerWidth);
     flow.check(

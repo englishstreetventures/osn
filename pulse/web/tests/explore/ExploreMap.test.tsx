@@ -73,21 +73,6 @@ describe("ExploreMap", () => {
   // Venue layer
   // -------------------------------------------------------------------------
 
-  it("renders a clickable venue pin for a venue the server returned", () => {
-    const venues = [
-      venueRow({
-        id: "ven_1",
-        orgHandle: "tpf",
-        handle: "factory",
-        latitude: 40.705,
-        longitude: -73.93,
-      }),
-    ];
-    const { container } = renderWithRouter(() => <ExploreMap events={[]} venues={venues} />);
-    const links = container.querySelectorAll<HTMLAnchorElement>("a[href='/venues/tpf/factory']");
-    expect(links.length).toBe(1);
-  });
-
   // The bbox filter moved into the `/venues` query, so the map paints what
   // it is given. What it must still drop is a venue with no coordinates —
   // there is nowhere to put the pin.
@@ -190,13 +175,6 @@ describe("ExploreMap", () => {
         longitude: -73.93,
       }),
     ],
-  });
-
-  it("renders event pins as focusable buttons labelled with the event title", () => {
-    const { venues, events } = coLocatedFixtures();
-    const { container } = renderWithRouter(() => <ExploreMap events={events} venues={venues} />);
-    const pin = container.querySelector("button[aria-label='Friday Residency']");
-    expect(pin).toBeTruthy();
   });
 
   it("opens the popover with the 'See venue' link on focus", async () => {

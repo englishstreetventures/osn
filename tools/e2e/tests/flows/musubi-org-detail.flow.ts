@@ -39,6 +39,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 
 import { DB_FILES, MUSUBI_ORG, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import { watchPlaceholders } from "../support/draw-watch";
 import {
   expect,
   holdMethod,
@@ -81,49 +82,6 @@ async function hold(page: Page, url: string): Promise<() => void> {
     await route.continue();
   });
   return release;
-}
-
-/** A loading placeholder (`@shared/ui`'s `Skeleton`): hidden from readers, the sunk well's fill. */
-const PLACEHOLDER = '[aria-hidden="true"][class*="bg-ui-surface-sunk"]';
-
-/**
- * Watches the page for a loading placeholder being drawn, from now until
- * `seen` is read. On `document.body`, which outlives every page's `<main>`,
- * and on added nodes, since a placeholder arrives inside a new subtree.
- */
-async function watchPlaceholders(page: Page): Promise<{ seen: () => Promise<boolean> }> {
-  await page.evaluate((selector) => {
-    const w = window as unknown as {
-      __placeholderWatch?: { observer: MutationObserver; seen: boolean };
-    };
-    w.__placeholderWatch?.observer.disconnect();
-    const watch = { observer: undefined as unknown as MutationObserver, seen: false };
-    const file = (records: MutationRecord[]) => {
-      for (const record of records) {
-        for (const node of record.addedNodes) {
-          if (node instanceof Element && (node.matches(selector) || node.querySelector(selector))) {
-            watch.seen = true;
-          }
-        }
-      }
-    };
-    watch.observer = new MutationObserver(file);
-    watch.observer.observe(document.body, { childList: true, subtree: true });
-    w.__placeholderWatch = watch;
-    (w as unknown as { __placeholderFile: typeof file }).__placeholderFile = file;
-  }, PLACEHOLDER);
-  return {
-    seen: () =>
-      page.evaluate(() => {
-        const w = window as unknown as {
-          __placeholderWatch: { observer: MutationObserver; seen: boolean };
-          __placeholderFile: (records: MutationRecord[]) => void;
-        };
-        w.__placeholderFile(w.__placeholderWatch.observer.takeRecords());
-        w.__placeholderWatch.observer.disconnect();
-        return w.__placeholderWatch.seen;
-      }),
-  };
 }
 
 /** Members `org` has, read from osn-api's database. */
@@ -505,8 +463,12 @@ test("musubi-org-detail", async ({ page, flow }) => {
   flow.check("no stale roster refusal while the roster loads", 0, staleRefusals);
 
   await flow.step("delete the organisation", async () => {
-    page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: "Delete", exact: true }).click();
+    // The app's own dialog asks first, and its Delete commits.
+    await page
+      .getByRole("dialog", { name: "Delete this organisation?" })
+      .getByRole("button", { name: "Delete", exact: true })
+      .click();
     await expect(page).toHaveURL(`${ORIGINS.musubi}/organisations`);
   });
   flow.check(

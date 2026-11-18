@@ -19,6 +19,7 @@ import {
   removeMember,
   updateChat,
 } from "../../src/services/chats";
+import type { ConsentDenied } from "../../src/services/consent";
 import { resetConsentGate, setConsentGate } from "../../src/services/consent";
 import { listMessages, sendMessage } from "../../src/services/messages";
 import { holdQueries } from "../helpers/held-query";
@@ -84,11 +85,18 @@ describe("zap/api over real D1 (Miniflare)", () => {
 
   it("sendMessage then listMessages persists via the async driver", async () => {
     // A DM is exactly two people, so the second member is required — a bare
-    // `{ type: "dm" }` now fails `InvalidDmMembership`. createChat then graph-gates every
-    // member, fail-closed, so the consent gate has to be stubbed open (this suite
-    // is about the async D1 driver, not the graph).
+    // `{ type: "dm" }` fails `InvalidDmMembership`. createChat then graph-gates
+    // every member, fail-closed, so the consent gate has to be stubbed open here
+    // (the fail-closed case below covers the gate on D1).
     setConsentGate(() => Promise.resolve(true));
     const chat = await run(createChat({ type: "dm", memberProfileIds: [BOB] }, ALICE));
+    // The DM lands exactly two member rows: the creator and the other member.
+    const members = await rawDb
+      .select({ profileId: chatMembers.profileId })
+      .from(chatMembers)
+      .where(eq(chatMembers.chatId, chat.id));
+    expect(members.map((m) => m.profileId).toSorted()).toEqual([ALICE, BOB]);
+
     const sent = await run(
       sendMessage(chat.id, ALICE, { ciphertext: "deadbeef", nonce: "nonce123" }),
     );
@@ -99,11 +107,25 @@ describe("zap/api over real D1 (Miniflare)", () => {
     expect(msgs[0]!.ciphertext).toBe("deadbeef");
   });
 
+  // A gate that throws is the OSN graph unreachable. The create is refused
+  // before any insert, so no chat and no member row is left behind.
+  it("createChat fails closed when the consent gate throws, leaving no rows, over async D1", async () => {
+    setConsentGate(() => Promise.reject(new Error("graph down")));
+    const refused = await run(
+      Effect.flip(createChat({ type: "dm", memberProfileIds: [BOB] }, ALICE)),
+    );
+    expect(refused._tag).toBe("ConsentDenied");
+    expect((refused as ConsentDenied).reason).toBe("graph_unreachable");
+    expect(await rawDb.select({ id: chats.id }).from(chats)).toHaveLength(0);
+    expect(await rawDb.select({ id: chatMembers.id }).from(chatMembers)).toHaveLength(0);
+  });
+
   it("rejects a message from a non-member over async D1", async () => {
     const chat = await run(createChat({ type: "group", title: "Private" }, ALICE));
-    await expect(
-      run(sendMessage(chat.id, BOB, { ciphertext: "ff", nonce: "n" })),
-    ).rejects.toThrow();
+    const refused = await run(
+      Effect.flip(sendMessage(chat.id, BOB, { ciphertext: "ff", nonce: "n" })),
+    );
+    expect(refused._tag).toBe("NotChatMember");
   });
 
   // The removal answers from its delete's change count, which D1 reports under

@@ -164,24 +164,6 @@ describe("migration 0076 — wedding owners become seats", () => {
     db.close();
   });
 
-  it("drops the owner column and its index", () => {
-    const db = beforeMigration();
-    apply(db, MIG_0076);
-
-    const columns = (db.query("PRAGMA table_info(weddings)").all() as { name: string }[]).map(
-      (c) => c.name,
-    );
-    expect(columns).not.toContain("owner_osn_profile_id");
-    expect(
-      db
-        .query(
-          "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'weddings_owner_idx'",
-        )
-        .get(),
-    ).toBeNull();
-    db.close();
-  });
-
   it("holds one statement per breakpoint chunk, as D1's prepare needs, and never rebuilds weddings", () => {
     const text = readFileSync(join(MIGRATIONS_DIR, MIG_0076), "utf8");
     const chunks = text

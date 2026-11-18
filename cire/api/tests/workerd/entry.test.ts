@@ -94,7 +94,7 @@ describe("src/entry.ts on workerd", () => {
 });
 
 /**
- * W1 in `NEW-FEAT.md`: the whole-wedding archive from the same bundle, under
+ * The whole-wedding archive from the same bundle, under
  * the compatibility flags the production stack deploys with
  * (`cire/infra/src/declaration.ts`), not the ones `wrangler.toml` names. Only
  * workerd shows that `node:zlib`'s `crc32` and the streamed body both work in
@@ -147,7 +147,7 @@ describe("the wedding archive on workerd", () => {
     await archiveMf?.dispose();
   });
 
-  it("W1: streams an owner's archive whose every entry checks", async () => {
+  it("streams an owner's archive whose every entry checks", async () => {
     const res = await archiveMf.dispatchFetch(
       `https://api.example.test/api/organiser/weddings/${W}/archive`,
       { method: "POST", headers: { cookie, Origin: "https://host.example.test" } },

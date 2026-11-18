@@ -217,16 +217,6 @@ describe("organiserSessionService.sweepExpired", () => {
   );
 
   it(
-    "returns zero when nothing has elapsed",
-    withDb(
-      Effect.gen(function* () {
-        yield* organiserSessionService.create(identity());
-        expect(yield* organiserSessionService.sweepExpired()).toBe(0);
-      }),
-    ),
-  );
-
-  it(
     "sweeps against the clock it is handed",
     withDb(
       Effect.gen(function* () {

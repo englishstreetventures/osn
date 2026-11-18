@@ -37,7 +37,7 @@ light, `.dark` for dark).
 | --- | --- | --- | --- |
 | `--foreground` (`text-foreground`) | `#292929` | `#f2f2f2` | primary text; also `--primary`, the filled-CTA background |
 | `--muted-foreground` (`text-muted-foreground`) | `#5d5d5d` | `#a3a3a3` | secondary text (subtitles, descriptions) |
-| `--subtle` (`text-subtle`) | `#8d8d8d` | `#7a7a7a` | resting icons and ornaments; never text a reader needs |
+| `--subtle` (`text-subtle`) | `#8d8d8d` | `#7a7a7a` | resting icons and ornaments, and an unchosen choice's edge (§Choices); never text a reader needs |
 | `--background` | `#ffffff` | `#1c1c1c` | the page |
 | `--card`, `--popover` | `#ffffff` | `#242424` | cards, dialogs, menus |
 | `--muted` (and `--secondary`, `--accent`) | `#f4f4f4` | `#2b2b2b` | hover and fill surfaces |
@@ -154,7 +154,9 @@ holds only as a fill, at 4.5:1 on the grounds an error line sits on, and warn
 ink at 4.5:1 on a warn `Notice`'s wash, the one place warn is ink. One role
 carries a waiver, with its reason in the test: `--ui-hairline-strong`, which
 takes `--input` (1.30:1 on the page in light, against a 3:1 floor). No base
-rule draws it on an element that does not name it (§Borders).
+rule draws it on an element that does not name it (§Borders). The edge of a
+drawn choice is a role of its own, `--ui-choice-edge`, measured with the
+rest at 3:1 and unwaived (§Choices).
 
 ## Typography
 
@@ -190,6 +192,11 @@ rule draws it on an element that does not name it (§Borders).
   profile picker, which draws no client card, titles its screen "Choose a
   profile" at `text-title` and 500. The rail's account trigger is shell chrome and keeps its own
   size.
+- **Words someone else wrote break anywhere** (`wrap-anywhere`), so a name
+  with no space in it, or a pasted address, stays in its column: `/authorize`'s
+  client name; an organisation's name in its page's `h1`, which its admins
+  write; and in the deletion flow, an app's words for an open action and for
+  each of its choices (`OpenActionCard.tsx`).
 - **Dialog and card titles** — `@shared/ui`'s `DialogTitle` and `CardTitle`
   are `text-title`'s 14px at 500. Both set their size with `--ui-text-md` and
   their weight with `--ui-weight-title`, which the contract block in `App.css`
@@ -398,7 +405,9 @@ The app adds colour and opacity transitions only, and no spatial motion of its
 own, with four exceptions: three are `@shared/ui`'s, the orb a busy button
 draws (§The orb), the press (below), and a dialog below `md`, which slides up
 and down as a sheet (below); one is `@osn/auth-ui`'s, the fill that empties
-behind an emailed link's Resend as it waits (below). Rows, tabs and controls fade their colours with `transition-ui-colors`
+behind an emailed link's Resend as it waits (below). The app draws no
+`Switch`, whose thumb slides on a timing of its own, off the contract's
+`--ui-dur-*` and `--ui-ease-*`: an on/off is a `Checkbox` (§Choices). Rows, tabs and controls fade their colours with `transition-ui-colors`
 (`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
 same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
@@ -406,7 +415,8 @@ focus mark arrives late. A loading placeholder is `@shared/ui`'s `Skeleton`
 (§Empty states and failed loads), which pulses in opacity and stands still
 under reduced motion. What replaces it arrives at once, with no fade, and so
 do an error line and a step that replaces another (a sign-in step, the
-authenticator's setup, a step-up's code): a fade would only hold back what the
+authenticator's setup, a step-up's code, a step of the account's deletion): a
+fade would only hold back what the
 reader is waiting for, and the jump in height it leaves could be bridged only
 by spatial motion.
 
@@ -552,6 +562,44 @@ its three motions that are not a colour or opacity change.
 - Bare routes (`/authorize`, `/verify/:requestId`) = no shell; one centred
   column, `max-w-md px-6 py-10`, centred vertically in the viewport.
   `/verify/:requestId` sets the product name above its card, `gap-6` apart.
+- **A flow of several steps is a page, not a dialog**: the account's deletion,
+  `/settings/delete-account` (`DeleteAccountPage.tsx`), which Settings →
+  Account's "Delete account…" opens. Its steps hold long, wrapping choices
+  and open the step-up sheet over themselves, which a 384px card, and a sheet
+  over a sheet, would not hold well. The page head's subtitle says where the
+  person is ("Step 2 of 3"). Each step, and each section inside one (an app's
+  name over its actions), leads with a `text-title` heading at 500 over its
+  cards, 12px apart; a step's sections stand 24px apart, step 2's "Delete
+  everything" card among them, above the first app's. Step 2's heading has a
+  `text-body` subtitle in the secondary ink 4px under it ("We asked Musubi
+  and each app…"), and the 12px run from that. The step's heading takes focus
+  as the step opens, and draws no focus mark, since Tab never reaches it. The step's buttons come
+  last, right-aligned, Cancel or Back first and then the step's one action,
+  `sm` with `max-md:h-10`, as a dialog footer's are, with no hairline. A step
+  that replaces another arrives at once (§Motion). A line about the whole
+  step sits under its heading, above its cards, on both steps that can
+  refuse: a refusal as the danger line (step 3's "For your security, sign in
+  again…" and the copy map's sentence among them), "Something changed since
+  you last looked" as an `info` `Notice` at `sm`.
+- **The deletion window screen**: for a session whose account is pending
+  deletion, `AppShell` (`App.tsx`) draws `DeletionWindow` in place of the
+  shell, its dialogs, `ShellNotices`, the account banners and the page, on
+  every route but the bare ones, so nothing that would send a request the
+  pending session is refused mounts. It is drawn as a bare route's card: the
+  product name over one `Card` at `padding="lg"` in the `max-w-md` column,
+  centred both ways; its `h1` at `text-title` and 500; its date a `<time>`
+  in the reader's locale and zone; its buttons as wide as the card at
+  `size="lg"` with `max-md:h-11`: Keep my account (`default`), Download my
+  data (`secondary`), Sign out (`ghost`). Too late to keep it, the card says
+  so and offers Sign out alone. Kept from another device, or kept here, while
+  the session has not turned ordinary, it says "Your account is back" and
+  offers Reload. Its code is a chunk of its own; until it lands `App.tsx`
+  draws the screen's frame (`DeletionWindowFrame.tsx`, in the entry chunk),
+  the loading screen's shape with a block for each button, so nothing moves
+  when it lands; a chunk that fails leaves the frame with its heading and the
+  shell's failed-load line ("Musubi could not finish loading. Reload and try
+  again.", an inline danger `Notice` with `alert`).
+  `tests/components/DeletionWindow.browser.test.tsx` holds it.
 
 ## Responsive layout
 
@@ -635,8 +683,9 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   `<form>`: its fields in a body `div` padded 16px (`flex flex-col gap-4
   p-4`), its actions in `DialogActions`. The footer sits inside the form, so
   Enter in a field submits. A confirmation dialog has the same shape with its
-  words in the body (`ConnectionsPage`'s remove dialog, whose commit is
-  `destructive`).
+  words in the body: `ConnectionsPage`'s remove dialog, and an organisation's
+  "Delete this organisation?", whose commits are `destructive`. Nothing in the
+  app asks through the browser's `confirm()`.
 - **Touch targets** = ≥40px visual / 44px effective on mobile. The mechanism
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
@@ -712,21 +761,28 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   (`tests/components/LoadingShapes.browser.test.tsx`,
   `tests/components/AuthorizeLoading.browser.test.tsx`). A list a person
   acts on keeps its rows on screen while it is read again (Connected apps
-  after a revoke, the passkey list after a delete), and a row that may be gone
-  is not one anyone can act on: its action stays busy or disabled until the
-  read lands. A state whose words are the content stays
+  after a revoke), and a row that may be gone is not one anyone can act on:
+  its action stays busy or disabled until the read lands. Settings → Security
+  never shows a row a write may have changed: a passkey renamed or removed
+  shows its new name, or is gone, at once; after an add, an authenticator
+  added or removed, or a new set of recovery codes, that panel draws its
+  placeholder (the passkey list as many rows as it last held) until the read
+  lands. A state whose words are the content stays
   words: `/authorize`'s "Checking this request…" and "Taking you back…",
   search's "Searching…", and a busy button's label (§Busy buttons).
 - **A page seen before draws no placeholder.** Connections (each tab),
-  Discover, Organisations, an organisation's page and Settings' Connected
-  apps read through one page cache (`src/lib/page-cache.ts`). Shown again,
+  Discover, Organisations, an organisation's page, and Settings' Connected
+  apps and Security read through one page cache (`src/lib/page-cache.ts`). Shown again,
   a page draws the rows it last had at once and reads them again behind
   them, with no busy mark: the rows on screen are whole, and a screen reader
   may pass over a region marked `aria-busy`. Rows that come back unchanged
   keep their elements, so focus stays where it was. A row action pressed meanwhile is busy from the
   press with its own label ("Accepting…", "Declining…", "Removing…",
   "Cancelling…", "Unblocking…", "Sending…", "Revoking…"), waits for the read,
-  and acts only if its row is still there. A first load draws as many
+  and acts only if its row is still there. On Settings → Security the action
+  that waits reads "Checking…", since what it starts is the step-up sheet,
+  and the panel's other actions are disabled with it, as an open step-up
+  disables them. A first load draws as many
   placeholders as that page last landed, one when nothing is known; the
   count goes with the session that saw it
   (`tests/components/PlaceholderRows.browser.test.tsx`).
@@ -773,6 +829,28 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   `size="lg"` with `max-md:h-11`. On `/verify/:requestId`, Try again is busy
   ("Checking…") while the read runs, the card stays up, and the page's live
   region says the try and, when it fails again, the line.
+- **The deletion flow** asks each app what the account holds there. While it
+  does, step 2 draws the loaded list's shape: a card-cornered block for
+  "Delete everything" at its height (104.5px from `md`, 124px below it, a
+  `ResponsiveSkeleton`), then 24px to a 20px line for an app's name and two
+  cards for its actions, 12px apart. An action's card is as tall as its app's
+  words, so those two blocks are a guess. Nothing to answer is a
+  section `EmptyNote`, "Nothing else needs an answer." An app that did not
+  answer is the failed-load line naming each one ("Pulse and Zap didn't
+  answer, so we can't check what you have there. Your account can't be
+  deleted until they do.") with Try again, and Continue is disabled until
+  they answer. The window screen's date keeps two lines' room at every width
+  (`min-h-9`), since the year's longest date takes two from `md` as well, and
+  its placeholder is one 36px line block. `tests/components/LoadingShapes.browser.test.tsx`
+  holds step 2's block, gap and name line at 390px and 1440px, and
+  `tests/components/DeletionWindow.browser.test.tsx` the window's date and
+  frame at 320, 390, 768 and 1280px.
+
+  *Measured 2026-11-16 — `getBoundingClientRect()` in Chromium (Vitest browser
+  tier, Musubi's `App.css`): the "Delete everything" card 143.5px at 320px,
+  124px at 360–430px, 104.5px at 600px and up; "We delete it on Wednesday,
+  September 30, 2026 at 12:00 PM." two lines (36px) at 320, 390, 768 and
+  1280px. At 320px step 2's placeholder is 19.5px shorter than the card.*
 - **A page that throws while it renders** shows "This page didn't load." with
   "Try again" in the content column, inside the shell: `PageErrorBoundary`
   wraps each route, so the rail, the tab bar and the account banners stay
@@ -811,10 +889,26 @@ apart by its underline or by standing alone at 500.
   `@osn/auth-ui`'s "Lost your passkey?", under the field in the sign-in
   dialog and under Continue on `/authorize`; its recovery steps' "Back";
   the step-up sheet's "Use another method".
+- **A way to an app's own screen** is an `<a>` wearing
+  `buttonVariants({ variant: "secondary", size: "sm" })` with `max-md:h-10`,
+  at the start of its card (`self-start`), so its fill, not its words, meets
+  the column edge. It opens in a new tab, so the screen it leaves keeps what
+  was answered there, and is described by the words it is about
+  (`aria-describedby`), so a list of them is told apart. Only an `https:`
+  address is drawn. Use: the deletion flow's "Open in Cire" and the like
+  (`OpenActionCard.tsx`), whose address the app sends.
+- **A way back, or to a flow, in a button's look** is an `<A>` wearing that
+  button's `buttonVariants`, since it goes to another address: Settings →
+  Account's "Delete account…" (`ghostDanger`, `sm`, as the organisation
+  page's Delete is) and the deletion flow's first Cancel (`secondary`, `sm`).
 - **The action that ends an error line is neither.** It keeps the line's ink
-  and is underlined at rest: `@osn/auth-ui`'s `InlineAction`, and "Try again"
-  in `ShellNotices` and `PageErrorBoundary`. `link` would paint it the accent
-  ink, and a call site may not recolour a `Button` (`shadcn/no-restyle`).
+  and is underlined at rest: `@osn/auth-ui`'s `InlineAction`
+  (`@osn/auth-ui/InlineAction`), which draws "Try again" in `ShellNotices`,
+  the deletion flow and its window screen, and the flow's "Sign in again".
+  `PageErrorBoundary` draws the same button itself, with the same classes:
+  it is in the entry chunk, which names nothing from `@osn/auth-ui`
+  (`tests/webauthn-chunks.test.ts`). `link` would paint it the accent ink,
+  and a call site may not recolour a `Button` (`shadcn/no-restyle`).
 
 ## Busy buttons
 
@@ -831,7 +925,9 @@ orb (§The orb).
   Create or Save runs, `@osn/auth-ui`'s sign-up Cancel while its link is
   sent or resent, and the profile switcher's Cancel while a switch runs,
   where Escape and a press outside are refused too, as on the step-up sheet.
-  A row's action leaves the other rows alone.
+  A row's action leaves the other rows alone, but on Settings → Security,
+  where a press opens the step-up sheet and the panel's other actions are
+  disabled with it, as an open sheet disables them.
 - **The other reasons stay in `disabled`, and apply only while idle**
   (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
   the page, so a reason that turns true mid-wait — the verification challenge
@@ -839,7 +935,9 @@ orb (§The orb).
 - **The handler checks too.** Each one returns early while its own wait runs,
   so no second request goes out whatever reaches it.
 - **Not for a wait the button did not start.** Settings → Security's
-  "Checking…", while the recovery-code status first loads, stays `disabled`.
+  "Checking…", while the recovery-code count is not yet known, stays
+  `disabled`. Pressed while a count already shown is read again, Generate is
+  busy with the same words: that wait it started.
 - **As it stands.** `/authorize`'s Allow and Cancel are still `disabled` for
   their wait, with no working label, until its consent screens are finished
   (#2048).
@@ -849,8 +947,13 @@ edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), Connected
 apps' Revoke ("Revoking…"), `/search`'s Connect ("Sending…") and Accept
 ("Accepting…"), Connections' Accept ("Accepting…"), Decline ("Declining…"),
 Remove ("Removing…"), Cancel ("Cancelling…") and Unblock ("Unblocking…"), a
-roster's Remove ("Removing…"), and Try again on a bare route's failed card
-("Checking…"). The
+roster's Remove ("Removing…"), Try again on a bare route's failed card
+("Checking…"), Settings → Security's Remove, Save, "Add an
+authenticator app" and Generate while the read they act on is out
+("Checking…"), Download my data ("Downloading…"), Send me a link
+("Sending…"), Delete my account ("Deleting…"), Keep my account
+("Restoring…"), an organisation's Decline ("Declining…") and the Delete in
+its confirmation dialog ("Deleting…"). The
 rail's results panel shows the same words as text, since
 a listbox option holds no button (`SearchResultRows.tsx`). The auth views' are
 in `osn/auth-ui/DESIGN.md` §6.
@@ -863,8 +966,9 @@ default look (the control step, 14px, at 500, full ink, the words as written)
 `Field` mints the control's id and names the hint in its `aria-describedby`.
 
 - **An error about what was typed** goes in `Field`'s `errors`, announced and
-  turning the edge red. No app form passes one today: the organisation dialogs
-  report a refused save in a toast. The auth views draw their own `Notice` line
+  turning the edge red: the deletion flow's handle that does not match, and
+  its "New owner" with no member chosen. The organisation dialogs report a
+  refused save in a toast. The auth views draw their own `Notice` line
   and tie it to the field themselves (`osn/auth-ui/DESIGN.md` §7).
 - **What stays a bare `Label`.** A field with an `InfoPopover` beside its
   label, since a label cannot hold a button (`@osn/auth-ui`'s Register Email),
@@ -875,9 +979,63 @@ default look (the control step, 14px, at 500, full ink, the words as written)
   `<label for>` names one control, and the boxes are a group
   (`osn/auth-ui/DESIGN.md` §4).
 
+A field that asks for a handle is `@shared/ui`'s `UsernameInput` in the
+`Field`: an `aria-hidden` "@" in the secondary ink, at the row's own size,
+8px ahead of `Input`. One part draws every handle field, so the "@" cannot
+drift between them.
+
 Uses in the app: the create-organisation dialog (Handle, with its hint; Name;
-Description) and the edit dialog (Name, Description); in the auth views, every
-form field but those above.
+Description) and the edit dialog (Name, Description); the deletion flow's
+"Your handle" (`UsernameInput`, with its hint "Type alice to confirm.") and
+"New owner" (a `Select`); in the auth views, every form field but those
+above.
+
+## Choices
+
+A choice among several is `@shared/ui`'s `RadioGroup` (`orientation="vertical"`,
+`size="sm"`); one choice to accept is a `Checkbox` (`size="sm"`). Both draw the
+drawn box, never `box="native"`, whose ticked state is the platform's blue.
+Both follow `@shared/ui`'s one rule for choice controls
+(`wiki/shared/component-library.md` §Choice controls), and no call site
+passes a class that moves a circle, a box or a row: the circle or box sits on
+its words' first line, 8px from them, the chosen dot is 8px in the centre of
+its 16px circle, and keyboard focus is the house outline 2px off (§Focus).
+Their words are `text-body`. Below `md` each choice is a 44px target
+(`touch`): one-line and wrapped choices sit the same distance apart, and the
+group sits where it would at `md`. A
+day a choice keeps something until is a `text-meta` line in the secondary ink
+under its words ("Deleted on 7 December 2026", `formatDay`, in the reader's
+locale and zone), drawn by one part (`ChoiceWords` in `OpenActionCard.tsx`)
+under a radio, a box and a choice with nothing to pick alike. Choosing a
+person from a list is `@shared/ui`'s `Select` in a
+`Field`; each option marks itself `selected`, since the list can be read again
+(`wiki/shared/frontend-patterns.md`, the `<select>` note). An on/off is a
+`Checkbox` too, its line under its words as the box's `description`: the
+deletion flow's "Delete everything", collected with the answers and sent
+only on step 3, as a box's choice is. Musubi draws no `Switch` (§Motion).
+Ticked, what it takes out of play dims to 50% at once and only once: each
+circle and box dims itself as it is disabled, each choice's words dim with
+it, and the action's own words above them stay.
+
+An unchosen circle's and box's edge is `--ui-choice-edge`, which Musubi maps
+to `--subtle`: 3.32:1 on a card in light and 3.62:1 in dark, over the 3:1 a
+control's boundary needs (§The contrast contract). Chosen, they fill with
+ink. A text field keeps `--input`'s lighter edge (§Borders): it has a label
+above it and words inside it, while an unchosen circle has only its edge.
+
+*Measured 2026-11-16 — the circle's and box's painted `border-color`
+composited over the card's background on a 1px canvas, `contrastRatio` from
+`@shared/color` (Chromium, `tests/pages/DeleteAccountPage.browser.test.tsx`,
+which holds 3:1 in both themes).*
+
+The owner's open alternative: map `--ui-hairline-strong` to `--subtle`
+instead, which darkens every `Input`, `Select` and `Textarea` edge in Musubi
+to the same 3.32:1 and ends the contract test's waiver. Not done; the choice
+is the owner's.
+
+Uses: the deletion flow's open actions (`OpenActionCard.tsx`) and its "Delete
+everything" (`DeleteAccountPage.tsx`); `@osn/auth-ui`'s "I've saved these
+codes" box.
 
 ## Auth surfaces
 
@@ -915,7 +1073,7 @@ outline (§Focus). Every text field in the views is `@shared/ui`'s `Input` (or
 | `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, inside Settings' card, so their rows are nested 8px cards; the last under the app's own "Recovery codes" heading, `text-title` at 500 over a `text-body` intro, as the panels' own headings read. While the section's code loads, `SecurityLoading` draws the passkeys' head and one row, a block for each width as the view's own placeholder does | `components/SecuritySection.tsx` (lazy), in `pages/SettingsPage.tsx` |
 | `SecurityEventsBanner` | The account banner stack, above every signed-in page | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx` |
 | `ProfileOnboarding` | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm` | `pages/SettingsPage.tsx` |
-| `StepUpDialog` | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner` — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as Musubi's dialogs are by default | — |
+| `StepUpDialog` | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner`, or the data download, the account's deletion and its undo (`components/StepUpSheet.tsx`, through `createStepUp` in `lib/step-up.tsx`, which loads the sheet with the passkey ceremony on the first ask) — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as Musubi's dialogs are by default | — |
 
 **When the session ends.** The runtime ends a session when the issuer refuses
 to renew it, and when another tab signs out or signs in to another account.
@@ -936,6 +1094,15 @@ Sign in again." (`describeAuthError`), alone with no lead. Any other failure of
 those actions toasts the error's own message when it has one, else the action's
 fixed sentence ("Failed to switch profile"): `describeActionError` in
 `lib/action-error.ts`.
+
+Download my data and Send me a link (Settings → Account's "Your data", the
+deletion flow's first step, and Download on the window screen) say how they
+went in a toast: "Downloaded <file name>" or "Check your email for a link to
+download your data."; a limit reached says when to try again ("You can
+download your data once a day. Try again tomorrow."); any other failure leads
+with what failed and follows with the copy map's sentence. Keeping the account
+toasts "Your account is back", and declining an organisation "Organisation
+passed on" or "Organisation deleted".
 
 **What Musubi supplies:**
 
@@ -966,7 +1133,8 @@ own vocabulary (`bg-card`, `text-muted-foreground`) stays as written.
   the ink accent), not shadcn's neutral `--accent`; `--ui-ground-deep` takes
   `--secondary`, which in dark mode is lighter than the page. `--ui-accent-strong`
   takes `--primary-hover` (`#000000` light, `#ffffff` dark).
-  `--ui-hairline-strong` takes `--input`; `--ui-success` and `--ui-warn` take
+  `--ui-hairline-strong` takes `--input`, and `--ui-choice-edge` takes
+  `--subtle` (§Choices); `--ui-success` and `--ui-warn` take
   the toast accents; `--ui-danger` takes `--destructive`; `--ui-focus` takes
   `--ring`.
 - **Radius.** `--ui-radius-sm` 6px, `-md` 8px, `-lg` 16px (`--radius-card`),

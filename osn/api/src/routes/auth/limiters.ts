@@ -354,6 +354,9 @@ export const OSN_RATE_LIMITS = {
     maxRequests: 30,
     windowMs: MINUTE_MS,
   },
+  // Per account: three "send me a link" emails a day, keyed on the
+  // server-derived account, so rotating IPs cannot fill its mailbox.
+  accountDataLink: { store: "account.data_link", maxRequests: 3, windowMs: DAY_MS },
   // Per-account caps. `check(accountId)` answers true while under the cap.
   profileSwitchCap: {
     store: "auth.profile_switch_cap",

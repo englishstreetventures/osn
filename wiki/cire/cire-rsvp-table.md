@@ -7,7 +7,7 @@ related:
   - "[[cire-rsvp-changes]]"
   - "[[cire-plus-ones]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-17
 ---
 # The RSVP table
 
@@ -19,14 +19,15 @@ page covers what the host sees and what each control does; how the page sizes
 and scrolls is in [[cire-host-portal-layout]], and the "New" badges and the
 change log behind them in [[cire-rsvp-changes]].
 
-An owner downloads the RSVP sheet here from a download icon beside the page's
-title, named "Download RSVPs (CSV)" and showing those words in the portal's
-tooltip, as the Households tab draws its own two downloads. It fetches the
-same `rsvps.csv` the Guests tab offers and covers every event, whichever one
-this page shows. Editors and viewers get no button, since the API gates the
-file with `weddingOwner()` ([[cire-auth]]), and none shows while no event
-invites a guest. The page has no intro text, so nothing points a viewer at a
-download they cannot use.
+An owner downloads the RSVP sheet here, and only here: the Households tab
+offers the guest list alone. The button is the portal's download button
+(`CsvExportButton`), the download icon and "Download RSVPs CSV", at the end
+of the view bar's first row, after the event strip; on a phone it ends the
+search row as a circle, its words hidden text and its tooltip. It fetches
+`rsvps.csv` and covers every event, whichever one this page shows. Editors
+and viewers get no button, since the API gates the file with `weddingOwner()`
+([[cire-auth]]), and none shows while no event invites a guest. The page has
+no intro text, so nothing points a viewer at a download they cannot use.
 
 ## One event at a time
 

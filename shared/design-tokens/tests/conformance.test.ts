@@ -157,6 +157,36 @@ describe("checkContractConformance", () => {
     expect(failures.some((f) => f.reason.includes("not mapped"))).toBe(true);
   });
 
+  it("measures an unmapped choice edge as the control boundary it falls back to", () => {
+    // `tokens.css` draws an unmapped `--ui-choice-edge` in `--ui-hairline-strong`,
+    // so an app that maps only the boundary owes the same floor for its choices:
+    // too light a boundary fails both, and its waiver covers both.
+    const css = stylesheet({ "--rule-strong": "oklch(90% 0 0)" });
+    const failures = checkContractConformance({ css, scopes: ONE_SCOPE });
+    expect(failures.some((f) => f.fg === "--ui-choice-edge" && f.ratio !== null)).toBe(true);
+    expect(failures.some((f) => f.reason.includes("not mapped"))).toBe(false);
+
+    const waived = checkContractConformance({
+      css,
+      scopes: ONE_SCOPE,
+      waived: { "--ui-hairline-strong": "deliberately light, for this test" },
+    });
+    expect(waived).toEqual([]);
+  });
+
+  it("measures a mapped choice edge on its own, whatever the boundary's waiver", () => {
+    const css = stylesheet({ "--rule-strong": "oklch(90% 0 0)" }).replace(
+      "--ui-hairline-strong: var(--rule-strong);",
+      "--ui-hairline-strong: var(--rule-strong);\n    --ui-choice-edge: var(--rule-strong);",
+    );
+    const failures = checkContractConformance({
+      css,
+      scopes: ONE_SCOPE,
+      waived: { "--ui-hairline-strong": "deliberately light, for this test" },
+    });
+    expect(failures.some((f) => f.fg === "--ui-choice-edge")).toBe(true);
+  });
+
   it("honours an explicit waiver", () => {
     const css = stylesheet().replace("--ui-ink: var(--body);", "");
     const failures = checkContractConformance({

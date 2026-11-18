@@ -47,7 +47,7 @@ describe("ownerOnlySettingsIn", () => {
     expect(ownerOnlySettingsIn({ displayName: undefined, rsvpDeadline: "2027-02-20" })).toEqual([]);
   });
 
-  it("reads inherited keys, because the writer does (S-M1)", () => {
+  it("reads inherited keys, because the writer does", () => {
     // `update` decides what to write with `patch.displayName !== undefined`,
     // which walks the prototype chain; a gate reading only OWN keys would
     // disagree and wave through a field the writer then writes. No pollution

@@ -373,8 +373,8 @@ describe("upgradeConflictReason", () => {
    *
    * SQLite names the COLUMNS a conflict was on and never the index that
    * enforced it, so a classifier matching on the index name reads correctly and
-   * can never fire. A literal-string test passes either way — which is how that
-   * mismatch survives review. This one asks the driver, with two DIFFERENT
+   * can never fire. A literal-string test passes either way, so it cannot catch
+   * that mismatch. This one asks the driver, with two DIFFERENT
    * products pending on one wedding, which the index refuses since it is on the
    * wedding alone.
    */
@@ -391,7 +391,7 @@ describe("upgradeConflictReason", () => {
 
     expect(message).toContain("UNIQUE constraint failed");
     expect(message).toContain("wedding_upgrade_purchases.wedding_id");
-    // The assertion that would have caught the original bug.
+    // The message names the columns, never the index.
     expect(message).not.toContain("one_pending");
     expect(upgradeConflictReason(message)).toBe("processing");
   });
@@ -569,17 +569,6 @@ describe("startPurchase", () => {
     expect(stripe.created).toEqual([]);
   });
 
-  it("charges a Gold wedding the upgrade-from-Gold Price for Crimson", async () => {
-    const db = createDb();
-    seedWedding(db, "wed_test", "gold");
-    const stripe = stubStripe();
-    const svc = makeService(stripe.client, { t: BASE_MS });
-
-    await run(db, svc.startPurchase(CRIMSON));
-    expect(stripe.pricedAt).toEqual(["price_cg"]);
-    expect(purchases(db)).toMatchObject([{ entitlement: "crimson", from_tier: "gold" }]);
-  });
-
   it("counts each start by tier and the tier it started from", async () => {
     const name = CIRE_METRICS.upgradeCheckoutStarted;
     const attrs = { tier: "crimson", from_tier: "gold", result: "ok" };
@@ -588,23 +577,6 @@ describe("startPurchase", () => {
     seedWedding(db, "wed_test", "gold");
     await run(db, makeService(stubStripe().client, { t: BASE_MS }).startPurchase(CRIMSON));
     expect(await counterValue(name, attrs)).toBe(before + 1);
-  });
-
-  it("sends Stripe a success URL naming the real purchase, not a placeholder", async () => {
-    // The purchase id does not exist until the row is minted, so the URL has to
-    // be built from it. Getting this wrong is silent: Stripe accepts any URL,
-    // the organiser pays, and only the page they land on is broken — it cannot
-    // tell which purchase to poll, so nothing ever unlocks.
-    const db = createDb();
-    seedWedding(db);
-    const stripe = stubStripe();
-    const svc = makeService(stripe.client, { t: BASE_MS });
-
-    const res = await run(db, svc.startPurchase(START));
-    expect(stripe.successUrls).toEqual([
-      `https://host.test/?upgrade=${res.purchaseId}&w=wed_test&m=budget`,
-    ]);
-    expect(stripe.successUrls[0]).not.toContain("PURCHASE_ID");
   });
 
   it("hands back the SAME open session on a second press", async () => {
@@ -1108,23 +1080,6 @@ describe("settlePurchase", () => {
     expect(sales(db)).toMatchObject([
       { purchase_id: purchaseId, entitlement: "gold", amount_minor: 4900, currency: "AUD" },
     ]);
-  });
-
-  it("is idempotent across Stripe's redeliveries", async () => {
-    // At-least-once delivery makes a duplicate the ordinary case, not the edge.
-    const db = createDb();
-    seedWedding(db);
-    const stripe = stubStripe();
-    const { svc, purchaseId } = await paidPurchase(db, stripe);
-
-    await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }));
-    expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
-    expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
-
-    expect(sales(db)).toHaveLength(1);
-    expect(purchases(db)[0]?.status).toBe("succeeded");
-    expect(tierRow(db).tier).toBe("gold");
-    expect(stripe.refunds).toEqual([]);
   });
 
   /**

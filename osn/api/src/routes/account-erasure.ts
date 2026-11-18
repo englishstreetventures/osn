@@ -1,5 +1,6 @@
 import { DbLive, type Db } from "@osn/db/service";
 import { EmailService, makeLogEmailLive } from "@shared/email";
+import type { DeletionPlanLine } from "@shared/email/templates";
 import {
   getClientIp,
   isUnresolvedIp,
@@ -19,6 +20,7 @@ import { metricAccountDeletionRequested, metricAuthRateLimited } from "../metric
 import * as accountErasure from "../services/account-erasure";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { isAuthError } from "../services/auth/errors";
+import { frontendOrigin } from "../services/auth/helpers";
 import {
   DISABLED_CIRE_ORGANISER_REVOKE,
   revokeCireOrganiserSessions,
@@ -54,6 +56,8 @@ export interface AccountErasureRateLimiters {
   readonly accountDelete: RateLimiterBackend;
   readonly accountRestore: RateLimiterBackend;
   readonly accountDeletionStatus: RateLimiterBackend;
+  /** Per account, not per IP: `POST /account/data-link` keys it on the account id. */
+  readonly accountDataLink: RateLimiterBackend;
 }
 
 /** The in-memory bundle, single process only. Budgets are in `OSN_RATE_LIMITS`. */
@@ -62,7 +66,84 @@ export function createDefaultAccountErasureRateLimiters(): AccountErasureRateLim
     accountDelete: memoryLimiter(OSN_RATE_LIMITS.accountDelete),
     accountRestore: memoryLimiter(OSN_RATE_LIMITS.accountRestore),
     accountDeletionStatus: memoryLimiter(OSN_RATE_LIMITS.accountDeletionStatus),
+    accountDataLink: memoryLimiter(OSN_RATE_LIMITS.accountDataLink),
   };
+}
+
+/** The app's name as people know it, for a line of the scheduled notice. */
+const APP_DISPLAY_NAMES = new Map<string, string>([
+  ["pulse", "Pulse"],
+  ["zap", "Zap"],
+  ["cire", "Cire"],
+]);
+
+/** An open action as the routes answer it, the fields the scheduled notice reads. */
+interface PlannedAction {
+  readonly id: string;
+  readonly app: string;
+  readonly label: string;
+  readonly choices: ReadonlyArray<{
+    readonly choice: string;
+    readonly description: string;
+    readonly erased_on: number | null;
+  }>;
+  readonly default_choice: string | null;
+  readonly successor?: { readonly handle: string } | null;
+  readonly candidates?: ReadonlyArray<{ readonly profile_id: string; readonly handle: string }>;
+  /** Set on an organisation the account owns; its line names it by handle alone. */
+  readonly organisation?: { readonly handle: string } | null;
+}
+
+/**
+ * The scheduled notice's lines, from the preview this request checked and the
+ * answers it stored, never from a default the server will not apply.
+ *
+ * Without "delete everything", each action with choices gets the description
+ * of its answer, else of its default: the route has already refused an action
+ * with choices, no default and no answer. A named successor is named by handle.
+ * With "delete everything", nothing is stored: each app deletes what the
+ * person has there as soon as it can, as the app contract says, and each
+ * organisation passes to the member the preview named, or is deleted when
+ * there is none. An organisation is named by its handle, never by its name,
+ * which any of its admins can rewrite.
+ */
+export function deletionPlan(
+  actions: ReadonlyArray<PlannedAction>,
+  choices: accountErasure.ErasureChoices,
+  deleteEverything: boolean,
+): DeletionPlanLine[] {
+  return actions.map((action) => {
+    const label = action.organisation ? `You own @${action.organisation.handle}.` : action.label;
+    if (deleteEverything) {
+      if (action.app === "osn") {
+        const handle = action.successor?.handle;
+        return {
+          label,
+          outcome: handle ? `It passes to @${handle}.` : "It is deleted.",
+          keptUntil: null,
+        };
+      }
+      const app = APP_DISPLAY_NAMES.get(action.app) ?? action.app;
+      return {
+        label,
+        outcome: `You chose to delete everything, so ${app} deletes this as soon as it can.`,
+        keptUntil: null,
+      };
+    }
+    const answer = choices[action.id];
+    const chosen = answer?.choice ?? action.default_choice;
+    const choice = action.choices.find((c) => c.choice === chosen);
+    if (!choice) return { label, outcome: "", keptUntil: null };
+    const named =
+      chosen === "successor"
+        ? action.candidates?.find((c) => c.profile_id === answer?.successorProfileId)?.handle
+        : undefined;
+    return {
+      label,
+      outcome: named ? `@${named} becomes the owner.` : choice.description,
+      keptUntil: choice.erased_on,
+    };
+  });
 }
 
 /**
@@ -97,6 +178,9 @@ export function createAccountErasureRoutes(
 
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 
+  /** The app the notices send the person back to. */
+  const appUrl = frontendOrigin(authConfig);
+
   /** Per-request transport socket peer; `null` under `app.handle`. */
   type IpCtx = {
     server: { requestIP?: (req: Request) => { address?: string } | null } | null;
@@ -112,7 +196,8 @@ export function createAccountErasureRoutes(
       | "account_delete"
       | "account_restore"
       | "account_deletion_status"
-      | "account_deletion_preview",
+      | "account_deletion_preview"
+      | "account_data_link",
     limiter: RateLimiterBackend,
   ): Promise<{ error: string } | null> {
     const ip = getClientIp(headers, { ...clientIpConfig, socketIp });
@@ -136,7 +221,10 @@ export function createAccountErasureRoutes(
   }
 
   /** An owned organisation as the open action the preview and a 409 show. */
-  const toOpenAction = (org: accountErasure.OwnedOrganisation) => ({
+  const toOpenAction = (
+    org: accountErasure.OwnedOrganisation,
+    candidates: ReadonlyArray<accountErasure.SuccessorCandidate>,
+  ) => ({
     id: accountErasure.organisationActionId(org.orgId),
     app: "osn",
     kind: "organisation_owned",
@@ -162,6 +250,14 @@ export function createAccountErasureRoutes(
           role: org.successor.role,
         }
       : null,
+    candidates: candidates
+      .filter((candidate) => candidate.orgId === org.orgId)
+      .map((candidate) => ({
+        profile_id: candidate.profileId,
+        handle: candidate.handle,
+        display_name: candidate.displayName,
+        role: candidate.role,
+      })),
   });
 
   /** An app's open action, in the route's field names. */
@@ -183,9 +279,10 @@ export function createAccountErasureRoutes(
   const previewBody = (
     owned: ReadonlyArray<accountErasure.OwnedOrganisation>,
     apps: ReadonlyArray<AppPreview>,
+    candidates: ReadonlyArray<accountErasure.SuccessorCandidate>,
   ) => ({
     open_actions: [
-      ...owned.map(toOpenAction),
+      ...owned.map((org) => toOpenAction(org, candidates)),
       ...apps.flatMap((preview) =>
         preview.status === "checked"
           ? preview.actions.map((action) => toAppOpenAction(preview.app, action))
@@ -205,7 +302,15 @@ export function createAccountErasureRoutes(
   const preview = (accountId: string) =>
     Effect.all(
       [
-        accountErasure.listOwnedOrganisations(accountId),
+        // The organisations, and beside them the members a `successor`
+        // answer may name in each.
+        Effect.all(
+          [
+            accountErasure.listOwnedOrganisations(accountId),
+            accountErasure.listSuccessorCandidates(accountId),
+          ],
+          { concurrency: 2 },
+        ).pipe(Effect.map(([owned, candidates]) => ({ owned, candidates }))),
         accountErasure.profileIdsOf(accountId).pipe(
           Effect.flatMap((profileIds) =>
             previewDeletionApps(deletionApps, {
@@ -252,8 +357,8 @@ export function createAccountErasureRoutes(
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const [owned, apps] = await run(preview(profile.accountId));
-            return previewBody(owned, apps);
+            const [{ owned, candidates }, apps] = await run(preview(profile.accountId));
+            return previewBody(owned, apps, candidates);
           } catch (e) {
             const { status, body: errBody } = handleError(e);
             set.status = status;
@@ -362,8 +467,8 @@ export function createAccountErasureRoutes(
             // A fresh preview of the organisations and every app, before the
             // step-up token is read, so a refusal here spends nothing. An app
             // that cannot be asked holds the deletion until it answers.
-            const [owned, apps] = await run(preview(profile.accountId));
-            const fresh = previewBody(owned, apps);
+            const [{ owned, candidates }, apps] = await run(preview(profile.accountId));
+            const fresh = previewBody(owned, apps, candidates);
             if (fresh.could_not_check.length > 0) {
               set.status = 409;
               metricAccountDeletionRequested("could_not_check");
@@ -379,6 +484,7 @@ export function createAccountErasureRoutes(
                 accountErasure.checkErasureChoices(
                   profile.accountId,
                   owned,
+                  candidates,
                   apps,
                   (body.choices ?? []).map((c) => ({
                     action: c.action,
@@ -403,7 +509,7 @@ export function createAccountErasureRoutes(
                 return {
                   error: "open_actions",
                   open_actions: [
-                    ...checked.organisations.map(toOpenAction),
+                    ...checked.organisations.map((org) => toOpenAction(org, candidates)),
                     ...checked.appActions.map(({ app, action }) => toAppOpenAction(app, action)),
                   ],
                 };
@@ -448,6 +554,26 @@ export function createAccountErasureRoutes(
             // organiser sessions end through the revoke osn-api already uses
             // for sign out everywhere else, while the profiles still exist.
             if (result.newlyScheduled) {
+              // The scheduled notice: the date, how to keep the account, and
+              // what each answer does, as this request's own preview said.
+              // To the address this request read with the profile.
+              if (profile.email.length > 0) {
+                await run(
+                  forkBackground(
+                    auth.notifySecurityEventTo(
+                      profile.email,
+                      "account_deletion_scheduled",
+                      "account-deletion-scheduled",
+                      {
+                        deletesAt: result.scheduledFor,
+                        appUrl,
+                        deleteEverything,
+                        plan: deletionPlan(fresh.open_actions, choices, deleteEverything),
+                      },
+                    ),
+                  ),
+                );
+              }
               await run(forkBackground(endAppSessions(deletionApps, result.profileIds)));
               await run(
                 forkBackground(
@@ -591,6 +717,19 @@ export function createAccountErasureRoutes(
             }
 
             const result = await run(accountErasure.cancelErasure(profile.accountId));
+            // To the address this request read with the profile.
+            if (result.cancelled && profile.email.length > 0) {
+              await run(
+                forkBackground(
+                  auth.notifySecurityEventTo(
+                    profile.email,
+                    "account_deletion_cancelled",
+                    "account-deletion-cancelled",
+                    { appUrl },
+                  ),
+                ),
+              );
+            }
             return { cancelled: result.cancelled };
           } catch (e) {
             const { status, body: errBody } = handleError(e);
@@ -613,6 +752,103 @@ export function createAccountErasureRoutes(
             500: errorResponse,
           },
           detail: { operationId: "restoreAccount", security: [{ bearerAuth: [] }] },
+        },
+      )
+      // ---------------------------------------------------------------------
+      // POST /account/data-link — "send me a link": an email to the account's
+      // own address with a link to the page that downloads its data. The
+      // email holds no data and the link no token: the page asks the reader
+      // to sign in and step up, as a download from Settings does.
+      // ---------------------------------------------------------------------
+      .post(
+        "/data-link",
+        async ({ headers, set, server, request }) => {
+          // Per IP first, so a caller with no token makes the server verify
+          // nothing and read nothing.
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "account_data_link",
+            rl.accountDeletionStatus,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const staleErr = await liveSessionGate(
+              "account_data_link",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
+            // Per account, so rotating addresses cannot fill one mailbox.
+            let allowed: boolean;
+            try {
+              allowed = await rl.accountDataLink.check(profile.accountId);
+            } catch {
+              allowed = false;
+            }
+            if (!allowed) {
+              metricAuthRateLimited("account_data_link");
+              set.status = 429;
+              return { error: "rate_limited" };
+            }
+            await run(
+              forkBackground(
+                Effect.gen(function* () {
+                  const email = yield* EmailService;
+                  yield* email.send({
+                    template: "account-data-link",
+                    to: profile.email,
+                    data: {
+                      instanceName: authConfig.instanceName,
+                      url: `${appUrl}/settings#account`,
+                    },
+                  });
+                }).pipe(
+                  Effect.catch(() =>
+                    Effect.logWarning("account data link not sent", {
+                      template: "account-data-link",
+                    }),
+                  ),
+                ),
+              ),
+            );
+            set.status = 202;
+            return { sent: true };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          response: {
+            // Sent in the background: 202 says it was asked for, not delivered.
+            202: t.Object({ sent: t.Literal(true) }),
+            400: errorResponse,
+            401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "sendAccountDataLink", security: [{ bearerAuth: [] }] },
         },
       )
       // ---------------------------------------------------------------------

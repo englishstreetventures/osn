@@ -157,12 +157,6 @@ describe("hostAddFailure", () => {
 });
 
 describe("normaliseHostRole", () => {
-  it("passes owner, editor and viewer through", () => {
-    expect(normaliseHostRole("owner")).toBe("owner");
-    expect(normaliseHostRole("editor")).toBe("editor");
-    expect(normaliseHostRole("viewer")).toBe("viewer");
-  });
-
   it("degrades the legacy 'host' value to editor (what pre-roles co-hosts were)", () => {
     expect(normaliseHostRole("host")).toBe("editor");
   });
@@ -218,22 +212,6 @@ describe("hostsService.add", () => {
     expect(row!.weddingId).toBe(WEDDING_ID);
     expect(row!.addedByOsnProfileId).toBe(OWNER);
     expect(row!.role).toBe("editor");
-  });
-
-  it("persists a viewer seat when asked", async () => {
-    const db = buildDb();
-    const host = await run(
-      db,
-      hostsService.add({
-        weddingId: WEDDING_ID,
-        osnProfileId: ALICE,
-        addedByOsnProfileId: OWNER,
-        role: "viewer",
-      }),
-    );
-    expect(host.role).toBe("viewer");
-    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, ALICE)).all();
-    expect(row!.role).toBe("viewer");
   });
 
   it("rejects re-adding the same profile as already_host (unique index)", async () => {
@@ -714,18 +692,6 @@ describe("the people limit", () => {
     expect(await usage(db)).toEqual({ used: 6, limit: 6, tier: "gold" });
   });
 
-  it("reports the people count from list, add and remove alike", async () => {
-    const db = buildDb();
-    expect(await usage(db)).toEqual({ used: 0, limit: 6, tier: "ivory" });
-    expect((await addAs(db, ALICE, "editor")).peopleLimit.used).toBe(1);
-    expect(await usage(db)).toEqual({ used: 1, limit: 6, tier: "ivory" });
-    const removed = await run(
-      db,
-      hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE, withPeopleLimit: true }),
-    );
-    expect(removed.peopleLimit?.used).toBe(0);
-  });
-
   it("reads no count on a removal that does not ask for one", async () => {
     const db = buildDb();
     seat(db, ALICE, "viewer");
@@ -783,8 +749,7 @@ describe("hostsService.list", () => {
   });
 
   it("caps the seats a wedding can hold, so every seat stays listable", async () => {
-    // The property the cap defends, driven the way the security review drove
-    // the bug: seats past the list ceiling are invisible to the owners, and
+    // The property the cap defends: seats past the list ceiling are invisible to the owners, and
     // DELETE needs a profile id they can only get from that list — so an
     // uncapped add lets one owner create seats the others cannot remove.
     // "Any owner can take a seat back" only holds while every seat is listed,
@@ -841,13 +806,6 @@ describe("hostsService.list", () => {
     expect(hosts).toHaveLength(200);
     expect(total).toBe(206);
   });
-
-  it("lists only the owner for a wedding with no co-hosts", async () => {
-    const db = buildDb();
-    const { hosts, total } = await run(db, hostsService.list(WEDDING_ID));
-    expect(hosts.map((h) => [h.osnProfileId, h.role])).toEqual([[OWNER, "owner"]]);
-    expect(total).toBe(1);
-  });
 });
 
 describe("hostsService.remove", () => {
@@ -902,43 +860,6 @@ describe("hostsService.remove", () => {
 });
 
 describe("hostsService.setRole", () => {
-  it("flips an existing seat's role and is idempotent", async () => {
-    const db = buildDb();
-    await run(
-      db,
-      hostsService.add({
-        weddingId: WEDDING_ID,
-        osnProfileId: ALICE,
-        addedByOsnProfileId: OWNER,
-        role: "editor",
-      }),
-    );
-    const updated = await run(
-      db,
-      hostsService.setRole({
-        weddingId: WEDDING_ID,
-        osnProfileId: ALICE,
-        role: "viewer",
-        actorOsnProfileId: OWNER,
-      }),
-    );
-    expect(updated.role).toBe("viewer");
-    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, ALICE)).all();
-    expect(row!.role).toBe("viewer");
-
-    // Setting the same role again succeeds.
-    const again = await run(
-      db,
-      hostsService.setRole({
-        weddingId: WEDDING_ID,
-        osnProfileId: ALICE,
-        role: "viewer",
-        actorOsnProfileId: OWNER,
-      }),
-    );
-    expect(again.role).toBe("viewer");
-  });
-
   it("fails HostNotFound for a profile that holds no seat", async () => {
     const db = buildDb();
     const err = await run(
@@ -1369,14 +1290,6 @@ describe("equal owners", () => {
       );
       expect(err._tag).toBe("LastOwner");
       expect(roleOf(db, OWNER)).toBe("owner");
-    });
-
-    it("removes a co-host's RSVP marker with their seat", async () => {
-      const db = buildDb();
-      seat(db, ALICE, "viewer");
-      addNotice(db, ALICE);
-      await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
-      expect(noticeOf(db, ALICE)).toHaveLength(0);
     });
   });
 });

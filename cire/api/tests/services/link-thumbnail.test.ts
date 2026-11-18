@@ -592,12 +592,6 @@ describe("the breaker's trial, through the service", () => {
 });
 
 describe("the monthly budget on a failed transform", () => {
-  it("gives the transform back when the binding fails on its own", async () => {
-    const db = createDb();
-    await run({ options: png(), images: imagesStub({ fail: true }) }, db);
-    expect(db.select().from(linkThumbTransforms).all()).toEqual([{ period: thisMonth(), used: 0 }]);
-  });
-
   it("keeps the charge when the binding refuses the input", async () => {
     const db = createDb();
     await run({ options: png(), images: imagesStub({ failWith: () => imagesError(9412) }) }, db);

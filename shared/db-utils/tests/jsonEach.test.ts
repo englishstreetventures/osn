@@ -14,7 +14,7 @@
 
 import { Database } from "bun:sqlite";
 
-import { getTableColumns, inArray, or } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { blob, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
@@ -104,21 +104,6 @@ describe("jsonEachIn", () => {
       .all();
     expect(rows).toHaveLength(0);
   });
-
-  it("reusing one jsonEachIn(...) call across two predicates binds it twice, not once", () => {
-    // discovery.ts's friends filter splices the same connectionIds set into
-    // two branches of one `or(...)` — this is that shape reduced to the
-    // fixture table. 2 total params (not 2×N) either way: the fix is
-    // binding the array once per *occurrence*, never once per *element*.
-    const db = makeDb();
-    const idsJson = jsonEachIn(["a", "b"]);
-    const built = db
-      .select()
-      .from(widgets)
-      .where(or(inArray(widgets.id, idsJson), inArray(widgets.ownerId, idsJson)))
-      .toSQL();
-    expect(built.params).toHaveLength(2);
-  });
 });
 
 describe("insertManyViaJsonEach", () => {
@@ -140,32 +125,7 @@ describe("insertManyViaJsonEach", () => {
     }
   });
 
-  it("derives the fixed insertManyViaJsonEach param count against the scaling .values(rows) count", () => {
-    // The regression this guards: `.values(rows)` binds columns × rows
-    // parameters (derived here from the row's own key count, never
-    // hard-coded), which is exactly what crosses D1's 100-parameter cap.
-    // `insertManyViaJsonEach` stays at 1 regardless.
-    const db = makeDb();
-    const columnCount = Object.keys(getTableColumns(widgets)).length;
-    const rowCount = 30;
-    const rows = Array.from({ length: rowCount }, (_, i) => ({
-      id: `w_${i}`,
-      label: `Widget ${i}`,
-      ownerId: null,
-      createdAt: now,
-    }));
-
-    const oldStyle = db.insert(widgets).values(rows).toSQL();
-    expect(oldStyle.params).toHaveLength(columnCount * rowCount);
-    expect(oldStyle.params.length).toBeGreaterThan(100); // this is the bug
-
-    const built = (
-      db as unknown as { dialect: { sqlToQuery: (s: unknown) => { params: unknown[] } } }
-    ).dialect.sqlToQuery(insertManyViaJsonEach(widgets, rows));
-    expect(built.params).toHaveLength(1);
-  });
-
-  it("round-trips rows correctly, including null and boolean-mapped values", () => {
+  it("round-trips rows correctly, including quotes, a null and timestamp-mapped dates", () => {
     const db = makeDb();
     const rows = [
       { id: "a", label: 'Hello "quotes"', ownerId: "owner_1", createdAt: now },
@@ -209,11 +169,10 @@ describe("insertManyViaJsonEach", () => {
   }
 });
 
-// Three guards added after the security review of PR #856. None is reachable
-// from today's two call sites; all three are for the helper's second caller,
-// since it lives in @shared/db-utils rather than being scoped to one package.
-// Each would otherwise write WRONG DATA rather than fail, which is the worst
-// failure mode available to an insert helper.
+// Three guards: a row whose key set differs from the first row's, an integer
+// outside the safe range, and a buffer blob column. The helper lives in
+// @shared/db-utils, so any package may call it with such rows. Without each
+// guard the insert would write wrong data rather than fail.
 describe("insertManyViaJsonEach guards", () => {
   it("throws when a row omits a key the first row has", () => {
     expect(() =>

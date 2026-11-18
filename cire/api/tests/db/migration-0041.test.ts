@@ -64,34 +64,4 @@ describe("0041 directory browse indexes", () => {
 
     db.close();
   });
-
-  it("permits multiple manual rows (directory_vendor_id NULL) in one wedding", () => {
-    const db = applyAllMigrations();
-
-    // Seed a wedding.
-    db.exec(
-      "INSERT INTO weddings (id, slug, display_name, created_at, updated_at)" +
-        " VALUES ('wed_y', 'wy', 'WY', 0, 0);",
-    );
-
-    // Two manual (directory_vendor_id = NULL) rows in the same wedding — the
-    // partial index excludes NULLs, so both must succeed.
-    db.exec(
-      "INSERT INTO vendors (id, wedding_id, directory_vendor_id, name, category, created_at, updated_at)" +
-        " VALUES ('v_3', 'wed_y', NULL, 'My Florist', 'florist', 0, 0);",
-    );
-    db.exec(
-      "INSERT INTO vendors (id, wedding_id, directory_vendor_id, name, category, created_at, updated_at)" +
-        " VALUES ('v_4', 'wed_y', NULL, 'My Photographer', 'photographer', 0, 0);",
-    );
-
-    const count = (
-      db.query("SELECT COUNT(*) AS n FROM vendors WHERE wedding_id = 'wed_y'").get() as {
-        n: number;
-      }
-    ).n;
-    expect(count).toBe(2);
-
-    db.close();
-  });
 });

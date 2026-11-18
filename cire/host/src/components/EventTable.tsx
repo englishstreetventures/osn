@@ -11,7 +11,6 @@ import Pin from "lucide-solid/icons/pin";
 import { createSignal, lazy, onMount, Show, For, Suspense } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { downloadBlob } from "../lib/download";
 import { formatEventWhen } from "../lib/event-display";
 import {
   CHILDREN_POLICY_WORDS,
@@ -33,6 +32,7 @@ import {
   type ImageCrop,
 } from "../lib/image-crop";
 import { hasGuestPolicy, hasRunOfShow, hasText } from "../lib/invite-emptiness";
+import { CsvExportButton } from "./CsvExportButton";
 import { LINK_PILL_ROW, LinkPill } from "./LinkPill";
 import SectionIntro from "./SectionIntro";
 
@@ -61,7 +61,6 @@ export default function EventTable(props: EventTableProps) {
   // means we already have rows, so a remount paints them immediately.
   const [loading, setLoading] = createSignal(!hasCachedEvents(props.weddingId));
   const [error, setError] = createSignal<string | null>(null);
-  const [exporting, setExporting] = createSignal(false);
 
   onMount(async () => {
     // ensureEventsLoaded resolves immediately on a cache hit and dedupes an
@@ -158,30 +157,6 @@ export default function EventTable(props: EventTableProps) {
     toast.success(crop ? "Crop saved" : "Crop reset");
   }
 
-  /**
-   * Download the wedding's event list CSV. Built (and formula-sanitised)
-   * server-side at `GET …/events.csv`; the response Blob is handed to the
-   * shared download helper. Gated by `weddingOwner()` — same pattern as the
-   * Guests tab's exports.
-   */
-  async function exportEvents() {
-    if (exporting()) return;
-    setExporting(true);
-    try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events.csv")));
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`Export failed (${res.status})`);
-      const blob = await res.blob();
-      downloadBlob(`cire-events-${props.weddingSlug}.csv`, blob);
-      toast.success("Events export downloaded");
-    } catch (err) {
-      if (isAuthExpired(err)) return redirectToLogin();
-      toast.error("Events export failed. Try again.");
-    } finally {
-      setExporting(false);
-    }
-  }
-
   const hasEvents = () => events().length > 0;
 
   return (
@@ -193,15 +168,11 @@ export default function EventTable(props: EventTableProps) {
         holdActions={loading()}
         actions={
           <Show when={props.canManage && !error() && (loading() || hasEvents())}>
-            <Button
-              variant="outline"
-              size="sm"
-              type="button"
-              onClick={() => void exportEvents()}
-              disabled={exporting()}
-            >
-              {exporting() ? "Exporting…" : "Download events (CSV)"}
-            </Button>
+            <CsvExportButton
+              weddingId={props.weddingId}
+              weddingSlug={props.weddingSlug}
+              kind="events"
+            />
           </Show>
         }
       />

@@ -95,6 +95,11 @@ function slots(bundle: CoordinationStores): Slot[] {
     OSN_RATE_LIMITS.accountDeletionStatus,
   );
   add(
+    "accountDataLink",
+    (k) => bundle.accountErasureRateLimiters.accountDataLink.check(k),
+    OSN_RATE_LIMITS.accountDataLink,
+  );
+  add(
     "profileSwitchCap",
     (k) => bundle.profileSwitchCap.check(k),
     OSN_RATE_LIMITS.profileSwitchCap,

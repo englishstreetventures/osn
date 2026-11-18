@@ -12,6 +12,21 @@
  */
 
 import {
+  type AccountDataLinkData,
+  type AccountDeletedData,
+  type AccountDeletionCancelledData,
+  type AccountDeletionScheduledData,
+  type DeletionPlanLine,
+  type KeptAfterDeletion,
+  type OrganisationAfterDeletion,
+  type OrganisationOwnershipReceivedData,
+  renderAccountDataLink,
+  renderAccountDeleted,
+  renderAccountDeletionCancelled,
+  renderAccountDeletionScheduled,
+  renderOrganisationOwnershipReceived,
+} from "./account-deletion";
+import {
   renderEnquiryNew,
   renderEnquiryReply,
   renderEnquiryQuote,
@@ -72,6 +87,10 @@ import {
 
 /** Canonical list of templates. Keep sorted; one per outbound auth email. */
 export type EmailTemplate =
+  | "account-data-link"
+  | "account-deleted"
+  | "account-deletion-cancelled"
+  | "account-deletion-scheduled"
   | "enquiry-new"
   | "enquiry-reply"
   | "enquiry-quote"
@@ -79,6 +98,7 @@ export type EmailTemplate =
   | "link-recovery"
   | "link-registration"
   | "link-step-up"
+  | "organisation-ownership-received"
   | "recovery-generated"
   | "recovery-consumed"
   | "recovery-used"
@@ -102,10 +122,15 @@ export type EmailTemplate =
  * identity instance it comes from, from `instanceName` in its data.
  */
 export type AccountEmailTemplate =
+  | "account-data-link"
+  | "account-deleted"
+  | "account-deletion-cancelled"
+  | "account-deletion-scheduled"
   | "link-email-change"
   | "link-recovery"
   | "link-registration"
   | "link-step-up"
+  | "organisation-ownership-received"
   | "recovery-generated"
   | "recovery-consumed"
   | "recovery-used"
@@ -118,6 +143,10 @@ export type AccountEmailTemplate =
 
 /** Typed data bag per template. Extend the map when adding a template. */
 export interface EmailTemplateDataMap {
+  "account-data-link": AccountDataLinkData;
+  "account-deleted": AccountDeletedData;
+  "account-deletion-cancelled": AccountDeletionCancelledData;
+  "account-deletion-scheduled": AccountDeletionScheduledData;
   "enquiry-new": EnquiryNewData;
   "enquiry-reply": EnquiryReplyData;
   "enquiry-quote": EnquiryQuoteData;
@@ -125,6 +154,7 @@ export interface EmailTemplateDataMap {
   "link-recovery": RecoveryLinkData;
   "link-registration": RegistrationLinkData;
   "link-step-up": StepUpLinkData;
+  "organisation-ownership-received": OrganisationOwnershipReceivedData;
   "recovery-generated": InstanceNameData;
   "recovery-consumed": InstanceNameData;
   "recovery-used": RecoveryUsedData;
@@ -169,6 +199,22 @@ export function renderTemplate<T extends EmailTemplate>(
   data: EmailTemplateData<T>,
 ): RenderedEmail {
   switch (template) {
+    case "account-data-link":
+      return renderAccountDataLink(data as EmailTemplateData<"account-data-link">);
+    case "account-deleted":
+      return renderAccountDeleted(data as EmailTemplateData<"account-deleted">);
+    case "account-deletion-cancelled":
+      return renderAccountDeletionCancelled(
+        data as EmailTemplateData<"account-deletion-cancelled">,
+      );
+    case "account-deletion-scheduled":
+      return renderAccountDeletionScheduled(
+        data as EmailTemplateData<"account-deletion-scheduled">,
+      );
+    case "organisation-ownership-received":
+      return renderOrganisationOwnershipReceived(
+        data as EmailTemplateData<"organisation-ownership-received">,
+      );
     case "enquiry-new":
       return renderEnquiryNew(data as EmailTemplateData<"enquiry-new">);
     case "enquiry-reply":
@@ -226,6 +272,11 @@ export function renderTemplate<T extends EmailTemplate>(
 }
 
 export {
+  renderAccountDataLink,
+  renderAccountDeleted,
+  renderAccountDeletionCancelled,
+  renderAccountDeletionScheduled,
+  renderOrganisationOwnershipReceived,
   renderEnquiryNew,
   renderEnquiryReply,
   renderEnquiryQuote,
@@ -253,6 +304,14 @@ export {
 };
 
 export type {
+  AccountDataLinkData,
+  AccountDeletedData,
+  AccountDeletionCancelledData,
+  AccountDeletionScheduledData,
+  DeletionPlanLine,
+  KeptAfterDeletion,
+  OrganisationAfterDeletion,
+  OrganisationOwnershipReceivedData,
   EmailChangedData,
   EnquiryNewData,
   InstanceNameData,

@@ -40,6 +40,7 @@ const fixture = vi.hoisted(() => ({
 
 vi.mock("@osn/auth-ui/ProfileOnboarding", () => ({ ProfileOnboarding: () => null }));
 vi.mock("../../src/lib/authClients", () => ({
+  accountClient: {},
   registrationClient: { checkHandle: () => Promise.resolve({ available: true }) },
   passkeysClient: {
     list: async () => {
@@ -572,7 +573,7 @@ describe("recovery codes in Settings → Security", () => {
   it.each([
     [390, "light"],
     [390, "dark"],
-  ])("show in a muted well, with a 16px box in a 44px row (%ipx, %s)", async (width, theme) => {
+  ])("show in a muted well, with a 16px box in a 44px target (%ipx, %s)", async (width, theme) => {
     document.documentElement.classList.toggle("dark", theme === "dark");
     await page.viewport(width, 1400);
     fixture.codes = 0;
@@ -607,8 +608,10 @@ describe("recovery codes in Settings → Security", () => {
     );
 
     const box = screen.getByRole("checkbox");
-    const row = box.closest("label")!.parentElement as HTMLElement;
-    expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    // The label is what answers a tap: `touch` pads it to 44px and pulls the
+    // row back, so the layout around it does not move.
+    const target = box.closest("label")!;
+    expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     // The drawn box beside the hidden input, 16px.
     const drawn = box.nextElementSibling as HTMLElement | null;
     const square = (drawn ?? box).getBoundingClientRect();

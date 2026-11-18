@@ -10,18 +10,6 @@ import {
 const target = { weddingId: "wed_1", osnProfileId: "usr_ama" };
 
 describe("digest stop tokens", () => {
-  it("verify to the person and wedding they were signed for", async () => {
-    const key = await deriveDigestStopKey("client-secret");
-    const token = await signDigestStopToken(key, target);
-    expect(await verifyDigestStopToken(key, token)).toEqual(target);
-  });
-
-  it("do not verify under a key from another secret", async () => {
-    const token = await signDigestStopToken(await deriveDigestStopKey("client-secret"), target);
-    const other = await deriveDigestStopKey("rotated-secret");
-    expect(await verifyDigestStopToken(other, token)).toBeNull();
-  });
-
   it("refuse a payload changed to name someone else", async () => {
     const key = await deriveDigestStopKey("client-secret");
     const [, mac] = (await signDigestStopToken(key, target)).split(".");

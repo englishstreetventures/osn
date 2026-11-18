@@ -114,9 +114,9 @@ describe("diffAgainstDb — a guest whose first name collides with a sibling's",
       { firstName: "sam", lastName: "Lee" },
     ]);
 
-    // Both were invited to the Ceremony, and both links must survive: the link
-    // pass used to resolve BOTH parsed rows to one guest id, so one twin
-    // collected two links and the other's was diffed away.
+    // Both were invited to the Ceremony, and both links must survive: a link
+    // pass that resolves BOTH parsed rows to one guest id gives one twin two
+    // links and diffs the other's away.
     expect(db.select().from(guestEvents).all()).toHaveLength(2);
 
     // The same sheet again — id-less, matched by name, exactly as a re-upload.
@@ -215,8 +215,8 @@ describe("diffAgainstDb — matchByName: false (the editor front door)", () => {
 
 describe("diffAgainstDb — an existing row is claimed by at most one desired row", () => {
   /**
-   * Two desired households that resolve to ONE existing row used to reconcile
-   * against that row's guest list twice in a row, and the second pass removed
+   * Two desired households that resolve to ONE existing row must not both
+   * reconcile against that row's guest list: the second pass would remove
    * every guest the first pass had just matched.
    */
   it("a second household with the same name creates rather than re-claiming", async () => {
@@ -399,10 +399,10 @@ describe("diffAgainstDb — a stale id-authoritative draft is refused, not appli
 describe("diffAgainstDb — a carried claim code that is already taken", () => {
   /**
    * `families.public_id` is globally unique, and a create may carry its own code
-   * (the full-fidelity `Family Code` column). An already-taken code used to reach
-   * the INSERT and fail mid-apply — the worst place for it, since applyImport
-   * commits in chunks and stamps the before-image in the LAST batch, leaving a
-   * half-written wedding with nothing to revert to.
+   * (the full-fidelity `Family Code` column). An already-taken code must not
+   * reach the INSERT and fail mid-apply — the worst place for it, since
+   * applyImport commits in chunks and stamps the before-image in the LAST batch,
+   * leaving a half-written wedding with nothing to revert to.
    */
   it("mints a fresh code and warns, instead of colliding at apply time", async () => {
     const { db, layer } = freshDb();

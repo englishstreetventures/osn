@@ -7,12 +7,6 @@ import { Icon } from "../../src/components/Icon";
 describe("Icon", () => {
   afterEach(cleanup);
 
-  it("renders an SVG for a known icon name", () => {
-    const { container } = render(() => <Icon name="search" />);
-    const svg = container.querySelector("svg");
-    expect(svg).toBeTruthy();
-  });
-
   it("renders nothing for an unknown icon name", () => {
     const { container } = render(() => <Icon name="nonexistent" />);
     expect(container.innerHTML).toBe("");

@@ -504,9 +504,8 @@ jobs:
   # D1. `@shared/billing`'s tests/d1/storage.test.ts runs its storage
   # contract on D1. The vitest packages EXCLUDE that path, so their unit
   # tests never reach them — they import `bun:test` and boot a real workerd, neither
-  # of which vitest can load. cire/api runs a bare `bun test`, which takes
-  # no exclude and discovers recursively, so its copy also runs in the
-  # `cire-api-tests` job; that is pre-existing and harmless. The D1 files are
+  # of which vitest can load. cire/api's `test` script leaves its copy out
+  # with `--path-ignore-patterns`, so only this job runs it. The D1 files are
   # the only coverage of the ASYNCHRONOUS D1 driver that dev/staging/prod
   # actually run on, and going unrun let zap's rot into a stale fixture that
   # had been failing silently. Serial by necessity — concurrent Miniflare
@@ -964,10 +963,10 @@ jobs:
       # lefthook.yml: it fails once a `--ignore` in the `audit` command has
       # outlived its `# DROP AFTER <GHSA id> <YYYY-MM-DD>` marker, or when the
       # command or the keys around it change shape. It reads the file only. It
-      # does not run `bun audit`, which runs nowhere but the local pre-push
-      # hook, so a push with `--no-verify` or from a machine without lefthook
-      # is not audited. Invoked by path for the reason given at the D1 guard
-      # below.
+      # does not run `bun audit`, which runs in the local pre-push hook and,
+      # against main once a day, in main-audit.yml, so a push with
+      # `--no-verify` or from a machine without lefthook is not audited before
+      # it merges. Invoked by path for the reason given at the D1 guard below.
       - name: Check audit ignores are marked and bounded
         run: bun run scripts/check-audit-ignores.ts
 

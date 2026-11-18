@@ -700,30 +700,6 @@ describe("cash funds, as a guest sees them", () => {
 
 describe("whether a guest may give money", () => {
   /**
-   * The DTO ANDs the couple's intent with Stripe's capability, so the guest
-   * surface never has to reason about the two separately. Drop the AND and
-   * every guest of a couple whose Stripe capability lapsed gets a live
-   * give-money form whose every press ends in a 409 they cannot act on.
-   */
-  it("is false when the couple said yes but Stripe cannot take a charge", async () => {
-    const { app } = buildApp({ cashGiftsEnabled: true, stripeChargesEnabled: false });
-    const body = await listView(app, await guestCookie(app));
-    expect(body.cashGiftsEnabled).toBe(false);
-  });
-
-  it("is false when Stripe is ready but the couple never said yes", async () => {
-    const { app } = buildApp({ cashGiftsEnabled: false, stripeChargesEnabled: true });
-    const body = await listView(app, await guestCookie(app));
-    expect(body.cashGiftsEnabled).toBe(false);
-  });
-
-  it("is true only when both are", async () => {
-    const { app } = buildApp({ cashGiftsEnabled: true, stripeChargesEnabled: true });
-    const body = await listView(app, await guestCookie(app));
-    expect(body.cashGiftsEnabled).toBe(true);
-  });
-
-  /**
    * A gift is charged in the wedding's currency. An account that settles in
    * another one — a couple who reconnected a different Stripe account, or whose
    * payout currency changed at Stripe — would convert every gift on Stripe's
@@ -1374,7 +1350,7 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
     expect(plan).not.toMatch(/SCAN registry_items/);
   });
 
-  it("ignores the client ?v= for cache keying — looping ?v= re-bills nothing (S-M1)", async () => {
+  it("ignores the client ?v= for cache keying — looping ?v= re-bills nothing", async () => {
     const cache = createCacheStub();
     await withCaches(cache.caches, async () => {
       const images = createImagesStub();

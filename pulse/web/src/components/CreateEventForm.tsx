@@ -356,7 +356,7 @@ export function CreateEventForm(props: { onSuccess: () => void; onCancel: () => 
               body="The channels you'll use to send reminders and announcements (blasts) to guests. Pick one or both — actual sending lands later; for now you can preview how blasts will appear on the event page."
             />
           </div>
-          <div class="flex gap-3 text-sm">
+          <div class="flex flex-wrap gap-x-4 gap-y-2">
             <Checkbox
               checked={commsChannels().has("email")}
               onChange={() => toggleChannel("email")}

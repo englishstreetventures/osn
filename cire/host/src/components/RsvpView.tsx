@@ -11,7 +11,6 @@ import Skeleton from "@cire/ui/skeleton";
 import SkeletonOutline from "@cire/ui/skeleton-outline";
 import { Popover } from "@kobalte/core/popover";
 import { useAuth } from "@shared/rp-auth/solid";
-import { toast } from "@shared/toast";
 import { Checkbox } from "@shared/ui/ui/checkbox";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field, Fieldset } from "@shared/ui/ui/field";
@@ -24,7 +23,6 @@ import { Tooltip } from "@shared/ui/ui/tooltip";
 import ArrowDown from "lucide-solid/icons/arrow-down";
 import ArrowUp from "lucide-solid/icons/arrow-up";
 import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
-import Download from "lucide-solid/icons/download";
 import Info from "lucide-solid/icons/info";
 import Link2 from "lucide-solid/icons/link-2";
 import PencilLine from "lucide-solid/icons/pencil-line";
@@ -49,7 +47,6 @@ import {
 import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { downloadBlob } from "../lib/download";
 import { CIRE_MARKETING_URL } from "../lib/osn";
 import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
 import {
@@ -72,7 +69,7 @@ import {
 import { applySavedReply, isSavedReply } from "../lib/rsvp-save";
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
 import { haptic } from "../lib/touch-feedback";
-import { IconButton } from "./ActionTip";
+import { CsvExportButton } from "./CsvExportButton";
 import { FilterSearch, FilterSelect } from "./FilterField";
 import { type MarkTone, StatusDot, StatusMark } from "./StatusMark";
 import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
@@ -432,27 +429,6 @@ export default function RsvpView(props: RsvpViewProps) {
   const hasEvents = () => state.events.length > 0;
   /** A file with no guests in it is only its header row, so none is offered. */
   const hasGuests = () => state.events.some((event) => event.invited > 0);
-
-  // The whole RSVP sheet, every event, as the Guests tab downloads it. Outcome
-  // through toasts, as there: a failed download is a thing the owner retries.
-  const [exporting, setExporting] = createSignal(false);
-  const exportRsvps = async () => {
-    if (exporting()) return;
-    setExporting(true);
-    try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/rsvps.csv")));
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`Export failed (${res.status})`);
-      downloadBlob(`cire-rsvps-${props.weddingSlug ?? props.weddingId}.csv`, await res.blob());
-      toast.success("RSVP export downloaded");
-    } catch (err) {
-      if (isAuthExpired(err)) return redirectToLogin();
-      haptic("reject");
-      toast.error("RSVP export failed. Try again.");
-    } finally {
-      setExporting(false);
-    }
-  };
 
   // A store, not a signal: reload writes patch each event's own fields in
   // place, so an event nothing touched keeps its object identity. That alone
@@ -928,23 +904,27 @@ export default function RsvpView(props: RsvpViewProps) {
   );
 
   /**
-   * The whole wedding's RSVP sheet as a CSV, every event, the bar's icon
-   * button after the reply key. Owner only, as the API's `weddingOwner()` gate
-   * is, and only while some event invites someone: a file with no guests is
-   * only its header row. Named, with its name as the shell's tooltip, as the
-   * Households tab draws its own two downloads.
+   * The whole wedding's RSVP sheet as a CSV, every event: the portal's
+   * download button. Owner only, as the API's `weddingOwner()` gate is, and
+   * only while some event invites someone: a file with no guests is only its
+   * header row.
+   *
+   * Wide, it ends the bar's first row, after the event strip, where the other
+   * Guests tabs keep their download at the top right; the second row has no
+   * room for its word beside the search, the reply filter and the key, and
+   * the strip scrolls where the row runs short. On a phone it ends the search
+   * row as a circle, its word hidden text, since that row has no room for it
+   * either.
    */
   const download = () => (
     <Show when={props.canManage && hasGuests()}>
-      <IconButton
-        variant="bar"
-        size="icon"
-        label={exporting() ? "Exporting RSVPs…" : "Download RSVPs (CSV)"}
-        onClick={() => void exportRsvps()}
-        disabled={exporting()}
-      >
-        <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
-      </IconButton>
+      <CsvExportButton
+        weddingId={props.weddingId}
+        weddingSlug={props.weddingSlug}
+        kind="rsvps"
+        compact={compact()}
+        class="shrink-0"
+      />
     </Show>
   );
 
@@ -956,7 +936,6 @@ export default function RsvpView(props: RsvpViewProps) {
           {searchBox(section)}
           {replyFilter(section)}
           {replyKey()}
-          {download()}
         </>
       }
     >
@@ -1119,7 +1098,10 @@ export default function RsvpView(props: RsvpViewProps) {
         <Show when={!error() && hasEvents() && selected()}>
           {(section) => (
             <>
-              <ViewBar slot="end">{eventStrip()}</ViewBar>
+              <ViewBar slot="end">
+                {eventStrip()}
+                <Show when={!compact()}>{download()}</Show>
+              </ViewBar>
               <ViewBar slot="row2">{controls(section)}</ViewBar>
             </>
           )}
@@ -1509,7 +1491,6 @@ export default function RsvpView(props: RsvpViewProps) {
           <Checkbox
             box="native"
             size="sm"
-            align="start"
             checked={formConsent()}
             onChange={setFormConsent}
             disabled={saving()}

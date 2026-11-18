@@ -261,6 +261,10 @@ export function createProfileService(authService: AuthService) {
       //  - every delete runs only while the account has another profile, so
       //    two deletes at once never leave it with none, and a delete that
       //    finds itself the last removes nothing;
+      //  - and only while the profile owns no organisation: an organisation
+      //    passes to another member by succession (the hard delete of its
+      //    owner's account, or a decline) between the read above and this
+      //    batch, and a profile that has just become an owner is not deleted;
       //  - the promotion runs only while the account has no default, and
       //    makes its oldest profile the default, so the account ends with
       //    exactly one whichever request lands first.
@@ -276,6 +280,12 @@ export function createProfileService(authService: AuthService) {
           .from(others)
           .where(and(eq(others.accountId, accountId), ne(others.id, targetProfileId))),
       );
+      const ownsNone = notExists(
+        db
+          .select({ id: organisations.id })
+          .from(organisations)
+          .where(eq(organisations.ownerId, targetProfileId)),
+      );
       const current = alias(users, "current_default");
       const oldest = alias(users, "oldest");
       const writes = [
@@ -288,6 +298,7 @@ export function createProfileService(authService: AuthService) {
                 eq(connections.addresseeId, targetProfileId),
               ),
               otherProfileRemains,
+              ownsNone,
             ),
           ),
         db
@@ -296,12 +307,15 @@ export function createProfileService(authService: AuthService) {
             and(
               or(eq(blocks.blockerId, targetProfileId), eq(blocks.blockedId, targetProfileId)),
               otherProfileRemains,
+              ownsNone,
             ),
           ),
         db
           .delete(organisationMembers)
-          .where(and(eq(organisationMembers.profileId, targetProfileId), otherProfileRemains)),
-        db.delete(users).where(and(eq(users.id, targetProfileId), otherProfileRemains)),
+          .where(
+            and(eq(organisationMembers.profileId, targetProfileId), otherProfileRemains, ownsNone),
+          ),
+        db.delete(users).where(and(eq(users.id, targetProfileId), otherProfileRemains, ownsNone)),
         db
           .update(users)
           .set({ isDefault: true, updatedAt: now() })
@@ -346,6 +360,23 @@ export function createProfileService(authService: AuthService) {
       });
       const first = after[0];
       if (!first || first.id === targetProfileId) {
+        // Nothing was deleted: refused as the checks would refuse now.
+        const ownsNow = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select({ id: organisations.id })
+              .from(organisations)
+              .where(eq(organisations.ownerId, targetProfileId))
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        if (ownsNow.length > 0) {
+          return yield* Effect.fail(
+            new AuthError({
+              message: "Delete the organisations this profile owns before deleting it",
+            }),
+          );
+        }
         return yield* Effect.fail(new AuthError({ message: "Cannot delete the last profile" }));
       }
       return { defaultProfileId: first.id };

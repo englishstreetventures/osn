@@ -12,6 +12,7 @@ export { hasPendingRecovery, RecoveryLoginForm } from "./RecoveryLoginForm";
 export { Register } from "./Register";
 export { SecurityEventsBanner } from "./SecurityEventsBanner";
 export { SessionsView } from "./SessionsView";
+export { ownRead, writeEnd, type SettingsRead, type WriteEnd } from "./settings-read";
 export { SignIn } from "./SignIn";
 export { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } from "./StepUpDialog";
 export { TotpView } from "./TotpView";
