@@ -1,9 +1,13 @@
 // One per-wedding cache of one read, with the contract every organiser cache
 // shares (wiki: cire-host-portal-layout, "Organiser client caches"): a fresh
 // value answers without a request; a stale one stays on screen while the next
-// load reads again; a load that lands after an invalidate or a write's answer
-// caches nothing; a refused read blanks the value; a closed wedding loads and
-// keeps nothing.
+// load reads again; a load that lands after an invalidate, a write's answer or
+// a patch caches nothing; a refused read blanks the value; a closed wedding
+// loads and keeps nothing.
+//
+// A patch is the one write that keeps the value's age. With a load in flight it
+// drops that load and marks the patched value stale, since the read was sent
+// before the write and its answer may not hold it; the next load reads again.
 //
 // On top of that, a value goes stale on its own `maxAgeMs` after it was read.
 // The caches built here hold data that guests, co-hosts and other organisers
@@ -32,7 +36,10 @@ export interface WeddingCache<T> {
   has(weddingId: string): boolean;
   /** The value, without minting the entry. Subscribes only when it exists. */
   peek(weddingId: string): T | null;
-  /** Write a patched value. Keeps a stale mark and the value's age. */
+  /** Write a patched value. Keeps a stale mark and the value's age. With a
+   *  load in flight, drops that load and marks the value stale: the read went
+   *  out before the write, so its answer cannot replace the patch, and the
+   *  next load reads again. */
   setCached(weddingId: string, value: T): void;
   /** Write the whole value a server answer just gave: fresh again, its age
    *  restarted, and a load already in flight drops what it fetches. */
@@ -66,8 +73,9 @@ export function createWeddingCache<T>(options: { maxAgeMs: number }): WeddingCac
   const readAt = new Map<string, number>();
   /** Weddings whose value is known out of date but still worth showing. */
   const stale = new Set<string>();
-  /** Bumped by every invalidate, write answer and drop: a load from an older
-   *  generation has been replaced, and drops what it fetches. */
+  /** Bumped by every invalidate, write answer and drop, and by a patch that
+   *  lands while a load is out: a load from an older generation has been
+   *  replaced, and drops what it fetches. */
   const generation = new Map<string, number>();
   const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
   const bump = (weddingId: string) => generation.set(weddingId, generationOf(weddingId) + 1);
@@ -132,6 +140,14 @@ export function createWeddingCache<T>(options: { maxAgeMs: number }): WeddingCac
     peek: (weddingId) => cache.get(weddingId)?.value() ?? null,
     setCached(weddingId, value) {
       if (isWeddingClosed(weddingId)) return;
+      // A load sent before the write could land after it and put back what
+      // the write changed: it drops what it fetches, and the patched value is
+      // read again on the next load.
+      if (inflight.has(weddingId)) {
+        bump(weddingId);
+        inflight.delete(weddingId);
+        stale.add(weddingId);
+      }
       entryFor(weddingId).setValue(() => value);
     },
     setFresh(weddingId, value) {

@@ -234,6 +234,58 @@ describe("RsvpView — New badges", () => {
     await waitFor(() => expect(within(rowOf("Ceremony", "Ada")).getByText("New")).toBeVisible());
   });
 
+  it("keeps a reply recorded while the table's read is out, and reads again once that read lands", async () => {
+    // The Overview's read: Cleo has not replied.
+    await ensureRsvpsLoaded("wed_a", async () => ({
+      events: VIEW.events as unknown as RsvpEvent[],
+      withBadges: false,
+    }));
+    const cleoAttends = {
+      guestId: "g3",
+      eventId: "evt_1",
+      status: "attending",
+      dietary: "",
+      dietaryPresets: [],
+      consentSource: "organiser_attested",
+    };
+    // What the server holds once the reply is in: Cleo attending, and Dee, a
+    // guest a co-host added meanwhile.
+    const after = structuredClone(VIEW);
+    after.events[0]!.guests.push({ ...guest("g3", "Cleo"), ...cleoAttends });
+    after.events[0]!.unresponded = [guest("g4", "Dee")];
+    let rsvpReads = 0;
+    let answerFirst!: (res: Response) => void;
+    authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/rsvp-changes/rows")) return Promise.resolve(json(feed([], 0)));
+      if (url.endsWith("/rsvps")) {
+        rsvpReads += 1;
+        if (rsvpReads === 1) return new Promise<Response>((resolve) => (answerFirst = resolve));
+        return Promise.resolve(json(after));
+      }
+      if (url.endsWith("/guests/g3/rsvps/evt_1") && init?.method === "PUT") {
+        return Promise.resolve(json({ rsvp: cleoAttends }));
+      }
+      return Promise.resolve(json({}, 404));
+    });
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(rsvpReads).toBe(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Test" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Save reply/i }));
+    await screen.findByRole("button", { name: "Edit reply for Cleo Test" });
+
+    // The table's first read was answered before the reply was saved.
+    answerFirst(json(VIEW));
+
+    await waitFor(() =>
+      expect(within(rowOf("Ceremony", "Dee")).getByText("No reply")).toBeVisible(),
+    );
+    expect(rsvpReads).toBe(2);
+    expect(screen.getByRole("button", { name: "Edit reply for Cleo Test" })).toBeTruthy();
+    const cached = peekCachedRsvps("wed_a")!.events.find((event) => event.id === "evt_1")!;
+    expect(cached.guests.map((g) => g.guestId)).toContain("g3");
+  });
+
   it("marks nothing when nothing is new", async () => {
     routeFetch(feed([], 0));
     render(() => <RsvpView weddingId="wed_a" />);

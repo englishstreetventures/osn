@@ -247,6 +247,30 @@ describe("createWeddingCache", () => {
     expect(cache.has("wed_1")).toBe(false);
   });
 
+  it("drops a load in flight when a patch lands first, and reads again on the next load", async () => {
+    await cache.ensureLoaded("wed_1", async () => "read");
+    cache.invalidate("wed_1");
+    const inFlight = deferred<string>();
+    const load = cache.ensureLoaded("wed_1", () => inFlight.promise);
+    // A write's answer patched the value while the read sent before it was out.
+    cache.setCached("wed_1", "patched");
+    inFlight.resolve("read before the write");
+    await expect(load).resolves.toBe(false);
+    expect(cache.peek("wed_1")).toBe("patched");
+    expect(cache.has("wed_1")).toBe(false);
+    const fetcher = vi.fn(async () => "read after the write");
+    await expect(cache.ensureLoaded("wed_1", fetcher)).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(cache.peek("wed_1")).toBe("read after the write");
+  });
+
+  it("keeps a fresh value fresh through a patch with no load in flight", async () => {
+    await cache.ensureLoaded("wed_1", async () => "read");
+    cache.setCached("wed_1", "patched");
+    expect(cache.has("wed_1")).toBe(true);
+    expect(cache.peek("wed_1")).toBe("patched");
+  });
+
   it("keeps a stale mark through setCached", async () => {
     await cache.ensureLoaded("wed_1", async () => "rows");
     cache.invalidate("wed_1");

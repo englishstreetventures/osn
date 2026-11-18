@@ -380,15 +380,23 @@ export default function RsvpView(props: RsvpViewProps) {
       setFormErrorText(text);
       setConsentRefused(consent);
     });
+  /** Replies this view has recorded, so a read that a save dropped is known. */
+  let saves = 0;
 
   /**
    * Reads the RSVPs and, beside them, the rows a guest changed since this
    * organiser last looked, and caches the RSVPs as read with their badges.
    * Resolves to the badge rows when the table has something real to show
    * (`null` when they could not be read), or `false` when it has not.
+   *
+   * A reply recorded while the read is out drops that read (the cache keeps
+   * the reply, not an answer sent before it), so the replies are read once
+   * more: the reply has committed by then, and the table would otherwise keep
+   * whatever it drew at mount for the rest of the visit.
    */
-  const load = async (): Promise<RsvpChangeRows | null | false> => {
+  const load = async (retried = false): Promise<RsvpChangeRows | null | false> => {
     let feed: RsvpChangeRows | null = null;
+    const savesBefore = saves;
     try {
       // Whatever the cache holds is shown meanwhile; the read replaces it.
       invalidateRsvps(props.weddingId);
@@ -407,6 +415,7 @@ export default function RsvpView(props: RsvpViewProps) {
         return { events: body.events, withBadges: rows !== null };
       });
       const read = peekCachedRsvps(props.weddingId);
+      if (!loaded && !retried && !gone && saves !== savesBefore) return await load(true);
       if (!loaded || !read) return false;
       setState("events", reconcile(structuredClone(read.events), { key: "id" }));
       return feed;
@@ -784,6 +793,7 @@ export default function RsvpView(props: RsvpViewProps) {
       // the host the save landed, not the redraw.
       haptic("commit");
       closeEditor();
+      saves += 1;
       const body = (await res.json().catch(() => null)) as { rsvp?: unknown } | null;
       const at = state.events.findIndex((event) => event.id === target.eventId);
       const event = at >= 0 ? state.events[at] : undefined;
