@@ -4,11 +4,14 @@ import { join } from "node:path";
 
 import {
   branchPolicyRefusal,
+  driftLine,
+  fieldTypes,
   forwardedEvent,
   listenLine,
   redactStripeSecrets,
-  fieldTypes,
   STRIPE_TEST_API_VERSION,
+  stripeCaller,
+  stripeErrorCode,
   stripeTestMode,
   webhookAnswer,
   webhookSecretIn,
@@ -241,6 +244,7 @@ describe("fieldTypes: the stand-in's answer against Stripe's, field by field", (
       metadata: { contributionId: "rct_9" },
     };
     expect(fieldTypes(standIn, stripe).filter((row) => row.standIn !== row.stripe)).toEqual([]);
+    expect(driftLine(fieldTypes(standIn, stripe))).toBe("none");
   });
 
   test("reports a field Stripe does not send, by its path", () => {
@@ -248,6 +252,7 @@ describe("fieldTypes: the stand-in's answer against Stripe's, field by field", (
     expect(fieldTypes(standIn, stripe).filter((row) => row.standIn !== row.stripe)).toEqual([
       { path: "url", standIn: "string", stripe: "absent" },
     ]);
+    expect(driftLine(fieldTypes(standIn, stripe))).toBe("url: string vs absent");
   });
 
   test("reports a type that differs, null against a string included", () => {
@@ -256,6 +261,9 @@ describe("fieldTypes: the stand-in's answer against Stripe's, field by field", (
       { path: "amount_total", standIn: "number", stripe: "string" },
       { path: "payment_intent", standIn: "null", stripe: "string" },
     ]);
+    expect(driftLine(fieldTypes(standIn, stripe))).toBe(
+      "amount_total: number vs string; payment_intent: null vs string",
+    );
   });
 
   test("reports drift inside an object by its dotted path", () => {
@@ -264,6 +272,7 @@ describe("fieldTypes: the stand-in's answer against Stripe's, field by field", (
     expect(fieldTypes(event, stripe).filter((row) => row.standIn !== row.stripe)).toEqual([
       { path: "data.object.amount_total", standIn: "number", stripe: "null" },
     ]);
+    expect(driftLine(fieldTypes(event, stripe))).toBe("data.object.amount_total: number vs null");
   });
 
   test("ignores fields only Stripe sends", () => {
@@ -318,6 +327,61 @@ describe("reading the listen log", () => {
   });
 });
 
+describe("stripeErrorCode: what of a Stripe refusal reaches the public results", () => {
+  test("is Stripe's code, else its type, and never its message", () => {
+    const message = "No such payment_page: cs_test_abc; a similar object exists in live mode";
+    expect(
+      stripeErrorCode({
+        error: { code: "resource_missing", type: "invalid_request_error", message },
+      }),
+    ).toBe("resource_missing");
+    expect(stripeErrorCode({ error: { type: "invalid_request_error", message } })).toBe(
+      "invalid_request_error",
+    );
+    expect(stripeErrorCode({ error: { message } })).toBe("none");
+    expect(stripeErrorCode({ id: "cs_test_abc", status: "complete" })).toBe("none");
+    expect(stripeErrorCode(null)).toBe("none");
+  });
+});
+
+describe("stripeCaller: what the flow sends Stripe", () => {
+  test("form-encoded, in cire-api's version, with the key, on the connected account it names", async () => {
+    const sent: Array<{ url: string; init: RequestInit }> = [];
+    const fake = (async (url: string | URL | Request, init?: RequestInit) => {
+      sent.push({ url: String(url), init: init ?? {} });
+      return Response.json({ id: "pm_1" });
+    }) as typeof fetch;
+    const secretKey = key("sk", "test");
+    const call = stripeCaller(secretKey, fake);
+    const answer = await call("POST", "/v1/payment_methods", {
+      account: ACCOUNT,
+      form: { type: "card", "card[token]": "tok_visa" },
+    });
+    await call("GET", "/v1/accounts/acct_1Abc2Def3Ghi");
+    expect(answer).toEqual({ status: 200, body: { id: "pm_1" } });
+    const [post, get] = sent.map(({ url, init }) => ({
+      url,
+      method: init.method,
+      body: init.body,
+      headers: Object.fromEntries(new Headers(init.headers)),
+    }));
+    expect(post).toEqual({
+      url: "https://api.stripe.com/v1/payment_methods",
+      method: "POST",
+      body: "type=card&card%5Btoken%5D=tok_visa",
+      headers: {
+        authorization: `Bearer ${secretKey}`,
+        "content-type": "application/x-www-form-urlencoded",
+        "stripe-account": ACCOUNT,
+        "stripe-version": STRIPE_TEST_API_VERSION,
+      },
+    });
+    // The platform's own call names no connected account.
+    expect(get?.headers).not.toHaveProperty("stripe-account");
+    expect(get?.body).toBeUndefined();
+  });
+});
+
 describe("guards", () => {
   // The flow reads Stripe's objects in the version cire-api asks for; any other
   // version can answer a different shape, and the drift check would compare
@@ -336,7 +400,7 @@ describe("guards", () => {
     const imports = (file: string) =>
       [
         ...readFileSync(join(import.meta.dirname, "..", "src", file), "utf8").matchAll(
-          /^import (?!type )[^;]*?from "([^"]+)";/gms,
+          /^(?:import (?!type )[^;]*?from |import |export [^;]*?from )"([^"]+)";/gms,
         ),
       ].map((match) => match[1] ?? "");
     expect(imports("stripe-test-mode.ts").filter((spec) => !spec.startsWith("node:"))).toEqual([]);

@@ -131,16 +131,19 @@ async function preflight(env: Env): Promise<number> {
  * Starts `stripe listen` and resolves with the signing secret it prints. Its
  * process joins `procs` at once, so the run stops it whatever happens next.
  * It runs with a home of its own, so a developer's own Stripe login is never
- * read or written.
+ * read or written, and with no variable of the launcher's but `PATH`.
  */
-function startListen(options: {
+export function startListen(options: {
   readonly cli: string;
   readonly secretKey: string;
   readonly account: string;
   readonly forwardTo: string;
   readonly logPath: string;
   readonly procs: Started[];
+  /** How long it may take to print its secret; `LISTEN_READY_MS` unless a test shortens it. */
+  readonly readyMs?: number;
 }): Promise<string> {
+  const readyMs = options.readyMs ?? LISTEN_READY_MS;
   const home = mkdtempSync(join(tmpdir(), "osn-e2e-stripe-"));
   const child = spawn(
     options.cli,
@@ -186,10 +189,10 @@ function startListen(options: {
     const timer = setTimeout(() => {
       reject(
         new Error(
-          `stripe listen printed no signing secret in ${LISTEN_READY_MS / 1000}s; see ${options.logPath}`,
+          `stripe listen printed no signing secret in ${readyMs / 1000}s; see ${options.logPath}`,
         ),
       );
-    }, LISTEN_READY_MS);
+    }, readyMs);
     const onLine = (line: string): void => {
       if (secret === null) {
         const found = webhookSecretIn(line);
@@ -206,6 +209,10 @@ function startListen(options: {
       if (stream) createInterface({ input: stream, crlfDelay: Infinity }).on("line", onLine);
     }
     child.once("error", (error) => {
+      // A CLI that never started emits no `exit`; marking it exited here is
+      // what lets `stopAll` finish instead of waiting on it for ever.
+      started.exit = `error ${(error as NodeJS.ErrnoException).code ?? error.message}`;
+      resolveExited(1);
       clearTimeout(timer);
       reject(
         new Error(`stripe listen did not start (${error.message}); is ${options.cli} installed?`),

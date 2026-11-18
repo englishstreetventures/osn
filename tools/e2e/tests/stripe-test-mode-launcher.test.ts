@@ -1,7 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { stopAll, type Started } from "../src/processes";
+import { startListen } from "../src/stripe-test-mode-launcher";
 
 // The test-mode entry, run as the nightly job runs it. `--preflight` is the
 // job's first step: it decides whether the run happens, refuses a key that is
@@ -9,8 +12,8 @@ import { join } from "node:path";
 // branch but main could read the key from. None of it may print the key.
 
 const ENTRY = join(import.meta.dirname, "..", "src", "stripe-test-mode-launcher.ts");
-const key = (kind: string, mode: string): string =>
-  [kind, mode, "4eC39HqLyjWDarjtT1zdp7dc"].join("_");
+const key = (kind: string, mode: string, tail = "4eC39HqLyjWDarjtT1zdp7dc"): string =>
+  [kind, mode, tail].join("_");
 const ACCOUNT = "acct_1Abc2Def3Ghi";
 
 /** GitHub's environments API, answering for one repository with whichever policy a test sets. */
@@ -148,5 +151,158 @@ describe("the run", () => {
     expect(ran.stderr).toContain("STRIPE_TEST_SECRET_KEY is not a test-mode key");
     expect(ran.stderr.trim().split("\n")).toHaveLength(1);
     expect(everything(ran)).not.toContain(live);
+  });
+});
+
+// `stripe listen` stood in for by a shell script, so what reaches the uploaded
+// log, and each way the CLI can fail to come up, is checked with no Stripe.
+describe("startListen", () => {
+  const secret = ["whsec", "listenTestSecret0"].join("_");
+  const testKey = key("sk", "test");
+  const ours = JSON.stringify({
+    id: "evt_1",
+    type: "checkout.session.completed",
+    account: ACCOUNT,
+  });
+  const theirs = JSON.stringify({
+    id: "evt_2",
+    type: "checkout.session.completed",
+    account: "acct_someoneElse",
+    data: { object: { customer_details: { email: "someone@example.com" } } },
+  });
+
+  const fakeCli = (body: string): { cli: string; logPath: string } => {
+    const dir = mkdtempSync(join(tmpdir(), "stripe-listen-"));
+    const cli = join(dir, "stripe");
+    writeFileSync(cli, `#!/bin/sh\n${body}\n`);
+    chmodSync(cli, 0o755);
+    const logPath = join(dir, "stripe-listen.log");
+    writeFileSync(logPath, "");
+    return { cli, logPath };
+  };
+
+  const start = (cli: string, logPath: string, procs: Started[], readyMs?: number) =>
+    startListen({
+      cli,
+      secretKey: testKey,
+      account: ACCOUNT,
+      forwardTo: "http://127.0.0.1:8787/api/stripe/webhook",
+      logPath,
+      procs,
+      readyMs,
+    });
+
+  /** The log once it holds `text`, or as it stands after two seconds. */
+  const logWith = async (logPath: string, text: string): Promise<string> => {
+    for (let i = 0; i < 40 && !readFileSync(logPath, "utf8").includes(text); i += 1) {
+      await Bun.sleep(50);
+    }
+    return readFileSync(logPath, "utf8");
+  };
+
+  test("resolves with the signing secret, and logs it redacted, without other accounts' events", async () => {
+    process.env["GITHUB_TOKEN"] = "launcher-only-value";
+    const { cli, logPath } = fakeCli(
+      [
+        `echo '${ours}'`,
+        `echo '${theirs}'`,
+        'echo "token=${GITHUB_TOKEN:-unset} key=${STRIPE_API_KEY:+set} home=${HOME}"',
+        `echo "Ready! Your webhook signing secret is ${secret} (^C to quit)" >&2`,
+        'echo "<--  [200] POST http://127.0.0.1:8787/api/stripe/webhook [evt_1]"',
+        "exec sleep 30",
+      ].join("\n"),
+    );
+    const procs: Started[] = [];
+    try {
+      expect(await start(cli, logPath, procs)).toBe(secret);
+      const log = await logWith(logPath, "[evt_1]");
+      expect(log).toContain("whsec_[redacted]");
+      expect(log).not.toContain(secret);
+      expect(log).toContain(ours);
+      expect(log).not.toContain("someone@example.com");
+      expect(log).toContain("token=unset key=set");
+      expect(log).not.toContain(`home=${process.env["HOME"]}\n`);
+      expect(log).toContain("<--  [200] POST");
+    } finally {
+      delete process.env["GITHUB_TOKEN"];
+      await stopAll(procs, 1000);
+    }
+  });
+
+  test("rejects, naming the log, when the CLI exits before it is ready", async () => {
+    const masked = key("sk", "test", "*************************0000");
+    const { cli, logPath } = fakeCli(
+      `echo 'level=fatal msg="Invalid API Key provided: ${masked}"' >&2\nexit 1`,
+    );
+    const procs: Started[] = [];
+    try {
+      await expect(start(cli, logPath, procs)).rejects.toThrow(
+        `stripe listen exited (code 1) before it was ready; see ${logPath}`,
+      );
+      const log = await logWith(logPath, "stripe listen exited");
+      expect(log).toContain("stripe listen exited (code 1)");
+      expect(log).not.toContain(masked);
+    } finally {
+      await stopAll(procs, 1000);
+    }
+  });
+
+  test("rejects when the CLI cannot be started at all", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "stripe-listen-"));
+    const missing = join(dir, "no-such-stripe");
+    expect(existsSync(missing)).toBe(false);
+    const logPath = join(dir, "stripe-listen.log");
+    writeFileSync(logPath, "");
+    const procs: Started[] = [];
+    try {
+      await expect(start(missing, logPath, procs)).rejects.toThrow("stripe listen did not start");
+    } finally {
+      await stopAll(procs, 1000);
+    }
+  });
+
+  test("rejects when no signing secret comes in time", async () => {
+    const { cli, logPath } = fakeCli('echo "Getting ready..." >&2\nexec sleep 30');
+    const procs: Started[] = [];
+    try {
+      await expect(start(cli, logPath, procs, 300)).rejects.toThrow(
+        "stripe listen printed no signing secret in 0.3s",
+      );
+    } finally {
+      await stopAll(procs, 1000);
+    }
+  });
+});
+
+describe("the preflight and the run, refusing what they cannot check", () => {
+  test("the preflight refuses outside GitHub Actions, with no repository to read", async () => {
+    policy = MAIN_ONLY;
+    const ran = await run(["--preflight"], {
+      STRIPE_TEST_SECRET_KEY: key("sk", "test"),
+      STRIPE_TEST_CONNECTED_ACCOUNT: ACCOUNT,
+      GITHUB_REPOSITORY: "",
+    });
+    expect(ran.code).toBe(1);
+    expect(ran.stdout).toContain("GITHUB_REPOSITORY is not set");
+  });
+
+  test("the preflight refuses when GitHub will not answer for the Environment", async () => {
+    policy = MAIN_ONLY;
+    const ran = await run(["--preflight"], {
+      STRIPE_TEST_SECRET_KEY: key("sk", "test"),
+      STRIPE_TEST_CONNECTED_ACCOUNT: ACCOUNT,
+      GITHUB_REPOSITORY: "acme/missing",
+    });
+    expect(ran.code).toBe(1);
+    expect(ran.output).not.toContain("run=true");
+    expect(ran.stdout).toContain("could not read");
+  });
+
+  test("the run with no key says there is nothing to run against, and fails", async () => {
+    const ran = await run([], {});
+    expect(ran.code).toBe(1);
+    expect(ran.stderr).toContain(
+      "STRIPE_TEST_SECRET_KEY and STRIPE_TEST_CONNECTED_ACCOUNT are not set",
+    );
   });
 });

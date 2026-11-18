@@ -1407,6 +1407,8 @@ describe("the Stripe test-mode job runs nightly and by hand, and holds its key i
       expect(JSON.stringify(step.env)).toContain(KEY);
     }
     expect(JSON.stringify({ ...jobs[0], steps: [] })).not.toContain("secrets.");
+    // A workflow-level value reaches every step, the checkout and the install included.
+    expect(JSON.stringify(workflow.env ?? {})).not.toContain("secrets.");
   });
 
   test("every step after the preflight waits on its answer, and the upload runs on failure too", () => {

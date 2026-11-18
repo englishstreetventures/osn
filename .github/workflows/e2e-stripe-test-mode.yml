@@ -95,7 +95,7 @@ jobs:
           STRIPE_TEST_CONNECTED_ACCOUNT: ${{ vars.STRIPE_TEST_CONNECTED_ACCOUNT }}
         run: bun run test:e2e:stripe
 
-      # results.json, stripe-shapes.json, screenshots, the trace and the
+      # results.json, stripe-fields.json, screenshots, the trace and the
       # servers' logs, stripe listen's with its secrets redacted; on failure too.
       - name: Upload E2E artifacts
         if: always() && steps.preflight.outputs.run == 'true'
