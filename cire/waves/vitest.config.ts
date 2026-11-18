@@ -6,7 +6,8 @@
  * Browser tests are named `*.browser.test.ts(x)` and excluded from `unit` by
  * that name, so every file lands in exactly one project. The `unit` project
  * runs in Node: it builds the package with Vite to check what a production
- * bundle leaves out. Stryker runs `unit` alone (`stryker/vitest.config.ts`).
+ * bundle carries and leaves out. Stryker runs both (`stryker/vitest.config.ts`):
+ * the browser project is the only one that runs the waves' code.
  */
 
 import { playwright } from "@vitest/browser-playwright";

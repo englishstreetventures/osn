@@ -1,6 +1,7 @@
-/*! Distortion Waves — Copyright (c) 2026 Jakub Antalik. MIT licence:
- *  cire/waves/vendor/LICENSE. This file ports upstream's React wrapper,
- *  packages/distortion-waves/src/DistortionWave.tsx, to Solid. */
+/* Distortion Waves — Copyright (c) 2026 Jakub Antalik. MIT licence:
+ * cire/waves/vendor/LICENSE, which ships in the bundle as
+ * `DistortionWave.licence` (below). This file ports upstream's React wrapper,
+ * packages/distortion-waves/src/DistortionWave.tsx, to Solid. */
 
 /**
  * A wave that leaves a button, an edge or a point and crosses the element,
@@ -16,10 +17,14 @@
  * </DistortionWave>
  * ```
  *
- * Two departures from upstream's wrapper. It has no `overlay` slot: nothing
- * here uses one, and it injected a `<style>` element. And a controller call
- * that throws (a shader the driver will not compile) does not leave the view
- * stuck: the wave becomes the controller's crossfade from then on.
+ * Three departures from upstream's wrapper. It has no `overlay` slot: nothing
+ * here uses one, and it injected a `<style>` element. Its handle carries only
+ * what a caller uses — `reset`, the element and the controller — not
+ * upstream's `play`, `reverse` and `prepare`: `revealed` runs the wave both
+ * ways, and the controller has all three for a caller that needs one. And a
+ * controller call that throws (a shader the driver will not compile) does not
+ * leave the view stuck: the wave becomes the controller's crossfade from then
+ * on.
  */
 
 import {
@@ -33,7 +38,8 @@ import {
   type JSX,
 } from "solid-js";
 
-import { WaveController, type PlayOptions, type WaveOptions } from "../../vendor/controller";
+import { WaveController, type WaveOptions } from "../../vendor/controller";
+import LICENCE from "../../vendor/LICENSE?raw";
 import { exposeHooks } from "../hooks";
 
 export type {
@@ -62,14 +68,8 @@ export interface DistortionWaveProps
 }
 
 export interface DistortionWaveHandle {
-  /** Runs the wave from the start. */
-  play(options?: PlayOptions): void;
-  /** Runs it back to the first view. */
-  reverse(): void;
   /** Straight back to the first view, with no wave. */
   reset(): void;
-  /** Pictures the element now, so the next wave starts with its lens. */
-  prepare(): Promise<void>;
   /** The wave's element. */
   readonly element: HTMLDivElement | null;
   /** The engine behind it, for benches; `null` once unmounted. */
@@ -167,15 +167,6 @@ export function DistortionWave(props: DistortionWaveProps): JSX.Element {
     }
   }
 
-  function safely<T>(run: () => T, fallback: T): T {
-    try {
-      return run();
-    } catch {
-      recover();
-      return fallback;
-    }
-  }
-
   onMount(() => {
     const made = new WaveController(root, first, second ?? null);
     controller = made;
@@ -193,18 +184,15 @@ export function DistortionWave(props: DistortionWaveProps): JSX.Element {
       const next = current();
       two();
       made.setRevealedLayer(second ?? null);
-      safely(() => made.update(next), undefined);
+      try {
+        made.update(next);
+      } catch {
+        recover();
+      }
     });
 
     local.handle?.({
-      play: (o) => safely(() => controller?.play(o), undefined),
-      // oxlint-disable-next-line unicorn/no-array-reverse -- WaveController#reverse, not an array's
-      reverse: () => safely(() => controller?.reverse(), undefined),
       reset: () => controller?.reset(),
-      prepare: () =>
-        safely(() => controller?.prepare() ?? Promise.resolve(), Promise.resolve()).catch(() =>
-          recover(),
-        ),
       get element() {
         return root ?? null;
       },
@@ -236,3 +224,13 @@ export function DistortionWave(props: DistortionWaveProps): JSX.Element {
     </div>
   );
 }
+
+/**
+ * Upstream's copyright and MIT notice, word for word. The licence asks that it
+ * travel with every copy of the vendored core, the built chunk included, and a
+ * minified Vite 8 build keeps no comment, legal ones included. So the notice
+ * is a string the component holds, which a bundle keeps for as long as it
+ * keeps the component; `tests/hooks.test.ts` fails a production bundle
+ * without it.
+ */
+DistortionWave.licence = LICENCE;

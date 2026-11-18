@@ -1,12 +1,13 @@
 /**
  * The Solid wrapper round the vendored controller, in Chromium: one test per
- * way it can fail (NEW-FEAT.md, isolated tests 1–5).
+ * way it can fail (NEW-FEAT.md, isolated tests 1–5 and 5b).
  *
  * The wave's own frames are the controller's, which upstream tests; these
  * check what the wrapper owns: that it makes and destroys one controller, that
  * the markup starts on the right view, that `revealed` reaches the controller
  * and `onFinish` comes back, that reduced motion is a crossfade, and that a
- * renderer that throws leaves a crossfade rather than a stuck view.
+ * renderer that throws, on the way out or on the way back, leaves a crossfade
+ * rather than a stuck view.
  *
  * The wave runs on a short `waveStyle`, so a test waits a fraction of a second
  * rather than upstream's four.
@@ -191,5 +192,24 @@ describe("DistortionWave", () => {
     setRevealed(false);
     await vi.waitFor(() => expect(calls).toEqual([true, false]), { timeout: 3000 });
     expect(wave.root().querySelector(":scope > canvas")).toBeNull();
+  });
+
+  it("falls back to the crossfade on the way back when the renderer first throws there", async () => {
+    // Opened at mount, so the first wave the renderer is asked for runs back.
+    vi.stubGlobal("requestIdleCallback", () => 0);
+    vi.spyOn(WebGL2RenderingContext.prototype, "getShaderParameter").mockReturnValue(false);
+    const [revealed, setRevealed] = createSignal(true);
+    const { calls } = finishes();
+    const wave = mount(() => ({
+      revealed: revealed(),
+      onFinish: (r: boolean) => calls.push(r),
+    }));
+    expect(wave.layer("content").inert).toBe(true);
+
+    expect(() => setRevealed(false)).not.toThrow();
+    expect(wave.handle.controller?.debug.mode).toBe("fade");
+    await vi.waitFor(() => expect(calls).toEqual([false]), { timeout: 3000 });
+    expect(wave.layer("content").inert).toBe(false);
+    expect(wave.layer("revealed").inert).toBe(true);
   });
 });

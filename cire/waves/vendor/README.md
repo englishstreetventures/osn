@@ -31,8 +31,13 @@ fires when the browser will not picture the element and the wave runs without
 its lens.
 
 The code is MIT; the rest of `@cire/waves` is ours and `UNLICENSED`, as its
-`package.json` says. A bundle that includes this code keeps the notice: the
-wrapper carries it in a `/*! … */` comment, which minifiers keep.
+`package.json` says. A bundle that includes this code carries the notice: the
+wrapper imports `LICENSE` as text (`?raw`) and holds it as
+`DistortionWave.licence`, a string the chunk keeps while the component ships.
+A comment would not do: a minified Vite 8 build keeps no comment, legal ones
+included. `tests/hooks.test.ts` builds the package for production and fails if
+any line of `LICENSE` is missing from the bundle; a re-vendor that changes
+`LICENSE` changes what ships with it.
 
 Distortion Waves is not on npm (`npm view distortion-waves` answered 404 on
 2026-11-18), so no scanner keyed on `bun.lock` watches it. Whoever re-vendors
@@ -81,11 +86,14 @@ git add -A "$v"
 git add "$v/SHA256SUMS"
 ```
 
-Then run `bun run --cwd cire/waves test:browser` and the invite builder's E2E
-flow (`tools/e2e/tests/flows/cire-invite-preview-wave.flow.ts`): the wrapper
-reads the controller's `debug` and calls `update`, `setRevealedLayer`, `play`,
-`reverse`, `reset`, `prepare` and `destroy`, and a renamed option breaks it
-without a type error only where the wrapper passes it through.
+Then run `bun run --cwd cire/waves test:browser`, `bun run --cwd cire/waves
+test:run` and the `cire-soft-shapes` E2E flow, which holds the invite
+builder's wave checks (`tools/e2e/tests/support/cire-preview-wave.ts`; run
+`bun run test:e2e --grep cire-soft-shapes`): the wrapper reads the
+controller's `debug` and calls `update`, `setRevealedLayer`, `play` and
+`reverse` (its crossfade after a throw), `reset` and `destroy`, and a renamed
+option breaks it without a type error only where the wrapper passes it
+through.
 
 The manifest comes from `git ls-files`, the same list the guard checks it
 against, so an untracked file such as a `.DS_Store` never enters it. If
