@@ -289,8 +289,8 @@ owners, each with an `owner` seat. Two consequences:
   pair in place; with no text they say nothing about the guest.
   The registry comes with the Gold plan tier, which is sold self-serve, so
   production can hold these rows.
-- **The gift record kept after the sweep.** A year after the last event the
-  sweep deletes the gift rows but keeps, on
+- **The gift record kept after the sweep.** When it deletes the guest data
+  ([[retention]] says when), the sweep deletes the gift rows but keeps, on
   `registry_settings.gift_summary_json`, each money gift's amount, currency
   and day, with no name ([[data-map]], [[retention]]). cire cannot tell who
   gave a line (Art. 11(1)), so a guest's access, objection or erasure request

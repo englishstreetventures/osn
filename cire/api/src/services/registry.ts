@@ -886,7 +886,8 @@ const isGiftSummary = (value: unknown): value is GiftSummary =>
 
 /**
  * Decode `registry_settings.gift_summary_json` — the record the retention sweep
- * leaves behind a year after the last event, in the same pass that deletes the
+ * leaves behind when it deletes the guest data (`./retention` says when), in the
+ * same pass that deletes the
  * households every claim and contribution hangs off (`GiftSummary` in
  * `./retention`).
  *

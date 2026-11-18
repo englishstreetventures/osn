@@ -93,6 +93,29 @@ describe("legal pages", () => {
     );
   });
 
+  /**
+   * The guest-data sweep (`cire/api/src/services/retention.ts`) deletes a year
+   * after the final event, or, for a wedding with an event it cannot date,
+   * three calendar years after the wedding was created, whatever its other
+   * events' dates; either way it can hold a wedding back up to 30 days for the
+   * gift record. Every page that states the window states all of it, the
+   * hold-back after both rules.
+   */
+  it("the hosts' notice and the overview state both retention bounds and the hold-back", () => {
+    const flat = (page: string) => page.replace(/\s+/g, " ");
+    for (const page of [hosts, privacy].map(flat)) {
+      expect(page).toMatch(/one year after the wedding&rsquo;s final event/);
+      expect(page).toMatch(
+        /three years after the wedding was created instead, whatever the other events&rsquo; dates/,
+      );
+      expect(page).not.toMatch(/whichever is later/);
+      // The hold-back comes after both rules, so it reads as applying to each.
+      expect(page.indexOf("up to 30 days later")).toBeGreaterThan(
+        page.indexOf("whatever the other events"),
+      );
+    }
+  });
+
   it("the hosts' notice names the gift record the couple keep after the guest data goes", () => {
     expect(hosts).toMatch(/the couple keep a record of their gifts with no guest names in it/);
     expect(hosts).toMatch(/the amount, currency and day of each money gift/);

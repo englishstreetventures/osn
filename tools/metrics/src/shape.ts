@@ -32,7 +32,7 @@ export interface Coverage {
   merged: number;
   /** `complexity.method === "confirmed"` — the only ratings worth acting on. */
   confirmed: number;
-  /** An agent's own guess that nobody signed off. Shown, never charted. */
+  /** Rated by backfill or after the work began. Shown, never charted. */
   unconfirmed: number;
   atOpen: number;
   atMerge: number;
@@ -136,7 +136,7 @@ export interface ComplexityView {
    * advances its issue, a lookup that did not land, or a tracker issue this
    * token could not read. */
   unrated: number;
-  /** Rated by an agent, unconfirmed — excluded so the chart cannot be circular. */
+  /** Rated by backfill or after the work began — excluded so the chart cannot be circular. */
   unconfirmed: number;
 }
 

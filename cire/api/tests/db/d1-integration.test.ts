@@ -2544,8 +2544,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
       );
 
       expect(deleted).toBe(2);
-      expect(seen.map((n) => [n.weddingId, n.finalEventOn])).toEqual([
-        [BOOTSTRAP_WEDDING_ID, "2025-04-20"],
+      expect(seen.map((n) => [n.weddingId, n.retainedFrom])).toEqual([
+        [BOOTSTRAP_WEDDING_ID, { rule: "final-event", on: "2025-04-20" }],
       ]);
     },
     MF_TIMEOUT_MS,
@@ -3115,22 +3115,28 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "the retention sweep keeps and counts weddings whose event Start is not a date",
+    "the retention sweep keeps and counts weddings whose event Start is not a date, until three years after their creation",
     async () => {
       // As text, `TBD` sorts after every date and `1st Nov 2026` before every
       // cutoff, so neither says when the wedding ends. Both are kept, and the
-      // count reaches the log on a run with nothing else due. Over D1, whose
-      // GLOB patterns are capped at 50 bytes.
+      // count reaches the log on a run with nothing else due. Two created more
+      // than three years before the run are deleted, one of them with a
+      // readable event still ahead, which does not hold it back; that count
+      // has a line of its own. Over D1, whose GLOB patterns are capped at 50
+      // bytes.
       await db
         .update(events)
         .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
         .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
-      const stamp = new Date("2023-01-01T00:00:00.000Z");
+      const recent = new Date("2024-01-01T00:00:00.000Z");
+      const old = new Date("2023-01-01T00:00:00.000Z");
       const undated = [
-        ["wed_d1_tbd", "TBD", "UNDATED01"],
-        ["wed_d1_nov", "1st Nov 2026", "UNDATED02"],
+        ["wed_d1_tbd", "TBD", "UNDATED01", recent],
+        ["wed_d1_nov", "1st Nov 2026", "UNDATED02", recent],
+        ["wed_d1_old", "TBD", "UNDATED03", old],
+        ["wed_d1_mixed", "TBD", "UNDATED04", old],
       ] as const;
-      for (const [id, startAt, publicId] of undated) {
+      for (const [id, startAt, publicId, stamp] of undated) {
         await db.insert(weddings).values({
           id,
           slug: `slug-${id}`,
@@ -3156,6 +3162,15 @@ describe("cire/api over real D1 (Miniflare)", () => {
           updatedAt: stamp,
         });
       }
+      await db.insert(events).values({
+        id: "ev_wed_d1_mixed_later",
+        weddingId: "wed_d1_mixed",
+        slug: "reception",
+        name: "Reception",
+        startAt: "2027-01-10T10:00:00+00:00",
+        endAt: "",
+        timezone: "UTC",
+      });
 
       const logs = await captureLogs(() =>
         run(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z"))),
@@ -3168,6 +3183,9 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(left.map((r) => r.weddingId).toSorted()).toEqual(["wed_d1_nov", "wed_d1_tbd"]);
       expect(
         logs.split("\n").filter((line) => line.includes("whose event dates it cannot read")),
+      ).toEqual([expect.stringContaining('"weddings":2')]);
+      expect(
+        logs.split("\n").filter((line) => line.includes("three years after they were created")),
       ).toEqual([expect.stringContaining('"weddings":2')]);
     },
     MF_TIMEOUT_MS,

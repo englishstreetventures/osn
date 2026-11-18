@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -30,6 +30,7 @@ import {
   minorToInput,
   parseMinor,
 } from "../lib/money";
+import { CIRE_MARKETING_URL } from "../lib/osn";
 import {
   ensureRegistryLoaded,
   type GiftLogEntry,
@@ -1512,11 +1513,14 @@ export default function RegistryView(props: RegistryViewProps) {
       {/* ── Gifts received ────────────────────────────────────────────────── */}
       <Show when={props.view === "gifts"}>
         {/* The record that outlives the detail. Written by the retention sweep a
-            year after the last event, in the same pass that deletes the
-            households every gift hangs off — so this is not a summary OF the log
-            below, it is what stands INSTEAD of it. The copy has to say that
-            outright, or a couple reads an empty log as an empty guest list.
-            Rendered ONLY when a summary exists, i.e. only after the sweep. */}
+            year after the last event (three years after the wedding was
+            created, when the sweep cannot read the event dates), in the same
+            pass that deletes the households every gift hangs off — so this is
+            not a summary OF the log below, it is what stands INSTEAD of it. The
+            copy has to say that outright, or a couple reads an empty log as an
+            empty guest list. It names no period: the record does not say which
+            rule applied. Rendered ONLY when a summary exists, i.e. only after
+            the sweep. */}
         <Show when={summaryBand()}>
           {(band) => (
             <div class={RECORD_CLASS}>
@@ -1524,9 +1528,17 @@ export default function RegistryView(props: RegistryViewProps) {
                 Your record of gifts
               </Eyebrow>
               <p class="text-text-muted text-ui-sm">
-                On {band().sweptOn}, a year after your wedding, we deleted your guests' details —
-                who gave each gift, and the notes they wrote. We kept the amount and the day of each
-                cash gift, and these totals.
+                On {band().sweptOn}, as{" "}
+                <a
+                  href={`${CIRE_MARKETING_URL}/privacy/hosts/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={proseLinkClass()}
+                >
+                  our privacy notice<span class="sr-only"> (opens in a new tab)</span>
+                </a>{" "}
+                says, we deleted your guests' details — who gave each gift, and the notes they
+                wrote. We kept the amount and the day of each cash gift, and these totals.
               </p>
               <Show when={band().claimsTotal > 0}>
                 <span class="text-text text-ui-md">
@@ -1659,7 +1671,7 @@ export default function RegistryView(props: RegistryViewProps) {
         </Show>
 
         {/* The couple's own copy of the gift log: the view pages 50 at a time
-            and the sweep deletes the whole log a year after the wedding, so a
+            and the retention sweep deletes the whole log, so a
             download is the only way they keep who gave what. Shown only to an
             owner, and only when there is a log to download — after the sweep
             the list is empty and an export would hand back a header row. */}

@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-18
 ---
 
 # Session Metrics
@@ -54,8 +54,8 @@ outliers are a **query over raw fields**, never a stored field.
 
 The rating lives on the **issue**, as a `complexity:` label, and it is set
 **before work starts** — the `write-issue` skill does it when the issue is filed, through the
-`rate-complexity` skill (`.claude/skills/rate-complexity/SKILL.md`), which proposes a number from the issue body alone and
-asks the owner to confirm or amend it.
+`rate-complexity` skill (`.claude/skills/rate-complexity/SKILL.md`), which picks a number from the issue body alone and
+applies it without asking the owner, who has delegated that approval.
 
 The timing is not a detail. A rating made at pull-request time, with a token
 total already on screen, gets talked into agreeing with whatever the work cost,
@@ -70,7 +70,7 @@ score the task it struggled with as hard.
 | `complexity:3` | One package, but something must be designed |
 | `complexity:5` | Several packages, or a contract others depend on |
 | `complexity:8` | Cross-cutting, or the shape is unknown at the start |
-| `complexity:unconfirmed` | An agent's rating that no human signed off on |
+| `complexity:unconfirmed` | A rating made by backfill, or after the work had begun |
 
 Fibonacci, so `usd_equivalent ÷ declared` is a real division. The rubric rates
 the **problem**, not the change: a one-line fix to a race condition is not a 1.
@@ -78,9 +78,9 @@ Diff size is recorded separately, on purpose, and the two are never blended.
 A card whose pull request closes several issues declares the sum of their
 ratings, which can be any whole number — see [[#Which issue a card names, and what it divides by]].
 
-Exclude unconfirmed ratings from anything you intend to act on — they are an
-agent's guess standing alone, and mostly arrive from the backfill of issues that
-predate the label.
+Exclude unconfirmed ratings from anything you intend to act on — they were made
+after the work began, with its cost in view, and mostly arrive from the backfill
+of issues that predate the label.
 
 ## Which issue a card names, and what it divides by
 
@@ -540,7 +540,7 @@ is one issue's rating.
 | `pr.phase` | `at-open` or `at-merge` — see [[#Two phases]] |
 | `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. Only ever an issue in this repository, and `labels` only ever its labels: never a tracker issue's, whose number is not recorded and whose labels other than the `complexity:` pair are never kept. With `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
 | `complexity.declared` | The sum of the ratings of the issues in this repository the pull request closes or, when it links none here, of the tracker issues it closes — 1, 2, 3, 5 or 8 for one issue. On a tracker-only card, `declared` and `issues` show how many tracker issues it closed and their summed rating; the pull request's own `Closes` lines already show the count. The only judgement in the file |
-| `complexity.method` | How that number was arrived at: `confirmed`, `unconfirmed`, `none`, `not-fetched`, `lookup-failed`, `part-of`, or `manual` for `--complexity` |
+| `complexity.method` | How that number was arrived at: `confirmed` (no issue it sums carries `complexity:unconfirmed`), `unconfirmed`, `none`, `not-fetched`, `lookup-failed`, `part-of`, or `manual` for `--complexity` |
 | `complexity.issues` | How many issues' ratings `declared` adds up. Absent before version 3 |
 | `window.sessions` | Distinct sessions on this branch |
 | `window.span_seconds` | First to last timestamp, idle included |
@@ -785,9 +785,11 @@ Two cases are not a lowered rating, or cannot carry one:
   carries labels with no issue. Then the rebuilt card is written, without the
   old rating, so no tracker number or label survives.
 
-Only `"confirmed"` is a rating to act on; every other method is either an
-agent's guess (`"unconfirmed"`) or a null `complexity.declared`, for the reasons
-in the table above.
+Only `"confirmed"` is a rating to act on: every issue it sums carries no
+`complexity:unconfirmed`, so each was rated from its body before work began, by
+the owner or by an agent rating on their behalf. Every other method is either a
+rating made by backfill or after the work began (`"unconfirmed"`) or a null
+`complexity.declared`, for the reasons in the table above.
 
 ## The two fields that name a cause
 

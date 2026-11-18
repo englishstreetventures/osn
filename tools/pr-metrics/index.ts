@@ -1106,9 +1106,10 @@ export interface DeclaredComplexity {
  * set before work starts — see `wiki/conventions/session-metrics.md`. The
  * card only transcribes it.
  *
- * Two labels rather than one: `complexity:unconfirmed` marks a rating no human
- * signed off on, which is most of a backfill. Those stay separable so a query
- * meant to drive a decision can exclude an agent's unreviewed guess. More than
+ * Two labels rather than one: `complexity:unconfirmed` marks a rating made by
+ * backfill or after the work began, with its cost in view. Those stay separable
+ * so a query meant to drive a decision can exclude a rating that may have been
+ * fitted to the cost. More than
  * one rating label is a labelling mistake, not a value to average — it reads as
  * unrated so the mistake shows up rather than being quietly resolved.
  */

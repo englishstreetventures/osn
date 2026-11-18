@@ -418,8 +418,7 @@ What may stay open is in `wiki/conventions/review-findings.md` §Fix findings;
 do not file them, and it holds here too.
 
 Write each issue with the `write-issue` skill, which also rates it through
-`rate-complexity` before work starts (`complexity:unconfirmed` on an unattended
-run). The body spells out what the evidence was; "the retro found this" is not a
+`rate-complexity` before work starts. The body spells out what the evidence was; "the retro found this" is not a
 body.
 
 Where the next step needs a choice only the repo owner can make, write what you
