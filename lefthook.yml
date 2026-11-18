@@ -95,12 +95,35 @@ pre-push:
       # resolves it, or when @solidjs/start stops depending on micromatch.
       # DROP AFTER GHSA-vfj7-8cjw-p6xm 2027-01-07
       #
+      # GHSA-fc5q-39xc-vjpf — picomatch 4.0.7, ReDoS when a pattern holds a
+      # repeated single-branch extglob such as `+(*)`. Every release up to
+      # 4.0.7 is affected and none fixes it; the root `overrides` entry keeps
+      # one copy for every parent. Installed via alchemy and
+      # @alchemy.run/cloudflare (deploy-time bundling and resource selection),
+      # astro and @astrojs/internal-helpers (the asset and content-glob
+      # plugins, `createFilter` in Vite plugins), vite and vitest through
+      # tinyglobby › fdir, @changesets/git and @changesets/config, and
+      # @pulse/web › @solidjs/start › micromatch. They run at build, deploy,
+      # dev, test and release time, on patterns from repository config, stack
+      # code and the flags our workflows pass, matched against file paths;
+      # none takes a pattern from a request. No deployed build contains
+      # picomatch code: the osn-api, cire-api, zap-api and pulse-landing
+      # bundles, the cire-invites server and every static site were built and
+      # searched. Copies bundled in @cloudflare/vite-plugin, nitro and
+      # playwright are build, dev and test tooling. Importing
+      # `astro/cache/memory` would put picomatch in a Worker; nothing does.
+      # Drop when picomatch > 4.0.7 ships a fix and the root override moves
+      # to it.
+      # DROP AFTER GHSA-fc5q-39xc-vjpf 2027-01-07
+      #
       # Comments stay above `run:`. Inside the folded block a `#` line is part
       # of the command, and the shell would drop every flag after it.
-      # The drop is tracked in englishstreetventures/osn#1381.
+      # The drops are tracked in englishstreetventures/osn#1381 (braces) and
+      # englishstreetventures/osn#2407 (picomatch).
       run: >
         bun audit --audit-level=high
         --ignore=GHSA-vfj7-8cjw-p6xm
+        --ignore=GHSA-fc5q-39xc-vjpf
     audit-ignores:
       # Fails when an `--ignore` above has no `DROP AFTER` marker, or one whose
       # date has passed or is more than 90 days out. Also fails unless the
