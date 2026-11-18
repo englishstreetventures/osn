@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-19
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -100,7 +100,7 @@ Guests and the guest cookie path are unchanged (see [[cire-auth]] §Guest path).
 3. Sets `c.var.vendorOrgId` and `c.var.directoryVendorId` for downstream handlers.
 4. Returns **403** if the profile is not a member; **503** (fail-soft) if the ARC call is unavailable.
 
-**Scope:** `org:read` — resolves org membership without exposing the org's full member list. cire-api's ARC key registration (`POST /graph/internal/register-service`) must include this scope alongside `graph:read` and `graph:resolve-account` (see [[production-deploy]] §6.2).
+**Scope:** `org:read` — resolves org membership without exposing the org's full member list. cire-api's ARC registration at osn-api must hold this scope with every other one cire-api signs with; on production the production operator workflow sets them ([[production-deploy#6.2 Register cire's ARC public key with osn-api]]).
 
 **ARC bridge pattern:** identical to the existing `graph:read` / `graph:resolve-account` bridges (co-host handle resolution, guest account-linking). Key-optional + fail-soft: absent ARC key → 503, never a bypass.
 

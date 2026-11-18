@@ -14,7 +14,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
   - "[[social-graph]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-19
 ---
 
 # Cire auth model
@@ -38,7 +38,7 @@ Vendors are **OSN account holders who are members of an OSN organisation (`org_*
 
 `vendorOrgMember()` (`cire/api/src/middleware/vendor-org-member.ts`) gates `/api/vendor/*`. It runs `osnAuth()` (session cookie or access token, sets `c.var.osnProfileId`) and then makes an ARC-gated call to `@osn/api` `GET /organisations/internal/membership?orgId=&profileId=` (**scope `org:read`**) to confirm the caller's OSN profile is an active member of the target org. On success it sets `c.var.vendorOrgId` + `c.var.directoryVendorId`. On ARC failure it fails-soft to **503** (never a bypass). An authenticated-but-non-member caller gets **403**.
 
-The `org:read` scope is the ARC bridge that connects cire-api to osn-api's org-membership resolver. cire-api's ARC key registration (`POST /graph/internal/register-service`) must list `org:read` alongside `graph:read` and `graph:resolve-account` — see [[production-deploy]] §6.2 and the [[arc-tokens]] pattern. Until the widened registration runs **per environment** (after the `@osn/api` `PERMITTED_SCOPES` change deploys), `vendorOrgMember()` fails-soft to null and org-gated vendor writes return **503** — the organiser CRM and claim-link generation work regardless.
+The `org:read` scope is the ARC bridge that connects cire-api to osn-api's org-membership resolver. cire-api's ARC registration at osn-api must hold `org:read` with every other scope cire-api signs with (the `ARC_*_SCOPE` constants of `cire/api/src/services/osn-bridge.ts`) — see [[production-deploy#6.2 Register cire's ARC public key with osn-api]], where the production operator workflow sets them on production, and the [[arc-tokens]] pattern. While the registration lacks it, `vendorOrgMember()` fails soft to null and org-gated vendor writes return **503** — the organiser CRM and claim-link generation work regardless.
 
 **The org list is proxied, not read direct.** `GET /api/vendor/orgs` returns the caller's OSN organisations over the same `org:read` ARC bridge (`GET /organisations/internal/profile-orgs?profileId=`, whole summaries — id, handle, name, avatar — not bare ids). Before the OIDC swap the portal called osn-api itself with the user's access token; it now holds a cire session cookie, which osn-api will not accept, so cire-api is the only path. Gated by `osnAuth()` alone and scoped by construction (the resolver keys on the profile id from the verified session), and fail-soft: an ARC hiccup resolves to an empty list, which the portal renders as "no organisations yet".
 

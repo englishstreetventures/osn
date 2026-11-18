@@ -16,7 +16,8 @@ related:
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
-last-reviewed: 2026-11-18
+  - "[[arc-token-debugging]]"
+last-reviewed: 2026-11-19
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -94,8 +95,8 @@ marked **TBD** blocks the deploy.
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
 | **The production account's plan: Workers Paid** | osn-api's coordination store (and every Worker, Durable Object and D1 database on the account) | **The owner switches it in the Cloudflare dashboard before the first release that ships the coordination store** — the deploy token has no billing scope. §1.4 |
-| `INTERNAL_SERVICE_SECRET` (bearer for the coordination probe and register-service) | osn-api + its smoke-check step | **required** — the release refuses to deploy osn-api while its Worker lacks it (§5.9), and the post-deploy smoke check sends it to `GET /health/coordination`. It also guards `POST /graph/internal/register-service`, which registers cire's ARC key (§6.2). The `production` Environment secret of that name holds the Worker's value, for the smoke-check step: it is the one Worker secret value that Environment keeps for a release |
-| `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional, not set yet** — until both Workers hold it, sign out everywhere else, revoking cire's connection and an account deletion's soft delete leave cire organiser sessions alone, to end within their 7 days ([[sessions#Sign out everywhere else reaches cire]]). To turn it on: `openssl rand -base64 32`, keep your copy, then `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`; no Environment copy (§5.9). On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
+| `INTERNAL_SERVICE_SECRET` (bearer for the coordination probe and register-service) | osn-api + its smoke-check step | **required** — the release refuses to deploy osn-api while its Worker lacks it (§5.9), and the post-deploy smoke check sends it to `GET /health/coordination`. It also guards `POST /graph/internal/register-service`, which registers cire's ARC key (§6.2). The `production` Environment secret of that name holds the Worker's value, for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2): it is the one Worker secret value that Environment keeps |
+| `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional; set on both production Workers on 2026-11-19, by the owner** — without it on both Workers, sign out everywhere else, revoking cire's connection and an account deletion's soft delete leave cire organiser sessions alone, to end within their 7 days ([[sessions#Sign out everywhere else reaches cire]]). To set or replace it: `openssl rand -base64 32`, keep your copy, then `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`; no Environment copy (§5.9). On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
 | osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5`, staging `eb71428e-8540-4a30-815f-fb9cd4ae97ea`, prod `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
 | cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `6e835474-e0a7-4db9-8883-3247c3c891cd` |
@@ -427,7 +428,7 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
 | `OSN_EMAIL_VERIFICATION_API` | `[env.production.vars]` and `musubiProductionApis` (`musubi/infra/src/declaration.ts`), which PA1 holds equal | No (default off) | Truthy (`true`/`1`/`yes`/`on`) lets sign-up accept a browser Email Verification API token, which proves the address with no emailed link. **`true` on production**, and on dev, set in `musubiDeclaration` ([[email-verification-api#Our code]]). Read once, in `build-deps.ts`. |
 | `OSN_EMAIL_VERIFICATION_EMULATOR_URL` | **Never set** | **Must be absent** | Local E2E only: points the token verifier at a stand-in issuer. osn-api refuses to boot with it unless `OSN_ENV` is exactly `local`, and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
-| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, and for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key (§6.2). Both answer 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. A key derived from it also MACs osn-api's outbound ARC key ids, which zap-api checks with its own copy, so the two must hold one value, generated (`openssl rand -base64 32`), never chosen ([[arc-tokens#osn-api as issuer — published outbound keys]]); a deployed osn-api without it answers 503. The `production` GitHub Environment holds the same value for the smoke-check step. |
+| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, and for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key (§6.2). Both answer 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. A key derived from it also MACs osn-api's outbound ARC key ids, which zap-api checks with its own copy, so the two must hold one value, generated (`openssl rand -base64 32`), never chosen ([[arc-tokens#osn-api as issuer — published outbound keys]]); a deployed osn-api without it answers 503. The `production` GitHub Environment holds the same value for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2). |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, `/register/begin` + `/login/passkey/begin` **require** a valid Turnstile token and **fail-closed** (reject on missing/invalid/duplicate; single-use enforced by Cloudflare). When unset, those gates are skipped and the flows behave as before — safe to leave unset until the widget exists. **Currently SET** on `osn-api-production` (#160), so the gates bite. Server half of the sitekey baked into the **musubi/social** build as `VITE_TURNSTILE_SITEKEY` (§3.3) — it was the organiser-portal build until the 2026-07-27 OIDC swap moved the ceremonies. Create the widget in §3.4. (`build-deps.ts` → `createTurnstileVerifier`). |
 | `TRUSTED_PROXY_COUNT` | `[env.<env>.vars]` | Optional | On Workers, Cloudflare sets `cf-connecting-ip`, so this is usually unneeded. Set only if a proxy sits in front and XFF must be trusted N hops. |
 | `OSN_RP_NAME` | `[env.<env>.vars]` | Optional | Display name in passkey prompts and the issuer label in authenticator apps (default: the instance name, `Musubi`). Display only: changing it leaves existing passkeys and authenticator codes working, since sign-in checks `OSN_RP_ID` and the TOTP secret, never the name. |
@@ -436,7 +437,7 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `OSN_DELETION_ABSENT_APPS` | `[env.production.vars]` (dev: the musubi stack) | Set: `pulse` | Apps this tier does not run, comma-separated: the deletion skips them. A name that is no app fails the boot (503), and so does an app both given a URL and listed. pulse-api has no Worker on any tier. `musubi/infra/tests/deletion-apps.test.ts` holds the stack's values to the tier's hosts. |
 | `OSN_DELETION_FANOUT_MAX_JOBS` | `[env.production.vars]` | Set: `50` | Deletion jobs one fan-out pass reaches, and accounts one hard-delete pass erases, from 1 to 200 (`index.ts` `scheduled`). Unset, as on dev, it is 4, inside Workers Free's 50 D1 queries a cron run ([[free-tier-limits]]). |
 | `CIRE_OIDC_CLIENT_ID` | `[env.production.vars]` | Set: `cid_cire` | cire's OIDC client id, which every cire organiser-session revoke needs: it finds the account's profiles that signed in to cire by their consent to this client. Ending them goes to `CIRE_API_URL` (row above), which with this must equal cire-api's own `CIRE_API_ORIGIN` / `CIRE_OIDC_CLIENT_ID`; `cire/infra/tests/cross-stack.test.ts` holds them equal. Nothing is sent while `CIRE_INTERNAL_REVOKE_SECRET` is unset or shorter than 32 characters: each sign out everywhere else, each revoke of cire's connection and each soft delete of an account logs `cire organiser sessions not revoked: back-channel unconfigured` instead. |
-| `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put` | Optional | The bearer cire-api's organiser-session revoke checks, at least 32 characters (osn-api treats a shorter one as unset). Same value on cire-api; how to set it is in the pre-deploy table at the top of this page. |
+| `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put` | Optional; set on production 2026-11-19 | The bearer cire-api's organiser-session revoke checks, at least 32 characters (osn-api treats a shorter one as unset). Same value on cire-api; how to set it is in the pre-deploy table at the top of this page. |
 
 > [!important] zap-api and cire-api answer the account deletion before osn-api asks
 > osn-api asks every app it reaches (`ZAP_API_URL`, `CIRE_API_URL`) before it schedules a deletion, and holds the deletion with 409 `could_not_check` while an app answers 404 or an error. A release that ships a new deletion route on zap-api or cire-api ships that stack before or with the musubi stack; while osn-api is ahead of an app, deletions wait, and nothing is lost.
@@ -483,7 +484,7 @@ quietly accepting tokens from anywhere.
 | `CIRE_OIDC_CLIENT_SECRET` | `wrangler secret put CIRE_OIDC_CLIENT_SECRET --env production` | **Yes** | The client secret, presented as `client_secret_post` at the token endpoint. Must be the pre-image of `oauth_clients.client_secret_hash` in osn's D1 — **rotate both together or organiser sign-in dies at the exchange** (§3.5). Any of the five OIDC values (these three, `OSN_ISSUER_URL` and `OSN_JWKS_URL`) absent ⇒ `/api/auth/oidc/*` sends the browser to the organiser `/login` with `?auth_error=sign_in_unavailable`, logs `OIDC client config incomplete`, and nothing else changes (`oidcConfigFromEnv` in `src/lib/oidc.ts`). |
 | `CIRE_OPS_EMAIL` | `printf '%s' "$VALUE" \| bunx wrangler secret put CIRE_OPS_EMAIL --env production` from `cire/api` (§5.9). cire-api's production row in `shared/infra/src/secrets/inventory.ts` lists it as optional; no Environment copy | **Optional** | The operator address for the daily "vendor claims are waiting for review" email and the R2 orphan reconcilers' alerts ([[backup-dr]]). A secret because the repo is public. Needs `RESEND_API_KEY` on this Worker too; with either unset no email is sent and the cron's log line is the only signal (`src/index.ts` `scheduled`). [[cire-vendors]] |
 | `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` | `wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production` | **Optional** | Comma-separated wedding ids whose households get the household member step ("Who are you?", reply attribution, `member_required`, "Answered by") only while `cire.account-linking` is on for them (and the ARC bridge is configured); every other guest household always gets it. A secret because the repo is public and a wedding id is the couple's; never a `[vars]` entry, since a declared var's name cannot also be a secret. Unset or empty ⇒ no wedding excluded. The owner finds an id by hand, never an agent and never in a pull request, issue or changeset: `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT id FROM weddings WHERE slug = '<slug>'"`. Set it **before** approving the release that first deploys the code reading it, or that wedding's households are asked "Who are you?" and their replies stamped until it lands; rows stamped by then keep their stamp. An isolate reads it once when it builds the app and logs `member step exclusion loaded` with the count (a warning when an entry is not a `wed_…` id), never the ids; a later change reaches a warm isolate only once cire-api deploys again, and a release deploys it only when its code or declaration changed (§5.9). [[cire-auth]] |
-| `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` | **Optional** | What osn-api presents to `POST /internal/revoke-organiser-sessions`. Unset or shorter than 32 characters ⇒ the route answers 503, and osn-api's sign out everywhere else and cire connection revoke leave organiser sessions alone. The same value osn-api holds; how to set it is in the pre-deploy table at the top of this page. [[cire-auth]] |
+| `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` | **Optional; set on production 2026-11-19, by the owner** | What osn-api presents to `POST /internal/revoke-organiser-sessions`. Unset or shorter than 32 characters ⇒ the route answers 503, and osn-api's sign out everywhere else, cire connection revoke and account deletion's soft delete leave organiser sessions alone. The same value osn-api holds; how to set it is in the pre-deploy table at the top of this page. [[cire-auth]] |
 | `CIRE_R2_RECONCILE_DISABLED` | `wrangler.toml` `[env.production.vars]` (and every other tier's vars block) | **Yes — `"false"` or `"true"`** | Tier-wide switch for the cron's two R2 orphan reconcilers. `"true"` (any value but `"false"`) leaves both out of `scheduled`, logs `r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED` and emails `CIRE_OPS_EMAIL` each run; every other cron job still runs. It changes only with a deploy; to stop the reconcilers at once, around a `cire-db` restore, put `reconcile/stop` in each bucket instead ([[backup-dr]]). A dashboard edit is written back by the next deploy. Never a secret: it is a declared var. `tests/services/r2-reconcile.test.ts` fails unless every tier holds `"false"` or `"true"`. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). In a deployed tier cire-api refuses it: no mail is sent, and `email disabled: Resend misconfigured` is logged. The release refuses to deploy cire-api while its Worker holds it as a secret (§5.9). |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put TURNSTILE_SECRET_KEY` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, the guest **`/api/claim`** + **`/api/rsvp`** endpoints require a valid Turnstile token and **fail-closed** (403 on missing/invalid/duplicate). Unset ⇒ those gates are skipped (guest flow unchanged). Same widget/secret as osn-api — the widget's domains must cover every gated origin. **Currently unset** on `cire-api-production`: a mismatched secret rejected every guest claim on 2026-07-20 and was deleted, which reverts the gate to a no-op. Create the widget in §3.4. (`src/index.ts` → `createTurnstileVerifier`). |
@@ -1740,10 +1741,11 @@ What a release does with them:
 value after `wrangler secret put` deploys a new version.*
 
 The `production` GitHub Environment needs only `CLOUDFLARE_ACCOUNT_ID`,
-`CLOUDFLARE_API_TOKEN`, `INTERNAL_SERVICE_SECRET` (osn-api's smoke check sends it, so it
-must equal the Worker's value) and, for the `set-osn-api-secret` workflow, the TOTP key
-values it reads. `bun run --cwd shared/infra secrets:check-github -- --tier production`
-checks those names. The dev tier is unchanged: its secrets are `dev` Environment
+`CLOUDFLARE_API_TOKEN`, `INTERNAL_SERVICE_SECRET` (osn-api's smoke check and the
+production operator workflow's `register-cire-arc`, §6.2, send it, so it must equal the
+Worker's value) and, for the `set-osn-api-secret` workflow, the TOTP key values it
+reads. `bun run --cwd shared/infra secrets:check-github -- --tier production` checks
+those names. The dev tier is unchanged: its secrets are `dev` Environment
 secrets the dev stacks upload on every deploy ([[infrastructure-as-code#GitHub Environment secrets]]).
 
 ### 5.10 The first release on the stacks 🔑
@@ -1800,13 +1802,13 @@ OSN account. It is **additive and opt-in**; skip this section for the minimal la
 
 - cire-api: `CIRE_API_ARC_PRIVATE_KEY` (ES256 JWK), `CIRE_API_ARC_KEY_ID`, `OSN_API_URL`
   (§3.2). All three absent ⇒ the linking POST answers 503 (`src/index.ts:78-85`).
-- osn-api: cire-api's matching ES256 **public** key registered in `service_accounts`
-  under serviceId `cire-api` with scopes `graph:read,graph:resolve-account`, so osn-api
-  can verify cire's ARC token on `GET /graph/internal/profile-account`
-  (`services/osn-bridge.ts`). The `graph:resolve-account` scope is the dedicated gate
-  on that endpoint — a `graph:read`-only registration gets 401
-  on account resolution. If cire-api was registered before this scope existed, re-run
-  §6.2 with the widened `allowedScopes` (the endpoint upserts).
+- osn-api: cire-api's matching ES256 **public** key registered in `service_account_keys`
+  under serviceId `cire-api`, and the service's row in `service_accounts` holding every
+  scope cire-api signs with (§6.2), so osn-api can verify cire's ARC token on
+  `GET /graph/internal/profile-account` (`services/osn-bridge.ts`). The
+  `graph:resolve-account` scope is the dedicated gate on that endpoint — a
+  `graph:read`-only registration gets 401 on account resolution. When the scopes cire-api
+  signs with change, renew them (§6.2).
 
 > ⚠ **Deploy order for the `graph:resolve-account` rollout.** There is no
 > order that avoids a brief account-linking outage without the manual step: new
@@ -1816,7 +1818,7 @@ OSN account. It is **additive and opt-in**; skip this section for the minimal la
 > `POST /api/account/link` **401s from that release until step 2 below is done**:
 > 1. Deploy the osn-api Worker first (its widened `PERMITTED_SCOPES` is
 >    backwards-compatible for every route except `/profile-account`).
-> 2. Re-run §6.2 with `allowedScopes: "graph:read,graph:resolve-account"` (upsert).
+> 2. Renew cire-api's scopes (§6.2).
 >
 > Likewise deploy osn-api **before** pulse-api in any environment — a new pulse-api
 > booting against an old osn-api gets 400 `Unknown scopes: graph:resolve-account`
@@ -1826,7 +1828,17 @@ OSN account. It is **additive and opt-in**; skip this section for the minimal la
 
 ### 6.2 Register cire's ARC public key with osn-api
 
-This is what `INTERNAL_SERVICE_SECRET` is for. Generate a stable ES256 key pair for
+This is what `INTERNAL_SERVICE_SECRET` is for. Two jobs, done two ways:
+
+- **Changing the scopes** of the key cire-api already holds, after a release changes
+  them: the production operator workflow's `register-cire-arc`, below. It needs no key
+  and reads no database.
+- **Registering a new key** of cire-api's own, the first time or in a rotation: the hand
+  POST that follows, which needs the key's public half. The workflow never holds it.
+
+#### A new key
+
+Generate a stable ES256 key pair for
 cire-api (same command as §1.2), store the **private** JWK as `CIRE_API_ARC_PRIVATE_KEY`
 and the chosen `kid` as `CIRE_API_ARC_KEY_ID`, then register the **public** half:
 
@@ -1847,15 +1859,51 @@ cire-api requests five scopes, the `ARC_*_SCOPE` constants of
 `org:read`, `account:email-read`, for the organiser-address lookup
 (`POST /internal/accounts/emails`), which refuses `graph:read`, and
 `step-up:verify`, for a host's removal of their Cire data
-(`/internal/step-up/requests` and `/internal/step-up/verify`). Run it again
-after the release that adds a scope has deployed osn-api: until then a host's
-removal answers 503. A registration holds exactly the scopes its last call
-listed. On dev the musubi stack seeds this registration with all five, so
-nobody runs this command there
+(`/internal/step-up/requests` and `/internal/step-up/verify`). osn-api keeps the
+scopes on the service (`service_accounts`), not on the key, and a registration holds
+exactly the scopes its last call listed. On dev the musubi stack seeds this
+registration with all five, so nobody runs this there
 ([[infrastructure-as-code#Seeds and the ARC registration]]).
 
-> **Vendors (Phase 2): re-run this command per environment after the `@osn/api` `PERMITTED_SCOPES` change deploys.**
-> The `org:read` scope (added in the Vendors PR A — migration 0040) lets cire-api's `vendorOrgMember()` middleware resolve OSN org membership over ARC. The registration endpoint upserts, so re-running it is safe. Until it runs **per env**, the `vendorOrgMember()` org resolver fails soft to null and `/api/vendor/*` writes return **503**. The organiser CRM (`/api/organiser/weddings/:weddingId/vendors`) and claim-link generation work either way — they use only `graph:read`/`graph:resolve-account`.
+#### Changing the scopes
+
+After a release that changes the `ARC_*_SCOPE` constants has deployed osn-api and
+cire-api, dispatch the workflow from `main` and approve its run of the `production`
+Environment. Until it runs, a feature that needs a new scope answers 503: a host's
+removal of their Cire data for `step-up:verify`, the vendor portal's writes for
+`org:read`.
+
+```bash
+gh workflow run production-operator.yml --repo englishstreetventures/osn --ref main -f action=register-cire-arc
+```
+
+[`.github/workflows/production-operator.yml`](../../.github/workflows/production-operator.yml)
+and [`scripts/production-operator.ts`](../../scripts/production-operator.ts):
+
+- The `check` job, which holds no secret, finds the commits production cire-api and
+  osn-api run (the release planner's own records), reads the scopes from
+  `osn-bridge.ts` at cire-api's commit, refuses unless osn-api's `PERMITTED_SCOPES`
+  holds each at its commit, and prints the commit and the scopes in the run summary
+  before anyone approves.
+- The approved job reads them again and refuses unless cire-api's commit is still the
+  one shown, so an approval given after another release sends nothing.
+- It POSTs the scopes with a key it generates, under a new `kid`, already expired, whose
+  private half is never exported, then revokes that `kid`. The scopes reach cire-api's
+  own key through `service_accounts`; the throwaway key verifies nothing. Each run leaves
+  one expired, revoked `cire-api` row in `service_account_keys`
+  ([[arc-token-debugging]]).
+- It holds `INTERNAL_SERVICE_SECRET` alone, installs nothing, and prints statuses,
+  commits and scope names, never a response body.
+
+A 200 shows osn-api stored the scopes. They apply only while cire-api's own key, the one
+`CIRE_API_ARC_KEY_ID` names, is registered and live, and each osn-api isolate keeps a
+key's scopes for up to 5 minutes. Five minutes after the run, start "Remove my Cire
+data" as a host and stop at Musubi's confirmation page: reaching it, rather than a 503
+from `POST /api/organiser/account/removal/confirmation`, shows the scope works
+(`cire/api/src/routes/organiser-account.ts`). Nothing is removed until the host confirms.
+
+The hand POST above, with every scope listed, does the same with the real key, and is
+the way when the workflow cannot run.
 
 ---
 
@@ -2132,7 +2180,7 @@ No new secret is required for the vendor portal itself:
 
 ### 8.3 ARC re-registration (org:read scope)
 
-The vendor portal uses `vendorOrgMember()` middleware, which needs the `org:read` scope on cire-api's ARC key registration. ⚠️ Until this step runs, `/api/vendor/*` writes return 503. The organiser CRM and claim-link generation keep working. After deploying, re-run the §6.2 `register-service` call per environment with `allowedScopes: "graph:read,graph:resolve-account,org:read"`.
+The vendor portal uses `vendorOrgMember()` middleware, which needs the `org:read` scope on cire-api's ARC key registration. ⚠️ Until this step runs, `/api/vendor/*` writes return 503. The organiser CRM and claim-link generation keep working. After deploying, renew cire-api's scopes as §6.2 says, which registers every scope cire-api signs with; a list naming only some of them withdraws the rest.
 
 ### 8.4 Rollback
 
