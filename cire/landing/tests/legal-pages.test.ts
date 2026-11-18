@@ -190,6 +190,18 @@ describe("legal pages", () => {
     expect(text).not.toMatch(/keeps? nothing/);
   });
 
+  /**
+   * A host can remove their Cire data from the organiser portal's account
+   * menu (`cire/host/src/components/ProfileMenu.tsx`, "Remove my Cire data")
+   * and keep their Musubi account, so the notice names that way beside asking.
+   */
+  it("the hosts' notice names the portal's own way to remove Cire data", () => {
+    const text = hosts.replace(/\s+/g, " ");
+    expect(text).toMatch(
+      /You can also remove your Cire data yourself, and keep your Musubi account, from Remove my Cire data in the organiser portal&rsquo;s account menu\./,
+    );
+  });
+
   it("footer links every legal page", () => {
     // The footer hands its links to `@cire/ui`'s footer as data, in either
     // quote: the formatter does not reach `.astro` files. Each by the address
