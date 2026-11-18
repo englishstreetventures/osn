@@ -37,6 +37,7 @@ const NO_TOKEN_ON_DISK = [
   "free-tier-ceiling-alert.yml",
   "main-audit.yml",
   "migration-history.yml",
+  "production-operator.yml",
   "set-osn-api-secret.yml",
 ];
 
