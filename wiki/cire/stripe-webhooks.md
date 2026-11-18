@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-12
 ---
 
 # Stripe webhooks (cire-api)
