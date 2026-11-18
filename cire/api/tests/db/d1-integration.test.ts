@@ -3115,26 +3115,33 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "the retention sweep keeps and counts weddings whose event Start is not a date, until three years after their creation",
+    "the retention sweep keeps and counts weddings whose event Start is not a date, or that have no events, until three years after their creation",
     async () => {
       // As text, `TBD` sorts after every date and `1st Nov 2026` before every
       // cutoff, so neither says when the wedding ends. Both are kept, and the
       // count reaches the log on a run with nothing else due. Two created more
       // than three years before the run are deleted, one of them with a
       // readable event still ahead, which does not hold it back; that count
-      // has a line of its own. Over D1, whose GLOB patterns are capped at 50
-      // bytes.
+      // has a line of its own. A wedding with no events is treated the same:
+      // the old one is deleted and counted on a line of its own, the recent
+      // one kept and not counted, and one whose creation time is in
+      // milliseconds kept and counted. Over D1, whose GLOB patterns are capped
+      // at 50 bytes.
       await db
         .update(events)
         .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
         .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
       const recent = new Date("2024-01-01T00:00:00.000Z");
       const old = new Date("2023-01-01T00:00:00.000Z");
+      // A null Start is a wedding with no events.
       const undated = [
         ["wed_d1_tbd", "TBD", "UNDATED01", recent],
         ["wed_d1_nov", "1st Nov 2026", "UNDATED02", recent],
         ["wed_d1_old", "TBD", "UNDATED03", old],
         ["wed_d1_mixed", "TBD", "UNDATED04", old],
+        ["wed_d1_none_recent", null, "UNDATED05", recent],
+        ["wed_d1_none_old", null, "UNDATED06", old],
+        ["wed_d1_none_ms", null, "UNDATED07", old],
       ] as const;
       for (const [id, startAt, publicId, stamp] of undated) {
         await db.insert(weddings).values({
@@ -3144,15 +3151,17 @@ describe("cire/api over real D1 (Miniflare)", () => {
           createdAt: stamp,
           updatedAt: stamp,
         });
-        await db.insert(events).values({
-          id: `ev_${id}`,
-          weddingId: id,
-          slug: "ceremony",
-          name: "Ceremony",
-          startAt,
-          endAt: "",
-          timezone: "UTC",
-        });
+        if (startAt !== null) {
+          await db.insert(events).values({
+            id: `ev_${id}`,
+            weddingId: id,
+            slug: "ceremony",
+            name: "Ceremony",
+            startAt,
+            endAt: "",
+            timezone: "UTC",
+          });
+        }
         await db.insert(families).values({
           id: `fam_${id}`,
           weddingId: id,
@@ -3171,6 +3180,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
         endAt: "",
         timezone: "UTC",
       });
+      await db
+        .update(weddings)
+        .set({ createdAt: sql`${old.getTime()}` })
+        .where(eq(weddings.id, "wed_d1_none_ms"));
 
       const logs = await captureLogs(() =>
         run(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z"))),
@@ -3180,13 +3193,21 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .select({ weddingId: families.weddingId })
         .from(families)
         .where(inArray(families.weddingId, jsonEachIn(undated.map(([id]) => id))));
-      expect(left.map((r) => r.weddingId).toSorted()).toEqual(["wed_d1_nov", "wed_d1_tbd"]);
+      expect(left.map((r) => r.weddingId).toSorted()).toEqual([
+        "wed_d1_none_ms",
+        "wed_d1_none_recent",
+        "wed_d1_nov",
+        "wed_d1_tbd",
+      ]);
       expect(
-        logs.split("\n").filter((line) => line.includes("whose event dates it cannot read")),
-      ).toEqual([expect.stringContaining('"weddings":2')]);
+        logs.split("\n").filter((line) => line.includes("kept weddings it cannot date")),
+      ).toEqual([expect.stringContaining('"weddings":3')]);
       expect(
         logs.split("\n").filter((line) => line.includes("three years after they were created")),
       ).toEqual([expect.stringContaining('"weddings":2')]);
+      expect(
+        logs.split("\n").filter((line) => line.includes("deleted weddings that have no events")),
+      ).toEqual([expect.stringContaining('"weddings":1')]);
     },
     MF_TIMEOUT_MS,
   );

@@ -932,7 +932,7 @@ const organiserSessionRevoked = createCounter<OrganiserSessionRevokedAttrs>({
 const guestDataSwept = createCounter<GuestDataSweptAttrs>({
   name: CIRE_METRICS.guestDataSwept,
   description:
-    "Guest rows deleted by the scheduled retention sweep (1 year after a wedding's final event, or 3 years after its creation when an event's date cannot be read) — increment is the row count, so the sum tracks reclaimed guest records",
+    "Guest rows deleted by the scheduled retention sweep (1 year after a wedding's final event, or 3 years after its creation when an event's date cannot be read or it has no events) — increment is the row count, so the sum tracks reclaimed guest records",
   unit: "{guest}",
 });
 

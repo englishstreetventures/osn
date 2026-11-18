@@ -67,21 +67,30 @@ class RetentionWriteError extends Data.TaggedError("RetentionWriteError")<{
  * and the common page (`cire/landing/src/pages/privacy/index.astro`) promise guest
  * data is deleted **1 year after the final wedding event**. This constant encodes
  * that window; change it here (and those pages' copy) to move the line. 365 days
- * in milliseconds. A wedding with an event the sweep cannot date has the second
- * bound below, which the same pages state.
+ * in milliseconds. A wedding with an event the sweep cannot date, or with no
+ * events, has the second bound below, which the same pages state.
  */
 export const RETENTION_AFTER_FINAL_EVENT_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
- * Guest-data retention for a wedding with an event the sweep cannot date: this
- * many calendar years after the wedding was created (`weddings.created_at`),
- * whatever the dates of its other events say. A wedding planned further ahead
- * than that can lose its guest data before a readable event of it; the owner
- * chose this. The same three privacy notices state it, and the parting email
- * says "three years have passed", so the years are calendar years: the
- * anniversary is never early.
+ * Guest-data retention for a wedding the sweep cannot date — one with an event
+ * whose date it cannot read, or one with no events: this many calendar years
+ * after the wedding was created (`weddings.created_at`), whatever the dates of
+ * its other events say. A wedding planned further ahead than that can lose its
+ * guest data before a readable event of it, and one more than this old loses
+ * it at the first run after its last event is removed; the owner chose this.
+ * The same three privacy notices state it, and the parting email says "three
+ * years have passed", so the years are calendar years: the anniversary is
+ * never early.
  */
 export const UNDATED_RETENTION_AFTER_CREATION_YEARS = 3;
+
+/**
+ * Below this, a stored `weddings.created_at` reads as epoch seconds: 10^10
+ * seconds is the year 2286, and 10^10 milliseconds is April 1970, so a value
+ * in milliseconds from any real wedding is at or above it.
+ */
+const EPOCH_SECONDS_CEILING = 10_000_000_000;
 
 /**
  * How long past its retention date a wedding is held back while its parting
@@ -94,9 +103,10 @@ export const GIFT_SUMMARY_HOLD_BACK_MS = 30 * 24 * 60 * 60 * 1000;
 /**
  * Most weddings one sweep will take. The cohort is every wedding past its
  * retention date — a year after its last event, or three years after its
- * creation for one the sweep cannot date — that still holds something the
- * sweep deletes: a household or an import. After a run of failed crons, or a busy season a
- * year later, it can be arbitrarily large.
+ * creation for one the sweep cannot date or with no events — that still holds
+ * something the sweep deletes: a household, an import or an email opt-out.
+ * After a run of failed crons, or a busy season a year later, it can be
+ * arbitrarily large.
  *
  * The cap bounds work, not bound parameters. D1 allows 100 per statement
  * (wiki/shared/d1-limits.md), fewer than this cohort or its households, so
@@ -185,12 +195,18 @@ function creationCutoffSeconds(at: number): number {
 
 /**
  * A wedding the sweep found due, and what its retention counts from: its final
- * event, or, for a wedding with an event it cannot date, its creation in epoch
- * seconds.
+ * event, or, for a wedding with an event it cannot date or with no events, its
+ * creation in epoch seconds.
  */
 type DueWedding =
   | { readonly weddingId: string; readonly rule: "final-event"; readonly finalEventAt: string }
-  | { readonly weddingId: string; readonly rule: "created"; readonly createdAt: number };
+  | {
+      readonly weddingId: string;
+      readonly rule: "created";
+      readonly createdAt: number;
+      /** It has no events, rather than an event the sweep cannot date. */
+      readonly noEvents: boolean;
+    };
 
 export const retentionService = {
   /**
@@ -198,7 +214,7 @@ export const retentionService = {
    *
    * For every wedding whose **latest event date** is more than
    * `RETENTION_AFTER_FINAL_EVENT_MS` before `now` (or, for one the sweep cannot
-   * date, see Selection below), delete the personal data:
+   * date or with no events, see Selection below), delete the personal data:
    * the wedding's `rsvps` (names + RSVP status + special-category dietary text +
    * the Art. 9(2)(a) `dietaryConsentAt`/`dietaryConsentVersion` records),
    * `guests`, and `families` rows, plus its `imports` bookkeeping rows. The
@@ -217,18 +233,23 @@ export const retentionService = {
    * counts it in one warning line, and a run that deletes such weddings counts
    * them in another. Both lines carry the count and nothing else.
    *
+   * A wedding with **no events** has nothing to date either, and is due on the
+   * same bound, however it came to have none: never given one, or every one
+   * removed. Until then it is the ordinary in-progress-setup case, so it is
+   * not read and not counted. One whose `created_at` does not read as epoch
+   * seconds is kept, and counted in the same warning line as the weddings the
+   * sweep cannot date. A run that deletes weddings with no events counts them
+   * in a line of its own, at info.
+   *
    * Each event's **effective end** is `end_at`, falling back to `start_at`
    * when `end_at` is `""` (End is optional in the events sheet) — `""` sorts
    * before every date, so the scalar `max(end_at, start_at)` picks the right
    * one. The latest event is the aggregate MAX of that, and "final event > 1
    * year ago" is `< cutoff` (strict — a wedding whose final event is *exactly*
    * at the cutoff is kept one more day; the `YYYY-MM-DD` cutoff sorts before
-   * any same-day instant). A wedding with **no events** is never selected (the
-   * group/having drops the empty group) — we cannot prove its window has
-   * lapsed, so the safe default is to keep it; this is also the
-   * in-progress-setup case. A wedding that holds no household and no import
-   * has nothing left to delete and is not selected, so weddings already swept
-   * never fill the per-run cap.
+   * any same-day instant). A wedding that holds no household, no import and no
+   * email opt-out has nothing left to delete and is not selected, so weddings
+   * already swept never fill the per-run cap.
    *
    * No gift is deleted without its record, for up to 30 days. The gift
    * summaries are counted first and written in the same D1 batch as the
@@ -291,23 +312,33 @@ export const retentionService = {
       const finalEventAt = sql<
         string | null
       >`max(case when ${dated} then max(${events.endAt}, ${events.startAt}) end)`;
-      // 1 when the wedding has an event the sweep cannot date, else 0. A check
-      // that comes out NULL falls to the ELSE, so a value it cannot judge keeps
-      // the wedding.
+      // 1 when the wedding has no events: its group is the one row of NULLs
+      // the LEFT JOIN below gives a wedding with no event row.
+      const noEvents = sql<number>`(count(${events.id}) = 0)`;
+      // 1 when the wedding has an event the sweep cannot date, or has no
+      // events, else 0. A check that comes out NULL falls to the ELSE, so a
+      // value it cannot judge keeps the wedding; the row of NULLs of a wedding
+      // with no events falls there too, which makes it one the sweep cannot
+      // date.
       const undated = sql<number>`(sum(case when ${dated} then 0 else 1 end) > 0)`;
-      // When a wedding with an event the sweep cannot date was created, in epoch
-      // seconds; NULL for every other wedding. CASE evaluates only the branch it
-      // takes, so a wedding whose dates all read costs no lookup.
+      // When a wedding the sweep cannot date was created, in epoch seconds;
+      // NULL for every other wedding. Read from the wedding's own row, which
+      // the join already holds: a wedding with no events has no event row to
+      // reach it through.
       const createdAt = sql<
         number | null
-      >`(case when ${undated} then (select ${outerColumn(weddings.createdAt)} from ${weddings} where ${outerColumn(weddings.id)} = ${outerColumn(events.weddingId)}) end)`;
+      >`(case when ${undated} then ${outerColumn(weddings.createdAt)} end)`;
       // 1 when that wedding was created more than three years before the run.
       // A stored value the comparison cannot judge comes out 0 and keeps the
       // wedding: text sorts after every number, and a value in milliseconds
       // reads as a date far in the future.
       const dueByCreation = sql<number>`coalesce(${createdAt} < ${creationCutoffSeconds(now.getTime())}, 0)`;
-      // 1 when the sweep keeps the wedding for an event it cannot date: it has
-      // one, and is not yet three years old.
+      // 1 when the wedding's stored creation time reads as epoch seconds: a
+      // number below the ceiling. Text sorts after every number, and a
+      // comparison that comes out NULL is 0.
+      const creationReadable = sql<number>`coalesce(${outerColumn(weddings.createdAt)} < ${EPOCH_SECONDS_CEILING}, 0)`;
+      // 1 when the sweep keeps the wedding as one it cannot date: it is one,
+      // and is not yet three years old.
       const kept = sql<number>`(${undated} and not ${dueByCreation})`;
       // Only weddings that still hold something this sweep deletes: every
       // guest-data table but one hangs off `families` (guests, rsvps,
@@ -316,33 +347,45 @@ export const retentionService = {
       // itself, so a wedding whose households are all gone can still hold
       // them. A swept wedding keeps its events, so without this the oldest
       // swept weddings would fill the cap on every run and no newer wedding
-      // would ever be reached. In HAVING, after the cutoff test, so the probes
-      // run once per wedding past it (or with an event it cannot date) rather
-      // than once per event row; the wedding id is `outerColumn` so each probe
-      // correlates to its group.
-      const holdsGuestData = sql`(exists (select 1 from ${families} where ${outerColumn(families.weddingId)} = ${outerColumn(events.weddingId)}) or exists (select 1 from ${imports} where ${outerColumn(imports.weddingId)} = ${outerColumn(events.weddingId)}) or exists (select 1 from ${emailSuppressions} where ${outerColumn(emailSuppressions.weddingId)} = ${outerColumn(events.weddingId)}))`;
+      // would ever be reached. In HAVING, after the date tests, so the probes
+      // run once per wedding that passes them rather than once per event row;
+      // the wedding id is `outerColumn` so each probe correlates to its group.
+      const holdsGuestData = sql`(exists (select 1 from ${families} where ${outerColumn(families.weddingId)} = ${outerColumn(weddings.id)}) or exists (select 1 from ${imports} where ${outerColumn(imports.weddingId)} = ${outerColumn(weddings.id)}) or exists (select 1 from ${emailSuppressions} where ${outerColumn(emailSuppressions.weddingId)} = ${outerColumn(weddings.id)}))`;
       const rows = yield* dbQuery(() =>
         db
           // finalEventAt is selected as well as filtered on: the gift summary
           // email dates the retained year from it, and this is the only read
           // of `events` the sweep makes.
           .select({
-            weddingId: events.weddingId,
+            weddingId: weddings.id,
             finalEventAt,
             createdAt,
+            noEvents,
             kept,
-            // The weddings kept for an event the sweep cannot date, over every
+            // The weddings kept as ones the sweep cannot date, over every
             // group HAVING passes. A window value is taken before LIMIT, so
             // the count is whole even when due weddings fill the cap.
             keptWeddings: sql<number>`sum(${kept}) over ()`,
           })
-          .from(events)
-          .groupBy(events.weddingId)
+          // Driven from the weddings, so a wedding with no events forms a
+          // group of its own; one statement still, the sweep's only read of
+          // `events`.
+          .from(weddings)
+          .leftJoin(events, eq(events.weddingId, weddings.id))
+          .groupBy(weddings.id)
           // A wedding whose events all read, once its final event is past the
           // cutoff; and every wedding with an event the sweep cannot date,
           // whatever its other dates say: due once it is three years old, and
-          // read before then so it can be counted.
-          .having(and(or(undated, lt(finalEventAt, cutoff)), holdsGuestData))
+          // read before then so it can be counted. A wedding with no events
+          // only once it is due, or when its creation time cannot be read:
+          // before that it is being set up, and there is nothing to count.
+          .having(
+            and(
+              or(undated, lt(finalEventAt, cutoff)),
+              or(sql`not ${noEvents}`, dueByCreation, sql`not ${creationReadable}`),
+              holdsGuestData,
+            ),
+          )
           // Bounded — see MAX_WEDDINGS_PER_SWEEP. Due weddings first, so a
           // kept wedding takes only a place no due wedding needs. Among them,
           // the weddings whose dates all read (createdAt NULL) lead, the
@@ -357,9 +400,9 @@ export const retentionService = {
       // Start or End is theirs, not the log's.
       const keptWeddings = rows[0]?.keptWeddings ?? 0;
       if (keptWeddings > 0) {
-        yield* Effect.logWarning(
-          "guest-data retention sweep kept weddings whose event dates it cannot read",
-        ).pipe(Effect.annotateLogs({ weddings: keptWeddings }));
+        yield* Effect.logWarning("guest-data retention sweep kept weddings it cannot date").pipe(
+          Effect.annotateLogs({ weddings: keptWeddings }),
+        );
       }
       // Due, with the date its retention counts from: the final event for a
       // wedding whose events all read, its creation for one due by that. The
@@ -371,7 +414,14 @@ export const retentionService = {
         r.kept !== 0
           ? []
           : r.createdAt !== null
-            ? [{ weddingId: r.weddingId, rule: "created", createdAt: r.createdAt }]
+            ? [
+                {
+                  weddingId: r.weddingId,
+                  rule: "created",
+                  createdAt: r.createdAt,
+                  noEvents: r.noEvents !== 0,
+                },
+              ]
             : r.finalEventAt !== null
               ? [{ weddingId: r.weddingId, rule: "final-event", finalEventAt: r.finalEventAt }]
               : [],
@@ -385,9 +435,13 @@ export const retentionService = {
             : { rule: r.rule, on: r.finalEventAt.slice(0, 10) },
         ]),
       );
-      const byCreation = new Set(
-        expired.flatMap((r) => (r.rule === "created" ? [r.weddingId] : [])),
-      );
+      // Due by creation for an event the sweep cannot date, and for having no
+      // events: each has its own log line.
+      const byCreation = new Set<string>();
+      const withNoEvents = new Set<string>();
+      for (const r of expired) {
+        if (r.rule === "created") (r.noEvents ? withNoEvents : byCreation).add(r.weddingId);
+      }
 
       if (weddingIds.length === MAX_WEDDINGS_PER_SWEEP) {
         // Not an error: the next scheduled run takes the remainder. Logged so a
@@ -412,9 +466,10 @@ export const retentionService = {
       // running daily, that is the run count since it fell due for a wedding
       // that joined the cohort on time. One that joins late — kept for an
       // event the sweep could not date until a host fixed it, whose final
-      // event a host moved back, or whose dates all read until a revert
-      // brought back one that does not — can be past the ceiling on its first
-      // run here, with one attempt at its record.
+      // event a host moved back, whose dates all read until a revert brought
+      // back one that does not, or whose last event was removed long after
+      // its three years — can be past the ceiling on its first run here, with
+      // one attempt at its record.
       const ceilingAt = now.getTime() - GIFT_SUMMARY_HOLD_BACK_MS;
       const ceiling = cutoffDateString(new Date(ceilingAt));
       const creationCeiling = creationCutoffSeconds(ceilingAt);
@@ -695,6 +750,14 @@ export const retentionService = {
           "guest-data retention sweep deleted weddings it could not date, three years after they were created",
         ).pipe(Effect.annotateLogs({ weddings: deletedByCreation }));
       }
+      // At info, not warning: a wedding with no events is not data that should
+      // not exist, as an unreadable date is. A count only, like the lines above.
+      const deletedWithNoEvents = outcome.ids.filter((id) => withNoEvents.has(id)).length;
+      if (deletedWithNoEvents > 0) {
+        yield* Effect.logInfo(
+          "guest-data retention sweep deleted weddings that have no events, three years after their creation",
+        ).pipe(Effect.annotateLogs({ weddings: deletedWithNoEvents }));
+      }
 
       // ── REAP R2 OBJECTS (best-effort, post-delete) ─────────────────────────
       // The `imports` rows are gone; now delete the sheet objects they pointed
@@ -850,8 +913,8 @@ const isoDay = (seconds: number): string => new Date(seconds * 1000).toISOString
 /**
  * The date a swept wedding's retention counted from, and which rule set it:
  * `final-event`, a year after the last event, or `created`, three years after
- * the wedding was created, for a wedding with an event the sweep cannot date.
- * `on` is that `YYYY-MM-DD`.
+ * the wedding was created, for a wedding with an event the sweep cannot date or
+ * with no events. `on` is that `YYYY-MM-DD`.
  */
 export interface RetainedFrom {
   readonly rule: "final-event" | "created";
