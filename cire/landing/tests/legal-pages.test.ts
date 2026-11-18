@@ -149,7 +149,6 @@ describe("legal pages", () => {
    * there, so the vendors' notice names no file storage.
    */
   it("each organiser-facing page says where Cloudflare holds the data", () => {
-    const flat = (page: string) => page.replace(/\s+/g, " ");
     for (const page of [privacy, hosts, vendors].map(flat)) {
       expect(page).toMatch(/primary region is (<strong>)?Oceania/);
       expect(page).toMatch(/read-only copies/);
@@ -174,7 +173,6 @@ describe("legal pages", () => {
    * say removal deletes the stored file and a cached copy can outlive it.
    */
   it("the privacy pages say cached image copies can outlive removal", () => {
-    const flat = (page: string) => page.replace(/\s+/g, " ");
     expect(flat(privacy)).toMatch(
       /copies of images are cached where they are viewed, for up to a year/,
     );

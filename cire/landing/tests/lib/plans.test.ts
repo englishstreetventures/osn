@@ -60,8 +60,8 @@ describe("the published plans", () => {
   it("list the envelope among what Crimson adds", () => {
     const crimson = PLANS.find((plan) => plan.id === "crimson");
     expect(crimson?.inclusions.some((line) => /envelope/i.test(line))).toBe(true);
-    for (const plan of PLANS.filter((plan) => plan.id !== "crimson")) {
-      expect(plan.inclusions.some((line) => /envelope/i.test(line))).toBe(false);
+    for (const other of PLANS.filter((plan) => plan.id !== "crimson")) {
+      expect(other.inclusions.some((line) => /envelope/i.test(line))).toBe(false);
     }
   });
 });
