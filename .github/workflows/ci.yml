@@ -703,12 +703,13 @@ jobs:
       # ubuntu-latest on several image builds at once, each needing the same
       # packages, and evicts a build's set within hours once no run reads it.
       # So the restore falls back to the newest set saved for any build of the
-      # same OS image (`prefix`); the script checks each package against this
-      # runner's own index, so a set from another build changes only how much
-      # apt downloads. The key and the prefix are each one line of
+      # same OS image (`prefix`), in the run's own branch first and then in
+      # main's; the script checks each package against this runner's own
+      # index, so a set from another build changes only how much apt
+      # downloads. The key and the prefix are each one line of
       # [A-Za-z0-9._-], whatever the command prints, the prefix the key's
       # start, and no version line fails the step. Restore only, as above: the
-      # E2E job saves this key.
+      # jobs that use .github/actions/e2e-setup save this key.
       - name: Key Chromium's system packages
         id: chromium-apt-key
         working-directory: cire/host
