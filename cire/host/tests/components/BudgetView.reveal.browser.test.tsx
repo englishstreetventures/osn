@@ -220,14 +220,20 @@ async function mount() {
 }
 
 /** Mounts {@link PER_HEAD}. A per-head line has the view refetch its figures
- *  on open, so this waits for that answer and the rebuild it brings before
- *  anything is measured. */
+ *  on open, so this waits for that request, then for the rebuild its answer
+ *  brings, before anything is measured. */
 async function mountPerHead() {
-  authFetch.mockImplementation(() => Promise.resolve(json(PER_HEAD)));
+  const fetched = new Promise<void>((resolve) => {
+    authFetch.mockImplementation(() => {
+      resolve();
+      return Promise.resolve(json(PER_HEAD));
+    });
+  });
   setCachedBudget("wed_1", PER_HEAD);
   render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
   await screen.findByText("Ceremony venue");
-  await vi.waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+  await fetched;
+  expect(authFetch).toHaveBeenCalledTimes(1);
   await settle();
 }
 

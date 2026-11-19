@@ -22,6 +22,15 @@ function submitEvent(): Event {
   return { preventDefault: () => {} } as unknown as Event;
 }
 
+/** An `onClaimed` spy, and a promise that settles on its first call. */
+function claimedSpy() {
+  const onClaimed = vi.fn<(result: ClaimResult) => void>();
+  const claimed = new Promise<void>((resolve) => {
+    onClaimed.mockImplementation(() => resolve());
+  });
+  return { onClaimed, claimed };
+}
+
 /** Runs `createClaimCode` inside a root and hands back both the primitive
  * and its `dispose` — every test calls `dispose()` once it's done asserting. */
 function mount(options: Parameters<typeof createClaimCode>[0]) {
@@ -50,13 +59,14 @@ describe("createClaimCode", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const onClaimed = vi.fn();
+    const { onClaimed, claimed } = claimedSpy();
 
     const { claim, dispose } = mount({ apiUrl: "http://x", result: () => null, onClaimed });
     claim.setCode("  okafor-lily-ab12cd  ");
     claim.handleSubmit(submitEvent());
 
-    await vi.waitFor(() => expect(onClaimed).toHaveBeenCalledTimes(1));
+    await claimed;
+    expect(onClaimed).toHaveBeenCalledTimes(1);
 
     expect(fetchMock).toHaveBeenCalledWith(
       "http://x/api/claim",
@@ -130,14 +140,15 @@ describe("createClaimCode", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF01");
-    const onClaimed = vi.fn();
+    const { onClaimed, claimed } = claimedSpy();
 
     const { dispose } = mount({ apiUrl: "http://x", result: () => null, onClaimed });
 
     // The URL is stripped synchronously on mount, before the fetch settles.
     expect(window.location.search).not.toContain("code=");
 
-    await vi.waitFor(() => expect(onClaimed).toHaveBeenCalledTimes(1));
+    await claimed;
+    expect(onClaimed).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       publicId: "HOST-ABCDEF01",
@@ -158,13 +169,14 @@ describe("createClaimCode", () => {
     // The organiser's preview link: the slug and the code share the query, so
     // dropping the whole query would lose the wedding on a reload.
     window.history.replaceState(null, "", "/cire/invite?slug=anita-ben&code=HOST-ABCDEF01");
-    const onClaimed = vi.fn();
+    const { onClaimed, claimed } = claimedSpy();
 
     const { dispose } = mount({ apiUrl: "http://x", result: () => null, onClaimed });
 
     expect(window.location.pathname).toBe("/cire/invite");
     expect(window.location.search).toBe("?slug=anita-ben");
-    await vi.waitFor(() => expect(onClaimed).toHaveBeenCalledTimes(1));
+    await claimed;
+    expect(onClaimed).toHaveBeenCalledTimes(1);
     dispose();
   });
 

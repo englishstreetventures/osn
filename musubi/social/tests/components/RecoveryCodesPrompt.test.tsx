@@ -50,14 +50,17 @@ describe("<RecoveryCodesPrompt />", () => {
   });
 
   it("stays quiet for an account that already has codes", async () => {
-    client.getRecoveryCodesStatus.mockResolvedValue({
-      active: 7,
-      total: 10,
-      generatedAt: 1_750_000_000,
-    });
+    const answer = Promise.withResolvers<{ active: number; total: number; generatedAt: number }>();
+    client.getRecoveryCodesStatus.mockReturnValue(answer.promise);
     renderPrompt(() => "prof_1");
+    expect(client.getRecoveryCodesStatus).toHaveBeenCalledTimes(1);
 
-    await vi.waitFor(() => expect(client.getRecoveryCodesStatus).toHaveBeenCalled());
+    // The status resource took this promise at render, so it has settled by
+    // the time the test resumes from it; the flush lets the render it causes
+    // run before the check.
+    answer.resolve({ active: 7, total: 10, generatedAt: 1_750_000_000 });
+    await answer.promise;
+    await Promise.resolve();
     expect(screen.queryByText(HEADING)).toBeNull();
   });
 
@@ -90,10 +93,14 @@ describe("<RecoveryCodesPrompt />", () => {
     // A rate limit or a dropped connection must not turn into an offer of
     // codes to somebody who already has them — nor into a thrown resource, in
     // a component that renders in the application shell.
-    client.getRecoveryCodesStatus.mockRejectedValue(new Error("Request failed: 429"));
+    const answer = Promise.withResolvers<never>();
+    client.getRecoveryCodesStatus.mockReturnValue(answer.promise);
     renderPrompt(() => "prof_1");
+    expect(client.getRecoveryCodesStatus).toHaveBeenCalledTimes(1);
 
-    await vi.waitFor(() => expect(client.getRecoveryCodesStatus).toHaveBeenCalled());
+    answer.reject(new Error("Request failed: 429"));
+    await answer.promise.catch(() => undefined);
+    await Promise.resolve();
     expect(screen.queryByText(HEADING)).toBeNull();
   });
 
