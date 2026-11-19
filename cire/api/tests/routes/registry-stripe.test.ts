@@ -9,7 +9,12 @@ import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { registryService } from "../../src/services/registry";
-import { StripeError, type StripeAccount, type StripeClient } from "../../src/services/stripe";
+import {
+  createStripeClient,
+  StripeError,
+  type StripeAccount,
+  type StripeClient,
+} from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
 import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
@@ -392,6 +397,7 @@ describe("only the owner who connected the account may open its links", () => {
   it.each([
     ["is removed as an owner", "demoted"],
     ["has the wedding deleted", "deleted"],
+    ["has the wedding purged", "purged"],
   ] as const)(
     "records nothing for an owner who %s while Stripe makes the account",
     async (_label, change) => {
@@ -408,6 +414,8 @@ describe("only the owner who connected the account may open its links", () => {
               .set({ role: "editor" })
               .where(eq(weddingHosts.osnProfileId, OWNER))
               .run();
+          } else if (change === "purged") {
+            box.db!.delete(weddings).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
           } else {
             box
               .db!.update(weddings)
@@ -557,6 +565,165 @@ describe("create-or-resume", () => {
     expect(row?.stripeAccountId).toBe("acct_new");
     expect(row?.published).toBe(true);
     expect(row?.headline).toBe("Our list");
+  });
+});
+
+/**
+ * Stripe replays the first answer to an idempotency key for at least 24 hours.
+ * The create key carries how many times the wedding's account has been
+ * cleared, so a Connect press after a clear never gets the cleared account
+ * back, and the attach stores nothing when a clear happened while its own
+ * request was at Stripe.
+ */
+describe("an account cleared before or during a connect", () => {
+  type Built = ReturnType<typeof buildApp>;
+
+  const row = (db: Built["db"]) =>
+    db
+      .select()
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .get();
+
+  /**
+   * The real client over a Stripe that replays the first answer to a key, as
+   * Stripe does, and mints a new account for a key it has not seen.
+   */
+  function replayingStripe() {
+    const createKeys: string[] = [];
+    const byKey = new Map<string, string>();
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const json = (body: unknown) =>
+        new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+      if (url.endsWith("/v1/accounts") && init?.method === "POST") {
+        const key = new Headers(init.headers).get("idempotency-key") ?? "";
+        createKeys.push(key);
+        if (!byKey.has(key)) byKey.set(key, `acct_made_${byKey.size + 1}`);
+        return json({
+          id: byKey.get(key),
+          charges_enabled: false,
+          payouts_enabled: false,
+          details_submitted: false,
+        });
+      }
+      if (url.endsWith("/v1/account_links") && init?.method === "POST") {
+        return json({ url: "https://connect.stripe.test/setup/x", expires_at: 1_800_000_000 });
+      }
+      throw new Error(`not part of this test: ${init?.method} ${url}`);
+    }) as unknown as typeof fetch;
+    const client = createStripeClient({
+      secretKey: "sk_test",
+      apiBase: "https://stripe.test",
+      fetchImpl,
+    });
+    return { client, createKeys };
+  }
+
+  it("asks Stripe for a new account after Stripe took the last one away", async () => {
+    const stripe = replayingStripe();
+    const { app, db } = buildApp({ stripe: stripe.client });
+
+    expect((await req(app, `${base}/session`, OWNER)).status).toBe(200);
+    expect(row(db)?.stripeAccountId).toBe("acct_made_1");
+    await Effect.runPromise(
+      registryService
+        .detachStripeAccount({ accountId: "acct_made_1" })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    expect((await req(app, `${base}/session`, OWNER)).status).toBe(200);
+
+    expect(stripe.createKeys).toEqual([
+      `cire-account-${BOOTSTRAP_WEDDING_ID}-0`,
+      `cire-account-${BOOTSTRAP_WEDDING_ID}-1`,
+    ]);
+    expect(row(db)?.stripeAccountId).toBe("acct_made_2");
+  });
+
+  it("stores nothing when another owner's account was connected and cleared while Stripe made this one", async () => {
+    // This owner read generation 0. Meanwhile another owner connected
+    // acct_cleared under the same key and it was cleared; Stripe replays it
+    // to this request. Storing it would make this owner the holder of an
+    // account carrying someone else's identity and bank.
+    const box: { db?: ReturnType<typeof buildApp>["db"] } = {};
+    const stripe = stripeStub({
+      account: { ...ACCOUNT, id: "acct_cleared" },
+      duringCreate: () => {
+        const now = new Date();
+        box
+          .db!.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            stripeAccountId: "acct_cleared",
+            stripeConnectedByOsnProfileId: SECOND,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        box
+          .db!.update(registrySettings)
+          .set({ stripeAccountId: null, stripeConnectedByOsnProfileId: null })
+          .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+          .run();
+      },
+    });
+    const built = buildApp({ stripe: stripe.client });
+    box.db = built.db;
+
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await req(built.app, `${base}/session`, OWNER);
+    });
+
+    expect(res?.status).toBe(409);
+    expect(await jsonBody(res!)).toEqual({ error: "stripe_account_changed" });
+    expect(row(built.db)?.stripeAccountId).toBeNull();
+    expect(row(built.db)?.stripeConnectedByOsnProfileId).toBeNull();
+    expect(stripe.calls).toEqual([`createAccount:${BOOTSTRAP_WEDDING_ID}:AU`]);
+    // The account exists at Stripe with nothing storing it: its id is the
+    // one record for the manual fix.
+    expect(logs).toContain("stripe account created but not stored");
+    expect(logs).toContain("acct_cleared");
+    expect(logs).toContain("stripe onboarding refused");
+    expect(logs).toContain("account_changed");
+  });
+
+  it("tells an owner removed meanwhile nothing about the account changing", async () => {
+    // Both happened while Stripe made the account: this owner was demoted,
+    // and another owner's account was connected and cleared. The refusal is
+    // the one the gate would now give, with nothing about the wedding's account.
+    const box: { db?: ReturnType<typeof buildApp>["db"] } = {};
+    const stripe = stripeStub({
+      account: { ...ACCOUNT, id: "acct_cleared" },
+      duringCreate: () => {
+        const db = box.db!;
+        const now = new Date();
+        db.update(weddingHosts)
+          .set({ role: "editor" })
+          .where(eq(weddingHosts.osnProfileId, OWNER))
+          .run();
+        db.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            stripeAccountId: "acct_cleared",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        db.update(registrySettings)
+          .set({ stripeAccountId: null })
+          .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+          .run();
+      },
+    });
+    const built = buildApp({ stripe: stripe.client });
+    box.db = built.db;
+
+    const res = await req(built.app, `${base}/session`, OWNER);
+
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+    expect(row(built.db)?.stripeAccountId).toBeNull();
   });
 });
 

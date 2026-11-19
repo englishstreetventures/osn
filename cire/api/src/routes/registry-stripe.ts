@@ -252,9 +252,14 @@ export const createRegistryStripeRoutes = (
                 return yield* notConnector(set, weddingId, "not_connector");
               }
               if (!accountId) {
+                // The key carries how many times the wedding's account has
+                // been cleared, read with the row, and the attach writes only
+                // while the row still holds it.
+                const generation = settings.stripeAccountGeneration;
                 const created = yield* deps.stripe.createAccount({
                   country: deps.defaultCountry ?? "AU",
                   weddingId,
+                  generation,
                 });
                 // If this write fails the account still exists at Stripe
                 // and nothing records its id — and Stripe's idempotency key
@@ -263,7 +268,7 @@ export const createRegistryStripeRoutes = (
                 // would otherwise be lost turns an unrecoverable orphan into a
                 // manual fix. It is an account identifier, not a credential.
                 const saved = yield* registryService
-                  .attachStripeAccount(weddingId, created, osnProfileId)
+                  .attachStripeAccount(weddingId, created, osnProfileId, { generation })
                   .pipe(
                     Effect.tapDefect(() =>
                       Effect.logError("stripe account created but not stored").pipe(
@@ -271,15 +276,33 @@ export const createRegistryStripeRoutes = (
                       ),
                     ),
                   );
-                // The caller stopped owning the wedding, or it was deleted,
-                // while Stripe was making the account: nothing was written,
-                // so the account exists at Stripe with nothing storing it.
-                // The same log line as a failed write, and the refusal the
-                // gate would now give.
+                // Nothing was written, so the account exists at Stripe with
+                // nothing storing it: the same log line as a failed write.
+                // Either the caller stopped owning the wedding, or it was
+                // deleted, while Stripe was making the account, and gets the
+                // refusal the gate would now give; or the wedding's account
+                // was connected and cleared meanwhile, so the account Stripe
+                // answered with may be that cleared one, and the owner is told
+                // to look again.
                 if (!saved) {
                   yield* Effect.logError("stripe account created but not stored").pipe(
                     Effect.annotateLogs({ weddingId, stripeAccountId: created.id }),
                   );
+                  const refusal = yield* registryService.stripeAttachRefusal(
+                    weddingId,
+                    osnProfileId,
+                  );
+                  if (refusal === "account_changed") {
+                    return yield* Effect.logInfo("stripe onboarding refused").pipe(
+                      Effect.annotateLogs({ weddingId, refusal: "account_changed" }),
+                      Effect.andThen(
+                        Effect.sync(() => {
+                          set.status = 409;
+                          return { error: "stripe_account_changed" };
+                        }),
+                      ),
+                    );
+                  }
                   return yield* Effect.sync(() => {
                     set.status = 403;
                     return { error: "forbidden" };

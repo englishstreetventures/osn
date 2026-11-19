@@ -1044,6 +1044,14 @@ export const registrySettings = sqliteTable(
     // clears only rows connected at or before Stripe's event, so a reconnect
     // made after it stays. NULL (every row from before this column) is cleared.
     stripeConnectedAt: integer("stripe_connected_at", { mode: "timestamp" }),
+    // How many times this wedding's account has been cleared. A trigger
+    // (`registry_settings_stripe_account_generation`) adds one whenever
+    // `stripe_account_id` goes from a value to NULL, whoever clears it, and
+    // nothing else writes it. It is part of the account-create idempotency
+    // key, so a Connect press after a clear asks Stripe for a new account
+    // rather than replaying the cleared one, and the attach writes only while
+    // the row still holds the generation its request read.
+    stripeAccountGeneration: integer("stripe_account_generation").notNull().default(0),
     // Cached from the `account.updated` webhook so the portal can show onboarding
     // state without a live Stripe call on every page load.
     stripeChargesEnabled: integer("stripe_charges_enabled", { mode: "boolean" })
@@ -1069,10 +1077,12 @@ export const registrySettings = sqliteTable(
     // reconnect (`attachStripeAccount` only ever fills a NULL id).
     //
     // The two columns below are what the cleared id leaves behind: WHEN it
-    // happened, and WHICH account it was. Nothing in the product reads them —
-    // they exist because this is the money path, and "which account did this
-    // wedding's gifts settle into before the couple disconnected" is a question
-    // somebody eventually asks with no other way to answer it.
+    // happened, and WHICH account it was. No route reads them — they exist
+    // because this is the money path, and "which account did this wedding's
+    // gifts settle into before the couple disconnected" is a question somebody
+    // eventually asks. Each gift records its own account
+    // (`registry_contributions.stripe_account_id`); migration
+    // 20261118180052 read `stripe_deauthorized_at` once, to back-fill it.
     stripeDeauthorizedAt: integer("stripe_deauthorized_at", { mode: "timestamp" }),
     stripeDeauthorizedAccountId: text("stripe_deauthorized_account_id"),
     // ── What survives the guest-data sweep ──────────────────────────────────
@@ -1332,6 +1342,20 @@ export const registryContributions = sqliteTable(
     // session id is still claimed by exactly one row.
     stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
     stripePaymentIntentId: text("stripe_payment_intent_id"),
+    // The connected account the gift's Checkout session was created on, and
+    // that account's type as the wedding's settings row stored it then (NULL
+    // reads as `express`, as it does there). A gift event matches the gift by
+    // THIS account, not by the account the wedding names now, so a refund,
+    // dispute or late settle on an account the wedding no longer names still
+    // reaches its gift. Written with the row from the guest gate's read; a
+    // trigger (`registry_contributions_stripe_account_filled`) copies the
+    // wedding's account onto a row inserted without one. NULL on a gift from
+    // before the column that the back-fill could not place, which is matched
+    // through the wedding's current account instead. Every writer copies the
+    // type from `registry_settings.stripe_account_type`, whose triggers hold
+    // it to `express`, `standard` or NULL, so no CHECK is repeated here.
+    stripeAccountId: text("stripe_account_id"),
+    stripeAccountType: text("stripe_account_type", { enum: ["express", "standard"] }),
     message: text("message"),
     displayName: text("display_name"),
     thankedAt: integer("thanked_at", { mode: "timestamp" }),
@@ -1352,6 +1376,10 @@ export const registryContributions = sqliteTable(
     // and no metadata worth trusting — so this is the column the refund path
     // reads by. Without the index that read scans every gift on the platform.
     index("registry_contributions_payment_intent_idx").on(t.stripePaymentIntentId),
+    // "Is any gift on this account still pending?" The hand-back of a retired
+    // Standard account asks it; that reader lands with
+    // englishstreetventures/osn#1950.
+    index("registry_contributions_account_status_idx").on(t.stripeAccountId, t.status),
     // `currency` is three characters long, and so is `primary_currency` when it
     // is set. Length only: the letters and their case are not checked.
     check("registry_contributions_currency_ck", sql`length(currency) = 3`),

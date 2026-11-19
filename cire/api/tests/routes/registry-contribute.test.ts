@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, setSystemTime } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
@@ -844,6 +844,9 @@ describe("what reaches Stripe, and what does not", () => {
         amountMinor: 5000,
         currency: "AUD",
         stripeCheckoutSessionId: null,
+        // On the account the wedding names, so only its missing page sets it
+        // apart from the attempt the press below makes.
+        stripeAccountId: ACCOUNT,
         message: null,
         displayName: null,
         createdAt: now,
@@ -862,6 +865,75 @@ describe("what reaches Stripe, and what does not", () => {
     const rows = await db.select().from(registryContributions).all();
     expect(rows).toHaveLength(2);
     expect(rows.find((r) => r.id === "rct_orphan")?.stripeCheckoutSessionId).toBeNull();
+  });
+
+  const moveWeddingTo = (db: Db, account: string) =>
+    db
+      .update(registrySettings)
+      .set({ stripeAccountId: account })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+  it("never hands back a page on an account the wedding has since left, nor asks the new one for it", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    const cookie = await guestCookie(app);
+    expect((await contribute(app, cookie, { amountMinor: 5000, message: "aaa" })).status).toBe(200);
+    // The gift keeps the account it was made on, and that account's type as
+    // the settings row stored it (none, which reads as Express).
+    const [first] = db.select().from(registryContributions).all();
+    expect(first?.stripeAccountId).toBe(ACCOUNT);
+    expect(first?.stripeAccountType).toBeNull();
+
+    moveWeddingTo(db, "acct_next");
+    const second = await contribute(app, cookie, { amountMinor: 5000, message: "aaa" });
+
+    expect(second.status).toBe(200);
+    expect(await jsonBody(second)).toEqual({ url: "https://checkout.stripe.test/pay/cs_2" });
+    expect(stripe.retrieved).toEqual([]);
+    expect(stripe.sessions.map((session) => session.accountId)).toEqual([ACCOUNT, "acct_next"]);
+    const rows = db.select().from(registryContributions).all();
+    expect(rows.map((row) => row.stripeAccountId).toSorted()).toEqual([ACCOUNT, "acct_next"]);
+  });
+
+  it("records a gift on a Standard account as Standard", async () => {
+    // What keeps a Standard holder's own session from settling or closing a
+    // gift by naming its id: the gift's own type.
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    db.update(registrySettings)
+      .set({ stripeAccountType: "standard" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    expect((await contribute(app, await guestCookie(app), { amountMinor: 5000 })).status).toBe(200);
+
+    const [gift] = db.select().from(registryContributions).all();
+    expect(gift?.stripeAccountId).toBe(ACCOUNT);
+    expect(gift?.stripeAccountType).toBe("standard");
+  });
+
+  it("keys two attempts apart when only the account differs", async () => {
+    // Frozen in one five-minute bucket, and every page spent on arrival, so
+    // the key alone decides what reaches Stripe.
+    setSystemTime(new Date("2026-11-19T10:01:00Z"));
+    try {
+      const stripe = stripeStub({ reusable: false });
+      const { app, db } = buildApp({ stripe: stripe.client });
+      const cookie = await guestCookie(app);
+
+      await contribute(app, cookie, { amountMinor: 5000, message: "aaa" });
+      await contribute(app, cookie, { amountMinor: 5000, message: "aaa" });
+      moveWeddingTo(db, "acct_next");
+      await contribute(app, cookie, { amountMinor: 5000, message: "aaa" });
+
+      const keys = stripe.sessions.map((s) => s.idempotencyKey);
+      expect(keys).toHaveLength(3);
+      expect(keys[1]).toBe(keys[0]);
+      expect(keys[2]).not.toBe(keys[0]);
+    } finally {
+      setSystemTime();
+    }
   });
 });
 

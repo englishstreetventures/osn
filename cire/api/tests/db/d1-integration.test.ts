@@ -176,6 +176,7 @@ const MIGRATION_0091 = "0091_task_assignees.sql";
 const MIGRATION_TASK_RUN_TIME = "20261021153838_task_run_time.sql";
 const MIGRATION_SEATING_PLANS = "20261026040620_seating_plans.sql";
 const MIGRATION_CONTRIBUTION_CURRENCY = "20261106023546_contribution_currency_check.sql";
+const MIGRATION_GIFT_ACCOUNT = "20261118180052_gifts_keep_their_account.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -4455,7 +4456,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "builds the schema from the live migration chain on D1's own SQLite, and the gift currency rebuild keeps every gift, column for column, and refuses a four-character currency",
+    "builds the schema from the live migration chain on D1's own SQLite, and the gift currency rebuild keeps every gift, column for column, and refuses a four-character currency, and the gift account back-fill and triggers run",
     async () => {
       // Its own instance: the suite's shared database is built from the test
       // DDL, and replaying a migration into it would mean dropping a table every
@@ -4475,10 +4476,22 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const files = listMigrations(MIGRATIONS_DIR);
         expect(files[0]).toBe("0001_initial.sql");
         expect(files).toContain(MIGRATION_CONTRIBUTION_CURRENCY);
+        expect(files).toContain(MIGRATION_GIFT_ACCOUNT);
         const gifts = async () =>
           (await chainD1.prepare("SELECT * FROM registry_contributions ORDER BY id").all()).results;
         for (const file of files) {
           const currencyRebuild = file === MIGRATION_CONTRIBUTION_CURRENCY;
+          const giftAccount = file === MIGRATION_GIFT_ACCOUNT;
+          if (giftAccount) {
+            // The wedding of the two gifts above names an account it was
+            // never cleared of, so the back-fill gives that account to the
+            // one with a Checkout session, and leaves the one without NULL.
+            await chainD1
+              .prepare(
+                "INSERT INTO registry_settings (wedding_id, stripe_account_id, stripe_account_type, created_at, updated_at) VALUES ('wed_c', 'acct_c', 'standard', 1, 1)",
+              )
+              .run();
+          }
           let before: Record<string, unknown>[] = [];
           if (currencyRebuild) {
             // Two gifts go in just before the rebuild, so its copy and its DROP
@@ -4519,6 +4532,46 @@ describe("cire/api over real D1 (Miniflare)", () => {
             expect(refusal).toContain(
               "CHECK constraint failed: registry_contributions_currency_ck",
             );
+          }
+          if (giftAccount) {
+            const accounts = async () =>
+              (
+                await chainD1
+                  .prepare(
+                    "SELECT id, stripe_account_id AS account, stripe_account_type AS type FROM registry_contributions ORDER BY id",
+                  )
+                  .all()
+              ).results;
+            expect(await accounts()).toEqual([
+              { id: "rct_full", account: "acct_c", type: "standard" },
+              { id: "rct_sparse", account: null, type: null },
+            ]);
+            // A gift inserted with no account, as a Worker from before the
+            // migration writes one, takes the wedding's.
+            await chainD1
+              .prepare(
+                "INSERT INTO registry_contributions (id, wedding_id, family_id, amount_minor, currency, created_at, updated_at) VALUES ('rct_old_worker', 'wed_c', 'fam_c', 100, 'AUD', 1, 1)",
+              )
+              .run();
+            expect(
+              (await accounts()).find((row) => (row as { id: string }).id === "rct_old_worker"),
+            ).toEqual({ id: "rct_old_worker", account: "acct_c", type: "standard" });
+            await chainD1
+              .prepare("DELETE FROM registry_contributions WHERE id = 'rct_old_worker'")
+              .run();
+            // A clear of the account adds one to the generation, once.
+            await chainD1
+              .prepare(
+                "UPDATE registry_settings SET stripe_account_id = NULL, stripe_account_type = NULL, stripe_connected_at = NULL WHERE wedding_id = 'wed_c'",
+              )
+              .run();
+            expect(
+              await chainD1
+                .prepare(
+                  "SELECT stripe_account_generation AS generation FROM registry_settings WHERE wedding_id = 'wed_c'",
+                )
+                .first(),
+            ).toEqual({ generation: 1 });
           }
         }
 

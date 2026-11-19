@@ -99,7 +99,10 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
    take gifts for several weddings of the owner who connected it
    ([[cire-registry#One account, several weddings]]), so the first two write
    every `registry_settings` row naming it. A gift event acts on its own gift,
-   whose wedding must name the account the event arrived on.
+   and must arrive on the account that gift was paid into
+   (`registry_contributions.stripe_account_id`), whether or not the wedding
+   still names it; a gift with no recorded account must arrive on the
+   account its wedding names now.
 
    A **Standard** account — the couple's own, connected through OAuth — is a
    working Stripe account, and this endpoint hears its own shop's events as
@@ -361,7 +364,7 @@ platform by mistake, or holding the wrong secret:
 
 ```bash
 bunx wrangler d1 execute cire-db-dev --remote --command \
-  "SELECT id, status, stripe_payment_intent_id FROM registry_contributions ORDER BY created_at DESC LIMIT 5"
+  "SELECT id, status, stripe_payment_intent_id, stripe_account_id FROM registry_contributions ORDER BY created_at DESC LIMIT 5"
 ```
 
 ---

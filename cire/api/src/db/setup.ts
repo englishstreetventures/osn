@@ -538,6 +538,7 @@ CREATE TABLE IF NOT EXISTS registry_settings (
   stripe_connected_by_osn_profile_id TEXT,
   stripe_account_type TEXT,
   stripe_connected_at INTEGER,
+  stripe_account_generation INTEGER NOT NULL DEFAULT 0,
   stripe_charges_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_payouts_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_account_updated_at INTEGER,
@@ -620,6 +621,8 @@ CREATE TABLE IF NOT EXISTS registry_contributions (
   refunded_amount_minor INTEGER,
   stripe_checkout_session_id TEXT UNIQUE,
   stripe_payment_intent_id TEXT,
+  stripe_account_id TEXT,
+  stripe_account_type TEXT,
   message TEXT,
   display_name TEXT,
   thanked_at INTEGER,
@@ -635,6 +638,7 @@ CREATE INDEX IF NOT EXISTS registry_contributions_wedding_created_idx ON registr
 CREATE INDEX IF NOT EXISTS registry_contributions_item_idx ON registry_contributions(item_id);
 CREATE INDEX IF NOT EXISTS registry_contributions_family_idx ON registry_contributions(family_id);
 CREATE INDEX IF NOT EXISTS registry_contributions_payment_intent_idx ON registry_contributions(stripe_payment_intent_id);
+CREATE INDEX IF NOT EXISTS registry_contributions_account_status_idx ON registry_contributions(stripe_account_id, status);
 CREATE TABLE IF NOT EXISTS wedding_upgrade_purchases (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
@@ -836,6 +840,20 @@ CREATE TRIGGER IF NOT EXISTS registry_settings_stripe_account_cleared AFTER UPDA
 WHEN NEW.stripe_account_id IS NULL AND (NEW.stripe_account_type IS NOT NULL OR NEW.stripe_connected_at IS NOT NULL)
 BEGIN
   UPDATE registry_settings SET stripe_account_type = NULL, stripe_connected_at = NULL WHERE wedding_id = NEW.wedding_id;
+END;
+CREATE TRIGGER IF NOT EXISTS registry_settings_stripe_account_generation AFTER UPDATE OF stripe_account_id ON registry_settings
+WHEN OLD.stripe_account_id IS NOT NULL AND NEW.stripe_account_id IS NULL
+BEGIN
+  UPDATE registry_settings SET stripe_account_generation = stripe_account_generation + 1 WHERE wedding_id = NEW.wedding_id;
+END;
+CREATE TRIGGER IF NOT EXISTS registry_contributions_stripe_account_filled AFTER INSERT ON registry_contributions
+WHEN NEW.stripe_account_id IS NULL
+BEGIN
+  UPDATE registry_contributions
+  SET stripe_account_id = (SELECT s.stripe_account_id FROM registry_settings s WHERE s.wedding_id = NEW.wedding_id),
+    stripe_account_type = (SELECT s.stripe_account_type FROM registry_settings s WHERE s.wedding_id = NEW.wedding_id)
+  WHERE id = NEW.id
+    AND EXISTS (SELECT 1 FROM registry_settings s WHERE s.wedding_id = NEW.wedding_id AND s.stripe_account_id IS NOT NULL);
 END;
 `;
 

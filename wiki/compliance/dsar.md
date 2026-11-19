@@ -239,7 +239,12 @@ owners, each with an `owner` seat. Two consequences:
   gave the account to as well. NULL beside an account matches no owner, so
   the account's links stay closed rather than opening to the other owners; the account itself, with the requester's identity and bank details,
   is Stripe's and theirs ([[retention]]), and an operator forwards the request
-  to Stripe as that row says.
+  to Stripe as that row says. Each money gift also records the account it
+  was paid into (`registry_contributions.stripe_account_id`, migration
+  `20261118180052`), so a refund or dispute on it still reaches the gift. An
+  erasure leaves that column, as it leaves the account on the settings row:
+  it is the couple's record of where each gift's money went, and it goes with
+  the gift when the guest-data sweep deletes it ([[retention]]).
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a
   right is the responsibility of the wedding's owners as **joint
   controllers** (cire is their processor — see [[data-map]]). Route guest
