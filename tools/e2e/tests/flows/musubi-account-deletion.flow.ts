@@ -20,8 +20,10 @@
  * and the wedding untouched. Deleted again with "Delete everything", its job
  * is moved past its window — the suite's clock runs in real time — and the
  * stack's sweeper (every 2 s here) reaches Pulse and cire and erases the
- * account. The account is gone, the handle is held, the wedding is deleted,
- * and the account-deleted email reached the address it had. The person's
+ * account. A gift on the wedding is disputed first, so cire's purge holds the
+ * wedding and cire reports it as kept. The account is gone, the handle is
+ * held, the wedding is deleted and names no profile of the person's, and the
+ * account-deleted email reached the address it had, listing the held wedding. The person's
  * organisation passed to its admin, who opens the email's link signed in
  * through its own seeded session and declines it: it passes to the next
  * member, who is mailed in turn. Before any of it, "Send me a link" mails
@@ -52,6 +54,9 @@ import {
 test.use({ turnstile: true });
 
 const WINDOW_HEADING = "Your account is set to be deleted";
+
+/** The household the flow gives the wedding, for its disputed gift. */
+const LEAVER_HOUSEHOLD = "fam_e2e_leaver";
 
 test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   // Two step-ups, a sign-out and back, a keep, a second deletion and a sweep.
@@ -350,6 +355,32 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     second?.subject ?? "",
   );
 
+  // A gift on the wedding is disputed, so cire's purge holds the wedding once
+  // the erasure deletes it, and cire reports it as kept. Two writes, a
+  // household and its gift; each throws unless its one row went in.
+  await flow.step("a gift on the wedding is disputed", async () => {
+    const now = Math.floor(suiteNow() / 1000);
+    writeRow(
+      DB_FILES.cire,
+      "INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      LEAVER_HOUSEHOLD,
+      P.wedding.id,
+      "E2E-LEAVER-HOUSEHOLD",
+      "Household",
+      now,
+      now,
+    );
+    writeRow(
+      DB_FILES.cire,
+      "INSERT INTO registry_contributions (id, wedding_id, family_id, status, amount_minor, currency, created_at, updated_at) VALUES (?, ?, ?, 'disputed', 5000, 'AUD', ?, ?)",
+      "rcon_e2e_leaver_disputed",
+      P.wedding.id,
+      LEAVER_HOUSEHOLD,
+      now,
+      now,
+    );
+  });
+
   // The suite's clock runs in real time, so the job's window is moved instead:
   // one write, while the flow sends nothing; it throws unless the one job
   // moved. The sweeper finds it due.
@@ -379,9 +410,21 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     true,
     deleted?.text.includes(`@${P.handle} is released on`) ?? false,
   );
+  flow.check(
+    "the deleted email lists the wedding cire holds while its gift settles",
+    true,
+    deleted?.text.includes(
+      "- Cire: A deleted wedding you owned, kept until a payment or gift for it settles, then erased in Cire's daily clean-up.",
+    ) ?? false,
+  );
   flow.check("the account is gone", false, accountExists());
   flow.check("the wedding is deleted", true, weddingDeletedAt() !== null);
   flow.check("the wedding has no seat of theirs", 0, ownerSeats());
+  flow.check(
+    "the wedding names no profile of theirs as its deleter",
+    "none",
+    weddingDeleter() ?? "none",
+  );
 
   // -------------------------------------------------------------------------
   // The organisation passed to its admin, who declines it from the email.
@@ -531,6 +574,16 @@ function weddingDeletedAt(): number | null {
       "SELECT deleted_at FROM weddings WHERE id = ?",
       P.wedding.id,
     )?.deleted_at ?? null
+  );
+}
+
+function weddingDeleter(): string | null {
+  return (
+    queryOne<{ deleted_by: string | null }>(
+      DB_FILES.cire,
+      "SELECT deleted_by_osn_profile_id AS deleted_by FROM weddings WHERE id = ?",
+      P.wedding.id,
+    )?.deleted_by ?? null
   );
 }
 
