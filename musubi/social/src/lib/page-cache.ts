@@ -16,13 +16,14 @@ import {
 // A page shown again draws the rows it last had at once and reads them again
 // behind them, so moving between pages never brings back a placeholder for
 // something already seen. A first visit draws as many placeholders as rows
-// that page last landed, one when nothing is known.
+// that page last landed, one when nothing is known, and, on a page whose rows
+// differ in height, each as the kind of row it last landed as.
 //
 // Scope. Every entry belongs to the session `AuthProvider` holds: one session
 // object stands for one account and one active profile, and signing in,
 // switching profile, a profile reset, signing out and the session ending each
-// replace it or take it away. When the session object changes, every entry and
-// every row count is cleared and every read still out is dropped, so no
+// replace it or take it away. When the session object changes, every entry,
+// row count and row kind is cleared and every read still out is dropped, so no
 // account or profile ever reads another's rows. Keys carry the scope as well,
 // so no key is shared across sessions even before the clear runs.
 //
@@ -37,6 +38,7 @@ interface Entry<T> {
   readonly name: string;
   readonly read: () => Promise<T>;
   readonly countRows: (value: T) => number;
+  readonly rowKinds: ((value: T) => readonly string[]) | undefined;
   readonly value: Accessor<T | undefined>;
   readonly setValue: Setter<T | undefined>;
   readonly status: Accessor<Status>;
@@ -68,6 +70,7 @@ const serials = new WeakMap<Session, number>();
 let lastSerial = 0;
 const stores = new Map<string, QueryStore>();
 const rowsSeen = new Map<string, number>();
+const kindsSeen = new Map<string, readonly string[]>();
 
 function gate() {
   let open = () => {};
@@ -101,6 +104,7 @@ export function bindScope(session: Session | null | undefined): void {
     for (const store of stores.values()) store.forgetAll();
   });
   rowsSeen.clear();
+  kindsSeen.clear();
   ended.open();
   setVersion(generation);
 }
@@ -148,6 +152,15 @@ export function placeholderRows(name: string): number {
   return Math.max(1, rowsSeen.get(name) ?? 1);
 }
 
+/**
+ * Each row's kind, in order, as `name`'s page last landed them, where its
+ * query names them (`pageQuery`'s `rowKinds`); undefined when it names none
+ * or nothing has landed under this scope.
+ */
+export function placeholderKinds(name: string): readonly string[] | undefined {
+  return kindsSeen.get(name);
+}
+
 const landed = <T>(entry: Entry<T>) => {
   const status = entry.status();
   return status === "ready" || status === "refreshing";
@@ -184,7 +197,7 @@ function keepSame<T>(prev: T | undefined, next: T): T {
   ) as T;
 }
 
-/** Writes an answer into the entry and counts its rows for the next first load. */
+/** Writes an answer into the entry and counts its rows, and their kinds, for the next first load. */
 function land<T>(entry: Entry<T>, answer: T): void {
   const value = keepSame(untrack(entry.value), answer);
   batch(() => {
@@ -193,6 +206,7 @@ function land<T>(entry: Entry<T>, answer: T): void {
     entry.setStatus("ready");
   });
   rowsSeen.set(entry.name, entry.countRows(value));
+  if (entry.rowKinds) kindsSeen.set(entry.name, entry.rowKinds(value));
 }
 
 function send<T>(entry: Entry<T>, refreshing = false): Promise<void> {
@@ -321,12 +335,16 @@ export interface PageQuery<A extends unknown[], T> {
 
 /**
  * One kind of page read: `read` fetches it, `countRows` says how many rows
- * the answer draws, which sets the next first load's placeholder count.
+ * the answer draws, which sets the next first load's placeholder count. A
+ * page whose rows differ in height also passes `rowKinds`, which names each
+ * row's kind in order (`placeholderKinds`), so each placeholder takes its
+ * row's height.
  */
 export function pageQuery<A extends unknown[], T>(
   name: string,
   read: (...args: A) => Promise<T>,
   countRows: (value: T) => number,
+  rowKinds?: (value: T) => readonly string[],
 ): PageQuery<A, T> {
   const entries = new Map<string, Entry<T>>();
 
@@ -346,6 +364,7 @@ export function pageQuery<A extends unknown[], T>(
       name,
       read: () => read(...args),
       countRows,
+      rowKinds,
       value,
       setValue,
       status,

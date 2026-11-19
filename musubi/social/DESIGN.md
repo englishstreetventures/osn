@@ -822,8 +822,9 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   `src/components/ResponsiveSkeleton.tsx`: one block per width, each hidden
   at the other, since `Skeleton` takes one height. Rows: a connection or a
   member with Remove 56px and 60px below `md`, a Discover card 114px and
-  126px, a connected app 70px and 74px; an organisation card is 74px at
-  both. Settings' Security fallback stands for `@osn/auth-ui`'s passkey
+  126px, a connected app 70px and 74px, and 114px and 126px with its app's
+  removal link (§Links); an organisation card is 74px at both. Settings'
+  Security fallback stands for `@osn/auth-ui`'s passkey
   head, 32px and 40px below `md`, and one of its rows, 92px and 144px,
   copying the package's own placeholder, which it keeps internal; `/authorize`'s
   "Sign in instead" is 32px and 40px. A placeholder list takes the gap of the list it stands for. Words
@@ -868,7 +869,11 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   disables them. A first load draws as many
   placeholders as that page last landed, one when nothing is known; the
   count goes with the session that saw it
-  (`tests/components/PlaceholderRows.browser.test.tsx`).
+  (`tests/components/PlaceholderRows.browser.test.tsx`). Connected apps'
+  rows differ in height, since a row with its app's removal link is taller,
+  so the cache keeps each row's kind with the count and each placeholder
+  takes its own row's height, in order (`AppRowsLoading`), in the section and
+  in the fallback Settings draws while the section's code loads.
 - **Empty states** = `EmptyNote` (`src/components/EmptyNote.tsx`): the dashed
   `rounded-card` block, 16px at the sides, `size="page"` (`py-16`) for a
   page's whole content, `size="section"` (`py-12`) for one list. Its words sit
@@ -986,9 +991,20 @@ apart by its underline or by standing alone at 500.
   at the start of its card (`self-start`), so its fill, not its words, meets
   the column edge. It opens in a new tab, so the screen it leaves keeps what
   was answered there, and is described by the words it is about
-  (`aria-describedby`), so a list of them is told apart. Only an `https:`
-  address is drawn. Use: the deletion flow's "Open in Cire" and the like
-  (`OpenActionCard.tsx`), whose address the app sends.
+  (`aria-describedby`), so a list of them is told apart. Only an address
+  `followableLink` (`src/lib/account-deletion.ts`) follows is drawn: `https:`,
+  or `http:` to this machine (`localhost`, `127.0.0.1`, `[::1]`), where the
+  local and E2E stacks run. Uses: the deletion flow's "Open in Cire" and the
+  like (`OpenActionCard.tsx`), and Settings → Connected apps' "Remove my data
+  from Cire" (`ConnectedAppsSection.tsx`), described by the app's name, both
+  of whose addresses osn-api sends. On a Connected apps row it takes a line of
+  its own, 12px under the row's name and Revoke, and only on a row whose app
+  has a name. Its words are cut short with an ellipsis rather than wrapped
+  (`max-w-full`, the label `truncate`), so a long registered name (up to 64
+  characters) keeps the row at one height.
+  `tests/components/ConnectedAppsRows.browser.test.tsx` holds the rows'
+  heights at 390 and 1440px, the link's place, a 64-character name at 320px,
+  and the links the page refuses.
 - **A way back, or to a flow, in a button's look** is an `<A>` wearing that
   button's `buttonVariants`, since it goes to another address: Settings →
   Account's "Delete account…" (`ghostDanger`, `sm`, as the organisation

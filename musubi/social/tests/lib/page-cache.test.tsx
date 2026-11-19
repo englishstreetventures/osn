@@ -9,6 +9,7 @@ import {
   invalidatePages,
   pageQuery,
   placeholderRows,
+  placeholderKinds,
   scopeMark,
   type PageQuery,
   type PageRead,
@@ -165,18 +166,25 @@ describe("scope: one account or profile never reads another's rows", () => {
     expect(read).not.toHaveBeenCalled();
   });
 
-  it("F5: the row count a page last saw goes with its scope", async () => {
+  it("F5: the row count and row kinds a page last saw go with its scope", async () => {
     const name = fresh();
     setSession({});
     const { read, calls } = heldReads<string[]>();
-    const q = pageQuery(name, read, (v) => v.length);
+    const q = pageQuery(
+      name,
+      read,
+      (v) => v.length,
+      (v) => v.map((row) => (row === "2" ? "tall" : "row")),
+    );
     const reader = mount(q, () => []);
     calls[0]!.resolve(["1", "2", "3", "4"]);
     await settle();
     expect(reader.read.rows).toBe(4);
+    expect(placeholderKinds(name)).toEqual(["row", "tall", "row", "row"]);
 
     setSession({});
     expect(placeholderRows(name)).toBe(1);
+    expect(placeholderKinds(name)).toBeUndefined();
     expect(reader.read.rows).toBe(1);
     reader.dispose();
   });
