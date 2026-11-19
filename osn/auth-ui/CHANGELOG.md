@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 6.5.1
+
+### Patch Changes
+
+- Updated dependencies [9c94043]
+  - @osn/client@4.4.0
+
 ## 6.5.0
 
 ### Minor Changes
