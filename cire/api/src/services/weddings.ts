@@ -6,9 +6,11 @@ import { commitBatch, DbService, dbQuery } from "../db";
 import { epochSeconds, RESTORE_WINDOW_S, restoreUntil } from "../db/live-wedding";
 import { slugifyDisplayName } from "../lib/slug";
 import { metricWeddingCreated } from "../metrics";
+import { policyFor } from "../middleware/wedding-role";
 import type { CodeStyle } from "./family-code";
 import { normaliseHostRole } from "./hosts";
 import type { WeddingRole } from "./hosts";
+import { creationBoundAt, creationBoundColumns, type GuestDataBound } from "./retention";
 import { capForTier, normaliseTier } from "./tiers";
 import type { Tier } from "./tiers";
 
@@ -29,6 +31,11 @@ type WeddingSummary = {
   entitlements: string[];
   /** The guest ceiling the tier gives the wedding. */
   guestCap: number;
+  /** Set only when the guest-data sweep is within 90 days of deleting the
+   *  wedding's guest data by its creation, or past that point, and only for a
+   *  seat that can set the events' dates (owner, editor). The route fills in
+   *  the events' names. */
+  guestDataBound?: GuestDataBound;
 };
 
 /** A soft-deleted wedding its owner can still restore, as the list shows it. */
@@ -73,6 +80,10 @@ export const weddingsService = {
    * A soft-deleted wedding is never in `weddings`. It comes back in `deleted`
    * only to an owner, and only until its restore window closes; every other
    * seat loses it the moment it is deleted.
+   *
+   * The same statement says where each wedding stands against the guest-data
+   * sweep's three years from creation (`creationBoundColumns`), so an owner or
+   * editor is warned of it with no extra read.
    */
   listForMember(
     osnProfileId: string,
@@ -81,6 +92,7 @@ export const weddingsService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const windowStartS = epochSeconds(now) - RESTORE_WINDOW_S;
+      const bound = creationBoundColumns(now);
       const rows = yield* dbQuery(() =>
         db
           .select({
@@ -90,6 +102,9 @@ export const weddingsService = {
             tier: weddings.tier,
             role: weddingHosts.role,
             deletedAt: weddings.deletedAt,
+            boundState: bound.state,
+            boundNoEvents: bound.noEvents,
+            boundCreatedAt: bound.createdAt,
           })
           .from(weddingHosts)
           .innerJoin(weddings, eq(weddingHosts.weddingId, weddings.id))
@@ -114,15 +129,28 @@ export const weddingsService = {
       for (const w of rows) {
         if (w.deletedAt === null) {
           const tier = normaliseTier(w.tier);
-          live.push({
+          const role = normaliseHostRole(w.role);
+          const summary: WeddingSummary = {
             id: w.id,
             slug: w.slug,
             displayName: w.displayName,
-            role: normaliseHostRole(w.role),
+            role,
             tier,
             entitlements: [],
             guestCap: capForTier(tier),
-          });
+          };
+          // Told only to the seats that can fix it; a viewer cannot set a date
+          // and a helper is not shown the events.
+          if (w.boundState !== null && policyFor(role).capabilities.includes("editor")) {
+            summary.guestDataBound = {
+              state: w.boundState,
+              reason: w.boundNoEvents ? "no-events" : "unreadable-date",
+              from: creationBoundAt(w.boundCreatedAt).toISOString(),
+              events: [],
+              eventCount: 0,
+            };
+          }
+          live.push(summary);
         } else {
           deleted.push({
             id: w.id,

@@ -8,7 +8,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-19
 ---
 # Host Portal Layout System
 
@@ -545,11 +545,21 @@ drops the rows. The re-read runs on:
   sends no request, so without the move trigger a tab in use could go from
   module to module and never be refused. A 401 on the re-read signs the tab
   out, and that full page load discards the heap.
+- **a schedule change this tab commits** — an events save, an import or a
+  revert, each of which calls `scheduleChanged` (`lib/schedule-changed.ts`)
+  once it commits — at once, outside the once-a-minute limit. The list carries
+  each wedding's guest-data warning for its owners and editors (`guestDataBound`,
+  drawn by `GuestDataBoundNotice`), which turns on whether every event can be
+  dated, so the warning leaves on the save that dates the last event and
+  appears on one that removes the last event of a wedding past its three
+  years. Another tab catches up at its next re-read. The warning's look is in
+  [`cire/host/DESIGN.md`](../../cire/host/DESIGN.md#a-weddings-guest-list-close-to-its-three-years);
+  its rule is [[retention]]'s three years from creation.
 
 Concurrent triggers share one request. The exceptions are a 403 on a request
-sent after the shared request started, and a push signal, reconnect or stop
-that arrives after it started: the answer may predate the change they report,
-so a new request goes out. A dropped socket reports no change of its own, so
+sent after the shared request started, and a push signal, reconnect, stop or
+schedule change that arrives after it started: the answer may predate the
+change they report, so a new request goes out. A dropped socket reports no change of its own, so
 it joins a request in flight. A request unanswered after 30 s is
 abandoned, and only the newest request's answer is applied. A failed answer,
 or one without a list, changes nothing. The list is also written locally: a

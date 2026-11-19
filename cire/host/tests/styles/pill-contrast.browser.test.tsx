@@ -1,6 +1,7 @@
 import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
 import Button, { type ButtonVariant } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
+import { Notice } from "@shared/ui/ui/notice";
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -127,6 +128,39 @@ describe("a grounded pill's word in this portal's palette", () => {
         }
         await userEvent.unhover(screen.getByRole("button", { name: CASES.at(-1)!.name }));
         expect(short).toEqual([]);
+      });
+    }
+  }
+});
+
+/*
+ * An `outline` pill set inside a tinted `Notice` reads its word over the
+ * notice's tint as well as the pill's ground: the guest-data warning's "Edit
+ * events" on `warn` and `danger`, and the guests editor's "Reload and keep my
+ * edits" on `danger`.
+ */
+describe("an outline pill inside a tinted notice", () => {
+  for (const theme of THEMES) {
+    for (const tone of ["warn", "danger"] as const) {
+      it(`reads at ${WCAG_TEXT_MIN}:1 on a ${tone} notice, at rest and under the pointer, ${theme}`, async () => {
+        document.documentElement.dataset.theme = theme;
+        render(() => (
+          <div class="bg-bg p-4">
+            <Notice tone={tone}>
+              <Button variant="outline" size="sm">
+                Edit events
+              </Button>
+            </Notice>
+          </div>
+        ));
+        const pill = screen.getByRole("button", { name: "Edit events" });
+        await userEvent.unhover(pill);
+        const rest = ratioOf(pill);
+        await userEvent.hover(pill);
+        const hover = ratioOf(pill);
+        await userEvent.unhover(pill);
+        expect(rest).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+        expect(hover).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
       });
     }
   }

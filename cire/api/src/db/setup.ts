@@ -1223,10 +1223,11 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 
 /**
  * The weddings for the E2E suite's organiser flows, each on Gold but
- * `wed_e2e_enquiries`, on Crimson, and the two upgrade weddings, on Ivory, plus
- * three with no seat whose guests open an envelope (`seedE2eEnvelope`). The dev
- * profile, which osn-api's `/dev/login` signs in as, owns every seated one but
- * `wed_e2e_rs_helper`, where it is a helper, and `wed_e2e_leaver`:
+ * `wed_e2e_enquiries`, on Crimson, and the two upgrade weddings and the two
+ * bound weddings, on Ivory, plus three with no seat whose guests open an
+ * envelope (`seedE2eEnvelope`). The dev profile, which osn-api's `/dev/login`
+ * signs in as, owns every seated one but `wed_e2e_rs_helper`, where it is a
+ * helper, and `wed_e2e_leaver`:
  *
  * - `wed_e2e_leaver`: owned by `usr_e2e_leaver` alone, the profile of the
  *   account the account-deletion flow deletes (`DELETION_PERSON` in
@@ -1291,6 +1292,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   budget (`seedE2eEnquiries`).
  * - `wed_e2e_legacy_event`: an event saved before the editor checked one
  *   (`seedE2eLegacyEvent`).
+ * - `wed_e2e_bound` and `wed_e2e_bound_empty`: on Ivory, created close to
+ *   three years before the suite's clock, one with an event whose date the
+ *   guest-data sweep cannot read and one with no events, so the portal warns
+ *   of the bound (`seedE2eCreationBound`).
  *
  * The envelope weddings have no seat (`seedE2eEnvelope`).
  *
@@ -1865,6 +1870,7 @@ function seedE2eOrganiser(db: TestDb): void {
   seedE2eEnquiries(db, now);
   seedE2eEnvelope(db, now);
   seedE2eLegacyEvent(db, now);
+  seedE2eCreationBound(db, now);
 }
 
 /**
@@ -2174,6 +2180,64 @@ function seedE2eLegacyEvent(db: TestDb, now: Date): void {
         slug: "reception",
         name: "Reception",
         startAt: "2026-11-14T18:00:00+11:00",
+        endAt: "",
+        timezone: "Australia/Sydney",
+        sortOrder: 1,
+      },
+    ])
+    .run();
+}
+
+/**
+ * Two weddings close to the guest-data sweep's three years from creation, for
+ * `cire-event-details.flow.ts`, each seated to the dev owner, on the free tier
+ * and with no household: the warning needs neither a plan nor guest data.
+ * `wed_e2e_bound`, created 2023-11-30 at noon UTC, two months short of three
+ * years on the suite's clock (`CLOCK_T0`, 2026-10-01): its Ceremony's Start
+ * holds a date and no time, which the sweep cannot read and the editor asks
+ * the hosts to finish; its Reception reads. `wed_e2e_bound_empty`, created
+ * 2023-12-10 at noon UTC, has no events. Noon UTC keeps each bound on the same
+ * date from UTC−11 to UTC+11; the E2E browser runs at UTC. Every value the
+ * flow checks is written out again as `CIRE_BOUND` in
+ * `tools/e2e/src/config.ts`; a change here goes there too.
+ */
+function seedE2eCreationBound(db: TestDb, now: Date): void {
+  const wedding = (id: string, slug: string, displayName: string, createdAt: Date) => {
+    db.insert(schema.weddings)
+      .values({ id, slug, displayName, createdAt, updatedAt: createdAt })
+      .run();
+    seatDevOwner(db, id, `whost_${id}_owner`, now);
+  };
+  wedding(
+    "wed_e2e_bound",
+    "undated-wedding",
+    "Undated Wedding",
+    new Date("2023-11-30T12:00:00.000Z"),
+  );
+  wedding(
+    "wed_e2e_bound_empty",
+    "eventless-wedding",
+    "Eventless Wedding",
+    new Date("2023-12-10T12:00:00.000Z"),
+  );
+  db.insert(schema.events)
+    .values([
+      {
+        id: "evt_e2e_bound_ceremony",
+        weddingId: "wed_e2e_bound",
+        slug: "ceremony",
+        name: "Ceremony",
+        startAt: "2027-02-06",
+        endAt: "",
+        timezone: "Australia/Sydney",
+        sortOrder: 0,
+      },
+      {
+        id: "evt_e2e_bound_reception",
+        weddingId: "wed_e2e_bound",
+        slug: "reception",
+        name: "Reception",
+        startAt: "2027-02-06T18:00:00+11:00",
         endAt: "",
         timezone: "Australia/Sydney",
         sortOrder: 1,

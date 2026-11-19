@@ -1280,6 +1280,36 @@
   }
 }
 
+/* ── The guest-data warning leaving: bound-leave ────────────────────────────
+ * The owner's choice for this one banner (englishstreetventures/osn#2416,
+ * 2026-11-19): when the save that fixes the wedding clears the guest-data
+ * warning, it shrinks to nothing and fades on `--dur-base` with `--ease-out`,
+ * so the editor below it moves up rather than jumping. Every other `Notice`
+ * goes at once. The wrapper takes `hidden` and `inert` together, so nothing in
+ * it can be focused or pressed from the first frame; `display` is discrete,
+ * and `allow-discrete` holds it drawn until the shrink has run. The rows go
+ * from `1fr` to `0fr` over a child that clips (`min-height: 0; overflow:
+ * hidden`). Declared only under `no-preference`: under reduced motion it goes
+ * at once. An engine older than Chrome 117, Safari 17.4 or Firefox 129 drops
+ * the declaration, and it goes at once there too.
+ */
+@utility bound-leave {
+  display: grid;
+  grid-template-rows: 1fr;
+
+  &[hidden] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition:
+      grid-template-rows var(--dur-base) var(--ease-out),
+      opacity var(--dur-base) var(--ease-out),
+      display var(--dur-base) allow-discrete;
+  }
+}
+
 /* ── The unsaved-changes bar rising: bar-rise ───────────────────────────────
  * The events and guests editors' bar, fixed to the window's foot, rises from
  * that edge by its own height when the first edit of a run mounts it, on

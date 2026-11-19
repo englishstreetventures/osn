@@ -36,6 +36,16 @@
  * warning and saves an edit to the other event around it, leaving its values
  * as stored; a time edited on its zone shuts Save until a zone is picked; the
  * fix saves. Its own wedding, so no other flow sees it.
+ *
+ * Then a wedding created two months short of three years before the suite's
+ * clock, whose Ceremony's Start holds a date and no time, which the guest-data
+ * sweep cannot read: the dashboard warns from what day its guest list goes,
+ * naming the Ceremony, at both widths in both themes. Its creation is moved
+ * past the three years in cire's database, and the reloaded warning says the
+ * list is being deleted. Its "Edit events" opens the editor; the Ceremony's
+ * time typed in and saved, the list is read again and the warning goes with no
+ * reload. Last, a wedding with no events is warned from its own day, with "Add
+ * an event". Their own weddings (`CIRE_BOUND`), so no other flow sees them.
  */
 
 import { readFileSync } from "node:fs";
@@ -44,6 +54,7 @@ import { resolve } from "node:path";
 import type { Page } from "@playwright/test";
 
 import {
+  CIRE_BOUND,
   CIRE_EVENT_EDIT,
   CIRE_LEGACY_EVENT,
   DB_FILES,
@@ -60,6 +71,7 @@ import {
   onSuiteClock,
   queryOne,
   test,
+  writeRow,
 } from "../support/fixtures";
 
 const WEDDING_API = `${ORIGINS.cireApi}/api/organiser/weddings/${CIRE_EVENT_EDIT.weddingId}`;
@@ -667,6 +679,131 @@ test("cire-event-details", async ({ page, context, flow }) => {
     `${JSON.stringify(CIRE_LEGACY_EVENT.fixed.name)} / ${CIRE_LEGACY_EVENT.fixed.start_at} / ${CIRE_LEGACY_EVENT.fixed.end_at} / ${CIRE_LEGACY_EVENT.fixed.timezone}`,
     heldFields(legacyRowOf(CIRE_LEGACY_EVENT.legacyId)),
   );
+
+  // ── A wedding close to its three years from creation ─────────────────────
+  const LIST_API = `${ORIGINS.cireApi}/api/organiser/weddings`;
+  const banner = page.getByTestId("guest-data-bound");
+  /** The banner's first line, and all its words with the spacing evened out. */
+  const bannerWords = async () => ({
+    headline: ((await banner.locator("p").first().textContent()) ?? "").trim(),
+    text: ((await banner.textContent()) ?? "").replace(/\s+/g, " ").trim(),
+  });
+  /** The banner at both widths, light and dark, then back to a light desktop. */
+  const shootBanner = async (name: string) => {
+    for (const [label, size] of [
+      ["1280", DESKTOP],
+      ["390", PHONE],
+    ] as const) {
+      await page.setViewportSize(size);
+      for (const scheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: scheme });
+        await shot(page, `${name}-${label}-${scheme}`);
+      }
+    }
+    await page.setViewportSize(DESKTOP);
+    await page.emulateMedia({ colorScheme: "light" });
+  };
+
+  const near = await flow.step("open a wedding two months short of its three years", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${CIRE_BOUND.weddingId}/overview`);
+    const list = responseTo(page, "GET", LIST_API);
+    await page.reload();
+    expect((await list).status(), "list read").toBe(200);
+    await expect(banner).toBeVisible();
+    await shootBanner("bound-near");
+    return { ...(await bannerWords()), role: await banner.getAttribute("role") };
+  });
+  flow.check(
+    "the banner says from when the guest list goes",
+    `From ${CIRE_BOUND.from}, Cire will delete this wedding's guest list.`,
+    near.headline,
+  );
+  flow.check(
+    "the banner names the event Cire cannot date",
+    true,
+    near.text.includes(`Cire can't read the date and time of this event: ${CIRE_BOUND.ceremony},`),
+  );
+  flow.check("the banner is a standing note, not an alert", "none", near.role ?? "none");
+
+  const passed = await flow.step("open it again once its three years have passed", async () => {
+    writeRow(
+      DB_FILES.cire,
+      "UPDATE weddings SET created_at = ? WHERE id = ?",
+      CIRE_BOUND.pastCreatedAt,
+      CIRE_BOUND.weddingId,
+    );
+    const list = responseTo(page, "GET", LIST_API);
+    await page.reload();
+    expect((await list).status(), "list read").toBe(200);
+    await expect(banner).toContainText("Cire is deleting this wedding's guest list.");
+    await shot(page, "bound-passed-1280-light");
+    return bannerWords();
+  });
+  flow.check(
+    "past its three years, the banner says the guest list is being deleted",
+    "Cire is deleting this wedding's guest list.",
+    passed.headline,
+  );
+
+  const ceremonyRow = () =>
+    queryOne<{ start_at: string }>(
+      DB_FILES.cire,
+      "SELECT start_at FROM events WHERE id = ?",
+      CIRE_BOUND.ceremonyId,
+    );
+  const fixed = await flow.step("set the Ceremony's time from the banner", async () => {
+    const rows = responseTo(page, "GET", `${LIST_API}/${CIRE_BOUND.weddingId}/events`);
+    await banner.getByRole("button", { name: "Edit events" }).click();
+    await expect(page).toHaveURL(`${ORIGINS.cireHost}/#/w/${CIRE_BOUND.weddingId}/events/edit`);
+    expect((await rows).status(), "events read").toBe(200);
+    const ceremony = page
+      .getByRole("listitem")
+      .filter({ has: page.getByText(CIRE_BOUND.ceremony, { exact: true }) })
+      .filter({ has: page.getByRole("button", { name: "Edit", exact: true }) });
+    await ceremony.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(drawer).toBeVisible();
+    await drawer.getByLabel("Start time").fill(CIRE_BOUND.startTime);
+    await drawer.getByRole("button", { name: "Done" }).click();
+    await expect(drawer).toBeHidden();
+    // The save re-reads the wedding list; the banner goes with no reload.
+    const list = responseTo(page, "GET", LIST_API);
+    const saved = await saveScheduleOf(`${LIST_API}/${CIRE_BOUND.weddingId}`);
+    expect((await list).status(), "list read").toBe(200);
+    await expect(banner).toBeHidden();
+    return saved;
+  });
+  flow.check("the Ceremony's time applied", 200, fixed.status);
+  flow.check(
+    "the Ceremony's Start now holds a date and a time",
+    CIRE_BOUND.fixedStartAt,
+    ceremonyRow()?.start_at ?? "missing",
+  );
+
+  const empty = await flow.step(
+    "open a wedding with no events two months short of its three years",
+    async () => {
+      await page.goto(`${ORIGINS.cireHost}/#/w/${CIRE_BOUND.emptyWeddingId}/overview`);
+      await expect(banner).toBeVisible();
+      // The save's toast goes first, so every run's pictures show the same.
+      await expect(page.getByText("Schedule saved")).toBeHidden();
+      await shootBanner("bound-no-events");
+      return {
+        ...(await bannerWords()),
+        action: ((await banner.getByRole("button").textContent()) ?? "").trim(),
+      };
+    },
+  );
+  flow.check(
+    "a wedding with no events is warned from its own day",
+    `From ${CIRE_BOUND.emptyFrom}, Cire will delete this wedding's guest list.`,
+    empty.headline,
+  );
+  flow.check(
+    "the banner says the wedding has no events",
+    true,
+    empty.text.includes("This wedding has no events,"),
+  );
+  flow.check("its button adds an event", "Add an event", empty.action);
 
   const claimed = await flow.step("open the invitation from Preview invite", async () => {
     // What the button asks for before it opens the invitation.

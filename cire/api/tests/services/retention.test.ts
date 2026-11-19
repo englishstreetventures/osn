@@ -32,6 +32,8 @@ import {
 } from "../../src/metrics";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
 import {
+  creationBoundAt,
+  creationCutoffSeconds,
   type GiftSummary,
   type GiftSummaryNotice,
   GIFT_SUMMARY_MAX_LISTED,
@@ -43,6 +45,7 @@ import {
   RETENTION_AFTER_FINAL_EVENT_MS,
   GIFT_SUMMARY_HOLD_BACK_MS,
 } from "../../src/services/retention";
+import { weddingsService } from "../../src/services/weddings";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith, failStatements, recordStatements } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
@@ -3096,5 +3099,259 @@ describe("the retention cohort", () => {
 
     expect(importsLeft(db, wedding.weddingId)).toBe(0);
     expect(wedding.sheetKeys.every((key) => sheets.deleted.has(key))).toBe(true);
+  });
+});
+
+// The day a wedding's three years from creation run out, worked out once and
+// shared by the sweep and the organiser portal's warning: the sweep never takes
+// a wedding before it, and takes it at every run after.
+describe("the three-year bound from creation", () => {
+  it("takes no wedding created on the 1 March three years before a 29 February run, until its anniversary", async () => {
+    const db = freshDb();
+    const undated = [{ startAt: "TBD by the couple", endAt: "" }];
+    // Its anniversary is 1 March 2028: a run at 04:00 on 29 February is early.
+    const firstOfMarch = makeWeddingWithTimes(db, undated, new Date("2025-03-01T01:00:00.000Z"));
+    // Its anniversary, 28 February 2028, has passed.
+    const lastOfFebruary = makeWeddingWithTimes(db, undated, new Date("2025-02-28T23:00:00.000Z"));
+
+    await runOn(db, retentionService.sweepExpiredGuestData(new Date("2028-02-29T04:00:00.000Z")));
+
+    expect(guestCount(db, firstOfMarch.guestId)).toBe(1);
+    expect(guestCount(db, lastOfFebruary.guestId)).toBe(0);
+  });
+
+  it("never takes a wedding before its bound, and takes it at every run after", () => {
+    const failures: string[] = [];
+    const HOUR = 60 * 60 * 1000;
+    const minute = 60 * 1000;
+    for (
+      let day = Date.parse("2023-01-01T00:00:00.000Z");
+      day < Date.parse("2026-01-01T00:00:00.000Z");
+      day += DAY_MS
+    ) {
+      for (const offset of [
+        30 * minute,
+        3 * HOUR + 59 * minute,
+        4 * HOUR + minute,
+        23 * HOUR + 30 * minute,
+      ]) {
+        const createdAt = Math.floor((day + offset) / 1000);
+        const bound = creationBoundAt(createdAt).getTime();
+        // Two days either side of the anniversary, at midnight, the cron's
+        // hour and the last minute of the day.
+        const anniversary = new Date(day);
+        anniversary.setUTCFullYear(anniversary.getUTCFullYear() + 3);
+        for (let d = -2; d <= 2; d++) {
+          for (const at of [0, 4 * HOUR, 23 * HOUR + 59 * minute]) {
+            const run = anniversary.getTime() + d * DAY_MS + at;
+            const taken = createdAt < creationCutoffSeconds(run);
+            if (taken && bound > run) failures.push(`early: created ${createdAt}, run ${run}`);
+            if (bound < run && !taken) failures.push(`late: created ${createdAt}, run ${run}`);
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("is three calendar years on, and 1 March for a wedding created on 29 February", () => {
+    const at = (iso: string) => creationBoundAt(Date.parse(iso) / 1000).toISOString();
+    expect(at("2023-11-30T12:00:00.000Z")).toBe("2026-11-30T12:00:00.000Z");
+    expect(at("2024-02-29T23:30:00.000Z")).toBe("2027-03-01T00:00:00.000Z");
+  });
+});
+
+describe("the organiser portal's warning of the three-year bound", () => {
+  const AT = SWEEP_AT;
+  const undated = [{ startAt: "TBD by the couple", endAt: "" }];
+  /** The created_at whose bound falls `days` days after the run. */
+  const boundIn = (days: number) => {
+    const created = new Date(AT.getTime() + days * DAY_MS);
+    created.setUTCFullYear(created.getUTCFullYear() - 3);
+    return created;
+  };
+  const listed = async (db: TestDb, at: Date = AT) => {
+    const list = await runOn(db, weddingsService.listForMember("usr_test", at));
+    return new Map(list.weddings.map((w) => [w.id, w.guestDataBound]));
+  };
+
+  it("warns from the bound, 89 days ahead", async () => {
+    const db = freshDb();
+    const near = makeWeddingWithTimes(db, undated, boundIn(89));
+
+    expect((await listed(db)).get(near.weddingId)).toEqual({
+      state: "near",
+      reason: "unreadable-date",
+      from: new Date(AT.getTime() + 89 * DAY_MS).toISOString(),
+      events: [],
+      eventCount: 0,
+    });
+  });
+
+  // The owner's 90 days (englishstreetventures/osn#2416), to the second.
+  it("warns a second inside 90 days of the bound, and not at 90 days", async () => {
+    const db = freshDb();
+    const createdForBoundAt = (ms: number) => {
+      const created = new Date(ms);
+      created.setUTCFullYear(created.getUTCFullYear() - 3);
+      return created;
+    };
+    const inside = makeWeddingWithTimes(
+      db,
+      undated,
+      createdForBoundAt(AT.getTime() + 90 * DAY_MS - 1000),
+    );
+    const outside = makeWeddingWithTimes(
+      db,
+      undated,
+      createdForBoundAt(AT.getTime() + 90 * DAY_MS),
+    );
+
+    const bounds = await listed(db);
+
+    expect(bounds.get(inside.weddingId)).toMatchObject({ state: "near" });
+    expect(bounds.get(outside.weddingId)).toBeUndefined();
+  });
+
+  it("says passed exactly for the weddings the sweep takes at the same instant", async () => {
+    const db = freshDb();
+    const passed = makeWeddingWithTimes(db, undated, boundIn(-1));
+    const passedEmpty = makeWeddingWithTimes(db, [], boundIn(-1));
+    const near = makeWeddingWithTimes(db, undated, boundIn(30));
+    const nearEmpty = makeWeddingWithTimes(db, [], boundIn(30));
+    // Its last event is two months past, so the year rule keeps it; the
+    // three years from its creation do not apply to a wedding whose dates read.
+    const dated = makeWeddingWithTimes(
+      db,
+      [{ startAt: "2026-04-15T10:00:00+10:00", endAt: "2026-04-15T12:00:00+10:00" }],
+      new Date(AT.getTime() - 4 * YEAR_MS),
+    );
+
+    const bounds = await listed(db);
+    await runOn(db, retentionService.sweepExpiredGuestData(AT));
+
+    expect(bounds.get(passed.weddingId)).toMatchObject({
+      state: "passed",
+      reason: "unreadable-date",
+    });
+    expect(bounds.get(passedEmpty.weddingId)).toMatchObject({
+      state: "passed",
+      reason: "no-events",
+    });
+    expect(bounds.get(near.weddingId)).toMatchObject({ state: "near", reason: "unreadable-date" });
+    expect(bounds.get(nearEmpty.weddingId)).toMatchObject({ state: "near", reason: "no-events" });
+    expect(bounds.get(dated.weddingId)).toBeUndefined();
+    expect(
+      [passed, passedEmpty, near, nearEmpty, dated].map((w) => guestCount(db, w.guestId)),
+    ).toEqual([0, 0, 1, 1, 1]);
+  });
+
+  // The sweep keeps such a wedding, so the portal has nothing to warn of.
+  it.each([
+    { shape: "milliseconds", stored: Date.parse("2022-01-01T00:00:00.000Z") },
+    { shape: "text", stored: "2022-01-01" },
+  ])("does not warn for a wedding whose stored creation time is in $shape", async ({ stored }) => {
+    const db = freshDb();
+    const withEvent = makeWeddingWithTimes(db, undated);
+    const empty = makeWeddingWithTimes(db, []);
+    for (const id of [withEvent.weddingId, empty.weddingId]) {
+      db.run(rawSql`update ${weddings} set created_at = ${stored} where id = ${id}`);
+    }
+
+    const bounds = await listed(db);
+
+    expect(bounds.get(withEvent.weddingId)).toBeUndefined();
+    expect(bounds.get(empty.weddingId)).toBeUndefined();
+  });
+
+  it("warns for an End it cannot read beside a Start it can", async () => {
+    const db = freshDb();
+    const wedding = makeWeddingWithTimes(
+      db,
+      [{ startAt: "2027-02-06T15:00:00+11:00", endAt: "late" }],
+      boundIn(10),
+    );
+
+    expect((await listed(db)).get(wedding.weddingId)).toMatchObject({
+      state: "near",
+      reason: "unreadable-date",
+    });
+  });
+
+  it("names only the events it cannot date, in the editor's order, at most three, and counts them all", async () => {
+    const db = freshDb();
+    const wedding = makeWeddingWithTimes(db, [], boundIn(-1));
+    const event = (name: string, sortOrder: number, startAt: string) =>
+      db
+        .insert(events)
+        .values({
+          id: `${wedding.weddingId}-${sortOrder}`,
+          weddingId: wedding.weddingId,
+          slug: `ev-${sortOrder}`,
+          name,
+          startAt,
+          endAt: "",
+          timezone: "Australia/Sydney",
+          sortOrder,
+        })
+        .run();
+    event("Dated", 0, "2027-02-06T15:00:00+11:00");
+    event("Fifth", 5, "TBD");
+    event("", 2, "TBD");
+    event("Third", 3, "2027-02-06");
+    event("First", 1, "soon");
+    event("Fourth", 4, "TBD");
+    const other = makeWeddingWithTimes(db, undated, boundIn(-1));
+
+    const names = await runOn(
+      db,
+      retentionService.undatedEventNames([wedding.weddingId, other.weddingId]),
+    );
+
+    expect(names.get(wedding.weddingId)).toEqual({ names: ["First", "", "Third"], count: 5 });
+    expect(names.get(other.weddingId)).toEqual({ names: ["Event 0"], count: 1 });
+  });
+
+  it("reads nothing for no weddings", async () => {
+    const db = freshDb();
+    const statements = recordStatements(db);
+
+    const names = await runOn(db, retentionService.undatedEventNames([]));
+
+    expect(names.size).toBe(0);
+    expect(statements).toHaveLength(0);
+  });
+
+  // The cycle the warning exists for: past its three years, a wedding that
+  // still cannot be dated loses each household added to it at the next run.
+  it("deletes a household added after the sweep at the next day's run", async () => {
+    const db = freshDb();
+    const wedding = makeWeddingWithTimes(
+      db,
+      [
+        { startAt: "TBD by the couple", endAt: "" },
+        { startAt: "2027-06-17T10:00:00+10:00", endAt: "" },
+      ],
+      new Date(AT.getTime() - 4 * YEAR_MS),
+    );
+    await runOn(db, retentionService.sweepExpiredGuestData(AT));
+    expect(familyCount(db, wedding.weddingId)).toBe(0);
+
+    const now = new Date();
+    db.insert(families)
+      .values({
+        id: crypto.randomUUID(),
+        weddingId: wedding.weddingId,
+        publicId: `PUB-again-${wedding.weddingId}`,
+        familyName: "Jones",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    expect(familyCount(db, wedding.weddingId)).toBe(1);
+
+    await runOn(db, retentionService.sweepExpiredGuestData(new Date(AT.getTime() + DAY_MS)));
+
+    expect(familyCount(db, wedding.weddingId)).toBe(0);
   });
 });

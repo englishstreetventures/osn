@@ -984,6 +984,22 @@ run, and `@starting-style` gives the opening its from-state. A dialog or popover
 the top layer cannot do this in Safari or Firefox: leaving the top layer needs
 `overlay`, which is Chrome only, so `Modal` defers `close()` in script instead.
 
+**The guest-data warning shrinks away when a save clears it** (the owner's
+choice, 2026-11-19, englishstreetventures/osn#2416, from a rendered
+comparison against going at once). The one `Notice` that does not go at once:
+the save that fixes the wedding is made in the editor below it, and the
+editor would jump up as it went. Its wrapper (`GuestDataBoundBanner`) takes
+`hidden` and `inert` together, so nothing in it can be focused or pressed
+from the first frame, and `bound-leave` moves its rows from `1fr` to `0fr`
+and its opacity to 0 on `--dur-base` with `--ease-out`, `display` held by
+`allow-discrete` until the shrink has run. The 32px the page sets under it is
+its own padding inside the part that shrinks, given back with `-mb-8`, so the
+space closes with it and nothing jumps at the end. Declared only under
+`no-preference`, so it goes at once under reduced motion; an engine before
+Chrome 117, Safari 17.4 or Firefox 129 drops the declaration and it goes at
+once there too. `GuestDataBoundNotice.browser.test.tsx` holds the shrink, the
+closed space and the reduced-motion path.
+
 **The unsaved-changes bar rises from the window's foot and goes at once.** The
 events and guests editors' bar, fixed to the foot of the window, mounts with
 whichever edit first makes the draft differ from the saved one — a keystroke
@@ -1778,6 +1794,68 @@ column, a 90-letter wedding name with no space included.
 between them waited out, a failure after one) and the dropped answer;
 `tests/components/OrganiserApp.removal-code.test.tsx` holds the code out of a
 sign-in bounce.
+
+### A wedding's guest list close to its three years
+
+`GuestDataBoundNotice.tsx` warns a wedding's owners and editors when Cire's
+guest-data sweep is within 90 days of deleting its guest list three years after
+the wedding was created, or past that day: the wedding has an event whose date
+and time Cire cannot read, or no events (the owner's choice on
+englishstreetventures/osn#2416). The decisions:
+
+- **One banner over the whole dashboard,** above the module shell and on every
+  module, so a host who opens straight onto Guests reads it too. Not sticky: it
+  scrolls away with the page. A helper's run-sheet seat has none.
+- **Only a seat that can fix it.** The API sends the bound to owners and
+  editors alone, and the notice checks `surfacesFor(role).canEdit` as well, so
+  a viewer, who cannot set a date, never sees it.
+- **A `Notice` at `md`, at the prose measure** (`max-w-prose`), `warn` from 90
+  days before and `danger` once the day has passed, so the mark changes shape
+  as well as colour. One there when the dashboard first paints is a standing
+  note. One that appears, or changes state, after that does so in answer to a
+  save the host made with focus in the editor below it, so it mounts afresh as
+  an `alert` and is read out.
+- **Three parts:** a first line in medium weight saying what happens and from
+  when ("From 30 November 2026, Cire will delete this wedding's guest list.",
+  or "Cire is deleting this wedding's guest list."); a sentence saying what the
+  guest list holds, why the three years apply (naming up to three events Cire
+  cannot date, then "and N more"; "Untitled event" for one with no name), and
+  what ends it, breaking anywhere (`wrap-anywhere`), since an event's name can
+  be one long word; and an `outline` `sm` button, "Edit events" or "Add an event",
+  that opens Events → Edit through the dashboard's own navigation, so the
+  unsaved-changes guard still asks. The fix is never worded as a reprieve: once
+  every event reads, the guest list is kept until a year after the wedding's
+  last event, "which may be sooner".
+- **The day is the reader's.** The API sends the first instant the sweep may
+  delete; the notice prints its date in the reader's own zone, `en-AU` long
+  form, and does no date sums of its own (`lib/guest-data-bound.ts`).
+- **It goes as the fix lands.** A schedule change the tab commits reads the
+  wedding list again (`onScheduleChanged`), so the banner leaves on the save
+  that dates the last event, with no reload. Another tab clears at its next
+  read of the list.
+- **It arrives at once and shrinks away** (the owner's choice, 2026-11-19,
+  englishstreetventures/osn#2416, for this one banner). It arrives with the
+  dashboard, or with the save that brings it, at once, as every `Notice` does.
+  When the save that fixes the wedding clears it, it does not go at once: the
+  editor the host is looking at sits below it, and would jump. It takes
+  `hidden` and `inert` together, so its button can be neither focused nor
+  pressed from the first frame, and shrinks to nothing and fades on
+  `--dur-base` with `--ease-out` (150ms at a desk, 200ms on touch) while the
+  space under it closes with it (`bound-leave`, §4). Under reduced motion it
+  goes at once.
+
+`tests/lib/guest-data-bound.test.ts` holds the words (the names, the reader's
+zone, an unknown state); `tests/components/GuestDataBoundNotice.test.tsx` holds
+who sees it, when it is an alert, and that a cleared one is hidden and inert
+while it leaves; `GuestDataBoundNotice.browser.test.tsx` keeps a 200-letter
+name inside the banner at 390 and 1280px and holds the shrink and the
+reduced-motion path;
+`tests/styles/pill-contrast.browser.test.tsx` holds the `outline` pill's word
+at 4.5:1 on both tints; `OrganiserApp.test.tsx` holds the announce on a save,
+and a save's re-read against an older read. The `cire-event-details`
+end-to-end flow shoots the `warn` banner, for each reason, at 390 and 1280px in
+both ramps and the `danger` one at 1280px, and clears the banner by saving a
+fix.
 
 ### Two rules that apply to all of them
 
