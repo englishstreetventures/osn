@@ -92,20 +92,46 @@ const LANDING_DIST = "../landing/dist";
 const DEV_SEED = "../db/seed/dev-seed.sql";
 
 /**
- * cire/db's migrations on every stage but production: the live chain alone.
- * Those databases were built from the baseline, so no ledger of theirs names
- * an archived migration.
+ * cire/db's migrations for a new database, an investigation stage's: the
+ * baseline, which builds the whole schema in one migration, and every
+ * migration after it. An investigation stage whose database was built before
+ * a squash is refused by Alchemy before it writes anything (its ledger names
+ * files this directory no longer holds); delete that database and deploy the
+ * stage again (cire/db/README.md §Squashing the chain).
  */
 export const CIRE_DB_MIGRATIONS: MigrationSources = { source: "../db/migrations" };
 
 /**
- * cire/db's migrations on production. Production applied the archived chain
- * file by file before a squash moved it to `migrations-archive/`, so its
- * ledger names every archived file: each gets a refusing placeholder under its
- * name. The freeze stops Wrangler writing the ledger Alchemy took over.
+ * cire/db's migrations on dev. Dev's database recorded the long-lived chain,
+ * every migration a squash moved out of `migrations/`, by name and hash, so
+ * the stack hands it that chain as written and then each migration after the
+ * baseline: the squash changes nothing dev is handed.
+ */
+export const CIRE_DB_LONG_LIVED_MIGRATIONS: MigrationSources = {
+  ...CIRE_DB_MIGRATIONS,
+  longLived: "../db/migrations-archive/long-lived",
+};
+
+/**
+ * The migrations the cire stack hands `stage`'s database: dev's long-lived
+ * chain, or a new database's baseline on an investigation stage. Production's
+ * are `CIRE_DB_PRODUCTION_MIGRATIONS`, so the production tier is refused.
+ */
+export function cireDbMigrations(stage: string): MigrationSources {
+  refuseProductionTier(stage);
+  return stage === "dev" ? CIRE_DB_LONG_LIVED_MIGRATIONS : CIRE_DB_MIGRATIONS;
+}
+
+/**
+ * cire/db's migrations on production. Production applied the original chain
+ * file by file before the first squash moved it to `migrations-archive/`, so
+ * its ledger names every file there: each gets a refusing placeholder under
+ * its name. It recorded the long-lived chain by name and hash, as dev did, so
+ * that chain is handed over as written. The freeze stops Wrangler writing the
+ * ledger Alchemy took over.
  */
 export const CIRE_DB_PRODUCTION_MIGRATIONS: MigrationSources = {
-  source: "../db/migrations",
+  ...CIRE_DB_LONG_LIVED_MIGRATIONS,
   archive: "../db/migrations-archive",
   freeze: true,
 };

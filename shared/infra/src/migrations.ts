@@ -18,14 +18,19 @@ export class MigrationsSourceError extends Data.TaggedError("MigrationsSourceErr
 }> {}
 
 /**
- * Where one database's migrations come from. `source` is the directory
- * Wrangler applied them from. `archive`, production cire only, is the chain a
- * squash moved out of it, whose names production's ledger still holds.
- * `freeze`, production only, adds the generated file that stops Wrangler
- * writing its ledger once Alchemy migrates the database.
+ * Where one database's migrations come from. `source` is the directory a new
+ * database is built from, the one Wrangler applies locally. `longLived`, for
+ * cire's dev and production databases, is the chain every squash after the
+ * first moved out of `source`: those two ledgers record each of its files by
+ * name and hash, so each is handed over as written, its first in place of
+ * `source`'s first (the baseline that replaced it). `archive`, production cire
+ * only, is the chain the first squash moved out, whose names production's
+ * ledger still holds. `freeze`, production only, adds the generated file that
+ * stops Wrangler writing its ledger once Alchemy migrates the database.
  */
 export interface MigrationSources {
   readonly source: string;
+  readonly longLived?: string;
   readonly archive?: string;
   readonly freeze?: boolean;
 }
@@ -33,11 +38,15 @@ export interface MigrationSources {
 /** Where a file in the flattened directory comes from. */
 export type MigrationFileKind = "live" | "archived" | "generated";
 
-/** One file of the flattened directory: its name, where it comes from, and its text. */
+/**
+ * One file of the flattened directory: its name, where it comes from, and its
+ * text. A `live` file's `path` is the file the directory copies, byte for byte.
+ */
 export interface MigrationFile {
   readonly name: string;
   readonly kind: MigrationFileKind;
   readonly sql: string;
+  readonly path?: string;
 }
 
 /**
@@ -141,28 +150,49 @@ function sqlNames(from: string, dir: string, label: string): string[] {
 
 /**
  * Every file the flattened directory for `sources` holds, in Alchemy's order:
- * each top-level `*.sql` file of `source` as it is; for each top-level name of
- * `archive` that `source` lacks, its refusing placeholder; and with `freeze`,
- * the freeze file. Relative paths are taken from `from`, the working
- * directory unless given. Reads the directories; writes nothing.
+ * each top-level `*.sql` file of `longLived` as it is; each top-level `*.sql`
+ * file of `source` as it is, but for a name `longLived` holds; for each
+ * top-level name of `archive` that neither holds, its refusing placeholder; and
+ * with `freeze`, the freeze file. The one name `longLived` and `source` may
+ * share is `source`'s first file, its baseline: any other shared name is a
+ * moved migration put back, which dev and production would never run while a
+ * new database ran it, so it is refused. Relative paths are taken from `from`,
+ * the working directory unless given. Reads the directories; writes nothing.
  */
 export function migrationFiles(
   sources: MigrationSources,
   from: string = process.cwd(),
 ): MigrationFile[] {
-  const live = sqlNames(from, sources.source, "migrations");
+  const sourceNames = sqlNames(from, sources.source, "migrations");
+  const longLived =
+    sources.longLived === undefined
+      ? []
+      : sqlNames(from, sources.longLived, "long-lived migrations");
+  const baseline = sourceNames.toSorted(compareMigrationNames)[0];
+  const putBack = longLived.filter((name) => name !== baseline && sourceNames.includes(name));
+  if (putBack.length > 0) {
+    throw new MigrationsSourceError({
+      source: sources.source,
+      message: `The migrations directory '${sources.source}' holds ${putBack.join(", ")}, which the long-lived chain '${sources.longLived}' already holds: a squash moved it there, so dev and production would never run it. Give the change a new migration instead.`,
+    });
+  }
+  const liveFile = (dir: string, name: string): MigrationFile => {
+    const path = join(resolve(from, dir), name);
+    return { name, kind: "live", sql: textOf(path), path };
+  };
+  const live = [
+    ...longLived.map((name) => liveFile(sources.longLived!, name)),
+    ...sourceNames
+      .filter((name) => !longLived.includes(name))
+      .map((name) => liveFile(sources.source, name)),
+  ];
+  const held = new Set(live.map((file) => file.name));
   const archived =
     sources.archive === undefined
       ? []
-      : sqlNames(from, sources.archive, "archived migrations").filter(
-          (name) => !live.includes(name),
-        );
+      : sqlNames(from, sources.archive, "archived migrations").filter((name) => !held.has(name));
   const files: MigrationFile[] = [
-    ...live.map((name): MigrationFile => ({
-      name,
-      kind: "live",
-      sql: textOf(join(resolve(from, sources.source), name)),
-    })),
+    ...live,
     ...archived.map((name): MigrationFile => ({
       name,
       kind: "archived",
@@ -198,7 +228,7 @@ export function flattenMigrations(
   from: string = process.cwd(),
 ): string {
   const target = resolve(from, input.target);
-  for (const dir of [input.source, input.archive]) {
+  for (const dir of [input.source, input.longLived, input.archive]) {
     if (dir === undefined) continue;
     const source = resolve(from, dir);
     if (within(source, target) || within(target, source)) {
@@ -212,8 +242,8 @@ export function flattenMigrations(
   rmSync(target, { recursive: true, force: true });
   mkdirSync(target, { recursive: true });
   for (const file of files) {
-    if (file.kind === "live")
-      copyFileSync(join(resolve(from, input.source), file.name), join(target, file.name));
+    if (file.kind === "live" && file.path !== undefined)
+      copyFileSync(file.path, join(target, file.name));
     else writeFileSync(join(target, file.name), file.sql);
   }
   return input.target;

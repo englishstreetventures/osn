@@ -3,7 +3,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-import { ALCHEMY_DIRS, checkOrders, checkSortsLast } from "../check-migration-orders";
+import {
+  ALCHEMY_ALSO_HELD,
+  ALCHEMY_DIRS,
+  alsoHeld,
+  checkOrders,
+  checkSortsLast,
+} from "../check-migration-orders";
+import { listMigrations } from "../migration-files";
 
 let dir: string;
 
@@ -99,6 +106,45 @@ test("passes a directory whose every file is new, as a new database's first migr
   expect(checkSortsLast(dir, ["0001_initial.sql"])).toEqual({ ok: true });
 });
 
+// After a squash, cire's dev and production databases also hold the chain the
+// squash moved out (cire/db/migrations-archive/long-lived/), which this
+// directory no longer lists: a new file must sort after that chain too.
+
+test("refuses a new file that sorts before a migration the same databases hold elsewhere", () => {
+  write("20261021000002_this_pr.sql", "ALTER TABLE `t` ADD `b` text;");
+  const result = checkSortsLast(
+    dir,
+    ["20261021000002_this_pr.sql"],
+    ["0001_initial.sql", "20261021000001_squashed.sql", "20261021000003_squashed.sql"],
+  );
+  expect(result.ok).toBe(false);
+  expect(!result.ok && result.reason).toContain(
+    "20261021000002_this_pr.sql sorts before 20261021000003_squashed.sql",
+  );
+});
+
+test("passes a new file that sorts after a migration the same databases hold elsewhere", () => {
+  write("20261021000004_this_pr.sql", "ALTER TABLE `t` ADD `b` text;");
+  expect(
+    checkSortsLast(
+      dir,
+      ["20261021000004_this_pr.sql"],
+      ["0001_initial.sql", "20261021000003_squashed.sql"],
+    ),
+  ).toEqual({ ok: true });
+});
+
+test("reads cire's long-lived chain as held by the databases that migrate cire/db/migrations", () => {
+  const root = join(import.meta.dir, "..", "..");
+  expect(ALCHEMY_ALSO_HELD).toEqual({
+    "cire/db/migrations": "cire/db/migrations-archive/long-lived",
+  });
+  expect(alsoHeld("cire/db/migrations", root)).toEqual(
+    listMigrations(join(root, "cire/db/migrations-archive/long-lived")),
+  );
+  expect(alsoHeld("osn/db/drizzle", root)).toEqual([]);
+});
+
 test("checks exactly the directories the Alchemy stacks migrate", () => {
   // Each stack's declaration names its source relative to the stack's package.
   const root = join(import.meta.dir, "..", "..");
@@ -152,6 +198,11 @@ function repository(): { root: string; git: (...args: string[]) => string } {
     join(root, "cire/db/migrations/20261021000002_on_main.sql"),
     "ALTER TABLE `t` ADD `c` text;",
   );
+  // The chain a squash moved out of cire/db/migrations, which dev and production hold.
+  mkdirSync(join(root, "cire/db/migrations-archive/long-lived"), { recursive: true });
+  for (const name of ["0001_initial.sql", "20261020000001_squashed.sql"]) {
+    writeFileSync(join(root, "cire/db/migrations-archive/long-lived", name), "SELECT 1;");
+  }
   git("init", "-q", "-b", "main");
   git("add", "-A");
   git("commit", "-q", "-m", "base");
@@ -215,6 +266,29 @@ test("the command fails a cire, osn or zap file that sorts before the base's new
     const result = runCommand(root, ["--base", base]);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("20261021000001_this_pr.sql sorts before");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the command fails a cire file that sorts before the chain a squash moved out, which dev and production hold", () => {
+  const { root, git } = repository();
+  try {
+    rmSync(join(root, "cire/db/migrations/20261021000002_on_main.sql"));
+    git("add", "-A");
+    git("commit", "-q", "-m", "squash");
+    const base = git("rev-parse", "HEAD");
+    writeFileSync(
+      join(root, "cire/db/migrations/20261019000001_this_pr.sql"),
+      "CREATE TABLE `u` (`id` text PRIMARY KEY NOT NULL);",
+    );
+    git("add", "-A");
+    git("commit", "-q", "-m", "pull request");
+    const result = runCommand(root, ["--base", base]);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain(
+      "20261019000001_this_pr.sql sorts before 20261020000001_squashed.sql",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

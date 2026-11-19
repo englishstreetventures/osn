@@ -29,7 +29,7 @@ import type { Db } from "./index";
 export { DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID };
 
 // LOCKSTEP CONTRACT: this DDL is a hand-maintained mirror of
-// @cire/db's schema.ts + the latest migration in cire/db/migrations/.
+// @cire/db's schema.ts and of the schema cire/db/migrations/ builds.
 // Tests run against THIS string, not the migration files — any schema
 // change must update all three together or tests will pass on a shape
 // production rejects. Enforced mechanically by tests/db/ddl-lockstep.test.ts,

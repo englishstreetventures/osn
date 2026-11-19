@@ -20,6 +20,7 @@
         "$TURBO_ROOT$/cire/invite-designs/src/**",
         "$TURBO_ROOT$/cire/theme/src/**",
         "$TURBO_ROOT$/cire/db/migrations/**",
+        "$TURBO_ROOT$/cire/db/migrations-archive/**",
         "$TURBO_ROOT$/cire/db/seed/dev-seed.sql",
         "$TURBO_ROOT$/cire/db/seed/data/wedding.ts",
         "$TURBO_ROOT$/cire/invites/astro.config.mjs",

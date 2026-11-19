@@ -31,8 +31,8 @@ import * as Effect from "effect/Effect";
 
 import {
   API_LOGICAL_IDS,
-  CIRE_DB_MIGRATIONS,
   CIRE_DB_PRODUCTION_MIGRATIONS,
+  cireDbMigrations,
   cireDeclaration,
   cireProductionApis,
   cireProductionSites,
@@ -225,7 +225,7 @@ export const cireStack = (input: {
     const apiSecrets = requireSecrets({ worker: "cire-api", stage, env });
     const invitesSecrets = requireSecrets({ worker: "cire-invites", stage, env });
 
-    flattenMigrations({ ...CIRE_DB_MIGRATIONS, target: declared.cireDb.migrations });
+    flattenMigrations({ ...cireDbMigrations(stage), target: declared.cireDb.migrations });
     if (ownerSeat !== null) writeSeed(declared.seeds.ownerSeat, ownerSeat);
     writePrebuiltStage(invitesServer, declared.invitesServer.target);
 

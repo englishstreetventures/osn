@@ -39,6 +39,11 @@ export interface ListOptions {
   readonly newLast?: readonly string[];
 }
 
+/** `names` in the order wrangler applies migrations: by leading number, then name. */
+export function sortMigrationNames(names: readonly string[]): string[] {
+  return names.toSorted(compareMigrationNames);
+}
+
 /** The `.sql` files directly in `dir`, in the order wrangler applies them. */
 export function listMigrations(dir: string, options: ListOptions = {}): string[] {
   const names = readdirSync(dir, { withFileTypes: true })

@@ -586,7 +586,7 @@ describe("LS: the check after a deploy", () => {
  * A cire-shaped pair of migrations directories: the live baseline and later
  * files, and an archive whose names a production ledger also holds.
  */
-function migrationSources(): Required<MigrationSources> {
+function migrationSources(): Required<Omit<MigrationSources, "longLived">> {
   const root = mkdtempSync(join(tmpdir(), "ledger-"));
   const source = join(root, "migrations");
   const archive = join(root, "migrations-archive");

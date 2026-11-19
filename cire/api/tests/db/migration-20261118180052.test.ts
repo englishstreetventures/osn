@@ -20,7 +20,17 @@ import { listMigrations, migrationStatements } from "../../../../scripts/migrati
 // second trigger copies the wedding's account onto a gift inserted without one
 // (a Worker from before this migration). The D1 replay of the chain is in
 // d1-integration.test.ts.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// The chain dev and production ran, as wrangler and Alchemy ran it: the
+// previous baseline and everything after it, in name order.
+const MIGRATIONS_DIR = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "db",
+  "migrations-archive",
+  "long-lived",
+);
 const MIG = "20261118180052_gifts_keep_their_account.sql";
 
 /** A file as wrangler sends it, one statement at a time. */

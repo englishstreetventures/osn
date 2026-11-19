@@ -9,9 +9,18 @@ import { join } from "node:path";
 // values stay, because the Worker before 0091 still reads them. The D1 replay
 // of the same file is in d1-integration.test.ts.
 //
-// 0091 is a live migration, so the chain before it is the live directory: the
-// baseline and everything after it, in name order, as wrangler runs them.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// 0091 is in the long-lived chain, the one dev and production ran, so the
+// chain before it is that directory: the previous baseline and everything
+// after it, in name order, as wrangler and Alchemy ran them.
+const MIGRATIONS_DIR = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "db",
+  "migrations-archive",
+  "long-lived",
+);
 const MIG_0091 = "0091_task_assignees.sql";
 
 function apply(db: Database, file: string): void {

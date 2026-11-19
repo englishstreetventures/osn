@@ -163,7 +163,17 @@ import { ownerSeat } from "../test-helpers/wedding";
 // Schema setup and FK-ordered truncation are inherently sequential here.
 /* eslint-disable no-await-in-loop */
 
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// The chain dev and production ran: the previous baseline and every migration
+// a squash moved out after it.
+const LONG_LIVED_DIR = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "db",
+  "migrations-archive",
+  "long-lived",
+);
 // The live baseline already contains every migration named below, so their
 // data statements are read from the archive, where each one still stands alone.
 const ARCHIVE_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
@@ -171,7 +181,7 @@ const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
 const MIGRATION_0076 = "0076_wedding_owners.sql";
-// Live migrations, read from MIGRATIONS_DIR.
+// Long-lived migrations, read from LONG_LIVED_DIR.
 const MIGRATION_0091 = "0091_task_assignees.sql";
 const MIGRATION_TASK_RUN_TIME = "20261021153838_task_run_time.sql";
 const MIGRATION_SEATING_PLANS = "20261026040620_seating_plans.sql";
@@ -180,7 +190,7 @@ const MIGRATION_GIFT_ACCOUNT = "20261118180052_gifts_keep_their_account.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
- * breakpoint marker, comment lines dropped. Every chunk of the live chain, and
+ * breakpoint marker, comment lines dropped. Every chunk of the long-lived chain, and
  * of each archived file named above, holds one statement, and D1's `prepare`
  * takes exactly one. Archived files before 0058 do not all keep to that.
  */
@@ -4456,12 +4466,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "builds the schema from the live migration chain on D1's own SQLite, and the gift currency rebuild keeps every gift, column for column, and refuses a four-character currency, and the gift account back-fill and triggers run",
+    "builds the schema from the long-lived migration chain on D1's own SQLite, and the gift currency rebuild keeps every gift, column for column, and refuses a four-character currency, and the gift account back-fill and triggers run",
     async () => {
       // Its own instance: the suite's shared database is built from the test
       // DDL, and replaying a migration into it would mean dropping a table every
-      // later test needs. Here the whole live chain — the baseline first — runs
-      // from empty, in order, the way `wrangler d1 migrations apply` runs it.
+      // later test needs. Here the whole long-lived chain — the previous
+      // baseline first, then every migration dev and production ran after it —
+      // runs from empty, in order, the way `wrangler d1 migrations apply` ran it.
       //
       // The gift currency rebuild is checked inside this replay rather than on
       // an instance of its own: every extra Miniflare instance is another
@@ -4473,7 +4484,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = listMigrations(MIGRATIONS_DIR);
+        const files = listMigrations(LONG_LIVED_DIR);
         expect(files[0]).toBe("0001_initial.sql");
         expect(files).toContain(MIGRATION_CONTRIBUTION_CURRENCY);
         expect(files).toContain(MIGRATION_GIFT_ACCOUNT);
@@ -4514,7 +4525,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
               "rct_sparse",
             ]);
           }
-          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, LONG_LIVED_DIR)) {
             await chainD1.prepare(stmt).run();
           }
           if (currencyRebuild) {
@@ -4583,7 +4594,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           )
           .all<{ type: string; name: string; sql: string }>();
         expect(onD1.results.map((o) => `${o.type} ${o.name}: ${o.sql}`).toSorted()).toEqual(
-          sqliteStoredSchema(MIGRATIONS_DIR, files),
+          sqliteStoredSchema(LONG_LIVED_DIR, files),
         );
 
         const columns = await chainD1
@@ -4713,9 +4724,9 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "runs migration 0091 on D1's own SQLite: each assignee becomes a holder, the old column kept",
     async () => {
-      // Its own instance, holding the live chain up to 0090 with tasks that
-      // 0087's single assignee already holds, so the copy runs over rows that
-      // exist before it. The live chain is one statement per chunk throughout.
+      // Its own instance, holding the long-lived chain up to 0090 with tasks
+      // that 0087's single assignee already holds, so the copy runs over rows
+      // that exist before it. That chain is one statement per chunk throughout.
       const chainMf = new Miniflare({
         modules: true,
         script: "export default { fetch() { return new Response('ok'); } };",
@@ -4723,11 +4734,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = listMigrations(MIGRATIONS_DIR);
+        const files = listMigrations(LONG_LIVED_DIR);
         const cut = files.indexOf(MIGRATION_0091);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
-          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, LONG_LIVED_DIR)) {
             await chainD1.prepare(stmt).run();
           }
         }
@@ -4742,7 +4753,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const tasksBefore = await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all();
 
         const before = Math.floor(Date.now() / 1000);
-        const statements = fileStatements(MIGRATION_0091, MIGRATIONS_DIR);
+        const statements = fileStatements(MIGRATION_0091, LONG_LIVED_DIR);
         expect(statements).toHaveLength(6);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
@@ -4788,7 +4799,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "runs migration 20261021153838_task_run_time on D1's own SQLite: tasks keep their rows and holders, and an event delete unlinks",
     async () => {
-      // Its own instance, holding the live chain up to the migration before it
+      // Its own instance, holding the long-lived chain up to the migration before it
       // with a task, its holder and an event, so the five ADDs run over rows
       // that exist. D1 enforces foreign keys, which is where a table rebuild
       // would cascade.
@@ -4799,11 +4810,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = listMigrations(MIGRATIONS_DIR);
+        const files = listMigrations(LONG_LIVED_DIR);
         const cut = files.indexOf(MIGRATION_TASK_RUN_TIME);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
-          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, LONG_LIVED_DIR)) {
             await chainD1.prepare(stmt).run();
           }
         }
@@ -4817,7 +4828,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           await chainD1.prepare(stmt).run();
         }
 
-        const statements = fileStatements(MIGRATION_TASK_RUN_TIME, MIGRATIONS_DIR);
+        const statements = fileStatements(MIGRATION_TASK_RUN_TIME, LONG_LIVED_DIR);
         expect(statements).toHaveLength(6);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
@@ -6560,7 +6571,7 @@ describe("seating over real D1 (Miniflare)", () => {
   it(
     "runs migration 20261026040620_seating_plans on D1's own SQLite: one selected plan per event with tables, seats kept, and the Worker before it adopted",
     async () => {
-      // Its own instance, holding the live chain up to 0091 with a chart that
+      // Its own instance, holding the long-lived chain up to 0091 with a chart that
       // the chain's seating tables already hold.
       const chainMf = new Miniflare({
         modules: true,
@@ -6569,11 +6580,11 @@ describe("seating over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = listMigrations(MIGRATIONS_DIR);
+        const files = listMigrations(LONG_LIVED_DIR);
         const cut = files.indexOf(MIGRATION_SEATING_PLANS);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
-          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, LONG_LIVED_DIR)) {
             await chainD1.prepare(stmt).run();
           }
         }
@@ -6597,7 +6608,7 @@ describe("seating over real D1 (Miniflare)", () => {
           await chainD1.prepare(stmt).run();
         }
 
-        const statements = fileStatements(MIGRATION_SEATING_PLANS, MIGRATIONS_DIR);
+        const statements = fileStatements(MIGRATION_SEATING_PLANS, LONG_LIVED_DIR);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
         const plans = (

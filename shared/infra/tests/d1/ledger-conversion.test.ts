@@ -16,6 +16,11 @@
  * counts are the live read's (`readLedger`) and the plan guard's
  * (`judgeLedger`).
  *
+ * The squash cases (S1 to S6) run the same provider over cire's databases
+ * after the chain moved to `cire/db/migrations-archive/long-lived/`: dev's and
+ * production's ledgers from before it take the release that ships it with no
+ * write, and a new database builds the whole schema from the baseline.
+ *
  * Each case starts Wrangler and workerd, seconds apiece, so this is the D1
  * tier: `bun run --cwd shared/infra test:d1` sets INFRA_D1_TIER. It writes
  * `d1-artifacts/ledger-conversion.json`: per database and case, the ledger's
@@ -23,7 +28,16 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,7 +52,11 @@ import { Cause, Effect, Exit, Redacted } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { CIRE_DB_PRODUCTION_MIGRATIONS } from "../../../../cire/infra/src/declaration";
+import {
+  CIRE_DB_LONG_LIVED_MIGRATIONS,
+  CIRE_DB_MIGRATIONS,
+  CIRE_DB_PRODUCTION_MIGRATIONS,
+} from "../../../../cire/infra/src/declaration";
 import { OSN_DB_PRODUCTION_MIGRATIONS } from "../../../../musubi/infra/src/declaration";
 import { ZAP_DB_PRODUCTION_MIGRATIONS } from "../../../../zap/infra/src/declaration";
 import {
@@ -102,7 +120,14 @@ const TARGETS: readonly Target[] = [
     name: "cire-db",
     stack: join(REPO, "cire", "infra"),
     sources: CIRE_DB_PRODUCTION_MIGRATIONS,
-    history: [join(REPO, "cire/db/migrations-archive"), join(REPO, "cire/db/migrations")],
+    // The original chain file by file, then the long-lived chain (Wrangler
+    // skipping its baseline by name), then the live directory, whose baseline
+    // it skips the same way.
+    history: [
+      join(REPO, "cire/db/migrations-archive"),
+      join(REPO, "cire/db/migrations-archive/long-lived"),
+      join(REPO, "cire/db/migrations"),
+    ],
     readReplication: "auto",
   },
   {
@@ -196,9 +221,10 @@ const wranglerApply = (db: LocalDb, migrationsDir: string) =>
 const histories = new Map<string, LocalDb>();
 
 function history(target: Target): LocalDb {
-  const built = histories.get(target.name);
+  const key = [target.name, ...target.history].join("\n");
+  const built = histories.get(key);
   if (built !== undefined) return built;
-  const dir = join(root, `${target.name}-history`);
+  const dir = join(root, `${target.name}-history-${histories.size}`);
   mkdirSync(dir, { recursive: true });
   const db: LocalDb = { target, dir, persist: join(dir, "persist") };
   for (const migrations of target.history) {
@@ -207,7 +233,7 @@ function history(target: Target): LocalDb {
       throw new Error(`wrangler could not apply ${migrations}:\n${applied.output}`);
     }
   }
-  histories.set(target.name, db);
+  histories.set(key, db);
   return db;
 }
 
@@ -630,6 +656,7 @@ describe.skipIf(!TIER)(
         const before = await snapshot(DB);
         const migrations = flattened(CIRE, join(db.dir, "stack"), {
           source: CIRE.sources.source,
+          longLived: CIRE.sources.longLived,
           freeze: true,
         });
         const api = cloudflare(DB, CIRE);
@@ -908,3 +935,316 @@ describe.skipIf(!TIER)(
     });
   },
 );
+
+/**
+ * The squash that moved cire's live chain into
+ * `cire/db/migrations-archive/long-lived/` and left a new baseline in
+ * `cire/db/migrations/`. Dev and production must take the release that ships
+ * it with no write, whatever their ledger holds of the chain; a new database
+ * must build the whole schema from the baseline in one migration; and all of
+ * them must end with one schema.
+ */
+describe.skipIf(!TIER)("cire-db: the squash", () => {
+  const LONG_LIVED = join(REPO, "cire/db/migrations-archive/long-lived");
+  const DEV_SEED = join(REPO, "cire/db/seed/dev-seed.sql");
+
+  /** What production was handed before the squash: its live directory was the long-lived chain. */
+  const PRE_SQUASH_PRODUCTION: MigrationSources = {
+    source: "../db/migrations-archive/long-lived",
+    archive: "../db/migrations-archive",
+    freeze: true,
+  };
+  /** What dev was handed before the squash: the long-lived chain, then its live directory. */
+  const PRE_SQUASH_DEV: MigrationSources = { source: "../db/migrations-archive/long-lived" };
+
+  const DEV: Target = {
+    name: "cire-db-dev",
+    stack: CIRE.stack,
+    sources: CIRE_DB_LONG_LIVED_MIGRATIONS,
+    history: [LONG_LIVED],
+    readReplication: "auto",
+  };
+  const FRESH: Target = {
+    name: "cire-db-probe",
+    stack: CIRE.stack,
+    sources: CIRE_DB_MIGRATIONS,
+    history: [join(REPO, "cire/db/migrations")],
+    readReplication: "auto",
+  };
+
+  /** Dev's and an investigation stage's props, their migrations in `migrations`; no seed, which the squash leaves alone. */
+  const devProps = (target: Target, migrations: string) =>
+    retainedD1Props({
+      name: target.name,
+      stage: target === DEV ? "dev" : "probe",
+      readReplication: target.readReplication,
+      jurisdiction: "default",
+      locationHint: null,
+      migrations,
+      importFiles: [],
+    });
+
+  /** Every row of every table, the ledgers included: what a write of any kind would change. */
+  async function dump(DB: LocalD1) {
+    const tables = await rows(
+      DB,
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    );
+    const out: Record<string, string[]> = {};
+    for (const { name } of tables) {
+      // oxlint-disable-next-line no-await-in-loop -- one read per table, in order
+      out[String(name)] = (await rows(DB, `SELECT * FROM "${String(name)}"`))
+        .map((row) => JSON.stringify(row))
+        .toSorted();
+    }
+    return out;
+  }
+
+  /** The schema, without the ledgers, the freeze and the conversion sentinel, which no migration owns. */
+  async function schemaOf(DB: LocalD1) {
+    return rows(
+      DB,
+      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE '_cf_%' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('__alchemy_migrations', 'd1_migrations', 'd1_migrations_frozen') ORDER BY type, name",
+    );
+  }
+
+  /** An empty local D1 for `target`. */
+  function emptyDb(target: Target, label: string): LocalDb {
+    const dir = join(root, `${target.name}-${label}`);
+    mkdirSync(join(dir, "persist"), { recursive: true });
+    return { target, dir, persist: join(dir, "persist") };
+  }
+
+  /** An empty D1 that Alchemy migrates from `sources`, as dev's or a new stage's first deploy does. */
+  async function builtByAlchemy(target: Target, label: string, sources: MigrationSources) {
+    const db = emptyDb(target, label);
+    const local = await open(db);
+    const { DB } = local.env;
+    const api = cloudflare(DB, target);
+    const migrations = flattened(target, join(db.dir, "built"), sources);
+    const state = value(
+      await reconcile(
+        api.fetch,
+        devProps(target, migrations),
+        await adoptedState(api.fetch, target),
+      ),
+    );
+    return { db, local, DB, api, state };
+  }
+
+  /** Production's history, converted by the releases before the squash from `sources`. */
+  async function productionBeforeTheSquash(
+    target: Target,
+    label: string,
+    sources: MigrationSources,
+  ) {
+    const db = copyOfHistory(target, label);
+    const local = await open(db);
+    const { DB } = local.env;
+    const api = cloudflare(DB, target);
+    const before = flattened(target, join(db.dir, "before"), sources);
+    const state = value(
+      await reconcile(
+        api.fetch,
+        productionProps(target, before),
+        await adoptedState(api.fetch, target),
+      ),
+    );
+    return { db, local, DB, api, state };
+  }
+
+  test("S1 production: a ledger that holds the whole chain takes the release that ships the squash with no write", async () => {
+    const { db, local, DB, api, state } = await productionBeforeTheSquash(
+      CIRE,
+      "squash-level",
+      PRE_SQUASH_PRODUCTION,
+    );
+    try {
+      const before = await dump(DB);
+      const after = flattened(CIRE, join(db.dir, "after"));
+      const news = productionProps(CIRE, after);
+      // The plan: nothing about the database changes.
+      expect(await diffOf(api.fetch, news, state)).toBeUndefined();
+      // The forced migrate step every release runs.
+      api.sent.length = 0;
+      value(await reconcile(api.fetch, news, state));
+      record(CIRE, "squashReleaseWrites", stable(writes(api.sent)));
+      expect(writes(api.sent)).toEqual([]);
+      expect(await dump(DB)).toEqual(before);
+      const { ledger, judged } = await counted(DB, CIRE);
+      record(CIRE, "countsAfterTheSquash", ledger);
+      expect(ledger).toMatchObject({
+        table: "__alchemy_migrations",
+        unmatched: 0,
+        rewritten: 0,
+        pending: 0,
+        skipped: 0,
+        late: 0,
+      } satisfies Partial<LedgerCounts>);
+      expect(judged.refusals).toEqual([]);
+    } finally {
+      await local.dispose();
+    }
+  });
+
+  test("S2 production: a ledger one migration behind takes the squash release with that migration's write alone, then nothing", async () => {
+    const chain = migrationFiles({ source: LONG_LIVED });
+    const last = chain.at(-1)!;
+    // Production as it was before that migration shipped.
+    const behind = join(root, "long-lived-behind");
+    mkdirSync(behind, { recursive: true });
+    for (const file of chain.slice(0, -1)) copyFileSync(file.path!, join(behind, file.name));
+    const lagging: Target = {
+      ...CIRE,
+      history: [join(REPO, "cire/db/migrations-archive"), behind],
+    };
+    const { db, local, DB, api, state } = await productionBeforeTheSquash(
+      lagging,
+      "squash-behind",
+      {
+        ...PRE_SQUASH_PRODUCTION,
+        source: behind,
+      },
+    );
+    try {
+      const pre = await counted(DB, CIRE);
+      record(CIRE, "countsOneBehindBeforeTheSquash", pre.ledger);
+      expect(pre.ledger).toMatchObject({
+        pending: 1,
+        skipped: 0,
+        late: 0,
+        rewritten: 0,
+        unmatched: 0,
+      });
+      expect(pre.judged.refusals).toEqual([]);
+
+      const news = productionProps(CIRE, flattened(CIRE, join(db.dir, "after")));
+      api.sent.length = 0;
+      const migrated = value(await reconcile(api.fetch, news, state));
+      const sent = writes(api.sent);
+      record(
+        CIRE,
+        "squashReleaseWritesOneBehind",
+        stable(sent).map((sql) => sql.slice(-200)),
+      );
+      // The file's statements as Alchemy sends one migration (split on its
+      // breakpoints, each ended by `;`), then its ledger row: one query.
+      const statements = last.sql
+        .split(/\s*-->\s*statement-breakpoint\s*/)
+        .map((sql) => sql.trim())
+        .filter((sql) => sql.length > 0)
+        .map((sql) => (sql.endsWith(";") ? sql : `${sql};`));
+      expect(sent).toEqual([
+        [
+          ...statements,
+          `INSERT INTO "__alchemy_migrations" (hash, created_at, name, applied_at) VALUES ('${migrated.migrationsHashes[last.name]}', ${Date.UTC(2026, 10, 18, 18, 0, 52)}, '${last.name}', datetime('now'));`,
+        ].join("\n"),
+      ]);
+      api.sent.length = 0;
+      value(await reconcile(api.fetch, news, migrated));
+      expect(writes(api.sent)).toEqual([]);
+      expect((await counted(DB, CIRE)).ledger).toMatchObject({ pending: 0, rewritten: 0 });
+    } finally {
+      await local.dispose();
+    }
+  });
+
+  test("S3 dev: a database Alchemy built from the chain before the squash takes the release that ships it with no write", async () => {
+    const { db, local, DB, api, state } = await builtByAlchemy(DEV, "squash", PRE_SQUASH_DEV);
+    try {
+      const before = await dump(DB);
+      const news = devProps(DEV, flattened(DEV, join(db.dir, "after")));
+      expect(await diffOf(api.fetch, news, state)).toBeUndefined();
+      api.sent.length = 0;
+      value(await reconcile(api.fetch, news, state));
+      record(DEV, "squashReleaseWrites", writes(api.sent));
+      expect(writes(api.sent)).toEqual([]);
+      expect(await dump(DB)).toEqual(before);
+    } finally {
+      await local.dispose();
+    }
+  });
+
+  test("S4 a new database builds the whole schema from the baseline in one migration", async () => {
+    const { local, api } = await builtByAlchemy(FRESH, "build", CIRE_DB_MIGRATIONS);
+    try {
+      const sent = writes(api.sent);
+      const baseline = readFileSync(join(REPO, "cire/db/migrations/0001_initial.sql"), "utf8");
+      const created = baseline.match(/^CREATE (?:UNIQUE )?(?:TABLE|INDEX|TRIGGER|VIEW) /gm) ?? [];
+      record(FRESH, "buildWrites", {
+        count: sent.length,
+        ledgerTable: sent[0]?.split("\n")[0],
+        objectsCreated: created.length,
+      });
+      // The ledger's table, then the baseline and its ledger row as one query.
+      expect(sent).toHaveLength(2);
+      expect(sent[0]).toMatch(/^CREATE TABLE IF NOT EXISTS "__alchemy_migrations" \(/);
+      expect(sent[1]).toContain(`'0001_initial.sql', datetime('now'));`);
+      expect(sent[1]!.match(/^CREATE (?:UNIQUE )?(?:TABLE|INDEX|TRIGGER|VIEW) /gm)).toHaveLength(
+        created.length,
+      );
+    } finally {
+      await local.dispose();
+    }
+  });
+
+  test("S5 production, dev and a new database hold one schema; the dev seed fills dev's and a new one's alike", async () => {
+    const production = await productionBeforeTheSquash(
+      CIRE,
+      "squash-schema",
+      PRE_SQUASH_PRODUCTION,
+    );
+    const dev = await builtByAlchemy(DEV, "schema", PRE_SQUASH_DEV);
+    const fresh = await builtByAlchemy(FRESH, "schema", CIRE_DB_MIGRATIONS);
+    try {
+      const schema = await schemaOf(fresh.DB);
+      record(FRESH, "schemaObjects", schema.length);
+      expect(await schemaOf(dev.DB)).toEqual(schema);
+      // Production's database holds the conversion sentinel only when C1 made it; this copy has none.
+      expect(await schemaOf(production.DB)).toEqual(schema);
+
+      const seed = wrangler.unstable_splitSqlQuery(readFileSync(DEV_SEED, "utf8"));
+      const counts: Record<string, unknown>[] = [];
+      for (const DB of [dev.DB, fresh.DB]) {
+        // oxlint-disable-next-line no-await-in-loop -- one database, then the other
+        await DB.batch(seed.map((statement) => DB.prepare(statement)));
+        // oxlint-disable-next-line no-await-in-loop -- one database, then the other
+        const { counts: each } = await snapshot(DB);
+        counts.push(
+          Object.fromEntries(
+            Object.entries(each).filter(([name]) => name !== "__alchemy_migrations"),
+          ),
+        );
+      }
+      record(FRESH, "seededRowCounts", counts[1]);
+      expect(counts[0]).toEqual(counts[1]);
+    } finally {
+      await production.local.dispose();
+      await dev.local.dispose();
+      await fresh.local.dispose();
+    }
+  });
+
+  test("S6 a database built before the squash, handed the new database's directory, is refused before any write", async () => {
+    const { db, local, DB, state } = await builtByAlchemy(DEV, "refused", PRE_SQUASH_DEV);
+    try {
+      const before = await dump(DB);
+      const api = cloudflare(DB, DEV);
+      const exit = await reconcile(
+        api.fetch,
+        devProps(DEV, flattened(DEV, join(db.dir, "fresh"), CIRE_DB_MIGRATIONS)),
+        state,
+      );
+      const refusal = failure(exit);
+      record(DEV, "handedTheNewDirectory", {
+        refusal: refusal.split(":")[0],
+        writes: writes(api.sent),
+      });
+      expect(refusal).toContain("RewrittenMigrationHistoryError");
+      expect(writes(api.sent)).toEqual([]);
+      expect(await dump(DB)).toEqual(before);
+    } finally {
+      await local.dispose();
+    }
+  });
+});

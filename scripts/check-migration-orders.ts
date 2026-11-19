@@ -21,7 +21,10 @@
  * In the directories Alchemy migrates (`ALCHEMY_DIRS`), every new file must
  * also sort after every file already on the base: Alchemy, from 2.0.0-beta.86,
  * refuses a pending migration that sorts before one the database already applied, so a late
- * file would stop the dev deploy and the production migrate step.
+ * file would stop the dev deploy and the production migrate step. For cire,
+ * "already on the base" includes the chain a squash moved out of
+ * `cire/db/migrations` (`ALCHEMY_ALSO_HELD`), which dev and production still
+ * hold and the production plan guard counts.
  *
  * Imports nothing but Node built-ins and sibling scripts, so the CI job that
  * runs it needs no install.
@@ -29,10 +32,10 @@
 
 import { Database } from "bun:sqlite";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
-import { listMigrations, migrationStatements } from "./migration-files";
+import { listMigrations, migrationStatements, sortMigrationNames } from "./migration-files";
 
 /** The directories wrangler applies migrations from. */
 export const LIVE_DIRS = [
@@ -44,6 +47,27 @@ export const LIVE_DIRS = [
 
 /** The directories Alchemy migrates on every deployed database. */
 export const ALCHEMY_DIRS = ["cire/db/migrations", "osn/db/drizzle", "zap/db/drizzle"];
+
+/**
+ * For a directory in `ALCHEMY_DIRS`, the directory of migrations the same
+ * deployed databases also hold: cire's long-lived chain, which every squash
+ * moves out of `cire/db/migrations` and the cire stack hands dev and
+ * production as written (`CIRE_DB_LONG_LIVED_MIGRATIONS` in
+ * `cire/infra/src/declaration.ts`).
+ */
+export const ALCHEMY_ALSO_HELD = {
+  "cire/db/migrations": "cire/db/migrations-archive/long-lived",
+} as const satisfies Readonly<Record<string, string>>;
+
+/** The migrations the databases migrating `dir` also hold, in name order; none for most directories. */
+export function alsoHeld(dir: string, root: string = process.cwd()): string[] {
+  const held = Object.entries(ALCHEMY_ALSO_HELD).find(([migrated]) => migrated === dir)?.[1];
+  if (held === undefined) return [];
+  const path = resolve(root, held);
+  if (!existsSync(path))
+    throw new Error(`${held} is missing; the databases that migrate ${dir} hold it`);
+  return listMigrations(path);
+}
 
 export type OrderVerdict = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
@@ -148,11 +172,19 @@ export function checkOrders(dir: string, newFiles: readonly string[]): OrderVerd
   return { ok: true };
 }
 
-/** Whether every one of `newFiles` in `dir` sorts after every other file there. */
-export function checkSortsLast(dir: string, newFiles: readonly string[]): OrderVerdict {
+/**
+ * Whether every one of `newFiles` in `dir` sorts after every other file there,
+ * and after every name in `held`: migrations the same databases hold from
+ * another directory (`alsoHeld`).
+ */
+export function checkSortsLast(
+  dir: string,
+  newFiles: readonly string[],
+  held: readonly string[] = [],
+): OrderVerdict {
   if (newFiles.length === 0) return { ok: true };
   const fresh = new Set(newFiles);
-  const byName = listMigrations(dir);
+  const byName = sortMigrationNames([...new Set([...listMigrations(dir), ...held])]);
   const newest = byName.findLast((file) => !fresh.has(file));
   if (newest === undefined) return { ok: true };
   const late = byName.slice(0, byName.indexOf(newest)).filter((file) => fresh.has(file));
@@ -183,7 +215,9 @@ if (import.meta.main) {
     }
     const atBase = new Set(listed.stdout.split("\n").map((path) => path.slice(dir.length + 1)));
     const added = listMigrations(dir).filter((file) => !atBase.has(file));
-    const order = ALCHEMY_DIRS.includes(dir) ? checkSortsLast(dir, added) : { ok: true as const };
+    const order = ALCHEMY_DIRS.includes(dir)
+      ? checkSortsLast(dir, added, alsoHeld(dir))
+      : { ok: true as const };
     const verdict = order.ok ? checkOrders(dir, added) : order;
     if (!verdict.ok) {
       failed = true;

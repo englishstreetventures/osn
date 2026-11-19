@@ -22,9 +22,11 @@ import { listMigrations } from "../../../../scripts/migration-files";
 // changed either would first show up here rather than as a red deploy.
 //
 // Two databases, because the script reads them two ways. One is built from
-// nothing, so it holds the whole live chain, and the script passes it on its
-// ledger alone. The other holds the baseline and nothing after it, the one
-// ledger whose stored schema the script compares with the baseline's text.
+// nothing; once a stray archived name is put in its ledger, the script refuses
+// it on its ledger alone. The other holds the baseline and nothing after it,
+// the one ledger whose stored schema the script compares with the baseline's
+// text, and a freshly built database is that one too while the live chain is
+// the baseline alone.
 //
 // Each run starts wrangler and workerd, a few seconds apiece, so this runs in
 // the D1 tier only: `bun run test:d1` sets CIRE_D1_TIER.
@@ -129,7 +131,12 @@ describe.skipIf(process.env.CIRE_D1_TIER !== "1")("cire-db-migrate.ts on a local
     expect(fresh.exitCode).toBe(0);
 
     const again = migrate(persist);
-    expect(again.output).toContain(`built from the baseline (${BASELINE})`);
+    // A database holding only the baseline's name is checked against its text.
+    expect(again.output).toContain(
+      listMigrations(MIGRATIONS_DIR).length === 1
+        ? `built from this baseline (${BASELINE})`
+        : `built from the baseline (${BASELINE})`,
+    );
     expect(again.output).toContain("No migrations to apply");
     expect(again.exitCode).toBe(0);
 

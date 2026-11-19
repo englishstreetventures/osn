@@ -12,9 +12,18 @@ import { listMigrations, migrationStatements } from "../../../../scripts/migrati
 // are replayed here, in the shapes it sends, against the migrated database.
 // The D1 replay of the same file is in d1-integration.test.ts.
 //
-// It is a live migration, so the chain before it is the live directory: the
-// baseline and everything after it, in the order wrangler runs them.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// It is in the long-lived chain, the one dev and production ran, so the chain
+// before it is that directory: the previous baseline and everything after it,
+// in the order wrangler and Alchemy ran them.
+const MIGRATIONS_DIR = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "db",
+  "migrations-archive",
+  "long-lived",
+);
 const MIG_SEATING_PLANS = "20261026040620_seating_plans.sql";
 
 /** A file as wrangler sends it, one statement at a time, so a statement
