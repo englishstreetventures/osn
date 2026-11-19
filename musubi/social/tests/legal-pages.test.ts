@@ -24,14 +24,19 @@ function flat(source: string): string {
   return source.replace(/\s+/g, " ");
 }
 
-/** The page's text under the heading `heading`, up to the next heading or the end. */
-function section(source: string, heading: string): string {
+/**
+ * The page's text under the heading `heading` at `level`, up to the next
+ * heading at that level or above, or the end.
+ */
+function section(source: string, heading: string, level: "h2" | "h3" = "h2"): string {
   const text = flat(source);
-  const open = `<h2>${heading}</h2>`;
+  const open = `<${level}>${heading}</${level}>`;
   const start = text.indexOf(open);
   expect(start).toBeGreaterThan(-1);
-  const next = text.indexOf("<h2>", start + open.length);
-  return text.slice(start, next === -1 ? undefined : next);
+  const ends = [...new Set(["<h2>", `<${level}>`])]
+    .map((tag) => text.indexOf(tag, start + open.length))
+    .filter((at) => at !== -1);
+  return text.slice(start, ends.length === 0 ? undefined : Math.min(...ends));
 }
 
 /**
@@ -108,6 +113,24 @@ describe("PrivacyPage.tsx", () => {
   it("says how long deleted data stays in the restore copies", () => {
     expect(flat(source)).toMatch(
       /Deleted data can stay in our database provider&rsquo;s restore copies for up to 30 days\./,
+    );
+  });
+
+  /**
+   * osn-api keeps no IP hash on a session (`sessions` in
+   * `osn/db/src/schema/index.ts` declares none, and nothing writes one), but
+   * each security event keeps a keyed hash of the request's IP and a coarse
+   * device label for its 12 months (`securityEvents.ipHash`, `uaLabel`;
+   * `wiki/compliance/data-map.md`). The notice puts the hash where it is.
+   */
+  it("puts the IP hash on the security records, not the sessions", () => {
+    expect(section(source, "Your sessions", "h3")).not.toMatch(/hash|IP address/i);
+    const records = section(source, "Security records", "h3");
+    expect(records).toMatch(/<em>hash<\/em> of the IP address/);
+    expect(records).toMatch(/coarse label for the device/);
+    expect(records).toMatch(/cannot be turned back into an address/);
+    expect(section(source, "The legal bases")).toMatch(
+      /The IP hash and device label on each security record/,
     );
   });
 

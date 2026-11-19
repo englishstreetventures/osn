@@ -270,7 +270,8 @@ that no one can take a deleted account's handles for 30 days. So:
 
 A rotation also voids the passkey challenges, emailed sign-in links and Email
 Verification API nonces in flight, which live ten minutes at most
-(`server-mac.ts`), so a person part-way through signing in starts again.
+(`server-mac.ts`), so a person part-way through signing in starts again; and a
+security event recorded after it carries an IP hash no earlier event's can match.
 
 ### 1.4 Workers Paid on the production account
 
