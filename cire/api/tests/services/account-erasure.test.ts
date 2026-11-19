@@ -760,10 +760,9 @@ describe("accountErasureService.erase — deleted weddings the purge holds", () 
     const result = await erase(db, { profileIds: [P, P2] }).result;
     expect(result.status).toBe("done");
     const [item] = result.status === "done" ? result.kept : [];
+    // The whole text, fixed: nothing of this wedding, its people or its gift
+    // reaches it.
     expect(item?.what).toBe(ONE_HELD);
-    for (const text of ["Alice", "Bob", "w_named", P, P2, EDITOR, "12345", "123.45", "£", "GBP"]) {
-      expect(item?.what).not.toContain(text);
-    }
   });
 
   it("once done, no wedding names a profile of the account, so a repeat finds nothing to report", async () => {

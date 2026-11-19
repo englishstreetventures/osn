@@ -220,8 +220,8 @@ const organisationLine = (org: OrganisationAfterDeletion): string =>
     ? `@${org.handle} was deleted.`
     : `@${org.handle} now belongs to @${org.newOwnerHandle}.`;
 
-/** `text` ending as a sentence does: a full stop added unless it already ends in one, `!` or `?`. */
-const asSentence = (text: string): string => (/[.!?]$/.test(text) ? text : `${text}.`);
+/** `text` ending as a sentence does: a full stop added unless it already ends in one. */
+const asSentence = (text: string): string => (text.endsWith(".") ? text : `${text}.`);
 
 /**
  * One kept item as sentences: the app's own words, closed with a full stop
@@ -231,7 +231,7 @@ const asSentence = (text: string): string => (/[.!?]$/.test(text) ? text : `${te
 const keptLine = (item: KeptAfterDeletion): string => {
   const until = item.erasedOn === null ? "" : ` Kept until ${utcDay(item.erasedOn)}.`;
   const ask = item.requestUrl === null ? "" : ` To ask about it: ${item.requestUrl}`;
-  return `${item.app}: ${asSentence(item.what.trimEnd())}${until}${ask}`;
+  return `${item.app}: ${asSentence(item.what)}${until}${ask}`;
 };
 
 export function renderAccountDeleted(data: AccountDeletedData): RenderedEmail {
