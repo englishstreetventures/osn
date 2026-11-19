@@ -2158,7 +2158,7 @@ describe("retiring the wedding's account", () => {
       expect(await outcomeCount("account_changed")).toBeGreaterThan(0);
     });
 
-    it("says the account changed before it judges whom money gifts were handed to", async () => {
+    it("says the account changed before it judges whom the holder named", async () => {
       // A page holding an account another owner has since retired, naming an
       // editor: the page is out of date, and that is what it is told, with
       // the settings to catch up from.
@@ -2273,7 +2273,7 @@ describe("retiring the wedding's account", () => {
       const sent = mail.recorded();
       expect(sent.length).toBeGreaterThan(0);
       expect(
-        sent.every((m) => m.text.includes("No current owner of the wedding had connected it")),
+        sent.every((m) => m.text.includes("None of the wedding's owners had connected it")),
       ).toBe(true);
       expect(sent.some((m) => m.text.includes("the Stripe account you connected"))).toBe(false);
       expect(
@@ -2316,7 +2316,7 @@ describe("retiring the wedding's account", () => {
       );
       // The owner money gifts were handed to is spoken to.
       const named = sent.find((m) => m.to === `${SECOND}@example.test`);
-      expect(named?.text).toContain("and handed money gifts to you.");
+      expect(named?.text).toContain("and asked you to connect the next one.");
     });
 
     it("tells the seated holder whose account another owner replaced that it was theirs", async () => {
