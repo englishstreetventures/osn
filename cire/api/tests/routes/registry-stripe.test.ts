@@ -9,7 +9,7 @@ import {
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
@@ -2203,7 +2203,7 @@ describe("retiring the wedding's account", () => {
     it("answers 500, logging the wedding alone, when the database fails", async () => {
       const { app, db } = buildApp();
       holding(db, OWNER);
-      db.run(sql`DROP TABLE registry_retired_accounts`);
+      db.$client.exec("DROP TABLE registry_retired_accounts");
       let res: Response | undefined;
       const logs = await captureLogs(async () => {
         res = await retire(app, OWNER, { handTo: null });
