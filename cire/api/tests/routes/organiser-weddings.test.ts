@@ -352,9 +352,40 @@ describe("GET /api/organiser/weddings: the guest-data bound", () => {
     expect(await boundFor(app, "usr_bound_helper")).toBeUndefined();
   });
 
-  it("says nothing of a wedding whose events all read", async () => {
-    const { app } = buildApp();
+  // Four years old, so only its readable dates keep it off the bound.
+  it("says nothing of a wedding whose events all read, however old", async () => {
+    const { db, app } = buildApp();
+    const fourYearsAgo = new Date();
+    fourYearsAgo.setUTCFullYear(fourYearsAgo.getUTCFullYear() - 4);
+    db.update(weddings)
+      .set({ createdAt: fourYearsAgo })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
     expect(await boundFor(app, BOOTSTRAP_OWNER)).toBeUndefined();
+  });
+
+  // A browser reads the list with the organiser session cookie, not a bearer
+  // token: a live one is told, a dead one is refused before anything is read.
+  it("tells an owner signed in by session cookie, and refuses a dead cookie", async () => {
+    const { db, app } = buildApp();
+    const name = pastCreationBound(db);
+    const token = await seedOrganiserSession(db, BOOTSTRAP_OWNER);
+
+    const live = await appRequest(app, "/api/organiser/weddings", {
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(live.status).toBe(200);
+    const body = (await live.json()) as { weddings: { id: string; guestDataBound?: Bound }[] };
+    expect(body.weddings.find((w) => w.id === BOOTSTRAP_WEDDING_ID)?.guestDataBound).toMatchObject({
+      state: "passed",
+      events: [name],
+    });
+
+    const dead = await appRequest(app, "/api/organiser/weddings", {
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(dead.status).toBe(401);
+    expect(await jsonBody(dead)).toEqual({ error: "unauthorised" });
   });
 });
 

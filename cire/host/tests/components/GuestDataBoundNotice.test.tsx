@@ -24,7 +24,7 @@ const BOUND: GuestDataBound = {
 };
 
 const show = (role: WeddingRole, onFix = vi.fn()) =>
-  render(() => <GuestDataBoundNotice bound={BOUND} role={role} onFix={onFix} />);
+  render(() => <GuestDataBoundNotice bound={BOUND} callerRole={role} onFix={onFix} />);
 
 describe("GuestDataBoundNotice", () => {
   it.each(["viewer", "helper"] as const)("shows a %s nothing", (role) => {
@@ -33,7 +33,7 @@ describe("GuestDataBoundNotice", () => {
   });
 
   it.each(["owner", "editor"] as const)(
-    "shows an %s the warning, not as an alert, and its button opens the events",
+    "shows an %s the warning, by default not as an alert, and its button opens the events",
     (role) => {
       const onFix = vi.fn();
       show(role, onFix);
@@ -45,4 +45,14 @@ describe("GuestDataBoundNotice", () => {
       expect(onFix).toHaveBeenCalledOnce();
     },
   );
+
+  // One that appears in answer to a save is said aloud.
+  it("is an alert when asked to announce itself", () => {
+    render(() => (
+      <GuestDataBoundNotice bound={BOUND} callerRole="owner" announce onFix={() => {}} />
+    ));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "From 30 November 2026, Cire will delete this wedding's guest list.",
+    );
+  });
 });

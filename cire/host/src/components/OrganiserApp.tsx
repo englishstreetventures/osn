@@ -214,6 +214,20 @@ function WeddingDashboard(props: {
   // keep the portal from offering what those gates would refuse.
   const surfaces = () => surfacesFor(props.wedding.role);
 
+  // The guest-data warning, keyed on its state and reason so a change mounts
+  // it afresh. One there when the dashboard first paints is a standing note;
+  // one that appears or changes after that does so in answer to something the
+  // host did — a save that dates the events, or removes the last one — and is
+  // announced.
+  let painted = false;
+  onMount(() => {
+    painted = true;
+  });
+  const boundKey = () => {
+    const bound = props.wedding.guestDataBound;
+    return bound && `${bound.state}:${bound.reason}`;
+  };
+
   return (
     <Show
       when={surfaces().canOpenDashboard}
@@ -227,15 +241,21 @@ function WeddingDashboard(props: {
       }
     >
       {/* Over every module, so a host who opens straight onto Guests reads it
-          too; it holds no rows, so it sits outside the cache scope. */}
-      <Show when={props.wedding.guestDataBound}>
-        {(bound) => (
-          <GuestDataBoundNotice
-            bound={bound()}
-            role={props.wedding.role}
-            onFix={() => props.onModule("events", "edit")}
-          />
-        )}
+          too; it holds no rows, so it sits outside the cache scope. The key is
+          the function's argument on purpose: `keyed` calls only a children
+          function that takes one. */}
+      <Show when={boundKey()} keyed>
+        {(_key) => {
+          const announce = painted;
+          return (
+            <GuestDataBoundNotice
+              bound={props.wedding.guestDataBound!}
+              callerRole={props.wedding.role}
+              announce={announce}
+              onFix={() => props.onModule("events", "edit")}
+            />
+          );
+        }}
       </Show>
       <WeddingCacheScope weddingId={props.weddingId}>
         <ModuleShell
@@ -468,6 +488,17 @@ function Dashboard(props: {
     })();
     recheck = { startedAt: Date.now(), done };
     return done;
+  }
+
+  /**
+   * Whether a recheck started after read `since` (a `recheckSeq`) has had its
+   * answer applied. A read made outside `recheckWeddings` — a redeemed code, a
+   * restore, the upgrade return — notes `recheckSeq` when it starts and writes
+   * its answer only if this is false, so it never puts back a list older than
+   * the one on screen: a schedule save's re-read can overtake it.
+   */
+  function newerReadApplied(since: number): boolean {
+    return appliedSeq > since;
   }
 
   /** Recheck unless the last check is under a minute old. */
@@ -854,13 +885,18 @@ function Dashboard(props: {
 
   /** A restore went through: ask the API for both lists again, then open it. */
   async function handleWeddingRestored(weddingId: string) {
+    const since = recheckSeq;
     try {
       const res = await authFetch(apiUrl("/api/organiser/weddings"));
       if (!res.ok) return;
       const body = (await res.json()) as { weddings: WeddingSummary[] };
-      const next = body.weddings.map(withKnownRole);
-      setWeddings(next);
-      setDeletedWeddings(deletedWeddingsOf(body));
+      let next = body.weddings.map(withKnownRole);
+      if (newerReadApplied(since)) {
+        next = untrack(weddings) ?? [];
+      } else {
+        setWeddings(next);
+        setDeletedWeddings(deletedWeddingsOf(body));
+      }
       const restored = next.find((w) => w.id === weddingId);
       toast.success("Wedding restored.");
       if (restored) selectWedding(restored);
@@ -883,10 +919,12 @@ function Dashboard(props: {
     });
     invalidateCatalogue(weddingId);
     toast.success(`Code accepted. This wedding is now on ${TIER_LABEL[tier]}.`);
+    const since = recheckSeq;
     try {
       const res = await authFetch(apiUrl("/api/organiser/weddings"));
       if (!res.ok) return;
       const body = (await res.json()) as { weddings: WeddingSummary[] };
+      if (newerReadApplied(since)) return;
       setWeddings(body.weddings.map(withKnownRole));
       setDeletedWeddings(deletedWeddingsOf(body));
     } catch (err) {
@@ -984,11 +1022,12 @@ function Dashboard(props: {
           // The wedding's tier is raised server-side; the list is what the nav
           // reads, so refetching it is what unlocks the modules.
           invalidateCatalogue(receipt.weddingId);
+          const since = recheckSeq;
           try {
             const res = await authFetch(apiUrl("/api/organiser/weddings"));
             if (res.ok) {
               const body = (await res.json()) as { weddings: WeddingSummary[] };
-              if (!cancelled) {
+              if (!cancelled && !newerReadApplied(since)) {
                 setWeddings(body.weddings.map(withKnownRole));
                 setDeletedWeddings(deletedWeddingsOf(body));
               }

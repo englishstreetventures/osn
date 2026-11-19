@@ -19,4 +19,15 @@ describe("onScheduleChanged", () => {
 
     expect(listener.mock.calls).toEqual([["wed_a"]]);
   });
+
+  // The import and the revert reload the page, which reads the list afresh.
+  it("tells no listener of a change the page is about to reload over", () => {
+    const listener = vi.fn();
+    const stop = onScheduleChanged(listener);
+
+    scheduleChanged("wed_a", { reloading: true });
+    stop();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
 });

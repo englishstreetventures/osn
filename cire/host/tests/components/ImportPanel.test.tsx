@@ -1022,7 +1022,9 @@ describe("ImportPanel — checklist tasks linked to an event the upload removes"
     expect((box as HTMLInputElement).checked).toBe(false);
     if (tick) fireEvent.click(box);
     fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
-    await waitFor(() => expect(scheduleChangedMock).toHaveBeenCalledWith("wed_a"));
+    await waitFor(() =>
+      expect(scheduleChangedMock).toHaveBeenCalledWith("wed_a", { reloading: true }),
+    );
     const [, init] = authFetchMock.mock.calls[1] as [string, RequestInit];
     return JSON.parse(String(init.body)) as Record<string, unknown>;
   }

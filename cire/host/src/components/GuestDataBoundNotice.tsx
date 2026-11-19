@@ -15,23 +15,34 @@ import type { GuestDataBound } from "./CreateWeddingForm";
  *
  * Only a seat that can set the events' dates sees it. The API sends the bound
  * to owners and editors alone; this holds the same line for a role that
- * changed in this tab since the list was read. A standing note, so not an
- * alert: it was there when the host arrived.
+ * changed in this tab since the list was read.
+ *
+ * A standing note when it was there as the host arrived; `announce` makes it
+ * an alert, for one that appears or changes in answer to a save. Its sentence
+ * breaks anywhere, since an event's name can be one long word.
  */
 export default function GuestDataBoundNotice(props: {
   bound: GuestDataBound;
-  role: WeddingRole;
+  callerRole: WeddingRole;
+  /** It appeared, or changed state, after the dashboard first painted. */
+  announce?: boolean;
   /** Open the events editor, where the dates are set. */
   onFix: () => void;
 }) {
-  const words = () => (surfacesFor(props.role).canEdit ? guestDataBoundWords(props.bound) : null);
+  const words = () =>
+    surfacesFor(props.callerRole).canEdit ? guestDataBoundWords(props.bound) : null;
   return (
     <Show when={words()}>
       {(w) => (
-        <Notice tone={w().tone} class="max-w-prose" data-testid="guest-data-bound">
+        <Notice
+          tone={w().tone}
+          alert={props.announce}
+          class="max-w-prose"
+          data-testid="guest-data-bound"
+        >
           <div class="flex flex-col gap-3">
             <p class="font-medium">{w().headline}</p>
-            <p>{w().detail}</p>
+            <p class="wrap-anywhere">{w().detail}</p>
             <div>
               <Button variant="outline" size="sm" onClick={() => props.onFix()}>
                 {w().action}

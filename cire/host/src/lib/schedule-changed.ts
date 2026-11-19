@@ -10,12 +10,17 @@ const listeners = new Set<(weddingId: string) => void>();
  * A schedule change this tab applied or reverted moved, or removed, events —
  * and with them the times of the tasks linked to them. The checklist and the
  * run sheet read again when next shown, and a read of either already in flight
- * is dropped. Every listener is told. Called after the change commits; the
- * push the API sends reaches the wedding's other tabs.
+ * is dropped. Called after the change commits; the push the API sends reaches
+ * the wedding's other tabs.
+ *
+ * Every listener is told, unless the caller is about to reload the page
+ * (`reloading`): the import and the revert do, and the new page reads the
+ * wedding list itself, so a re-read started now would be thrown away.
  */
-export function scheduleChanged(weddingId: string): void {
+export function scheduleChanged(weddingId: string, opts: { reloading?: boolean } = {}): void {
   invalidateTasks(weddingId);
   invalidateRunSheet(weddingId);
+  if (opts.reloading) return;
   for (const listener of listeners) listener(weddingId);
 }
 

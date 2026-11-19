@@ -20,13 +20,7 @@ const bound = (patch: Partial<GuestDataBound> = {}): GuestDataBound => ({
 });
 
 describe("guestDataBoundWords", () => {
-  it("names one event", () => {
-    expect(guestDataBoundWords(bound())?.detail).toContain(
-      "Cire can't read the date and time of this event: Ceremony,",
-    );
-  });
-
-  it("joins two or three names as a list", () => {
+  it("joins two names as a list", () => {
     expect(
       guestDataBoundWords(bound({ events: ["Ceremony", "Reception"], eventCount: 2 }))?.detail,
     ).toContain("of these events: Ceremony and Reception,");

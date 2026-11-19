@@ -784,6 +784,8 @@ test("cire-event-details", async ({ page, context, flow }) => {
     async () => {
       await page.goto(`${ORIGINS.cireHost}/#/w/${CIRE_BOUND.emptyWeddingId}/overview`);
       await expect(banner).toBeVisible();
+      // The save's toast goes first, so every run's pictures show the same.
+      await expect(page.getByText("Schedule saved")).toBeHidden();
       await shootBanner("bound-no-events");
       return {
         ...(await bannerWords()),

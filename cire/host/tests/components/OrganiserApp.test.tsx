@@ -237,6 +237,7 @@ import {
   type RunSheet,
   runSheetAccessor,
 } from "../../src/lib/run-sheet-store";
+import { scheduleChanged } from "../../src/lib/schedule-changed";
 import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib/tasks-store";
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
 // a guard directly, standing in for any mounted dirty form (the invite builder).
@@ -269,6 +270,7 @@ function listResponse(
     tier?: string;
     entitlements?: string[];
     guestCap?: number;
+    guestDataBound?: unknown;
   }[],
   deleted?: { id: string; slug: string; displayName: string }[],
   status = 200,
@@ -1808,6 +1810,74 @@ describe("OrganiserApp Dashboard", () => {
     fireEvent.click(screen.getByText("read-vendors"));
     await waitFor(() => expect(authFetchMock.mock.calls.length).toBe(2));
     expect(listCalls()).toBe(1);
+  });
+
+  // ── The guest-data warning ──────────────────────────────────────────────────
+
+  const BOUND = {
+    state: "near",
+    reason: "unreadable-date",
+    from: "2026-11-30T12:00:00.000Z",
+    events: ["Ceremony"],
+    eventCount: 1,
+  };
+  const banner = () => screen.queryByTestId("guest-data-bound");
+
+  // One already there as the host arrives is a standing note; one a save in
+  // this tab brings is said aloud, since focus is in the editor below it.
+  it("shows the guest-data warning there at first paint as a standing note, and announces one a schedule save brings", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let bound: typeof BOUND | undefined = BOUND;
+    authFetchMock.mockImplementation(async () =>
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", guestDataBound: bound }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(banner()).not.toBeNull());
+    expect(banner()!.getAttribute("role")).toBeNull();
+
+    // A save dates the event: the list is read again and the warning goes.
+    bound = undefined;
+    scheduleChanged("wed_a");
+    await waitFor(() => expect(banner()).toBeNull());
+    expect(listCalls()).toBe(2);
+
+    // A save removes the last event of a wedding past its three years.
+    bound = { ...BOUND, state: "passed", reason: "no-events", events: [], eventCount: 0 };
+    scheduleChanged("wed_a");
+    await waitFor(() => expect(banner()).not.toBeNull());
+    expect(banner()!.getAttribute("role")).toBe("alert");
+    expect(banner()!.textContent).toContain("Cire is deleting this wedding's guest list.");
+  });
+
+  // A redeemed code reads the list itself; a schedule save's re-read that
+  // starts after it and lands first holds the newer answer.
+  it("keeps a schedule save's newer list over an older one a redeemed code read", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    const wedding = { id: "wed_a", slug: "a", displayName: "Alice & Bob" };
+    let releaseCodeRead: (res: Response) => void = () => {};
+    let listReads = 0;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url !== LIST_URL) return Promise.resolve(new Response("{}", { status: 404 }));
+      listReads += 1;
+      if (listReads === 2) {
+        return new Promise<Response>((resolve) => (releaseCodeRead = resolve));
+      }
+      return Promise.resolve(
+        listResponse([listReads === 1 ? wedding : { ...wedding, guestDataBound: BOUND }]),
+      );
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+    fireEvent.click(screen.getByText("redeem-code"));
+    await waitFor(() => expect(listReads).toBe(2));
+    scheduleChanged("wed_a");
+    await waitFor(() => expect(banner()).not.toBeNull());
+
+    // The code's read predates the save; applied, it would take the warning away.
+    releaseCodeRead(listResponse([wedding]));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(banner()).not.toBeNull();
   });
 
   it("throws away a recheck answer the list was written over, and asks again", async () => {

@@ -2178,9 +2178,10 @@ function seedE2eLegacyEvent(db: TestDb, now: Date): void {
  * years on the suite's clock (`CLOCK_T0`, 2026-10-01): its Ceremony's Start
  * holds a date and no time, which the sweep cannot read and the editor asks
  * the hosts to finish; its Reception reads. `wed_e2e_bound_empty`, created
- * 2023-12-10 at noon UTC, has no events. Noon keeps each bound on the same day
- * in every zone. Every value the flow checks is written out again as
- * `CIRE_BOUND` in `tools/e2e/src/config.ts`; a change here goes there too.
+ * 2023-12-10 at noon UTC, has no events. Noon UTC keeps each bound on the same
+ * date from UTC−11 to UTC+11; the E2E browser runs at UTC. Every value the
+ * flow checks is written out again as `CIRE_BOUND` in
+ * `tools/e2e/src/config.ts`; a change here goes there too.
  */
 function seedE2eCreationBound(db: TestDb, now: Date): void {
   const wedding = (id: string, slug: string, displayName: string, createdAt: Date) => {

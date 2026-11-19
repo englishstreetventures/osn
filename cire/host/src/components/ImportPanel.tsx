@@ -329,8 +329,9 @@ export default function ImportPanel(props: {
       // this wedding is now stale — drop it so the Events tab refetches fresh
       // rows on its next mount (rather than reusing the pre-import cache).
       invalidateEvents(props.weddingId);
-      // And the times of the checklist tasks linked to those events.
-      scheduleChanged(props.weddingId);
+      // And the times of the checklist tasks linked to those events. The
+      // reload below reads the wedding list again.
+      scheduleChanged(props.weddingId, { reloading: true });
       // An apply also changes households/guests, so drop the guest cache too
       // (both are weddingId-keyed stores). The reload below
       // re-mounts every module fresh; invalidating keeps the caches honest even

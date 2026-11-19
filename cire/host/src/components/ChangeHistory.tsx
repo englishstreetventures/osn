@@ -236,7 +236,8 @@ export default function ChangeHistory(props: { weddingId: string }) {
       // the list first so the row flips to "Reverted" even if the reload no-ops.
       invalidateEvents(props.weddingId);
       // A revert moves or removes events, and with them linked tasks' times.
-      scheduleChanged(props.weddingId);
+      // The reload below reads the wedding list again.
+      scheduleChanged(props.weddingId, { reloading: true });
       invalidateGuests(props.weddingId);
       // Same three-cache consistency unit as the import apply — a revert can
       // resurrect or remove households, so the household cache is as stale as

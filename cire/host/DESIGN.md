@@ -1795,14 +1795,17 @@ englishstreetventures/osn#2416). The decisions:
   a viewer, who cannot set a date, never sees it.
 - **A `Notice` at `md`, at the prose measure** (`max-w-prose`), `warn` from 90
   days before and `danger` once the day has passed, so the mark changes shape
-  as well as colour. A standing note, never `alert`: it was there when the host
-  arrived.
+  as well as colour. One there when the dashboard first paints is a standing
+  note. One that appears, or changes state, after that does so in answer to a
+  save the host made with focus in the editor below it, so it mounts afresh as
+  an `alert` and is read out.
 - **Three parts:** a first line in medium weight saying what happens and from
   when ("From 30 November 2026, Cire will delete this wedding's guest list.",
   or "Cire is deleting this wedding's guest list."); a sentence saying what the
   guest list holds, why the three years apply (naming up to three events Cire
   cannot date, then "and N more"; "Untitled event" for one with no name), and
-  what ends it; and an `outline` `sm` button, "Edit events" or "Add an event",
+  what ends it, breaking anywhere (`wrap-anywhere`), since an event's name can
+  be one long word; and an `outline` `sm` button, "Edit events" or "Add an event",
   that opens Events → Edit through the dashboard's own navigation, so the
   unsaved-changes guard still asks. The fix is never worded as a reprieve: once
   every event reads, the guest list is kept until a year after the wedding's
@@ -1820,9 +1823,14 @@ englishstreetventures/osn#2416). The decisions:
 
 `tests/lib/guest-data-bound.test.ts` holds the words (the names, the reader's
 zone, an unknown state); `tests/components/GuestDataBoundNotice.test.tsx` holds
-who sees it. The `cire-event-details` end-to-end flow shoots the `warn` banner,
-for each reason, at 390 and 1280px in both ramps and the `danger` one at
-1280px, and clears the banner by saving a fix.
+who sees it and when it is an alert; `GuestDataBoundNotice.browser.test.tsx`
+keeps a 200-letter name inside the banner at 390 and 1280px;
+`tests/styles/pill-contrast.browser.test.tsx` holds the `outline` pill's word
+at 4.5:1 on both tints; `OrganiserApp.test.tsx` holds the announce on a save,
+and a save's re-read against an older read. The `cire-event-details`
+end-to-end flow shoots the `warn` banner, for each reason, at 390 and 1280px in
+both ramps and the `danger` one at 1280px, and clears the banner by saving a
+fix.
 
 ### Two rules that apply to all of them
 

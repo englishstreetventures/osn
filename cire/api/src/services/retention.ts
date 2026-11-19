@@ -276,8 +276,12 @@ export interface GuestDataBound {
  * same tests as the sweep's: a wedding it cannot date (an event that is not
  * {@link eventDated}, or no events) whose creation time reads is `passed` when
  * {@link creationCutoffSeconds} at `now` takes it, and `near` when it would
- * take it {@link CREATION_BOUND_WARNING_MS} later. Two probes of
- * `events_wedding_id_sort_idx` a wedding; no extra statement.
+ * take it {@link CREATION_BOUND_WARNING_MS} later. No extra statement.
+ *
+ * The creation test comes first, in its own CASE, so `events` is read only for
+ * a live wedding inside the window: every other wedding a list holds — young,
+ * or soft-deleted and restorable — costs no `events` row. Inside it, at most
+ * two probes of `events_wedding_id_sort_idx`.
  */
 export function creationBoundColumns(now: Date) {
   const ofWedding = sql`${outerColumn(events.weddingId)} = ${outerColumn(weddings.id)}`;
@@ -285,10 +289,10 @@ export function creationBoundColumns(now: Date) {
   const hasUndatedEvent = sql`exists (select 1 from ${events} where ${ofWedding} and ${eventUndated})`;
   const createdBefore = (at: number) =>
     sql`coalesce(${outerColumn(weddings.createdAt)} < ${creationCutoffSeconds(at)}, 0)`;
-  const onBound = sql`((${hasUndatedEvent} or not ${hasEvent}) and ${creationReadable})`;
+  const inWindow = sql`(${outerColumn(weddings.deletedAt)} is null and ${creationReadable} and ${createdBefore(now.getTime() + CREATION_BOUND_WARNING_MS)})`;
   return {
-    state: sql<CreationBoundState | null>`(case when ${onBound} then (case when ${createdBefore(now.getTime())} then 'passed' when ${createdBefore(now.getTime() + CREATION_BOUND_WARNING_MS)} then 'near' end) end)`,
-    noEvents: sql<number>`(not ${hasEvent})`,
+    state: sql<CreationBoundState | null>`(case when ${inWindow} then (case when ${hasUndatedEvent} or not ${hasEvent} then (case when ${createdBefore(now.getTime())} then 'passed' else 'near' end) end) end)`,
+    noEvents: sql<number>`(case when ${inWindow} then not ${hasEvent} else 0 end)`,
     createdAt: sql<number>`${outerColumn(weddings.createdAt)}`,
   };
 }

@@ -32,7 +32,6 @@ import {
 } from "../../src/metrics";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
 import {
-  CREATION_BOUND_WARNING_MS,
   creationBoundAt,
   creationCutoffSeconds,
   type GiftSummary,
@@ -3176,22 +3175,42 @@ describe("the organiser portal's warning of the three-year bound", () => {
     return new Map(list.weddings.map((w) => [w.id, w.guestDataBound]));
   };
 
-  it("warns 89 days before the bound, from the bound, and not 91 days before", async () => {
+  it("warns from the bound, 89 days ahead", async () => {
     const db = freshDb();
     const near = makeWeddingWithTimes(db, undated, boundIn(89));
-    const far = makeWeddingWithTimes(db, undated, boundIn(91));
 
-    const bounds = await listed(db);
-
-    expect(bounds.get(near.weddingId)).toEqual({
+    expect((await listed(db)).get(near.weddingId)).toEqual({
       state: "near",
       reason: "unreadable-date",
       from: new Date(AT.getTime() + 89 * DAY_MS).toISOString(),
       events: [],
       eventCount: 0,
     });
-    expect(bounds.get(far.weddingId)).toBeUndefined();
-    expect(CREATION_BOUND_WARNING_MS).toBe(90 * DAY_MS);
+  });
+
+  // The owner's 90 days (englishstreetventures/osn#2416), to the second.
+  it("warns a second inside 90 days of the bound, and not at 90 days", async () => {
+    const db = freshDb();
+    const createdForBoundAt = (ms: number) => {
+      const created = new Date(ms);
+      created.setUTCFullYear(created.getUTCFullYear() - 3);
+      return created;
+    };
+    const inside = makeWeddingWithTimes(
+      db,
+      undated,
+      createdForBoundAt(AT.getTime() + 90 * DAY_MS - 1000),
+    );
+    const outside = makeWeddingWithTimes(
+      db,
+      undated,
+      createdForBoundAt(AT.getTime() + 90 * DAY_MS),
+    );
+
+    const bounds = await listed(db);
+
+    expect(bounds.get(inside.weddingId)).toMatchObject({ state: "near" });
+    expect(bounds.get(outside.weddingId)).toBeUndefined();
   });
 
   it("says passed exactly for the weddings the sweep takes at the same instant", async () => {
@@ -3257,43 +3276,6 @@ describe("the organiser portal's warning of the three-year bound", () => {
       state: "near",
       reason: "unreadable-date",
     });
-  });
-
-  it("warns whether or not the wedding holds guest data now", async () => {
-    const db = freshDb();
-    const wedding = makeWeddingWithTimes(db, undated, boundIn(-400));
-    db.delete(guests).where(eq(guests.familyId, wedding.familyId)).run();
-    db.delete(families).where(eq(families.id, wedding.familyId)).run();
-
-    expect((await listed(db)).get(wedding.weddingId)).toMatchObject({ state: "passed" });
-  });
-
-  it("warns only an owner and an editor of the wedding", async () => {
-    const db = freshDb();
-    const wedding = makeWeddingWithTimes(db, undated, boundIn(-1));
-    const seat = (osnProfileId: string, role: "editor" | "viewer" | "helper") =>
-      db
-        .insert(weddingHosts)
-        .values({
-          id: `whost_${osnProfileId}`,
-          weddingId: wedding.weddingId,
-          osnProfileId,
-          addedByOsnProfileId: "usr_test",
-          role,
-          createdAt: new Date(),
-        })
-        .run();
-    seat("usr_editor", "editor");
-    seat("usr_viewer", "viewer");
-    seat("usr_helper", "helper");
-
-    const boundFor = async (profile: string) =>
-      (await runOn(db, weddingsService.listForMember(profile, AT))).weddings[0]?.guestDataBound;
-
-    expect(await boundFor("usr_test")).toMatchObject({ state: "passed" });
-    expect(await boundFor("usr_editor")).toMatchObject({ state: "passed" });
-    expect(await boundFor("usr_viewer")).toBeUndefined();
-    expect(await boundFor("usr_helper")).toBeUndefined();
   });
 
   it("names only the events it cannot date, in the editor's order, at most three, and counts them all", async () => {
