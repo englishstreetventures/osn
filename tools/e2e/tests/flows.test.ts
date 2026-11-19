@@ -102,7 +102,9 @@ describe("flow sources", () => {
   // app's sign-in itself through `routeOidcLegsFrom`, as
   // `musubi-account-deletion` does, sends cire-api's legs and the `/authorize`
   // they lead to from its own address, and checks that each leg went so; it
-  // spends none of these windows, only two of Pulse's own 20 legs a minute.
+  // spends none of these windows. pulse-api keys its own legs (`authStart`,
+  // 20 a minute) on the socket, so a Pulse start made that way still spends
+  // the suite's Pulse window, which this test does not count.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     // The support modules too, less the helpers' own definitions.
     const sources = dirs.flatMap((dir) =>

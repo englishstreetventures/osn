@@ -234,6 +234,24 @@ describe("<DeletionWindow app={…} />", () => {
     expect(screen.queryByRole("button", { name: "Reload" })).toBeNull();
   });
 
+  // The page reads the request with the session cookie, not the token, so a
+  // keep that went through carries on whether or not the token renewed.
+  it("hands back to the page after a keep even when the renewal fails", async () => {
+    mocks.status.mockResolvedValue({
+      scheduled: true,
+      scheduledFor: SCHEDULED_FOR,
+      softDeletedAt: 0,
+    });
+    mocks.cancel.mockResolvedValue({ cancelled: true });
+    mocks.renewSession.mockRejectedValue(new AccountError("server", 503, "unavailable"));
+    const { onKept } = renderAppWindow();
+    fireEvent.click(await screen.findByRole("button", { name: "Keep my account" }));
+
+    await waitFor(() => expect(onKept).toHaveBeenCalledOnce());
+    expect(screen.queryByText(/Couldn't keep your account/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reload" })).toBeNull();
+  });
+
   it("offers the way back to the app when it is too late to keep the account", async () => {
     mocks.status.mockResolvedValue({
       scheduled: true,

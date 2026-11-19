@@ -2601,6 +2601,38 @@ describe("GET /authorize for an account whose deletion is pending", () => {
     expect(count(h, "oauth_authorization_codes")).toBe(0);
   });
 
+  // A page from before `pendingDeletion` shows such an account consent with
+  // its profiles, and its Cancel posts a refusal: that must still reach the
+  // relying party, since only an approval waits for a keep.
+  it("lets the account's Cancel through, as the refusal every Cancel sends", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const session = await signIn(h, "pd-cancel@example.com", "pd_cancel");
+    tombstoneEveryAccount(h);
+    const { requestId, binding } = await startAuthorize(h, session);
+    const cookie = `${session}; ${binding}`;
+    const profileId = await firstProfileId(h, requestId, cookie);
+
+    const res = await h.app.handle(
+      new Request("http://localhost/authorize/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ requestId, profileId, approved: false }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expectRefusalRedirect(((await res.json()) as { redirectTo: string }).redirectTo);
+    expect(count(h, "oauth_consents")).toBe(0);
+    expect(count(h, "oauth_authorization_codes")).toBe(0);
+    const after = await h.app.handle(
+      new Request(`http://localhost/authorize/context?request=${requestId}`, {
+        headers: { cookie },
+      }),
+    );
+    expect(after.status).toBe(404);
+  });
+
   it("still renders an unregistered redirect_uri before anything else, setting no cookie", async () => {
     const h = setup();
     h.seedClient({ firstParty: true });
