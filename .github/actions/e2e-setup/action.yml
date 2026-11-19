@@ -9,10 +9,12 @@ description: >-
 inputs:
   cache:
     description: >-
-      "false" skips restoring the bun and Chromium caches, which any workflow
-      on main can write: bun then fetches each package against the lockfile's
-      integrity hashes, and Playwright downloads its pinned Chromium. The
-      Stripe test-mode job sets it, since it runs that code holding a key.
+      "false" skips the bun, Chromium and Chromium system-package caches,
+      which any workflow on main can write: bun then fetches each package
+      against the lockfile's integrity hashes, Playwright downloads its pinned
+      Chromium, and apt downloads the system packages; nothing is restored or
+      saved. The Stripe test-mode job sets it, since it runs that code holding
+      a key.
     required: false
     default: "true"
 
@@ -64,15 +66,17 @@ runs:
 
     # This saves the system packages the browser legs restore, under the
     # same key, built the same way, and restores with the same fallback to
-    # the newest set saved for any build of the same OS image (see the
-    # comments there). `cache-hit` is true only for the exact key, so after a
-    # fallback this saves its own build's key. It saves them in a step of its
-    # own, straight after the install, so a run whose flows fail still fills
-    # the cache. Neither job that uses this runs on a merge-queue group, and
-    # the save says so again, so a push to main writes main's cache, which
-    # every branch and queue group can read.
+    # the newest set saved for any build of the same OS image, in the run's
+    # own branch first and then in main's (see the comments there).
+    # `cache-hit` is true only for the exact key, so after a fallback this
+    # saves its own build's key. It saves them in a step of its own, straight
+    # after the install, so a run whose flows fail still fills the cache. No
+    # job that uses this runs on a merge-queue group, and the save says so
+    # again, so a push to main, or a scheduled run on main, writes main's
+    # cache, which every branch and queue group can read.
     - name: Key Chromium's system packages
       id: chromium-apt-key
+      if: inputs.cache != 'false'
       shell: bash
       working-directory: tools/e2e
       run: |
@@ -85,6 +89,7 @@ runs:
 
     - name: Restore Chromium's system packages
       id: chromium-apt
+      if: inputs.cache != 'false'
       uses: actions/cache/restore@v4
       with:
         path: ~/.cache/chromium-apt
@@ -97,7 +102,7 @@ runs:
       run: timeout 10m bash "$GITHUB_WORKSPACE/scripts/install-chromium-system-libraries.sh" "$HOME/.cache/chromium-apt"
 
     - name: Save Chromium's system packages
-      if: github.event_name != 'merge_group' && steps.chromium-apt.outputs.cache-hit != 'true'
+      if: github.event_name != 'merge_group' && inputs.cache != 'false' && steps.chromium-apt.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
         path: ~/.cache/chromium-apt
