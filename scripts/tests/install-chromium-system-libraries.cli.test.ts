@@ -202,6 +202,17 @@ const SKIPPED = "::warning::install-chromium-system-libraries: skipped apt: ";
 const NOT_SKIPPED = "install-chromium-system-libraries: not skipped: ";
 
 /**
+ * The line the script prints once its attempts end, whatever their result:
+ * how long it ran, and how many packages in apt's archive came from the cache
+ * and how many apt downloaded, with their size.
+ */
+const tally = (fromCache: number, downloaded: number, bytes: number) =>
+  new RegExp(
+    `^install-chromium-system-libraries: took \\d+ s; packages in apt's archive: ${fromCache} from the cache, ${downloaded} downloaded \\(${bytes} bytes\\)$`,
+    "m",
+  );
+
+/**
  * What `apt-get update` printed in each attempt of ci.yml run 43054765174 on
  * 2026-11-11, when the runner could resolve none of Ubuntu's mirrors: one
  * other repository answered, the Ubuntu ones never did.
@@ -268,6 +279,7 @@ describe("install-chromium-system-libraries.sh", () => {
       run.log.findIndex((line) => line.startsWith("apt-cache show")),
     );
     expect(run.log).toContain(`apt-cache show ${EPOCH.name}=${EPOCH.version}`);
+    expect(run.output).toMatch(tally(2, 0, 0));
     // A mirror apt reaches installs as it always has: no dry run, no warning.
     expect(run.log).not.toContain("install-deps --dry-run");
     expect(run.output).not.toMatch(/^::warning::/m);
@@ -302,6 +314,8 @@ describe("install-chromium-system-libraries.sh", () => {
     ]);
     expect(run.downloaded).toEqual([fileOf(BETA)]);
     expect(run.output).toMatch(new RegExp(`^::warning::.*dropped ${fileOf(BETA)}`, "m"));
+    // The cached file of BETA's name is not the one apt installed.
+    expect(run.output).toMatch(tally(1, 1, bytesOf(BETA).length));
     expect(readFileSync(join(w.cache, fileOf(BETA)), "utf8")).toBe(bytesOf(BETA));
     expect(readFileSync(join(w.cache, fileOf(ALPHA)), "utf8")).toBe(bytesOf(ALPHA));
   });
@@ -333,6 +347,7 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.log.filter((line) => line === "install-deps")).toHaveLength(3);
     expect(run.output.match(/^::warning::retry\.sh: /gm)?.length, run.output).toBe(3);
     expect(run.output.match(/^::error::/gm)?.length, run.output).toBe(1);
+    expect(run.output).toMatch(tally(1, 0, 0));
     expect(run.output).not.toContain("kept for the cache");
     // Neither emptied nor swapped for a partial archive the E2E job would save.
     expect(cacheContents(w)).toEqual(before);
@@ -422,6 +437,10 @@ describe("install-chromium-system-libraries.sh", () => {
       [GAMMA, "network"],
     ]);
     expect(run.output.match(/^::warning::.*not a regular file/gm)?.length, run.output).toBe(3);
+    // The symlink leads to the bytes apt downloaded, but apt did download them.
+    expect(run.output).toMatch(
+      tally(0, 3, bytesOf(ALPHA).length + bytesOf(BETA).length + bytesOf(GAMMA).length),
+    );
   });
 
   test("the bytes checked are the bytes copied: a copy that differs from the cached file is dropped", () => {
