@@ -6,6 +6,7 @@ import {
   registryClaims,
   registryContributions,
   registryItems,
+  registryRetiredAccounts,
   registrySettings,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
@@ -25,6 +26,8 @@ import {
   RegistryItemLimitReached,
   RegistryItemNotInWedding,
   SettingsChanged,
+  StripeAccountChanged,
+  StripeRetireForbidden,
   toEpochSeconds,
 } from "../../src/services/registry";
 import { recordStatements } from "../test-helpers";
@@ -2852,5 +2855,90 @@ describe("attaching an account at a generation the row has left", () => {
       }),
     );
     expect(current?.stripeAccountId).toBe("acct_made");
+  });
+});
+
+describe("registryService.retireStripeAccount", () => {
+  const OWNER = DEV_OWNER_PROFILE_ID;
+
+  function held(db: Db0) {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        stripeAccountId: "acct_held",
+        stripeConnectedByOsnProfileId: OWNER,
+        stripeChargesEnabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const settingsRow = (db: Db0) =>
+    db
+      .select()
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .get();
+  const records = (db: Db0) => db.select().from(registryRetiredAccounts).all();
+
+  const failureOf = async <A, E>(db: Db0, eff: Effect.Effect<A, E, DbService>) => {
+    const exit = await run(db, eff);
+    return Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : exit;
+  };
+
+  const retire = (
+    over: Partial<{ osnProfileId: string; accountId: string | null; generation: number }> = {},
+  ) =>
+    registryService.retireStripeAccount(
+      {
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: over.osnProfileId ?? OWNER,
+        handTo: null,
+        accountId: over.accountId === undefined ? "acct_held" : over.accountId,
+        generation: over.generation ?? 0,
+      },
+      PAYING_SITE,
+    );
+
+  it("writes neither statement for an account the row no longer names", async () => {
+    const db = db0();
+    held(db);
+    const error = await failureOf(db, retire({ accountId: "acct_stale" }));
+    expect(error).toBeInstanceOf(StripeAccountChanged);
+    expect((error as StripeAccountChanged).current.stripeConnected).toBe(true);
+    expect(settingsRow(db)?.stripeAccountId).toBe("acct_held");
+    expect(records(db)).toEqual([]);
+  });
+
+  it("writes neither statement for a generation the row has left", async () => {
+    // The same account, cleared and connected again since the read.
+    const db = db0();
+    held(db);
+    const error = await failureOf(db, retire({ generation: 1 }));
+    expect(error).toBeInstanceOf(StripeAccountChanged);
+    expect(settingsRow(db)?.stripeAccountId).toBe("acct_held");
+    expect(records(db)).toEqual([]);
+  });
+
+  it("writes nothing for a caller who no longer owns the wedding, and says only that", async () => {
+    const db = db0();
+    held(db);
+    // usr_bob owns the other wedding, not this one; the account changed too.
+    const error = await failureOf(db, retire({ osnProfileId: "usr_bob", accountId: "acct_stale" }));
+    expect(error).toBeInstanceOf(StripeRetireForbidden);
+    expect(settingsRow(db)?.stripeAccountId).toBe("acct_held");
+    expect(records(db)).toEqual([]);
+  });
+
+  it("writes both for the account and generation the row holds", async () => {
+    const db = db0();
+    held(db);
+    const done = await ok(db, retire());
+    expect(done.reason).toBe("disconnected");
+    expect(done.settings.stripeConnected).toBe(false);
+    expect(settingsRow(db)?.stripeAccountId).toBeNull();
+    expect(records(db).map((r) => r.stripeAccountId)).toEqual(["acct_held"]);
   });
 });
