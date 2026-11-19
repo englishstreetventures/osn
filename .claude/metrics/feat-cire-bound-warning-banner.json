@@ -1,0 +1,195 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/cire-bound-warning-banner",
+    "base_sha": "e4f812ccbd512ffcded6cf90154c91ea4ac00105",
+    "head_sha": "fe0aa6592b4754667f4388bd089c59fb49b6ca99",
+    "generated_at": "2026-11-19T01:42:12.458Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2416,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "severity:medium",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-18T17:24:52.793Z",
+    "last_ts": "2026-11-19T01:42:06.695Z",
+    "span_seconds": 29834,
+    "active_seconds": 5099,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 93.67051919999997,
+    "tokens": {
+      "input": 1272,
+      "output": 516087,
+      "thinking": 233914,
+      "cache_write_5m": 2770036,
+      "cache_write_1h": 0,
+      "cache_read": 173733778
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1272,
+          "output": 516087,
+          "thinking": 233914,
+          "cache_write_5m": 2770036,
+          "cache_write_1h": 0,
+          "cache_read": 173733778
+        },
+        "usd_equivalent": 93.67051919999997,
+        "messages": 609
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1272,
+          "output": 516087,
+          "thinking": 233914,
+          "cache_write_5m": 2770036,
+          "cache_write_1h": 0,
+          "cache_read": 173733778
+        },
+        "usd_equivalent": 93.67051919999997,
+        "messages": 609
+      }
+    },
+    "effort": {
+      "high": 242,
+      "xhigh": 367
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 10,
+      "docs": 5,
+      "config": 0,
+      "source": 12
+    },
+    "loc": {
+      "generated": {
+        "added": 11,
+        "deleted": 0
+      },
+      "test": {
+        "added": 899,
+        "deleted": 5
+      },
+      "docs": {
+        "added": 74,
+        "deleted": 11
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 579,
+        "deleted": 49
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 472,
+      "Read": 103,
+      "Edit": 53,
+      "Skill": 20,
+      "Write": 17,
+      "SubagentHandback": 7,
+      "Agent": 6,
+      "WebFetch": 2,
+      "SendMessage": 1,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 9,
+      "max_edits_one_file": 11
+    },
+    "skills": {
+      "design-system": 1,
+      "new-feat": 1,
+      "emil-design-eng": 1,
+      "apple-design": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "find-animation-opportunities": 1,
+      "animation-vocabulary": 1,
+      "web-design-guidelines": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-design": 1,
+      "review-security": 1,
+      "review-state": 1,
+      "write-pr": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 5
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 609,
+      "with_tools": 599,
+      "with_one_tool": 541,
+      "context_median": 184622,
+      "context_p90": 648204
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 8,
+    "located": 7,
+    "acted_on": 5,
+    "paired": 7,
+    "acted_on_paired": 5,
+    "control_changed": 1,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}
