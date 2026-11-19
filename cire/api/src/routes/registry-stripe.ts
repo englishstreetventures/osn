@@ -585,7 +585,9 @@ export const createRegistryStripeRetireRoutes = (
                         weddingId,
                         actorOsnProfileId: osnProfileId,
                         reason: done.reason,
-                        handToOsnProfileId: done.reason === "handed_over" ? body.handTo : null,
+                        // The write takes a hand-over target only from the
+                        // holder, so one that passed is a hand-over.
+                        handToOsnProfileId: body.handTo,
                         // The write recorded a replace only while the holder it
                         // read held an owner seat, so the read names them.
                         holderOsnProfileId:
