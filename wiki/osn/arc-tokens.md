@@ -93,7 +93,7 @@ resolvePublicKey(kid, issuer, tokenScopes?)                            // → Ef
 getOrCreateArcToken(privateKey, { iss, aud, scope, kid }, ttl?)         // → cached JWT (cache key: kid:iss:aud:canonical(scope):ttl)
 clearTokenCache() / clearPublicKeyCache()                      // → for testing / key rotation
 evictPublicKeyCacheEntry(kid)                                  // → immediate per-key cache eviction (call on revoke)
-PUBLIC_KEY_CACHE_TTL_SECONDS                                   // → seconds a cached key and its scopes live (300 default)
+PUBLIC_KEY_CACHE_TTL_SECONDS                                   // seconds a cached key and its scopes live (300 default)
 evictExpiredTokens()                                           // → force-sweep expired tokens (no debounce)
 ```
 
