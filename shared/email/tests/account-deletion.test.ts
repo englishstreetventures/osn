@@ -192,9 +192,11 @@ describe("account-deleted", () => {
       ],
     });
     expect(out.text).toContain(
-      "- Pulse: 2 events you hosted, shown to their guests as cancelled. Kept until 7 December 2026. To ask about it: https://pulse.example.test/request",
+      "- Pulse: 2 events you hosted, shown to their guests as cancelled. Kept until 7 December 2026 (UTC). To ask about it: https://pulse.example.test/request",
     );
-    expect(out.html).toContain("shown to their guests as cancelled. Kept until 7 December 2026.");
+    expect(out.html).toContain(
+      "shown to their guests as cancelled. Kept until 7 December 2026 (UTC).",
+    );
   });
 
   it("an item with no date and no link is the app's words alone, closed once", () => {
