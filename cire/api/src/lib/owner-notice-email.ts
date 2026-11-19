@@ -562,7 +562,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
                 ? { osnProfileId: seat.osnProfileId, audience, unbudgeted: true as const }
                 : { osnProfileId: seat.osnProfileId, audience };
             })
-            .sort((a, b) => rank[a.audience] - rank[b.audience]);
+            .toSorted((a, b) => rank[a.audience] - rank[b.audience]);
           const recipients: Recipient<RetiredAudience>[] = [
             ...others.filter((r) => r.audience !== "owner"),
             { osnProfileId: input.actorOsnProfileId, audience: "actor" },
