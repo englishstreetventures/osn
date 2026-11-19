@@ -165,7 +165,8 @@ owners, each with an `owner` seat. Two consequences:
     since the rules run on the rows as they stand, naming as its deleter the
     profile whose owner seat went. The purge takes a deleted wedding with no
     owner at once, money holds still applying ([[retention]]); its log names
-    the deleter of a wedding with an owner only. Then, once per account:
+    a wedding's deleter only while they hold a seat on it. Then, once per
+    account:
     seats below owner and the notice rows left; organiser sessions; guest
     account links (by the account or a
     profile); `registry_stripe_oauth_states`, `realtime_subscribe_budget` and
@@ -187,10 +188,12 @@ owners, each with an `owner` seat. Two consequences:
     email lists: "A deleted wedding you owned, kept until a payment or gift
     for it settles, then erased in Cire's daily clean-up." (or "<n> deleted
     weddings …"), with no date and no link. It names no wedding, since a
-    wedding's name usually names the couple. Two limits: a repeat call after
-    osn-api lost cire's done answer reports nothing kept, since the deleters
-    are gone by then; and a wedding someone else deleted and then left to the
-    person alone names no profile of theirs, so it is not counted.
+    wedding's name usually names the couple. Three limits: a repeat call
+    after osn-api lost cire's done answer reports nothing kept, since the
+    deleters are gone by then; a wedding someone else deleted and then left to
+    the person alone names no profile of theirs, so it is not counted; nor is
+    one an earlier "Remove my Cire data" deleted, which cleared its deleter
+    then.
   - *A host removing their Cire data* and keeping the account
     ([[cire-auth#A host removes their Cire data]]): the same erasure, at once,
     for every profile of the account, after a step-up the person confirms on
@@ -199,7 +202,9 @@ owners, each with an `owner` seat. Two consequences:
     their guest account links as they are; everything else above goes, their
     organiser sessions included, and the other owners of each wedding they
     leave are emailed. A wedding left with no owner is deleted at once and the
-    purge takes it, later while a payment for it settles. They can sign in
+    purge takes it, later while a payment for it settles; the removal clears
+    its deleter, counts nothing and answers no kept item, since the removal
+    screen says this before the person confirms. They can sign in
     to cire again later and start with no weddings.
   - A host who cannot sign in to the organiser portal can still ask by email.
     An operator handles that request by hand, as an erasure request from an
