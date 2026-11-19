@@ -751,7 +751,7 @@ deploys its database alone with Alchemy (`bun run migrate:production` in
 | Stack job | Database | Migrations | Logical id |
 |---|---|---|---|
 | `stack-musubi-production` | `osn-db-prod` | `osn/db/drizzle/` | `OsnDb` |
-| `stack-cire-production` | `cire-db` | `cire/db/migrations/`, plus a refusing placeholder for each name in `cire/db/migrations-archive/` | `CireDb` |
+| `stack-cire-production` | `cire-db` | `cire/db/migrations-archive/long-lived/` as written, then `cire/db/migrations/` after its baseline, plus a refusing placeholder for each name in `cire/db/migrations-archive/` | `CireDb` |
 | `stack-zap-production` | `zap-db-prod` | `zap/db/drizzle/` | `ZapDb` |
 
 **What the approver reads.** Before each approval the stack's live read counts the
@@ -764,13 +764,16 @@ migration merged after a newer one shipped, which CI refuses and the guard refus
 The guard refuses the release, before anything writes, on any count §4.2 lists.
 
 cire's live chain begins with one baseline, `0001_initial.sql`, holding the whole schema,
-then the numbered files `0082` to `0091` and the timestamped files
-(`<YYYYMMDDHHMMSS>_<name>.sql`). The baseline builds exactly what migrations `0001`–`0081`
-in `cire/db/migrations-archive/` build. Production applied that chain file by file, so its
-ledger holds every archived name, `0001_initial.sql` among them. The cire stack therefore
-hands Alchemy a placeholder under each archived name (80 of them): production's ledger
-already names each one, so none ever runs, and a database whose ledger lacked one would
-fail on it rather than replay archived SQL (`0015` deletes rows, `0076` drops a column).
+then the timestamped files (`<YYYYMMDDHHMMSS>_<name>.sql`) merged since. Production never
+runs that baseline. It applied the original chain, migrations `0001`–`0081` in
+`cire/db/migrations-archive/`, file by file, then the chain in
+`cire/db/migrations-archive/long-lived/`: the October 2026 baseline (skipped by name),
+`0082`–`0091` and the timestamped files up to the last squash. Its ledger records both by
+name and hash. The cire stack therefore hands Alchemy the long-lived chain as written, so a
+squash changes nothing production is handed, and a placeholder under each name of the
+original chain (80 of them): production's ledger already names each one, so none ever runs,
+and a database whose ledger lacked one would fail on it rather than replay archived SQL
+(`0015` deletes rows, `0076` drops a column).
 
 > Production holds no `wed_bootstrap` demo wedding: archived migration
 > `0015_drop_bootstrap_wedding.sql` deleted it and its children, and the
@@ -823,7 +826,7 @@ there.
 | Wrangler names missing from `__alchemy_migrations` | A conversion that copied part of Wrangler's ledger | Insert the missing names with their files' hashes (`migrationHash()` in `shared/infra/src/migrations.ts`). `DROP TABLE "__alchemy_migrations"` instead only while it names nothing but Wrangler's names: not the freeze file, nor any later one |
 | `d1_migrations` frozen, `__alchemy_migrations` gone | Alchemy's ledger was dropped after the move: only the conversion release creates the trigger. Wrangler's ledger stops at the move, so a new conversion would apply every migration since again | Put `__alchemy_migrations` back: restore a D1 Time Travel bookmark from before the drop, or rebuild it by hand with every applied migration's name and its file's hash, the freeze file and each later one included |
 | The trigger is gone and Alchemy's ledger records the freeze | A `d1_migrations` repair dropped the trigger and did not put it back | Run the freeze file's statement (`FREEZE_MIGRATION.sql`), then dispatch the release again |
-| A file changed after it applied | A rewrite or a squash changed the bytes Alchemy recorded | Restore the applied bytes; ship the change as a new migration (englishstreetventures/osn#2096 holds the squash) |
+| A file changed after it applied | A rewrite, or a squash that changed a moved file, changed the bytes Alchemy recorded | Restore the applied bytes; ship the change as a new migration. A squash keeps every moved file's bytes in `cire/db/migrations-archive/long-lived/` (`cire/db/README.md` §Squashing the chain) |
 | Another migration ledger (drizzle-kit, Prisma) | Alchemy would read it before Wrangler's | Find what wrote it before anything else |
 | Read replication differs | The migrate step would change it | Set it in the dashboard to the declared value, or change the declaration |
 

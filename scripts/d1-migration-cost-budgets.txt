@@ -20,34 +20,26 @@
 # bundle guard does not — squashing the chain into a fresh baseline puts the
 # cost back down instead of moving the line up. Reach for that first.
 
-# 5184 is twice what the squashed baseline prices at. The mistake this guard
+# The line is 200 schema writes, 5400 rows priced at 27. The squashed
+# baseline (2026-11-19) is 150 schema writes, one CREATE per table, index and
+# trigger, 4050 rows; the line sits 50 writes above it. The mistake this guard
 # exists to catch is not one bad migration — nothing in a chain that goes over
 # the ceiling is wrong on its own — it is the chain regrowing until a day's
-# rebuilds no longer fit. So the line is drawn where the bill has doubled: the
-# baseline is 96 schema writes, one CREATE per table and per index, and the
-# line trips at 192.
+# rebuilds no longer fit.
 #
-# In rows, priced at 27: 2592 for the baseline, 5184 at the line, so a replay
-# goes from 2.6% to 5.2% of the day's 100,000 rows written and from roughly 38
-# replays a day to 19. Those row figures move with the constant; the
-# 96-against-192 does not.
+# The line is not twice the baseline: the schema itself is 150 objects, so
+# twice the baseline would raise the line, and a guard that only ever gets
+# raised is not a guard. The owner chose to keep 200 (2026-11-19,
+# englishstreetventures/osn#2096). A squash needs no production step
+# (cire/db/README.md), so tripping sooner costs one more squash, not a raise.
 #
-# The headroom is 96 schema writes, far more than any single migration adds —
-# the heaviest in the archive, 0006_multi_tenant, is 28, and the heaviest of
-# 0058–0081, 0058_gift_summary_and_stripe_state, is 12. Deliberate: a budget
-# tight enough to trip on one ordinary feature migration would be raised on
-# sight every few pull requests, which is the failure the second rule names.
-# When the chain reaches the line, squash it into a fresh baseline again
-# (cire/db/README.md has the method) rather than raise the line.
+# In rows: 4050 for the baseline, 5400 at the line, so a replay goes from 4%
+# to 5.4% of the day's 100,000 rows written and from roughly 24 replays a day
+# to 18. Those row figures move with the constant; the 150-against-200 does not.
 #
-# The chain is at the line's 192 without `platform_refunds` and
-# `gifts_keep_their_account`. The squash cannot run yet: its first step needs
-# production to have applied every live migration, and its method must first
-# be redesigned so that Alchemy's ledger, which records each applied file's
-# hash, accepts it. So the line stands eight writes higher, at 200 (5400
-# rows): two for `platform_refunds` (a table and its index), and six for the
-# account each gift was paid into (three columns, an index, two triggers).
-# The owner chose that raise over holding the gift work for the squash
-# (englishstreetventures/osn#1950, 2026-11-19).
-# Bounded until englishstreetventures/osn#2096 lands.
+# The headroom is 50 schema writes: four to eight ordinary migrations
+# (`gifts_keep_their_account` is 6, `platform_refunds` 2, and the heaviest of
+# 0058-0081, 0058_gift_summary_and_stripe_state, 12). When the chain reaches
+# the line, squash it into a fresh baseline again (cire/db/README.md has the
+# method) rather than raise the line.
 cire/db/migrations 5400
