@@ -145,7 +145,7 @@ const arcMiddleware = (requiredScope: string) => async (ctx) => {
   const publicKey = await Effect.runPromise(
     resolvePublicKey(kid, iss, [requiredScope]).pipe(Effect.provide(DbLive))
   );
-  // Pass the resolved issuer as expectedIssuer (X1) so jose enforces the
+  // Pass the resolved issuer as expectedIssuer so jose enforces the
   // signed `iss` matches the kid's registered service.
   const claims = await verifyArcToken(token, publicKey, "osn-api", requiredScope, iss);
   // claims.iss, claims.aud, claims.scope are now verified
@@ -346,15 +346,15 @@ It is for a service with a fixed key whose scopes nothing else sets, as cire-api
 > `pulse/api/src/services/graphBridge.ts` `REGISTERED_SCOPES` and
 > `pulse/api/src/lib/outbound-arc.ts` `ALLOWED_SCOPES` in lockstep.
 
-### Cross-process revocation window (X4)
+### Cross-process revocation window
 
 Revocation is immediate *in the process that performs it* (it calls `evictPublicKeyCacheEntry(kid)`). Other processes that have already cached the key keep serving it until their own `publicKeyCache` entry expires — at most one cache TTL.
 
 - TTL defaults to **300 s** and is overridable via the `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS` env var (kept finite; a lower value shrinks the window at the cost of more DB lookups).
 - So the **worst-case cross-process revocation latency is ≤ the configured TTL (≤5 min by default)**. The DB row is updated synchronously, so a process with a cold/expired cache rejects the revoked key immediately — only warm caches on *other* nodes lag.
-- A fan-out that evicts `(kid)` in every process and isolate on revoke (closing this window to ~0) is an open issue in `englishstreetventures/osn`.
+- A fan-out that evicts `(kid)` in every process and isolate on revoke (closing this window to ~0) is englishstreetventures/osn#693.
 
-## Issuer binding (X1)
+## Issuer binding
 
 `verifyArcToken` accepts an optional `expectedIssuer`. When supplied, jose enforces that the signed `iss` claim equals it. The OSN ARC middleware (`requireArc`) passes the issuer it resolved the key for (`peeked.iss`), so the signed `iss` is **cryptographically** bound to the `kid`→issuer DB mapping, not just checked via the DB lookup. A token whose signed `iss` differs from the service its `kid` is registered under is rejected at verification.
 
@@ -362,7 +362,7 @@ Zap's in-memory registry (`zap/api/src/lib/arc-middleware.ts`) also passes the r
 
 `expectedIssuer` is **optional** for backward compatibility — omitting it leaves `iss` unenforced (existing crypto-level behaviour).
 
-## Token cache key (X3)
+## Token cache key
 
 The in-process token cache key is `kid:iss:aud:canonical(scope):ttl`:
 

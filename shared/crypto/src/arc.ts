@@ -92,7 +92,7 @@ export async function createArcToken(
  * @param publicKey - The issuer's public key
  * @param expectedAudience - The service ID that this token should be addressed to
  * @param requiredScope - If provided, the token must include this scope
- * @param expectedIssuer - If provided, the token's `iss` claim must match (X1).
+ * @param expectedIssuer - If provided, the token's `iss` claim must match.
  *   Receivers should pass the service-account issuer the public key was
  *   resolved for, so jose cryptographically binds the signed `iss` to the
  *   kid→issuer DB mapping. Optional for backward compatibility with callers
@@ -121,7 +121,7 @@ export async function verifyArcToken(
       // for no real drift benefit.
       requiredClaims: ["exp", "iat", "iss", "aud"],
     };
-    // X1: when expectedIssuer is set, jose enforces `iss` matches —
+    // When expectedIssuer is set, jose enforces that `iss` matches —
     // cryptographically binding the signed issuer to the kid→issuer DB row.
     if (expectedIssuer) verifyOptions.issuer = expectedIssuer;
     const { payload } = await jwtVerify(token, publicKey, verifyOptions).catch((cause) => {
@@ -166,14 +166,14 @@ export async function verifyArcToken(
 /**
  * In-memory cache for resolved CryptoKeys.
  * `allowedScopes` is stored as a pre-parsed `Set<string>` to avoid
- * re-splitting the comma string on every cache-hit scope check (P-W2).
+ * re-splitting the comma string on every cache-hit scope check.
  */
 const publicKeyCache = new Map<
   string,
   { key: CryptoKey; allowedScopes: Set<string>; expiresAt: number }
 >();
 /**
- * Access order for LRU eviction (P-W1).
+ * Access order for LRU eviction.
  * Updated on every cache hit; scanned only at insert time (DB-miss path).
  * Avoids the Map delete+re-insert on the hot cache-hit path.
  *
@@ -204,13 +204,13 @@ function touchPublicKey(key: string): void {
 const pkCacheKey = (issuer: string, kid: string): string => `${issuer}\n${kid}`;
 
 /**
- * Public-key cache TTL (seconds). Bounds the cross-process key-revocation
- * window (X4): an in-process call to `evictPublicKeyCacheEntry(kid)` on the
- * revoking node is immediate (S-H100), but *other* nodes that already cached
- * the key keep serving it until their own entry expires — at most this TTL.
+ * Public-key cache TTL (seconds). Bounds how long a revoked key keeps
+ * verifying: `evictPublicKeyCacheEntry(kid)` on the revoking isolate takes
+ * effect at once, but *other* isolates that already cached the key keep
+ * serving it until their own entry expires — at most this TTL.
  * Overridable via `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS`; defaults to 300 (5 min).
- * A finite, conservative default is the trade-off for not yet having a
- * cross-node eviction fan-out (an open issue in `englishstreetventures/osn`).
+ * A finite, conservative default is the trade-off for having no eviction
+ * across isolates (englishstreetventures/osn#693).
  * It also bounds how long an isolate keeps a key's old scopes after the
  * service's scopes change, which is why osn-api's scope renewal reports it.
  */
@@ -240,7 +240,7 @@ export const resolvePublicKey = (
     const now = Math.floor(Date.now() / 1000);
 
     // Cache hit path — validate scopes against stored allowedScopes so we
-    // never skip scope enforcement even when tokenScopes is omitted (S-M102).
+    // never skip scope enforcement even when tokenScopes is omitted.
     const pkKey = pkCacheKey(issuer, kid);
     const cached = publicKeyCache.get(pkKey);
     if (cached && cached.expiresAt > now) {
@@ -255,14 +255,14 @@ export const resolvePublicKey = (
           }
         }
       }
-      // LRU touch (P-W1). Side-map write is O(1) and avoids Map
+      // LRU touch. Side-map write is O(1) and avoids Map
       // delete+re-insert on the hot cache-hit path.
       touchPublicKey(pkKey);
       metricArcPublicKeyCacheHit(issuer);
       return cached.key;
     }
 
-    // S-C2: do NOT record the miss metric yet — `kid` and `issuer` are
+    // Do NOT record the miss metric yet — `kid` and `issuer` are
     // attacker-controlled (unverified JWT fields). Defer until the DB
     // lookup confirms the key exists and belongs to the issuer.
     const { db } = yield* Db;
@@ -322,8 +322,8 @@ export const resolvePublicKey = (
     });
 
     // Cache the resolved CryptoKey. Store allowedScopes as a Set for O(1)
-    // hit-path scope checks (P-W2). LRU eviction scans the access-order map
-    // to find the least-recently-used entry (P-W1) — O(n) but only on the
+    // hit-path scope checks. LRU eviction scans the access-order map
+    // to find the least-recently-used entry — O(n) but only on the
     // slow DB-miss path.
     if (publicKeyCache.size >= _publicKeyCacheMaxSize) {
       let lruKid: string | undefined;
@@ -365,7 +365,7 @@ export function clearPublicKeyCache(): void {
  * only, and the cache is now keyed on `(issuer, kid)`, so we resolve the issuer
  * side by suffix. O(n) over a ≤256-entry cache, and only on the rare
  * revocation path. Call immediately after revoking a key so the revocation
- * takes effect in this process without waiting for the cache TTL (S-H100).
+ * takes effect in this process without waiting for the cache TTL.
  */
 export function evictPublicKeyCacheEntry(kid: string): void {
   const suffix = `\n${kid}`;
@@ -420,12 +420,12 @@ const tokenLastAccess = new Map<string, number>();
 /**
  * Canonicalises a comma-separated scope string the same way it is normalised
  * at signing time (`normaliseScopes` in ./jwk: trim + lowercase + drop empties,
- * joined back with commas). Used for the token cache key (X3) so that
+ * joined back with commas). Used for the token cache key so that
  * semantically-identical scope strings (e.g. " Graph:Read " vs "graph:read")
  * map to the same cache entry — matching the value that `signArcToken` (via
  * `createArcToken`) actually signs.
  *
- * NOTE (X3): scopes are NOT sorted. "graph:read,graph:write" and
+ * NOTE: scopes are NOT sorted. "graph:read,graph:write" and
  * "graph:write,graph:read" remain distinct cache keys because they also sign
  * distinct `scope` claims (the signer preserves order). Sorting would collapse
  * those into one entry but would change the signed claim ordering too — so it
@@ -436,9 +436,9 @@ function canonicaliseScope(raw: string): string {
 }
 
 /**
- * Builds the token-cache key. Includes `ttl` (X3) so a token requested with a
+ * Builds the token-cache key. Includes `ttl` so a token requested with a
  * shorter TTL never reuses a longer-lived cached entry whose remaining life
- * exceeds the caller's intent. The scope is canonicalised (X3) — same
+ * exceeds the caller's intent. The scope is canonicalised — same
  * normalisation the signer applies — so cache hits line up with what is
  * actually signed and minor formatting differences don't fork the cache.
  * Scope is NOT sorted; see {@link canonicaliseScope}.
@@ -450,7 +450,7 @@ function cacheKey(kid: string, iss: string, aud: string, scope: string, ttl: num
 /**
  * Returns a cached ARC token if it's still valid (with 30s buffer),
  * or creates a new one. The cache is bounded to MAX_CACHE_SIZE entries;
- * expired entries are evicted at most once per 30 seconds (P-W102).
+ * expired entries are evicted at most once per 30 seconds.
  */
 export async function getOrCreateArcToken(
   privateKey: CryptoKey,
@@ -462,7 +462,7 @@ export async function getOrCreateArcToken(
   const key = cacheKey(claims.kid, claims.iss, claims.aud, claims.scope, ttl);
   const now = Math.floor(Date.now() / 1000);
 
-  // Debounced eviction — avoid O(n) scan on every outbound S2S request (P-W102).
+  // Debounced eviction — avoid O(n) scan on every outbound S2S request.
   maybeSweepExpiredTokens();
 
   const cached = tokenCache.get(key);
@@ -475,7 +475,7 @@ export async function getOrCreateArcToken(
   metricArcTokenCacheMiss(claims.iss);
   const token = await createArcToken(privateKey, claims, ttl);
 
-  // Enforce max cache size — evict LRU entry if full (P-I2).
+  // Enforce max cache size — evict LRU entry if full.
   if (tokenCache.size >= MAX_CACHE_SIZE) {
     let lruKey: string | undefined;
     let lruTime = Infinity;
@@ -511,7 +511,7 @@ const EVICTION_DEBOUNCE_MS = 30_000; // internal sweep at most once every 30 s
 /**
  * Internal debounced sweep — called by getOrCreateArcToken on every access
  * but runs at most once per 30 s to avoid O(n) scanning on the hot S2S
- * request path (P-W102).
+ * request path.
  */
 function maybeSweepExpiredTokens(): void {
   const nowMs = Date.now();
