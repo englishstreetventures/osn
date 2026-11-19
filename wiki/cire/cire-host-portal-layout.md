@@ -367,7 +367,7 @@ component was previously reading a container it did not live in.
     narrower than its columns.
 - **Households** (`GuestTable`) — one group and one table per household under
   one head strip, each household's bar held while it is on screen; below a
-  46rem panel the rows stack and the household's actions go behind a "⋯". One
+  47rem panel the rows stack and the household's actions go behind a "⋯". One
   menu serves the list, opened from whichever "⋯" was pressed, and the bar's
   icons and state marks share the shell's one tooltip panel (`TipLayer` in
   `ActionTip.tsx`), so 300 households mount no popup of their own.

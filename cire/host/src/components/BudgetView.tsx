@@ -14,6 +14,7 @@ import {
   useDragDropContext,
 } from "@shared/sortable";
 import { Checkbox } from "@shared/ui/ui/checkbox";
+import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -36,6 +37,7 @@ import {
 } from "../lib/budget-store";
 import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
+import { optionalLabel } from "../lib/optional-label";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { patchBudgetTotal } from "../lib/settings-store";
 import { sameButOrder } from "../lib/sortable-rows";
@@ -665,7 +667,9 @@ export default function BudgetView(props: BudgetViewProps) {
             />
           </Show>
           <Field
-            label={newPerHead() && perHeadSupported() ? "Price per head" : "Estimate (optional)"}
+            label={
+              newPerHead() && perHeadSupported() ? "Price per head" : optionalLabel("Estimate")
+            }
             class="w-32"
           >
             {(field) => (
@@ -688,7 +692,16 @@ export default function BudgetView(props: BudgetViewProps) {
 
       <Show
         when={hasItems()}
-        fallback={<p class="text-text-muted text-ui-sm italic">No budget items yet.</p>}
+        fallback={
+          <EmptyState
+            title="No budget items yet"
+            description={
+              props.canEdit
+                ? "Add the first above: the venue, the caterer, the band. Each takes an estimate now and quotes and payments as they come."
+                : "The wedding's owners and editors add its costs here."
+            }
+          />
+        }
       >
         {/* Categories pair up on a wide panel. The minimum is generous (32rem)
             because a budget row carries a name plus three money cells and the

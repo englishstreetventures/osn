@@ -850,7 +850,7 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   await logged(
     "budget, first visit",
     "budget",
-    { selector: "p", text: "No budget items yet." },
+    { selector: "p", text: "No budget items yet" },
     toModule("Budget"),
   );
   await logged("checklist, second visit", "", STARTER_BUTTON, toModule("Checklist"));

@@ -876,7 +876,7 @@ async function budgetSteps(flow: Flow, page: Page): Promise<void> {
 
   await flow.step("open Money Wedding's budget", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/budget`);
-    await expect(page.getByText("No budget items yet.")).toBeVisible();
+    await expect(page.getByText("No budget items yet", { exact: true })).toBeVisible();
   });
 
   const added = await flow.step("add a venue line with an estimate", async () => {
@@ -990,7 +990,7 @@ async function budgetSteps(flow: Flow, page: Page): Promise<void> {
     await page.mouse.move(0, 0);
     await page.clock.runFor(UNDO_WINDOW_MS + 1_000);
     const status = (await answered).status();
-    await expect(page.getByText("No budget items yet.")).toBeVisible();
+    await expect(page.getByText("No budget items yet", { exact: true })).toBeVisible();
     return { during, status };
   });
   flow.check(

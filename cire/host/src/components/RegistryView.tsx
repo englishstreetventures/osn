@@ -14,6 +14,7 @@ import {
   useDragDropContext,
 } from "@shared/sortable";
 import { Chip } from "@shared/ui/ui/chip";
+import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -30,6 +31,7 @@ import {
   minorToInput,
   parseMinor,
 } from "../lib/money";
+import { optionalLabel } from "../lib/optional-label";
 import { CIRE_MARKETING_URL } from "../lib/osn";
 import {
   ensureRegistryLoaded,
@@ -1086,7 +1088,7 @@ export default function RegistryView(props: RegistryViewProps) {
                   />
                 )}
               </Field>
-              <Field label="Description (optional)" class="w-full">
+              <Field label={optionalLabel("Description")} class="w-full">
                 {(field) => (
                   <Textarea
                     {...field}
@@ -1112,7 +1114,7 @@ export default function RegistryView(props: RegistryViewProps) {
                       />
                     )}
                   </Field>
-                  <Field label="Price (optional)" class="w-28">
+                  <Field label={optionalLabel("Price")} class="w-28">
                     {(field) => (
                       <Input
                         size="form"
@@ -1144,7 +1146,7 @@ export default function RegistryView(props: RegistryViewProps) {
                       />
                     )}
                   </Field>
-                  <Field label="Link (optional)" class="w-56">
+                  <Field label={optionalLabel("Link")} class="w-56">
                     {(field) => (
                       <Input
                         size="form"
@@ -1172,7 +1174,7 @@ export default function RegistryView(props: RegistryViewProps) {
               </Field>
               {/* The couple's own planning number. Guests never see it, nor
                   how much has come in. */}
-              <Field label="Goal (optional)" class="w-32">
+              <Field label={optionalLabel("Goal")} class="w-32">
                 {(field) => (
                   <Input
                     size="form"
@@ -1187,7 +1189,7 @@ export default function RegistryView(props: RegistryViewProps) {
                   />
                 )}
               </Field>
-              <Field label="What it’s for (optional)" class="w-full">
+              <Field label={optionalLabel("What it’s for")} class="w-full">
                 {(field) => (
                   <Textarea
                     {...field}
@@ -1227,7 +1229,16 @@ export default function RegistryView(props: RegistryViewProps) {
 
         <Show
           when={items().length > 0}
-          fallback={<p class="text-text-muted text-ui-sm italic">No gifts on the list yet.</p>}
+          fallback={
+            <EmptyState
+              title="No gifts on the list yet"
+              description={
+                props.canEdit
+                  ? "Add the first above: a gift to reserve, a group gift, or a cash fund."
+                  : "The wedding's owners and editors add gifts here."
+              }
+            />
+          }
         >
           <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
             <DragDropSensors />

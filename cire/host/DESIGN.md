@@ -1987,6 +1987,23 @@ end-to-end flow shoots the `warn` banner, for each reason, at 390 and 1280px in
 both ramps and the `danger` one at 1280px, and clears the banner by saving a
 fix.
 
+### An optional field, and an empty list
+
+**An optional field says so in lower case.** A field's label is spaced small
+caps; "(optional)" after it is `optionalLabel` (`src/lib/optional-label.tsx`):
+the same words at the body's tracking, in lower case. Written into the caps,
+"PRICE (OPTIONAL)" doubled a short label and wrapped in an add form's narrow
+column, setting that field's label a line above its neighbours'. The label's
+accessible name is unchanged.
+
+**An empty list is an `EmptyState`, not an italic line.** The budget's items,
+the gift list and a checklist with no task at all draw `@shared/ui`'s
+`EmptyState`: a title, one sentence on how to fill it, a dashed box. A
+checklist with no tasks draws one, not one per lead-time bucket; its buckets
+stay mounted under it, hidden, because each holds its sortable list. A bucket
+empty beside others that are not says "Nothing due in this window." in the
+muted ink, upright.
+
 ### Two rules that apply to all of them
 
 **Anything spread onto an element takes `SafeProps`.** Solid's `HTMLAttributes`
@@ -2302,7 +2319,7 @@ Measured with the third phone row, the phone RSVP stack is 185px of its 200.
 
 **One variant, chosen by the panel.** A view names the narrowest panel its wide
 layout fits — the RSVP table's columns and 7rem of Dietary, 45rem for an editor
-and 37rem for a viewer; the households' tables, 46rem (40rem without the
+and 37rem for a viewer; the households' tables, 47rem (41rem without the
 Plus-one column) — and draws its narrow layout below it, coming back only a rem
 above it (`createCompact` in `ViewBar.tsx`). One variant is drawn, never both
 hidden by CSS. Narrow, guest rows stack as blocks and nothing scrolls sideways.
