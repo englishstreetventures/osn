@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-20
 ---
 
 # DSAR Runbook
@@ -261,7 +261,10 @@ owners, each with an `owner` seat. Two consequences:
   `20261118180052`), so a refund or dispute on it still reaches the gift. An
   erasure leaves that column, as it leaves the account on the settings row:
   it is the couple's record of where each gift's money went, and it goes with
-  the gift when the guest-data sweep deletes it ([[retention]]).
+  the gift when the guest-data sweep deletes it ([[retention]]). A retired
+  account's record (`registry_retired_accounts`, migration `20261119132712`)
+  holds no profile id, so no access or erasure request reaches it; it goes
+  with the wedding.
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a
   right is the responsibility of the wedding's owners as **joint
   controllers** (cire is their processor — see [[data-map]]). Route guest
