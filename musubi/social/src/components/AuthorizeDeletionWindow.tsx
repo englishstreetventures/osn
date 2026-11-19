@@ -13,8 +13,9 @@ import DeletionWindow, { type DeletionWindowApp } from "./DeletionWindow";
  * mounts its own: on the page's one runtime, so the two share one session
  * cache and one `/token` grant. Its first load trades the session cookie for a
  * token (`POST /token`), which renews the cookie the consent calls read; a
- * keep then renews it onto the ordinary audience once, and lists the
- * account's profiles once as it does, before the page moves on to consent.
+ * keep then renews it onto the ordinary audience once before the page moves
+ * on to consent. It lists no profiles: the screen shows none, and the
+ * consent context lists them for the page.
  */
 export function AuthorizeDeletionWindow(props: {
   app: DeletionWindowApp;
@@ -22,7 +23,7 @@ export function AuthorizeDeletionWindow(props: {
   onSignedOut: () => void;
 }) {
   return (
-    <AuthProvider auth={osnAuth}>
+    <AuthProvider auth={osnAuth} listProfiles={false}>
       <DeletionWindow app={props.app} onKept={props.onKept} onSignedOut={props.onSignedOut} />
     </AuthProvider>
   );

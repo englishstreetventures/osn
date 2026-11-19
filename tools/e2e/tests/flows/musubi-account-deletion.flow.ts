@@ -449,6 +449,7 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     (await cookieNamed(context, ORIGINS.cireApi, "cire_org_session")) !== undefined,
   );
 
+  const listsBeforeKeep = flow.count("GET osn-api /profiles/list");
   await flow.step("keep the account on /authorize, then allow cire", async () => {
     await page.getByRole("button", { name: "Keep my account" }).click();
     await page.getByRole("button", { name: "Use passkey" }).click();
@@ -457,6 +458,13 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   });
   await mailFor(P.email, (m) => m.subject === "Your Musubi account will not be deleted");
   flow.check("kept on /authorize, the account is live again", true, deletedAt() === null);
+  // The consent context lists the profiles for the page; the deletion
+  // screen's own session lists none, before the keep or after it.
+  flow.check(
+    "the keep on /authorize lists no profiles",
+    0,
+    flow.count("GET osn-api /profiles/list") - listsBeforeKeep,
+  );
   flow.check("cire's two legs went from the flow's own address", 2, cireLegs.sent());
   const organiserCookie = await cookieNamed(context, ORIGINS.cireApi, "cire_org_session");
   flow.check("signed in to cire after the keep", true, organiserCookie !== undefined);

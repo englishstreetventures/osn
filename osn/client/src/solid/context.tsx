@@ -102,11 +102,18 @@ interface AuthProviderProps extends ParentProps {
    * Read once, at mount.
    */
   auth: OsnAuthRuntime;
+  /**
+   * Whether this provider lists the account's profiles. Defaults to true.
+   * False for a screen that shows no profile, so it sends no `/profiles/list`
+   * whatever its session does: `profiles` stays null. Read once, at mount.
+   */
+  listProfiles?: boolean;
 }
 
 export function AuthProvider(props: AuthProviderProps) {
   // Read once: the runtime lives as long as the page.
   const runtime = props.auth;
+  const listsProfiles = props.listProfiles !== false;
   const run = runtime.run;
 
   // On mount this calls loadSession (not getSession): when there is no stored
@@ -146,10 +153,11 @@ export function AuthProvider(props: AuthProviderProps) {
   const hasSession = createMemo(() =>
     !session.error && session() && !pendingDeletion() ? true : null,
   );
+  const listable = createMemo(() => (listsProfiles ? hasSession() : null));
   const [profiles, { mutate: mutateProfiles, refetch: refetchProfileList }] = createResource<
     PublicProfile[] | null,
     true
-  >(hasSession, async (_, info) => {
+  >(listable, async (_, info) => {
     const epoch = profilesEpoch;
     try {
       const list = await run(Effect.flatMap(OsnAuth, (auth) => auth.listProfiles()));
