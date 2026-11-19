@@ -528,4 +528,24 @@ describe("maintenanceSweeps.purgeDeletedWeddings — a deleted wedding with no o
     expect((await purge(db)).purged).toBe(0);
     expect(exists(db, "wed_live")).toBe(true);
   });
+
+  it("logs the deleter of a wedding with an owner, and never of one with none", async () => {
+    // Red on the purge log naming the profile an account erasure recorded as
+    // the deleter: between the erasure's first call and the one that finishes,
+    // that profile is the erased person's.
+    const db = makeDb();
+    seedWedding(db, "wed_owned", daysAgo(8));
+    seedWedding(db, "wed_noowner", daysAgo(1));
+    ownerless(db, "wed_noowner");
+    db.run(
+      sql.raw(
+        "UPDATE weddings SET deleted_by_osn_profile_id = 'usr_being_erased' WHERE id = 'wed_noowner'",
+      ),
+    );
+    const logs = await captureLogs(async () => {
+      expect((await purge(db)).purged).toBe(2);
+    });
+    expect(logs).toContain("usr_owner_wed_owned");
+    expect(logs).not.toContain("usr_being_erased");
+  });
 });

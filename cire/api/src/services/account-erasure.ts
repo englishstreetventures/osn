@@ -15,12 +15,23 @@
  * wedding in cire. At the erasure, the person's seats go, with their RSVP
  * notice rows; a wedding left with no owner is soft-deleted in the same batch,
  * whatever was answered, so an erasure always finishes and no wedding is left
- * without an owner. The purge takes a deleted wedding with no owner at once.
+ * without an owner. The purge takes a deleted wedding with no owner at once,
+ * unless it holds it ({@link purgeHeld}).
  *
  * **Everything else, once per account.** Seats below owner, notice rows,
  * organiser sessions, guest account links, Stripe OAuth states and the
  * profile's budget rows are deleted; every column that names one of the
  * profiles is cleared ({@link DELETED_PROFILE}).
+ *
+ * **What it answers it keeps.** The soft delete names the profile whose owner
+ * seat it took as the wedding's deleter, so the call that finishes can find
+ * the weddings every call of the erasure deleted. That call counts those the
+ * purge still holds, answers them as one kept item ({@link keptItems}), and
+ * clears the deleter with every other column that names the person: once it
+ * answers done, no record names them. Two limits follow. A repeat after
+ * osn-api lost that answer reports nothing kept. A wedding someone else
+ * deleted and then left to the person alone names no profile of theirs, so it
+ * is not counted.
  *
  * **Safe to repeat.** Each wedding the person owns is one D1 batch, at most
  * {@link MAX_OWNED_WEDDINGS_PER_CALL} a call; a call that leaves more answers
@@ -48,14 +59,16 @@ import {
   weddingUpgradePurchases,
 } from "@cire/db";
 import { jsonEachIn } from "@shared/db-utils";
-import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, outerColumn } from "../db";
+import { epochSeconds } from "../db/live-wedding";
 import { metricAccountDeletionWedding } from "../metrics";
 import { archivePageOf, linkOrigin } from "./account-export";
+import { noOwnerLeft, purgeHeld } from "./maintenance-sweeps";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -74,7 +87,7 @@ export const DELETED_PROFILE = "deleted";
 /**
  * Weddings the person owns that one erasure call takes, each its own batch.
  * Counting every statement singly, a call makes at most 1 (the read of owned
- * weddings) + 3 per wedding + 21 (the account's clean-up), inside the 50 D1
+ * weddings) + 3 per wedding + 22 (the account's clean-up), inside the 50 D1
  * queries one Worker invocation may make on Workers Free.
  */
 export const MAX_OWNED_WEDDINGS_PER_CALL = 3;
@@ -120,6 +133,24 @@ export interface KeptItem {
 export type ErasureResult =
   | { readonly status: "done"; readonly kept: ReadonlyArray<KeptItem> }
   | { readonly status: "not_finished" };
+
+/**
+ * What cire keeps once the erasure is done: the deleted weddings the purge
+ * still holds, as one item however many there are, so the answer stays inside
+ * the contract's 100 items. The words name no wedding, since a wedding's name
+ * usually names the couple, so another person, and the answer is stored by
+ * osn-api as well as mailed. No date: the purge runs once a day, takes a few
+ * weddings a run, and a pending gift can become a dispute, which holds with no
+ * end. No link: cire-api knows no address of the hosts' privacy notice.
+ */
+const keptItems = (heldWeddings: number): ReadonlyArray<KeptItem> => {
+  if (heldWeddings <= 0) return [];
+  const what =
+    heldWeddings === 1
+      ? "A deleted wedding you owned, kept until a payment or gift for it settles, then erased in Cire's daily clean-up."
+      : `${heldWeddings} deleted weddings you owned, each kept until a payment or gift for it settles, then erased in Cire's daily clean-up.`;
+  return [{ what, erasedOn: null, requestUrl: null }];
+};
 
 /** What one call did to a wedding a profile of the account owned. */
 export interface OwnedOutcome {
@@ -257,13 +288,14 @@ interface EraseInput {
 
 /**
  * One wedding a profile of the account owns, in one batch: the wedding is
- * soft-deleted, with no one named as its deleter, only if no owner outside
- * the account's profiles holds a seat; then the profiles' notice rows and
- * seats go. The delete and the seats commit together on D1, and the delete
- * comes first so that a driver running the statements one at a time still
- * never leaves a live wedding without an owner. A wedding already deleted
- * only loses the seats. Each statement is guarded, so a repeat changes
- * nothing.
+ * soft-deleted only if no owner outside the account's profiles holds a seat,
+ * naming as its deleter the profile whose owner seat it is, which the call
+ * that finishes reads and then clears (see the module comment); then the
+ * profiles' notice rows and seats go. The delete and the seats commit
+ * together on D1, and the delete comes first so that a driver running the
+ * statements one at a time still never leaves a live wedding without an
+ * owner. A wedding already deleted only loses the seats. Each statement is
+ * guarded, so a repeat changes nothing.
  */
 function eraseOwnedWedding(
   weddingId: string,
@@ -277,7 +309,10 @@ function eraseOwnedWedding(
         commitBatchResults(db, [
           db
             .update(weddings)
-            .set({ deletedAt: now, deletedByOsnProfileId: null })
+            .set({
+              deletedAt: now,
+              deletedByOsnProfileId: sql`(SELECT ${weddingHosts.osnProfileId} FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} = 'owner' AND ${inProfiles(weddingHosts.osnProfileId, profileIds)} ORDER BY ${weddingHosts.createdAt}, ${weddingHosts.id} LIMIT 1)`,
+            })
             .where(
               and(
                 eq(weddings.id, weddingId),
@@ -341,20 +376,26 @@ const clearedIn = (column: AnySQLiteColumn, profiles: ReadonlyArray<string>, to:
  * household's own change), and those that cannot be NULL to
  * {@link DELETED_PROFILE}. An
  * enquiry the person opened that no chat ever took is deleted, which frees the
- * wedding to enquire with that vendor again. Then a count of the owner seats
- * the profiles still hold (one made owner since the call's first read), which
- * the call must take first.
+ * wedding to enquire with that vendor again. Before the columns are cleared,
+ * a count of the deleted weddings with no owner left whose deleter is one of
+ * the profiles and that the purge holds: what the erasure answers it keeps.
+ * A wedding's deleter is cleared only once no owner seat of the profiles is
+ * left, so a call that answers not finished leaves it for the next one to
+ * count. Last, a count of the owner seats the profiles still hold (one made
+ * owner since the call's first read), which the call must take first.
  *
  * Most of these UPDATEs scan their table: the columns are not indexed, and
  * they can name the person on weddings they left long ago. It runs once per
  * account, on the call that finishes.
  */
-function eraseAccountRows(input: EraseInput) {
+function eraseAccountRows(input: EraseInput, now: Date) {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const p = input.profileIds;
     const host = input.scope === "host";
     const ownerSeatOfRow = sql`EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${outerColumn(hostRsvpNotices.weddingId)} AND ${weddingHosts.osnProfileId} = ${outerColumn(hostRsvpNotices.osnProfileId)} AND ${weddingHosts.role} = 'owner')`;
+    // True once this call has taken every owner seat of the profiles.
+    const noOwnerSeatLeft = sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${inProfiles(weddingHosts.osnProfileId, p)} AND ${weddingHosts.role} = 'owner')`;
 
     const results = yield* Effect.tryPromise({
       try: () =>
@@ -366,17 +407,24 @@ function eraseAccountRows(input: EraseInput) {
             .delete(weddingHosts)
             .where(and(inProfiles(weddingHosts.osnProfileId, p), ne(weddingHosts.role, "owner")))
             .returning({ weddingId: weddingHosts.weddingId }),
+          // Read before the deleter is cleared below.
+          db
+            .select({ held: sql<number>`count(*)` })
+            .from(weddings)
+            .where(
+              and(
+                isNotNull(weddings.deletedAt),
+                inProfiles(weddings.deletedByOsnProfileId, p),
+                noOwnerLeft(),
+                purgeHeld(outerColumn(weddings.id), epochSeconds(now), now.getTime()),
+              ),
+            ),
           // Only once no owner seat of the profiles is left: a seat made owner
           // since the call's first read answers not finished, and the person
           // keeps a session to call again with.
           db
             .delete(organiserSessions)
-            .where(
-              and(
-                inProfiles(organiserSessions.osnProfileId, p),
-                sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${inProfiles(weddingHosts.osnProfileId, p)} AND ${weddingHosts.role} = 'owner')`,
-              ),
-            ),
+            .where(and(inProfiles(organiserSessions.osnProfileId, p), noOwnerSeatLeft)),
           // A guest's link to their account: guest data, not the host's, so a
           // host leaving cire keeps it.
           ...(host
@@ -409,7 +457,7 @@ function eraseAccountRows(input: EraseInput) {
             .update(weddings)
             .set({
               updatedByOsnProfileId: clearedIn(weddings.updatedByOsnProfileId, p, null),
-              deletedByOsnProfileId: clearedIn(weddings.deletedByOsnProfileId, p, null),
+              deletedByOsnProfileId: sql`CASE WHEN ${inProfiles(weddings.deletedByOsnProfileId, p)} AND ${noOwnerSeatLeft} THEN NULL ELSE ${weddings.deletedByOsnProfileId} END`,
             })
             .where(
               or(
@@ -531,11 +579,15 @@ function eraseAccountRows(input: EraseInput) {
         ),
       ),
     );
-    const [owned] = results[results.length - 1] as ReadonlyArray<{ owned: number }>;
+    // By position: the lower seats second, the held count third, the owner
+    // seats left last.
     const lower = results[1] as ReadonlyArray<{ weddingId: string }>;
+    const [held] = results[2] as ReadonlyArray<{ held: number }>;
+    const [owned] = results[results.length - 1] as ReadonlyArray<{ owned: number }>;
     return {
       ownerSeatsLeft: Number(owned?.owned ?? 0),
       lowerSeatWeddings: [...new Set(lower.map((row) => row.weddingId))],
+      heldWeddings: Number(held?.held ?? 0),
     };
   }).pipe(Effect.withSpan("cire.account_deletion.cleanup"));
 }
@@ -545,11 +597,12 @@ function eraseAccountRows(input: EraseInput) {
  * person leaves cire as a host (`scope`): each wedding a profile owns
  * ({@link MAX_OWNED_WEDDINGS_PER_CALL} a call, oldest seat first; deleted when
  * no other owner is left), then, once none is left, everything else of the
- * account. cire keeps nothing about the person as a host, so a finished call
- * answers no kept item. Answers `not_finished` while owned weddings remain or
- * a seat was made owner since the first read; the caller calls again. Beside
- * the result, what the call did to each wedding the person owned, for the
- * notices a removal sends.
+ * account. A finished call answers, as kept, the deleted weddings of the
+ * person's the purge still holds ({@link keptItems}); cire keeps nothing else
+ * about them. Answers `not_finished` while owned weddings remain or a seat was
+ * made owner since the first read; the caller calls again. Beside the result,
+ * what the call did to each wedding the person owned, for the notices a
+ * removal sends.
  */
 function eraseWithOutcomes(input: EraseInput): Effect.Effect<
   {
@@ -596,10 +649,16 @@ function eraseWithOutcomes(input: EraseInput): Effect.Effect<
     });
     if (owned.length > MAX_OWNED_WEDDINGS_PER_CALL) return notFinished([]);
 
-    const { ownerSeatsLeft, lowerSeatWeddings } = yield* eraseAccountRows(input);
+    const { ownerSeatsLeft, lowerSeatWeddings, heldWeddings } = yield* eraseAccountRows(input, now);
     if (ownerSeatsLeft > 0) return notFinished(lowerSeatWeddings);
+    yield* Effect.annotateCurrentSpan({ heldWeddings });
+    if (heldWeddings > 0) {
+      yield* Effect.logInfo("account erasure: deleted weddings the purge holds").pipe(
+        Effect.annotateLogs({ held: heldWeddings }),
+      );
+    }
     return {
-      result: { status: "done", kept: [] } as const,
+      result: { status: "done", kept: keptItems(heldWeddings) } as const,
       owned: outcomes,
       lowerSeatWeddings,
     };

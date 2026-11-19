@@ -10,7 +10,7 @@ import {
   weddingHosts,
   weddings,
 } from "@cire/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
@@ -353,8 +353,8 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) wedding(db, `w${i}`, [P]);
     const statements = recordStatements(db);
     expect(await erase(db).result).toEqual({ status: "done", kept: [] });
-    // 1 read of owned weddings + 3 per wedding + 21 in the account's clean-up.
-    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 21);
+    // 1 read of owned weddings + 3 per wedding + 22 in the account's clean-up.
+    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 22);
     expect(statements.length).toBeLessThanOrEqual(50);
   });
 
@@ -585,6 +585,254 @@ function seedAttribution(db: TestDb, weddingId: string, profile: string): void {
     db.run(sql.raw(statement));
   }
 }
+
+// ---------------------------------------------------------------------------
+// Erase: deleted weddings the purge holds, reported as kept
+// ---------------------------------------------------------------------------
+
+/** A second account, erased by nobody in these tests. */
+const OTHER_ACCOUNT_PROFILE = "usr_other_account";
+
+/**
+ * A household and a gift on `weddingId`, with `status`, made `createdAt`: a
+ * `disputed` gift holds the wedding from the purge however old it is, a
+ * `pending` one for 14 days (`PURGE_PENDING_HOLD_S`).
+ */
+function gift(
+  db: TestDb,
+  weddingId: string,
+  status: "pending" | "succeeded" | "disputed",
+  opts: { createdAt?: Date; amountMinor?: number; currency?: string } = {},
+): void {
+  const s = Math.floor((opts.createdAt ?? NOW).getTime() / 1000);
+  const fam = `fam_${weddingId}`;
+  db.run(
+    sql`INSERT OR IGNORE INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES (${fam}, ${weddingId}, ${`CODE-${weddingId}`}, 'Family', ${s}, ${s})`,
+  );
+  db.run(
+    sql`INSERT INTO registry_contributions (id, wedding_id, family_id, status, amount_minor, currency, created_at, updated_at) VALUES (${`rcon_${weddingId}_${status}_${s}`}, ${weddingId}, ${fam}, ${status}, ${opts.amountMinor ?? 5000}, ${opts.currency ?? "AUD"}, ${s}, ${s})`,
+  );
+}
+
+/**
+ * Another account's wedding part-way through its own erasure: deleted, its
+ * deleter that account's profile, no owner left, and a disputed gift holding
+ * it. Nothing of the account under test may count it or change it.
+ */
+function otherAccountsHeldWedding(db: TestDb, id = "w_other_account"): void {
+  wedding(db, id, [], { deletedAt: new Date(NOW.getTime() - DAY_S * 1000) });
+  db.update(weddings)
+    .set({ deletedByOsnProfileId: OTHER_ACCOUNT_PROFILE })
+    .where(eq(weddings.id, id))
+    .run();
+  gift(db, id, "disputed");
+}
+
+const deleterOf = (db: TestDb, id: string) => weddingRow(db, id)?.deletedByOsnProfileId;
+
+/** Erases until the erasure answers done, as osn-api's passes would. */
+async function eraseToDone(db: TestDb) {
+  for (let call = 0; call < 100; call += 1) {
+    const result = await erase(db).result;
+    if (result.status === "done") return result;
+  }
+  throw new Error("the erasure never finished");
+}
+
+const ONE_HELD =
+  "A deleted wedding you owned, kept until a payment or gift for it settles, then erased in Cire's daily clean-up.";
+const manyHeld = (n: number) =>
+  `${n} deleted weddings you owned, each kept until a payment or gift for it settles, then erased in Cire's daily clean-up.`;
+
+describe("accountErasureService.erase — deleted weddings the purge holds", () => {
+  it("reports a wedding it deleted that a disputed gift holds, as one kept item, and no other account's", async () => {
+    const db = makeDb();
+    wedding(db, "w_held", [P]);
+    gift(db, "w_held", "disputed", { createdAt: new Date(NOW.getTime() - 400 * DAY_S * 1000) });
+    otherAccountsHeldWedding(db);
+
+    expect(await erase(db).result).toEqual({
+      status: "done",
+      kept: [{ what: ONE_HELD, erasedOn: null, requestUrl: null }],
+    });
+    expect(weddingRow(db, "w_held")?.deletedAt).toEqual(NOW);
+    // The other account's wedding keeps its own deleter, and its gift.
+    expect(deleterOf(db, "w_other_account")).toBe(OTHER_ACCOUNT_PROFILE);
+    expect(
+      valueOf(db, "registry_contributions", "count(*)", "wedding_id = 'w_other_account'"),
+    ).toBe(1);
+  });
+
+  it("a pending gift holds it for 14 days; a settled gift or an older pending one does not", async () => {
+    const db = makeDb();
+    wedding(db, "w_recent", [P]);
+    gift(db, "w_recent", "pending", { createdAt: new Date(NOW.getTime() - 13 * DAY_S * 1000) });
+    wedding(db, "w_aged", [P]);
+    gift(db, "w_aged", "pending", { createdAt: new Date(NOW.getTime() - 15 * DAY_S * 1000) });
+    wedding(db, "w_paid", [P]);
+    gift(db, "w_paid", "succeeded");
+    otherAccountsHeldWedding(db);
+
+    expect(await eraseToDone(db)).toEqual({
+      status: "done",
+      kept: [{ what: ONE_HELD, erasedOn: null, requestUrl: null }],
+    });
+  });
+
+  it("an unheld deleted wedding is not reported", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P]);
+    gift(db, "w1", "succeeded");
+    wedding(db, "w2", [P]);
+    otherAccountsHeldWedding(db);
+    expect(await erase(db).result).toEqual({ status: "done", kept: [] });
+    expect(weddingRow(db, "w1")?.deletedAt).toEqual(NOW);
+    expect(deleterOf(db, "w_other_account")).toBe(OTHER_ACCOUNT_PROFILE);
+  });
+
+  it("a wedding with another owner is never reported, live or deleted by the person", async () => {
+    const db = makeDb();
+    wedding(db, "w_live", [P, OTHER]);
+    gift(db, "w_live", "disputed");
+    wedding(db, "w_deleted", [P, OTHER], { deletedAt: new Date(NOW.getTime() - DAY_S * 1000) });
+    db.update(weddings).set({ deletedByOsnProfileId: P }).where(eq(weddings.id, "w_deleted")).run();
+    gift(db, "w_deleted", "disputed");
+
+    expect(await erase(db).result).toEqual({ status: "done", kept: [] });
+    expect(seatsOf(db, "w_live")).toEqual([{ profile: OTHER, role: "owner" }]);
+    expect(seatsOf(db, "w_deleted")).toEqual([{ profile: OTHER, role: "owner" }]);
+    expect(weddingRow(db, "w_live")?.deletedAt).toBeNull();
+  });
+
+  it("a wedding the person deleted themselves and alone owned, still held, is reported", async () => {
+    const db = makeDb();
+    const deletedAt = new Date(NOW.getTime() - 2 * DAY_S * 1000);
+    wedding(db, "w_mine", [P], { deletedAt });
+    db.update(weddings).set({ deletedByOsnProfileId: P }).where(eq(weddings.id, "w_mine")).run();
+    gift(db, "w_mine", "disputed");
+    otherAccountsHeldWedding(db);
+
+    expect(await erase(db).result).toEqual({
+      status: "done",
+      kept: [{ what: ONE_HELD, erasedOn: null, requestUrl: null }],
+    });
+    expect(weddingRow(db, "w_mine")?.deletedAt).toEqual(deletedAt);
+  });
+
+  it("reports the held weddings every call of a split erasure deleted, in one item", async () => {
+    const db = makeDb();
+    const count = MAX_OWNED_WEDDINGS_PER_CALL + 1;
+    for (let i = 0; i < count; i += 1) {
+      wedding(db, `w${i}`, [P]);
+      gift(db, `w${i}`, "disputed");
+    }
+    wedding(db, "w_free", [P]);
+    otherAccountsHeldWedding(db);
+
+    expect(await erase(db).result).toEqual({ status: "not_finished" });
+    expect(await eraseToDone(db)).toEqual({
+      status: "done",
+      kept: [{ what: manyHeld(count), erasedOn: null, requestUrl: null }],
+    });
+    expect(deleterOf(db, "w_other_account")).toBe(OTHER_ACCOUNT_PROFILE);
+  });
+
+  it("past a hundred held weddings the answer is still one item, inside the contract's 500 characters", async () => {
+    const db = makeDb();
+    for (let i = 0; i < 101; i += 1) {
+      const id = `w${String(i).padStart(3, "0")}`;
+      wedding(db, id, [P]);
+      gift(db, id, "disputed");
+    }
+    const result = await eraseToDone(db);
+    expect(result).toEqual({
+      status: "done",
+      kept: [{ what: manyHeld(101), erasedOn: null, requestUrl: null }],
+    });
+    expect(manyHeld(101).length).toBeLessThanOrEqual(500);
+  });
+
+  it("the kept item names no wedding, no person and no amount", async () => {
+    const db = makeDb();
+    wedding(db, "w_named", [P, P2], { name: "Alice Ng & Bob Smith" });
+    seat(db, "w_named", EDITOR, "editor", P);
+    gift(db, "w_named", "disputed", { amountMinor: 12_345, currency: "GBP" });
+    const result = await erase(db, { profileIds: [P, P2] }).result;
+    expect(result.status).toBe("done");
+    const [item] = result.status === "done" ? result.kept : [];
+    expect(item?.what).toBe(ONE_HELD);
+    for (const text of ["Alice", "Bob", "w_named", P, P2, EDITOR, "12345", "123.45", "£", "GBP"]) {
+      expect(item?.what).not.toContain(text);
+    }
+  });
+
+  it("once done, no wedding names a profile of the account, so a repeat finds nothing to report", async () => {
+    // Red on leaving the person's profile as the deleter after the erasure
+    // answers done: the hosts' privacy notice promises their identifier is
+    // cleared from every record. The cost, a repeat after osn-api lost the
+    // first answer reporting nothing kept, is the limit this pins.
+    const db = makeDb();
+    wedding(db, "w_held", [P, P2]);
+    gift(db, "w_held", "disputed");
+    otherAccountsHeldWedding(db);
+    const first = await erase(db, { profileIds: [P, P2] }).result;
+    expect(first).toEqual({
+      status: "done",
+      kept: [{ what: ONE_HELD, erasedOn: null, requestUrl: null }],
+    });
+    expect(deleterOf(db, "w_held")).toBeNull();
+    expect(
+      await erase(db, { profileIds: [P, P2], now: new Date(NOW.getTime() + 60_000) }).result,
+    ).toEqual({ status: "done", kept: [] });
+    expect(deleterOf(db, "w_other_account")).toBe(OTHER_ACCOUNT_PROFILE);
+  });
+
+  it("a call that a seat made owner leaves not finished keeps the deleter, and the next call reports it", async () => {
+    const db = makeDb();
+    wedding(db, "w_held", [P]);
+    gift(db, "w_held", "disputed");
+    wedding(db, "w_promoted", [OTHER]);
+    seat(db, "w_promoted", P, "editor", OTHER);
+    // The person is made an owner after the call's first read, before the
+    // account's clean-up runs.
+    beforeStatement(db, /delete from "host_rsvp_notices" where .*NOT EXISTS/i, () => {
+      db.update(weddingHosts)
+        .set({ role: "owner" })
+        .where(and(eq(weddingHosts.osnProfileId, P), eq(weddingHosts.weddingId, "w_promoted")))
+        .run();
+    });
+
+    expect(await erase(db).result).toEqual({ status: "not_finished" });
+    expect(deleterOf(db, "w_held")).toBe(P);
+    expect(await erase(db).result).toEqual({
+      status: "done",
+      kept: [{ what: ONE_HELD, erasedOn: null, requestUrl: null }],
+    });
+    expect(deleterOf(db, "w_held")).toBeNull();
+  });
+
+  it("a host leaving cire leaves no wedding naming them, and answers what it holds", async () => {
+    const db = makeDb();
+    wedding(db, "w_held", [P]);
+    gift(db, "w_held", "disputed");
+    otherAccountsHeldWedding(db);
+    const { result } = await run(
+      db,
+      accountErasureService.eraseWithOutcomes({
+        accountId: ACCOUNT,
+        profileIds: [P],
+        now: NOW,
+        scope: "host",
+      }),
+    );
+    expect(result).toEqual({
+      status: "done",
+      kept: [{ what: ONE_HELD, erasedOn: null, requestUrl: null }],
+    });
+    expect(deleterOf(db, "w_held")).toBeNull();
+    expect(deleterOf(db, "w_other_account")).toBe(OTHER_ACCOUNT_PROFILE);
+  });
+});
 
 describe("accountErasureService.erase — the account's own rows and its name on others'", () => {
   it("clears every column that names the person, and only theirs", async () => {
