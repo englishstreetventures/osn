@@ -965,6 +965,9 @@ jobs:
       # job takes its classifier from the base, so a pull request cannot loosen
       # the guard and a count together. The script imports nothing but Bun, so
       # the copy runs from the temporary directory; git reads the checkout.
+      # `--config` with an empty file and `--no-env-file` keep the pull
+      # request's own bunfig.toml (a `preload`) and .env files (`GIT_DIR`)
+      # from running code or redirecting git before the guard starts.
       - name: Check landmines allow counts only fall
         if: github.event_name == 'pull_request'
         run: |
@@ -973,7 +976,8 @@ jobs:
           if git show "$base:$script" > "$RUNNER_TEMP/check-landmines-allowlist.ts" 2>/dev/null; then
             script="$RUNNER_TEMP/check-landmines-allowlist.ts"
           fi
-          bun run "$script" --base "$base"
+          : > "$RUNNER_TEMP/empty-bunfig.toml"
+          bun --no-env-file --config="$RUNNER_TEMP/empty-bunfig.toml" run "$script" --base "$base"
 
       # Every playwright, @playwright/test, vitest and @vitest/* specifier is
       # an exact version, and each group agrees on one.
