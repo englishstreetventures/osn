@@ -323,6 +323,31 @@ describe("legal pages", () => {
   it("the vendors' notice states the age to run a listing", () => {
     expect(flat(vendors)).toMatch(/18 or older/);
   });
+
+  /**
+   * `cire-db` is Cloudflare D1, whose Time Travel restores a database to any
+   * minute of the last 30 days on Workers Paid, the production account's plan
+   * (`wiki/compliance/backup-dr.md`). The notices that say what is deleted
+   * say so.
+   */
+  it("the hosts' and vendors' notices say how long deleted information stays in restore copies", () => {
+    for (const page of [hosts, vendors].map(flat)) {
+      expect(page).toMatch(
+        /Deleted information can stay in our database provider&rsquo;s restore copies for up to 30 days\./,
+      );
+    }
+  });
+
+  /**
+   * Nothing can tell every organiser of a change to the terms: no email
+   * template, operator action or procedure sends one, and the site has no
+   * notice for it. The terms say only that their date changes.
+   */
+  it("the terms promise only that their date changes", () => {
+    const text = flat(terms);
+    expect(text).toMatch(/The &ldquo;last updated&rdquo; date above changes when we do/);
+    expect(text).not.toMatch(/notified on the site|by email before/);
+  });
 });
 
 /** A page's source with every run of whitespace as one space. */

@@ -107,8 +107,9 @@ already enforces some of them; the rest need a sweeper job.
 | Grafana Cloud metrics (none exported yet, englishstreetventures/osn#501) | 30 days (free tier) | Vendor-enforced | OK | Platform |
 | Frontend Faro events | 14 days | Vendor-enforced | OK | Platform |
 | Cloudflare Email delivery logs | Per Cloudflare DPA | Vendor-enforced | Confirm in DPA | Platform |
-| Cloudflare Workers Logs (application logs; invocation records on osn-api only) | 3 days on the Workers Free plan; 7 days from 2026-12-01 | Vendor-enforced | OK | Platform |
+| Cloudflare Workers Logs (application logs; invocation records on osn-api only) | 7 days on Workers Paid, the production account; 3 days on Workers Free, the dev account, and 7 from 2026-12-01 ([[logging]]) | Vendor-enforced | OK | Platform |
 | Cloudflare Workers traces, native and mirrored application spans (production `cire-invites`, every dev tier) | 7 days | Vendor-enforced | OK — contents in [[data-map]] | Platform / Cire |
+| Cloudflare D1 Time Travel history of every D1 database: each row as it stood at any minute, deleted and erased rows included | 30 days on Workers Paid, the production account; 7 days on Workers Free, the dev account. Quoted 2026-11-19 from Cloudflare's [D1 Time Travel documentation](https://developers.cloudflare.com/d1/reference/time-travel/) | Vendor-enforced; always on | OK — Musubi's and Cire's privacy notices state 30 days ([[backup-dr]]) | Platform |
 | DSAR request log | 24 months (CCPA requirement) | DSAR runbook | **TODO** — runbook | Identity |
 | DSA notice-and-action log (Art. 16 reports) | 6 months (Art. 20 internal complaint window) | App code: `moderation_actions` table | **TODO** — DSA notice-and-action work | Pulse + Zap |
 

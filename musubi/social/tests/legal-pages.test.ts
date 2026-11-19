@@ -24,6 +24,34 @@ function flat(source: string): string {
   return source.replace(/\s+/g, " ");
 }
 
+/** The page's text under the heading `heading`, up to the next heading or the end. */
+function section(source: string, heading: string): string {
+  const text = flat(source);
+  const open = `<h2>${heading}</h2>`;
+  const start = text.indexOf(open);
+  expect(start).toBeGreaterThan(-1);
+  const next = text.indexOf("<h2>", start + open.length);
+  return text.slice(start, next === -1 ? undefined : next);
+}
+
+/**
+ * Nothing in the app can flag a change to a notice (`LegalDocument.tsx` reads
+ * `updated` and nothing else), and nothing can email every account: no email
+ * template, operator action or procedure does it. A page that changes says
+ * only that its date changes.
+ */
+describe.each([
+  ["PrivacyPage.tsx", "Changes", /If this changes, the date at the top changes with it\./],
+  ["TermsPage.tsx", "Changes to these terms", /The date at the top changes when we do/],
+] as const)("%s, on its own changes", (page, heading, promise) => {
+  it("promises only that the date at the top changes", () => {
+    const changes = section(readFileSync(join(dir, page), "utf8"), heading);
+    expect(changes).toMatch(promise);
+    expect(changes).not.toMatch(/flagged|in the app/i);
+    expect(changes).not.toMatch(/email/i);
+  });
+});
+
 describe.each(Object.entries(pages))("%s", (page, mailbox) => {
   const source = readFileSync(join(dir, page), "utf8");
 
@@ -70,6 +98,17 @@ describe("PrivacyPage.tsx", () => {
     expect(text).toMatch(/not the handle itself/);
     expect(text).toMatch(/erased once any payment or gift for it has settled/);
     expect(text).not.toMatch(/tombstone/i);
+  });
+
+  /**
+   * The databases are Cloudflare D1, whose Time Travel restores a database to
+   * any minute of the last 30 days on Workers Paid, the production account's
+   * plan (`wiki/compliance/backup-dr.md`).
+   */
+  it("says how long deleted data stays in the restore copies", () => {
+    expect(flat(source)).toMatch(
+      /Deleted data can stay in our database provider&rsquo;s restore copies for up to 30 days\./,
+    );
   });
 
   /** Settings mounts no list of sessions or devices (`SettingsPage.tsx`). */
