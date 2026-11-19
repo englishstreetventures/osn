@@ -324,6 +324,50 @@ function runStep(step: Step, env: Readonly<Record<string, string>>, bunExit = 0)
   };
 }
 
+/**
+ * Runs a `chromium-apt-key` step's script as GitHub runs it (`bash -e`), on a
+ * runner whose image values default to Ubuntu 26.04's and override with
+ * `image`, with a stand-in `bunx` that prints `version` for
+ * `playwright --version`. Returns the lines it wrote to $GITHUB_OUTPUT.
+ */
+function runChromiumAptKey(
+  step: Step | undefined,
+  image: Readonly<Record<string, string>>,
+  version = "Version 1.64.1\n",
+): { readonly exitCode: number; readonly stdout: string; readonly outputs: readonly string[] } {
+  const dir = mkdtempSync(join(tmpdir(), "chromium-apt-key-"));
+  try {
+    writeFileSync(join(dir, "version"), version);
+    writeFileSync(join(dir, "bunx"), `#!/bin/sh\ncat "${join(dir, "version")}"\n`);
+    chmodSync(join(dir, "bunx"), 0o755);
+    const outputs = join(dir, "outputs");
+    writeFileSync(outputs, "");
+    const result = Bun.spawnSync(
+      ["bash", "--noprofile", "--norc", "-e", "-c", step?.run ?? "exit 9"],
+      {
+        cwd: dir,
+        env: {
+          PATH: `${dir}:/usr/bin:/bin`,
+          GITHUB_OUTPUT: outputs,
+          RUNNER_OS: "Linux",
+          ImageOS: "ubuntu26",
+          ImageVersion: "20261111.82.6",
+          ...image,
+        },
+      },
+    );
+    return {
+      exitCode: result.exitCode,
+      stdout: result.stdout.toString(),
+      outputs: readFileSync(outputs, "utf8")
+        .split("\n")
+        .filter((line) => line !== ""),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe("deploy.yml deploys dev only", () => {
   test("runs on a push to main and by hand", () => {
     expect(Object.keys(dev.on).toSorted()).toEqual(["push", "workflow_dispatch"]);
@@ -1011,11 +1055,19 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
     }
   });
 
-  // scripts/install-chromium-system-libraries.sh runs as root on what this
-  // cache restores. A prefix fallback would hand a run the packages saved for
-  // another image or Playwright version, so every step on the cache names one
-  // exact key, and both jobs build it with the same command.
-  test("Chromium's system packages are cached under one exact key, built the same way by the browser legs and the E2E job", () => {
+  // GitHub runs ubuntu-latest on several image builds at once (`20261111.82.6`
+  // on AWS runners beside `20261111.196.1` on Azure ones, 2026-11-19), each
+  // installing the same packages, and evicts a set within hours once no run
+  // reads it. A restore that matched only its own build's key would find
+  // nothing on a build no recent run on main saved, and apt would download
+  // every package from the mirror. So each restore falls back to the newest
+  // set saved for any build of the same OS image, in the run's own branch
+  // first and then in main's; scripts/install-chromium-system-libraries.sh
+  // still moves into apt's archive only the packages the runner's own signed
+  // index names (install-chromium-system-libraries.cli.test.ts), so a set
+  // saved on another build changes how much apt downloads, never what it
+  // installs. The E2E job saves its own build's exact key.
+  test("Chromium's system packages are saved under the image build's own key and restored from any build of the same OS image, both keys built the same way by the browser legs and the E2E job", () => {
     const onCache = Object.entries(ci.jobs).flatMap(([id, job]) =>
       stepsOf(job)
         .filter((step) => step.with?.path === "~/.cache/chromium-apt")
@@ -1031,13 +1083,13 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
         id: "browser",
         uses: "actions/cache/restore@v4",
         key: "${{ steps.chromium-apt-key.outputs.key }}",
-        fallback: undefined,
+        fallback: "${{ steps.chromium-apt-key.outputs.prefix }}",
       },
       {
         id: "e2e",
         uses: "actions/cache/restore@v4",
         key: "${{ steps.chromium-apt-key.outputs.key }}",
-        fallback: undefined,
+        fallback: "${{ steps.chromium-apt-key.outputs.prefix }}",
       },
       {
         id: "e2e",
@@ -1046,12 +1098,51 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
         fallback: undefined,
       },
     ]);
-    const keyed = (id: string) =>
-      stepsOf(ci.jobs[id]).find((step) => step.id === "chromium-apt-key")?.run;
-    expect(keyed("browser")).toContain(
-      "chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-",
+    const keyStep = (id: string) =>
+      stepsOf(ci.jobs[id]).find((step) => step.id === "chromium-apt-key");
+    expect(keyStep("e2e")?.run).toBe(keyStep("browser")?.run);
+
+    const aws = runChromiumAptKey(keyStep("browser"), { ImageVersion: "20261111.82.6" });
+    const azure = runChromiumAptKey(keyStep("browser"), { ImageVersion: "20261111.196.1" });
+    expect([aws.exitCode, azure.exitCode]).toEqual([0, 0]);
+    expect(aws.outputs).toEqual([
+      "key=Linux-chromium-apt-ubuntu26-20261111.82.6-playwright-1.64.1",
+      "prefix=Linux-chromium-apt-ubuntu26-",
+    ]);
+    // A run on one build restores the set the other saved.
+    const value = (outputs: readonly string[], name: string) =>
+      outputs.find((line) => line.startsWith(`${name}=`))?.slice(name.length + 1) ?? "-";
+    expect(value(azure.outputs, "key").startsWith(value(aws.outputs, "prefix"))).toBe(true);
+    expect(value(aws.outputs, "key").startsWith(value(azure.outputs, "prefix"))).toBe(true);
+  });
+
+  // A key with no Playwright version would be restored across versions, and a
+  // value holding a newline would write an output line of its own.
+  test("the system packages' key step fails when Playwright prints no version, and writes only one line of [A-Za-z0-9._-] per output whatever the runner's values hold", () => {
+    const keyStep = stepsOf(ci.jobs.browser).find((step) => step.id === "chromium-apt-key");
+    const unversioned = runChromiumAptKey(keyStep, {}, "Version \n");
+    expect(unversioned.exitCode).toBe(1);
+    expect(unversioned.stdout).toContain(
+      "::error::playwright --version printed no 'Version <n>' line",
     );
-    expect(keyed("e2e")).toBe(keyed("browser"));
+    expect(unversioned.outputs).toEqual([]);
+
+    const forged = runChromiumAptKey(keyStep, {
+      ImageOS: "ubuntu26\nkey=x",
+      ImageVersion: "1 2\nprefix=y",
+    });
+    expect(forged.exitCode).toBe(0);
+    expect(forged.outputs.map((line) => line.slice(0, line.indexOf("=")))).toEqual([
+      "key",
+      "prefix",
+    ]);
+    for (const line of forged.outputs) {
+      expect(line.slice(line.indexOf("=") + 1)).toMatch(/^[A-Za-z0-9._-]+$/);
+    }
+    const [key = "", prefix = "-"] = forged.outputs.map((line) =>
+      line.slice(line.indexOf("=") + 1),
+    );
+    expect(key.startsWith(prefix)).toBe(true);
   });
 
   // The secret scan runs the gitleaks a cached tarball holds.
@@ -1434,11 +1525,24 @@ describe("the Stripe test-mode job runs nightly and by hand, and holds its key i
     const action = Bun.YAML.parse(
       readFileSync(join(root, ".github/actions/e2e-setup/action.yml"), "utf8"),
     ) as CompositeAction;
-    const restores = (action.runs.steps ?? []).filter((step) =>
-      ["~/.bun/install/cache", "~/.cache/ms-playwright"].includes(String(step.with?.path)),
+    const onCaches = (action.runs.steps ?? []).filter(
+      (step) =>
+        ["~/.bun/install/cache", "~/.cache/ms-playwright", "~/.cache/chromium-apt"].includes(
+          String(step.with?.path),
+        ) || step.id === "chromium-apt-key",
     );
-    expect(restores).toHaveLength(2);
-    for (const step of restores) expect(step.if).toBe("inputs.cache != 'false'");
+    // The bun and browser caches; the system packages' key, restore and save.
+    expect(onCaches.map((step) => step.with?.path ?? step.id)).toEqual([
+      "~/.bun/install/cache",
+      "~/.cache/ms-playwright",
+      "chromium-apt-key",
+      "~/.cache/chromium-apt",
+      "~/.cache/chromium-apt",
+    ]);
+    for (const step of onCaches) {
+      expect(step.if?.split(" && "), step.name).toContain("inputs.cache != 'false'");
+      expect(step.if, step.name).not.toContain("||");
+    }
     const cli = steps.find((step) => step.name === "Install the Stripe CLI");
     expect(cli?.["timeout-minutes"]).toBeLessThanOrEqual(5);
   });

@@ -48,6 +48,13 @@
 #   One slower than that fails each lookup, so with every mirror it leads to
 #   the same index on disk: the step passes with that warning when the cache
 #   holds what the index names, and otherwise fails.
+# - Once the attempts end, whatever their result, one line says how long the
+#   script ran and where the packages in apt's archive came from:
+#   "install-chromium-system-libraries: took <n> s; packages in apt's
+#   archive: <c> from the cache, <d> downloaded (<b> bytes)". A package came
+#   from the cache when <cache dir> holds a regular file of its name with the
+#   same bytes; any other was downloaded. So a failed step's line says whether
+#   the cache was cold and whether apt was getting packages from the mirror.
 # - After the install, the .debs in apt's archive, each checked against the
 #   index by verify-cached-debs.sh or by apt as it downloaded it, replace
 #   those in <cache dir>, for the workflow to save.
@@ -172,6 +179,24 @@ sudo env "PATH=$PATH" "RES_OPTIONS=$resolver" bash "$scripts/retry.sh" 3 150 \
   sh "$scripts/verify-cached-debs.sh" "$cache" "$archives" "$state/updated" \
   2>&1 | tee "$state/output" || pipe=("${PIPESTATUS[@]}")
 status=${pipe[0]}
+
+# verify-cached-debs.sh moves a copy of each cached package it keeps into the
+# archive, under the same name; apt downloads the rest. A symlink in the cache
+# never earns that copy, so it does not count as one.
+from_cache=0
+downloaded=0
+bytes=0
+for deb in "$archives"/*.deb; do
+  same="$cache/${deb##*/}"
+  if [ -f "$same" ] && ! [ -L "$same" ] && cmp -s "$deb" "$same"; then
+    from_cache=$((from_cache + 1))
+  else
+    downloaded=$((downloaded + 1))
+    bytes=$((bytes + $(wc -c <"$deb")))
+  fi
+done
+echo "install-chromium-system-libraries: took ${SECONDS} s; packages in apt's archive: $from_cache from the cache, $downloaded downloaded ($bytes bytes)"
+
 if [ "${pipe[1]}" -ne 0 ]; then
   echo "::error::install-chromium-system-libraries: tee could not save the attempt's output (exit ${pipe[1]}), so the script cannot read what apt reported"
   if [ "$status" -eq 0 ]; then status=1; fi

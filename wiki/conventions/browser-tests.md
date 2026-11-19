@@ -8,11 +8,12 @@ related:
 packages:
   - "@cire/invites"
   - "@cire/host"
+  - "@cire/vendor"
   - "@cire/ui"
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-20
 ---
 
 # Browser Tests
@@ -640,13 +641,38 @@ regular file, and the SHA-256 of the copy it moves matches the record that
 `apt-cache show <name>=<version>` holds for its architecture in the signed
 index. The architecture may be a variant of the record's: on the Ubuntu 26.04
 image apt names a file `_amd64v3.deb` when its record says `amd64`. It drops
-any other file with a warning, and apt downloads that package instead. The cache key names the runner image (`ImageOS`, `ImageVersion`) and
-the Playwright version, with no `restore-keys`, so a run restores the set
-saved for its own image and version or none.
+any other file with a warning, and apt downloads that package instead.
+
+The jobs that use
+[`e2e-setup`](../../.github/actions/e2e-setup/action.yml) save the cache:
+CI's E2E job, and the daily E2E determinism job on `main`. The key names the
+runner image (`ImageOS`, `ImageVersion`) and the Playwright version. GitHub
+runs `ubuntu-latest` on several image builds at once, each installing the same
+nine packages, and evicts an entry within hours once no run reads it, since the
+repository's cache sits at its size limit. So each restore, in the browser legs
+and in those jobs, falls back to the newest set saved for any build of the same
+OS image (`restore-keys` set to `<os>-chromium-apt-<ImageOS>-`), looking in the
+run's own branch first and then in `main`'s. A set saved on another build or
+Playwright version passes the same check, so it changes how much apt
+downloads, never what it installs. After a fallback the saving job saves its
+own build's exact key, never on a merge-queue group. The E2E Stripe test-mode
+job sets the action's `cache` input to `"false"`, since it runs the installed
+code holding a key: it neither restores nor saves this cache, and apt
+downloads the nine packages on every run.
 [`install-chromium-system-libraries.cli.test.ts`](../../scripts/tests/install-chromium-system-libraries.cli.test.ts)
 holds the check, a tampered package among its cases, and the cases below, and
 [`deploy-workflows.test.ts`](../../scripts/tests/deploy-workflows.test.ts)
-holds the key.
+holds the key, its fallback and the Stripe job's opt-out.
+
+*Measured 2026-11-19 — `gh run view 44516766344 --job 135534769001 --log` and `gh api repos/englishstreetventures/osn/actions/jobs/135533154511/logs`: AWS runners on image `20261111.82.6` found no entry for their key ("Cache not found"), fetched the 21.9 MB from `us-east-2.ec2.archive.ubuntu.com` at about 50 to 100 KB/s, and failed all three attempts; the retry on an Azure runner (image `20261111.196.1`) restored its entry and passed in 11 s. Eviction: `gh api repos/englishstreetventures/osn/actions/jobs/<id>/logs | grep chromium-apt` for E2E jobs on `main`: 134981987787 (2026-11-18 17:09) and 134998336608 (17:34) each logged "Cache saved with key: Linux-chromium-apt-ubuntu26-20261111.82.6-playwright-1.64.1", so the first entry was gone within 25 minutes; 135322974313 (2026-11-19 03:44) restored it; jobs from 11:36 found none. `gh api repos/englishstreetventures/osn/actions/cache/usage`: 10,744,090,862 bytes cached*
+
+Once its attempts end, whatever their result, the script prints one line
+saying how long it ran and where the packages in apt's archive came from:
+`install-chromium-system-libraries: took 11 s; packages in apt's archive: 9 from the cache, 0 downloaded (0 bytes)`.
+A count downloaded above zero means the cache lacked those packages and apt
+fetched them from the mirror. On a failed step whose attempts were each cut at
+150 s, packages downloaded mean the mirror was sending, slowly; none means
+no package arrived whole.
 
 When the mirror's names do not resolve, the install still runs from the
 cache. `apt-get update` looks the mirror up about ten times in a row before it

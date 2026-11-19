@@ -699,25 +699,34 @@ jobs:
       # SHA-256 apt's signed index names, and retries an attempt that stalls.
       #
       # The key names the runner image and the Playwright version, which
-      # together decide the packages `install-deps` fetches. No restore-keys:
-      # a run restores the set saved for its own image and version or none.
-      # The key is one line of [A-Za-z0-9._-], whatever the command prints, and
-      # no version line fails the step. Restore only, as above: the E2E job
-      # saves this key.
+      # together decide the packages `install-deps` fetches. GitHub runs
+      # ubuntu-latest on several image builds at once, each needing the same
+      # packages, and evicts a build's set within hours once no run reads it.
+      # So the restore falls back to the newest set saved for any build of the
+      # same OS image (`prefix`), in the run's own branch first and then in
+      # main's; the script checks each package against this runner's own
+      # index, so a set from another build changes only how much apt
+      # downloads. The key and the prefix are each one line of
+      # [A-Za-z0-9._-], whatever the command prints, the prefix the key's
+      # start, and no version line fails the step. Restore only, as above: the
+      # jobs that use .github/actions/e2e-setup save this key.
       - name: Key Chromium's system packages
         id: chromium-apt-key
         working-directory: cire/host
         run: |
           version=$(bunx --no-install playwright --version | sed -n 's/^Version \([0-9][0-9A-Za-z.-]*\)$/\1/p')
           test -n "$version" || { echo "::error::playwright --version printed no 'Version <n>' line"; exit 1; }
-          key="$RUNNER_OS-chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-$version"
+          prefix="$RUNNER_OS-chromium-apt-${ImageOS:-unknown}-"
+          key="$prefix${ImageVersion:-unknown}-playwright-$version"
           echo "key=$(printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
+          echo "prefix=$(printf '%s' "$prefix" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
 
       - name: Restore Chromium's system packages
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/chromium-apt
           key: ${{ steps.chromium-apt-key.outputs.key }}
+          restore-keys: ${{ steps.chromium-apt-key.outputs.prefix }}
 
       # Both installs run from `cire/host`, and the working directory is the
       # whole point. `playwright` is a devDependency of each package with a
