@@ -4484,7 +4484,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
           const giftAccount = file === MIGRATION_GIFT_ACCOUNT;
           if (giftAccount) {
             // The wedding of the two gifts above names an account it was
-            // never cleared of, so the back-fill gives both gifts that account.
+            // never cleared of, so the back-fill gives that account to the
+            // one with a Checkout session, and leaves the one without NULL.
             await chainD1
               .prepare(
                 "INSERT INTO registry_settings (wedding_id, stripe_account_id, stripe_account_type, created_at, updated_at) VALUES ('wed_c', 'acct_c', 'standard', 1, 1)",
@@ -4543,7 +4544,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
               ).results;
             expect(await accounts()).toEqual([
               { id: "rct_full", account: "acct_c", type: "standard" },
-              { id: "rct_sparse", account: "acct_c", type: "standard" },
+              { id: "rct_sparse", account: null, type: null },
             ]);
             // A gift inserted with no account, as a Worker from before the
             // migration writes one, takes the wedding's.

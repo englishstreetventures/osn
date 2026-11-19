@@ -79,13 +79,25 @@ function settings(
   );
 }
 
-/** A gift on the wedding's one household, created at `createdAt` (epoch seconds). */
-function gift(db: Database, id: string, weddingId: string, createdAt: number): void {
+/**
+ * A gift on the wedding's one household, created at `createdAt` (epoch
+ * seconds), with a Checkout session unless `session` is false: an attempt
+ * Stripe refused (as it refuses any session on a deauthorized account) has
+ * none.
+ */
+function gift(
+  db: Database,
+  id: string,
+  weddingId: string,
+  createdAt: number,
+  session = true,
+): void {
   db.query(
     `INSERT INTO registry_contributions
-       (id, wedding_id, family_id, status, amount_minor, currency, created_at, updated_at)
-     VALUES (?, ?, ?, 'succeeded', 5000, 'AUD', ?, ?)`,
-  ).run(id, weddingId, `fam_${weddingId}`, createdAt, createdAt);
+       (id, wedding_id, family_id, status, amount_minor, currency,
+        stripe_checkout_session_id, created_at, updated_at)
+     VALUES (?, ?, ?, 'succeeded', 5000, 'AUD', ?, ?, ?)`,
+  ).run(id, weddingId, `fam_${weddingId}`, session ? `cs_${id}` : null, createdAt, createdAt);
 }
 
 type GiftAccount = { id: string; account: string | null; type: string | null };
@@ -152,6 +164,12 @@ describe("migration 20261118180052 — a gift keeps the account it was paid into
     gift(db, "g_reused_b_1", "wed_reused", 2000);
     gift(db, "g_reused_b_2", "wed_reused", 2900);
     gift(db, "g_reused_b_same_second", "wed_reused", 3000);
+    // Between B's deauthorization and its clear, which can land days later,
+    // the row still named B: an attempt then was refused by Stripe and has no
+    // session. A's connect time, copied from its source, cannot exclude it;
+    // only a session made after the deauthorization is certainly A's.
+    gift(db, "g_reused_window_refused", "wed_reused", 3200, false);
+    gift(db, "g_reused_window_paid", "wed_reused", 3200);
     gift(db, "g_reused_a", "wed_reused", 3500);
 
     // No account now, and no settings row at all.
@@ -176,6 +194,8 @@ describe("migration 20261118180052 — a gift keeps the account it was paid into
       { id: "g_reused_b_1", account: null, type: null },
       { id: "g_reused_b_2", account: null, type: null },
       { id: "g_reused_b_same_second", account: null, type: null },
+      { id: "g_reused_window_paid", account: "acct_a", type: null },
+      { id: "g_reused_window_refused", account: null, type: null },
       { id: "g_std_1", account: "acct_std", type: "standard" },
       { id: "g_std_2", account: "acct_std", type: "standard" },
     ]);

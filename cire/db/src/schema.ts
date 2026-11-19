@@ -1351,7 +1351,9 @@ export const registryContributions = sqliteTable(
     // trigger (`registry_contributions_stripe_account_filled`) copies the
     // wedding's account onto a row inserted without one. NULL on a gift from
     // before the column that the back-fill could not place, which is matched
-    // through the wedding's current account instead.
+    // through the wedding's current account instead. Every writer copies the
+    // type from `registry_settings.stripe_account_type`, whose triggers hold
+    // it to `express`, `standard` or NULL, so no CHECK is repeated here.
     stripeAccountId: text("stripe_account_id"),
     stripeAccountType: text("stripe_account_type", { enum: ["express", "standard"] }),
     message: text("message"),

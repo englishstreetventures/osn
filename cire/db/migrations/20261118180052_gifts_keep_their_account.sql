@@ -12,12 +12,14 @@
 -- certainly the account the gift was made on. Every clear of an account goes
 -- through the deauthorization, which stamps `stripe_deauthorized_at` with
 -- Stripe's event time, and neither the attach nor the reuse moves it, so a
--- gift created after that time and not before the current account was
--- connected (`stripe_connected_at`, cire's clock on an attach, the source's on
--- a reuse) was made on the current account. The connect time also excludes a
--- gift made between Stripe's event and the clear, which can land days later
--- while Stripe retries. Every other gift stays NULL, and the webhook matches it
--- through the wedding's current account, as before this column.
+-- gift with a Checkout session, created after that time and not before the
+-- current account was connected (`stripe_connected_at`, cire's clock on an
+-- attach, the source's on a reuse), was made on the current account. The
+-- session matters because the clear can land days after Stripe's event while
+-- Stripe retries: an attempt in between was made against the old account, and
+-- Stripe, which refuses any session on a deauthorized account, gave it none.
+-- Every other gift stays NULL, and the webhook matches it through the
+-- wedding's current account, as before this column.
 --
 -- `registry_settings` gains `stripe_account_generation`, NOT NULL DEFAULT 0. The
 -- trigger `registry_settings_stripe_account_generation` adds one whenever
@@ -46,6 +48,7 @@ UPDATE `registry_contributions`
 SET `stripe_account_id` = (SELECT s.`stripe_account_id` FROM `registry_settings` s WHERE s.`wedding_id` = `registry_contributions`.`wedding_id`),
 	`stripe_account_type` = (SELECT s.`stripe_account_type` FROM `registry_settings` s WHERE s.`wedding_id` = `registry_contributions`.`wedding_id`)
 WHERE `stripe_account_id` IS NULL
+	AND `stripe_checkout_session_id` IS NOT NULL
 	AND EXISTS (
 		SELECT 1 FROM `registry_settings` s
 		WHERE s.`wedding_id` = `registry_contributions`.`wedding_id`
