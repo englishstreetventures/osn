@@ -69,14 +69,21 @@ class MaintenanceSweepError extends Data.TaggedError("MaintenanceSweepError")<{
 export const MAX_PURGES_PER_RUN = 3;
 
 /**
+ * The `weddings` row the statement is about has no owner seat left. Only an
+ * owner can restore a deleted wedding, so one with none has nothing to wait
+ * for: the erasure of its only owner's account leaves it this way
+ * (`account-erasure.ts`).
+ */
+export const noOwnerLeft = (): SQL =>
+  sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${outerColumn(weddings.id)} AND ${weddingHosts.role} = 'owner')`;
+
+/**
  * A soft-deleted wedding the purge may take: past its restore window, or with
- * no owner seat left. Only an owner can restore a deleted wedding, so one with
- * none has nothing to wait for: the erasure of its only owner's account
- * deletes it this way (`account-erasure.ts`). `cutoffS` is SECONDS. Reads the
+ * no owner seat left ({@link noOwnerLeft}). `cutoffS` is SECONDS. Reads the
  * `weddings` row the statement is about.
  */
 const pastRestoreWindow = (cutoffS: number): SQL =>
-  sql`(${weddings.deletedAt} IS NOT NULL AND (${weddings.deletedAt} <= ${cutoffS} OR NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${outerColumn(weddings.id)} AND ${weddingHosts.role} = 'owner')))`;
+  sql`(${weddings.deletedAt} IS NOT NULL AND (${weddings.deletedAt} <= ${cutoffS} OR ${noOwnerLeft()}))`;
 
 /**
  * How long a pending upgrade purchase or gift holds a past-window wedding back
@@ -97,8 +104,11 @@ export const PURGE_PENDING_HOLD_S = 14 * 24 * 60 * 60;
  * balance, and its close must find the row. An upgrade refund cire still owes
  * does not hold: its record (`platform_refunds`) is outside the cascade, and
  * the daily reconciliation completes it from there.
+ *
+ * The one definition of a hold: an account's erasure reads it too, to report
+ * the deleted weddings it leaves held (`account-erasure.ts`).
  */
-const purgeHeld = (wedding: SQL | string, nowS: number, nowMs: number): SQL =>
+export const purgeHeld = (wedding: SQL | string, nowS: number, nowMs: number): SQL =>
   sql`(EXISTS (SELECT 1 FROM ${weddingUpgradePurchases} WHERE ${weddingUpgradePurchases.weddingId} = ${wedding} AND ${weddingUpgradePurchases.status} = 'pending' AND ${weddingUpgradePurchases.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}) OR EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND (${registryContributions.status} = 'disputed' OR (${registryContributions.status} = 'pending' AND ${registryContributions.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}))) OR ${changeClaimLive(nowMs)})`;
 
 interface PurgeRunResult {
@@ -410,7 +420,17 @@ export const maintenanceSweeps = {
               .from(weddings)
               .where(pastWindow),
             db
-              .select({ id: weddings.id, deletedBy: weddings.deletedByOsnProfileId })
+              .select({
+                id: weddings.id,
+                // The deleter only while they still hold a seat on it. No
+                // route changes the seats of a deleted wedding, so a deleter
+                // with none is a person whose account erasure took it, and
+                // whose profile the erasure's last call has yet to clear: no
+                // log names them.
+                deletedBy: sql<
+                  string | null
+                >`CASE WHEN EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${outerColumn(weddings.id)} AND ${weddingHosts.osnProfileId} = ${outerColumn(weddings.deletedByOsnProfileId)}) THEN ${outerColumn(weddings.deletedByOsnProfileId)} END`,
+              })
               .from(weddings)
               .where(and(pastWindow, not(heldHere)))
               .orderBy(asc(weddings.deletedAt))

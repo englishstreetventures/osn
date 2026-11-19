@@ -179,6 +179,41 @@ describe("account-deleted", () => {
     expect(out.html).toContain("@adaco now belongs to @bea.");
   });
 
+  it("closes an app's words with a full stop before its date and link", () => {
+    const out = renderTemplate("account-deleted", {
+      ...deleted,
+      kept: [
+        {
+          app: "Pulse",
+          what: "2 events you hosted, shown to their guests as cancelled",
+          erasedOn: Date.UTC(2026, 11, 7) / 1_000,
+          requestUrl: "https://pulse.example.test/request",
+        },
+      ],
+    });
+    expect(out.text).toContain(
+      "- Pulse: 2 events you hosted, shown to their guests as cancelled. Kept until 7 December 2026 (UTC). To ask about it: https://pulse.example.test/request",
+    );
+    expect(out.html).toContain(
+      "shown to their guests as cancelled. Kept until 7 December 2026 (UTC).",
+    );
+  });
+
+  it("an item with no date and no link is the app's words alone, closed once", () => {
+    const out = renderTemplate("account-deleted", {
+      ...deleted,
+      kept: [
+        { app: "Cire", what: "A deleted wedding you owned.", erasedOn: null, requestUrl: null },
+        { app: "Zap", what: "Encrypted messages you sent", erasedOn: null, requestUrl: null },
+      ],
+    });
+    expect(out.text).toContain("- Cire: A deleted wedding you owned.\n");
+    expect(out.text).toContain("- Zap: Encrypted messages you sent.");
+    expect(out.text).not.toContain("..");
+    expect(out.text).not.toContain("Kept until");
+    expect(out.text).not.toContain("To ask about it");
+  });
+
   it("says nothing is kept when no app kept anything", () => {
     const out = renderTemplate("account-deleted", { ...deleted, kept: [], organisations: [] });
     expect(out.text).toContain("No app kept anything");

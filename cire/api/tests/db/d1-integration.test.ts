@@ -6864,4 +6864,71 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
     },
     MF_TIMEOUT_MS,
   );
+
+  it(
+    "an erasure on D1 answers a deleted wedding the purge holds as kept, and leaves no deleter naming the account",
+    async () => {
+      // The soft delete's deleter sub-select, the held count reading
+      // `purgeHeld` against `weddings`, and the clear, run on Miniflare's D1
+      // across a call that answers not finished and the one that finishes.
+      const erased = "usr_d1_held";
+      const other = "usr_d1_held_other";
+      const held = ["wed_d1_held_a", "wed_d1_held_b", "wed_d1_held_c", "wed_d1_held_d"];
+      for (const id of [...held, "wed_d1_held_others"]) {
+        for (const statement of fullWeddingStatements(id, {
+          owner: id === "wed_d1_held_others" ? other : erased,
+        })) {
+          await db.run(statement);
+        }
+        await db
+          .update(registryContributions)
+          .set({ status: "disputed" })
+          .where(eq(registryContributions.weddingId, id));
+      }
+
+      const first = await run(
+        accountErasureService.erase({ accountId: "acc_d1_held", profileIds: [erased] }),
+      );
+      expect(first).toEqual({ status: "not_finished" });
+      const answer = await run(
+        accountErasureService.erase({ accountId: "acc_d1_held", profileIds: [erased] }),
+      );
+      expect(answer).toEqual({
+        status: "done",
+        kept: [
+          {
+            what: "4 deleted weddings you owned, each kept until a payment or gift for it settles, then erased in Cire's daily clean-up.",
+            erasedOn: null,
+            requestUrl: null,
+          },
+        ],
+      });
+      const rows = await db
+        .select({
+          id: weddings.id,
+          deletedAt: weddings.deletedAt,
+          deletedBy: weddings.deletedByOsnProfileId,
+        })
+        .from(weddings)
+        .where(inArray(weddings.id, jsonEachIn([...held, "wed_d1_held_others"])))
+        .orderBy(asc(weddings.id));
+      expect(rows.map((r) => [r.id, r.deletedAt !== null, r.deletedBy])).toEqual([
+        ["wed_d1_held_a", true, null],
+        ["wed_d1_held_b", true, null],
+        ["wed_d1_held_c", true, null],
+        ["wed_d1_held_d", true, null],
+        ["wed_d1_held_others", false, null],
+      ]);
+
+      // The purge holds all four.
+      await run(maintenanceSweeps.purgeDeletedWeddings(new Date()));
+      expect(
+        await db
+          .select({ id: weddings.id })
+          .from(weddings)
+          .where(inArray(weddings.id, jsonEachIn(held))),
+      ).toHaveLength(4);
+    },
+    MF_TIMEOUT_MS,
+  );
 });
