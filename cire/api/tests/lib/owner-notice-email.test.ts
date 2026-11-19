@@ -447,6 +447,22 @@ describe("createOwnerNotices — a payout account retired", () => {
     await run(notices.payoutRetired(retired()));
     expect(transport.batches).toHaveLength(2);
   });
+
+  it("always tells the holder of a replace, however many retires came before it", async () => {
+    // Retires earlier in the day have spent the wedding's retire budget. Each
+    // replace needs the holder to have connected an account again, so their
+    // copy is never what a budget bounds.
+    const { notices, run, transport } = setup({ emailsPerDay: 2 }, ["usr_a", "usr_b"]);
+    await run(notices.payoutRetired(retired()));
+    expect(transport.batches).toHaveLength(1);
+    await run(
+      notices.payoutRetired(
+        retired({ actorOsnProfileId: "usr_b", reason: "replaced", holderOsnProfileId: "usr_a" }),
+      ),
+    );
+    expect(transport.batches).toHaveLength(2);
+    expect(copies(transport.batches[1])).toEqual([["a@example.test", "holder"]]);
+  });
 });
 
 describe("formatRestoreUntil", () => {

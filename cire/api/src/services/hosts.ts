@@ -13,10 +13,11 @@ import {
 } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { commitBatchResults, DbService, dbQuery, driverErrorText } from "../db";
+import { commitBatchResults, DbService, dbQuery, driverErrorText, outerColumn } from "../db";
 import type { Db } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
 import type { InviteImageKeys } from "./invite";
+import { holdsPayoutAccountSql } from "./payout-holder";
 import { EXEMPT_OWNER_SEATS, normaliseTier, peopleLimitOf, peopleLimitSql } from "./tiers";
 import type { PeopleLimit, Tier } from "./tiers";
 
@@ -647,7 +648,12 @@ export const hostsService = {
    */
   list(weddingId: string): Effect.Effect<
     {
-      hosts: WeddingHostRow[];
+      /**
+       * `payoutHolder`: the seat is an owner's and its holder is the holder
+       * of the Stripe account the wedding names (`holdsPayoutAccountSql`).
+       * The route tells owners alone.
+       */
+      hosts: Array<WeddingHostRow & { payoutHolder: boolean }>;
       total: number;
       peopleLimit: PeopleLimit;
     },
@@ -665,6 +671,10 @@ export const hostsService = {
             createdAt: weddingHosts.createdAt,
             addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
             runSheetScope: weddingHosts.runSheetScope,
+            payoutHolder: sql<number>`(${outerColumn(weddingHosts.role)} = 'owner' AND ${holdsPayoutAccountSql(
+              outerColumn(weddingHosts.weddingId),
+              outerColumn(weddingHosts.osnProfileId),
+            )})`,
             // The windows run before LIMIT, so every row carries the wedding's
             // true seat and people counts, not the number returned, from the
             // rows this read already holds.
@@ -689,6 +699,7 @@ export const hostsService = {
           createdAt: row.createdAt,
           addedByOsnProfileId: row.addedByOsnProfileId,
           runSheetScope: normaliseRunSheetScope(row.runSheetScope),
+          payoutHolder: row.payoutHolder === 1,
         })),
         // No row means no seat, so the count is 0. Every live wedding holds an
         // owner seat, so the Ivory fallback is never what a gated caller sees.

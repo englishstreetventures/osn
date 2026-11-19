@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
+import { hostRsvpNotices, registrySettings, weddingHosts, weddings } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
@@ -948,6 +948,68 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     const byId = new Map(body.hosts.map((h) => [h.osnProfileId, h.handle]));
     expect(byId.get(COHOST)).toBe("bob");
     expect(byId.get("usr_ghost")).toBeUndefined();
+  });
+});
+
+/**
+ * The seat of the person whose Stripe account money gifts are paid into is
+ * marked for an owner reading the list, so the portal can say why that seat's
+ * controls are held back. Editors and viewers are told nothing about whose
+ * account it is.
+ */
+describe("GET /hosts — the payout account's holder", () => {
+  function holderIs(db: Db, holder: string | null) {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId: WEDDING_ID,
+        stripeAccountId: "acct_hosts",
+        stripeConnectedByOsnProfileId: holder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const marked = async (app: ReturnType<typeof buildApp>["app"], reader: string) => {
+    const res = await req(app, "GET", hostsPath, reader);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: Array<Record<string, unknown>> };
+    return Object.fromEntries(
+      body.hosts.map((h) => [h.osnProfileId, "payoutHolder" in h ? h.payoutHolder : "absent"]),
+    );
+  };
+
+  it("marks the holder's owner seat for an owner, and no other seat", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, "usr_second", "owner");
+    seedHostSeat(db, COHOST, "editor");
+    holderIs(db, "usr_second");
+    expect(await marked(app, OWNER)).toEqual({
+      [OWNER]: "absent",
+      usr_second: true,
+      [COHOST]: "absent",
+    });
+  });
+
+  it("tells an editor and a viewer nothing", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "editor");
+    seedHostSeat(db, "usr_viewer_holder", "viewer");
+    holderIs(db, OWNER);
+    for (const reader of [COHOST, "usr_viewer_holder"]) {
+      expect(Object.values(await marked(app, reader))).toEqual(["absent", "absent", "absent"]);
+    }
+  });
+
+  it("marks no seat when the holder sits below owner, or there is no account", async () => {
+    const below = buildApp();
+    seedHostSeat(below.db, COHOST, "editor");
+    holderIs(below.db, COHOST);
+    expect(Object.values(await marked(below.app, OWNER))).toEqual(["absent", "absent"]);
+
+    const none = buildApp();
+    expect(Object.values(await marked(none.app, OWNER))).toEqual(["absent"]);
   });
 });
 

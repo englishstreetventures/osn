@@ -24,9 +24,11 @@
  *    another owner replaced included, and spends a retire budget of the
  *    wedding's own (`retire:<wedding>`), so a loop of owner changes, which
  *    spends the wedding's and the actor's budgets, cannot keep a replace from
- *    its holder. An owner the actor seated in the last {@link FRESH_SEAT_MS}
- *    is not mailed, as for an owner change, unless they are the holder: they
- *    connected the account themselves.
+ *    its holder. The holder's copy of a replace is sent outside any budget:
+ *    each one needs them to have connected an account again, so a loop of
+ *    retires cannot keep it from them either. An owner the actor seated in the
+ *    last {@link FRESH_SEAT_MS} is not mailed, as for an owner change, unless
+ *    they are the holder: they connected the account themselves.
  *
  * Each names who acted. The actor gets their own copy because a session
  * someone else is using is exactly the case where the real owner needs to
@@ -155,6 +157,11 @@ const utcDay = (at: Date): string => at.toISOString().slice(0, 10);
 interface Recipient<A extends string = Audience> {
   readonly osnProfileId: string;
   readonly audience: A;
+  /**
+   * Sent whatever the budget says, and not counted in it: only for a copy
+   * whose every send needs the recipient's own act first.
+   */
+  readonly unbudgeted?: true;
 }
 
 /** `Display Name (@handle)`, `@handle`, or `null` when OSN could not say. */
@@ -344,13 +351,14 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
 
       const seen = new Set<string>();
       const inputs: SendEmailInput[] = [];
+      const unbudgeted: SendEmailInput[] = [];
       for (const recipient of plan.recipients) {
         const to = answer.emails.get(recipient.osnProfileId);
         if (!to || seen.has(to.toLowerCase())) continue;
         seen.add(to.toLowerCase());
-        inputs.push(plan.render(recipient, to, displays));
+        (recipient.unbudgeted ? unbudgeted : inputs).push(plan.render(recipient, to, displays));
       }
-      if (inputs.length === 0) return "no_recipients" as const;
+      if (inputs.length === 0 && unbudgeted.length === 0) return "no_recipients" as const;
 
       // The budget is spent in recipient order, so the person affected is
       // mailed first and a short budget runs out on the owners at the end.
@@ -364,12 +372,12 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
               : kind === "owner_left"
                 ? [`wedding:${weddingId}`]
                 : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
-      const allowed = yield* spend(keys, inputs.length, now);
-      const budgeted = inputs.slice(0, allowed);
+      const allowed = inputs.length === 0 ? 0 : yield* spend(keys, inputs.length, now);
+      const budgeted = [...unbudgeted, ...inputs.slice(0, allowed)];
       if (budgeted.length === 0) return "throttled" as const;
       yield* Effect.annotateCurrentSpan({
         recipients: budgeted.length,
-        over_budget: inputs.length - budgeted.length,
+        over_budget: inputs.length - allowed,
       });
 
       yield* sendAll(budgeted);
@@ -544,11 +552,16 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
                 ? ("holder" as const)
                 : ("owner" as const);
           const rank = { named: 0, holder: 1, owner: 2 } as const;
-          const others = mailed
-            .map((seat) => ({
-              osnProfileId: seat.osnProfileId,
-              audience: audienceOf(seat.osnProfileId),
-            }))
+          // The replaced holder's copy is never held back by the budget: each
+          // replace needs them to have connected an account again, so they
+          // bound it themselves, and a loop of retires cannot keep it from them.
+          const others: Recipient<RetiredAudience>[] = mailed
+            .map((seat) => {
+              const audience = audienceOf(seat.osnProfileId);
+              return audience === "holder"
+                ? { osnProfileId: seat.osnProfileId, audience, unbudgeted: true as const }
+                : { osnProfileId: seat.osnProfileId, audience };
+            })
             .sort((a, b) => rank[a.audience] - rank[b.audience]);
           const recipients: Recipient<RetiredAudience>[] = [
             ...others.filter((r) => r.audience !== "owner"),
