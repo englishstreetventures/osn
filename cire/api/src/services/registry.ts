@@ -49,6 +49,7 @@ import { Data, Effect } from "effect";
 import { commitGroupedBatches, DbService, dbQuery, outerColumn, unionColumn } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
+import { payoutHolderAbsentSql } from "./payout-holder";
 // Type only — `./retention` owns the shape, this module only reads it back.
 // Nothing at runtime crosses between them, so no import cycle.
 import type { GiftSummary, GiftSummaryGift, GiftSummaryTotal } from "./retention";
@@ -242,6 +243,11 @@ interface RegistrySettingsRecord {
   stripePayoutsEnabled: boolean;
   /** The currency Stripe settles the account in, upper case, or null while unknown. */
   stripeDefaultCurrency: string | null;
+  /**
+   * There is an account and its holder holds no owner seat on this wedding,
+   * or none is recorded (`payoutHolderAbsentSql`). False with no account.
+   */
+  payoutHolderAbsent: boolean;
   updatedAt: number | null;
 }
 
@@ -329,6 +335,13 @@ export interface RegistrySettingsDto {
    * rule of its own.
    */
   moneyGiftsBlockedBy: MoneyGiftsBlock | null;
+  /**
+   * To owners only (`settingsForReader`): the account money gifts are paid
+   * into is held by someone who holds no owner seat here, or by nobody on
+   * record. Apart from `moneyGiftsBlockedBy`, which can name an earlier
+   * reason. Null for anyone who is not an owner.
+   */
+  payoutHolderAbsent: boolean | null;
   updatedAt: number | null;
 }
 
@@ -363,6 +376,8 @@ export interface StripeStatusDto {
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   moneyGiftsBlockedBy: MoneyGiftsBlock | null;
+  /** As on the settings; the refresh is owner-only, so always told. */
+  payoutHolderAbsent: boolean;
 }
 
 /** Whether this deployment can take a money gift at all — see `createApp`. */
@@ -459,6 +474,13 @@ export interface GiftLogEntryDto {
   fxRate: string | null;
   thankedAt: number | null;
   createdAt: number;
+  /**
+   * A money gift paid into an account the wedding does not name now: its
+   * recorded account is set and is not the current one, or the wedding names
+   * none. Any refund on it comes from that earlier account. False on a claim
+   * and on a gift with no recorded account.
+   */
+  paidIntoEarlierAccount: boolean;
 }
 
 /** A gift's note as an organiser surface may show it. */
@@ -686,10 +708,17 @@ const defaultSettings = (weddingId: string): RegistrySettingsRecord => ({
   stripeChargesEnabled: false,
   stripePayoutsEnabled: false,
   stripeDefaultCurrency: null,
+  payoutHolderAbsent: false,
   updatedAt: null,
 });
 
-const toSettingsRecord = (r: SettingsRow): RegistrySettingsRecord => ({
+/**
+ * A settings row as a statement read it, with {@link payoutHolderAbsentSql}
+ * answered beside its columns.
+ */
+type SettingsRowRead = SettingsRow & { payoutHolderAbsent: number | boolean | null };
+
+const toSettingsRecord = (r: SettingsRowRead): RegistrySettingsRecord => ({
   weddingId: r.weddingId,
   published: r.published,
   headline: r.headline,
@@ -703,6 +732,8 @@ const toSettingsRecord = (r: SettingsRow): RegistrySettingsRecord => ({
   stripeChargesEnabled: r.stripeChargesEnabled,
   stripePayoutsEnabled: r.stripePayoutsEnabled,
   stripeDefaultCurrency: r.stripeDefaultCurrency,
+  // SQLite answers the predicate as 0 or 1.
+  payoutHolderAbsent: r.payoutHolderAbsent === 1 || r.payoutHolderAbsent === true,
   updatedAt: r.updatedAt.getTime(),
 });
 
@@ -766,10 +797,11 @@ export interface SettingsReader {
  * The settings as one reader receives them; every organiser response that
  * carries settings goes through here.
  *
- * Only an owner is told which owner connected the account and how it came to
- * cire: the portal needs both to offer that owner, and no one else, the
- * onboarding link or the way to their own Stripe Dashboard, and an editor or a
- * viewer need not know whose bank the gifts reach.
+ * Only an owner is told which owner connected the account, how it came to
+ * cire, and whether its holder still holds an owner seat: the portal needs the
+ * first two to offer that owner, and no one else, the onboarding link or the
+ * way to their own Stripe Dashboard, and an editor or a viewer need not know
+ * whose bank the gifts reach.
  *
  * A member who cannot edit is also told less about why guests cannot give
  * money. The two currency reasons are an editor's to act on, and they say
@@ -785,7 +817,12 @@ export function settingsForReader(
 ): RegistrySettingsDto {
   const told = reader.canManage
     ? settings
-    : { ...settings, stripeConnectedByOsnProfileId: null, stripeAccountType: null };
+    : {
+        ...settings,
+        stripeConnectedByOsnProfileId: null,
+        stripeAccountType: null,
+        payoutHolderAbsent: null,
+      };
   if (reader.canEdit) return told;
   switch (settings.moneyGiftsBlockedBy) {
     case "stripe_currency_unknown":
@@ -820,6 +857,7 @@ const toSettingsDto = (
   stripeAccountType: accountTypeOf(s),
   stripeChargesEnabled: s.stripeChargesEnabled,
   moneyGiftsBlockedBy: moneyGiftsBlock(deployment, s, currency),
+  payoutHolderAbsent: s.payoutHolderAbsent,
   updatedAt: s.updatedAt,
 });
 
@@ -980,17 +1018,25 @@ function settingsWithCurrency(weddingId: string): Effect.Effect<
     const db = yield* DbService;
     const [joined] = yield* dbQuery(() =>
       db
-        .select({ settings: registrySettings, currency: weddings.currency })
+        .select({
+          settings: registrySettings,
+          currency: weddings.currency,
+          payoutHolderAbsent: payoutHolderAbsentSql(),
+        })
         .from(weddings)
         .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
         .where(eq(weddings.id, weddingId))
         .all(),
     );
-    const found = joined as { settings: SettingsRow | null; currency: string } | undefined;
+    const found = joined as
+      | { settings: SettingsRow | null; currency: string; payoutHolderAbsent: number }
+      | undefined;
     const row = found?.settings ?? null;
     return {
       row,
-      record: row ? toSettingsRecord(row) : defaultSettings(weddingId),
+      record: row
+        ? toSettingsRecord({ ...row, payoutHolderAbsent: found?.payoutHolderAbsent ?? 0 })
+        : defaultSettings(weddingId),
       currency: found?.currency ?? "AUD",
     };
   });
@@ -1119,10 +1165,11 @@ function writeStripeAccountState(
           weddingCurrency: sql<
             string | null
           >`(select ${weddings.currency} from ${weddings} where ${weddings.id} = ${registrySettings.weddingId})`,
+          payoutHolderAbsent: payoutHolderAbsentSql(),
         })
         .all(),
     );
-    return (rows as Array<SettingsRow & { weddingCurrency: string | null }>).map(
+    return (rows as Array<SettingsRowRead & { weddingCurrency: string | null }>).map(
       ({ weddingCurrency, ...row }) => ({
         record: toSettingsRecord(row),
         // The row's wedding exists (a cascading foreign key), so the
@@ -1143,6 +1190,7 @@ const toStripeStatus = (
   chargesEnabled: record.stripeChargesEnabled,
   payoutsEnabled: record.stripePayoutsEnabled,
   moneyGiftsBlockedBy: moneyGiftsBlock(deployment, record, currency),
+  payoutHolderAbsent: record.payoutHolderAbsent,
 });
 
 /** One currency's worth of settled gift money, given to one item or to none. */
@@ -1817,6 +1865,7 @@ export const registryService = {
           primaryAmountMinor: sql<number | null>`NULL`.as("primary_amount_minor"),
           primaryCurrency: sql<string | null>`NULL`.as("primary_currency"),
           fxRate: sql<string | null>`NULL`.as("fx_rate"),
+          paidIntoEarlierAccount: sql<number>`0`.as("paid_into_earlier_account"),
           thankedAt: unionColumn(registryClaims.thankedAt),
           createdAt: sql<Date>`${registryClaims.createdAt}`
             .mapWith(registryClaims.createdAt)
@@ -1848,6 +1897,13 @@ export const registryService = {
           primaryAmountMinor: unionColumn(registryContributions.primaryAmountMinor),
           primaryCurrency: unionColumn(registryContributions.primaryCurrency),
           fxRate: unionColumn(registryContributions.fxRate),
+          // The wedding's current account is one value for every row, so
+          // SQLite reads it once. `IS NOT` is NULL-safe: a wedding that names
+          // no account now marks every gift that recorded one.
+          paidIntoEarlierAccount:
+            sql<number>`(${registryContributions.stripeAccountId} IS NOT NULL AND ${registryContributions.stripeAccountId} IS NOT (SELECT current_row.stripe_account_id FROM ${registrySettings} current_row WHERE current_row.wedding_id = ${weddingId}))`.as(
+              "paid_into_earlier_account",
+            ),
           thankedAt: unionColumn(registryContributions.thankedAt),
           createdAt: sql<Date>`${registryContributions.createdAt}`
             .mapWith(registryContributions.createdAt)
@@ -1908,6 +1964,7 @@ export const registryService = {
           fxRate: r.fxRate,
           thankedAt: r.thankedAt ? r.thankedAt.getTime() : null,
           createdAt: r.createdAt.getTime(),
+          paidIntoEarlierAccount: r.paidIntoEarlierAccount === 1,
         };
       });
 
@@ -2049,12 +2106,14 @@ export const registryService = {
           })
           // The wedding's currency rides back in the same statement, for the
           // answer's `moneyGiftsBlockedBy`: a correlated subquery on the row
-          // just written, rather than a second read.
+          // just written, rather than a second read. So does whether the
+          // account's holder is seated.
           .returning({
             ...getTableColumns(registrySettings),
             weddingCurrency: sql<
               string | null
             >`(select ${weddings.currency} from ${weddings} where ${weddings.id} = ${registrySettings.weddingId})`,
+            payoutHolderAbsent: payoutHolderAbsentSql(),
           })
           .all(),
       );
@@ -2073,7 +2132,7 @@ export const registryService = {
           new SettingsChanged({ current: toSettingsDto(record, deployment, currency) }),
         );
       }
-      const { weddingCurrency, ...saved } = row as SettingsRow & {
+      const { weddingCurrency, ...saved } = row as SettingsRowRead & {
         weddingCurrency: string | null;
       };
       // The row's wedding exists (a cascading foreign key), so the subquery
@@ -2100,9 +2159,16 @@ export const registryService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
-        db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).all(),
+        db
+          .select({
+            ...getTableColumns(registrySettings),
+            payoutHolderAbsent: payoutHolderAbsentSql(),
+          })
+          .from(registrySettings)
+          .where(eq(registrySettings.weddingId, weddingId))
+          .all(),
       );
-      const found = row as (SettingsRow & { stripeAccountGeneration: number }) | undefined;
+      const found = row as (SettingsRowRead & { stripeAccountGeneration: number }) | undefined;
       return found
         ? { ...toSettingsRecord(found), stripeAccountGeneration: found.stripeAccountGeneration }
         : { ...defaultSettings(weddingId), stripeAccountGeneration: 0 };
@@ -2277,10 +2343,13 @@ export const registryService = {
                 ? undefined
                 : eq(registrySettings.stripeAccountGeneration, options.generation),
           })
-          .returning()
+          .returning({
+            ...getTableColumns(registrySettings),
+            payoutHolderAbsent: payoutHolderAbsentSql(),
+          })
           .all(),
       );
-      const [row] = written as SettingsRow[];
+      const [row] = written as SettingsRowRead[];
       return row ? toSettingsRecord(row) : null;
     }).pipe(Effect.withSpan("cire.registry.attachStripeAccount"));
   },
@@ -2465,10 +2534,11 @@ export const registryService = {
             weddingCurrency: sql<
               string | null
             >`(select ${weddings.currency} from ${weddings} where ${weddings.id} = ${registrySettings.weddingId})`,
+            payoutHolderAbsent: payoutHolderAbsentSql(),
           })
           .all(),
       );
-      const [saved] = written as Array<SettingsRow & { weddingCurrency: string | null }>;
+      const [saved] = written as Array<SettingsRowRead & { weddingCurrency: string | null }>;
       if (saved) {
         const { weddingCurrency, ...row } = saved;
         return toSettingsDto(toSettingsRecord(row), deployment, weddingCurrency ?? "AUD");
@@ -2483,6 +2553,7 @@ export const registryService = {
           .select({
             settings: registrySettings,
             currency: weddings.currency,
+            payoutHolderAbsent: payoutHolderAbsentSql(),
             ownsTarget: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
             controls: sql<number>`(${source.weddingId} IS NOT NULL AND ${controlsSourceAccount(weddingId, osnProfileId)})`,
             ownersFit: sql<number>`(${source.weddingId} IS NOT NULL AND ${ownersSitBesideSource(weddingId)})`,
@@ -2498,7 +2569,9 @@ export const registryService = {
       if (verdict?.ownsTarget !== 1) return yield* Effect.fail(new StripeAccountNotFound());
       const row = verdict.settings as SettingsRow | null;
       const current = toSettingsDto(
-        row ? toSettingsRecord(row) : defaultSettings(weddingId),
+        row
+          ? toSettingsRecord({ ...row, payoutHolderAbsent: verdict.payoutHolderAbsent })
+          : defaultSettings(weddingId),
         deployment,
         verdict.currency,
       );
@@ -4613,9 +4686,10 @@ interface GateRow {
 
 /**
  * The settings half of a gate row whose wedding HAS a settings row. The guest
- * gate does not read who connected the account — no guest path uses it — so
- * the record says nobody, which no authorisation check would match. It does
- * read how the account came, as stored, since a gift keeps it.
+ * gate does not read who connected the account, nor whether they hold an owner
+ * seat — no guest path uses either — so the record says nobody, which no
+ * authorisation check would match, and not absent. It does read how the
+ * account came, as stored, since a gift keeps it.
  */
 const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   weddingId: r.id,
@@ -4631,6 +4705,7 @@ const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   stripeChargesEnabled: r.stripeChargesEnabled === true,
   stripePayoutsEnabled: r.stripePayoutsEnabled === true,
   stripeDefaultCurrency: r.stripeDefaultCurrency,
+  payoutHolderAbsent: false,
   updatedAt: r.updatedAt ? r.updatedAt.getTime() : null,
 });
 
