@@ -249,6 +249,15 @@ describe("renderTemplate", () => {
       listPurchased: 1,
       listReserved: 2,
     },
+    "registry-payout-retired": {
+      weddingName: "Ama & Jonah",
+      actorName: "Ama Mensah (@ama)",
+      namedName: "@jonah",
+      holderName: null,
+      reason: "handed_over",
+      audience: "owner",
+      moneyGiftsUrl: "https://host.example.test/#/w/wed_1/registry/settings",
+    },
     "rsvp-change-digest": {
       weddingName: "Ama & Jonah",
       households: 2,

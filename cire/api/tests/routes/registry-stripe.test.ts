@@ -1966,8 +1966,8 @@ describe("retiring the wedding's account", () => {
         expect(records[0]?.id).toMatch(/^rra_/);
 
         expect(logs).toContain("stripe account retired");
-        expect(logs).toContain(`"by":"${by}"`);
-        expect(logs).toContain(`"handed":"${handed}"`);
+        expect(logs).toContain(`by: ${by}`);
+        expect(logs).toContain(`handed: ${handed}`);
         // No profile id and no account id: the record row holds the account.
         for (const secret of ["acct_old", OWNER, SECOND, EDITOR]) {
           expect(logs).not.toContain(secret);
@@ -2206,11 +2206,14 @@ describe("retiring the wedding's account", () => {
       });
       expect(res?.status).toBe(200);
       expect(retired(db)[0]?.reason).toBe("holder_absent");
-      expect(logs).toContain(`"by":"absent_holder"`);
-      const audiences = mail
-        .recorded()
-        .map((m) => (m.template === "registry-payout-retired" ? m.data.audience : null));
-      expect(audiences).not.toContain("holder");
+      expect(logs).toContain("by: absent_holder");
+      // Every owner reads the absent-holder words; no one is told it was theirs.
+      const sent = mail.recorded();
+      expect(sent.length).toBeGreaterThan(0);
+      expect(
+        sent.every((m) => m.text.includes("No current owner of the wedding had connected it")),
+      ).toBe(true);
+      expect(sent.some((m) => m.text.includes("the Stripe account you connected"))).toBe(false);
     });
   });
 
