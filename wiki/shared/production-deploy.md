@@ -1887,6 +1887,7 @@ and [`scripts/production-operator.ts`](../../scripts/production-operator.ts):
   the run summary before anyone approves.
 - The approved job reads them again and refuses unless cire-api's commit and the method
   are still the ones shown, so an approval given after another release sends nothing.
+  Approved runs go one at a time, so the last list stored comes from the newest read.
 - **renew**, when osn-api's commit has `PUT /graph/internal/service-scopes/:serviceId`:
   one PUT of the scopes, with no key. osn-api sets them in one statement, and only while
   cire-api has a row and a live key: it answers 404 `unknown_service` with no row and

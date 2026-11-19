@@ -1188,6 +1188,7 @@ interface Job {
   readonly needs?: string | readonly string[];
   readonly if?: string;
   readonly environment?: unknown;
+  readonly concurrency?: unknown;
   readonly permissions?: unknown;
   readonly env?: unknown;
   readonly steps?: readonly Step[];
@@ -1269,6 +1270,13 @@ describe("the workflow", () => {
         secrets: ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"],
       },
     ]);
+  });
+
+  test("F8: register-cire-arc runs one at a time and never cancels a run in progress, so the last list stored comes from the newest read", () => {
+    expect(workflow.jobs["register-cire-arc"]?.concurrency).toEqual({
+      group: "production-operator-register-cire-arc",
+      "cancel-in-progress": false,
+    });
   });
 
   test("F5: no run line expands an expression: inputs and secrets reach a step through env alone", () => {

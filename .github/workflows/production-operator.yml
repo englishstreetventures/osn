@@ -133,6 +133,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: production
+    # One run at a time: each run reads production's scopes, then sets them
+    # whole, so two runs in step could store the older list last.
+    concurrency:
+      group: production-operator-register-cire-arc
+      cancel-in-progress: false
     permissions:
       contents: read
       deployments: read
