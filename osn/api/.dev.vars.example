@@ -18,7 +18,7 @@
 # OSN_JWT_PRIVATE_KEY = "base64-jwk-private"
 # OSN_JWT_PUBLIC_KEY  = "base64-jwk-public"
 
-# --- Session IP pepper (HMAC key for sessions.ip_hash; ≥32 bytes) ---
+# --- Server pepper (HMAC key for security_events.ip_hash, server-mac digests, handle holds; ≥32 bytes) ---
 # OSN_SESSION_IP_PEPPER = "at-least-32-bytes-of-random-here-______"
 
 # --- Email (Resend; Cloudflare Email Service as the legacy fallback) ---

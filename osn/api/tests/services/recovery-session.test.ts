@@ -1243,7 +1243,6 @@ describe("restricted recovery session — the caps it does not lift", () => {
             createdAt: nowSec,
             authenticatedAt: nowSec,
             uaLabel: null,
-            ipHash: null,
             // Ascending, so `seeded-session-0` is the least recently used and
             // the one eviction should take.
             lastUsedAt: nowSec + i,

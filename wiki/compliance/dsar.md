@@ -64,8 +64,8 @@ Use `GET /account/export`. The endpoint returns a JSON bundle:
 - `account` — explicit field list: `email`, `passkey_user_id`, `max_profiles`, `created_at`, `updated_at`. **Never includes the internal `accountId`** per the [[identity-model]] privacy invariant — `accountId` is the multi-account correlation key and must not appear in any API response, even one served to the account holder.
 - `profiles[]` — rows from `users` for this account.
 - `passkeys[]` — `id`, `label`, `aaguid`, `backup_eligible`, `backup_state`, `last_used_at`, `created_at`. **Not** `credentialId` or `publicKey` — those have no value to the user and could leak in transport.
-- `sessions[]` — `ua_label`, `ip_hash` (raw, not the public 16-hex handle), `last_used_at`, `created_at`. Note: `ip_hash` is HMAC-peppered; we cannot reverse to an IP.
-- `security_events[]` — kind, metadata, created_at, acknowledged_at.
+- `sessions[]` — `uaLabel`, `lastUsedAt`, `createdAt`. No session id and no IP hash: osn-api records no IP hash on a session. The one exception, a session the previous osn-api opens around a deploy, is in [[data-map]] (`sessions.ip_hash`).
+- `security_events[]` — `kind`, `createdAt`, `acknowledgedAt`, `uaLabel`, `ipHash`. `ipHash` is an HMAC-SHA256 of the request's IP under the server pepper; it cannot be turned back into an address.
 - `recovery_codes` — `total`, `used` (counts only; never the hashes).
 - `email_changes[]` — old / new email, timestamp.
 - `oidc_consents[]` — the apps this account authorised via the OIDC provider: `clientId`, `clientName` (null if the client row was hand-deleted), `profileId`, `scope`, `grantedAt`, `revokedAt`. Revoked grants are **included** — the withdrawal itself is the person's record. Never the internal `accountId`.

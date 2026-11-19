@@ -273,8 +273,6 @@ export interface CrossDeviceRequest {
   status: "pending" | "approved" | "rejected";
   /** Device B's coarse UA label. */
   uaLabel: string | null;
-  /** Device B's peppered IP hash. */
-  ipHash: string | null;
   expiresAt: number; // milliseconds
   createdAt: number; // milliseconds
   /**

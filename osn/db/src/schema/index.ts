@@ -336,12 +336,10 @@ export const sessions = sqliteTable(
      * recognisable device list without turning this into a fingerprint.
      */
     uaLabel: text("ua_label"),
-    /**
-     * HMAC-SHA256(peppered, client-IP), hex-encoded. Rainbow-table resistant
-     * handle for the issuing IP. Only used to let the owner recognise which
-     * session is which — never exposed beyond the caller's own list.
-     */
-    ipHash: text("ip_hash"),
+    // The database also holds `ip_hash`, which nothing writes or reads. It is
+    // left out here so that no statement names it, and
+    // englishstreetventures/osn#2431 drops it (`UNDECLARED_COLUMNS` in
+    // tests/ddl-lockstep.test.ts).
     /** Unix seconds. Updated on every successful refresh/verify hit. */
     lastUsedAt: integer("last_used_at"),
     /**

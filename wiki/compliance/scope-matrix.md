@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-19
 ---
 
 # Compliance Scope Matrix
@@ -39,7 +39,7 @@ compliance obligations.
 | Surface | Personal data introduced | Compliance hooks |
 |---|---|---|
 | `@osn/api` registration | email, handle, IP (rate-limit), UA, passkey credential metadata | GDPR Art. 6(1)(b) lawful basis (contract); COPPA age gate at signup; CCPA notice at collection |
-| `@osn/api` sessions | `ua_label`, `ip_hash` (HMAC-peppered), `last_used_at` | GDPR storage minimisation; SOC 2 CC6 logical access controls |
+| `@osn/api` sessions | `ua_label`, `last_used_at` (no IP and no IP hash) | GDPR storage minimisation; SOC 2 CC6 logical access controls |
 | `@osn/api` security events | `ip_hash`, UA, kind, timestamp | SOC 2 CC7 monitoring; GDPR Art. 32 |
 | `@pulse/api` events | event title, description, location (lat/lng), guest list, RSVPs | GDPR (special-category if event reveals health / orientation / political views); DSA (UGC); EAA (UI WCAG) |
 | `@pulse/api` discovery (Photon geocoder) | every keystroke sent to a third party | **Outstanding gap** — the geocoder keystroke leak is open. Needs proxy + IP shielding OR explicit consent. Until fixed, we are out of compliance with GDPR data-minimisation. |

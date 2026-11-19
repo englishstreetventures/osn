@@ -62,11 +62,15 @@ export interface AuthConfig {
    */
   stepUpTokenTtl?: number;
   /**
-   * HMAC pepper used to hash session-issuing IP addresses into
-   * `sessions.ip_hash`. Must be at least 32 bytes of unguessable material
-   * in non-local envs — rotating it invalidates the display "same-subnet"
-   * signal, but has no effect on session validity. When unset, IP hashes
-   * are not recorded (dev mode).
+   * Server secret (`OSN_SESSION_IP_PEPPER`). Keys the HMAC of a request's IP
+   * in `security_events.ip_hash`, every digest in `server-mac.ts` (probe keys,
+   * discoverable passkey challenges, emailed-link pairing, email verification
+   * nonces), and the `handle_holds` digest (`lib/handle-hold.ts`). Must be at
+   * least 32 bytes of unguessable material in non-local envs. Rotating it
+   * leaves sessions valid but ends every handle hold early, voids what
+   * `server-mac.ts` has in flight (its header lists each), and stops older
+   * security events' IP hashes matching newer ones. When unset, IP hashes are
+   * not recorded (dev mode).
    */
   sessionIpPepper?: string;
   /**

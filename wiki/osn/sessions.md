@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-19
 ---
 
 # Session introspection + revocation
@@ -133,15 +133,16 @@ QR-code mediated session transfer — authenticate on a new device by scanning a
 
 ## Metadata captured at issue time
 
-Added to the `sessions` table in migration `0005_sessions_metadata_and_email_change.sql`:
+The `sessions` table holds, per device:
 
 | Column | What it stores | Source |
 |---|---|---|
 | `ua_label` | Coarse `"Firefox on macOS"` label | `deriveUaLabel(headers["user-agent"])` — bounded cardinality |
-| `ip_hash` | `HMAC-SHA256(sessionIpPepper, ip)` | `getClientIp()` + peppered HMAC |
 | `last_used_at` | Unix seconds | Updated on every successful refresh/verify |
 
-**Why HMAC-peppered, not raw SHA-256 for IPs?** Plain SHA-256 over the v4 address space (2^32) is trivially rainbow-tableable. A server-side secret pepper makes offline correlation impossible without pepper access. Pepper rotation is cheap — only display continuity is affected, not session validity.
+**No IP address, and no hash of one.** The table still has an `ip_hash` column, which osn-api writes on no session, copies on no rotation and reads nowhere; migration `20261119031316_clear_sessions_ip_hash` emptied it, and englishstreetventures/osn#2431 drops it. The Drizzle schema leaves the column out, so no statement names it (`UNDECLARED_COLUMNS` in [`osn/db/tests/ddl-lockstep.test.ts`](../../osn/db/tests/ddl-lockstep.test.ts)). A request's IP still reaches the security event it records, as `security_events.ip_hash` = `HMAC-SHA256(sessionIpPepper, ip)`, the per-IP rate limiters and the recovery send cap; [[data-map]] lists each.
+
+**Why HMAC-peppered, not raw SHA-256 for IPs?** Plain SHA-256 over the v4 address space (2^32) is trivially rainbow-tableable. A server-side secret pepper makes offline correlation impossible without pepper access. Rotating the pepper leaves sessions valid and stops an older event's hash matching a newer one's, but it does more than that: it ends every handle hold early ([[account-deletion#Handle holds]]) and voids the passkey challenges, emailed links and email-verification nonces in flight (the header of [`osn/api/src/services/auth/server-mac.ts`](../../osn/api/src/services/auth/server-mac.ts)).
 
 **Configuration:** `OSN_SESSION_IP_PEPPER` (≥32 bytes). Startup fails in non-local environments if unset — silent IP-hash degradation would cost users a security signal without anyone noticing.
 
@@ -175,7 +176,7 @@ With neither a live cookie nor a resolvable `osn_sid` there is genuinely no self
 
 ## Rotation preserves metadata
 
-Refresh-token rotation (Copenhagen Book C2) inserts a new session row with a rotated session token while the old row stands, writes the rotation record while the new row stands, then deletes the old row while the new one stands; on D1 the three run as one batch, so the family always holds a session mid-rotation. We copy the old row's `ua_label` and `ip_hash` onto the new row so Settings continues to show the same "Firefox on macOS" entry instead of flipping to a new device. The `last_used_at` timestamp is set to the rotation moment.
+Refresh-token rotation (Copenhagen Book C2) inserts a new session row with a rotated session token while the old row stands, writes the rotation record while the new row stands, then deletes the old row while the new one stands; on D1 the three run as one batch, so the family always holds a session mid-rotation. We copy the old row's `ua_label` onto the new row, so the session list (`GET /sessions`) keeps showing the same "Firefox on macOS" entry instead of flipping to a new device. The rotation copies no IP hash: a row an earlier osn-api wrote with one rotates into a row without. The `last_used_at` timestamp is set to the rotation moment.
 
 ## The restricted recovery session
 

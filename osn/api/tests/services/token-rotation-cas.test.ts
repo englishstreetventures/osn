@@ -186,7 +186,6 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
             expiresAt: nowSec + 3600,
             createdAt: nowSec,
             uaLabel: null,
-            ipHash: null,
             lastUsedAt: nowSec,
           }),
         );

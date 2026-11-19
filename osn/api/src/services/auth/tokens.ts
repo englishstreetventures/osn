@@ -113,7 +113,7 @@ export const runRotatedSessionSweep = (
   );
 
 export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
-  const { config, accessTokenTtl, refreshTokenTtl, hashIp, passkeyRegisterAllowedAmr } = ctx;
+  const { config, accessTokenTtl, refreshTokenTtl, passkeyRegisterAllowedAmr } = ctx;
   const { findAccountById, findDefaultProfile } = profiles;
 
   /**
@@ -287,7 +287,6 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             createdAt: nowSec,
             authenticatedAt: nowSec,
             uaLabel: sessionMeta?.uaLabel ?? null,
-            ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
             lastUsedAt: nowSec,
           }),
         catch: (cause) => new DatabaseError({ cause }),
@@ -477,7 +476,6 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             // rotation so `auth_time`/`max_age` stay honest across silent refresh.
             authenticatedAt: nowSec,
             uaLabel: sessionMeta?.uaLabel ?? null,
-            ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
             lastUsedAt: nowSec,
             restrictedUntil,
             restrictedAmr,
@@ -975,7 +973,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       // 1. The new session, written only while the old one stands. It copies
       //    the device from the old row as that row stands when the insert
-      //    runs: the UA label and IP hash, so the device keeps its identity
+      //    runs: the UA label, so the device keeps its identity
       //    across rotations, and any restriction, so one lifted since the read
       //    above stays lifted. The access token minted above keeps the read's
       //    audience, which is never wider than the row's.
@@ -1002,7 +1000,6 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
                 sessions.createdAt
               })`.as(sessions.authenticatedAt.name),
               uaLabel: sessions.uaLabel,
-              ipHash: sessions.ipHash,
               lastUsedAt: bound(nowSec, sessions.lastUsedAt),
               restrictedUntil: sessions.restrictedUntil,
               // Carried with the deadline: the enrolment bypass reads the

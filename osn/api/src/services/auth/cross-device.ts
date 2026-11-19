@@ -125,7 +125,6 @@ export function createCrossDeviceModule(
             secretHash,
             status: "pending",
             uaLabel: sessionMeta?.uaLabel ?? null,
-            ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
             expiresAt: expiresAtMs,
             createdAt: nowMs,
           },

@@ -365,13 +365,12 @@ export async function* exportLines(opts: {
     yield jsonLine({ section: "totp", record });
   }
 
-  // sessions — coarse device metadata; ip_hash is HMAC-peppered (irreversible).
+  // sessions — coarse device metadata: the UA label, and when the session was created and last used.
   for await (const row of keyset(async (cursor) =>
     db
       .select({
         _cursor: sessions.id,
         uaLabel: sessions.uaLabel,
-        ipHash: sessions.ipHash,
         lastUsedAt: sessions.lastUsedAt,
         createdAt: sessions.createdAt,
       })
@@ -385,7 +384,8 @@ export async function* exportLines(opts: {
     yield jsonLine({ section: "sessions", record });
   }
 
-  // security_events
+  // security_events — with the device label and the peppered IP hash each
+  // event keeps, as `GET /account/security-events` shows them.
   for await (const row of keyset(async (cursor) =>
     db
       .select({
@@ -393,6 +393,8 @@ export async function* exportLines(opts: {
         kind: securityEvents.kind,
         createdAt: securityEvents.createdAt,
         acknowledgedAt: securityEvents.acknowledgedAt,
+        uaLabel: securityEvents.uaLabel,
+        ipHash: securityEvents.ipHash,
       })
       .from(securityEvents)
       .where(and(eq(securityEvents.accountId, accountId), gt(securityEvents.id, cursor)))

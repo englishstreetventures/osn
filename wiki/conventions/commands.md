@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-19
 ---
 
 # CLI Commands Reference
@@ -109,6 +109,13 @@ request is checked against `main` alone. A pull
 request ejected from the queue for a clash regenerates its migration on top of
 the new `main`. The details, written for cire but true of every database:
 [[cire-development#Adding a column]] and `cire/db/README.md`.
+
+Retiring a column the serving Worker names takes two releases there too. In osn
+the first takes it out of `osn/db/src/schema/index.ts` and lists it in
+`UNDECLARED_COLUMNS` in `osn/db/tests/ddl-lockstep.test.ts`. Osn has no
+`setup.ts`: its test databases are built from the schema, so they lack the
+column, and a test that needs the shape production holds adds it back.
+`sessions.ip_hash` is the example; englishstreetventures/osn#2431 drops it.
 
 ## Versioning
 

@@ -15,6 +15,8 @@ import { createSchemaSql } from "../src/testing";
 //   1. osn/db/drizzle/*.sql — what production D1 actually is,
 //   2. `createSchemaSql()` — the schema-derived DDL every OSN test runs on
 //      (bun:sqlite for the unit suites, Miniflare D1 for d1-integration).
+// The one exception is a column named in UNDECLARED_COLUMNS below: the
+// database still holds it, and schema.ts leaves it out.
 //
 // Surface 2 is emitted from src/schema/index.ts, so this also pins the Drizzle
 // schema itself: a column added to schema.ts without a generated migration
@@ -229,6 +231,29 @@ function snapshot(db: Database): Record<string, TableShape> {
   return out;
 }
 
+// Columns the database still holds that schema.ts deliberately does not
+// declare, so that no statement the Worker sends names them and a later
+// migration can drop them under a serving Worker: Drizzle names every declared
+// column in each insert and select, and a release migrates before its Worker
+// serves. Each entry is excused from the comparison only, with the indexes and
+// foreign keys that use it, and must still exist after the chain, so the entry
+// goes when its column does.
+const UNDECLARED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  // Goes when englishstreetventures/osn#2431 lands.
+  sessions: ["ip_hash"],
+};
+
+/** `shape` without the columns named in {@link UNDECLARED_COLUMNS} for `table`. */
+function withoutUndeclared(table: string, shape: TableShape): TableShape {
+  const gone = new Set(UNDECLARED_COLUMNS[table] ?? []);
+  const kept = (columns: readonly string[]) => !columns.some((c) => gone.has(c));
+  return {
+    columns: Object.fromEntries(Object.entries(shape.columns).filter(([c]) => !gone.has(c))),
+    foreignKeys: shape.foreignKeys.filter((fk) => kept(fk.columns)),
+    indexes: shape.indexes.filter((idx) => kept(idx.columns)),
+  };
+}
+
 describe("OSN DDL lockstep", () => {
   // Wrangler applies every `*.sql` directly in the directory and nothing
   // else, so anything beside them is a migration that would never run: a
@@ -240,8 +265,28 @@ describe("OSN DDL lockstep", () => {
     expect(others.map((entry) => entry.name)).toEqual([]);
   });
 
-  const migrated = snapshot(migratedDb());
+  const chain = snapshot(migratedDb());
+  const migrated = Object.fromEntries(
+    Object.entries(chain).map(([table, shape]) => [table, withoutUndeclared(table, shape)]),
+  );
   const emitted = snapshot(emittedDb());
+
+  // An insert from the Worker leaves an undeclared column out, so SQLite fills
+  // it with NULL or its default; a NOT NULL column with neither refuses every
+  // insert, and cannot be retired by leaving it out of schema.ts.
+  it("excuses only columns the migrated database still holds, each nullable or with a default", () => {
+    for (const [table, columns] of Object.entries(UNDECLARED_COLUMNS)) {
+      for (const column of columns) {
+        const shape = chain[table]?.columns[column];
+        expect({
+          table,
+          column,
+          present: shape !== undefined,
+          insertableWithout: shape !== undefined && (!shape.notNull || shape.default !== null),
+        }).toEqual({ table, column, present: true, insertableWithout: true });
+      }
+    }
+  });
 
   it("covers the same set of tables", () => {
     expect(Object.keys(emitted).toSorted()).toEqual(Object.keys(migrated).toSorted());

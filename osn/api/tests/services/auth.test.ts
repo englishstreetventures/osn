@@ -1703,9 +1703,16 @@ describe("refresh token rotation (C2)", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("rotation carries uaLabel, ipHash and authenticatedAt onto the new row", () => {
+  it.effect("rotation carries uaLabel and authenticatedAt, and no IP hash", () => {
     const { layer, sqlite } = createTestLayerWithSqlite();
-    // A pepper is required for `ipHash` to be stored at all (context.hashIp).
+    // Production's `sessions` still holds `ip_hash` until
+    // englishstreetventures/osn#2431 drops it, while the schema-derived test
+    // database does not: add it, so the Worker runs on the shape it meets.
+    const hasIpHash = sqlite
+      .query("SELECT 1 FROM pragma_table_info('sessions') WHERE name = 'ip_hash'")
+      .get();
+    if (!hasIpHash) sqlite.run("ALTER TABLE sessions ADD COLUMN ip_hash text");
+    // A pepper set and an IP given: everything a hash would need.
     const svc = createAuthService({ ...config, sessionIpPepper: "x".repeat(32) });
     const device = (sessionId: string) =>
       sqlite
@@ -1723,18 +1730,19 @@ describe("refresh token rotation (C2)", () => {
         { uaLabel: "Safari on iOS", ip: "203.0.113.9" },
       );
       const before = yield* svc.verifyRefreshToken(tokens.refreshToken);
-      const beforeDevice = device(before.sessionId);
+      expect(device(before.sessionId)).toEqual({ uaLabel: "Safari on iOS", ipHash: null });
 
+      // A row an earlier Worker wrote, hash and all, rotates into one without.
+      sqlite.run("UPDATE sessions SET ip_hash = ? WHERE id = ?", [
+        "a".repeat(64),
+        before.sessionId,
+      ]);
       const rotated = yield* svc.refreshTokens(tokens.refreshToken);
       const after = yield* svc.verifyRefreshToken(rotated.refreshToken);
 
       expect(after.sessionId).not.toBe(before.sessionId);
       expect(after.familyId).toBe(before.familyId);
-      expect(beforeDevice.ipHash).toMatch(/^[a-f0-9]{64}$/);
-      expect(device(after.sessionId)).toEqual({
-        uaLabel: "Safari on iOS",
-        ipHash: beforeDevice.ipHash,
-      });
+      expect(device(after.sessionId)).toEqual({ uaLabel: "Safari on iOS", ipHash: null });
       // `auth_time` survives the silent rotation (OIDC max_age honesty).
       expect(after.authenticatedAt).toBe(before.authenticatedAt);
     }).pipe(Effect.provide(layer));

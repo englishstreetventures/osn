@@ -398,9 +398,10 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
 
   const envNonLocal = isNonLocal(env);
 
-  // Session IP pepper is the HMAC key used to turn issuing IPs into
-  // rainbow-table-resistant hashes on the `sessions.ip_hash` column. Fail
-  // loudly if it's missing in a non-local deployment.
+  // The server pepper keys the IP hash on each security event, the digests in
+  // services/auth/server-mac.ts and the handle-hold digest (`sessionIpPepper`
+  // in services/auth/config.ts). Fail loudly if it's missing in a non-local
+  // deployment.
   const sessionIpPepper = env.OSN_SESSION_IP_PEPPER;
   if (envNonLocal && (!sessionIpPepper || sessionIpPepper.length < 32)) {
     throw new Error(
