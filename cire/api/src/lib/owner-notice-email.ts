@@ -18,7 +18,15 @@
  *  - an owner who removed their Cire data and so left the wedding
  *    (`wedding-owner-change`, as one who stepped down) goes to the owners who
  *    remain, not to the one who left, and spends the wedding's budget only:
- *    cire keeps nothing naming the person afterwards, a budget row included.
+ *    cire keeps nothing naming the person afterwards, a budget row included;
+ *  - an owner who retired the Stripe account money gifts are paid into
+ *    (`registry-payout-retired`) goes to every owner, the holder whose account
+ *    another owner replaced included, and spends a retire budget of the
+ *    wedding's own (`retire:<wedding>`), so a loop of owner changes, which
+ *    spends the wedding's and the actor's budgets, cannot keep a replace from
+ *    its holder. An owner the actor seated in the last {@link FRESH_SEAT_MS}
+ *    is not mailed, as for an owner change, unless they are the holder: they
+ *    connected the account themselves.
  *
  * Each names who acted. The actor gets their own copy because a session
  * someone else is using is exactly the case where the real owner needs to
@@ -58,6 +66,7 @@ import type { OwnerNoticeKind, OwnerNoticeResult } from "../metrics";
 import { runCire } from "../observability";
 import type { HostRole } from "../services/hosts";
 import type { OsnOrganiserEmailLookup, OsnProfileDisplayResolver } from "../services/osn-bridge";
+import type { RetireReason } from "../services/registry";
 import type { RefundNotice } from "../services/upgrades";
 import { getWaitUntil } from "./execution-ctx";
 import { formatMinor } from "./money";
@@ -110,6 +119,22 @@ interface DeleteStartedInput {
 }
 
 type Audience = EmailTemplateData<"wedding-owner-change">["audience"];
+type RetiredAudience = EmailTemplateData<"registry-payout-retired">["audience"];
+
+/** An owner retired the wedding's payout account (`registryService.retireStripeAccount`). */
+export interface PayoutRetiredInput {
+  readonly weddingId: string;
+  /** Who retired it. */
+  readonly actorOsnProfileId: string;
+  /** The standing the retire's write recorded. */
+  readonly reason: RetireReason;
+  /** The owner money gifts were handed to, on a hand-over; else null. */
+  readonly handToOsnProfileId: string | null;
+  /** The seated holder whose account another owner replaced, on a replace; else null. */
+  readonly holderOsnProfileId: string | null;
+  /** Defaults to now; a test passes a fixed clock. */
+  readonly now?: Date;
+}
 
 /** Whether the person whose seat changed hears of it themselves. Never for an
  *  add or a promotion; never for a seat the actor created in the last
@@ -127,9 +152,9 @@ function mailsSubject(input: OwnerChangedInput): boolean {
 const utcDay = (at: Date): string => at.toISOString().slice(0, 10);
 
 /** One recipient of a notice, before their address is known. */
-interface Recipient {
+interface Recipient<A extends string = Audience> {
   readonly osnProfileId: string;
-  readonly audience: Audience;
+  readonly audience: A;
 }
 
 /** `Display Name (@handle)`, `@handle`, or `null` when OSN could not say. */
@@ -179,6 +204,54 @@ function weddingOwners(
     return {
       name: first.name,
       owners: rows.flatMap((r) => (r.owner === null ? [] : [r.owner])),
+    };
+  });
+}
+
+/** One owner seat: who holds it, who created it, and when. */
+interface OwnerSeat {
+  readonly osnProfileId: string;
+  readonly addedByOsnProfileId: string;
+  readonly createdAt: Date;
+}
+
+/** The wedding's name and its owner seats as they stand now, in one query. */
+function weddingOwnerSeats(
+  weddingId: string,
+): Effect.Effect<{ name: string; seats: OwnerSeat[] } | null, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const rows = yield* dbQuery(() =>
+      db
+        .select({
+          name: weddings.displayName,
+          osnProfileId: weddingHosts.osnProfileId,
+          addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+          createdAt: weddingHosts.createdAt,
+        })
+        .from(weddings)
+        .leftJoin(
+          weddingHosts,
+          and(eq(weddingHosts.weddingId, weddings.id), eq(weddingHosts.role, "owner")),
+        )
+        .where(eq(weddings.id, weddingId))
+        .all(),
+    );
+    const [first] = rows;
+    if (!first) return null;
+    return {
+      name: first.name,
+      seats: rows.flatMap((r) =>
+        r.osnProfileId === null || r.addedByOsnProfileId === null || r.createdAt === null
+          ? []
+          : [
+              {
+                osnProfileId: r.osnProfileId,
+                addedByOsnProfileId: r.addedByOsnProfileId,
+                createdAt: r.createdAt,
+              },
+            ],
+      ),
     };
   });
 }
@@ -248,13 +321,13 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
    * The shared tail: look up, build one email per distinct address (first
    * recipient listed wins), spend the email budget, send, count. Never fails.
    */
-  const deliver = (
+  const deliver = <A extends string>(
     kind: OwnerNoticeKind,
     weddingId: string,
     actorOsnProfileId: string,
     now: Date,
     build: () => Effect.Effect<
-      { recipients: Recipient[]; named: string[]; render: RenderFor } | null,
+      { recipients: Recipient<A>[]; named: string[]; render: RenderFor<A> } | null,
       never,
       DbService
     >,
@@ -286,9 +359,11 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
           ? [`actor:${actorOsnProfileId}`]
           : kind === "upgrade_refund"
             ? [`refund:${weddingId}`]
-            : kind === "owner_left"
-              ? [`wedding:${weddingId}`]
-              : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
+            : kind === "payout_retired"
+              ? [`retire:${weddingId}`]
+              : kind === "owner_left"
+                ? [`wedding:${weddingId}`]
+                : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
       const allowed = yield* spend(keys, inputs.length, now);
       const budgeted = inputs.slice(0, allowed);
       if (budgeted.length === 0) return "throttled" as const;
@@ -322,7 +397,8 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
       Effect.withSpan(`cire.ownerNotice.${kind}`),
     );
 
-  const deliverVoid = (...args: Parameters<typeof deliver>) => deliver(...args).pipe(Effect.asVoid);
+  const deliverVoid = <A extends string>(...args: Parameters<typeof deliver<A>>) =>
+    deliver<A>(...args).pipe(Effect.asVoid);
 
   return {
     /** An owner was added, promoted, removed or demoted. */
@@ -439,6 +515,74 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
     },
 
     /**
+     * An owner retired the Stripe account money gifts are paid into. Every
+     * owner is told, in recipient order: the owner money gifts were handed to,
+     * the holder whose account was replaced, the actor, then the rest. An owner
+     * the actor seated less than {@link FRESH_SEAT_MS} ago is left out, unless
+     * they are that holder.
+     */
+    payoutRetired(input: PayoutRetiredInput): Effect.Effect<void, never, DbService> {
+      const now = input.now ?? new Date();
+      return deliverVoid("payout_retired", input.weddingId, input.actorOsnProfileId, now, () =>
+        Effect.gen(function* () {
+          const wedding = yield* weddingOwnerSeats(input.weddingId);
+          if (!wedding) return null;
+          const holder = input.reason === "replaced" ? input.holderOsnProfileId : null;
+          const named = input.reason === "handed_over" ? input.handToOsnProfileId : null;
+          const freshlySeated = (seat: OwnerSeat) =>
+            seat.addedByOsnProfileId === input.actorOsnProfileId &&
+            now.getTime() - seat.createdAt.getTime() < FRESH_SEAT_MS;
+          const mailed = wedding.seats.filter(
+            (seat) =>
+              seat.osnProfileId !== input.actorOsnProfileId &&
+              (seat.osnProfileId === holder || !freshlySeated(seat)),
+          );
+          const audienceOf = (id: string) =>
+            id === named
+              ? ("named" as const)
+              : id === holder
+                ? ("holder" as const)
+                : ("owner" as const);
+          const rank = { named: 0, holder: 1, owner: 2 } as const;
+          const others = mailed
+            .map((seat) => ({
+              osnProfileId: seat.osnProfileId,
+              audience: audienceOf(seat.osnProfileId),
+            }))
+            .sort((a, b) => rank[a.audience] - rank[b.audience]);
+          const recipients: Recipient<RetiredAudience>[] = [
+            ...others.filter((r) => r.audience !== "owner"),
+            { osnProfileId: input.actorOsnProfileId, audience: "actor" },
+            ...others.filter((r) => r.audience === "owner"),
+          ];
+          const moneyGiftsUrl = `${deps.portalUrl}/#/w/${encodeURIComponent(input.weddingId)}/registry/settings`;
+          const render: RenderFor<RetiredAudience> = (recipient, to, displays) => ({
+            template: "registry-payout-retired",
+            to,
+            data: {
+              weddingName: wedding.name,
+              actorName: nameOf(displays, input.actorOsnProfileId),
+              namedName: named === null ? null : nameOf(displays, named),
+              holderName: holder === null ? null : nameOf(displays, holder),
+              reason: input.reason,
+              audience: recipient.audience,
+              moneyGiftsUrl,
+            },
+          });
+          return {
+            recipients,
+            named: [
+              input.actorOsnProfileId,
+              ...(named ? [named] : []),
+              ...(holder ? [holder] : []),
+            ],
+            render,
+          };
+        }),
+      );
+    },
+
+    /**
      * An upgrade payment cire could not grant was refunded, and Stripe
      * accepted it. Answers whether any owner was mailed.
      */
@@ -482,8 +626,8 @@ function errorTag(error: unknown): string {
   return "defect";
 }
 
-type RenderFor = (
-  recipient: Recipient,
+type RenderFor<A extends string = Audience> = (
+  recipient: Recipient<A>,
   to: string,
   displays: ReadonlyMap<string, { handle: string; displayName: string | null }>,
 ) => SendEmailInput;

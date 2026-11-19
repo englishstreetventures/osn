@@ -22,6 +22,7 @@ import {
   registryClaims,
   registryContributions,
   registryItems,
+  registryRetiredAccounts,
   registrySettings,
   registryStripeOAuthStates,
   weddingHosts,
@@ -46,7 +47,14 @@ import {
 import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
-import { commitGroupedBatches, DbService, dbQuery, outerColumn, unionColumn } from "../db";
+import {
+  commitBatchResults,
+  commitGroupedBatches,
+  DbService,
+  dbQuery,
+  outerColumn,
+  unionColumn,
+} from "../db";
 import { weddingIsLive } from "../db/live-wedding";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
 import { payoutHolderAbsentSql } from "./payout-holder";
@@ -130,6 +138,30 @@ export class StripeAlreadyConnected extends Data.TaggedError("StripeAlreadyConne
 export class StripeOwnersDiffer extends Data.TaggedError("StripeOwnersDiffer")<{
   readonly current: RegistrySettingsDto;
 }> {}
+/**
+ * A retire found the wedding's account, or its generation, not the one the
+ * caller read: no account now, another one, or the same one cleared and
+ * connected again. Carries the settings as they stand. 409-class.
+ */
+export class StripeAccountChanged extends Data.TaggedError("StripeAccountChanged")<{
+  readonly current: RegistrySettingsDto;
+}> {}
+/**
+ * A retire named an owner to hand money gifts to who is not one: not an
+ * owner seat here, the caller themself, or named by someone other than the
+ * account's holder. 409-class.
+ */
+export class HandoverNotOwner extends Data.TaggedError("HandoverNotOwner") {}
+/** A retire by a caller who no longer owns the live wedding. 403-class. */
+export class StripeRetireForbidden extends Data.TaggedError("StripeRetireForbidden") {}
+
+/**
+ * By whose standing an account was retired, as `registry_retired_accounts`
+ * stores it: its holder named an owner (`handed_over`) or no one
+ * (`disconnected`); another owner retired it while the holder held an owner
+ * seat (`replaced`), or while no current owner held it (`holder_absent`).
+ */
+export type RetireReason = "handed_over" | "disconnected" | "replaced" | "holder_absent";
 /**
  * An item write carrying a field of the other kind: a cash fund with a price,
  * a link, a category or more than one wanted, or a gift to reserve with a
@@ -2804,6 +2836,197 @@ export const registryService = {
         ? ("owners_differ" as const)
         : ("account_on_deleted_wedding" as const);
     }).pipe(Effect.withSpan("cire.registry.stripeOAuthRefusal"));
+  },
+
+  /**
+   * Stop naming the wedding's Stripe account, keeping a record of it. Nothing
+   * at Stripe changes: the account stays connected, and refunds and disputes
+   * on gifts paid into it keep reaching them (`contributionsOnAccount` matches
+   * a gift by its own account).
+   *
+   * ONE batch of two statements, in this order, each carrying every rule in
+   * its `WHERE`: the row still names `accountId` at `generation` (what the
+   * route read, so two owners replacing at once, or a deauthorization and a
+   * reconnect in between, retire nothing); the caller owns the live wedding;
+   * and `handTo`, when given, holds an owner seat, is not the caller, and is
+   * named by the account's holder. First an `INSERT … SELECT` writes the
+   * `registry_retired_accounts` row, with the reason the row's standing gives
+   * then (`RETURNING`); then the `UPDATE` clears the account. The insert runs
+   * first because the row no longer names the account once the update has
+   * run. A D1 batch is one transaction, so both land or neither. The
+   * generation trigger moves the row on by one; the switch is left as it is.
+   *
+   * Only a refusal pays for one more read, which chooses the answer: the
+   * caller no longer owns it (`StripeRetireForbidden`); the account or its
+   * generation moved (`StripeAccountChanged`, with the settings); `handTo`
+   * breaks its rule (`HandoverNotOwner`); or everything holds now, so it
+   * changed between the write and the read (`StripeAccountChanged`). A read
+   * that found no account skips the batch.
+   */
+  retireStripeAccount(
+    input: {
+      weddingId: string;
+      osnProfileId: string;
+      /** The owner the holder hands money gifts to, or null. */
+      handTo: string | null;
+      /** The account the caller read on the row, and the row's generation then. */
+      accountId: string | null;
+      generation: number;
+    },
+    deployment: MoneyDeployment,
+  ): Effect.Effect<
+    { settings: RegistrySettingsDto; reason: RetireReason },
+    StripeRetireForbidden | StripeAccountChanged | HandoverNotOwner,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const { weddingId, osnProfileId, handTo, accountId, generation } = input;
+      const holder = outerColumn(registrySettings.stripeConnectedByOsnProfileId);
+      const handToAllowed = sql`(${handTo} IS NULL
+        OR (${holder} = ${osnProfileId}
+            AND ${handTo} <> ${osnProfileId}
+            AND EXISTS (SELECT 1 FROM ${weddingHosts} hand_seat
+                        WHERE hand_seat.wedding_id = ${weddingId}
+                          AND hand_seat.osn_profile_id = ${handTo}
+                          AND hand_seat.role = 'owner')))`;
+
+      if (accountId !== null) {
+        const allowed = sql`${outerColumn(registrySettings.weddingId)} = ${weddingId}
+          AND ${outerColumn(registrySettings.stripeAccountId)} = ${accountId}
+          AND ${outerColumn(registrySettings.stripeAccountGeneration)} = ${generation}
+          AND ${ownsLiveWedding(weddingId, osnProfileId)}
+          AND ${handToAllowed}`;
+        const now = new Date();
+        const stamp = toEpochSeconds(now);
+        // The reason the row's standing gives at the write: the holder is the
+        // caller, or holds an owner seat, or neither.
+        const reason = sql`CASE
+          WHEN ${holder} = ${osnProfileId}
+            THEN (CASE WHEN ${handTo} IS NULL THEN 'disconnected' ELSE 'handed_over' END)
+          WHEN ${payoutHolderAbsentSql()} THEN 'holder_absent'
+          ELSE 'replaced' END`;
+        const values = {
+          id: sql`${`rra_${crypto.randomUUID()}`}`,
+          weddingId: outerColumn(registrySettings.weddingId),
+          stripeAccountId: outerColumn(registrySettings.stripeAccountId),
+          stripeAccountType: outerColumn(registrySettings.stripeAccountType),
+          stripeConnectedAt: outerColumn(registrySettings.stripeConnectedAt),
+          retiredAt: sql`${stamp}`,
+          reason,
+          releasedAt: sql`NULL`,
+          lastHandBackAt: sql`NULL`,
+        } satisfies Record<keyof typeof registryRetiredAccounts.$inferSelect, SQL>;
+        const columns = Object.keys(getTableColumns(registryRetiredAccounts)) as Array<
+          keyof typeof values
+        >;
+        const [recorded, cleared] = yield* dbQuery(() =>
+          commitBatchResults(db, [
+            db
+              .insert(registryRetiredAccounts)
+              .select(
+                sql`SELECT ${sql.join(
+                  columns.map((key) => values[key]),
+                  sql`, `,
+                )} FROM ${registrySettings} WHERE ${allowed}`,
+              )
+              .returning({ reason: registryRetiredAccounts.reason }),
+            db
+              .update(registrySettings)
+              .set({
+                stripeAccountId: null,
+                stripeConnectedByOsnProfileId: null,
+                stripeAccountType: null,
+                stripeConnectedAt: null,
+                stripeChargesEnabled: false,
+                stripePayoutsEnabled: false,
+                stripeDefaultCurrency: null,
+                // What Stripe last said describes an account the row no longer names.
+                stripeAccountUpdatedAt: null,
+                updatedAt: now,
+              })
+              .where(allowed)
+              .returning({
+                ...getTableColumns(registrySettings),
+                weddingCurrency: sql<
+                  string | null
+                >`(select ${weddings.currency} from ${weddings} where ${weddings.id} = ${registrySettings.weddingId})`,
+                payoutHolderAbsent: payoutHolderAbsentSql(),
+              }),
+          ]),
+        );
+        const [record] = recorded as Array<{ reason: RetireReason }>;
+        const [row] = cleared as Array<SettingsRowRead & { weddingCurrency: string | null }>;
+        if (row) {
+          // Both carry the same rules in one transaction, so a clear without
+          // its record cannot happen; failing beats a retire with no record.
+          if (!record)
+            return yield* Effect.die(new Error("retire cleared the row but recorded no account"));
+          const { weddingCurrency, ...saved } = row;
+          return {
+            settings: toSettingsDto(toSettingsRecord(saved), deployment, weddingCurrency ?? "AUD"),
+            reason: record.reason,
+          };
+        }
+      }
+
+      return yield* registryService.stripeRetireRefusal(input, handToAllowed, deployment);
+    }).pipe(Effect.withSpan("cire.registry.retireStripeAccount"));
+  },
+
+  /**
+   * Why {@link registryService.retireStripeAccount} wrote nothing, in one
+   * read, in that method's order. `handToAllowed` is its rule over the row.
+   */
+  stripeRetireRefusal(
+    input: {
+      weddingId: string;
+      osnProfileId: string;
+      accountId: string | null;
+      generation: number;
+    },
+    handToAllowed: SQL,
+    deployment: MoneyDeployment,
+  ): Effect.Effect<
+    never,
+    StripeRetireForbidden | StripeAccountChanged | HandoverNotOwner,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [verdict] = yield* dbQuery(() =>
+        db
+          .select({
+            settings: registrySettings,
+            currency: weddings.currency,
+            payoutHolderAbsent: payoutHolderAbsentSql(),
+            owns: sql<number>`${ownsLiveWedding(input.weddingId, input.osnProfileId)}`,
+            handToAllowed: sql<number>`${handToAllowed}`,
+          })
+          .from(weddings)
+          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+          .where(eq(weddings.id, input.weddingId))
+          .all(),
+      );
+      if (verdict?.owns !== 1) return yield* Effect.fail(new StripeRetireForbidden());
+      const row = verdict.settings as (SettingsRow & { stripeAccountGeneration: number }) | null;
+      const current = toSettingsDto(
+        row
+          ? toSettingsRecord({ ...row, payoutHolderAbsent: verdict.payoutHolderAbsent })
+          : defaultSettings(input.weddingId),
+        deployment,
+        verdict.currency,
+      );
+      const changed =
+        input.accountId === null ||
+        row?.stripeAccountId !== input.accountId ||
+        row.stripeAccountGeneration !== input.generation;
+      if (changed) return yield* Effect.fail(new StripeAccountChanged({ current }));
+      if (verdict.handToAllowed !== 1) return yield* Effect.fail(new HandoverNotOwner());
+      // Every rule holds now: something changed between the write and this
+      // read. Nothing was written, so the caller is told to look again.
+      return yield* Effect.fail(new StripeAccountChanged({ current }));
+    }).pipe(Effect.withSpan("cire.registry.stripeRetireRefusal"));
   },
 
   /** Whether any wedding names this account — what decides handing it back. */
