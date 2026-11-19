@@ -9,7 +9,7 @@ import {
   registryRetiredAccounts,
   registrySettings,
 } from "@cire/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql as sqlFragment } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
@@ -2859,6 +2859,9 @@ describe("attaching an account at a generation the row has left", () => {
 });
 
 describe("registryService.retireStripeAccount", () => {
+  /** A hand-over rule that holds, for a refusal read where every rule does. */
+  const alwaysTrue = sqlFragment`1`;
+
   const OWNER = DEV_OWNER_PROFILE_ID;
 
   function held(db: Db0) {
@@ -2988,7 +2991,7 @@ describe("registryService.retireStripeAccount", () => {
           accountId: "acct_held",
           generation: 0,
         },
-        sql`1`,
+        alwaysTrue,
         PAYING_SITE,
       ),
     );
