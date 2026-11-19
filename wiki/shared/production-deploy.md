@@ -1896,6 +1896,10 @@ and [`scripts/production-operator.ts`](../../scripts/production-operator.ts):
 - Its only secret is `INTERNAL_SERVICE_SECRET`, beside the job's read-only
   `GITHUB_TOKEN`; it installs nothing, follows no redirect, and prints statuses, commits
   and scope names, never a response body.
+- Its requests to osn-api carry the smoke check's user agent, `osn-smoke-check`
+  (`CI_USER_AGENT` in `scripts/smoke-check.ts`): Cloudflare's Bot Fight Mode answers a
+  GitHub runner's request with Bun's own user agent in the Worker's place, with a 403.
+  An answer carrying `cf-mitigated` is reported as Cloudflare's, not osn-api's.
 
 A 200 shows osn-api stored the scopes. They apply only while cire-api's own key, the one
 `CIRE_API_ARC_KEY_ID` names, is registered and live, and each osn-api isolate keeps a

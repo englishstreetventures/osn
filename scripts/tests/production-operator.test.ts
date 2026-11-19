@@ -25,6 +25,7 @@ import {
   scopesIn,
   ZAP_DATABASE,
 } from "../production-operator";
+import { CI_USER_AGENT } from "../smoke-check";
 
 const root = join(import.meta.dir, "..", "..");
 const readRepo = (path: string): string => readFileSync(join(root, path), "utf8");
@@ -615,7 +616,7 @@ describe("register-cire-arc", () => {
     GITHUB_REPOSITORY: "englishstreetventures/osn",
   };
 
-  test("R1: one POST with a born-expired throwaway key and production's scopes, then its revoke, each with the bearer and no redirect", async () => {
+  test("R1: one POST with a born-expired throwaway key and production's scopes, then its revoke, each with the bearer, the CI user agent and no redirect", async () => {
     const h = harness({
       env,
       routes: { [REGISTER]: [json(200, { ok: true })], [REVOKE]: [json(200, { ok: true })] },
@@ -624,6 +625,9 @@ describe("register-cire-arc", () => {
     expect(h.sent.map((s) => `${s.method} ${s.url}`)).toEqual([`${REGISTER}`, `${REVOKE}${KID}`]);
     for (const s of h.sent) {
       expect(s.headers.get("authorization")).toBe(`Bearer ${BEARER}`);
+      // Cloudflare's Bot Fight Mode answers a runner's request that carries
+      // Bun's own user agent in osn-api's place (scripts/smoke-check.ts).
+      expect(s.headers.get("user-agent")).toBe(CI_USER_AGENT);
       expect(s.redirect).toBe("manual");
     }
     expect(JSON.parse(h.sent[0]?.body ?? "")).toEqual({
@@ -697,6 +701,39 @@ describe("register-cire-arc", () => {
       });
       expectClean(h);
     }
+  });
+
+  test("R13: an answer carrying cf-mitigated says Cloudflare answered in osn-api's place, naming the header's value only when it is one short word, never the body", async () => {
+    const challenged = harness({
+      env,
+      routes: {
+        [REGISTER]: [
+          new Response(`<html>${CANARY}</html>`, {
+            status: 403,
+            headers: { "cf-mitigated": "challenge", "content-type": "text/html" },
+          }),
+        ],
+      },
+    });
+    expect(await run(["register-cire-arc"], challenged.deps)).toBe(1);
+    expect(challenged.text()).toContain(
+      "The registration answered 403. Cloudflare answered in osn-api's place (cf-mitigated: challenge); the request never reached osn-api.",
+    );
+    expect(challenged.text()).not.toContain("in front of osn-api refused");
+    expect(challenged.sent.map((s) => s.method)).toEqual(["POST"]);
+    expectClean(challenged);
+
+    const odd = harness({
+      env,
+      routes: {
+        [REGISTER]: [
+          new Response(CANARY, { status: 403, headers: { "cf-mitigated": `${CANARY} challenge` } }),
+        ],
+      },
+    });
+    expect(await run(["register-cire-arc"], odd.deps)).toBe(1);
+    expect(odd.text()).toContain("Cloudflare answered in osn-api's place (cf-mitigated);");
+    expectClean(odd);
   });
 
   test("R4: a 200 that does not say ok refuses", async () => {
