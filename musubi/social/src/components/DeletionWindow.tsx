@@ -162,9 +162,10 @@ export default function DeletionWindow() {
                   </Notice>
                 </Match>
               </Switch>
-              {/* "That day" names the date, so it follows only a date on
-                  screen. Without one, the window's length stands in: keeping
-                  is refused from its end, though the erasure can come later. */}
+              {/* "That day" names the date, so it follows the date or its
+                  placeholder, never the failed read. There the window's
+                  length stands in: keeping is refused from its end, though
+                  the erasure can come later. */}
               <p class="text-muted-foreground text-body">
                 {status().state === "failed"
                   ? "You can keep it for 7 days after you asked. Your profiles and handles come back as they were."

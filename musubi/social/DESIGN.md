@@ -875,10 +875,12 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   124px at 360–430px, 104.5px at 600px and up. At 320px step 2's placeholder
   is 19.5px shorter than the card.*
 
-  *Measured 2026-11-19 — line boxes of a `Range` over the sentence and
-  `getBoundingClientRect()`, `tests/components/DeletionWindow.browser.test.tsx`
-  in Chromium: "We delete it on or shortly after Wednesday, September 30,
-  2026." two lines (36px) at 320, 390, 768 and 1280px.*
+  *Measured 2026-11-19 — the distinct tops of a `Range`'s line boxes over the
+  sentence, logged once from a scratch copy of the "holds its place" case in
+  `tests/components/DeletionWindow.browser.test.tsx` (Chromium; the kept test
+  checks the height alone, which `min-h-9` holds at one line too): "We delete
+  it on or shortly after Wednesday, September 30, 2026." two lines (36px) at
+  320, 390, 768 and 1280px.*
 - **A page that throws while it renders** shows "This page didn't load." with
   "Try again" in the content column, inside the shell: `PageErrorBoundary`
   wraps each route, so the rail, the tab bar and the account banners stay

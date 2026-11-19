@@ -377,7 +377,7 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   flow.check(
     "the deleted email names the held handle",
     true,
-    deleted?.text.includes(`@${P.handle} is held until`) ?? false,
+    deleted?.text.includes(`@${P.handle} is released on`) ?? false,
   );
   flow.check("the account is gone", false, accountExists());
   flow.check("the wedding is deleted", true, weddingDeletedAt() !== null);

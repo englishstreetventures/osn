@@ -7,7 +7,7 @@
  *   happens to what the person has in each app, as the server's own preview
  *   described it when the request was made.
  * - `account-deletion-cancelled`: the deletion was cancelled.
- * - `account-deleted`: the account is gone. The handles held and until when,
+ * - `account-deleted`: the account is gone. The handles held and the day they are released,
  *   what each app reported it keeps, and where each organisation went.
  * - `organisation-ownership-received`: an organisation passed to the reader,
  *   with a way to decline it.
@@ -88,7 +88,7 @@ export interface OrganisationOwnershipReceivedData {
   readonly organisationHandle: string;
   /** The organisation's page, where the reader can decline it. */
   readonly declineUrl: string;
-  /** Unix seconds: the last moment the reader can decline it. */
+  /** Unix seconds: the end of the decline window. A decline is refused from it on. */
   readonly declineUntil: number;
   /** Why it passed to the reader: its owner deleted their account, or the one before declined it. */
   readonly cause: "owner_deleted" | "owner_declined";
@@ -158,9 +158,11 @@ export function renderAccountDeletionScheduled(data: AccountDeletionScheduledDat
   const name = data.instanceName;
   // The day, not a clock time: the erasure starts at `deletesAt` and can
   // finish hours after it. Keeping is refused from `deletesAt` on, which can
-  // fall early in that day, so the keep is offered before the day starts.
-  const intro = `You asked to delete your ${name} account. It will be deleted on or shortly after ${utcDay(data.deletesAt)}.`;
-  const keep = `To keep it, sign in to ${name} before that day and choose "Keep my account". Sign in with a passkey or with this email address: your handle won't find the account until you keep it. Your handles and profiles come back as they were.`;
+  // fall early in that day, so the keep is offered before the day starts, in
+  // a sentence that names the zone itself.
+  const day = utcDay(data.deletesAt);
+  const intro = `You asked to delete your ${name} account. It will be deleted on or shortly after ${day}.`;
+  const keep = `To keep it, sign in to ${name} before ${day} and choose "Keep my account". Sign in with a passkey or with this email address: your handle won't find the account until you keep it. Your handles and profiles come back as they were.`;
   const download = `To take a copy of your data first, sign in the same way and choose "Download my data". Once it is deleted, there is nothing left to download.`;
   const everything = data.deleteEverything
     ? "You chose to delete everything: each app deletes what you have there as soon as it can, and an organisation you own still passes to another member where there is one."
@@ -230,7 +232,7 @@ export function renderAccountDeleted(data: AccountDeletedData): RenderedEmail {
   const handles =
     data.handles.length === 0
       ? null
-      : `Your ${data.handles.length === 1 ? "handle" : "handles"} ${data.handles.map((h) => `@${h}`).join(", ")} ${data.handles.length === 1 ? "is" : "are"} held until ${utcDay(data.handlesHeldUntil)}. Nobody can take ${data.handles.length === 1 ? "it" : "them"} before then, you included. You can make a new account with this email address at any time.`;
+      : `Your ${data.handles.length === 1 ? "handle" : "handles"} ${data.handles.map((h) => `@${h}`).join(", ")} ${data.handles.length === 1 ? "is" : "are"} released on ${utcDay(data.handlesHeldUntil)}. Nobody can take ${data.handles.length === 1 ? "it" : "them"} before that day, you included. You can make a new account with this email address at any time.`;
   const organisations =
     data.organisations.length === 0
       ? null

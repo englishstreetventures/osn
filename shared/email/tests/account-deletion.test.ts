@@ -74,7 +74,9 @@ describe("account-deletion-scheduled", () => {
 
   it("offers the keep and the download only before the day, never up to it", () => {
     const out = renderTemplate("account-deletion-scheduled", scheduled);
-    expect(out.text).toContain("sign in to Acme before that day");
+    // The zone sits in the offer itself: "before 23 November" read in a zone
+    // behind UTC runs past the moment the keep is refused.
+    expect(out.text).toContain("sign in to Acme before 23 November 2026 (UTC) and choose");
     expect(out.text).toContain("Once it is deleted, there is nothing left to download.");
     expect(out.text).not.toMatch(/until (then|that day|23 November)/i);
   });
@@ -154,9 +156,10 @@ describe("account-deleted", () => {
     const out = renderTemplate("account-deleted", deleted);
     expect(out.text).toContain("@ada");
     expect(out.text).toContain("@ada_work");
-    // The hold ends at an instant: "before then" holds only if the zone is named.
+    // The hold ends at an instant partway through the day, so the promise
+    // ends as that day starts, and names its zone.
     expect(out.text).toContain(
-      "held until 23 December 2026 (UTC). Nobody can take them before then",
+      "are released on 23 December 2026 (UTC). Nobody can take them before that day",
     );
   });
 
