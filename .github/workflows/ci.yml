@@ -115,6 +115,13 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # oxlint runs its jsPlugins on Node, and @interfere/landmines needs
+      # 22.18 or later. Pinned so lint runs on a known Node rather than
+      # whatever the runner image ships.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       # Its own key: this job installs without the infra packages, so the
       # key a full install restores is never one this job saved.
       - name: Cache bun dependencies
