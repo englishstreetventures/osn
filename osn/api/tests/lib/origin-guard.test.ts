@@ -91,24 +91,13 @@ describe("createOriginGuard", () => {
     expect(result.error).toBe("forbidden");
   });
 
-  // The production operator workflow renews a service's scopes with the
-  // service secret and no Origin; a browser request there without it is
-  // checked like any other.
+  // A PUT is state-changing like a POST or a DELETE: a browser request to
+  // the scope renewal without the service secret is Origin-checked.
   it("checks Origin on a PUT of a service's scopes that carries no Authorization", () => {
     const ctx = makeContext("PUT", "http://localhost:4000/graph/internal/service-scopes/cire-api");
     const result = guard(ctx) as { error: string };
     expect(ctx.set.status).toBe(403);
     expect(result.error).toBe("forbidden");
-  });
-
-  it("exempts a service-secret PUT of a service's scopes (Authorization: Bearer)", () => {
-    const ctx = makeContext(
-      "PUT",
-      "http://localhost:4000/graph/internal/service-scopes/cire-api",
-      undefined,
-      "Bearer shared-service-secret",
-    );
-    expect(guard(ctx)).toBeUndefined();
   });
 
   it("checks Origin under /internal when Authorization uses another scheme", () => {

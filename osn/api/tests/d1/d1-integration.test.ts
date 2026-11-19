@@ -1184,8 +1184,9 @@ describe("service scope renewal over real D1 (Miniflare)", () => {
     expect((await stored(serviceId)).scopes).toBe("graph:read,org:read");
   });
 
-  it("refuses a service whose only key is revoked, and writes nothing", async () => {
+  it("refuses a service whose only key is revoked, and writes nothing, beside another service's live key", async () => {
     const serviceId = `d1-dead-${crypto.randomUUID().slice(0, 8)}`;
+    await seed(`d1-live-${crypto.randomUUID().slice(0, 8)}`, null);
     await seed(serviceId, 1_000);
 
     const res = await renew(serviceId);

@@ -974,6 +974,13 @@ describe("register-cire-arc", () => {
       ],
       [json(409, { error: CANARY }), "answered 409. osn-api refused the renewal."],
       [json(409, { error: "unknown_service " }), "answered 409. osn-api refused the renewal."],
+      // A token counts only under the status osn-api sends it with.
+      [json(409, { error: "unknown_service" }), "answered 409. osn-api refused the renewal."],
+      [
+        json(404, { error: "no_live_key" }),
+        "answered 404. osn-api has no such route on this host.",
+      ],
+      [json(500, { error: "no_live_key" }), "answered 500. osn-api did not store the scopes."],
       [json(422, { error: CANARY }), "answered 422. osn-api found the body malformed."],
       [json(429, {}), "answered 429. osn-api or Cloudflare limited the rate"],
       [json(500, { error: CANARY }), "answered 500. osn-api did not store the scopes."],

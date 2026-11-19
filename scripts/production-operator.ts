@@ -509,15 +509,25 @@ const RENEW_HINTS = new Map([
   [503, "osn-api is unavailable; dispatch again later."],
 ]);
 
-/** The renewal's two refusals by the fixed token in the answer's `error`, the only field of a body this script reads. */
+/**
+ * The renewal's two refusals, by the fixed token in the answer's `error`, the
+ * only field of a body this script reads, and the one status osn-api sends it
+ * with. A token under any other status gets that status's hint.
+ */
 const RENEW_REFUSALS = new Map([
   [
     "unknown_service",
-    "osn-api holds no registration for cire-api: register cire-api's key first, as wiki/shared/production-deploy.md §6.2 says.",
+    {
+      status: 404,
+      hint: "osn-api holds no registration for cire-api: register cire-api's key first, as wiki/shared/production-deploy.md §6.2 says.",
+    },
   ],
   [
     "no_live_key",
-    "osn-api holds no live key for cire-api: each is revoked or expired. Register cire-api's new key first, as wiki/shared/production-deploy.md §6.2 says.",
+    {
+      status: 409,
+      hint: "osn-api holds no live key for cire-api: each is revoked or expired. Register cire-api's new key first, as wiki/shared/production-deploy.md §6.2 says.",
+    },
   ],
 ]);
 
@@ -537,7 +547,7 @@ const hintFor = (
   }
   const refusal = sent.refusal === undefined ? undefined : RENEW_REFUSALS.get(sent.refusal);
   return (
-    refusal ??
+    (refusal?.status === sent.status ? refusal.hint : undefined) ??
     hints.get(sent.status) ??
     (sent.status >= 300 && sent.status < 400
       ? "osn-api answered a redirect, which this script never follows with the bearer."
