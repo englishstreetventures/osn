@@ -31,6 +31,8 @@ import { rowsChanged } from "@shared/db-utils";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { metricOidcManageDataLinkRefused } from "../../metrics";
+import { isClientUrlScheme, manageDataLink } from "./client-links";
 import {
   AUTHORIZATION_CODE_TTL_SEC,
   AUTHORIZE_REQUEST_TTL_MS,
@@ -258,6 +260,8 @@ export interface OidcConnectionSummary {
   scope: string;
   /** Unix seconds. */
   grantedAt: number;
+  /** The app's own remove-my-data screen, only while it passes `manageDataLink`'s rule. */
+  manageDataUrl: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -485,8 +489,7 @@ export function validateClientRegistration(input: {
     } catch {
       return { ok: false, message: `redirect URI is not a valid URL: ${uri}` };
     }
-    const loopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
-    if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
+    if (!isClientUrlScheme(parsed)) {
       return { ok: false, message: "redirect URIs must be https (http only for loopback)" };
     }
     if (parsed.hash !== "") {
@@ -573,7 +576,10 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   // -------------------------------------------------------------------------
 
   const rowToClient = (
-    row: Omit<typeof oauthClients.$inferSelect, "createdAt" | "disabledAt" | "ownerAccountId">,
+    row: Omit<
+      typeof oauthClients.$inferSelect,
+      "createdAt" | "disabledAt" | "ownerAccountId" | "manageDataUrl"
+    >,
   ): OidcClient => ({
     id: row.id,
     clientId: row.clientId,
@@ -1055,7 +1061,9 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
    * The account's live consents, joined to the client registry so the list
    * can show a name and logo. A consent whose client row was
    * hand-deleted still appears — the grant is the user's record, not the
-   * client's — with a null name.
+   * client's — with a null name. Each app's manage-your-data link is answered
+   * only while it passes `manageDataLink`'s rule; a stored one that fails is
+   * counted and answered as null.
    */
   const listConsents = (
     accountId: string,
@@ -1072,6 +1080,9 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
               profileId: oauthConsents.profileId,
               scope: oauthConsents.scope,
               grantedAt: oauthConsents.grantedAt,
+              manageDataUrl: oauthClients.manageDataUrl,
+              redirectUris: oauthClients.redirectUris,
+              disabledAt: oauthClients.disabledAt,
             })
             .from(oauthConsents)
             .leftJoin(oauthClients, eq(oauthClients.clientId, oauthConsents.clientId))
@@ -1079,7 +1090,19 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
             .orderBy(oauthConsents.grantedAt),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      return rows;
+      return rows.map((row): OidcConnectionSummary => {
+        const link = manageDataLink(row, config.clientAppOrigins?.get(row.clientId));
+        if (link !== null && "refused" in link) metricOidcManageDataLinkRefused(link.refused);
+        return {
+          clientId: row.clientId,
+          clientName: row.clientName,
+          logoUrl: row.logoUrl,
+          profileId: row.profileId,
+          scope: row.scope,
+          grantedAt: row.grantedAt,
+          manageDataUrl: link !== null && "url" in link ? link.url : null,
+        };
+      });
     });
 
   // -------------------------------------------------------------------------

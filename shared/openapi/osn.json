@@ -8145,6 +8145,13 @@
                               "null"
                             ]
                           },
+                          "manageDataUrl": {
+                            "description": "Where the person removes their data from this app, on an origin the app's registration holds; null when it has none",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "profileId": {
                             "type": "string"
                           },
@@ -8158,7 +8165,8 @@
                           "logoUrl",
                           "profileId",
                           "scope",
-                          "grantedAt"
+                          "grantedAt",
+                          "manageDataUrl"
                         ],
                         "type": "object"
                       },

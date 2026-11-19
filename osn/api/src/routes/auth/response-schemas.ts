@@ -216,7 +216,9 @@ export const ownedClientSummary = t.Object({
 /**
  * `OidcConnectionSummary` from `services/auth/oidc.ts` — one row of "apps you
  * have authorised". `clientName` is nullable only for a consent whose client
- * row was deleted underneath it.
+ * row was deleted underneath it. `manageDataUrl` is the app's own
+ * remove-my-data screen, null unless an operator set one that passes the read
+ * rule (`services/auth/client-links.ts`).
  */
 export const oidcConnectionSummary = t.Object({
   clientId: t.String(),
@@ -225,6 +227,10 @@ export const oidcConnectionSummary = t.Object({
   profileId: t.String(),
   scope: t.String(),
   grantedAt: t.Number(),
+  manageDataUrl: t.Union([t.String(), t.Null()], {
+    description:
+      "Where the person removes their data from this app, on an origin the app's registration holds; null when it has none",
+  }),
 });
 
 /**

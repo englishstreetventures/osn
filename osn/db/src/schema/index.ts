@@ -1000,6 +1000,15 @@ export const oauthClients = sqliteTable(
     createdAt: integer("created_at").notNull(),
     /** Unix seconds. Non-null = client is disabled; every request is rejected. */
     disabledAt: integer("disabled_at"),
+    /**
+     * Where a person removes their data from this app: its own leave screen,
+     * which Musubi's Connected apps links as "Remove my data from <name>".
+     * Only an operator sets it (the seeds, or a hand step in production); no
+     * route writes it. osn-api returns it only while it passes the read rule in
+     * `osn/api/src/services/auth/client-links.ts`, so a value that fails the
+     * rule is absent, never shown. NULL: the app has no such screen.
+     */
+    manageDataUrl: text("manage_data_url"),
   },
   (t) => [
     index("oauth_clients_sector_idx").on(t.sectorIdentifier),

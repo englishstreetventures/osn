@@ -22,6 +22,7 @@ import {
 } from "./lib/totp-secret-crypto";
 import type { AuthConfig } from "./services/auth";
 import { appStepUpReturnConfig } from "./services/auth/app-step-up";
+import { clientAppOrigins } from "./services/auth/client-links";
 import {
   createIssuerNetwork,
   emulatedIssuerFetch,
@@ -101,9 +102,11 @@ export type EnvVars = {
   // organiser-session revoke above is sent.
   readonly CIRE_API_URL?: string;
   // cire's organiser portal origin: the one place Musubi may send a person
-  // back to after confirming a cire step-up request. Read by
-  // `appStepUpReturnConfig` (services/auth/app-step-up.ts), which refuses the
-  // boot on a value that is not https (or loopback http on a local run).
+  // back to after confirming a cire step-up request, and an origin cire's
+  // stored manage-your-data link may sit on (`clientAppOrigins`,
+  // services/auth/client-links.ts). Read by `appStepUpReturnConfig`
+  // (services/auth/app-step-up.ts), which refuses the boot on a value that is
+  // not https (or loopback http on a local run).
   readonly CIRE_ORGANISER_ORIGIN?: string;
   readonly OSN_DELETION_ABSENT_APPS?: string;
 };
@@ -480,6 +483,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   const totpEncryptionKeys = createTotpKeyRing(totpEncryptionKey, totpPreviousEncryptionKey);
 
   const instanceName = INSTANCE_NAME;
+  const appStepUpReturn = appStepUpReturnConfig(env);
 
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",
@@ -501,7 +505,10 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     // local dev and wrong the moment the consent screen lives anywhere else.
     authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL,
     emailVerification: emailVerificationConfig(env),
-    appStepUpReturn: appStepUpReturnConfig(env),
+    appStepUpReturn,
+    // A stored manage-your-data link may also sit on cire's portal origin, for
+    // cire's client only (services/auth/client-links.ts).
+    clientAppOrigins: clientAppOrigins(env.CIRE_OIDC_CLIENT_ID, appStepUpReturn),
   };
 
   // Every failed store call, once, after any retry: the store's name, the
