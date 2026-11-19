@@ -128,7 +128,14 @@ import {
   type ThemeSection,
   visibilityPayload,
 } from "./model";
-import PreviewModal from "./PreviewModal";
+import {
+  createNarrowPreview,
+  PREVIEW_REGION,
+  PREVIEW_REGION_FOCUS,
+  PreviewFrame,
+  PreviewView,
+  previewWaveFrom,
+} from "./NarrowPreview";
 import PreviewPane, { type PreviewPaneProps } from "./PreviewPane";
 import { HeroPreview, SectionPreview } from "./previews";
 
@@ -437,9 +444,15 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     () => true,
   ).compact;
 
-  // The composed preview, opened as a modal — the only way to reach it below
-  // `@4xl/builder`, where there's no room for the sticky side pane.
-  const [previewModalOpen, setPreviewModalOpen] = createSignal(false);
+  // The composed preview below `@4xl/builder`, where there's no room for the
+  // sticky side pane: opened by the view bar's Preview button with a wave
+  // (`NarrowPreview.tsx`). The button and the wave share one gate.
+  const previewable = () => previewLayer() !== "wide" && props.view !== "codes";
+  const preview = createNarrowPreview({
+    kind: previewWaveFrom(location.search),
+    previewable,
+    place: () => [activeSection(), props.view],
+  });
 
   /** The surface a section's tone paints, for its preview card. */
   const toneSurface = (section: ThemeSection): string => {
@@ -801,7 +814,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 
   // Props for the composed preview's `hero`/`story`/`welcome`/`events`/
   // `closing` slots — shared by the sticky side pane (wide layouts) and the
-  // mobile preview modal, so the two presentations can never drift apart.
+  // narrow preview (`NarrowPreview.tsx`), so the two presentations can never
+  // drift apart.
   // Each is wrapped in its own `createMemo` (see `heroSlot` etc. below) at the
   // call site, so the two consumers share one computed object per slot
   // instead of each recomputing it.
@@ -966,7 +980,15 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   return (
     // The ref measures the same box `@container/builder` does — see
     // `watchBuilderWidth`.
-    <section ref={watchBuilderWidth} class={BUILDER_CLASS}>
+    // Inert while the narrow preview covers it (`preview.away`).
+    <section
+      ref={(el) => {
+        watchBuilderWidth(el);
+        preview.setBuilder(el);
+      }}
+      inert={preview.away()}
+      class={BUILDER_CLASS}
+    >
       {/* Codes holds the message alone; the owner's codes sit above it. */}
       <Show when={props.view !== "codes"}>
         <header class="flex flex-col gap-1">
@@ -995,16 +1017,499 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       >
         {(d) => {
           // Memoized once per render pass and shared by the sticky side pane
-          // and the mobile modal — without this, the rare frame where
-          // both are mounted (the initial "unknown" preview-layer measurement,
-          // or resizing to wide while the modal is left open) has each
-          // consumer independently re-deriving every slot.
+          // and the narrow preview — without this, the frames where both are
+          // mounted (the initial "unknown" preview-layer measurement, with
+          // the narrow preview open, or Distortion's preview view, which
+          // stays mounted) have each consumer re-deriving every slot.
           const heroSlot = createMemo(() => heroPreviewProps(d));
           const storySlot = createMemo(() => storyPreviewProps());
           const welcomeSlot = createMemo(() => welcomePreviewProps());
           const eventsSlot = createMemo(() => eventsPreviewProps());
           const faqSlot = createMemo(() => faqPreviewProps());
           const closingSlot = createMemo(() => closingPreviewProps(d));
+
+          const formColumn = (
+            <div
+              class={`flex min-w-0 flex-1 flex-col gap-8 ${CLEAR_OF_STUCK_STACK} ${CLEAR_OF_SAVE_BAR}`}
+            >
+              {/* ── Design ─────────────────────────────────────────── */}
+              <SectionCard id="invite-design" legend="Design" hidden={props.view !== "template"}>
+                <DesignPicker
+                  entitlements={props.entitlements}
+                  currentId={currentDesign()}
+                  saving={savingDesign()}
+                  onSelect={(id) => void selectDesign(id)}
+                  previewHref={designPreviewHref}
+                />
+                <Show when={envelopesOffered()}>
+                  <EnvelopePicker
+                    entitled={envelopeEntitled()}
+                    currentId={currentEnvelope()}
+                    saving={savingEnvelope()}
+                    heroState={heroSectionState()}
+                    onSelect={(id) => void selectEnvelope(id)}
+                  />
+                </Show>
+              </SectionCard>
+
+              {/* ── Look (global): typography + the colour scheme ──── */}
+              <SectionCard
+                id="invite-look"
+                legend="Look"
+                hidden={props.view !== "style"}
+                onReset={resetLook}
+                description="Two fonts and five colours set the whole invite. Each section below picks how light or dark it sits — not its own colours."
+              >
+                {/* `auto-grid`, not a `@lg/builder` step: these fields sit in
+        the form column, which is narrower than the builder
+        container once the preview pane appears — an intrinsic grid
+        measures the box the fields are actually in. */}
+                <div class="auto-grid [--auto-grid-min:15rem]">
+                  <ChoiceField
+                    label="Heading font"
+                    options={FONT_OPTIONS}
+                    value={draft.headingFont}
+                    onChange={(v) => setDraft("headingFont", v)}
+                  />
+                  <ChoiceField
+                    label="Body font"
+                    options={FONT_OPTIONS}
+                    value={draft.bodyFont}
+                    onChange={(v) => setDraft("bodyFont", v)}
+                  />
+                </div>
+                <PaletteField
+                  value={draft.palette}
+                  onChange={(next) => setDraft("palette", next)}
+                  tokens={previewTokens()}
+                  adjustments={seedAdjustments()}
+                />
+                {/* Most couples pick a preset and stop — the five fine
+        typography knobs stay one click away. */}
+                <Disclosure
+                  nested
+                  summary={
+                    <>
+                      Fine-tune typography
+                      <span class="text-text-muted/70 ml-2 italic">size, weight and italics</span>
+                    </>
+                  }
+                >
+                  <div class="auto-grid [--auto-grid-min:15rem]">
+                    <ChoiceField
+                      label="Heading size"
+                      options={HEADING_SIZE_OPTIONS}
+                      value={draft.headingSize}
+                      onChange={(v) => setDraft("headingSize", v)}
+                    />
+                    <ChoiceField
+                      label="Heading weight"
+                      options={FONT_WEIGHT_OPTIONS}
+                      value={draft.headingWeight}
+                      onChange={(v) => setDraft("headingWeight", v)}
+                    />
+                    <ChoiceField
+                      label="Heading style"
+                      options={FONT_STYLE_OPTIONS}
+                      value={draft.headingStyle}
+                      onChange={(v) => setDraft("headingStyle", v)}
+                    />
+                    <ChoiceField
+                      label="Body weight"
+                      options={FONT_WEIGHT_OPTIONS}
+                      value={draft.bodyWeight}
+                      onChange={(v) => setDraft("bodyWeight", v)}
+                    />
+                    <ChoiceField
+                      label="Body style"
+                      options={FONT_STYLE_OPTIONS}
+                      value={draft.bodyStyle}
+                      onChange={(v) => setDraft("bodyStyle", v)}
+                    />
+                  </div>
+                </Disclosure>
+              </SectionCard>
+
+              {/* ── Hero ───────────────────────────────────────────── */}
+              <SectionCard
+                id="invite-hero"
+                tabPanel={!phone()}
+                legend="Hero"
+                visibility={{
+                  state: heroSectionState(),
+                  visible: draft.visibility.hero,
+                  onChange: (v) => setDraft("visibility", "hero", v),
+                  emptyHint: "a title, a subtitle or an image",
+                  offNote:
+                    "Switched off. Guests won't see the hero section; everything in it is kept for when you switch it back on. Your couple title still names the invite in the browser tab and the page footer, and the photo still heads your gift list.",
+                }}
+                onReset={resetHero}
+                hidden={props.view !== "content" || activeSection() !== "invite-hero"}
+              >
+                {/* Preview FIRST — the display sliders below act on it, and
+        on small screens a preview below the sliders scrolls out
+        of view exactly when it's needed. Mounted only when this
+        layer is the visible one (see `previewLayer`) AND this is
+        the active tab — a hidden tab's inline preview
+        would otherwise still re-render on every token edit for
+        no one to see. */}
+                <Show when={showInlinePreviews() && shownSection() === "invite-hero"}>
+                  <HeroPreview
+                    imageUrl={d().hero.imageUrl}
+                    crop={d().hero.imageCrop}
+                    cropMobile={d().hero.imageCropMobile ?? null}
+                    title={draft.heroTitle}
+                    heroBlur={draft.heroBlur}
+                    backdropOpacity={draft.titleBackdropOpacity}
+                    backdropBlur={draft.titleBackdropBlur}
+                    tokens={previewTokens()}
+                    surface={toneSurface("hero")}
+                    design={currentDesign()}
+                  />
+                </Show>
+                <ImageField
+                  label="Hero background image"
+                  slot="hero"
+                  url={d().hero.imageUrl}
+                  crop={d().hero.imageCrop}
+                  cropMobile={d().hero.imageCropMobile ?? null}
+                  error={slotErrors.hero}
+                  onSelect={(f) => void uploadImage("hero", f)}
+                  onRemove={() => void removeImage("hero")}
+                  onSaveCrop={(c) => saveCrop("hero", c)}
+                  onSaveCropMobile={(c) => saveCrop("hero", c, "mobile")}
+                />
+                <TextField
+                  label="Couple title"
+                  placeholder={DEFAULTS.heroTitle}
+                  value={draft.heroTitle}
+                  maxLength={COPY_CAPS.heroTitle}
+                  onInput={(v) => setDraft("heroTitle", v)}
+                />
+                <TextField
+                  label="Subtitle"
+                  placeholder={DEFAULTS.heroSubtitle}
+                  value={draft.heroSubtitle}
+                  maxLength={COPY_CAPS.heroSubtitle}
+                  onInput={(v) => setDraft("heroSubtitle", v)}
+                />
+                <ToneField
+                  value={draft.tones.hero}
+                  tokens={previewTokens()}
+                  hint="Used behind the title panel and wherever the photo doesn't reach."
+                  onChange={(v) => setDraft("tones", "hero", v)}
+                />
+                <Disclosure
+                  nested
+                  summary={
+                    <>
+                      Hero display
+                      <span class="text-text-muted/70 ml-2 italic">
+                        photo blur and the title panel
+                      </span>
+                    </>
+                  }
+                >
+                  {/* The sliders keep the 16px rhythm the builder's fields use. */}
+                  <div class="flex flex-col gap-4">
+                    <SliderField
+                      label="Hero image blur"
+                      hint="0 is a sharp photo; higher is a softer, dreamier backdrop."
+                      min={HERO_BLUR_MIN}
+                      max={HERO_BLUR_MAX}
+                      value={draft.heroBlur}
+                      valueText={(v) => (v === 0 ? "0 — sharp photo" : `${v} — softer backdrop`)}
+                      onInput={(v) => setDraft("heroBlur", v)}
+                    />
+                    <SliderField
+                      label="Title backdrop opacity"
+                      hint="A panel behind the title so it reads over a busy photo. 0 is no panel."
+                      min={BACKDROP_OPACITY_MIN}
+                      max={BACKDROP_OPACITY_MAX}
+                      value={draft.titleBackdropOpacity}
+                      valueText={(v) => (v === 0 ? "0 — no panel" : `${v} percent opaque`)}
+                      onInput={(v) => setDraft("titleBackdropOpacity", v)}
+                    />
+                    <SliderField
+                      label="Title backdrop blur"
+                      hint="Frosts the photo behind the title panel (px)."
+                      min={BACKDROP_BLUR_MIN}
+                      max={BACKDROP_BLUR_MAX}
+                      value={draft.titleBackdropBlur}
+                      valueText={(v) => (v === 0 ? "0 — no frosting" : `${v} pixels of frost`)}
+                      onInput={(v) => setDraft("titleBackdropBlur", v)}
+                    />
+                  </div>
+                </Disclosure>
+              </SectionCard>
+
+              {/* ── Our Story ──────────────────────────────────────── */}
+              <SectionCard
+                id="invite-story"
+                tabPanel={!phone()}
+                legend="Our Story"
+                visibility={{
+                  state: storySectionState(),
+                  visible: draft.visibility.story,
+                  onChange: (v) => setDraft("visibility", "story", v),
+                  emptyHint: "a heading, the story or a photo",
+                }}
+                onReset={resetStory}
+                hidden={props.view !== "content" || activeSection() !== "invite-story"}
+              >
+                <ImageField
+                  label="Story photo"
+                  slot="story"
+                  url={d().story.imageUrl}
+                  crop={d().story.imageCrop}
+                  error={slotErrors.story}
+                  onSelect={(f) => void uploadImage("story", f)}
+                  onRemove={() => void removeImage("story")}
+                  onSaveCrop={(c) => saveCrop("story", c)}
+                />
+                <TextField
+                  label="Eyebrow"
+                  placeholder={DEFAULTS.storyEyebrow}
+                  value={draft.storyEyebrow}
+                  maxLength={COPY_CAPS.storyEyebrow}
+                  onInput={(v) => setDraft("storyEyebrow", v)}
+                />
+                <TextField
+                  label="Heading"
+                  placeholder={DEFAULTS.storyHeading}
+                  value={draft.storyHeading}
+                  maxLength={COPY_CAPS.storyHeading}
+                  onInput={(v) => setDraft("storyHeading", v)}
+                />
+                <TextAreaField
+                  label="Story"
+                  rows={6}
+                  placeholder={DEFAULTS.storyBody}
+                  value={draft.storyBody}
+                  maxLength={COPY_CAPS.storyBody}
+                  onInput={(v) => setDraft("storyBody", v)}
+                />
+                <ToneField
+                  value={draft.tones.story}
+                  tokens={previewTokens()}
+                  onChange={(v) => setDraft("tones", "story", v)}
+                />
+                <Show when={showInlinePreviews() && shownSection() === "invite-story"}>
+                  <SectionPreview
+                    label="Our Story"
+                    tokens={previewTokens()}
+                    surface={toneSurface("story")}
+                    design={currentDesign()}
+                    eyebrow={sampleCopy(draft.storyEyebrow, DEFAULTS.storyEyebrow, 40)}
+                    heading={sampleCopy(draft.storyHeading, DEFAULTS.storyHeading, 60)}
+                    body={sampleCopy(draft.storyBody, DEFAULTS.storyBody)}
+                  />
+                </Show>
+              </SectionCard>
+
+              {/* ── Code Entry & Welcome ───────────────────────────── */}
+              <SectionCard
+                id="invite-welcome"
+                tabPanel={!phone()}
+                legend="Code Entry & Welcome"
+                onReset={resetWelcome}
+                hidden={props.view !== "content" || activeSection() !== "invite-welcome"}
+                description="The invite-code entry form, and the greeting a guest sees under their name after entering their code. Leave the greeting blank to use the default. Like the rest of the invite copy, the greeting is part of the public invite page — don't put anything private in it."
+              >
+                <TextField
+                  label="Welcome greeting"
+                  placeholder={DEFAULTS.welcomeMessage}
+                  value={draft.welcomeMessage}
+                  maxLength={COPY_CAPS.welcomeMessage}
+                  onInput={(v) => setDraft("welcomeMessage", v)}
+                />
+                <ToneField
+                  value={draft.tones.welcome}
+                  tokens={previewTokens()}
+                  onChange={(v) => setDraft("tones", "welcome", v)}
+                />
+                <Show when={showInlinePreviews() && shownSection() === "invite-welcome"}>
+                  <SectionPreview
+                    label="Code Entry & Welcome"
+                    tokens={previewTokens()}
+                    surface={toneSurface("welcome")}
+                    design={currentDesign()}
+                    panel={designLayout(currentDesign()).welcome === "panel"}
+                    eyebrow="Your Invitation"
+                    heading="Enter your code"
+                    body={sampleCopy(draft.welcomeMessage, DEFAULTS.welcomeMessage)}
+                  />
+                </Show>
+              </SectionCard>
+
+              {/* ── Events section ─────────────────────────────────── */}
+              <SectionCard
+                id="invite-events"
+                tabPanel={!phone()}
+                legend="Events Section"
+                onReset={resetEvents}
+                hidden={props.view !== "content" || activeSection() !== "invite-events"}
+                description="The header above the guest's event list. The colours also style the event cards, their buttons and the event pop-ups. The events themselves come from your spreadsheet import."
+              >
+                <TextField
+                  label="Events eyebrow"
+                  placeholder={DEFAULTS.detailsEyebrow}
+                  value={draft.detailsEyebrow}
+                  maxLength={COPY_CAPS.detailsEyebrow}
+                  onInput={(v) => setDraft("detailsEyebrow", v)}
+                />
+                <TextField
+                  label="Events heading"
+                  placeholder={DEFAULTS.detailsHeading}
+                  value={draft.detailsHeading}
+                  maxLength={COPY_CAPS.detailsHeading}
+                  onInput={(v) => setDraft("detailsHeading", v)}
+                />
+                <ToneField
+                  value={draft.tones.details}
+                  tokens={previewTokens()}
+                  onChange={(v) => setDraft("tones", "details", v)}
+                />
+                <Show when={showInlinePreviews() && shownSection() === "invite-events"}>
+                  <SectionPreview
+                    label="Events Section"
+                    tokens={previewTokens()}
+                    surface={toneSurface("details")}
+                    design={currentDesign()}
+                    rule={designLayout(currentDesign()).eventsRule}
+                    eyebrow={sampleCopy(draft.detailsEyebrow, DEFAULTS.detailsEyebrow, 40)}
+                    heading={sampleCopy(draft.detailsHeading, DEFAULTS.detailsHeading, 60)}
+                    body="Event names, dates and the Respond buttons follow these colours."
+                  />
+                </Show>
+              </SectionCard>
+
+              {/* ── FAQ ────────────────────────────────────────────── */}
+              <SectionCard
+                id="invite-faq"
+                tabPanel={!phone()}
+                legend="FAQ"
+                visibility={{
+                  state: faqSectionState(),
+                  visible: draft.visibility.faq,
+                  onChange: (v) => setDraft("visibility", "faq", v),
+                  emptyHint: "a question and its answer",
+                  offNote:
+                    "Switched off. Guests won't see your questions; they are all kept for when you switch it back on.",
+                }}
+                hidden={props.view !== "content" || activeSection() !== "invite-faq"}
+                description="Answer what guests ask anyway — parking, the dress code, children, timing. The questions sit under your events once a guest enters their code, each answer opening from its question. Every household sees every question, unlike the events, which each household sees only when invited — so don't mention an event only some guests are invited to. Questions save as soon as you add, change, reorder or delete them; the switch saves with the rest of the invite."
+              >
+                <FaqEditor
+                  weddingId={props.weddingId}
+                  entries={faqs()}
+                  onEntriesChange={setFaqs}
+                  onPendingChange={setFaqPending}
+                />
+                {/* No colour picker of its own — the FAQ sits on the events
+        section's surface, as part of the same block. */}
+                <Show when={showInlinePreviews() && shownSection() === "invite-faq"}>
+                  <SectionPreview
+                    label="FAQ"
+                    tokens={previewTokens()}
+                    surface={toneSurface("details")}
+                    design={currentDesign()}
+                    eyebrow={DEFAULTS.faqEyebrow}
+                    heading={DEFAULTS.faqHeading}
+                    body={faqSampleBody((faqs() ?? []).map((e) => e.question))}
+                  />
+                </Show>
+              </SectionCard>
+
+              {/* ── Closing section ────────────────────────────────── */}
+              <SectionCard
+                id="invite-closing"
+                tabPanel={!phone()}
+                legend="Closing Section"
+                visibility={{
+                  state: footerSectionState(),
+                  visible: draft.visibility.footer,
+                  onChange: (v) => setDraft("visibility", "footer", v),
+                  emptyHint: "a closing image or a closing note",
+                }}
+                hidden={props.view !== "content" || activeSection() !== "invite-closing"}
+                description={
+                  'The last section of the invite — your own sign-off, below the events and above the page footer. A closing image that spans the page edge to edge, like the hero at the top, and a closing line like "Looking forward to celebrating with you" or "No boxed gifts please". Add either, both, or neither: leave them empty and the whole section is skipped, so the invite ends on your events exactly as it does now. Guests see this only after they enter their code. The image is decorative — anything that needs to be read (including by a screen reader) should go in the note.'
+                }
+              >
+                <ImageField
+                  label="Closing image"
+                  slot="footer"
+                  url={d().footer?.imageUrl ?? null}
+                  crop={d().footer?.imageCrop ?? null}
+                  error={slotErrors.footer}
+                  onSelect={(f) => void uploadImage("footer", f)}
+                  onRemove={() => void removeImage("footer")}
+                  onSaveCrop={(c) => saveCrop("footer", c)}
+                />
+                <TextAreaField
+                  label="Closing note (optional)"
+                  rows={3}
+                  placeholder="Looking forward to celebrating with you"
+                  value={draft.footerMessage}
+                  maxLength={COPY_CAPS.footerMessage}
+                  onInput={(v) => setDraft("footerMessage", v)}
+                />
+                {/* No colour picker of its own — the closing section reuses the
+        Code Entry & Welcome surface, so the couple's two direct
+        addresses to their guests match. */}
+                <Show when={showInlinePreviews() && shownSection() === "invite-closing"}>
+                  <SectionPreview
+                    label="Closing Section"
+                    tokens={previewTokens()}
+                    surface={toneSurface("welcome")}
+                    design={currentDesign()}
+                    imageUrl={d().footer?.imageUrl ?? null}
+                    imageCrop={d().footer?.imageCrop ?? null}
+                    body={
+                      draft.footerMessage.trim().length > 0
+                        ? sampleCopy(draft.footerMessage, "")
+                        : "Your closing note appears here."
+                    }
+                  />
+                </Show>
+                <p class="font-body text-text-muted text-ui-sm italic">
+                  Uses the colours you picked for Code Entry &amp; Welcome — the closing note is you
+                  speaking to your guests, same as the greeting.
+                </p>
+              </SectionCard>
+
+              {/* ── Invite message (not on the guest page) ─────────── */}
+              <SectionCard
+                id="invite-message"
+                legend="Invite message"
+                hidden={props.view !== "codes"}
+                description="Not part of the invite page — this is the first line of the message each household is sent. Leave it blank to use the default."
+              >
+                <TextAreaField
+                  label="Invite message (optional)"
+                  rows={4}
+                  placeholder="You're invited to our wedding! View your invitation and RSVP below."
+                  value={draft.inviteMessage}
+                  maxLength={COPY_CAPS.inviteMessage}
+                  hint="The wedding link and the household's invitation code are appended automatically — don't include them here."
+                  onInput={(v) => setDraft("inviteMessage", v)}
+                />
+                <Show when={messageOpened()}>
+                  <InviteMessageCopy
+                    weddingId={props.weddingId}
+                    weddingName={props.weddingName}
+                    weddingSlug={props.weddingSlug}
+                    canEdit={props.canEdit}
+                    savedLine={d().inviteMessage ?? null}
+                    draftLine={draft.inviteMessage}
+                    codesRevision={props.codesRevision}
+                  />
+                </Show>
+                {props.inviteMessageLinks}
+              </SectionCard>
+            </div>
+          );
 
           return (
             <form onSubmit={(e) => void saveInvite(e)} class="flex flex-col gap-6">
@@ -1054,16 +1559,22 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   same `@4xl/builder` threshold `showPreviewPane` measures, read
                   in JS because the bar sits outside the builder's container. */}
               {/* Codes edits nothing on the guest page, so it offers no preview. */}
-              <Show when={previewLayer() !== "wide" && props.view !== "codes"}>
+              <Show when={previewable()}>
                 <ViewBar slot="end">
+                  {/* The words change when the preview has taken over; no
+                      `aria-pressed`, since the words say which way it goes. */}
                   <Button
                     variant="outline"
                     size="sm"
                     type="button"
-                    onClick={() => setPreviewModalOpen(true)}
+                    ref={preview.setButton}
+                    onClick={() => preview.toggle()}
+                    onPointerEnter={() => preview.warm()}
+                    onFocus={() => preview.warm()}
+                    onKeyDown={(e) => preview.onKeyDown(e)}
                     class="shrink-0"
                   >
-                    Preview
+                    {preview.labelBack() ? "Back to editing" : "Preview"}
                   </Button>
                 </ViewBar>
               </Show>
@@ -1073,494 +1584,59 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 capped at 1100px, so the composed preview was effectively dead
                 code on the very screens it was written for. */}
               <div class="flex flex-col gap-8 @4xl/builder:flex-row @4xl/builder:items-start @6xl/builder:gap-10">
-                <div
-                  class={`flex min-w-0 flex-1 flex-col gap-8 ${CLEAR_OF_STUCK_STACK} ${CLEAR_OF_SAVE_BAR}`}
-                >
-                  {/* ── Design ─────────────────────────────────────────── */}
-                  <SectionCard
-                    id="invite-design"
-                    legend="Design"
-                    hidden={props.view !== "template"}
+                {/* The form column, built once: on Distortion's page it moves
+                    into the wave's first view and back, never rebuilt. Out of
+                    the wave it sits in a `display: contents` box of its own, a
+                    new one each time: the swap replaces that box, never the
+                    column, which is by then inside the other branch. */}
+                <Show when={preview.kind === "distortion"} fallback={formColumn}>
+                  <Show
+                    when={previewable() ? preview.distortion() : null}
+                    fallback={<div class="contents">{formColumn}</div>}
                   >
-                    <DesignPicker
-                      entitlements={props.entitlements}
-                      currentId={currentDesign()}
-                      saving={savingDesign()}
-                      onSelect={(id) => void selectDesign(id)}
-                      previewHref={designPreviewHref}
-                    />
-                    <Show when={envelopesOffered()}>
-                      <EnvelopePicker
-                        entitled={envelopeEntitled()}
-                        currentId={currentEnvelope()}
-                        saving={savingEnvelope()}
-                        heroState={heroSectionState()}
-                        onSelect={(id) => void selectEnvelope(id)}
-                      />
-                    </Show>
-                  </SectionCard>
-
-                  {/* ── Look (global): typography + the colour scheme ──── */}
-                  <SectionCard
-                    id="invite-look"
-                    legend="Look"
-                    hidden={props.view !== "style"}
-                    onReset={resetLook}
-                    description="Two fonts and five colours set the whole invite. Each section below picks how light or dark it sits — not its own colours."
-                  >
-                    {/* `auto-grid`, not a `@lg/builder` step: these fields sit in
-                      the form column, which is narrower than the builder
-                      container once the preview pane appears — an intrinsic grid
-                      measures the box the fields are actually in. */}
-                    <div class="auto-grid [--auto-grid-min:15rem]">
-                      <ChoiceField
-                        label="Heading font"
-                        options={FONT_OPTIONS}
-                        value={draft.headingFont}
-                        onChange={(v) => setDraft("headingFont", v)}
-                      />
-                      <ChoiceField
-                        label="Body font"
-                        options={FONT_OPTIONS}
-                        value={draft.bodyFont}
-                        onChange={(v) => setDraft("bodyFont", v)}
-                      />
-                    </div>
-                    <PaletteField
-                      value={draft.palette}
-                      onChange={(next) => setDraft("palette", next)}
-                      tokens={previewTokens()}
-                      adjustments={seedAdjustments()}
-                    />
-                    {/* Most couples pick a preset and stop — the five fine
-                      typography knobs stay one click away. */}
-                    <Disclosure
-                      nested
-                      summary={
-                        <>
-                          Fine-tune typography
-                          <span class="text-text-muted/70 ml-2 italic">
-                            size, weight and italics
-                          </span>
-                        </>
-                      }
-                    >
-                      <div class="auto-grid [--auto-grid-min:15rem]">
-                        <ChoiceField
-                          label="Heading size"
-                          options={HEADING_SIZE_OPTIONS}
-                          value={draft.headingSize}
-                          onChange={(v) => setDraft("headingSize", v)}
-                        />
-                        <ChoiceField
-                          label="Heading weight"
-                          options={FONT_WEIGHT_OPTIONS}
-                          value={draft.headingWeight}
-                          onChange={(v) => setDraft("headingWeight", v)}
-                        />
-                        <ChoiceField
-                          label="Heading style"
-                          options={FONT_STYLE_OPTIONS}
-                          value={draft.headingStyle}
-                          onChange={(v) => setDraft("headingStyle", v)}
-                        />
-                        <ChoiceField
-                          label="Body weight"
-                          options={FONT_WEIGHT_OPTIONS}
-                          value={draft.bodyWeight}
-                          onChange={(v) => setDraft("bodyWeight", v)}
-                        />
-                        <ChoiceField
-                          label="Body style"
-                          options={FONT_STYLE_OPTIONS}
-                          value={draft.bodyStyle}
-                          onChange={(v) => setDraft("bodyStyle", v)}
-                        />
-                      </div>
-                    </Disclosure>
-                  </SectionCard>
-
-                  {/* ── Hero ───────────────────────────────────────────── */}
-                  <SectionCard
-                    id="invite-hero"
-                    tabPanel={!phone()}
-                    legend="Hero"
-                    visibility={{
-                      state: heroSectionState(),
-                      visible: draft.visibility.hero,
-                      onChange: (v) => setDraft("visibility", "hero", v),
-                      emptyHint: "a title, a subtitle or an image",
-                      offNote:
-                        "Switched off. Guests won't see the hero section; everything in it is kept for when you switch it back on. Your couple title still names the invite in the browser tab and the page footer, and the photo still heads your gift list.",
-                    }}
-                    onReset={resetHero}
-                    hidden={props.view !== "content" || activeSection() !== "invite-hero"}
-                  >
-                    {/* Preview FIRST — the display sliders below act on it, and
-                      on small screens a preview below the sliders scrolls out
-                      of view exactly when it's needed. Mounted only when this
-                      layer is the visible one (see `previewLayer`) AND this is
-                      the active tab — a hidden tab's inline preview
-                      would otherwise still re-render on every token edit for
-                      no one to see. */}
-                    <Show when={showInlinePreviews() && shownSection() === "invite-hero"}>
-                      <HeroPreview
-                        imageUrl={d().hero.imageUrl}
-                        crop={d().hero.imageCrop}
-                        cropMobile={d().hero.imageCropMobile ?? null}
-                        title={draft.heroTitle}
-                        heroBlur={draft.heroBlur}
-                        backdropOpacity={draft.titleBackdropOpacity}
-                        backdropBlur={draft.titleBackdropBlur}
-                        tokens={previewTokens()}
-                        surface={toneSurface("hero")}
-                        design={currentDesign()}
-                      />
-                    </Show>
-                    <ImageField
-                      label="Hero background image"
-                      slot="hero"
-                      url={d().hero.imageUrl}
-                      crop={d().hero.imageCrop}
-                      cropMobile={d().hero.imageCropMobile ?? null}
-                      error={slotErrors.hero}
-                      onSelect={(f) => void uploadImage("hero", f)}
-                      onRemove={() => void removeImage("hero")}
-                      onSaveCrop={(c) => saveCrop("hero", c)}
-                      onSaveCropMobile={(c) => saveCrop("hero", c, "mobile")}
-                    />
-                    <TextField
-                      label="Couple title"
-                      placeholder={DEFAULTS.heroTitle}
-                      value={draft.heroTitle}
-                      maxLength={COPY_CAPS.heroTitle}
-                      onInput={(v) => setDraft("heroTitle", v)}
-                    />
-                    <TextField
-                      label="Subtitle"
-                      placeholder={DEFAULTS.heroSubtitle}
-                      value={draft.heroSubtitle}
-                      maxLength={COPY_CAPS.heroSubtitle}
-                      onInput={(v) => setDraft("heroSubtitle", v)}
-                    />
-                    <ToneField
-                      value={draft.tones.hero}
-                      tokens={previewTokens()}
-                      hint="Used behind the title panel and wherever the photo doesn't reach."
-                      onChange={(v) => setDraft("tones", "hero", v)}
-                    />
-                    <Disclosure
-                      nested
-                      summary={
-                        <>
-                          Hero display
-                          <span class="text-text-muted/70 ml-2 italic">
-                            photo blur and the title panel
-                          </span>
-                        </>
-                      }
-                    >
-                      {/* The sliders keep the 16px rhythm the builder's fields use. */}
-                      <div class="flex flex-col gap-4">
-                        <SliderField
-                          label="Hero image blur"
-                          hint="0 is a sharp photo; higher is a softer, dreamier backdrop."
-                          min={HERO_BLUR_MIN}
-                          max={HERO_BLUR_MAX}
-                          value={draft.heroBlur}
-                          valueText={(v) =>
-                            v === 0 ? "0 — sharp photo" : `${v} — softer backdrop`
+                    {(mod) => {
+                      const Wave = mod().DistortionWave;
+                      return (
+                        <Wave
+                          type="center"
+                          revealed={preview.revealed()}
+                          source={{
+                            get current() {
+                              return preview.button() ?? null;
+                            },
+                          }}
+                          onFinish={preview.onDistortionFinish}
+                          handle={preview.setDistortion}
+                          class="min-w-0 flex-1"
+                          revealedContent={
+                            <div onKeyDown={(e) => preview.onKeyDown(e)}>
+                              <section
+                                ref={preview.setRegion}
+                                aria-label={PREVIEW_REGION}
+                                tabIndex={-1}
+                                class={PREVIEW_REGION_FOCUS}
+                              >
+                                <PreviewView
+                                  tokens={previewTokens()}
+                                  toneSurface={toneSurface}
+                                  design={currentDesign()}
+                                  hero={heroSlot()}
+                                  story={storySlot()}
+                                  welcome={welcomeSlot()}
+                                  events={eventsSlot()}
+                                  faq={faqSlot()}
+                                  closing={closingSlot()}
+                                />
+                              </section>
+                            </div>
                           }
-                          onInput={(v) => setDraft("heroBlur", v)}
-                        />
-                        <SliderField
-                          label="Title backdrop opacity"
-                          hint="A panel behind the title so it reads over a busy photo. 0 is no panel."
-                          min={BACKDROP_OPACITY_MIN}
-                          max={BACKDROP_OPACITY_MAX}
-                          value={draft.titleBackdropOpacity}
-                          valueText={(v) => (v === 0 ? "0 — no panel" : `${v} percent opaque`)}
-                          onInput={(v) => setDraft("titleBackdropOpacity", v)}
-                        />
-                        <SliderField
-                          label="Title backdrop blur"
-                          hint="Frosts the photo behind the title panel (px)."
-                          min={BACKDROP_BLUR_MIN}
-                          max={BACKDROP_BLUR_MAX}
-                          value={draft.titleBackdropBlur}
-                          valueText={(v) => (v === 0 ? "0 — no frosting" : `${v} pixels of frost`)}
-                          onInput={(v) => setDraft("titleBackdropBlur", v)}
-                        />
-                      </div>
-                    </Disclosure>
-                  </SectionCard>
-
-                  {/* ── Our Story ──────────────────────────────────────── */}
-                  <SectionCard
-                    id="invite-story"
-                    tabPanel={!phone()}
-                    legend="Our Story"
-                    visibility={{
-                      state: storySectionState(),
-                      visible: draft.visibility.story,
-                      onChange: (v) => setDraft("visibility", "story", v),
-                      emptyHint: "a heading, the story or a photo",
+                        >
+                          {formColumn}
+                        </Wave>
+                      );
                     }}
-                    onReset={resetStory}
-                    hidden={props.view !== "content" || activeSection() !== "invite-story"}
-                  >
-                    <ImageField
-                      label="Story photo"
-                      slot="story"
-                      url={d().story.imageUrl}
-                      crop={d().story.imageCrop}
-                      error={slotErrors.story}
-                      onSelect={(f) => void uploadImage("story", f)}
-                      onRemove={() => void removeImage("story")}
-                      onSaveCrop={(c) => saveCrop("story", c)}
-                    />
-                    <TextField
-                      label="Eyebrow"
-                      placeholder={DEFAULTS.storyEyebrow}
-                      value={draft.storyEyebrow}
-                      maxLength={COPY_CAPS.storyEyebrow}
-                      onInput={(v) => setDraft("storyEyebrow", v)}
-                    />
-                    <TextField
-                      label="Heading"
-                      placeholder={DEFAULTS.storyHeading}
-                      value={draft.storyHeading}
-                      maxLength={COPY_CAPS.storyHeading}
-                      onInput={(v) => setDraft("storyHeading", v)}
-                    />
-                    <TextAreaField
-                      label="Story"
-                      rows={6}
-                      placeholder={DEFAULTS.storyBody}
-                      value={draft.storyBody}
-                      maxLength={COPY_CAPS.storyBody}
-                      onInput={(v) => setDraft("storyBody", v)}
-                    />
-                    <ToneField
-                      value={draft.tones.story}
-                      tokens={previewTokens()}
-                      onChange={(v) => setDraft("tones", "story", v)}
-                    />
-                    <Show when={showInlinePreviews() && shownSection() === "invite-story"}>
-                      <SectionPreview
-                        label="Our Story"
-                        tokens={previewTokens()}
-                        surface={toneSurface("story")}
-                        design={currentDesign()}
-                        eyebrow={sampleCopy(draft.storyEyebrow, DEFAULTS.storyEyebrow, 40)}
-                        heading={sampleCopy(draft.storyHeading, DEFAULTS.storyHeading, 60)}
-                        body={sampleCopy(draft.storyBody, DEFAULTS.storyBody)}
-                      />
-                    </Show>
-                  </SectionCard>
-
-                  {/* ── Code Entry & Welcome ───────────────────────────── */}
-                  <SectionCard
-                    id="invite-welcome"
-                    tabPanel={!phone()}
-                    legend="Code Entry & Welcome"
-                    onReset={resetWelcome}
-                    hidden={props.view !== "content" || activeSection() !== "invite-welcome"}
-                    description="The invite-code entry form, and the greeting a guest sees under their name after entering their code. Leave the greeting blank to use the default. Like the rest of the invite copy, the greeting is part of the public invite page — don't put anything private in it."
-                  >
-                    <TextField
-                      label="Welcome greeting"
-                      placeholder={DEFAULTS.welcomeMessage}
-                      value={draft.welcomeMessage}
-                      maxLength={COPY_CAPS.welcomeMessage}
-                      onInput={(v) => setDraft("welcomeMessage", v)}
-                    />
-                    <ToneField
-                      value={draft.tones.welcome}
-                      tokens={previewTokens()}
-                      onChange={(v) => setDraft("tones", "welcome", v)}
-                    />
-                    <Show when={showInlinePreviews() && shownSection() === "invite-welcome"}>
-                      <SectionPreview
-                        label="Code Entry & Welcome"
-                        tokens={previewTokens()}
-                        surface={toneSurface("welcome")}
-                        design={currentDesign()}
-                        panel={designLayout(currentDesign()).welcome === "panel"}
-                        eyebrow="Your Invitation"
-                        heading="Enter your code"
-                        body={sampleCopy(draft.welcomeMessage, DEFAULTS.welcomeMessage)}
-                      />
-                    </Show>
-                  </SectionCard>
-
-                  {/* ── Events section ─────────────────────────────────── */}
-                  <SectionCard
-                    id="invite-events"
-                    tabPanel={!phone()}
-                    legend="Events Section"
-                    onReset={resetEvents}
-                    hidden={props.view !== "content" || activeSection() !== "invite-events"}
-                    description="The header above the guest's event list. The colours also style the event cards, their buttons and the event pop-ups. The events themselves come from your spreadsheet import."
-                  >
-                    <TextField
-                      label="Events eyebrow"
-                      placeholder={DEFAULTS.detailsEyebrow}
-                      value={draft.detailsEyebrow}
-                      maxLength={COPY_CAPS.detailsEyebrow}
-                      onInput={(v) => setDraft("detailsEyebrow", v)}
-                    />
-                    <TextField
-                      label="Events heading"
-                      placeholder={DEFAULTS.detailsHeading}
-                      value={draft.detailsHeading}
-                      maxLength={COPY_CAPS.detailsHeading}
-                      onInput={(v) => setDraft("detailsHeading", v)}
-                    />
-                    <ToneField
-                      value={draft.tones.details}
-                      tokens={previewTokens()}
-                      onChange={(v) => setDraft("tones", "details", v)}
-                    />
-                    <Show when={showInlinePreviews() && shownSection() === "invite-events"}>
-                      <SectionPreview
-                        label="Events Section"
-                        tokens={previewTokens()}
-                        surface={toneSurface("details")}
-                        design={currentDesign()}
-                        rule={designLayout(currentDesign()).eventsRule}
-                        eyebrow={sampleCopy(draft.detailsEyebrow, DEFAULTS.detailsEyebrow, 40)}
-                        heading={sampleCopy(draft.detailsHeading, DEFAULTS.detailsHeading, 60)}
-                        body="Event names, dates and the Respond buttons follow these colours."
-                      />
-                    </Show>
-                  </SectionCard>
-
-                  {/* ── FAQ ────────────────────────────────────────────── */}
-                  <SectionCard
-                    id="invite-faq"
-                    tabPanel={!phone()}
-                    legend="FAQ"
-                    visibility={{
-                      state: faqSectionState(),
-                      visible: draft.visibility.faq,
-                      onChange: (v) => setDraft("visibility", "faq", v),
-                      emptyHint: "a question and its answer",
-                      offNote:
-                        "Switched off. Guests won't see your questions; they are all kept for when you switch it back on.",
-                    }}
-                    hidden={props.view !== "content" || activeSection() !== "invite-faq"}
-                    description="Answer what guests ask anyway — parking, the dress code, children, timing. The questions sit under your events once a guest enters their code, each answer opening from its question. Every household sees every question, unlike the events, which each household sees only when invited — so don't mention an event only some guests are invited to. Questions save as soon as you add, change, reorder or delete them; the switch saves with the rest of the invite."
-                  >
-                    <FaqEditor
-                      weddingId={props.weddingId}
-                      entries={faqs()}
-                      onEntriesChange={setFaqs}
-                      onPendingChange={setFaqPending}
-                    />
-                    {/* No colour picker of its own — the FAQ sits on the events
-                      section's surface, as part of the same block. */}
-                    <Show when={showInlinePreviews() && shownSection() === "invite-faq"}>
-                      <SectionPreview
-                        label="FAQ"
-                        tokens={previewTokens()}
-                        surface={toneSurface("details")}
-                        design={currentDesign()}
-                        eyebrow={DEFAULTS.faqEyebrow}
-                        heading={DEFAULTS.faqHeading}
-                        body={faqSampleBody((faqs() ?? []).map((e) => e.question))}
-                      />
-                    </Show>
-                  </SectionCard>
-
-                  {/* ── Closing section ────────────────────────────────── */}
-                  <SectionCard
-                    id="invite-closing"
-                    tabPanel={!phone()}
-                    legend="Closing Section"
-                    visibility={{
-                      state: footerSectionState(),
-                      visible: draft.visibility.footer,
-                      onChange: (v) => setDraft("visibility", "footer", v),
-                      emptyHint: "a closing image or a closing note",
-                    }}
-                    hidden={props.view !== "content" || activeSection() !== "invite-closing"}
-                    description={
-                      'The last section of the invite — your own sign-off, below the events and above the page footer. A closing image that spans the page edge to edge, like the hero at the top, and a closing line like "Looking forward to celebrating with you" or "No boxed gifts please". Add either, both, or neither: leave them empty and the whole section is skipped, so the invite ends on your events exactly as it does now. Guests see this only after they enter their code. The image is decorative — anything that needs to be read (including by a screen reader) should go in the note.'
-                    }
-                  >
-                    <ImageField
-                      label="Closing image"
-                      slot="footer"
-                      url={d().footer?.imageUrl ?? null}
-                      crop={d().footer?.imageCrop ?? null}
-                      error={slotErrors.footer}
-                      onSelect={(f) => void uploadImage("footer", f)}
-                      onRemove={() => void removeImage("footer")}
-                      onSaveCrop={(c) => saveCrop("footer", c)}
-                    />
-                    <TextAreaField
-                      label="Closing note (optional)"
-                      rows={3}
-                      placeholder="Looking forward to celebrating with you"
-                      value={draft.footerMessage}
-                      maxLength={COPY_CAPS.footerMessage}
-                      onInput={(v) => setDraft("footerMessage", v)}
-                    />
-                    {/* No colour picker of its own — the closing section reuses the
-                      Code Entry & Welcome surface, so the couple's two direct
-                      addresses to their guests match. */}
-                    <Show when={showInlinePreviews() && shownSection() === "invite-closing"}>
-                      <SectionPreview
-                        label="Closing Section"
-                        tokens={previewTokens()}
-                        surface={toneSurface("welcome")}
-                        design={currentDesign()}
-                        imageUrl={d().footer?.imageUrl ?? null}
-                        imageCrop={d().footer?.imageCrop ?? null}
-                        body={
-                          draft.footerMessage.trim().length > 0
-                            ? sampleCopy(draft.footerMessage, "")
-                            : "Your closing note appears here."
-                        }
-                      />
-                    </Show>
-                    <p class="font-body text-text-muted text-ui-sm italic">
-                      Uses the colours you picked for Code Entry &amp; Welcome — the closing note is
-                      you speaking to your guests, same as the greeting.
-                    </p>
-                  </SectionCard>
-
-                  {/* ── Invite message (not on the guest page) ─────────── */}
-                  <SectionCard
-                    id="invite-message"
-                    legend="Invite message"
-                    hidden={props.view !== "codes"}
-                    description="Not part of the invite page — this is the first line of the message each household is sent. Leave it blank to use the default."
-                  >
-                    <TextAreaField
-                      label="Invite message (optional)"
-                      rows={4}
-                      placeholder="You're invited to our wedding! View your invitation and RSVP below."
-                      value={draft.inviteMessage}
-                      maxLength={COPY_CAPS.inviteMessage}
-                      hint="The wedding link and the household's invitation code are appended automatically — don't include them here."
-                      onInput={(v) => setDraft("inviteMessage", v)}
-                    />
-                    <Show when={messageOpened()}>
-                      <InviteMessageCopy
-                        weddingId={props.weddingId}
-                        weddingName={props.weddingName}
-                        weddingSlug={props.weddingSlug}
-                        canEdit={props.canEdit}
-                        savedLine={d().inviteMessage ?? null}
-                        draftLine={draft.inviteMessage}
-                        codesRevision={props.codesRevision}
-                      />
-                    </Show>
-                    {props.inviteMessageLinks}
-                  </SectionCard>
-                </div>
+                  </Show>
+                </Show>
 
                 {/* ── Persistent composed preview (wide layouts) ─────────── */}
                 {/* The miniature earns more room as the builder widens — at 20rem
@@ -1588,22 +1664,25 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 </Show>
               </div>
 
-              {/* ── Mobile preview modal — the "Preview" button in the module's
-                view bar, the only way to reach the composed preview below
-                `@4xl/builder`. ── */}
-              <PreviewModal
-                open={previewModalOpen()}
-                onClose={() => setPreviewModalOpen(false)}
-                tokens={previewTokens()}
-                toneSurface={toneSurface}
-                design={currentDesign()}
-                hero={heroSlot()}
-                story={storySlot()}
-                welcome={welcomeSlot()}
-                events={eventsSlot()}
-                faq={faqSlot()}
-                closing={closingSlot()}
-              />
+              {/* ── The narrow preview's frame (Gilded, or no wave) — the
+                view bar's Preview button, the only way to reach the composed
+                preview below `@4xl/builder`. Portalled to <body>, so outside
+                the form; mounted only while open. ── */}
+              <Show when={preview.mounted()}>
+                <PreviewFrame preview={preview}>
+                  <PreviewView
+                    tokens={previewTokens()}
+                    toneSurface={toneSurface}
+                    design={currentDesign()}
+                    hero={heroSlot()}
+                    story={storySlot()}
+                    welcome={welcomeSlot()}
+                    events={eventsSlot()}
+                    faq={faqSlot()}
+                    closing={closingSlot()}
+                  />
+                </PreviewFrame>
+              </Show>
 
               {/* ── Save bar — sticky so it's reachable from any section ── */}
               <div

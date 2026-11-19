@@ -683,7 +683,7 @@ changed without one of the answers above.
 
 | Packages | Runner | What it runs per mutant |
 |---|---|---|
-| `@cire/host`, `@cire/invites`, `@cire/vendor`, `@cire/ui`, `@cire/landing`, `@cire/build-tools`, `@cire/invite-designs` | `@stryker-mutator/vitest-runner` | only the tests that cover the mutated line |
+| `@cire/host`, `@cire/invites`, `@cire/vendor`, `@cire/ui`, `@cire/waves`, `@cire/landing`, `@cire/build-tools`, `@cire/invite-designs` | `@stryker-mutator/vitest-runner` | only the tests that cover the mutated line |
 | `@cire/api`, `@cire/db`, `@cire/dietary`, `@cire/theme` | Stryker's `command` runner | the whole command — `bun test`, or `@cire/api`'s `STRYKER_TESTS` |
 | `@cire/infra` | Stryker's `command` runner | the whole suite, `bunx --bun vitest run`, under Bun: its tests evaluate the stacks with Bun's platform layer and read SQLite through `bun:sqlite`, which the vitest runner cannot, since it runs tests under Node. Four mutants at a time with a 60-second timeout: one per core starves each run past Stryker's default timeout. The sandbox keeps `musubi/`, whose declaration the cross-stack test imports, and `osn/`, whose `osn/api/wrangler.toml` it reads |
 
@@ -728,6 +728,10 @@ What the configs depend on, and what breaks without it:
   project**, because the vitest runner starts every project and a Chromium per
   mutant is not affordable. A
   mutant only the browser tier can kill reports as a survivor.
+- **`@cire/waves`' config keeps the `browser` project**: its code runs only in
+  Chromium, so dropping it leaves every mutant uncovered and Stryker stops with
+  "No tests were executed". Set `VITEST_BROWSER_EXECUTABLE_PATH` for the run as
+  for `test:browser`.
 - **`@cire/host`'s script sets `TZ=Australia/Sydney`.** The vitest runner forces
   the `threads` pool, where a project's `env: { TZ }` cannot take effect, and the
   zone-dependent tests then fail the dry run.

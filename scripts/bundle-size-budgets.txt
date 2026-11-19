@@ -48,8 +48,11 @@
 # Blank lines and lines starting with # are ignored.
 
 cire/invites   worker  200900   # measured 190660
-# cire/host is set for the dropped list row that settles into its slot.
-cire/host      static  405514   # measured 393814
+# cire/host is set for the invite builder's two preview waves (englishstreetventures/osn#2415),
+# lazy chunks fetched only when the narrow preview opens. Measured 429585 in a build that could not fetch
+# fonts; 430131 adds the 546 bytes of @font-face rules main's own build carries
+# (wiki/conventions/bundle-size-guards.md has both builds).
+cire/host      static  441831   # measured 430131
 # cire/vendor is set for the enquiry thread and the theme, haptics and auto-size helpers it takes from @cire/ui.
 cire/vendor    static  103718   # measured 99379
 cire/landing   static  52425    # measured 40725

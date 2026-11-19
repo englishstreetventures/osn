@@ -10,5 +10,5 @@
   "trailingComma": "all",
   "sortImports": true,
   "sortTailwindcss": true,
-  "ignorePatterns": ["shared/ui/vendor/**"]
+  "ignorePatterns": ["shared/ui/vendor/**", "cire/waves/vendor/**"]
 }

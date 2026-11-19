@@ -237,7 +237,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 393814 B | 405514 B *(re-baselined, englishstreetventures/osn#2385 — see below)* |
+| cire/host | static | 430131 B | 441831 B *(re-baselined, englishstreetventures/osn#2415 — see below)* |
 | cire/vendor | static | 99379 B | 103718 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
 | cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -490,6 +490,41 @@ cire/host build`, which ends with `../../scripts/guard-bundle-size.sh .`, on
 `feat/shared-sortable-settle` at `0af4b5734`, twice; the `main` figure is the
 same build with `shared/sortable/src` taken from `origin/main` `65aad70ad`,
 which leaves every source the build reads as it is there.*
+
+### `cire/host` re-baselined for the invite builder's preview waves
+
+Below its wide breakpoint the invite builder opens its preview with a wave,
+with one of two waves (englishstreetventures/osn#2415): Gilded, ours, and Distortion, a vendored
+library ([[component-library]] §cire's waves). Both are dynamic imports fetched
+only when the narrow preview is wanted, so the first load grows by about
+0.5 KB; the static guard counts every chunk in `dist/_astro`, lazy ones
+included, so the total grows by the waves themselves. The owner approved the
+raise.
+
+| Build | Measured | Threshold |
+|---|---:|---:|
+| `main` | **393268 B**, 95 files | 405514 B |
+| with the waves | **429585 B**, 98 files (+36317) | **441831 B** |
+
+The three new files are the Distortion chunk (26851 B, its vendored core with
+the Solid wrapper), the Gilded chunk (7338 B) and `@shared/color` split into a
+chunk of its own (1677 B) now that the Gilded chunk shares it; the existing
+files grew by 451 B. The Gilded wave's View Transition rules are inlined into
+the page's HTML, which this guard does not count.
+
+Both builds ran where `fonts.google.com` could not be reached, so neither
+carries `@font-face` rules and `check-astro-fonts` refused both. `main`'s own
+recorded figure is 393814 B, 546 B more than the same tree built here: the
+threshold is the branch's 429585 B plus that 546 B, 430131 B, plus the usual
+11700 B.
+
+*Measured 2026-11-18 — `rm -rf cire/host/dist && CLAUDECODE= bun run --cwd
+cire/host build` (its `astro build` completes; the font guard then stops it),
+then `../../scripts/guard-bundle-size.sh .` in `cire/host`, on
+`claude/cire-shader-effects-pts4w5` at `d8e9a85a`; the `main` figure is
+`bunx --bun astro build` then the same guard in a worktree of `d6185d29a`, the
+branch's merge base, in the same container. Chunk figures are `gzip -nc` per
+file from the branch build.*
 
 ### `cire/host` re-baselined for Remove my Cire data
 

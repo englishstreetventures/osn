@@ -27,6 +27,7 @@
     "@cire/invite-designs": "workspace:*",
     "@cire/theme": "workspace:*",
     "@cire/ui": "workspace:*",
+    "@cire/waves": "workspace:*",
     "@kobalte/core": "^0.13.14",
     "@shared/db-utils": "workspace:*",
     "@shared/design-tokens": "workspace:*",

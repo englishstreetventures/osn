@@ -8,7 +8,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-18
 ---
 # Host Portal Layout System
 
@@ -236,8 +236,10 @@ component was previously reading a container it did not live in.
   state, dirty tracking and the inline previews are builder-wide, and
   unmounting would have thrown all of that away on every tab switch for no
   reason. Below `@4xl/builder`, where the sticky pane can't show, a "Preview"
-  button next to the tabs opens the same `PreviewPane` in `PreviewModal.tsx`
-  (a `<Portal>` dialog) instead — one composed-preview markup source, two
+  button in the view bar opens the same `PreviewPane` with a wave
+  (`NarrowPreview.tsx`, `@cire/waves`: a frame fixed under the view bar, or
+  Distortion's second view on `?preview-wave=distortion`) instead — one
+  composed-preview markup source, two
   presentations, fed by five small per-slot prop helpers (`heroPreviewProps`,
   `storyPreviewProps`, …) called at each consumer's own JSX prop position, NOT
   spread from one pre-built object — see `[[cire-invite-builder]]` for why the

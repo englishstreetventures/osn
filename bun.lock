@@ -111,6 +111,7 @@
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
         "@cire/ui": "workspace:*",
+        "@cire/waves": "workspace:*",
         "@kobalte/core": "^0.13.14",
         "@shared/db-utils": "workspace:*",
         "@shared/design-tokens": "workspace:*",
@@ -297,6 +298,25 @@
         "vite": "^8.3.3",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "5.0.5",
+      },
+    },
+    "cire/waves": {
+      "name": "@cire/waves",
+      "dependencies": {
+        "@shared/color": "workspace:*",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "@vitest/browser-playwright": "5.0.5",
+        "playwright": "1.64.1",
+        "solid-js": "^1.9.18",
+        "typescript": "7.1.0-beta",
+        "vite": "^8.3.3",
+        "vite-plugin-solid": "2.11.14",
+        "vitest": "5.0.5",
+      },
+      "peerDependencies": {
+        "solid-js": ">=1.9",
       },
     },
     "musubi/infra": {
@@ -1269,6 +1289,8 @@
     "@cire/ui": ["@cire/ui@workspace:cire/ui"],
 
     "@cire/vendor": ["@cire/vendor@workspace:cire/vendor"],
+
+    "@cire/waves": ["@cire/waves@workspace:cire/waves"],
 
     "@clack/core": ["@clack/core@1.4.3", "", { "dependencies": { "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-/kr3UWNtdJfxZtPgDqUOmG2pvwlmcLGheex5yiZKdwbzZJxhV+HMNR9QNmyY5cGwTNV6LrR7Jtp+KjhUAP1qBQ=="],
 

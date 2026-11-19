@@ -153,6 +153,9 @@ describe("which surfaces a change redeploys", () => {
     ["cire/envelope/src/scene.ts", ["cire_invites"]],
     ["cire/envelope/src/seal/index.ts", ["cire_invites"]],
     ["cire/build-tools/src/index.ts", ["cire_invites", "cire_host", "cire_vendor"]],
+    // The host imports the waves' entries, which import the vendored core, so
+    // a re-vendor redeploys it as a fix to either wave does.
+    ["cire/waves/vendor/controller.ts", ["cire_host"]],
     ["osn/api/src/index.ts", ["osn_api"]],
     ["osn/db/drizzle/0009_x.sql", ["osn_api"]],
     ["musubi/social/src/App.tsx", ["osn_social"]],
