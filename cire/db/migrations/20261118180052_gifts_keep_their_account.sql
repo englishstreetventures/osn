@@ -34,14 +34,14 @@
 -- refused, as it was before this migration. A rebuild of either table must
 -- create this trigger again; `ddl-lockstep.test.ts` fails without it.
 --
--- Additive: two ALTER TABLE ADD, a third, CREATE INDEX (drizzle-kit's, as
--- `db:generate` wrote them), then the back-fill and the two triggers by hand.
--- All of it matches cire/db/src/schema.ts and cire/api/src/db/setup.ts
+-- Additive: three ALTER TABLE ADD and a CREATE INDEX (drizzle-kit's, as
+-- `db:generate` wrote them), with the back-fill, by hand, before the index so
+-- the rows it fills write no index entry, then the two triggers by hand. All
+-- of it matches cire/db/src/schema.ts and cire/api/src/db/setup.ts
 -- (`ddl-lockstep.test.ts`).
 ALTER TABLE `registry_contributions` ADD `stripe_account_id` text;--> statement-breakpoint
 ALTER TABLE `registry_contributions` ADD `stripe_account_type` text;--> statement-breakpoint
 ALTER TABLE `registry_settings` ADD `stripe_account_generation` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
-CREATE INDEX `registry_contributions_account_status_idx` ON `registry_contributions` (`stripe_account_id`,`status`);--> statement-breakpoint
 UPDATE `registry_contributions`
 SET `stripe_account_id` = (SELECT s.`stripe_account_id` FROM `registry_settings` s WHERE s.`wedding_id` = `registry_contributions`.`wedding_id`),
 	`stripe_account_type` = (SELECT s.`stripe_account_type` FROM `registry_settings` s WHERE s.`wedding_id` = `registry_contributions`.`wedding_id`)
@@ -53,6 +53,7 @@ WHERE `stripe_account_id` IS NULL
 			AND (s.`stripe_deauthorized_at` IS NULL OR `registry_contributions`.`created_at` > s.`stripe_deauthorized_at`)
 			AND (s.`stripe_connected_at` IS NULL OR `registry_contributions`.`created_at` >= s.`stripe_connected_at`)
 	);--> statement-breakpoint
+CREATE INDEX `registry_contributions_account_status_idx` ON `registry_contributions` (`stripe_account_id`,`status`);--> statement-breakpoint
 CREATE TRIGGER `registry_settings_stripe_account_generation` AFTER UPDATE OF `stripe_account_id` ON `registry_settings`
 WHEN OLD.`stripe_account_id` IS NOT NULL AND NEW.`stripe_account_id` IS NULL
 BEGIN
