@@ -21,9 +21,12 @@ import { LOAD_FAILED } from "./ShellFrame";
 
 export const WINDOW_HEADING = "Your account is set to be deleted";
 
-/** The line under the date. */
-export const UNTIL_THEN =
-  "Until then, you can keep it. Your profiles and handles come back as they were.";
+/**
+ * The line under the date. Keeping is refused from the instant on, which can
+ * fall early in the day the date names, so the offer ends as that day starts.
+ */
+export const BEFORE_THAT_DAY =
+  "Before that day, you can keep it. Your profiles and handles come back as they were.";
 
 /** The window screen's column: the product name over one card, centred both ways. */
 export function WindowColumn(props: { children: JSX.Element }) {
@@ -45,8 +48,9 @@ export function WindowHeading(props: { children: JSX.Element }) {
 
 /**
  * The date's sentence while it loads: the two lines' room the sentence keeps
- * at every width (`DeletionWindow`), since the year's longest date ("Wednesday,
- * September 30, 2026 at 12:00 PM") takes two from `md` as well as below it.
+ * at every width (`DeletionWindow`), since the year's longest day ("We delete
+ * it on or shortly after Wednesday, September 30, 2026.") takes two from `md`
+ * as well as below it.
  */
 export function WindowDateLoading() {
   return <Skeleton standsFor="line" height={9} />;
@@ -86,7 +90,7 @@ export function DeletionWindowFrame(props: { failed: boolean }) {
           <div class="flex flex-col gap-2">
             <WindowHeading>{WINDOW_HEADING}</WindowHeading>
             <WindowDateLoading />
-            <p class="text-muted-foreground text-body">{UNTIL_THEN}</p>
+            <p class="text-muted-foreground text-body">{BEFORE_THAT_DAY}</p>
           </div>
           <ButtonsLoading />
         </div>

@@ -346,8 +346,8 @@ export function DeleteAccountPage() {
                 <Card padding="md">
                   <ul class="text-foreground text-body flex list-disc flex-col gap-2 pl-5">
                     <li>
-                      We delete your account 7 days after you ask, with its profiles and handles,
-                      your passkeys and your connections.
+                      We delete your account once 7 days have passed from when you ask, with its
+                      profiles and handles, your passkeys and your connections.
                     </li>
                     <li>
                       Until then, you can sign in and choose Keep my account to stop it. Your
@@ -529,8 +529,8 @@ export function DeleteAccountPage() {
                 </Show>
                 <Card padding="md" class="flex flex-col gap-4">
                   <p class="text-foreground text-body">
-                    We sign you out on your other devices now, and delete your account in 7 days.
-                    Until then, you can sign in and keep it.
+                    We sign you out on your other devices now, and delete your account once 7 days
+                    have passed. Until then, you can sign in and keep it.
                   </p>
                   <Show when={everything()}>
                     <p class="text-muted-foreground text-body">

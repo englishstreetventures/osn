@@ -109,14 +109,16 @@ describe("<OrgDetailPage /> decline", () => {
     expect(mocks.declineOwnershipStatus).not.toHaveBeenCalled();
   });
 
-  it("says until when the owner may decline it", async () => {
+  it("says the day the owner may decline it before", async () => {
+    // A decline is refused from the instant on, so "until <day>" would offer
+    // the rest of that day: the line ends at the day's start instead.
     renderOrg("/organisations/acme?decline=1");
     await screen.findByRole("button", { name: "Decline" });
     expect(mocks.declineOwnershipStatus).toHaveBeenCalledWith("acme");
     const day = new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(
       Date.parse("2026-12-16T12:00:00.000Z"),
     );
-    expect(screen.getByText(new RegExp(`You can decline it until ${day}\\.`))).toBeTruthy();
+    expect(screen.getByText(new RegExp(`You can decline it before ${day}\\.`))).toBeTruthy();
   });
 
   it.each([

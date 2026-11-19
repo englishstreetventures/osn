@@ -83,7 +83,7 @@ const SCHEDULED_FOR = 1_795_424_400;
 
 /**
  * Wednesday 30 September 2026, 12:00 in the reader's zone: the year's longest
- * date in en-US, "Wednesday, September 30, 2026 at 12:00 PM".
+ * day in en-US, "Wednesday, September 30, 2026".
  */
 const LONGEST = new Date(2026, 8, 30, 12, 0).getTime() / 1_000;
 

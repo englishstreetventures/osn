@@ -1,8 +1,9 @@
 /**
  * Account-deletion emails, sent by osn-api to an account holder.
  *
- * - `account-deletion-scheduled`: the deletion was asked for. The date it runs,
- *   how to keep the account before then, how to download the data, and what
+ * - `account-deletion-scheduled`: the deletion was asked for. The day it runs
+ *   on or shortly after, how to keep the account before that day, how to
+ *   download the data, and what
  *   happens to what the person has in each app, as the server's own preview
  *   described it when the request was made.
  * - `account-deletion-cancelled`: the deletion was cancelled.
@@ -38,7 +39,7 @@ export interface DeletionPlanLine {
 
 export interface AccountDeletionScheduledData {
   readonly instanceName: string;
-  /** Unix seconds: when the account is deleted, and the last moment to keep it. */
+  /** Unix seconds: the end of the window. Keeping is refused from it on, and the erasure starts at or after it. */
   readonly deletesAt: number;
   /** The app where the person signs in to keep the account or download their data. */
   readonly appUrl: string;
@@ -129,13 +130,20 @@ const MONTHS = [
   "December",
 ] as const;
 
-/** "23 November 2026": the date in UTC, as every reader reads the same. */
+/** "23 November 2026": the date in UTC. The sender cannot know the reader's time zone. */
 const utcDate = (unixSeconds: number): string => {
   const at = new Date(unixSeconds * 1_000);
   return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}`;
 };
 
-/** "23 November 2026 at 14:05 UTC". The sender cannot know the reader's time zone. */
+/**
+ * "23 November 2026 (UTC)": a day on its own names its zone, since the same
+ * day starts up to 26 hours apart across zones, and a line that offers
+ * something "before" it holds only in the zone it names.
+ */
+const utcDay = (unixSeconds: number): string => `${utcDate(unixSeconds)} (UTC)`;
+
+/** "23 November 2026 at 14:05 UTC". */
 const utcDateTime = (unixSeconds: number): string => {
   const at = new Date(unixSeconds * 1_000);
   const hh = String(at.getUTCHours()).padStart(2, "0");
@@ -144,14 +152,16 @@ const utcDateTime = (unixSeconds: number): string => {
 };
 
 const keptSentence = (keptUntil: number | null): string =>
-  keptUntil === null ? "" : ` Kept until ${utcDate(keptUntil)}.`;
+  keptUntil === null ? "" : ` Kept until ${utcDay(keptUntil)}.`;
 
 export function renderAccountDeletionScheduled(data: AccountDeletionScheduledData): RenderedEmail {
   const name = data.instanceName;
-  const when = utcDateTime(data.deletesAt);
-  const intro = `You asked to delete your ${name} account. It will be deleted on ${when}.`;
-  const keep = `To keep it, sign in to ${name} before then and choose "Keep my account". Sign in with a passkey or with this email address: your handle won't find the account until you keep it. Your handles and profiles come back as they were.`;
-  const download = `To take a copy of your data first, sign in the same way and choose "Download my data". After ${when} there is nothing left to download.`;
+  // The day, not a clock time: the erasure starts at `deletesAt` and can
+  // finish hours after it. Keeping is refused from `deletesAt` on, which can
+  // fall early in that day, so the keep is offered before the day starts.
+  const intro = `You asked to delete your ${name} account. It will be deleted on or shortly after ${utcDay(data.deletesAt)}.`;
+  const keep = `To keep it, sign in to ${name} before that day and choose "Keep my account". Sign in with a passkey or with this email address: your handle won't find the account until you keep it. Your handles and profiles come back as they were.`;
+  const download = `To take a copy of your data first, sign in the same way and choose "Download my data". Once it is deleted, there is nothing left to download.`;
   const everything = data.deleteEverything
     ? "You chose to delete everything: each app deletes what you have there as soon as it can, and an organisation you own still passes to another member where there is one."
     : null;
@@ -209,7 +219,7 @@ const organisationLine = (org: OrganisationAfterDeletion): string =>
     : `@${org.handle} now belongs to @${org.newOwnerHandle}.`;
 
 const keptLine = (item: KeptAfterDeletion): string => {
-  const until = item.erasedOn === null ? "" : ` Kept until ${utcDate(item.erasedOn)}.`;
+  const until = item.erasedOn === null ? "" : ` Kept until ${utcDay(item.erasedOn)}.`;
   const ask = item.requestUrl === null ? "" : ` To ask about it: ${item.requestUrl}`;
   return `${item.app}: ${item.what}${until}${ask}`;
 };
@@ -220,7 +230,7 @@ export function renderAccountDeleted(data: AccountDeletedData): RenderedEmail {
   const handles =
     data.handles.length === 0
       ? null
-      : `Your ${data.handles.length === 1 ? "handle" : "handles"} ${data.handles.map((h) => `@${h}`).join(", ")} ${data.handles.length === 1 ? "is" : "are"} held until ${utcDate(data.handlesHeldUntil)}. Nobody can take ${data.handles.length === 1 ? "it" : "them"} before then, you included. You can make a new account with this email address at any time.`;
+      : `Your ${data.handles.length === 1 ? "handle" : "handles"} ${data.handles.map((h) => `@${h}`).join(", ")} ${data.handles.length === 1 ? "is" : "are"} held until ${utcDay(data.handlesHeldUntil)}. Nobody can take ${data.handles.length === 1 ? "it" : "them"} before then, you included. You can make a new account with this email address at any time.`;
   const organisations =
     data.organisations.length === 0
       ? null

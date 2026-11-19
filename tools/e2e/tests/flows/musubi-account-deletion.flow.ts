@@ -168,6 +168,15 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("textbox", { name: "Your handle" }).fill(P.handle);
   });
+  flow.check(
+    "the confirm step offers the keep for the 7 days alone",
+    true,
+    await page
+      .getByText(
+        "We sign you out on your other devices now, and delete your account once 7 days have passed. Until then, you can sign in and keep it.",
+      )
+      .isVisible(),
+  );
 
   await flow.step("delete, stepping up with the passkey", async () => {
     await page.getByRole("button", { name: "Delete my account" }).click();
@@ -178,6 +187,29 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     "the window screen offers to keep the account",
     true,
     await page.getByRole("button", { name: "Keep my account" }).isVisible(),
+  );
+  // The day the job's window ends on, in the browser's zone, with no clock
+  // time; and the keep offered only before that day. Compared in the page, so
+  // the result does not depend on the date the suite runs on.
+  const deletesAt = hardDeleteAt();
+  flow.check(
+    "the window screen gives the day the window ends on, with no clock time",
+    true,
+    await page.locator("main p:has(time)").evaluate((line, at) => {
+      const end = new Date(at * 1_000);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const words = new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(end);
+      const date = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`;
+      return (
+        line.textContent === `We delete it on or shortly after ${words}.` &&
+        line.querySelector("time")?.getAttribute("datetime") === date
+      );
+    }, deletesAt),
+  );
+  flow.check(
+    "the window screen offers the keep before that day",
+    true,
+    await page.getByText(/^Before that day, you can keep it\./).isVisible(),
   );
   flow.check("the shell gave way to it", 0, await page.locator("aside").count());
   flow.check("the account is tombstoned", true, deletedAt() !== null);
@@ -208,6 +240,15 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     "the scheduled email says how to keep the account",
     true,
     scheduledMail?.text.includes('"Keep my account"') ?? false,
+  );
+  flow.check(
+    "the scheduled email gives the day in UTC, with no clock time",
+    true,
+    (scheduledMail?.text.includes(
+      `It will be deleted on or shortly after ${utcDay(deletesAt)} (UTC).`,
+    ) ??
+      false) &&
+      !/\bat \d{2}:\d{2} UTC\b/.test(scheduledMail?.text ?? ""),
   );
   flow.check(
     "the scheduled email says what happens to the wedding, in cire's words",
@@ -413,6 +454,23 @@ function deletedAt(): number | null {
       P.accountId,
     )?.deleted_at ?? null
   );
+}
+
+function hardDeleteAt(): number {
+  return (
+    queryOne<{ hard_delete_at: number }>(
+      DB_FILES.osn,
+      "SELECT hard_delete_at FROM deletion_jobs WHERE account_id = ?",
+      P.accountId,
+    )?.hard_delete_at ?? 0
+  );
+}
+
+/** "23 November 2026": the UTC day, as the account-deletion emails write it. */
+function utcDay(unixSeconds: number): string {
+  const at = new Date(unixSeconds * 1_000);
+  const month = new Intl.DateTimeFormat("en-GB", { month: "long", timeZone: "UTC" }).format(at);
+  return `${at.getUTCDate()} ${month} ${at.getUTCFullYear()}`;
 }
 
 function ownerOfOrganisation(): string {

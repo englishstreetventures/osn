@@ -171,6 +171,8 @@ export function OrgDetailPage() {
   // Read by state, not by calling the resource: a call in flight would raise
   // the nearest Suspense, and a call after a refusal would throw.
   const offerDecline = () => declineStanding.state === "ready" && !declineRefused();
+  // The day the window ends on. A decline is refused from that instant, which
+  // can fall early in the day, so the card offers it "before" the day.
   const declineUntil = () =>
     declineStanding.state === "ready"
       ? formatDay(Date.parse(declineStanding.latest.declineUntil) / 1_000)
@@ -330,7 +332,7 @@ export function OrgDetailPage() {
                   </h2>
                   <p class="text-muted-foreground text-body">
                     It is yours because its owner deleted their account, or the member before you
-                    declined it. You can decline it until {declineUntil()}.
+                    declined it. You can decline it before {declineUntil()}.
                   </p>
                   <p class="text-muted-foreground text-body">
                     If you decline, it passes to its next admin or member, or is deleted if there is
