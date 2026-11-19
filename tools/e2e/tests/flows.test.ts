@@ -98,7 +98,11 @@ describe("flow sources", () => {
   // from the suite's one address, in fixed windows, so a sign-in past the
   // budget fails only on a fast machine. Seven organiser sign-ins, two Musubi
   // ones and two Pulse ones keep every window with room: 14 of the 15 redirect
-  // legs, 9 of the 10 dev logins, 9 of the 20 authorizes.
+  // legs, 9 of the 10 dev logins, 9 of the 20 authorizes. A flow that starts an
+  // app's sign-in itself through `routeOidcLegsFrom`, as
+  // `musubi-account-deletion` does, sends cire-api's legs and the `/authorize`
+  // they lead to from its own address, and checks that each leg went so; it
+  // spends none of these windows, only two of Pulse's own 20 legs a minute.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     // The support modules too, less the helpers' own definitions.
     const sources = dirs.flatMap((dir) =>

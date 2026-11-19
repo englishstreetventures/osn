@@ -15,11 +15,17 @@
  * The flow opens Settings → Account → Delete account, finds cire's wedding
  * among what needs an answer, answers it, types the handle and steps up; the
  * page gives way to the one screen a pending deletion shows, whose "Download
- * my data" works. Signed out and back in with the passkey, the same screen; "Keep my account" brings the
- * app back, with the handle, the passkey and the Pulse enrolment as they were
- * and the wedding untouched. Deleted again with "Delete everything", its job
- * is moved past its window — the suite's clock runs in real time — and the
- * stack's sweeper (every 2 s here) reaches Pulse and cire and erases the
+ * my data" works. Signed out, it starts a sign-in from Pulse: Musubi's
+ * `/authorize` signs it in with the passkey and shows the same screen, naming
+ * Pulse, with no code issued; "Back to Pulse" sends Pulse its plain refusal.
+ * Opening Musubi, the same screen; "Keep my account" brings the app back, with
+ * the handle, the passkey and the Pulse enrolment as they were and the wedding
+ * untouched. Deleted again with "Delete everything", a sign-in started from
+ * cire's organiser portal goes straight to the screen, since Musubi is still
+ * signed in; "Keep my account" there carries the same sign-in on to consent
+ * and into cire. Deleted a third time, which now ends that cire session too,
+ * its job is moved past its window — the suite's clock runs in real time — and
+ * the stack's sweeper (every 2 s here) reaches Pulse and cire and erases the
  * account. A gift on the wedding is disputed first, so cire's purge holds the
  * wedding and cire reports it as kept. The account is gone, the handle is
  * held, the wedding is deleted and names no profile of the person's, and the
@@ -43,9 +49,11 @@ import {
 import {
   addVirtualAuthenticator,
   callOsnApiFrom,
+  cookieNamed,
   expect,
   mailFor,
   queryOne,
+  routeOidcLegsFrom,
   suiteNow,
   test,
   writeRow,
@@ -59,10 +67,25 @@ const WINDOW_HEADING = "Your account is set to be deleted";
 const LEAVER_HOUSEHOLD = "fam_e2e_leaver";
 
 test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
-  // Two step-ups, a sign-out and back, a keep, a second deletion and a sweep.
+  // Six step-ups, two app sign-ins, two keeps, three deletions and a sweep.
   test.slow();
   await callOsnApiFrom(context, ACCOUNT_DELETION_ADDRESS);
   const authenticator = await addVirtualAuthenticator(page);
+
+  /** Deletes the account again from Settings, with "Delete everything". */
+  const deleteEverything = (name: string) =>
+    flow.step(name, async () => {
+      await page.goto(`${ORIGINS.musubi}/settings/delete-account`);
+      await page.getByRole("button", { name: "Continue" }).click();
+      const everything = page.getByRole("checkbox", { name: "Delete everything" });
+      await page.locator("label").filter({ has: everything }).click();
+      await expect(everything).toBeChecked();
+      await page.getByRole("button", { name: "Continue" }).click();
+      await page.getByRole("textbox", { name: "Your handle" }).fill(P.handle);
+      await page.getByRole("button", { name: "Delete my account" }).click();
+      await page.getByRole("button", { name: "Use passkey" }).click();
+      await expect(page.getByRole("heading", { level: 1, name: WINDOW_HEADING })).toBeVisible();
+    });
 
   await flow.step("hold the seeded session's cookie, as a sign-in leaves it", async () => {
     await context.addCookies([
@@ -291,7 +314,8 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   flow.check("the file is saved as the export", "musubi-account-export.ndjson", exported.file);
 
   // -------------------------------------------------------------------------
-  // Signed out and back in: the window screen again. Keep the account.
+  // Signed out, then a sign-in started from Pulse: Musubi's /authorize shows
+  // the window screen, and Pulse hears nothing until the person goes back.
   // -------------------------------------------------------------------------
   await flow.step("sign out from the window screen", async () => {
     await page.getByRole("button", { name: "Sign out" }).click();
@@ -300,22 +324,84 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     ).toBeVisible();
   });
 
-  // The sign-in dialog offers the browser's passkeys as it opens (a
+  // Each app's two OIDC legs, and the osn-api `/authorize` the start leg
+  // leads to, go from the flow's own address, so they spend none of the
+  // windows `flows.test.ts` budgets for the suite's address.
+  const pulseLegs = await routeOidcLegsFrom(context, ORIGINS.pulseApi, ACCOUNT_DELETION_ADDRESS);
+  const cireLegs = await routeOidcLegsFrom(context, ORIGINS.cireApi, ACCOUNT_DELETION_ADDRESS);
+  const consentsBefore = consents();
+
+  // The sign-in panel offers the browser's passkeys as it opens (a
   // discoverable credential, `mediation: "conditional"`), and the virtual
   // authenticator answers at once: the sign-in a person makes by picking
   // their passkey from the browser's list.
-  // Counted across the sign-in alone: a shell request still out when the
-  // deletion was asked for may have been refused earlier.
   const profileListsBefore = flow.count("GET osn-api /profiles/list");
-  await flow.step("sign in again with the passkey the browser offers", async () => {
-    await page.locator("aside, header").getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: WINDOW_HEADING })).toBeVisible();
+  await flow.step("Pulse: start a sign-in, and sign in on Musubi with the passkey", async () => {
+    await page.goto(ORIGINS.pulseWeb);
+    await page.getByRole("button", { name: "Continue with musubi" }).click();
+    await expect(page.getByRole("heading", { name: WINDOW_HEADING })).toBeVisible();
   });
+  flow.check(
+    "Pulse's sign-in lands on Musubi's /authorize",
+    `${ORIGINS.musubi}/authorize`,
+    new URL(page.url()).origin + new URL(page.url()).pathname,
+  );
+  flow.check(
+    "the window screen on /authorize says the person is not signed in to Pulse",
+    true,
+    await page.getByText("You're not signed in to Pulse.", { exact: false }).isVisible(),
+  );
+  flow.check(
+    "the window screen on /authorize gives the day the window ends on",
+    true,
+    await page.locator("main p:has(time)").evaluate((line, at) => {
+      const end = new Date(at * 1_000);
+      const words = new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(end);
+      return line.textContent === `We delete it on or shortly after ${words}.`;
+    }, hardDeleteAt()),
+  );
+  flow.check(
+    "the window screen on /authorize offers to keep the account",
+    true,
+    await page.getByRole("button", { name: "Keep my account" }).isVisible(),
+  );
+  flow.check("no code was issued for the account", 0, codes());
+  flow.check("no consent was recorded for the account", consentsBefore, consents());
+  flow.check(
+    "Pulse holds no session for the person",
+    false,
+    (await cookieNamed(context, ORIGINS.pulseApi, "pulse_web_session")) !== undefined,
+  );
   flow.check(
     "signed in during the window, the pending session lists no profiles",
     0,
     flow.count("GET osn-api /profiles/list") - profileListsBefore,
   );
+
+  await flow.step("go back to Pulse", async () => {
+    await page.getByRole("button", { name: "Back to Pulse" }).click();
+    await page.waitForURL(
+      (url) =>
+        url.origin === ORIGINS.pulseWeb &&
+        url.searchParams.get("auth_error") === "sign_in_declined",
+    );
+  });
+  flow.check("Pulse's two legs went from the flow's own address", 2, pulseLegs.sent());
+  flow.check(
+    "Pulse still holds no session for the person",
+    false,
+    (await cookieNamed(context, ORIGINS.pulseApi, "pulse_web_session")) !== undefined,
+  );
+  flow.check("still no code for the account", 0, codes());
+
+  // -------------------------------------------------------------------------
+  // Musubi itself, signed in on /authorize: the window screen. Keep the
+  // account there, and the app comes back.
+  // -------------------------------------------------------------------------
+  await flow.step("open Musubi: the window screen", async () => {
+    await page.goto(`${ORIGINS.musubi}/settings`);
+    await expect(page.getByRole("heading", { level: 1, name: WINDOW_HEADING })).toBeVisible();
+  });
 
   await flow.step("keep the account, stepping up with the passkey", async () => {
     await page.getByRole("button", { name: "Keep my account" }).click();
@@ -331,20 +417,11 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   flow.check("the wedding keeps its owner seat", 1, ownerSeats());
 
   // -------------------------------------------------------------------------
-  // The second deletion, of everything, and the end of the window.
+  // The second deletion, of everything; then a sign-in started from cire's
+  // organiser portal while still signed in to Musubi: the window screen at
+  // once, and after Keep my account the sign-in carries on into cire.
   // -------------------------------------------------------------------------
-  await flow.step("delete again, choosing to delete everything", async () => {
-    await page.goto(`${ORIGINS.musubi}/settings/delete-account`);
-    await page.getByRole("button", { name: "Continue" }).click();
-    const everything = page.getByRole("checkbox", { name: "Delete everything" });
-    await page.locator("label").filter({ has: everything }).click();
-    await expect(everything).toBeChecked();
-    await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByRole("textbox", { name: "Your handle" }).fill(P.handle);
-    await page.getByRole("button", { name: "Delete my account" }).click();
-    await page.getByRole("button", { name: "Use passkey" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: WINDOW_HEADING })).toBeVisible();
-  });
+  await deleteEverything("delete again, choosing to delete everything");
   flow.check("delete everything stores no answers", true, storedChoices() === null);
   const second = (
     await mailFor(P.email, (m) => m.text.includes("so Cire deletes this as soon as it can"))
@@ -354,6 +431,48 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     "Your Musubi account is scheduled for deletion",
     second?.subject ?? "",
   );
+
+  await flow.step("cire: start a sign-in while signed in to Musubi", async () => {
+    await page.goto(`${ORIGINS.cireHost}/login/`);
+    await page.getByRole("button", { name: "Continue with musubi" }).click();
+    await expect(page.getByRole("heading", { name: WINDOW_HEADING })).toBeVisible();
+  });
+  flow.check(
+    "the window screen on /authorize says the person is not signed in to Cire",
+    true,
+    await page.getByText("You're not signed in to Cire.", { exact: false }).isVisible(),
+  );
+  flow.check("no code was issued for the account in the second window", 0, codes());
+  flow.check(
+    "cire holds no organiser session for the person",
+    false,
+    (await cookieNamed(context, ORIGINS.cireApi, "cire_org_session")) !== undefined,
+  );
+
+  await flow.step("keep the account on /authorize, then allow cire", async () => {
+    await page.getByRole("button", { name: "Keep my account" }).click();
+    await page.getByRole("button", { name: "Use passkey" }).click();
+    await page.getByRole("button", { name: "Allow" }).click();
+    await expect(page).toHaveURL(`${ORIGINS.cireHost}/#/weddings`);
+  });
+  await mailFor(P.email, (m) => m.subject === "Your Musubi account will not be deleted");
+  flow.check("kept on /authorize, the account is live again", true, deletedAt() === null);
+  flow.check("cire's two legs went from the flow's own address", 2, cireLegs.sent());
+  const organiserCookie = await cookieNamed(context, ORIGINS.cireApi, "cire_org_session");
+  flow.check("signed in to cire after the keep", true, organiserCookie !== undefined);
+  flow.check("cire holds one organiser session for the person", 1, leaverOrganiserSessions());
+
+  // -------------------------------------------------------------------------
+  // The third deletion, of everything again, and the end of the window.
+  // -------------------------------------------------------------------------
+  await deleteEverything("delete a third time, choosing to delete everything");
+  flow.check("the third deletion stores no answers either", true, storedChoices() === null);
+  // The person has signed in to cire through Musubi now, so the deletion ends
+  // their organiser session there too, in the background.
+  await flow.step("cire ends the person's organiser session", () =>
+    expect.poll(leaverOrganiserSessions, { timeout: 10_000 }).toBe(0),
+  );
+  flow.check("cire holds no organiser session for the person now", 0, leaverOrganiserSessions());
 
   // A gift on the wedding is disputed, so cire's purge holds the wedding once
   // the erasure deletes it, and cire reports it as kept. Two writes, a
@@ -584,6 +703,37 @@ function weddingDeleter(): string | null {
       "SELECT deleted_by_osn_profile_id AS deleted_by FROM weddings WHERE id = ?",
       P.wedding.id,
     )?.deleted_by ?? null
+  );
+}
+
+/** Authorization codes osn-api holds for the account: issued and not yet redeemed. */
+function codes(): number {
+  return (
+    queryOne<{ n: number }>(
+      DB_FILES.osn,
+      "SELECT COUNT(*) AS n FROM oauth_authorization_codes WHERE account_id = ?",
+      P.accountId,
+    )?.n ?? 0
+  );
+}
+
+function consents(): number {
+  return (
+    queryOne<{ n: number }>(
+      DB_FILES.osn,
+      "SELECT COUNT(*) AS n FROM oauth_consents WHERE account_id = ?",
+      P.accountId,
+    )?.n ?? 0
+  );
+}
+
+function leaverOrganiserSessions(): number {
+  return (
+    queryOne<{ n: number }>(
+      DB_FILES.cire,
+      "SELECT COUNT(*) AS n FROM organiser_sessions WHERE osn_profile_id = ?",
+      P.profileId,
+    )?.n ?? 0
   );
 }
 
