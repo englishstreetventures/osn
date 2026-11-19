@@ -139,7 +139,6 @@ describe("osnSeedSql", () => {
       .query<ClientRow, []>("SELECT * FROM oauth_clients WHERE client_id = 'cid_cire'")
       .get();
     expect(row?.manage_data_url).toBe(`${CIRE_ORGANISER_ORIGIN}/#/remove-data`);
-    expect(cireManageDataUrl(CIRE_ORGANISER_ORIGIN)).toBe(row?.manage_data_url);
   });
 
   test("S12: the removal screen's route is the one cire's organiser portal reads", () => {

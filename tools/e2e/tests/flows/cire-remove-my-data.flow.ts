@@ -254,7 +254,8 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
 
   await flow.step("follow it to cire's removal screen", async () => {
     // The link opens a new tab; the same page holds the authenticator, so it goes there.
-    await page.goto(removalLink.href ?? CIRE_OIDC.manageDataUrl);
+    if (removalLink.href === null) throw new Error("Connected apps drew no removal link");
+    await page.goto(removalLink.href);
     await expect(
       page.getByRole("heading", { level: 2, name: "Remove your Cire data" }),
     ).toBeVisible();
