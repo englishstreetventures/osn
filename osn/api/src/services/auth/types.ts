@@ -58,9 +58,10 @@ export interface AssertingCredential {
 
 /**
  * Per-session metadata captured at issuance. `uaLabel` is a coarse
- * "Firefox on macOS"-style string — never the raw User-Agent. `ip` is
- * the caller's IP; it is immediately hashed via HMAC-peppered SHA-256
- * before leaving this service, never stored raw.
+ * "Firefox on macOS"-style string — never the raw User-Agent — and the session
+ * row keeps it. `ip` is the caller's IP. The session row does not keep it; a
+ * security event the same request records keeps an HMAC-peppered SHA-256 of it
+ * (`security_events.ip_hash`), and nothing stores it raw.
  */
 export interface SessionMeta {
   uaLabel?: string | null;

@@ -22,7 +22,8 @@ import { TRIGGERS } from "./triggers";
  * Mirrors `@pulse/db/testing` — keep the two in sync if the emitter is extended.
  * The triggers are osn's alone: Drizzle cannot declare one, so they are a
  * hand-written copy of the migrations', held to them by
- * `tests/ddl-lockstep.test.ts`.
+ * `tests/ddl-lockstep.test.ts`. A column the migrations still hold but the
+ * schema leaves out (that test's `UNDECLARED_COLUMNS`) is absent here too.
  */
 let cachedSchemaSql: string[] | undefined;
 

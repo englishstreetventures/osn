@@ -1,0 +1,15 @@
+-- Empties sessions.ip_hash, a keyed hash of the IP address each session was
+-- opened from. Nothing reads it, and osn-api from this release on writes it
+-- for no session and leaves it out of every statement. The column itself is
+-- dropped a release later (englishstreetventures/osn#2431), once no serving
+-- Worker names it.
+--
+-- Safe with the Worker this release replaces: the column is nullable, and
+-- that Worker reads it only into the account export, as a nullable value. A
+-- session it opens between this migration and the new Worker's deploy holds a
+-- hash again until the new Worker refreshes it or the column is dropped.
+--
+-- No index, CHECK, trigger or foreign key names the column, so the UPDATE
+-- touches only the rows that hold a hash. security_events.ip_hash is another
+-- column and keeps its values.
+UPDATE `sessions` SET `ip_hash` = NULL WHERE `ip_hash` IS NOT NULL;

@@ -237,10 +237,11 @@ Dev steps:
 
 ### 1.3 Generate the session IP pepper
 
-`OSN_SESSION_IP_PEPPER` is the HMAC key that hashes issuing IPs into the
-`sessions.ip_hash` column (the "is this device mine?" signal in the Sessions panel). In a
-non-local env it must be set and **≥32 bytes**, or the app throws
-(`osn/api/src/index.ts:94-100`).
+`OSN_SESSION_IP_PEPPER` is the HMAC key that hashes a request's IP into
+`security_events.ip_hash`, and it also keys the digests in
+`osn/api/src/services/auth/server-mac.ts` and the handle-hold digest. No session
+stores an IP hash. In a non-local env it must be set and **≥32 bytes**, or the app
+throws (`osn/api/src/build-deps.ts:405-410`).
 
 ```bash
 openssl rand -base64 48   # ≥32 bytes after decode; store as OSN_SESSION_IP_PEPPER
@@ -2118,7 +2119,7 @@ How it decides:
 | What | Where |
 |---|---|
 | JWT key-pair throw / ephemeral fallback | `osn/api/src/index.ts:52-88`, warn at `272-275` |
-| Session IP pepper throw (≥32 bytes) | `osn/api/src/index.ts:94-100` |
+| Session IP pepper throw (≥32 bytes) | `osn/api/src/build-deps.ts:405-410` |
 | `OSN_ENV` cookie-secure switch | `osn/api/src/index.ts:167-170` |
 | WebAuthn rpId / origin / issuer | `osn/api/src/index.ts:103-113` |
 | CORS allowlist fail-closed | `osn/api/src/lib/cors-config.ts:41-62` |

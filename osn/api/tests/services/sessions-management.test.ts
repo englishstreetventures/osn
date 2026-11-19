@@ -254,7 +254,7 @@ describe("revokeAccountSession", () => {
   );
 });
 
-// Session rotation (C2) must preserve the uaLabel / ipHash it was
+// Session rotation (C2) must preserve the uaLabel it was
 // issued with. Otherwise the Settings "Firefox on macOS" device flips to
 // "Unknown device" on every refresh — a subtle UX regression that doesn't
 // fail any existing assertion.

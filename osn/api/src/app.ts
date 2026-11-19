@@ -129,7 +129,7 @@ export interface AppDeps {
   /**
    * Client-IP trust policy. Derived from `TRUSTED_PROXY_COUNT`. Threaded
    * into the auth + profile route factories so per-IP rate-limit keying + the
-   * session-IP hash are spoofing-safe behind a known proxy topology.
+   * security-event IP hash are spoofing-safe behind a known proxy topology.
    */
   clientIpConfig: Omit<ClientIpOptions, "socketIp">;
   /**

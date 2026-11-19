@@ -138,9 +138,11 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     ctx.server?.requestIP?.(ctx.request)?.address ?? null;
 
   /**
-   * Extracts the caller's coarse UA label + client IP from incoming headers
-   * so `issueTokens` can persist them onto the new session row. Both fields
-   * are best-effort — an unresolved IP just yields `null` downstream.
+   * Extracts the caller's coarse UA label + client IP from incoming headers.
+   * `issueTokens` stores the label on the new session row and never the IP. A
+   * security event the request records keeps a peppered hash of the IP, and
+   * the recovery send cap keys a peppered digest of it. Both fields are
+   * best-effort — an unresolved IP just yields `null` downstream.
    */
   const sessionMetaFrom = (
     headers: Record<string, string | undefined>,

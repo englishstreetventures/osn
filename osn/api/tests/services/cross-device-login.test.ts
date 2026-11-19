@@ -80,7 +80,9 @@ describe("cross-device login", () => {
   });
 
   it.effect("full lifecycle: begin → approve → poll returns session", () => {
-    const { svc, captured, layer } = makeAuth();
+    const { captured, layer } = makeAuth();
+    // A pepper, so the approval's security event can hash device A's IP.
+    const svc = createAuthService({ ...config, sessionIpPepper: "x".repeat(32) });
     return Effect.gen(function* () {
       // Register a user first
       yield* registerThroughService(svc, captured.recorded, "cdl@example.com", "cdl_user", {
@@ -100,6 +102,7 @@ describe("cross-device login", () => {
       captured.reset();
       yield* svc.approveCrossDeviceLogin(requestId, secret, profile!.accountId, {
         uaLabel: "Device A",
+        ip: "203.0.113.5",
       });
 
       // Device B polls and gets session
@@ -113,8 +116,10 @@ describe("cross-device login", () => {
 
       // The approve path records a cross_device_login audit row in the
       // same request (synchronous — no daemon race).
+      // It keeps a peppered hash of device A's IP, never the IP.
       const events = yield* svc.listUnacknowledgedSecurityEvents(profile!.accountId);
-      expect(events.events.some((e) => e.kind === "cross_device_login")).toBe(true);
+      const approval = events.events.find((e) => e.kind === "cross_device_login");
+      expect(approval?.ipHash).toMatch(/^[a-f0-9]{64}$/);
 
       // The notification email is forkDaemon'd — wait for the fiber to
       // complete (same pattern as the passkey-removed test), then pin
@@ -327,6 +332,45 @@ describe("cross-device login on the shared store", () => {
   const successes = (results: readonly { readonly _tag: string }[]) =>
     results.filter((r) => r._tag === "Success").length;
 
+  /**
+   * Rewrites the request's entry as an osn-api from before this one stored
+   * it, with device B's IP hash in it, so a decision made across a deploy
+   * meets that shape.
+   */
+  const asEarlierWorkerStoredIt = (store: ReturnType<typeof harness>["store"], requestId: string) =>
+    Effect.promise(async () => {
+      // The earlier shape's key order: device B's hash came after its label.
+      const { expiresAt, createdAt, ...head } = (await store.get(requestId))!;
+      const earlier = { ...head, ipHash: "a".repeat(64), expiresAt, createdAt };
+      await store.set(requestId, earlier, 60_000);
+    });
+
+  it.live("an approval decides a request an earlier osn-api stored", () => {
+    const { svc, layer, store } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-earlier@example.com", "cdlearlier");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      yield* asEarlierWorkerStoredIt(store, requestId);
+
+      yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      expect(poll.status).toBe("approved");
+      if (poll.status === "approved") expect(poll.session.refreshToken).toMatch(/^ses_/);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("a rejection decides a request an earlier osn-api stored", () => {
+    const { svc, layer, store } = harness();
+    return Effect.gen(function* () {
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      yield* asEarlierWorkerStoredIt(store, requestId);
+
+      yield* svc.rejectCrossDeviceLogin(requestId, cdlSecret);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      expect(poll.status).toBe("rejected");
+    }).pipe(Effect.provide(layer));
+  });
+
   it.live(
     "the approved entry holds the account, the profile id and the reserved row, no token",
     () => {
@@ -346,7 +390,6 @@ describe("cross-device login on the shared store", () => {
           "accountId",
           "createdAt",
           "expiresAt",
-          "ipHash",
           "profileId",
           "requestId",
           "secretHash",
@@ -671,7 +714,6 @@ describe("cross-device login on the shared store", () => {
             createdAt: nowSec,
             authenticatedAt: nowSec,
             uaLabel: null,
-            ipHash: null,
             lastUsedAt: nowSec,
           }),
         );

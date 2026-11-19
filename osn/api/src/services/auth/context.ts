@@ -147,9 +147,10 @@ export function createAuthContext(config: AuthConfig) {
       lockoutMs: TOTP_LOCKOUT_MS,
     });
   /**
-   * HMAC-SHA256 pepper for IP hashing. Only applied when the caller has
-   * configured one — in dev we leave ip_hash NULL so local Docker IPs
-   * don't turn into stable "same device" signals by accident.
+   * The `security_events.ip_hash` of a request's IP: an HMAC-SHA256 under the
+   * pepper. Only applied when the caller has configured one — in dev we leave
+   * ip_hash NULL so local Docker IPs don't turn into stable "same device"
+   * signals by accident.
    */
   const hashIp = (ip: string): string | null => {
     const pepper = config.sessionIpPepper;

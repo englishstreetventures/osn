@@ -311,11 +311,59 @@ describe("GET /account/export — bundle", () => {
     // profiles + the session issued during seeding.
     expect(bySection("profiles").some((p) => p.handle === "exporter")).toBe(true);
     expect(bySection("sessions").length).toBeGreaterThanOrEqual(1);
+    // A session record carries the device label and its times, and no IP hash.
+    for (const session of bySection("sessions")) {
+      expect(Object.keys(session).toSorted()).toEqual(["createdAt", "lastUsedAt", "uaLabel"]);
+    }
 
     // recovery_codes is a counts-only singleton.
     const recovery = bySection("recovery_codes");
     expect(recovery).toHaveLength(1);
     expect(recovery[0]).toMatchObject({ total: expect.any(Number), used: expect.any(Number) });
+  });
+
+  it("exports each security event with its device label and IP hash", async () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    const { auth, profile, accessToken } = await seed(layer);
+    sqlite.run(
+      `INSERT INTO security_events (id, account_id, kind, created_at, acknowledged_at, ip_hash, ua_label)
+       VALUES ('sev_export', ?, 'passkey_register', 1000, 2000, ?, 'Firefox on macOS')`,
+      [profile.accountId, "c".repeat(64)],
+    );
+
+    const app = makeApp(layer);
+    const res = await app.handle(
+      new Request("http://localhost/account/export", {
+        headers: {
+          ...IP_HEADERS,
+          Authorization: `Bearer ${accessToken}`,
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
+        },
+      }),
+    );
+    const events = (await res.text())
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .filter((l) => l.section === "security_events")
+      .map((l) => l.record as Record<string, unknown>);
+
+    expect(events).toContainEqual({
+      kind: "passkey_register",
+      createdAt: 1000,
+      acknowledgedAt: 2000,
+      uaLabel: "Firefox on macOS",
+      ipHash: "c".repeat(64),
+    });
+    for (const event of events) {
+      expect(Object.keys(event).toSorted()).toEqual([
+        "acknowledgedAt",
+        "createdAt",
+        "ipHash",
+        "kind",
+        "uaLabel",
+      ]);
+    }
   });
 
   it("includes the account's OIDC consents (C-M1 oidc)", async () => {
