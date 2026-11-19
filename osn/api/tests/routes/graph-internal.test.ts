@@ -9,7 +9,7 @@ import {
 } from "@shared/crypto";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from "vitest";
 
 import { osnLoggerLayer } from "../../src/observability";
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
@@ -1618,6 +1618,24 @@ describe("internal graph routes (ARC-protected)", () => {
       );
       expect(res.status).toBe(200);
     });
+
+    it.each([
+      ["wrong secret returns 401, never throws", "Bearer wrong-secret", 401],
+      ["valid secret returns 200", `Bearer ${SECRET}`, 200],
+    ] as const)(
+      "service-scopes put: %s without global timingSafeEqual",
+      async (_, authorization, status) => {
+        await setupArcService("bug-a-scopes-svc", "graph:read");
+        const res = await app.handle(
+          new Request("http://localhost/graph/internal/service-scopes/bug-a-scopes-svc", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: authorization },
+            body: JSON.stringify({ scopes: ["graph:read", "org:read"] }),
+          }),
+        );
+        expect(res.status).toBe(status);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -1849,6 +1867,321 @@ describe("internal graph routes (ARC-protected)", () => {
         }),
       );
       expect(post.status).toBe(401);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PUT /graph/internal/service-scopes/:serviceId
+  //
+  // Sets the scopes of a service that already has a row and a live key, with
+  // no key in the request. Every refusal leaves the service's row as it was.
+  // -------------------------------------------------------------------------
+
+  describe("PUT /graph/internal/service-scopes/:serviceId", () => {
+    const SECRET = "test-internal-secret";
+    const OLD = new Date(1_700_000_000_000);
+    const nowSecs = () => Math.floor(Date.now() / 1000);
+
+    beforeEach(() => {
+      app = createInternalGraphRoutes(layer, undefined, SECRET);
+    });
+
+    const renew = (
+      serviceId: string,
+      body: unknown,
+      headers: Record<string, string> = { Authorization: `Bearer ${SECRET}` },
+      target: ReturnType<typeof createInternalGraphRoutes> = app,
+    ) =>
+      target.handle(
+        new Request(
+          `http://localhost/graph/internal/service-scopes/${encodeURIComponent(serviceId)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", ...headers },
+            body: JSON.stringify(body),
+          },
+        ),
+      );
+
+    /** A service row with an old `updated_at`, and one key row per entry. */
+    async function seedService(
+      serviceId: string,
+      allowedScopes: string,
+      keys: readonly { expiresAt: number | null; revokedAt: number | null }[],
+    ): Promise<void> {
+      const publicKeyJwk = await exportKeyToJwk((await generateArcKeyPair()).publicKey);
+      await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          yield* Effect.tryPromise({
+            try: () =>
+              db
+                .insert(serviceAccounts)
+                .values({ serviceId, allowedScopes, createdAt: OLD, updatedAt: OLD }),
+            catch: (e) => e,
+          });
+          for (const key of keys) {
+            yield* Effect.tryPromise({
+              try: () =>
+                db.insert(serviceAccountKeys).values({
+                  keyId: crypto.randomUUID(),
+                  serviceId,
+                  publicKeyJwk,
+                  registeredAt: OLD,
+                  expiresAt: key.expiresAt,
+                  revokedAt: key.revokedAt,
+                }),
+              catch: (e) => e,
+            });
+          }
+        }),
+      );
+    }
+
+    const serviceRow = (serviceId: string) =>
+      runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          const rows = yield* Effect.tryPromise({
+            try: () =>
+              db.select().from(serviceAccounts).where(eq(serviceAccounts.serviceId, serviceId)),
+            catch: (e) => e,
+          });
+          return rows[0];
+        }),
+      );
+
+    const keyRows = (serviceId: string) =>
+      runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db
+                .select()
+                .from(serviceAccountKeys)
+                .where(eq(serviceAccountKeys.serviceId, serviceId))
+                .orderBy(serviceAccountKeys.keyId),
+            catch: (e) => e,
+          });
+        }),
+      );
+
+    /** The service's row is exactly as seeded. */
+    async function expectUntouched(serviceId: string, allowedScopes: string): Promise<void> {
+      const row = await serviceRow(serviceId);
+      expect(row?.allowedScopes).toBe(allowedScopes);
+      expect(row?.updatedAt.getTime()).toBe(OLD.getTime());
+    }
+
+    it("answers 501 and writes nothing when INTERNAL_SERVICE_SECRET is unset", async () => {
+      await seedService("scopes-off-svc", "graph:read", [{ expiresAt: null, revokedAt: null }]);
+      const unconfigured = createInternalGraphRoutes(layer, undefined, undefined);
+      const res = await renew("scopes-off-svc", { scopes: ["org:read"] }, undefined, unconfigured);
+      expect(res.status).toBe(501);
+      await expectUntouched("scopes-off-svc", "graph:read");
+    });
+
+    it.each([
+      ["no Authorization header", {}],
+      ["a wrong secret", { Authorization: "Bearer wrong-secret" }],
+      ["a secret with one character too many", { Authorization: `Bearer ${SECRET}x` }],
+      ["the secret under another scheme", { Authorization: `Basic ${SECRET}` }],
+    ] as const)("refuses %s with 401 and writes nothing", async (_, headers) => {
+      await seedService("scopes-401-svc", "graph:read", [{ expiresAt: null, revokedAt: null }]);
+      const res = await renew("scopes-401-svc", { scopes: ["org:read"] }, headers);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "Unauthorized" });
+      await expectUntouched("scopes-401-svc", "graph:read");
+    });
+
+    // The secret is checked before anything else, so a caller without it
+    // learns nothing about scope names or which services exist.
+    it.each([
+      ["a scope PERMITTED_SCOPES does not hold", "scopes-order-svc", ["admin:write"]],
+      ["a service with no row", "no-such-order-svc", ["graph:read"]],
+      ["a service with no live key", "scopes-order-dead-svc", ["graph:read"]],
+    ] as const)(
+      "answers a wrong secret 401, and an unset one 501, before %s",
+      async (_, id, scopes) => {
+        await seedService("scopes-order-svc", "graph:read", [{ expiresAt: null, revokedAt: null }]);
+        await seedService("scopes-order-dead-svc", "graph:read", [
+          { expiresAt: null, revokedAt: 1 },
+        ]);
+        const wrong = await renew(id, { scopes }, { Authorization: "Bearer wrong-secret" });
+        expect(wrong.status).toBe(401);
+        expect(await wrong.json()).toEqual({ error: "Unauthorized" });
+        const unconfigured = createInternalGraphRoutes(layer, undefined, undefined);
+        const off = await renew(id, { scopes }, undefined, unconfigured);
+        expect(off.status).toBe(501);
+        expect(await serviceRow("no-such-order-svc")).toBeUndefined();
+        await expectUntouched("scopes-order-svc", "graph:read");
+      },
+    );
+
+    it.each([["admin:write"], ["Graph:Read"], [" graph:read"]])(
+      "refuses the scope %j, which PERMITTED_SCOPES does not hold, with 400 and writes nothing",
+      async (scope) => {
+        await seedService("scopes-400-svc", "graph:read", [{ expiresAt: null, revokedAt: null }]);
+        const res = await renew("scopes-400-svc", { scopes: ["org:read", scope] });
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as { error: string };
+        expect(body.error).toContain("Unknown scopes");
+        await expectUntouched("scopes-400-svc", "graph:read");
+      },
+    );
+
+    it.each([
+      ["an empty list", { scopes: [] }],
+      ["a scope named twice", { scopes: ["graph:read", "graph:read"] }],
+      ["an empty scope name", { scopes: [""] }],
+      ["no scopes field", {}],
+      ["a comma-separated string", { scopes: "graph:read,org:read" }],
+    ] as const)("refuses %s with 422 and writes nothing", async (_, body) => {
+      await seedService("scopes-422-svc", "graph:read", [{ expiresAt: null, revokedAt: null }]);
+      const res = await renew("scopes-422-svc", body);
+      expect(res.status).toBe(422);
+      await expectUntouched("scopes-422-svc", "graph:read");
+    });
+
+    it("refuses a service with no row with 404 and creates none", async () => {
+      const res = await renew("no-such-svc", { scopes: ["graph:read"] });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "unknown_service" });
+      expect(await serviceRow("no-such-svc")).toBeUndefined();
+    });
+
+    it.each([
+      ["every key revoked", [{ expiresAt: null, revokedAt: 1_000 }]],
+      ["every key expired", [{ expiresAt: 1_000, revokedAt: null }]],
+      [
+        "one key revoked and one expired",
+        [
+          { expiresAt: null, revokedAt: 1_000 },
+          { expiresAt: 1_000, revokedAt: null },
+        ],
+      ],
+      ["no key at all", []],
+    ] as const)(
+      "refuses a service with %s with 409 and writes nothing, whatever keys another service holds",
+      async (_, keys) => {
+        await seedService("scopes-live-neighbour-svc", "graph:read", [
+          { expiresAt: null, revokedAt: null },
+        ]);
+        await seedService("scopes-dead-svc", "graph:read", keys);
+        const res = await renew("scopes-dead-svc", { scopes: ["graph:read", "org:read"] });
+        expect(res.status).toBe(409);
+        expect(await res.json()).toEqual({ error: "no_live_key" });
+        await expectUntouched("scopes-dead-svc", "graph:read");
+      },
+    );
+
+    it("counts a key as live until the second its expiry names", async () => {
+      const at = 1_800_000_000;
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(at * 1000);
+        await seedService("scopes-ends-now-svc", "graph:read", [
+          { expiresAt: at, revokedAt: null },
+        ]);
+        await seedService("scopes-ends-next-svc", "graph:read", [
+          { expiresAt: at + 1, revokedAt: null },
+        ]);
+        expect((await renew("scopes-ends-now-svc", { scopes: ["org:read"] })).status).toBe(409);
+        expect((await renew("scopes-ends-next-svc", { scopes: ["org:read"] })).status).toBe(200);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("takes every permitted scope at once", async () => {
+      const every = [
+        "graph:read",
+        "graph:resolve-account",
+        "account:erase",
+        "step-up:verify",
+        "app-enrollment:write",
+        "org:read",
+        "account:email-read",
+      ];
+      await seedService("scopes-every-svc", "graph:read", [{ expiresAt: null, revokedAt: null }]);
+      const res = await renew("scopes-every-svc", { scopes: every });
+      expect(res.status).toBe(200);
+      expect((await serviceRow("scopes-every-svc"))?.allowedScopes).toBe(every.join(","));
+    });
+
+    it("sets a service's scopes with a live key, leaves its keys and every other service alone, and says how long isolates may keep the old scopes", async () => {
+      await seedService("scopes-ok-svc", "graph:read,org:read", [
+        { expiresAt: null, revokedAt: 1_000 },
+        { expiresAt: nowSecs() + 3_600, revokedAt: null },
+      ]);
+      await seedService("scopes-other-svc", "graph:read", [{ expiresAt: null, revokedAt: null }]);
+      const keysBefore = await keyRows("scopes-ok-svc");
+
+      const widened = await renew("scopes-ok-svc", {
+        scopes: ["graph:read", "org:read", "step-up:verify"],
+      });
+      expect(widened.status).toBe(200);
+      expect(await widened.json()).toEqual({
+        ok: true,
+        scopes: ["graph:read", "org:read", "step-up:verify"],
+        staleForUpToSeconds: 300,
+      });
+      const row = await serviceRow("scopes-ok-svc");
+      expect(row?.allowedScopes).toBe("graph:read,org:read,step-up:verify");
+      expect(row?.updatedAt.getTime()).toBeGreaterThan(OLD.getTime());
+
+      const narrowed = await renew("scopes-ok-svc", { scopes: ["org:read"] });
+      expect(narrowed.status).toBe(200);
+      expect((await serviceRow("scopes-ok-svc"))?.allowedScopes).toBe("org:read");
+
+      expect(await keyRows("scopes-ok-svc")).toEqual(keysBefore);
+      await expectUntouched("scopes-other-svc", "graph:read");
+    });
+
+    it("reaches the key the service already signs with: a withdrawn scope stops verifying and an added one starts, once the isolate's cached entry is gone", async () => {
+      const { token, keyPair, keyId } = await setupArcService("scopes-reach-svc", "graph:read");
+      const eitherBlocked = (bearer: string) =>
+        app.handle(
+          new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
+            headers: { Authorization: `ARC ${bearer}` },
+          }),
+        );
+      expect((await eitherBlocked(token)).status).toBe(200);
+
+      expect((await renew("scopes-reach-svc", { scopes: ["org:read"] })).status).toBe(200);
+      // The cache is unchanged by the renewal: this isolate keeps the key's
+      // old scopes until its entry expires.
+      expect((await eitherBlocked(token)).status).toBe(200);
+      clearPublicKeyCache();
+      expect((await eitherBlocked(token)).status).toBe(401);
+
+      const wider = await createArcToken(keyPair.privateKey, {
+        iss: "scopes-reach-svc",
+        aud: "osn-api",
+        scope: "graph:read,org:read",
+        kid: keyId,
+      });
+      expect((await eitherBlocked(wider)).status).toBe(401);
+      clearPublicKeyCache();
+      expect((await renew("scopes-reach-svc", { scopes: ["graph:read", "org:read"] })).status).toBe(
+        200,
+      );
+      expect((await eitherBlocked(wider)).status).toBe(200);
+    });
+
+    it("answers 500 without the database's text when the write fails, and leaves the scopes as they were", async () => {
+      const withSqlite = createTestLayerWithSqlite();
+      layer = withSqlite.layer;
+      app = createInternalGraphRoutes(layer, undefined, SECRET);
+      await seedService("scopes-fail-svc", "graph:read", [{ expiresAt: null, revokedAt: null }]);
+      withSqlite.sqlite.run(
+        "CREATE TRIGGER refuse_scopes BEFORE UPDATE ON service_accounts BEGIN SELECT RAISE(ABORT, 'refused by test'); END;",
+      );
+      const res = await renew("scopes-fail-svc", { scopes: ["org:read"] });
+      expect(res.status).toBe(500);
+      expect(await res.text()).not.toContain("refused by test");
+      await expectUntouched("scopes-fail-svc", "graph:read");
     });
   });
 });

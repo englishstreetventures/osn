@@ -79,11 +79,15 @@ VALUES (
   NULL,
   NULL
 )
-ON CONFLICT(key_id) DO UPDATE SET
-  public_key_jwk = excluded.public_key_jwk,
-  expires_at     = excluded.expires_at,
-  revoked_at     = NULL;
+ON CONFLICT(key_id) DO UPDATE SET public_key_jwk = excluded.public_key_jwk
+WHERE service_account_keys.service_id = 'zap-api'
+  AND service_account_keys.revoked_at IS NULL;
 ```
+
+Run again, it refreshes the public key of a `zap-api` key id that is not revoked,
+and changes nothing else: like the dev seed (`musubi/infra/src/seeds.ts`), it never
+clears a revocation or an expiry and never takes a key id another service holds. A
+revoked key is replaced under a new `key_id`.
 
 (Postgres: replace `strftime('%s','now')` with `extract(epoch from now())::int`.)
 
@@ -103,7 +107,8 @@ curl -i "https://<osn-api prod origin>/graph/internal/connection-status?viewerId
 
 To roll the key: generate a new ES256 pair, register the new `kid` (Option A/B),
 update the two `zap-api` secrets, redeploy, then revoke the old key
-(`UPDATE service_account_keys SET revoked_at = strftime('%s','now') WHERE key_id = '<old>'`).
+(`UPDATE service_account_keys SET revoked_at = strftime('%s','now') WHERE key_id = '<old>' AND revoked_at IS NULL`,
+which keeps the time of a first revocation).
 ARC public-key cache TTL is ≤5 min (`ARC_PUBLIC_KEY_CACHE_TTL_SECONDS`), so revocation
 takes effect within that window.
 

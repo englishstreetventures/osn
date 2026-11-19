@@ -21,6 +21,8 @@ import {
   nowSeconds,
   parseWindow,
   permittedIn,
+  RENEW_PATH,
+  renewRouteIn,
   run,
   scopesIn,
   ZAP_DATABASE,
@@ -63,7 +65,8 @@ const ARC_ACCOUNT_EMAIL_SCOPE = "account:email-read";
   /* const ARC_INDENTED_SCOPE = "indented:never"; */
 const ARC_STEP_UP_SCOPE = "step-up:verify";
 `;
-const GRAPH = `const PERMITTED_SCOPES = new Set([
+/** graph-internal.ts at a commit without the scope renewal: the fallback's. */
+const GRAPH_BEFORE_RENEW = `const PERMITTED_SCOPES = new Set([
   "graph:read",
   "graph:resolve-account",
   "account:erase",
@@ -73,6 +76,13 @@ const GRAPH = `const PERMITTED_SCOPES = new Set([
   "account:email-read",
 ]);
 `;
+/** The route as the formatter writes it, its path on the line after `.put(`. */
+const RENEW_ROUTE = `      .put(
+        "/service-scopes/:serviceId",
+        async ({ params, body, headers, set }) => {
+`;
+/** graph-internal.ts at a commit with the scope renewal. */
+const GRAPH = `${GRAPH_BEFORE_RENEW}${RENEW_ROUTE}`;
 
 interface Sent {
   readonly method: string;
@@ -478,7 +488,9 @@ describe("plan-register", () => {
       { commit: CIRE_COMMIT, path: "cire/api/src/services/osn-bridge.ts" },
       { commit: OSN_COMMIT, path: "osn/api/src/routes/graph-internal.ts" },
     ]);
-    expect(h.files.get("/github/output")).toBe(`commit=${CIRE_COMMIT}\nscopes=${FIVE.join(",")}\n`);
+    expect(h.files.get("/github/output")).toBe(
+      `commit=${CIRE_COMMIT}\nscopes=${FIVE.join(",")}\nmethod=renew\n`,
+    );
     expect(h.files.get("/github/summary")).toContain(FIVE.join(", "));
     expect(h.text()).toContain(CIRE_COMMIT);
     expect(h.sent).toEqual([]);
@@ -512,6 +524,7 @@ describe("plan-register", () => {
       (_: string, path: string) => (path.endsWith("osn-bridge.ts") ? "// nothing here\n" : GRAPH),
       (_: string, path: string) => (path.endsWith("osn-bridge.ts") ? BRIDGE : undefined),
       (_: string, path: string) => (path.endsWith("osn-bridge.ts") ? BRIDGE : "// no allowlist\n"),
+      (_: string, path: string) => (path.endsWith("osn-bridge.ts") ? BRIDGE : RENEW_ROUTE),
     ]) {
       const h = harness({ env, show });
       expect(await run(["plan-register"], h.deps)).toBe(1);
@@ -607,18 +620,28 @@ describe("plan-register", () => {
 // ── register-cire-arc ───────────────────────────────────────────────────────
 
 describe("register-cire-arc", () => {
+  const RENEW = `PUT https://${PRODUCTION_HOSTS.osnApi}/graph/internal/service-scopes/cire-api`;
   const REGISTER = `POST https://${PRODUCTION_HOSTS.osnApi}/graph/internal/register-service`;
   const REVOKE = `DELETE https://${PRODUCTION_HOSTS.osnApi}/graph/internal/service-keys/`;
   const env = {
     INTERNAL_SERVICE_SECRET: BEARER,
     EXPECTED_COMMIT: CIRE_COMMIT,
+    EXPECTED_METHOD: "renew",
     GITHUB_TOKEN: GH_TOKEN,
     GITHUB_REPOSITORY: "englishstreetventures/osn",
   };
+  // While production osn-api predates the scope renewal, the action registers
+  // a throwaway key and revokes it; englishstreetventures/osn#2432 removes the
+  // path and the tests that hold it.
+  const before = {
+    env: { ...env, EXPECTED_METHOD: "fallback" },
+    show: (_: string, path: string) =>
+      path.endsWith("osn-bridge.ts") ? BRIDGE : GRAPH_BEFORE_RENEW,
+  };
 
-  test("R1: one POST with a born-expired throwaway key and production's scopes, then its revoke, each with the bearer, the CI user agent and no redirect", async () => {
+  test("R1: before the renewal, one POST with a born-expired throwaway key and production's scopes, then its revoke, each with the bearer, the CI user agent and no redirect", async () => {
     const h = harness({
-      env,
+      ...before,
       routes: { [REGISTER]: [json(200, { ok: true })], [REVOKE]: [json(200, { ok: true })] },
     });
     expect(await run(["register-cire-arc"], h.deps)).toBe(0);
@@ -668,10 +691,10 @@ describe("register-cire-arc", () => {
     expect(Math.abs(now - Date.now() / 1000)).toBeLessThan(5);
   });
 
-  test("R3: a refusal from osn-api prints its status and that status's hint, never the body; the key is revoked after a 5xx and left alone after a 3xx or 4xx, which wrote nothing", async () => {
+  test("R3: before the renewal, a refusal from osn-api prints its status and that status's hint, never the body; the key is revoked after a 5xx and left alone after a 3xx or 4xx, which wrote nothing", async () => {
     const hints: [number, string][] = [
       [302, "never follows with the bearer"],
-      [400, "a scope it does not permit"],
+      [400, "a scope it does not permit, or a key it cannot import"],
       [401, "INTERNAL_SERVICE_SECRET is not the value osn-api holds"],
       [403, "in front of osn-api"],
       [404, "no such route"],
@@ -684,7 +707,7 @@ describe("register-cire-arc", () => {
     ];
     for (const [status, hint] of hints) {
       const h = harness({
-        env,
+        ...before,
         routes: {
           [REGISTER]: [
             new Response(CANARY, { status, headers: { location: `https://${CANARY}.example` } }),
@@ -703,9 +726,9 @@ describe("register-cire-arc", () => {
     }
   });
 
-  test("R13: an answer carrying cf-mitigated says Cloudflare answered in osn-api's place, naming the header's value only when it is one short word, never the body", async () => {
+  test("R13: before the renewal, an answer carrying cf-mitigated says Cloudflare answered in osn-api's place, naming the header's value only when it is one short word, never the body", async () => {
     const challenged = harness({
-      env,
+      ...before,
       routes: {
         [REGISTER]: [
           new Response(`<html>${CANARY}</html>`, {
@@ -724,7 +747,7 @@ describe("register-cire-arc", () => {
     expectClean(challenged);
 
     const odd = harness({
-      env,
+      ...before,
       routes: {
         [REGISTER]: [
           new Response(CANARY, { status: 403, headers: { "cf-mitigated": `${CANARY} challenge` } }),
@@ -738,7 +761,7 @@ describe("register-cire-arc", () => {
     // One word, but longer than the 20 characters a Cloudflare value needs.
     const long = "abcdefghijklmnopqrstu";
     const longer = harness({
-      env,
+      ...before,
       routes: {
         [REGISTER]: [new Response("", { status: 403, headers: { "cf-mitigated": long } })],
       },
@@ -777,14 +800,14 @@ describe("register-cire-arc", () => {
     }
   });
 
-  test("R4: a 200 that does not say ok refuses", async () => {
+  test("R4: before the renewal, a 200 that does not say ok refuses", async () => {
     for (const body of [
       json(200, { ok: false }),
       json(200, { error: CANARY }),
       new Response(CANARY),
     ]) {
       const h = harness({
-        env,
+        ...before,
         routes: { [REGISTER]: [body], [REVOKE]: [json(200, { ok: true })] },
       });
       expect(await run(["register-cire-arc"], h.deps)).toBe(1);
@@ -792,9 +815,9 @@ describe("register-cire-arc", () => {
     }
   });
 
-  test("R5: a request that throws prints the error's class alone, and the revoke is still sent", async () => {
+  test("R5: before the renewal, a request that throws prints the error's class alone, and the revoke is still sent", async () => {
     const h = harness({
-      env,
+      ...before,
       routes: {
         [REGISTER]: [new TypeError(`${CANARY} ${BEARER}`)],
         [REVOKE]: [json(200, { ok: true })],
@@ -806,10 +829,10 @@ describe("register-cire-arc", () => {
     expectClean(h);
   });
 
-  test("R6: a failed revoke after a stored registration is a warning, and the run succeeds", async () => {
+  test("R6: before the renewal, a failed revoke after a stored registration is a warning, and the run succeeds", async () => {
     for (const revoke of [json(500, { error: CANARY }), new TypeError(CANARY)]) {
       const h = harness({
-        env,
+        ...before,
         routes: { [REGISTER]: [json(200, { ok: true })], [REVOKE]: [revoke] },
       });
       expect(await run(["register-cire-arc"], h.deps)).toBe(0);
@@ -818,10 +841,10 @@ describe("register-cire-arc", () => {
     }
   });
 
-  test("R10: the job registers the scopes it reads again at production cire-api's commit, not main's, and refuses one production osn-api does not permit", async () => {
+  test("R10: the job sends the scopes it reads again at production cire-api's commit, not main's, by either method, and refuses one production osn-api does not permit", async () => {
     const h = harness({
       env,
-      routes: { [REGISTER]: [json(200, { ok: true })], [REVOKE]: [json(200, { ok: true })] },
+      routes: { [RENEW]: [json(200, { ok: true })] },
       deps: { readFile: () => 'const ARC_SCOPE = "graph:read";\n' },
     });
     expect(await run(["register-cire-arc"], h.deps)).toBe(0);
@@ -829,7 +852,17 @@ describe("register-cire-arc", () => {
       { commit: CIRE_COMMIT, path: "cire/api/src/services/osn-bridge.ts" },
       { commit: OSN_COMMIT, path: "osn/api/src/routes/graph-internal.ts" },
     ]);
-    expect(JSON.parse(h.sent[0]?.body ?? "")).toMatchObject({ allowedScopes: FIVE.join(",") });
+    expect(JSON.parse(h.sent[0]?.body ?? "")).toEqual({ scopes: FIVE });
+
+    const fallback = harness({
+      ...before,
+      routes: { [REGISTER]: [json(200, { ok: true })], [REVOKE]: [json(200, { ok: true })] },
+      deps: { readFile: () => 'const ARC_SCOPE = "graph:read";\n' },
+    });
+    expect(await run(["register-cire-arc"], fallback.deps)).toBe(0);
+    expect(JSON.parse(fallback.sent[0]?.body ?? "")).toMatchObject({
+      allowedScopes: FIVE.join(","),
+    });
 
     const refused = harness({
       env,
@@ -843,7 +876,7 @@ describe("register-cire-arc", () => {
 
   test("R11: an error no action expected prints its class alone", async () => {
     const h = harness({
-      env,
+      ...before,
       deps: {
         generatePublicJwk: async () => {
           throw new RangeError(`${CANARY} ${BEARER}`);
@@ -851,7 +884,8 @@ describe("register-cire-arc", () => {
       },
     });
     expect(await run(["register-cire-arc"], h.deps)).toBe(1);
-    expect(h.out).toEqual(["::error::register-cire-arc failed (RangeError)."]);
+    expect(h.out).toHaveLength(2);
+    expect(h.out.at(-1)).toBe("::error::register-cire-arc failed (RangeError).");
     expect(h.sent).toEqual([]);
     expectClean(h);
   });
@@ -877,6 +911,178 @@ describe("register-cire-arc", () => {
     )?.[1];
     expect(keys).toContain("public_key_jwk");
     expect(keys).not.toMatch(/scope/i);
+  });
+
+  test("N1: once production osn-api serves the renewal, one PUT of production's scopes with the bearer, the CI user agent and no redirect, and no key", async () => {
+    let keyed = false;
+    const h = harness({
+      env,
+      routes: { [RENEW]: [json(200, { ok: true, scopes: FIVE, staleForUpToSeconds: 300 })] },
+      deps: {
+        generatePublicJwk: async () => {
+          keyed = true;
+          return PUBLIC_JWK;
+        },
+      },
+    });
+    expect(await run(["register-cire-arc"], h.deps)).toBe(0);
+    expect(h.sent.map((s) => `${s.method} ${s.url}`)).toEqual([RENEW]);
+    const [put] = h.sent;
+    expect(put?.headers.get("authorization")).toBe(`Bearer ${BEARER}`);
+    expect(put?.headers.get("user-agent")).toBe(CI_USER_AGENT);
+    expect(put?.headers.get("content-type")).toBe("application/json");
+    expect(put?.redirect).toBe("manual");
+    expect(JSON.parse(put?.body ?? "")).toEqual({ scopes: FIVE });
+    expect(keyed).toBe(false);
+    expect(h.out).toEqual([
+      "Production osn-api serves PUT /graph/internal/service-scopes/:serviceId: the run sets the scopes and registers no key.",
+      `osn-api answered 200: cire-api's 5 scopes are now ${FIVE.join(", ")}.`,
+      "Each osn-api isolate keeps a key's scopes for up to 5 minutes, so a host's removal of their Cire data may answer 503 until then.",
+      "A 200 shows osn-api stored the scopes; they apply only while cire-api's own key, CIRE_API_ARC_KEY_ID, is registered and live.",
+    ]);
+    expect(h.files.has("/github/output")).toBe(false);
+    expectClean(h);
+  });
+
+  test("N2: a refused renewal prints its status and that status's hint, never the body, and sends nothing more; the two refusals osn-api names are told apart only by their fixed tokens", async () => {
+    const answers: [Response, string][] = [
+      [
+        new Response(CANARY, { status: 302, headers: { location: `https://${CANARY}.example` } }),
+        "answered 302. osn-api answered a redirect, which this script never follows with the bearer.",
+      ],
+      [
+        json(400, { error: `Unknown scopes: ${CANARY}` }),
+        "answered 400. osn-api refused a scope it does not permit.",
+      ],
+      [json(401, { error: CANARY }), "answered 401. osn-api refused the bearer"],
+      [
+        new Response(CANARY, { status: 403 }),
+        "answered 403. Something in front of osn-api refused",
+      ],
+      [
+        json(404, { error: "unknown_service" }),
+        "answered 404. osn-api holds no registration for cire-api: register cire-api's key first",
+      ],
+      [
+        new Response(`NOT_FOUND ${CANARY}`, { status: 404 }),
+        "answered 404. osn-api has no such route on this host.",
+      ],
+      [json(404, { error: CANARY }), "answered 404. osn-api has no such route on this host."],
+      [
+        json(409, { error: "no_live_key" }),
+        "answered 409. osn-api holds no live key for cire-api: each is revoked or expired.",
+      ],
+      [json(409, { error: CANARY }), "answered 409. osn-api refused the renewal."],
+      [json(409, { error: "unknown_service " }), "answered 409. osn-api refused the renewal."],
+      // A token counts only under the status osn-api sends it with.
+      [json(409, { error: "unknown_service" }), "answered 409. osn-api refused the renewal."],
+      [
+        json(404, { error: "no_live_key" }),
+        "answered 404. osn-api has no such route on this host.",
+      ],
+      [json(500, { error: "no_live_key" }), "answered 500. osn-api did not store the scopes."],
+      [json(422, { error: CANARY }), "answered 422. osn-api found the body malformed."],
+      [json(429, {}), "answered 429. osn-api or Cloudflare limited the rate"],
+      [json(500, { error: CANARY }), "answered 500. osn-api did not store the scopes."],
+      [json(501, { error: CANARY }), "answered 501. osn-api holds no INTERNAL_SERVICE_SECRET"],
+      [new Response(CANARY, { status: 503 }), "answered 503. osn-api is unavailable"],
+      [
+        new Response(CANARY, { status: 403, headers: { "cf-mitigated": "challenge" } }),
+        "answered 403. Cloudflare answered in osn-api's place (cf-mitigated: challenge)",
+      ],
+      [json(200, { ok: false, error: CANARY }), "answered 200 without ok."],
+    ];
+    for (const [answer, line] of answers) {
+      const h = harness({ env, routes: { [RENEW]: [answer] } });
+      expect(await run(["register-cire-arc"], h.deps)).toBe(1);
+      expect({ status: answer.status, line: h.text().includes(`The renewal ${line}`) }).toEqual({
+        status: answer.status,
+        line: true,
+      });
+      expect(h.sent.map((s) => s.method)).toEqual(["PUT"]);
+      expectClean(h);
+    }
+  });
+
+  test("N3: a renewal that does not complete prints the error's class alone, sends nothing more, and says dispatching again is safe", async () => {
+    const h = harness({
+      env,
+      routes: { [RENEW]: [new DOMException(`${CANARY} ${BEARER}`, "TimeoutError")] },
+    });
+    expect(await run(["register-cire-arc"], h.deps)).toBe(1);
+    expect(h.text()).toContain("did not complete (TimeoutError)");
+    expect(h.text()).toContain("dispatching again is safe");
+    expect(h.sent.map((s) => s.method)).toEqual(["PUT"]);
+    expectClean(h);
+  });
+
+  test("N4: the method the approved job derives must be the one the check job showed, both ways, and EXPECTED_METHOD must be one of the two", async () => {
+    // osn-api moved forward between check and approval: the approver was told
+    // a throwaway key, and the run would send a PUT.
+    const forward = harness({ env: { ...env, EXPECTED_METHOD: "fallback" } });
+    expect(await run(["register-cire-arc"], forward.deps)).toBe(1);
+    expect(forward.text()).toContain("by the renew method, not the fallback method");
+    expect(forward.sent).toEqual([]);
+    // osn-api moved back: the approver was told no key, and the run would
+    // register one.
+    const back = harness({ ...before, env });
+    expect(await run(["register-cire-arc"], back.deps)).toBe(1);
+    expect(back.text()).toContain("by the fallback method, not the renew method");
+    expect(back.sent).toEqual([]);
+    for (const bad of ["", "RENEW", "renew ", "fallback,renew", CANARY]) {
+      const usage = harness({ env: { ...env, EXPECTED_METHOD: bad } });
+      expect(await run(["register-cire-arc"], usage.deps)).toBe(2);
+      expect(usage.text()).toContain("EXPECTED_METHOD");
+      expect(usage.sent).toEqual([]);
+      expect(usage.text()).not.toContain(CANARY);
+    }
+  });
+
+  test("N5: the renewal is found on a line that starts with .put( and its path, on that line or the next, never inside a line comment", () => {
+    expect(renewRouteIn(GRAPH)).toBe(true);
+    expect(
+      renewRouteIn(`${GRAPH_BEFORE_RENEW}      .put("/service-scopes/:serviceId", handler)\n`),
+    ).toBe(true);
+    expect(renewRouteIn(readRepo("osn/api/src/routes/graph-internal.ts"))).toBe(true);
+    for (const absent of [
+      GRAPH_BEFORE_RENEW,
+      `${GRAPH_BEFORE_RENEW}      // .put(\n      //   "/service-scopes/:serviceId",\n`,
+      `${GRAPH_BEFORE_RENEW}   * .put(\n   *   "/service-scopes/:serviceId",\n`,
+      `${GRAPH_BEFORE_RENEW}      .post(\n        "/service-scopes/:serviceId",\n`,
+      `${GRAPH_BEFORE_RENEW}      .put(\n        "/service-scopes/:keyId",\n`,
+      `${GRAPH_BEFORE_RENEW}      x.put(\n        "/service-scopes/:serviceId",\n`,
+    ]) {
+      expect({ absent, found: renewRouteIn(absent) }).toEqual({ absent, found: false });
+    }
+  });
+
+  test("N6: plan-register shows the approver the method in the log and the summary, and hands it to the approved job", async () => {
+    const planEnv = { GITHUB_TOKEN: GH_TOKEN, GITHUB_REPOSITORY: "englishstreetventures/osn" };
+    const renewing = harness({ env: planEnv });
+    expect(await run(["plan-register"], renewing.deps)).toBe(0);
+    const renewLine =
+      "Production osn-api serves PUT /graph/internal/service-scopes/:serviceId: the run sets the scopes and registers no key.";
+    expect(renewing.out).toContain(renewLine);
+    expect(renewing.files.get("/github/summary")).toContain(renewLine);
+    expect(renewing.files.get("/github/output")).toContain("method=renew\n");
+
+    const falling = harness({ env: planEnv, show: before.show });
+    expect(await run(["plan-register"], falling.deps)).toBe(0);
+    const fallbackLine = `Production osn-api (${OSN_COMMIT}) predates PUT /graph/internal/service-scopes/:serviceId: the run registers a throwaway key, already expired, and revokes it (englishstreetventures/osn#2432 removes this path).`;
+    expect(falling.out).toContain(fallbackLine);
+    expect(falling.files.get("/github/summary")).toContain(fallbackLine);
+    expect(falling.files.get("/github/output")).toBe(
+      `commit=${CIRE_COMMIT}\nscopes=${FIVE.join(",")}\nmethod=fallback\n`,
+    );
+  });
+
+  test("N7: the request goes to the route graph-internal.ts declares, under its group's prefix, for cire-api", () => {
+    const source = readRepo("osn/api/src/routes/graph-internal.ts");
+    const prefix = /new Elysia\(\{ prefix: "([^"]+)" \}\)/.exec(source)?.[1];
+    expect(prefix).toBe("/graph/internal");
+    expect(RENEW_PATH).toBe(`${prefix}/service-scopes/cire-api`);
+    expect(source).toMatch(/serviceId: t\.String\(\{ minLength: 1 \}\)/);
+    expect(source).toMatch(/scopes: t\.Array\(/);
   });
 
   test("R7: a production commit other than the one the check job read refuses before any request", async () => {
@@ -982,6 +1188,7 @@ interface Job {
   readonly needs?: string | readonly string[];
   readonly if?: string;
   readonly environment?: unknown;
+  readonly concurrency?: unknown;
   readonly permissions?: unknown;
   readonly env?: unknown;
   readonly steps?: readonly Step[];
@@ -1065,6 +1272,13 @@ describe("the workflow", () => {
     ]);
   });
 
+  test("F8: register-cire-arc runs one at a time and never cancels a run in progress, so the last list stored comes from the newest read", () => {
+    expect(workflow.jobs["register-cire-arc"]?.concurrency).toEqual({
+      group: "production-operator-register-cire-arc",
+      "cancel-in-progress": false,
+    });
+  });
+
   test("F5: no run line expands an expression: inputs and secrets reach a step through env alone", () => {
     for (const job of Object.values(workflow.jobs)) {
       for (const step of job.steps ?? []) expect(step.run ?? "").not.toContain("${{");
@@ -1112,10 +1326,12 @@ describe("the workflow", () => {
     ]);
     expect((workflow.jobs.check as { outputs?: unknown }).outputs).toMatchObject({
       commit: "${{ steps.plan.outputs.commit }}",
+      method: "${{ steps.plan.outputs.method }}",
     });
     expect(scriptSteps("register-cire-arc")[0]?.env).toEqual({
       INTERNAL_SERVICE_SECRET: "${{ secrets.INTERNAL_SERVICE_SECRET }}",
       EXPECTED_COMMIT: "${{ needs.check.outputs.commit }}",
+      EXPECTED_METHOD: "${{ needs.check.outputs.method }}",
       GITHUB_TOKEN: "${{ github.token }}",
     });
     expect(scriptSteps("count-deletion-fanouts")[0]?.env).toMatchObject({

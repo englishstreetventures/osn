@@ -459,7 +459,8 @@ crons = ["0 */6 * * *"]
 #   INTERNAL_SERVICE_SECRET    required: the bearer for /health/coordination, which
 #                              the post-deploy smoke check asks (unset, the probe
 #                              answers 501 and the check fails), and for
-#                              /graph/internal/register-service.
+#                              /graph/internal/register-service, the key
+#                              revoke and the scope renewal beside it.
 #   CIRE_INTERNAL_REVOKE_SECRET bearer for cire-api's organiser-session revoke
 #                              (optional, at least 32 characters). cire-api
 #                              holds the SAME value; set both, or the revoke is

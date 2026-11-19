@@ -95,7 +95,7 @@ marked **TBD** blocks the deploy.
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
 | **The production account's plan: Workers Paid** | osn-api's coordination store (and every Worker, Durable Object and D1 database on the account) | **The owner switches it in the Cloudflare dashboard before the first release that ships the coordination store** — the deploy token has no billing scope. §1.4 |
-| `INTERNAL_SERVICE_SECRET` (bearer for the coordination probe and register-service) | osn-api + its smoke-check step | **required** — the release refuses to deploy osn-api while its Worker lacks it (§5.9), and the post-deploy smoke check sends it to `GET /health/coordination`. It also guards `POST /graph/internal/register-service`, which registers cire's ARC key (§6.2). The `production` Environment secret of that name holds the Worker's value, for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2): it is the one Worker secret value that Environment keeps |
+| `INTERNAL_SERVICE_SECRET` (bearer for the coordination probe and register-service) | osn-api + its smoke-check step | **required** — the release refuses to deploy osn-api while its Worker lacks it (§5.9), and the post-deploy smoke check sends it to `GET /health/coordination`. It also guards `POST /graph/internal/register-service`, which registers cire's ARC key, and `PUT /graph/internal/service-scopes/:serviceId`, which renews its scopes (§6.2). The `production` Environment secret of that name holds the Worker's value, for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2): it is the one Worker secret value that Environment keeps |
 | `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional; set on both production Workers on 2026-11-19, by the owner** — without it on both Workers, sign out everywhere else, revoking cire's connection and an account deletion's soft delete leave cire organiser sessions alone, to end within their 7 days ([[sessions#Sign out everywhere else reaches cire]]). To set or replace it: `openssl rand -base64 32`, keep your copy, then `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`; no Environment copy (§5.9). On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
 | osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5`, staging `eb71428e-8540-4a30-815f-fb9cd4ae97ea`, prod `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
@@ -429,7 +429,7 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
 | `OSN_EMAIL_VERIFICATION_API` | `[env.production.vars]` and `musubiProductionApis` (`musubi/infra/src/declaration.ts`), which PA1 holds equal | No (default off) | Truthy (`true`/`1`/`yes`/`on`) lets sign-up accept a browser Email Verification API token, which proves the address with no emailed link. **`true` on production**, and on dev, set in `musubiDeclaration` ([[email-verification-api#Our code]]). Read once, in `build-deps.ts`. |
 | `OSN_EMAIL_VERIFICATION_EMULATOR_URL` | **Never set** | **Must be absent** | Local E2E only: points the token verifier at a stand-in issuer. osn-api refuses to boot with it unless `OSN_ENV` is exactly `local`, and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
-| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, and for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key (§6.2). Both answer 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. A key derived from it also MACs osn-api's outbound ARC key ids, which zap-api checks with its own copy, so the two must hold one value, generated (`openssl rand -base64 32`), never chosen ([[arc-tokens#osn-api as issuer — published outbound keys]]); a deployed osn-api without it answers 503. The `production` GitHub Environment holds the same value for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2). |
+| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key, and for `PUT /graph/internal/service-scopes/:serviceId` beside it, which renews its scopes (§6.2). Each answers 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. A key derived from it also MACs osn-api's outbound ARC key ids, which zap-api checks with its own copy, so the two must hold one value, generated (`openssl rand -base64 32`), never chosen ([[arc-tokens#osn-api as issuer — published outbound keys]]); a deployed osn-api without it answers 503. The `production` GitHub Environment holds the same value for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2). |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, `/register/begin` + `/login/passkey/begin` **require** a valid Turnstile token and **fail-closed** (reject on missing/invalid/duplicate; single-use enforced by Cloudflare). When unset, those gates are skipped and the flows behave as before — safe to leave unset until the widget exists. **Currently SET** on `osn-api-production` (#160), so the gates bite. Server half of the sitekey baked into the **musubi/social** build as `VITE_TURNSTILE_SITEKEY` (§3.3) — it was the organiser-portal build until the 2026-07-27 OIDC swap moved the ceremonies. Create the widget in §3.4. (`build-deps.ts` → `createTurnstileVerifier`). |
 | `TRUSTED_PROXY_COUNT` | `[env.<env>.vars]` | Optional | On Workers, Cloudflare sets `cf-connecting-ip`, so this is usually unneeded. Set only if a proxy sits in front and XFF must be trusted N hops. |
 | `OSN_RP_NAME` | `[env.<env>.vars]` | Optional | Display name in passkey prompts and the issuer label in authenticator apps (default: the instance name, `Musubi`). Display only: changing it leaves existing passkeys and authenticator codes working, since sign-in checks `OSN_RP_ID` and the TOTP secret, never the name. |
@@ -1884,24 +1884,31 @@ and [`scripts/production-operator.ts`](../../scripts/production-operator.ts):
 - The `check` job, which holds no secret, finds the commits production cire-api and
   osn-api run (the release planner's own records), reads the scopes from
   `osn-bridge.ts` at cire-api's commit, refuses unless osn-api's `PERMITTED_SCOPES`
-  holds each at its commit, and prints the commit and the scopes in the run summary
-  before anyone approves.
-- The approved job reads them again and refuses unless cire-api's commit is still the
-  one shown, so an approval given after another release sends nothing.
-- It POSTs the scopes with a key it generates, under a new `kid`, already expired, whose
-  private half is never exported, then revokes that `kid` unless osn-api refused the
-  registration before writing. The scopes reach cire-api's own key through
-  `service_accounts`; the throwaway key verifies nothing. Each run leaves one expired,
-  revoked `cire-api` row in `service_account_keys` ([[arc-token-debugging]]). The
-  repository's script tests fail if osn-api moves scopes onto the key.
+  holds each at its commit, and prints the commit, the scopes and the method below in
+  the run summary before anyone approves.
+- The approved job reads them again and refuses unless cire-api's commit and the method
+  are still the ones shown, so an approval given after another release sends nothing.
+  Approved runs go one at a time, so the last list stored comes from the newest read.
+- **renew**, when osn-api's commit has `PUT /graph/internal/service-scopes/:serviceId`:
+  one PUT of the scopes, with no key. osn-api sets them in one statement, and only while
+  cire-api has a row and a live key: it answers 404 `unknown_service` with no row and
+  409 `no_live_key` when every key is revoked or expired, writing nothing. A key comes
+  first, by the hand POST above.
+- **fallback**, while osn-api's commit predates that route: it POSTs the scopes with a key
+  it generates, under a new `kid`, already expired, whose private half is never exported,
+  then revokes that `kid` unless osn-api refused the registration before writing. The
+  scopes reach cire-api's own key through `service_accounts`; the throwaway key verifies
+  nothing, and each run leaves one expired, revoked `cire-api` row in
+  `service_account_keys` ([[arc-token-debugging]]). The repository's script tests fail if
+  osn-api moves scopes onto the key. englishstreetventures/osn#2432 removes this method
+  once production osn-api serves the route.
 - Its only secret is `INTERNAL_SERVICE_SECRET`, beside the job's read-only
   `GITHUB_TOKEN`; it installs nothing, follows no redirect, and prints statuses, commits,
   scope names and Cloudflare's one-word `cf-mitigated` value, never a response body.
 - Its requests to osn-api carry the smoke check's user agent, `osn-smoke-check`
   (`CI_USER_AGENT` in `scripts/smoke-check.ts`): Cloudflare's Bot Fight Mode answers a
   GitHub runner's request with Bun's own user agent in the Worker's place, with a 403.
-  A registration answer carrying `cf-mitigated` is reported as Cloudflare's, not
-  osn-api's.
+  An answer carrying `cf-mitigated` is reported as Cloudflare's, not osn-api's.
 
 A 200 shows osn-api stored the scopes. They apply only while cire-api's own key, the one
 `CIRE_API_ARC_KEY_ID` names, is registered and live, and each osn-api isolate keeps a
@@ -1910,8 +1917,22 @@ data" as a host and stop at Musubi's confirmation page: reaching it, rather than
 from `POST /api/organiser/account/removal/confirmation`, shows the scope works
 (`cire/api/src/routes/organiser-account.ts`). Nothing is removed until the host confirms.
 
-The hand POST above, with every scope listed, does the same with the real key, and is
-the way when the workflow cannot run.
+When the workflow cannot run, the same change by hand is one PUT, once production
+osn-api serves the route; before that, the hand POST above with the real key and every
+scope listed. Either sets the whole list, so a list naming only some scopes withdraws
+the rest:
+
+```bash
+curl -X PUT "$OSN_ISSUER_URL/graph/internal/service-scopes/cire-api" \
+  -H "Authorization: Bearer $INTERNAL_SERVICE_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"scopes":["graph:read","graph:resolve-account","org:read","account:email-read","step-up:verify"]}'
+```
+
+It answers `{ "ok": true, "scopes": [...], "staleForUpToSeconds": 300 }`: the scopes are
+stored, and each osn-api isolate may keep the old ones for that many seconds. Scope names
+must match `PERMITTED_SCOPES` exactly (400 otherwise), and the list must be non-empty with
+no name twice (422). A 500 does not show whether the write landed; send it again.
 
 ---
 
@@ -2126,7 +2147,7 @@ How it decides:
 | Email transport selection (fail-closed default + `OSN_EMAIL_OPTIONAL` degraded opt-in + sender) | `osn/api/src/lib/email-layer.ts`; no-op transport `shared/email/src/noop.ts` |
 | Coordination store: class, binding, `v1` migration, bundle | `shared/coordination/src/store.ts`; `osn/api/wrangler.toml`; `osn/api/src/lib/coordination/durable.ts` |
 | Client-IP extraction (proxy) | `shared/rate-limit/src/index.ts:82-89` |
-| `INTERNAL_SERVICE_SECRET` register-service | `osn/api/src/routes/graph-internal.ts:203-214` |
+| `INTERNAL_SERVICE_SECRET` register-service, key revoke, scope renewal | `refuseWithoutServiceSecret` in `osn/api/src/routes/graph-internal.ts` |
 | osn-api Worker entry (fetch + scheduled) | module `osn/api/src/entry.ts` (handler + `CoordinationStore`), handler `osn/api/src/index.ts`; local Worker `osn/api/package.json` (`dev:wrangler`); production deploy `musubiProductionApis()` in `musubi/infra/src/declaration.ts` |
 | osn-api missing-binding 503 (`COORDINATION`; `RL_USER_*` outside local) | `osn/api/src/index.ts` (`fetch`) |
 | osn D1 bindings + per-env vars | `osn/api/wrangler.toml` (`[[env.<env>.d1_databases]]`, `[env.<env>.vars]`) |

@@ -8,8 +8,10 @@
 #   |------------------------|----------------------------|------------------------------------------|
 #   | count-deletion-fanouts | the production Cloudflare  | nothing; prints two counts from          |
 #   |                        | account pair               | zap-db-prod's zap_account_purges         |
-#   | register-cire-arc      | INTERNAL_SERVICE_SECRET    | cire-api's scopes at production osn-api, |
-#   |                        |                            | and one expired, revoked throwaway key   |
+#   | register-cire-arc      | INTERNAL_SERVICE_SECRET    | cire-api's scopes at production osn-api; |
+#   |                        |                            | while osn-api there predates the scope   |
+#   |                        |                            | renewal, one expired, revoked throwaway  |
+#   |                        |                            | key too (englishstreetventures/osn#2432) |
 #
 # Rules every action keeps:
 #   - The job that holds a secret runs under `environment: production`, after
@@ -26,13 +28,17 @@
 #     account id, a row or a response body.
 #
 # register-cire-arc reads, at the commit production cire-api runs, the scopes
-# cire-api signs with, and refuses unless production osn-api permits each.
-# The register job reads them again when it runs and refuses unless cire-api's
-# commit is still the one `check` showed, so an approval given after a release
-# sends nothing. A 200 shows osn-api stored the scopes; osn-api isolates keep a
-# key's scopes for up to five minutes. Registering a new key of cire-api's own,
-# the first time or in a rotation, needs its public half, which this workflow
-# never holds: that stays the hand POST in wiki/shared/production-deploy.md §6.2.
+# cire-api signs with, and refuses unless production osn-api permits each. It
+# also reads how osn-api at its commit takes them: `renew`, one PUT of the
+# scopes with no key, once that commit has the route; `fallback`, a throwaway
+# key registered already expired and then revoked, before. The register job
+# reads both again when it runs and refuses unless cire-api's commit and the
+# method are still the ones `check` showed, so an approval given after a
+# release sends nothing. A 200 shows osn-api stored the scopes; osn-api
+# isolates keep a key's scopes for up to five minutes. Registering a new key of
+# cire-api's own, the first time or in a rotation, needs its public half, which
+# this workflow never holds: that stays the hand POST in
+# wiki/shared/production-deploy.md §6.2.
 #
 # count-deletion-fanouts' window defaults to the one the account-deletion
 # follow-up asked about: from the production release of 2026-11-16T02:17:49Z to
@@ -86,6 +92,7 @@ jobs:
     outputs:
       commit: ${{ steps.plan.outputs.commit }}
       scopes: ${{ steps.plan.outputs.scopes }}
+      method: ${{ steps.plan.outputs.method }}
     steps:
       - name: Refuse any ref but main
         if: github.ref != 'refs/heads/main'
@@ -126,6 +133,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: production
+    # One run at a time: each run reads production's scopes, then sets them
+    # whole, so two runs in step could store the older list last.
+    concurrency:
+      group: production-operator-register-cire-arc
+      cancel-in-progress: false
     permissions:
       contents: read
       deployments: read
@@ -145,6 +157,7 @@ jobs:
           INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
           # What the approver saw; the script refuses if production moved on.
           EXPECTED_COMMIT: ${{ needs.check.outputs.commit }}
+          EXPECTED_METHOD: ${{ needs.check.outputs.method }}
           GITHUB_TOKEN: ${{ github.token }}
         run: bun --no-install scripts/production-operator.ts register-cire-arc
 
