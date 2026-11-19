@@ -93,6 +93,7 @@ resolvePublicKey(kid, issuer, tokenScopes?)                            // → Ef
 getOrCreateArcToken(privateKey, { iss, aud, scope, kid }, ttl?)         // → cached JWT (cache key: kid:iss:aud:canonical(scope):ttl)
 clearTokenCache() / clearPublicKeyCache()                      // → for testing / key rotation
 evictPublicKeyCacheEntry(kid)                                  // → immediate per-key cache eviction (call on revoke)
+PUBLIC_KEY_CACHE_TTL_SECONDS                                   // → seconds a cached key and its scopes live (300 default)
 evictExpiredTokens()                                           // → force-sweep expired tokens (no debounce)
 ```
 
@@ -207,11 +208,12 @@ Worker secrets, `CIRE_API_ARC_PRIVATE_KEY` (a raw JWK string) and
 - **Production:** the key is registered by hand with
   `POST /graph/internal/register-service` ([[production-deploy]] §6.2). Whenever
   the scope list changes, the production operator workflow's `register-cire-arc`
-  sets the service's scopes to the list production cire-api signs with: a
-  registration holds exactly the scopes its last call listed, and osn-api keeps
-  them on the service (`service_accounts`), so the workflow sends them with a
-  throwaway key it registers already expired and then revokes, and never needs
-  cire-api's own.
+  sets the service's scopes to the list production cire-api signs with, through
+  `PUT /graph/internal/service-scopes/:serviceId` ([[#Renewing a service's scopes]]),
+  and never needs cire-api's key. While production osn-api runs a commit without
+  that route, the workflow instead sends the scopes with a throwaway key it
+  registers already expired and then revokes; englishstreetventures/osn#2432
+  removes that path.
 - **Dev:** the musubi stack writes the `service_accounts` and
   `service_account_keys` rows straight into `osn-db-dev`, from a seed file it
   imports on the first dev deploy and again whenever the file changes
@@ -326,6 +328,12 @@ token lives five minutes.
 
 `/register-service` validates requested `allowedScopes` against a server-side allowlist (`PERMITTED_SCOPES`). Any unknown scope returns 400 — a service cannot self-promote its scope set.
 
+### Renewing a service's scopes
+
+`PUT /graph/internal/service-scopes/:serviceId`, behind the same `INTERNAL_SERVICE_SECRET` bearer and the same 501 and 401 answers (one helper, `refuseWithoutServiceSecret`, gates all three registry routes), sets the scopes of a service with no key in the request. The body is `{ "scopes": [...] }`: at least one name, none twice, each exactly as `PERMITTED_SCOPES` spells it (400 otherwise; a malformed body is 422). One `UPDATE` sets `allowed_scopes` only while the service has a row and a live key (not revoked, and no expiry or one still ahead, the test `resolvePublicKey` applies); otherwise it answers 404 `unknown_service` or 409 `no_live_key` and writes nothing. It writes no key and creates no service, so it grants nothing the bearer cannot already grant through `/register-service`. A 200 answers `{ ok: true, scopes, staleForUpToSeconds }`: the public-key cache is untouched, and an isolate holding a key's entry keeps its old scopes for up to that many seconds (`PUBLIC_KEY_CACHE_TTL_SECONDS`). A 500 does not show whether the write landed; the renewal sets the whole list, so the caller sends it again.
+
+It is for a service with a fixed key whose scopes nothing else sets, as cire-api's. A service that registers itself sends its scopes with every registration — zap-api on each Worker isolate start, pulse-api on the Bun path — so its next registration replaces a renewal.
+
 > ⚠ **Scope authorisation is service-granular, not key-granular.**
 > `allowedScopes` lives on `service_accounts` (one row per serviceId) and every
 > `/register-service` call **replaces** it wholesale, while keys live per-`kid` in
@@ -388,7 +396,7 @@ the runs where the timing happens to tie.
 - Revocation evicts `publicKeyCache` at once via `evictPublicKeyCacheEntry(kid)` — no 5-minute window in the revoking process.
 - The `INTERNAL_SERVICE_SECRET` comparison uses `crypto.timingSafeEqual` — no timing oracle.
 - `peekClaims` uses base64url decode (RFC 7515 §2) — `-` and `_` in UUID `kid`s are handled correctly.
-- `/register-service` validates `allowedScopes` against `PERMITTED_SCOPES` allowlist — services cannot self-promote.
+- `/register-service` and the scope renewal check every scope against the `PERMITTED_SCOPES` allowlist — services cannot self-promote.
 - A `resolvePublicKey` cache hit stores `allowedScopes` and validates scopes on every hit — no bypass when `tokenScopes` is omitted.
 - ARC tokens are machine-to-machine only. Never use them for user-facing authentication — use access tokens for that.
 - An `Authorization: ARC ...` header earns no trust for inbound trace context: no service adopts a caller's `traceparent`, and a Worker's handler span starts a trace of its own ([[tracing#Trace context across services]]).
@@ -406,6 +414,6 @@ ARC token metrics live in `shared/crypto/src/arc-metrics.ts`:
 - [shared/crypto/src/arc.ts](../../shared/crypto/src/arc.ts) — ARC token implementation (`kid`, `resolvePublicKey`, rotation cache)
 - [shared/crypto/src/arc-metrics.ts](../../shared/crypto/src/arc-metrics.ts) — ARC metrics
 - [osn/api/src/lib/arc-middleware.ts](../../osn/api/src/lib/arc-middleware.ts) — `requireArc` Elysia middleware (reads `kid` from header)
-- [osn/api/src/routes/graph-internal.ts](../../osn/api/src/routes/graph-internal.ts) — internal graph routes + `/register-service` + `/service-keys/:keyId` (revoke)
+- [osn/api/src/routes/graph-internal.ts](../../osn/api/src/routes/graph-internal.ts) — internal graph routes + `/register-service` + `/service-keys/:keyId` (revoke) + `/service-scopes/:serviceId` (scope renewal)
 - [osn/db/src/schema/index.ts](../../osn/db/src/schema/index.ts) — `service_accounts` + `service_account_keys` table definitions
 - [pulse/api/src/services/graphBridge.ts](../../pulse/api/src/services/graphBridge.ts) — `startKeyRotation()`, ephemeral key auto-rotation
