@@ -225,7 +225,7 @@ describe("DELETE /account sends the scheduled notice", () => {
       );
       // No answer: the event's default, with the date its kept copy goes.
       expect(mail!.text).toContain(
-        "You host Launch, on 1 December.\n  Cancelled and kept for its guests. Kept until 7 December 2026.",
+        "You host Launch, on 1 December.\n  Cancelled and kept for its guests. Kept until 7 December 2026 (UTC).",
       );
     } finally {
       apps.stop();

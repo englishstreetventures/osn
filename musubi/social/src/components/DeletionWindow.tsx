@@ -6,12 +6,12 @@ import { Button } from "@shared/ui/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, Match, onMount, Show, Switch } from "solid-js";
 
-import { formatMoment, statusOf } from "../lib/account-deletion";
+import { localDay, statusOf } from "../lib/account-deletion";
 import { accountClient } from "../lib/authClients";
 import { createStepUp } from "../lib/step-up";
 import { createAccountData } from "./AccountDataActions";
 import {
-  UNTIL_THEN,
+  BEFORE_THAT_DAY,
   WINDOW_HEADING,
   WindowColumn,
   WindowDateLoading,
@@ -140,17 +140,19 @@ export default function DeletionWindow() {
                   </div>
                 </Match>
                 <Match when={scheduledFor()}>
-                  {(at) => (
-                    // Two lines' room at every width, so a date of one line
-                    // leaves the card as tall as its placeholder.
-                    <p class="text-foreground text-body min-h-9">
-                      We delete it on{" "}
-                      <time datetime={new Date(at() * 1_000).toISOString()}>
-                        {formatMoment(at())}
-                      </time>
-                      .
-                    </p>
-                  )}
+                  {(at) => {
+                    // The day, not a clock time: the erasure starts at the
+                    // instant and can finish hours after it.
+                    const day = () => localDay(at());
+                    return (
+                      // Two lines' room at every width, so a date of one line
+                      // leaves the card as tall as its placeholder.
+                      <p class="text-foreground text-body min-h-9">
+                        We delete it on or shortly after{" "}
+                        <time datetime={day().date}>{day().words}</time>.
+                      </p>
+                    );
+                  }}
                 </Match>
                 <Match when={status().state === "failed"}>
                   <Notice tone="danger" size="inline" alert>
@@ -160,11 +162,14 @@ export default function DeletionWindow() {
                   </Notice>
                 </Match>
               </Switch>
-              {/* "Then" names the date, so it follows only a date on screen. */}
+              {/* "That day" names the date, so it follows the date or its
+                  placeholder, never the failed read. There the window's
+                  length stands in: keeping is refused from its end, though
+                  the erasure can come later. */}
               <p class="text-muted-foreground text-body">
                 {status().state === "failed"
-                  ? "Until it is deleted, you can keep it. Your profiles and handles come back as they were."
-                  : UNTIL_THEN}
+                  ? "You can keep it for 7 days after you asked. Your profiles and handles come back as they were."
+                  : BEFORE_THAT_DAY}
               </p>
             </div>
 

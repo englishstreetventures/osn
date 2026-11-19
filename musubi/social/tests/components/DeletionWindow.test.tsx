@@ -39,6 +39,7 @@ vi.mock("../../src/components/StepUpSheet", () => ({
 }));
 
 import DeletionWindow from "../../src/components/DeletionWindow";
+import { localDay } from "../../src/lib/account-deletion";
 
 /** 23 November 2026, 09:00 UTC. */
 const SCHEDULED_FOR = 1_795_424_400;
@@ -72,7 +73,7 @@ afterEach(() => {
 });
 
 describe("<DeletionWindow />", () => {
-  it("shows when the account is deleted, in the reader's own terms", async () => {
+  it("shows the day the account is deleted on, in the reader's own terms, with no clock time", async () => {
     mocks.status.mockResolvedValue({
       scheduled: true,
       scheduledFor: SCHEDULED_FOR,
@@ -84,7 +85,12 @@ describe("<DeletionWindow />", () => {
       if (!found) throw new Error("no date yet");
       return found;
     });
-    expect(time.getAttribute("datetime")).toBe(new Date(SCHEDULED_FOR * 1_000).toISOString());
+    const day = localDay(SCHEDULED_FOR);
+    expect(time.getAttribute("datetime")).toBe(day.date);
+    expect(time.closest("p")!.textContent).toBe(`We delete it on or shortly after ${day.words}.`);
+    // Keeping is refused from the instant on, so the line under it ends at the day's start.
+    expect(screen.getByText(/^Before that day, you can keep it\./)).toBeTruthy();
+    expect(screen.queryByText(/Until/)).toBeNull();
     expect(screen.getByRole("heading", { name: "Your account is set to be deleted" })).toBeTruthy();
   });
 
@@ -100,9 +106,11 @@ describe("<DeletionWindow />", () => {
       .mockResolvedValueOnce({ scheduled: true, scheduledFor: SCHEDULED_FOR, softDeletedAt: 0 });
     renderWindow();
     expect(await screen.findByText(/Your deletion date didn't load\./)).toBeTruthy();
-    // No date on screen, so nothing says "then".
-    expect(screen.queryByText(/Until then/)).toBeNull();
-    expect(screen.getByText(/Until it is deleted, you can keep it\./)).toBeTruthy();
+    // No date on screen, so nothing says "that day"; and nothing offers the
+    // keep up to the erasure, which can come hours after the window ends.
+    expect(screen.queryByText(/that day/)).toBeNull();
+    expect(screen.queryByText(/Until it is deleted/)).toBeNull();
+    expect(screen.getByText(/You can keep it for 7 days after you asked\./)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(document.querySelector("time")).not.toBeNull());
     expect(mocks.status).toHaveBeenCalledTimes(2);

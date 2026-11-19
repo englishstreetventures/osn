@@ -200,9 +200,24 @@ export function formatDay(unixSeconds: number): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(unixSeconds * 1_000);
 }
 
-/** A unix time as a day and a time in the reader's locale and zone. */
-export function formatMoment(unixSeconds: number): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(
-    unixSeconds * 1_000,
-  );
+/** A day in the reader's zone, with no clock time. */
+export interface LocalDay {
+  /** In the reader's locale: "Monday, 7 December 2026". */
+  readonly words: string;
+  /** For `<time datetime>`: "2026-12-07". */
+  readonly date: string;
+}
+
+/**
+ * The day a unix time falls on in the reader's zone. The day is the instant's
+ * own, so it never starts after the instant, and the day before it ends
+ * before the instant.
+ */
+export function localDay(unixSeconds: number): LocalDay {
+  const at = new Date(unixSeconds * 1_000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    words: new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(at),
+    date: `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`,
+  };
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { renderTemplate } from "../src/templates";
 import type {
@@ -36,10 +36,49 @@ const scheduled: AccountDeletionScheduledData = {
 };
 
 describe("account-deletion-scheduled", () => {
-  it("states the date and time the account is deleted, in UTC", () => {
+  // The account is erased at or after `deletesAt`, often hours after, and can
+  // be kept only before it. So the email names the day, never a clock time,
+  // and nothing in it promises a moment past `deletesAt`. The reader's zone is
+  // unknown, so the day is UTC's and says so.
+  let zone: string | undefined;
+  beforeEach(() => {
+    zone = process.env.TZ;
+    // Far from UTC, so a date read in the host's zone shows.
+    process.env.TZ = "Pacific/Kiritimati";
+  });
+  afterEach(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+
+  it("says the account is deleted on or shortly after a day in UTC, with no clock time", () => {
     const out = renderTemplate("account-deletion-scheduled", scheduled);
-    expect(out.text).toContain("23 November 2026 at 14:05 UTC");
-    expect(out.html).toContain("23 November 2026 at 14:05 UTC");
+    expect(out.text).toContain("It will be deleted on or shortly after 23 November 2026 (UTC).");
+    expect(out.html).toContain("It will be deleted on or shortly after 23 November 2026 (UTC).");
+    expect(out.text).not.toMatch(/\d:\d\d/);
+    expect(out.html).not.toMatch(/\d:\d\d/);
+  });
+
+  it("names the UTC day either side of midnight UTC", () => {
+    const late = renderTemplate("account-deletion-scheduled", {
+      ...scheduled,
+      deletesAt: Date.UTC(2026, 10, 23, 23, 30) / 1_000,
+    });
+    expect(late.text).toContain("on or shortly after 23 November 2026 (UTC)");
+    const early = renderTemplate("account-deletion-scheduled", {
+      ...scheduled,
+      deletesAt: Date.UTC(2026, 10, 24, 0, 30) / 1_000,
+    });
+    expect(early.text).toContain("on or shortly after 24 November 2026 (UTC)");
+  });
+
+  it("offers the keep and the download only before the day, never up to it", () => {
+    const out = renderTemplate("account-deletion-scheduled", scheduled);
+    // The zone sits in the offer itself: "before 23 November" read in a zone
+    // behind UTC runs past the moment the keep is refused.
+    expect(out.text).toContain("sign in to Acme before 23 November 2026 (UTC) and choose");
+    expect(out.text).toContain("Once it is deleted, there is nothing left to download.");
+    expect(out.text).not.toMatch(/until (then|that day|23 November)/i);
   });
 
   it("says how to keep the account and how to download the data, with the app's address", () => {
@@ -53,7 +92,7 @@ describe("account-deletion-scheduled", () => {
     const out = renderTemplate("account-deletion-scheduled", scheduled);
     expect(out.text).toContain("You host 1 upcoming event.");
     expect(out.text).toContain("Cancelled and kept for its guests.");
-    expect(out.text).toContain("7 December 2026");
+    expect(out.text).toContain("Kept until 7 December 2026 (UTC).");
   });
 
   it("escapes a name another person wrote and keeps it out of the subject", () => {
@@ -117,13 +156,17 @@ describe("account-deleted", () => {
     const out = renderTemplate("account-deleted", deleted);
     expect(out.text).toContain("@ada");
     expect(out.text).toContain("@ada_work");
-    expect(out.text).toContain("23 December 2026");
+    // The hold ends at an instant partway through the day, so the promise
+    // ends as that day starts, and names its zone.
+    expect(out.text).toContain(
+      "are released on 23 December 2026 (UTC). Nobody can take them before that day",
+    );
   });
 
   it("lists each kept item with its app, its erase date and where to ask about it", () => {
     const out = renderTemplate("account-deleted", deleted);
     expect(out.text).toContain("Pulse");
-    expect(out.text).toContain("7 December 2026");
+    expect(out.text).toContain("Kept until 7 December 2026 (UTC).");
     expect(out.text).toContain("https://pulse.example.test/request");
     expect(out.html).toContain("&lt;b&gt;Launch&lt;/b&gt;");
     expect(out.html).not.toContain("<b>Launch</b>");
