@@ -42,10 +42,13 @@
  * register job reads them again when it runs and refuses unless cire-api's
  * commit is still the one the check job showed the approver.
  *
- * Imports only Bun, Node built-ins and repository files that import nothing
- * else, so `--no-install` holds: a package import fails rather than being
- * fetched beside a production secret. release-plan.ts is loaded only by the
- * two actions that read deployment records.
+ * Everything it loads, smoke-check.ts (for CI_USER_AGENT) and release-plan.ts
+ * with what they import, imports only Bun, Node built-ins and other
+ * repository files, so `--no-install` holds: a package import fails rather
+ * than being fetched beside a production secret. Test R14 walks that import
+ * graph. Top-level code in any of those files runs beside the secret too.
+ * release-plan.ts is loaded only by the two actions that read deployment
+ * records.
  *
  * Exit codes: 0 done; 1 refused, or a request failed; 2 a usage error, before
  * any request.
@@ -55,6 +58,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { PRODUCTION_HOSTS } from "../shared/infra/src/production-sites";
+import { CI_USER_AGENT } from "./smoke-check";
 
 /** The production D1 database zap-api's erasures are recorded in (zap/api/wrangler.toml, `[[env.production.d1_databases]]`). */
 export const ZAP_DATABASE = "zap-db-prod";
@@ -172,6 +176,19 @@ const isRecord = (value: unknown): value is Answered =>
 function bearerHeaders(bearer: string, body: unknown): Headers {
   const headers = new Headers({ authorization: `Bearer ${bearer}` });
   if (body !== undefined) headers.set("content-type", "application/json");
+  return headers;
+}
+
+/**
+ * Headers for a request to osn-api's public host. It carries CI_USER_AGENT,
+ * as every check of a deployed host does: Cloudflare's Bot Fight Mode answers
+ * a GitHub runner's request that carries Bun's own user agent with a
+ * challenge, in the Worker's place (scripts/smoke-check.ts). The Cloudflare
+ * API is not behind it, so its requests keep Bun's.
+ */
+function osnApiHeaders(bearer: string, body: unknown): Headers {
+  const headers = bearerHeaders(bearer, body);
+  headers.set("user-agent", CI_USER_AGENT);
   return headers;
 }
 
@@ -434,13 +451,31 @@ const REGISTER_HINTS = new Map([
   [503, "osn-api is unavailable; dispatch again later."],
 ]);
 
-const hintFor = (status: number): string =>
-  REGISTER_HINTS.get(status) ??
-  (status >= 300 && status < 400
-    ? "osn-api answered a redirect, which this script never follows with the bearer."
-    : "osn-api did not store the scopes.");
+/**
+ * What the status means. `mitigated` is Cloudflare's `cf-mitigated` header:
+ * null when absent, else its value when that is one short lower-case word, or
+ * "" when it is anything else, which is never printed.
+ */
+const hintFor = (status: number, mitigated: string | null): string => {
+  if (mitigated !== null) {
+    const named = mitigated === "" ? "cf-mitigated" : `cf-mitigated: ${mitigated}`;
+    return `Cloudflare answered in osn-api's place (${named}); the request never reached osn-api.`;
+  }
+  return (
+    REGISTER_HINTS.get(status) ??
+    (status >= 300 && status < 400
+      ? "osn-api answered a redirect, which this script never follows with the bearer."
+      : "osn-api did not store the scopes.")
+  );
+};
 
-type Sent = { readonly status: number; readonly ok: boolean } | { readonly failed: string };
+/** A `cf-mitigated` value fit to print: one short lower-case word, else "". */
+const mitigation = (value: string | null): string | null =>
+  value === null ? null : /^[a-z_-]{1,20}$/.test(value) ? value : "";
+
+type Sent =
+  | { readonly status: number; readonly ok: boolean; readonly mitigated: string | null }
+  | { readonly failed: string };
 
 /** One request to osn-api with the bearer: its status and whether it said `ok: true`, never its body. */
 async function toOsnApi(
@@ -453,13 +488,17 @@ async function toOsnApi(
   try {
     const response = await deps.fetch(`${OSN_API_ORIGIN}${path}`, {
       method,
-      headers: bearerHeaders(bearer, body),
+      headers: osnApiHeaders(bearer, body),
       body: body === undefined ? undefined : JSON.stringify(body),
       redirect: "manual",
       signal: AbortSignal.timeout(OSN_TIMEOUT_MS),
     });
     const answer: unknown = await response.json().catch(() => undefined);
-    return { status: response.status, ok: isRecord(answer) && answer.ok === true };
+    return {
+      status: response.status,
+      ok: isRecord(answer) && answer.ok === true,
+      mitigated: mitigation(response.headers.get("cf-mitigated")),
+    };
   } catch (error) {
     return { failed: error instanceof Error ? error.name : "unknown error" };
   }
@@ -505,7 +544,7 @@ async function registerCireArc(deps: Deps): Promise<void> {
   }
   if (registered.status !== 200 || !registered.ok) {
     throw new Refusal(
-      `The registration answered ${registered.status}${registered.status === 200 ? " without ok" : ""}. ${hintFor(registered.status)}`,
+      `The registration answered ${registered.status}${registered.status === 200 ? " without ok" : ""}. ${hintFor(registered.status, registered.mitigated)}`,
     );
   }
   const lines = [

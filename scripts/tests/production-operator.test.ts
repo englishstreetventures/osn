@@ -25,6 +25,7 @@ import {
   scopesIn,
   ZAP_DATABASE,
 } from "../production-operator";
+import { CI_USER_AGENT } from "../smoke-check";
 
 const root = join(import.meta.dir, "..", "..");
 const readRepo = (path: string): string => readFileSync(join(root, path), "utf8");
@@ -615,7 +616,7 @@ describe("register-cire-arc", () => {
     GITHUB_REPOSITORY: "englishstreetventures/osn",
   };
 
-  test("R1: one POST with a born-expired throwaway key and production's scopes, then its revoke, each with the bearer and no redirect", async () => {
+  test("R1: one POST with a born-expired throwaway key and production's scopes, then its revoke, each with the bearer, the CI user agent and no redirect", async () => {
     const h = harness({
       env,
       routes: { [REGISTER]: [json(200, { ok: true })], [REVOKE]: [json(200, { ok: true })] },
@@ -624,6 +625,9 @@ describe("register-cire-arc", () => {
     expect(h.sent.map((s) => `${s.method} ${s.url}`)).toEqual([`${REGISTER}`, `${REVOKE}${KID}`]);
     for (const s of h.sent) {
       expect(s.headers.get("authorization")).toBe(`Bearer ${BEARER}`);
+      // Cloudflare's Bot Fight Mode answers a runner's request that carries
+      // Bun's own user agent in osn-api's place (scripts/smoke-check.ts).
+      expect(s.headers.get("user-agent")).toBe(CI_USER_AGENT);
       expect(s.redirect).toBe("manual");
     }
     expect(JSON.parse(h.sent[0]?.body ?? "")).toEqual({
@@ -696,6 +700,80 @@ describe("register-cire-arc", () => {
         sent: status >= 500 ? ["POST", "DELETE"] : ["POST"],
       });
       expectClean(h);
+    }
+  });
+
+  test("R13: an answer carrying cf-mitigated says Cloudflare answered in osn-api's place, naming the header's value only when it is one short word, never the body", async () => {
+    const challenged = harness({
+      env,
+      routes: {
+        [REGISTER]: [
+          new Response(`<html>${CANARY}</html>`, {
+            status: 403,
+            headers: { "cf-mitigated": "challenge", "content-type": "text/html" },
+          }),
+        ],
+      },
+    });
+    expect(await run(["register-cire-arc"], challenged.deps)).toBe(1);
+    expect(challenged.text()).toContain(
+      "The registration answered 403. Cloudflare answered in osn-api's place (cf-mitigated: challenge); the request never reached osn-api.",
+    );
+    expect(challenged.text()).not.toContain("in front of osn-api refused");
+    expect(challenged.sent.map((s) => s.method)).toEqual(["POST"]);
+    expectClean(challenged);
+
+    const odd = harness({
+      env,
+      routes: {
+        [REGISTER]: [
+          new Response(CANARY, { status: 403, headers: { "cf-mitigated": `${CANARY} challenge` } }),
+        ],
+      },
+    });
+    expect(await run(["register-cire-arc"], odd.deps)).toBe(1);
+    expect(odd.text()).toContain("Cloudflare answered in osn-api's place (cf-mitigated);");
+    expectClean(odd);
+
+    // One word, but longer than the 20 characters a Cloudflare value needs.
+    const long = "abcdefghijklmnopqrstu";
+    const longer = harness({
+      env,
+      routes: {
+        [REGISTER]: [new Response("", { status: 403, headers: { "cf-mitigated": long } })],
+      },
+    });
+    expect(await run(["register-cire-arc"], longer.deps)).toBe(1);
+    expect(longer.text()).toContain("(cf-mitigated);");
+    expect(longer.text()).not.toContain(long);
+  });
+
+  // The action runs beside INTERNAL_SERVICE_SECRET or the production
+  // Cloudflare token with `bun --no-install`. Every module it can load,
+  // dynamic imports included, imports only repository files, Node built-ins
+  // and Bun's, so no package code is fetched or run beside them.
+  test("R14: everything the script can load imports no package", () => {
+    const transpiler = new Bun.Transpiler({ loader: "ts" });
+    const seen = new Set<string>();
+    const packages: string[] = [];
+    const walk = (file: string): void => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const source = readFileSync(file, "utf8").replace(/^#!.*\n/, "");
+      for (const { path } of transpiler.scanImports(source)) {
+        if (path.startsWith("node:") || path.startsWith("bun:") || path === "bun") continue;
+        if (!path.startsWith(".")) {
+          packages.push(`${file.slice(root.length + 1)}: ${path}`);
+          continue;
+        }
+        const target = join(file, "..", path);
+        walk(target.endsWith(".ts") ? target : `${target}.ts`);
+      }
+    };
+    walk(join(root, "scripts/production-operator.ts"));
+    expect(packages).toEqual([]);
+    for (const file of ["smoke-check.ts", "release-plan.ts"]) {
+      expect(seen.has(join(root, "scripts", file))).toBe(true);
     }
   });
 

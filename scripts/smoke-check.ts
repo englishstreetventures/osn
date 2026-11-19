@@ -638,10 +638,14 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
 }
 
 /**
- * The user agent every check of a deployed host sends: this one, and
- * scripts/guest-route-parity.ts and cire/api/scripts/d1-latency-probe.ts. Cloudflare's Bot Fight Mode answers a
+ * The user agent every check of a deployed host sends: this one,
+ * scripts/guest-route-parity.ts, cire/api/scripts/d1-latency-probe.ts and
+ * scripts/production-operator.ts. Cloudflare's Bot Fight Mode answers a
  * request from a GitHub runner that carries Bun's own (`Bun/<version>`) with
  * a challenge in the Worker's place; it lets this one through.
+ * production-operator.ts imports this module in a job that holds
+ * INTERNAL_SERVICE_SECRET, under `bun --no-install`: a package import here
+ * fails that job, and its test R14 fails first.
  */
 export const CI_USER_AGENT = "osn-smoke-check";
 
