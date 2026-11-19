@@ -2553,6 +2553,28 @@ describe("GET /authorize for an account whose deletion is pending", () => {
     expect(count(h, "oauth_authorization_codes")).toBe(0);
   });
 
+  // `max_age` answers a live session "older than the requested max_age", so a
+  // silent probe with `max_age=0` would tell a session from none, and a second
+  // without it would then single out the pending account. Silent, the account
+  // is read first, and a pending one answers as no session whatever `max_age`.
+  it("answers prompt=none with max_age=0 exactly as it answers a browser with no session", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "pd-maxage@example.com", "pd_maxage");
+    ageSessions(h, 60);
+    tombstoneEveryAccount(h);
+    const silent = authorizeUrl({ ...goodParams, prompt: "none", max_age: "0" });
+
+    const pending = await h.app.handle(new Request(silent, { headers: { cookie } }));
+    const signedOut = await h.app.handle(new Request(silent));
+
+    expect(pending.status).toBe(302);
+    expect(pending.headers.get("location")).toBe(signedOut.headers.get("location"));
+    expect(new URL(pending.headers.get("location")!).searchParams.get("error_description")).toBe(
+      "No session",
+    );
+  });
+
   it("refuses the account's approval without spending the request, writing no consent and no code", async () => {
     const h = setup();
     h.seedClient({ firstParty: true });

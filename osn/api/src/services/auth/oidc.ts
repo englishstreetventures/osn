@@ -1541,6 +1541,22 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         return yield* interaction("login", nowSec);
       }
 
+      const { accountId, authTime } = session;
+
+      // The account and its consent come from one read, before either branch
+      // below can record a consent or mint a code. A silent request reads it
+      // before `max_age`, whose answer names a live session: an account whose
+      // deletion is pending must answer every silent probe as no session.
+      const readAccount = () => findAuthorizingAccount(accountId, request.client.clientId);
+      const silentRead = silent ? yield* readAccount() : null;
+      if (silentRead?.state === "pending_deletion") {
+        return {
+          kind: "error" as const,
+          code: "login_required" as const,
+          description: "No session",
+        };
+      }
+
       // `max_age` exceeded reads exactly like `prompt=login` (OIDC Core
       // §3.1.2.1) — the session is real but too old for this relying party.
       const stale = request.maxAge !== null && nowSec - session.authTime > request.maxAge;
@@ -1558,11 +1574,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         return yield* interaction("select_account");
       }
 
-      const { accountId, authTime } = session;
-
-      // The account and its consent come from one read, before either branch
-      // below can record a consent or mint a code.
-      const authorizing = yield* findAuthorizingAccount(accountId, request.client.clientId);
+      const authorizing = silentRead ?? (yield* readAccount());
       if (authorizing.state === "gone") {
         return {
           kind: "error" as const,
@@ -1573,13 +1585,10 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       // An account whose deletion is pending signs in to no relying party,
       // first-party or not. The request is parked for Musubi's page, which
       // shows the person the deletion screen; the relying party hears
-      // nothing until they act. Silent, it gets what a browser with no
-      // session gets, word for word, so a silent probe learns nothing. The
-      // URL's reason is `consent`: it lands in the person's own history.
+      // nothing until they act. (Silent, it answered as no session above.)
+      // The URL's reason is `consent`: it lands in the person's own history.
       if (authorizing.state === "pending_deletion") {
-        return silent
-          ? { kind: "error" as const, code: "login_required" as const, description: "No session" }
-          : yield* interaction("consent");
+        return yield* interaction("consent");
       }
 
       const { consent } = authorizing;
@@ -1746,16 +1755,18 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       // before the claim, so the request outlives it: the person can keep
       // the account and approve the same request, or go back to the app.
       // Read with the tombstone ignored, since the tombstone is the question.
-      if (input.approved) {
-        const named = yield* findProfileByIdIncludingTombstoned(input.profileId);
-        if (named && named.accountId === input.accountId && named.accountDeletedAt != null) {
-          return yield* Effect.fail(
-            new OidcError({
-              code: "access_denied",
-              description: "The account is scheduled for deletion",
-            }),
-          );
-        }
+      // The one read of the named profile: the ownership check below uses it
+      // too.
+      const named = input.approved
+        ? yield* findProfileByIdIncludingTombstoned(input.profileId)
+        : null;
+      if (named && named.accountId === input.accountId && named.accountDeletedAt != null) {
+        return yield* Effect.fail(
+          new OidcError({
+            code: "access_denied",
+            description: "The account is scheduled for deletion",
+          }),
+        );
       }
 
       yield* claimRequest(input.requestId);
@@ -1773,8 +1784,10 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       // The profile must belong to the deciding account. Without this check a
       // signed-in user could name any profile id and mint a code for someone
-      // else's identity.
-      const profile = yield* findProfileById(input.profileId);
+      // else's identity. A deletion asked for after the read above writes a
+      // consent and a code here all the same; the exchange reads the profile
+      // with the tombstone applied and refuses that code.
+      const profile = named;
       if (!profile || profile.accountId !== input.accountId) {
         return yield* Effect.fail(
           new OidcError({ code: "invalid_request", description: "Unknown profile" }),
