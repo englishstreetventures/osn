@@ -1011,11 +1011,19 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
     }
   });
 
-  // scripts/install-chromium-system-libraries.sh runs as root on what this
-  // cache restores. A prefix fallback would hand a run the packages saved for
-  // another image or Playwright version, so every step on the cache names one
-  // exact key, and both jobs build it with the same command.
-  test("Chromium's system packages are cached under one exact key, built the same way by the browser legs and the E2E job", () => {
+  // GitHub runs ubuntu-latest on several image builds at once (`20261111.82.6`
+  // on AWS runners beside `20261111.196.1` on Azure ones, 2026-11-19), each
+  // installing the same packages, and evicts a set within hours once no run
+  // reads it. A restore that matched only its own build's key would find
+  // nothing on a build no recent run on main saved, and apt would download
+  // every package from the mirror. So each restore falls back to the newest
+  // set saved for any build of the same OS image;
+  // scripts/install-chromium-system-libraries.sh
+  // still moves into apt's archive only the packages the runner's own signed
+  // index names (install-chromium-system-libraries.cli.test.ts), so a set
+  // saved on another build changes how much apt downloads, never what it
+  // installs. The E2E job saves its own build's exact key.
+  test("Chromium's system packages are saved under the image build's own key and restored from any build of the same OS image, both keys built the same way by the browser legs and the E2E job", () => {
     const onCache = Object.entries(ci.jobs).flatMap(([id, job]) =>
       stepsOf(job)
         .filter((step) => step.with?.path === "~/.cache/chromium-apt")
@@ -1031,13 +1039,13 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
         id: "browser",
         uses: "actions/cache/restore@v4",
         key: "${{ steps.chromium-apt-key.outputs.key }}",
-        fallback: undefined,
+        fallback: "${{ steps.chromium-apt-key.outputs.prefix }}",
       },
       {
         id: "e2e",
         uses: "actions/cache/restore@v4",
         key: "${{ steps.chromium-apt-key.outputs.key }}",
-        fallback: undefined,
+        fallback: "${{ steps.chromium-apt-key.outputs.prefix }}",
       },
       {
         id: "e2e",
@@ -1046,12 +1054,51 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
         fallback: undefined,
       },
     ]);
-    const keyed = (id: string) =>
-      stepsOf(ci.jobs[id]).find((step) => step.id === "chromium-apt-key")?.run;
-    expect(keyed("browser")).toContain(
-      "chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-",
-    );
-    expect(keyed("e2e")).toBe(keyed("browser"));
+    const keyStep = (id: string) =>
+      stepsOf(ci.jobs[id]).find((step) => step.id === "chromium-apt-key");
+    expect(keyStep("e2e")?.run).toBe(keyStep("browser")?.run);
+
+    // The step's outputs on each build, with a stand-in `bunx` that prints
+    // Playwright's version line.
+    const outputsOn = (imageVersion: string) => {
+      const dir = mkdtempSync(join(tmpdir(), "chromium-apt-key-"));
+      try {
+        writeFileSync(join(dir, "bunx"), "#!/bin/sh\necho 'Version 1.64.1'\n");
+        chmodSync(join(dir, "bunx"), 0o755);
+        const outputs = join(dir, "outputs");
+        const result = Bun.spawnSync(
+          ["bash", "--noprofile", "--norc", "-e", "-c", keyStep("browser")?.run ?? "exit 9"],
+          {
+            cwd: dir,
+            env: {
+              PATH: `${dir}:/usr/bin:/bin`,
+              GITHUB_OUTPUT: outputs,
+              RUNNER_OS: "Linux",
+              ImageOS: "ubuntu26",
+              ImageVersion: imageVersion,
+            },
+          },
+        );
+        expect(result.exitCode, result.stderr.toString()).toBe(0);
+        return Object.fromEntries(
+          readFileSync(outputs, "utf8")
+            .split("\n")
+            .filter((line) => line !== "")
+            .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    const aws = outputsOn("20261111.82.6");
+    const azure = outputsOn("20261111.196.1");
+    expect(aws).toEqual({
+      key: "Linux-chromium-apt-ubuntu26-20261111.82.6-playwright-1.64.1",
+      prefix: "Linux-chromium-apt-ubuntu26-",
+    });
+    // A run on one build restores the set the other saved.
+    expect(azure.key?.startsWith(aws.prefix ?? "-")).toBe(true);
+    expect(aws.key?.startsWith(azure.prefix ?? "-")).toBe(true);
   });
 
   // The secret scan runs the gitleaks a cached tarball holds.
