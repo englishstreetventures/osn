@@ -529,10 +529,10 @@ describe("maintenanceSweeps.purgeDeletedWeddings — a deleted wedding with no o
     expect(exists(db, "wed_live")).toBe(true);
   });
 
-  it("logs the deleter of a wedding with an owner, and never of one with none", async () => {
-    // Red on the purge log naming the profile an account erasure recorded as
-    // the deleter: between the erasure's first call and the one that finishes,
-    // that profile is the erased person's.
+  it("logs a wedding's deleter only while they hold a seat on it", async () => {
+    // Red on the purge log naming a deleter whose seat an account erasure has
+    // taken: until the erasure's last call clears the column, that profile is
+    // the erased person's. Once with no owner left, once with a co-owner left.
     const db = makeDb();
     seedWedding(db, "wed_owned", daysAgo(8));
     seedWedding(db, "wed_noowner", daysAgo(1));
@@ -542,10 +542,19 @@ describe("maintenanceSweeps.purgeDeletedWeddings — a deleted wedding with no o
         "UPDATE weddings SET deleted_by_osn_profile_id = 'usr_being_erased' WHERE id = 'wed_noowner'",
       ),
     );
+    seedWedding(db, "wed_coowned", daysAgo(8));
+    db.run(
+      sql.raw(
+        "UPDATE weddings SET deleted_by_osn_profile_id = 'usr_erased_coowner' WHERE id = 'wed_coowned'",
+      ),
+    );
     const logs = await captureLogs(async () => {
-      expect((await purge(db)).purged).toBe(2);
+      expect((await purge(db)).purged).toBe(3);
     });
     expect(logs).toContain("usr_owner_wed_owned");
     expect(logs).not.toContain("usr_being_erased");
+    // `wed_coowned` keeps its owner's seat; the deleter's seat is gone.
+    expect(logs).toContain('"weddingId":"wed_coowned"');
+    expect(logs).not.toContain("usr_erased_coowner");
   });
 });

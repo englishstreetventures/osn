@@ -422,13 +422,14 @@ export const maintenanceSweeps = {
             db
               .select({
                 id: weddings.id,
-                // The deleter only while an owner is left. A wedding with none
-                // was left by an account erasure, whose deleter, until its
-                // last call clears it, is the erased person's profile: no log
-                // names it.
+                // The deleter only while they still hold a seat on it. No
+                // route changes the seats of a deleted wedding, so a deleter
+                // with none is a person whose account erasure took it, and
+                // whose profile the erasure's last call has yet to clear: no
+                // log names them.
                 deletedBy: sql<
                   string | null
-                >`CASE WHEN ${noOwnerLeft()} THEN NULL ELSE ${outerColumn(weddings.deletedByOsnProfileId)} END`,
+                >`CASE WHEN EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${outerColumn(weddings.id)} AND ${weddingHosts.osnProfileId} = ${outerColumn(weddings.deletedByOsnProfileId)}) THEN ${outerColumn(weddings.deletedByOsnProfileId)} END`,
               })
               .from(weddings)
               .where(and(pastWindow, not(heldHere)))

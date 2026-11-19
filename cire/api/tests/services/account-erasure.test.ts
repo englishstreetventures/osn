@@ -358,6 +358,24 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(statements.length).toBeLessThanOrEqual(50);
   });
 
+  it("a host leaving cire at the cap makes 19 clean-up statements, with no held count", async () => {
+    const db = makeDb();
+    for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) wedding(db, `w${i}`, [P]);
+    const statements = recordStatements(db);
+    const { result } = await run(
+      db,
+      accountErasureService.eraseWithOutcomes({
+        accountId: ACCOUNT,
+        profileIds: [P],
+        now: NOW,
+        scope: "host",
+      }),
+    );
+    expect(result.status).toBe("done");
+    // No guest-link delete, no vendor-claim clear and no held count.
+    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 19);
+  });
+
   // Each case fails a batch's first statement: on bun:sqlite a batch is not
   // atomic, and on D1 a failed batch writes nothing.
   it.each([
@@ -810,7 +828,9 @@ describe("accountErasureService.erase — deleted weddings the purge holds", () 
     expect(deleterOf(db, "w_held")).toBeNull();
   });
 
-  it("a host leaving cire leaves no wedding naming them, and answers what it holds", async () => {
+  it("a host leaving cire counts nothing, and leaves no wedding naming them", async () => {
+    // Its route answers no kept item, so the clean-up reads no count; the
+    // deleter still goes, as every column that names the person does.
     const db = makeDb();
     wedding(db, "w_held", [P]);
     gift(db, "w_held", "disputed");
@@ -824,10 +844,8 @@ describe("accountErasureService.erase — deleted weddings the purge holds", () 
         scope: "host",
       }),
     );
-    expect(result).toEqual({
-      status: "done",
-      kept: [{ what: ONE_HELD, erasedOn: null, requestUrl: null }],
-    });
+    expect(result).toEqual({ status: "done", kept: [] });
+    expect(weddingRow(db, "w_held")?.deletedAt).toEqual(NOW);
     expect(deleterOf(db, "w_held")).toBeNull();
     expect(deleterOf(db, "w_other_account")).toBe(OTHER_ACCOUNT_PROFILE);
   });

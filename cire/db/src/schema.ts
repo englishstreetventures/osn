@@ -133,8 +133,10 @@ export const weddings = sqliteTable(
     // child) once `deleted_at` is more than the restore window old, or at
     // once when no owner seat is left, since no one can restore it. Seconds,
     // like `created_at`. `deleted_by_osn_profile_id` is the owner who deleted
-    // it, cleared with `deleted_at` on a restore; NULL when an OSN account's
-    // erasure deleted it, or once the deleting owner's account is erased.
+    // it, cleared with `deleted_at` on a restore. An OSN account's erasure
+    // that deletes it names the profile whose owner seat it took, so its last
+    // call can count what it leaves held; that call clears it, as it clears
+    // the deleting owner's profile once their account is erased.
     deletedAt: integer("deleted_at", { mode: "timestamp" }),
     deletedByOsnProfileId: text("deleted_by_osn_profile_id"),
   },
