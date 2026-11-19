@@ -221,3 +221,89 @@ describe("the create-account dialog", () => {
     await waitFor(() => expect(document.activeElement).toBe(sheet));
   });
 });
+
+/**
+ * How far the focus mark of `element` reaches above its box: its outline's
+ * width and offset, or the widest spread among its box shadows, a ring and its
+ * offset drawn as two.
+ */
+function focusReach(element: Element): number {
+  const style = getComputedStyle(element);
+  const outline =
+    style.outlineStyle === "none"
+      ? 0
+      : Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset);
+  const spreads = [
+    ...style.boxShadow.matchAll(/(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px/g),
+  ].map((m) => Number.parseFloat(m[4]!));
+  return Math.max(outline, 0, ...spreads);
+}
+
+/**
+ * On a phone short enough that the create-account sheet is taller than its 85%
+ * cap, the sheet scrolls under its title (`DESIGN.md` §Responsive layout,
+ * Dialogs): the title row stays at the top with no line under it, and once the
+ * body has passed under it a 16px fade from Musubi's own sheet colour, `--card`,
+ * sits there instead, in light and dark. 480px tall: the sheet is 454px at
+ * 390px wide, over a 408px cap.
+ */
+describe("the create-account dialog on a short phone", () => {
+  for (const theme of THEMES) {
+    it(`scrolls under its title, with a fade in the sheet's colour (${theme})`, async () => {
+      const sheet = await openDialog("register", 390, theme);
+      await page.viewport(390, 480);
+      await settle();
+      const title = within(sheet).getByRole("heading", { level: 2 });
+      const header = title.parentElement!;
+      const band = () => getComputedStyle(header, "::after");
+      expect(sheet.scrollHeight - sheet.clientHeight).toBeGreaterThan(16);
+      expect(getComputedStyle(header).borderBottomColor).toBe("rgba(0, 0, 0, 0)");
+      expect(Number(band().opacity)).toBe(0);
+      await page.screenshot({ path: `${SHOTS}/create-account-short-rest-${theme}.png` });
+
+      sheet.scrollTop = sheet.scrollHeight;
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const top = sheet.getBoundingClientRect().top + sheet.clientTop;
+      expect(Math.abs(header.getBoundingClientRect().top - top)).toBeLessThanOrEqual(0.5);
+      expect(Number(band().opacity)).toBe(1);
+      const card = theme === "dark" ? "rgb(36, 36, 36)" : "rgb(255, 255, 255)";
+      expect(getComputedStyle(sheet).backgroundColor).toBe(card);
+      expect(band().backgroundImage).toBe(`linear-gradient(${card}, rgba(0, 0, 0, 0))`);
+      await page.screenshot({ path: `${SHOTS}/create-account-short-end-${theme}.png` });
+    });
+  }
+
+  it("brings a field focused backwards, and its label, out from under the title and the fade", async () => {
+    const sheet = await openDialog("register", 390, "light");
+    await page.viewport(390, 480);
+    await settle();
+    const header = within(sheet).getByRole("heading", { level: 2 }).parentElement!;
+    const email = within(sheet).getByLabelText("Email");
+    // The control after Email in the tab order.
+    const tabbable = [...sheet.querySelectorAll<HTMLElement>("input, button, a[href]")].filter(
+      (el) =>
+        el.tabIndex >= 0 && !el.hasAttribute("disabled") && !el.hasAttribute("data-focus-trap"),
+    );
+    const next = tabbable[tabbable.indexOf(email) + 1]!;
+    // Scroll until the Email field sits half under the title row, then Shift+Tab to it.
+    sheet.scrollTop +=
+      email.getBoundingClientRect().top -
+      header.getBoundingClientRect().bottom +
+      email.getBoundingClientRect().height / 2;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    expect(email.getBoundingClientRect().top).toBeLessThan(header.getBoundingClientRect().bottom);
+    next.focus({ preventScroll: true });
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(document.activeElement).toBe(email);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // Musubi's own focus mark on the field, read from the page.
+    const reach = focusReach(email);
+    expect(reach).toBeGreaterThan(0);
+    const clear = header.getBoundingClientRect().bottom + 16 - 0.5;
+    expect(email.getBoundingClientRect().top - reach).toBeGreaterThanOrEqual(clear);
+    // Its label row, "Email" and the i beside it, clear of the fade too.
+    const label = within(sheet).getByText("Email", { exact: true });
+    expect(label.getBoundingClientRect().top).toBeGreaterThanOrEqual(clear);
+    await page.screenshot({ path: `${SHOTS}/create-account-short-focus-back.png` });
+  });
+});

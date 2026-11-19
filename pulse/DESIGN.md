@@ -398,6 +398,23 @@ These rules govern `pulse/web`. The landing site's motion is in
   Firefox 129 or Safari 17.5 it appears at once and still slides out, or fades
   out under reduced motion.
 
+- **A dialog's title stays as its body scrolls.** `@shared/ui`'s `Dialog`,
+  sheet or card, is at most 85% of the window tall and scrolls past that,
+  its header stuck to the top on `--card` with no line under it. Once the
+  body has passed under the header a 16px fade from `--card` to clear sits
+  there, coming in over the first 16px scrolled and holding to the end; at
+  the top, and in a dialog that fits, nothing is drawn there. It changes only
+  opacity, with the reader's own scroll, and under reduced motion it is whole
+  from the first pixel scrolled. The owner took it on #2034 (2026-11-14). A
+  browser that cannot read a scroll timeline keeps a hairline under the
+  header. The share sheet, More filters and the guest list draw it with no
+  class of their own; the guest list lays its panel out as a column whose
+  list scrolls, so the panel fits and nothing is drawn under its title
+  (`wiki/shared/component-library.md` §Kobalte components). The title row and
+  the fade both paint `--ui-surface` opaque, so a translucent sheet (the
+  owner's "Pulse only" on #2034) has to give the row and the fade its
+  material too, or an opaque strip crosses its top.
+
 Where the app does not follow this yet: these controls fade their focus mark
 with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
 `CalendarEventCard.tsx` and `routes/series/[id].tsx` (bare `transition`).
@@ -408,6 +425,8 @@ reduced motion.
 `tools/e2e/tests/support/pulse-menus.ts` holds both avatar menus' separators
 at 390 and 1440px in both schemes, and holds those menus and "More filters"
 opening from 0.96.
+`pulse/web/tests/styles/share-sheet-edge.browser.test.tsx` holds the share
+sheet's title row and fade at 390px, fitting and scrolled on a short window.
 `pulse/web/tests/styles/share-sheet-motion.browser.test.tsx` holds the share sheet at
 390px under pulse's stylesheet: its first frame its own height below the
 edge, at full opacity and unscaled, over a clear scrim; under reduced motion,

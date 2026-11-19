@@ -77,16 +77,19 @@ async function at(
 }
 
 /**
- * Waits out every animation on the page that ends, but two: a loop (a loading
- * pulse), which never ends, and the fill behind `CheckEmailView`'s "Resend in
- * …s", which ends only with the wait, 30 or 120 seconds, so a flow on the
- * "Check your email" screen never stalls here.
+ * Waits out every animation on the page that ends, but three: a loop (a
+ * loading pulse), which never ends; the fill behind `CheckEmailView`'s "Resend
+ * in …s", which ends only with the wait, 30 or 120 seconds, so a flow on the
+ * "Check your email" screen never stalls here; and the fade under a dialog's
+ * title, which runs on the dialog's scroll rather than on time and ends only
+ * when the dialog is scrolled.
  */
 async function animationsSettled(page: Page): Promise<void> {
   await page.evaluate(() =>
     Promise.all(
       document
         .getAnimations()
+        .filter((a) => a.timeline instanceof DocumentTimeline)
         .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
         .filter((a) => {
           const target = (a.effect as KeyframeEffect | null)?.target;
@@ -128,6 +131,22 @@ async function titleCentred(dialog: Locator, title: Locator): Promise<boolean> {
     centred.buttons === 0 &&
     Math.abs(centred.box.left + centred.box.width / 2 - (dialogBox.x + dialogBox.width / 2)) <= 1
   );
+}
+
+/**
+ * A dialog's title row at rest, as `@shared/ui`'s `DialogHeader` draws it: it
+ * sticks to the top of the panel, draws no line under it (its 1px edge is
+ * clear), and the fade under it is not drawn while nothing has scrolled under
+ * it. One string, `<position> <edge colour> <fade opacity>`, so a rerun reads
+ * the same.
+ */
+function titleRowAtRest(title: Locator): Promise<string> {
+  return title.evaluate((el) => {
+    const header = el.parentElement!;
+    const style = getComputedStyle(header);
+    const fade = getComputedStyle(header, "::after").opacity;
+    return `${style.position} ${style.borderBottomColor} ${fade}`;
+  });
 }
 
 /** The names of the buttons in the footer `cancel` sits in, in order, joined by " | ". */
@@ -721,6 +740,11 @@ export async function removalSheetSurfaces(flow: Flow, page: Page, sheet: Locato
     await titleCentred(sheet, sheet.getByRole("heading", { level: 2 })),
   );
   flow.check(
+    "removal sheet: the title row sticks, with no line and no fade under it at rest",
+    "sticky rgba(0, 0, 0, 0) 0",
+    await titleRowAtRest(sheet.getByRole("heading", { level: 2 })),
+  );
+  flow.check(
     "removal sheet: one line under the title, and none of the old ones",
     true,
     await sheet.evaluate(
@@ -746,6 +770,28 @@ export async function removalSheetSurfaces(flow: Flow, page: Page, sheet: Locato
       "removal sheet: pinned to the bottom edge",
       PHONE.height,
       Math.round((box?.y ?? 0) + (box?.height ?? 0)),
+    );
+    // On a phone short enough that the sheet passes its 85% cap, the built
+    // stylesheet's scroll timeline holds: scrolled to the end, the title row
+    // is still stuck and the fade under it is whole. Read before the shot,
+    // which cancels a scroll-driven run for its frame.
+    await page.setViewportSize({
+      width: PHONE.width,
+      height: Math.floor(((box?.height ?? 0) - 48) / 0.85),
+    });
+    flow.check(
+      "removal sheet: on a short phone, scrolled to the end, the title row stays with the fade whole under it",
+      "true sticky 1",
+      await sheet.getByRole("heading", { level: 2 }).evaluate(async (title) => {
+        const panel = title.closest<HTMLElement>('[role="dialog"]')!;
+        const header = title.parentElement!;
+        panel.scrollTop = panel.scrollHeight;
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const fade = getComputedStyle(header, "::after").opacity;
+        const read = `${panel.scrollHeight > panel.clientHeight} ${getComputedStyle(header).position} ${fade}`;
+        panel.scrollTop = 0;
+        return read;
+      }),
     );
     await flow.step("surfaces: shoot the removal sheet", () =>
       shoot(page, "totp-remove-sheet", () => expect(sheet).toBeVisible(), { widths: [PHONE] }),
@@ -1446,6 +1492,11 @@ export async function signInLinkSurfaces(flow: Flow, page: Page): Promise<void> 
     "sign in: the title sits alone in the header, centred",
     true,
     await titleCentred(dialog, dialog.getByRole("heading", { name: "Sign in to Musubi" })),
+  );
+  flow.check(
+    "sign in: the title row sticks, with no line and no fade under it at rest",
+    "sticky rgba(0, 0, 0, 0) 0",
+    await titleRowAtRest(dialog.getByRole("heading", { name: "Sign in to Musubi" })),
   );
   flow.check(
     "sign in: the footer reads Cancel, then Continue",

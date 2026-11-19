@@ -36,6 +36,9 @@
 /* Nor the orb: no page here draws it. A page that draws `Orb` needs this
    line gone. */
 @source not "../../../../shared/ui/src/ui/orb.tsx";
+/* Nor the shared `Dialog`: no page here draws it (cire's dialogs are `Modal`).
+   A page that draws `Dialog` needs this line gone. */
+@source not "../../../../shared/ui/src/ui/dialog.tsx";
 /* The toast package's own styles. It reads the `--toast-*` custom properties
    the palette block below emits, so an invite's toasts are the organiser's
    colours with contrast already enforced against the surface they sit on. */

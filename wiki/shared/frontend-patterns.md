@@ -344,6 +344,12 @@ beside the one on screen — measures where the content starts (`offsetTop`,
 which the scroll does not move), not the scrollport's padding. Cire's
 `AnimatedModal` draws its `toolbar` bar this way, and `EventSheet` draws its
 swiped-in panel from it ([[cire-invite-designs#The event sheet]]).
+`@shared/ui`'s `DialogHeader` is the same bar in every `Dialog`: it writes its
+height on the panel as `--ui-dialog-header-height`, and the panel's
+`scroll-padding-top` adds the 16px fade under the header and 1.5rem for a
+field's label and focus mark, so the label arrives clear too; a header taller
+than a third of the panel stops sticking ([[component-library]] §Kobalte
+components).
 
 **The scrollport is the nearest box that scrolls on either axis.** A box with
 `overflow-x: auto` computes its `overflow-y` to `auto` as well (CSS Overflow 3

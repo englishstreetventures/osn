@@ -21,6 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@shared/ui/ui/dropdown-menu";
+import { Field } from "@shared/ui/ui/field";
 import { InfoPopover } from "@shared/ui/ui/info-popover";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
@@ -181,6 +182,42 @@ export const DialogFadeOnly: Story<{ motion: string; presentation: string } & St
  * fades in and out in place with its scrim instead.
  */
 export const DialogSheetSlide = () => <LeaveDialog presentation="sheet" />;
+
+/**
+ * A `Dialog` whose body is taller than the panel's cap, 85% of the window at
+ * every width. Scroll it: the title row stays at the top with no line under
+ * it, and a 16px fade from the panel's surface comes in under the row over the
+ * first 16px of scroll, then holds. At the top nothing is drawn under the row.
+ * Under reduced motion the fade is simply on once anything has scrolled. Tab
+ * down the fields and Shift+Tab back up: a field never stops under the row or
+ * the fade. In a browser that cannot read a scroll timeline the row keeps its
+ * hairline and no fade is drawn.
+ */
+export const DialogScrollEdge: Story<{ presentation: string } & StoryArgs> = {
+  args: { presentation: "sheet" },
+  controls: { presentation: { kind: "select", options: ["sheet", "centred"] } },
+  render: (args) => (
+    <Dialog>
+      <DialogTrigger as={Button}>Open a long dialog</DialogTrigger>
+      <DialogContent presentation={args.presentation === "centred" ? "centred" : "sheet"}>
+        <DialogHeader>
+          <DialogTitle>Edit organisation</DialogTitle>
+        </DialogHeader>
+        <div class="flex flex-col gap-4 p-4">
+          {Array.from({ length: 16 }, (_, i) => (
+            <Field label={`Field ${i + 1}`}>{(field) => <Input {...field} />}</Field>
+          ))}
+        </div>
+        <DialogFooter>
+          <DialogClose as={Button} variant="outline">
+            Cancel
+          </DialogClose>
+          <DialogClose as={Button}>Save</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  ),
+};
 
 export const Dropdown = () => {
   const [picked, setPicked] = createSignal("—");

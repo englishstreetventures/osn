@@ -30,6 +30,17 @@ afterEach(() => {
 /** Gitignored; a rerun of this file draws them again. */
 const shot = (name: string) => `__screenshots__/dialog.browser.test.tsx/${name}.png`;
 
+/**
+ * Finish every animation that runs on time: the panel's entry and the scrim's.
+ * The fade under `DialogHeader` runs on the panel's scroll; finished, it would
+ * hold the fade whole at rest.
+ */
+function finishTimed() {
+  for (const animation of document.getAnimations()) {
+    if (animation.timeline instanceof DocumentTimeline) animation.finish();
+  }
+}
+
 /** Open a dialog, finish its entry, and hand back the panel and the scrim behind it. */
 async function openDialog(presentation?: "centred" | "sheet") {
   render(() => (
@@ -43,7 +54,7 @@ async function openDialog(presentation?: "centred" | "sheet") {
     </Dialog>
   ));
   const panel = await vi.waitFor(() => screen.getByRole("dialog"));
-  for (const animation of document.getAnimations()) animation.finish();
+  finishTimed();
   // `DialogContent` draws its own overlay just before the panel, in the same portal.
   const scrim = panel.previousElementSibling;
   if (!(scrim instanceof HTMLElement) || getComputedStyle(scrim).position !== "fixed") {
@@ -75,7 +86,7 @@ describe("DialogTitle's weight", () => {
       </Dialog>
     ));
     const title = await vi.waitFor(() => screen.getByRole("heading", { name: "Switch profile" }));
-    for (const animation of document.getAnimations()) animation.finish();
+    finishTimed();
     await page.screenshot({
       path: "__screenshots__/dialog.browser.test.tsx/title-500.png",
       element: screen.getByRole("dialog"),

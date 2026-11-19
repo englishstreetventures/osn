@@ -469,6 +469,66 @@
 }
 
 /*
+ * A scroll edge: the 16px fade under a header stuck to the top of a panel that
+ * scrolls, where the body passes under it. `Dialog` draws it, in place of a
+ * hairline under its title (the owner's choice on #2034, 2026-11-14).
+ *
+ * `scroll-edge-timeline` goes on the scrolling panel and names its scroll
+ * position, so a fade inside it follows that panel and no other scroller.
+ * `scroll-edge-fade` goes on the header's `::after`: a band of the panel's own
+ * surface fading to clear, hung under the header, that takes no pointer. Its
+ * opacity follows the panel's scroll, from 0 at the top to whole over the
+ * first 16px, and holds there to the end. Its timing is the scroll's own
+ * position, so no duration or easing token applies: `linear` keeps the band
+ * level with the distance scrolled, and the 1ms duration only scales to the
+ * scroll range (MDN's scroll-driven examples set it for Firefox, which runs
+ * nothing at `auto` or 0s). A panel whose body fits has no scroll range, so
+ * its timeline is inactive, no keyframe applies, and the band keeps its own
+ * `opacity: 0`.
+ *
+ * Only behind `@supports (animation-timeline: scroll())`, which `Dialog`
+ * writes as a variant on the class: a browser that cannot read the timeline
+ * would run the keyframes once over 1ms, fill them at their end, and hold the
+ * band whole at rest. Such a browser keeps the header's hairline instead.
+ *
+ * Under reduced motion the band does not ramp with the scroll: the block after
+ * these utilities brings it in over the first pixel, so it is simply on or off.
+ */
+@keyframes ui-scroll-edge {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@utility scroll-edge-timeline {
+  scroll-timeline: --ui-scroll-edge block;
+  /* The band's height, and the scroll it comes in over: one length, which the
+     band under the header inherits and `Dialog`'s scroll padding reads. */
+  --ui-scroll-edge-size: 1rem;
+}
+
+@utility scroll-edge-fade {
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  height: var(--ui-scroll-edge-size, 1rem);
+  background-image: linear-gradient(--theme(--color-ui-surface), transparent);
+  pointer-events: none;
+  opacity: 0;
+  animation-name: ui-scroll-edge;
+  /* motion-literal: on a scroll timeline a time only scales to the scroll range; Firefox runs none at 0s or auto */
+  animation-duration: 1ms;
+  /* motion-literal: the band's opacity tracks the distance scrolled, one to one */
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+  animation-timeline: --ui-scroll-edge;
+  animation-range: 0px var(--ui-scroll-edge-range, var(--ui-scroll-edge-size, 1rem));
+}
+
+/*
  * A reader who has turned motion down gets the state change without the
  * movement. `none` rather than a 1ms duration, because these are discrete
  * enter/exit animations with `fill-mode: both`: no animation leaves the
@@ -481,6 +541,10 @@
  * two runs read no variable, so they still run, move nothing, and keep a
  * closing sheet mounted until its fade has ended.
  *
+ * A scroll edge's fade comes in over the first pixel of scroll instead of
+ * the first 16px, so it is off at the top and whole once anything has passed
+ * under the header, with no ramp to follow.
+ *
  * On the root, so a panel portalled to `<body>` inherits it. Flat rather than
  * nested in each `@utility`: Tailwind emits a nested `@media` as CSS nesting,
  * which the oldest browsers these apps support cannot read.
@@ -492,5 +556,6 @@
     --ui-sheet-transition: opacity;
     --ui-sheet-hidden-transform: none;
     --ui-sheet-hidden-opacity: 0;
+    --ui-scroll-edge-range: 1px;
   }
 }
