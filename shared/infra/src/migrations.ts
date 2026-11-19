@@ -153,10 +153,12 @@ function sqlNames(from: string, dir: string, label: string): string[] {
  * each top-level `*.sql` file of `longLived` as it is; each top-level `*.sql`
  * file of `source` as it is, but for a name `longLived` holds; for each
  * top-level name of `archive` that neither holds, its refusing placeholder; and
- * with `freeze`, the freeze file. The one name `longLived` and `source` may
- * share is `source`'s first file, its baseline: any other shared name is a
- * moved migration put back, which dev and production would never run while a
- * new database ran it, so it is refused. Relative paths are taken from `from`,
+ * with `freeze`, the freeze file. `source`'s first file, its baseline, must
+ * carry the name of `longLived`'s first, the baseline it replaced, so the long-lived
+ * file takes its place; under another name it would reach dev and production
+ * as a new migration, so it is refused. That is the one name the two may
+ * share: any other shared name is a moved migration put back, which dev and
+ * production would never run while a new database ran it, so it is refused too. Relative paths are taken from `from`,
  * the working directory unless given. Reads the directories; writes nothing.
  */
 export function migrationFiles(
@@ -169,6 +171,13 @@ export function migrationFiles(
       ? []
       : sqlNames(from, sources.longLived, "long-lived migrations");
   const baseline = sourceNames.toSorted(compareMigrationNames)[0];
+  const replaced = longLived.toSorted(compareMigrationNames)[0];
+  if (replaced !== undefined && replaced !== baseline) {
+    throw new MigrationsSourceError({
+      source: sources.source,
+      message: `The migrations directory '${sources.source}' starts with ${baseline}, but the long-lived chain '${sources.longLived}' starts with ${replaced}: a baseline under any other name than the one it replaces would reach dev and production as a new migration that builds the whole schema again.`,
+    });
+  }
   const putBack = longLived.filter((name) => name !== baseline && sourceNames.includes(name));
   if (putBack.length > 0) {
     throw new MigrationsSourceError({

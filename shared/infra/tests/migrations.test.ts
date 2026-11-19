@@ -308,6 +308,22 @@ describe("a long-lived database's migrations after a squash", () => {
     expect(listing(target)).toEqual(["kept.sql"]);
   });
 
+  test("M16: a live directory whose baseline is not named as the long-lived chain's first file is refused, so the baseline never reaches a long-lived database as a new migration", () => {
+    const { source, longLived, target } = squashed();
+    // The new baseline under another name: dev and production would apply
+    // the whole schema as a pending migration.
+    rmSync(join(source, "0001_initial.sql"));
+    writeFileSync(
+      join(source, "0002_baseline.sql"),
+      "CREATE TABLE baseline (id INTEGER, b TEXT);\n",
+    );
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "kept.sql"), "SELECT 1;\n");
+    expect(() => migrationFiles({ source, longLived })).toThrow(/0002_baseline\.sql/);
+    expect(() => flattenMigrations({ source, longLived, target })).toThrow(MigrationsSourceError);
+    expect(listing(target)).toEqual(["kept.sql"]);
+  });
+
   test("M15: a missing long-lived directory, or a target overlapping it, is refused", () => {
     const { source, longLived, archive } = squashed();
     const target = join(mkdtempSync(join(tmpdir(), "migrations-")), "out");
