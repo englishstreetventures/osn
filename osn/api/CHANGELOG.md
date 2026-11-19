@@ -1,5 +1,13 @@
 # @osn/osn
 
+## 3.45.1
+
+### Patch Changes
+
+- af3afd7: The account-deletion screen and the scheduled email name the day the account is deleted on or shortly after, never a clock time, and offer the keep before that day. The screen prints the day in the reader's zone; the emails print UTC days and say so, and the account-deleted email gives the day the handles are released. An organisation's decline is offered before its last day, not until it. osn-api's notice test reads the new wording.
+- Updated dependencies [af3afd7]
+  - @shared/email@0.21.2
+
 ## 3.45.0
 
 ### Minor Changes
