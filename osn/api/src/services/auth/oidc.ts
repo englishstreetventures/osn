@@ -134,6 +134,23 @@ type AuthorizeOutcome =
     }
   | { kind: "error"; code: OidcErrorCode; description: string };
 
+/** A live consent: which profile the relying party knows, and what it may read. */
+interface LiveConsent {
+  id: string;
+  profileId: string;
+  scope: string;
+}
+
+/**
+ * The account behind a session, as `/authorize` must treat it: gone, with
+ * its deletion pending, or live with its consent for one client (null when
+ * never granted or revoked).
+ */
+export type AuthorizingAccount =
+  | { state: "gone" }
+  | { state: "pending_deletion" }
+  | { state: "live"; consent: LiveConsent | null };
+
 /** The user's answer to a consent screen. */
 export interface DecisionInput {
   requestId: string;
@@ -549,7 +566,7 @@ const CONSENT_WRITE_PASSES = 2;
 
 export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config } = ctx;
-  const { findDefaultProfile, findProfileById } = profiles;
+  const { findDefaultProfile, findProfileById, findProfileByIdIncludingTombstoned } = profiles;
 
   // -------------------------------------------------------------------------
   // Relying-party registry
@@ -841,19 +858,14 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     });
 
   /**
-   * For `/authorize`: whether the account may sign in to a relying party at
-   * all (it exists and no deletion is pending), and its live consent for
-   * `clientId` as {@link findConsent} answers it, in one statement. Null when
-   * the account is gone or its deletion is pending.
+   * For `/authorize` and its consent screen: whether the account is gone, has
+   * its deletion pending, or is live, and a live account's consent for
+   * `clientId` as {@link findConsent} answers it, in one statement.
    */
-  const findAuthorizingConsent = (
+  const findAuthorizingAccount = (
     accountId: string,
     clientId: string,
-  ): Effect.Effect<
-    { consent: { id: string; profileId: string; scope: string } | null } | null,
-    DatabaseError,
-    Db
-  > =>
+  ): Effect.Effect<AuthorizingAccount, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
@@ -876,10 +888,16 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         catch: (cause) => new DatabaseError({ cause }),
       });
       const row = rows[0];
-      if (!row || row.deletedAt !== null) return null;
-      if (row.id === null || row.profileId === null || row.scope === null) return { consent: null };
-      if (row.revokedAt !== null) return { consent: null };
-      return { consent: { id: row.id, profileId: row.profileId, scope: row.scope } };
+      if (!row) return { state: "gone" as const };
+      if (row.deletedAt !== null) return { state: "pending_deletion" as const };
+      if (row.id === null || row.profileId === null || row.scope === null) {
+        return { state: "live" as const, consent: null };
+      }
+      if (row.revokedAt !== null) return { state: "live" as const, consent: null };
+      return {
+        state: "live" as const,
+        consent: { id: row.id, profileId: row.profileId, scope: row.scope },
+      };
     });
 
   /**
@@ -1542,17 +1560,26 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       const { accountId, authTime } = session;
 
-      // An account whose deletion is pending signs in to no relying party,
-      // first-party or not: refused here, before either branch below can
-      // record a consent or mint a code, with the refusal every relying party
-      // already handles. The account and its consent come from one read.
-      const authorizing = yield* findAuthorizingConsent(accountId, request.client.clientId);
-      if (authorizing === null) {
+      // The account and its consent come from one read, before either branch
+      // below can record a consent or mint a code.
+      const authorizing = yield* findAuthorizingAccount(accountId, request.client.clientId);
+      if (authorizing.state === "gone") {
         return {
           kind: "error" as const,
           code: "access_denied" as const,
           description: "Access denied",
         };
+      }
+      // An account whose deletion is pending signs in to no relying party,
+      // first-party or not. The request is parked for Musubi's page, which
+      // shows the person the deletion screen; the relying party hears
+      // nothing until they act. Silent, it gets what a browser with no
+      // session gets, word for word, so a silent probe learns nothing. The
+      // URL's reason is `consent`: it lands in the person's own history.
+      if (authorizing.state === "pending_deletion") {
+        return silent
+          ? { kind: "error" as const, code: "login_required" as const, description: "No session" }
+          : yield* interaction("consent");
       }
 
       const { consent } = authorizing;
@@ -1715,6 +1742,22 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         );
       }
 
+      // An approval from an account whose deletion is pending is refused
+      // before the claim, so the request outlives it: the person can keep
+      // the account and approve the same request, or go back to the app.
+      // Read with the tombstone ignored, since the tombstone is the question.
+      if (input.approved) {
+        const named = yield* findProfileByIdIncludingTombstoned(input.profileId);
+        if (named && named.accountId === input.accountId && named.accountDeletedAt != null) {
+          return yield* Effect.fail(
+            new OidcError({
+              code: "access_denied",
+              description: "The account is scheduled for deletion",
+            }),
+          );
+        }
+      }
+
       yield* claimRequest(input.requestId);
 
       if (!input.approved) {
@@ -1764,8 +1807,10 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     });
 
   /**
-   * Refuses a parked request for a browser that holds no session, sending the
-   * relying party `access_denied`.
+   * Refuses a parked request without reading any session, sending the
+   * relying party `access_denied`: the way out for a browser with no
+   * session, and for one whose account's deletion is pending, which has no
+   * profile to decide with.
    *
    * It takes the request id and the binding cookie's secret, and nothing
    * else: no account, no profile, no `approved` flag. Its requirement type is
@@ -1774,7 +1819,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
    * reason it does not re-check the client: the redirect carries only a
    * refusal, to a URI registered when the request was parked, as a signed-in
    * refusal does. It makes no freshness demand either, since refusing grants
-   * nothing and there is no session to be fresh.
+   * nothing.
    */
   const declineAuthorization = (
     input: DeclineInput,
@@ -1794,6 +1839,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     disableOwnedClient,
     pairwiseSub,
     findConsent,
+    findAuthorizingAccount,
     recordConsent,
     revokeConsent,
     listConsents,

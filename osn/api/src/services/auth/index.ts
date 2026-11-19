@@ -205,7 +205,7 @@ export function createAuthService(config: AuthConfig) {
     buildOidcCodeRedirect: oidc.buildCodeRedirect,
     buildOidcErrorRedirect: oidc.buildErrorRedirect,
     exchangeAuthorizationCode: oidc.exchangeAuthorizationCode,
-    findOidcConsent: oidc.findConsent,
+    findAuthorizingAccount: oidc.findAuthorizingAccount,
     revokeOidcConsent: oidc.revokeConsent,
     listOidcConsents: oidc.listConsents,
     registerOidcClient: oidc.registerClient,

@@ -444,13 +444,19 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
 
             const session = await resolveSession(headers.cookie);
             const accountId = session?.accountId ?? null;
-            const [profiles, consent] =
+            // The profiles are listed as before even while the account's
+            // deletion is pending, so a page that predates `pendingDeletion`
+            // still has a profile to refuse with; the page that reads the
+            // flag shows the deletion screen and ignores them.
+            const [profiles, account] =
               accountId === null
                 ? [[], null]
                 : await Promise.all([
                     run(auth.listAccountProfiles(accountId)).then((r) => r.profiles),
-                    run(auth.findOidcConsent(accountId, client.clientId)),
+                    run(auth.findAuthorizingAccount(accountId, client.clientId)),
                   ]);
+            const pendingDeletion = account?.state === "pending_deletion";
+            const consent = account?.state === "live" ? account.consent : null;
 
             return {
               client: {
@@ -466,6 +472,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
               },
               scopes: parked.scope.split(" ").filter((s) => s.length > 0),
               signedIn: accountId !== null,
+              pendingDeletion,
               profiles,
               linkedProfileId: consent?.profileId ?? null,
             };
@@ -492,6 +499,10 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
               }),
               scopes: t.Array(t.String()),
               signedIn: t.Boolean(),
+              // True while the signed-in account's deletion is pending: the
+              // screen shows the deletion screen, never consent, and the
+              // decision refuses an approval.
+              pendingDeletion: t.Boolean(),
               // Empty when the browser holds no session — the screen then
               // sends the user to sign in and retries the same request id.
               profiles: t.Array(publicProfile),
@@ -558,7 +569,9 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             }
             // `login_required` deliberately leaves the parked request alive:
             // the screen sends the user to re-authenticate and retries the
-            // same request id with the fresh session.
+            // same request id with the fresh session. So does `access_denied`,
+            // an approval from an account whose deletion is pending: the
+            // screen shows the deletion screen, and a keep lets it approve.
             set.status = oidc.code === "invalid_client" ? 401 : 400;
             return { error: oidc.code, error_description: oidc.description };
           }
@@ -586,7 +599,9 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             // it to the page.
             200: t.Object({ redirectTo: t.String() }),
             // Includes `login_required`, which leaves the parked request alive
-            // so the screen can re-authenticate and retry the same id.
+            // so the screen can re-authenticate and retry the same id, and
+            // `access_denied` for an account whose deletion is pending, which
+            // leaves it alive too.
             400: oidcErrorResponse,
             401: oidcErrorResponse,
             429: oidcErrorResponse,
@@ -597,10 +612,11 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
         },
       )
       // -----------------------------------------------------------------------
-      // POST /authorize/decline — a refusal from a browser with no session.
+      // POST /authorize/decline — a refusal that reads no session.
       //
-      // The signed-out consent screen's way out: the relying party gets
-      // `access_denied` instead of nothing. The binding cookie is the only
+      // The way out for a screen with no profile to decide with — signed
+      // out, or an account whose deletion is pending: the relying party gets
+      // the same `access_denied` a Cancel sends. The binding cookie is the only
       // proof this browser started the flow, so this route can refuse and do
       // nothing else, and it never reads the session cookie. A POST only: the
       // binding cookie is SameSite=Lax, which browsers send on a cross-site

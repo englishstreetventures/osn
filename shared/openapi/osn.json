@@ -3148,6 +3148,9 @@
                         "null"
                       ]
                     },
+                    "pendingDeletion": {
+                      "type": "boolean"
+                    },
                     "profiles": {
                       "items": {
                         "properties": {
@@ -3198,6 +3201,7 @@
                     "client",
                     "scopes",
                     "signedIn",
+                    "pendingDeletion",
                     "profiles",
                     "linkedProfileId"
                   ],

@@ -236,6 +236,25 @@ describe("createAuthorizeClient", () => {
       expect(err).toBeInstanceOf(AuthorizeError);
       expect(err.code).toBe("unknown");
     });
+
+    // The approval of an account whose deletion is pending: the request
+    // survives, so the screen must neither end the flow nor ask for a sign-in.
+    it("names access_denied as itself: neither terminal nor a sign-in", async () => {
+      stubFetch(() =>
+        jsonResponse(
+          { error: "access_denied", error_description: "The account is scheduled for deletion" },
+          { status: 400 },
+        ),
+      );
+
+      const err = (await client
+        .submitDecision({ requestId, profileId: "usr_1", approved: true })
+        .catch((e: unknown) => e)) as AuthorizeError;
+
+      expect(err.code).toBe("access_denied");
+      expect(err.terminal).toBe(false);
+      expect(err.needsSignIn).toBe(false);
+    });
   });
 
   // Without a deadline a stalled issuer leaves the consent screen on
