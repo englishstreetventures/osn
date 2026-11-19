@@ -2,10 +2,10 @@
  * Payout account retired notice.
  *
  * Sent to a wedding's owners when one of them retires the Stripe account the
- * wedding's money gifts are paid into: its holder hands money gifts to another
- * owner or disconnects it, or another owner replaces it. Guests cannot give
- * money until an owner connects an account, so each copy says so and links
- * the Money gifts panel. Each names who acted, so a retire made from a session
+ * wedding's money gifts are paid into: its holder asks another owner to
+ * connect the next one, or disconnects it, or another owner replaces it.
+ * Guests cannot give money until an owner connects an account, so each copy
+ * says so and links the registry's Settings tab, where Money gifts is. Each names who acted, so a retire made from a session
  * someone else is using reaches the real owner too.
  *
  * No guest data and no account details: the wedding's name, the people
@@ -18,7 +18,7 @@ import type { RenderedEmail } from "./index";
 
 /** By whose standing the account was retired. */
 export type RegistryPayoutRetiredReason =
-  /** Its holder retired it and named an owner to connect the next one. */
+  /** Its holder retired it and asked an owner to connect the next one. */
   | "handed_over"
   /** Its holder retired it and named no one. */
   | "disconnected"
@@ -31,7 +31,7 @@ export type RegistryPayoutRetiredReason =
 export type RegistryPayoutRetiredAudience =
   /** The owner who retired it. */
   | "actor"
-  /** The owner money gifts were handed to. */
+  /** The owner asked to connect the next account. */
   | "named"
   /** The owner whose account another owner replaced. */
   | "holder"
@@ -43,13 +43,13 @@ export interface RegistryPayoutRetiredData {
   readonly weddingName: string;
   /** Who retired it. `null` when OSN could not say. */
   readonly actorName: string | null;
-  /** Whom money gifts were handed to, for `handed_over`. `null` otherwise, or when OSN could not say. */
+  /** Whom the holder asked to connect the next account, for `handed_over`. `null` otherwise, or when OSN could not say. */
   readonly namedName: string | null;
   /** Whose account was replaced, for `replaced`. `null` otherwise, or when OSN could not say. */
   readonly holderName: string | null;
   readonly reason: RegistryPayoutRetiredReason;
   readonly audience: RegistryPayoutRetiredAudience;
-  /** The wedding's Money gifts panel in the organiser portal. */
+  /** The registry's Settings tab in the organiser portal, which holds Money gifts. */
   readonly moneyGiftsUrl: string;
 }
 
@@ -58,7 +58,8 @@ const esc = (s: string): string =>
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 
 /** A line break in a subject header would start a new header. */
 const oneLine = (s: string): string => s.replaceAll(/[\r\n]+/g, " ");
@@ -75,11 +76,11 @@ function leadOf(data: RegistryPayoutRetiredData, wedding: string): string {
   switch (data.reason) {
     case "handed_over":
       if (you) {
-        return `You disconnected your Stripe account from ${wedding} and handed money gifts to ${named}.`;
+        return `You disconnected your Stripe account from ${wedding} and asked ${named} to connect the next one.`;
       }
       return data.audience === "named"
-        ? `${actor} disconnected their Stripe account from ${wedding} and handed money gifts to you.`
-        : `${actor} disconnected their Stripe account from ${wedding} and handed money gifts to ${named}.`;
+        ? `${actor} disconnected their Stripe account from ${wedding} and asked you to connect the next one.`
+        : `${actor} disconnected their Stripe account from ${wedding} and asked ${named} to connect the next one.`;
     case "disconnected":
       return you
         ? `You disconnected your Stripe account from ${wedding}.`
@@ -90,7 +91,7 @@ function leadOf(data: RegistryPayoutRetiredData, wedding: string): string {
         ? `${actor} disconnected the Stripe account you connected to ${wedding}.`
         : `${actor} disconnected the Stripe account ${holder} connected to ${wedding}.`;
     case "holder_absent":
-      return `${you ? "You" : actor} disconnected the Stripe account money gifts on ${wedding} were paid into. No current owner of the wedding had connected it.`;
+      return `${you ? "You" : actor} disconnected the Stripe account for money gifts on ${wedding}. None of the wedding's owners had connected it.`;
   }
 }
 
@@ -102,19 +103,19 @@ const heldIt = (data: RegistryPayoutRetiredData): boolean =>
 
 export function renderRegistryPayoutRetired(data: RegistryPayoutRetiredData): RenderedEmail {
   const wedding = oneLine(data.weddingName);
-  const subject = oneLine(`The Stripe account for money gifts on ${wedding} was disconnected`);
+  const subject = oneLine(`Money gifts on ${wedding} need a new Stripe account`);
   const lead = leadOf(data, wedding);
   const next =
     data.audience === "named"
-      ? `Guests cannot give money until you connect a Stripe account. You can do it in Money gifts.`
-      : `Guests cannot give money until an owner connects a Stripe account in Money gifts.`;
+      ? `Guests cannot give money until you connect a Stripe account. You can do it in the organiser portal: Registry, then Settings, under Money gifts.`
+      : `Guests cannot give money until an owner connects a Stripe account in the organiser portal: Registry, then Settings, under Money gifts.`;
   const kept = heldIt(data)
     ? `Gifts already given stay in your Stripe account, and you handle any refund or dispute on them there.`
-    : null;
+    : `Gifts already given stay in the Stripe account they were paid into, and any refund or dispute on them is handled there.`;
   const advice =
     data.audience === "actor"
-      ? `We send this to every owner, you included. If this was not you, someone else is signed in to your account: secure it, then sign in to the organiser portal and check Money gifts.`
-      : `If you did not expect this, sign in to the organiser portal and check Money gifts.`;
+      ? `We send this to every owner, you included. If this was not you, someone else is signed in to your account: secure it, then sign in to the organiser portal and check Money gifts under Registry, then Settings.`
+      : `If you did not expect this, sign in to the organiser portal and check Money gifts under Registry, then Settings.`;
 
   const text = [
     `Hello,`,
@@ -122,11 +123,12 @@ export function renderRegistryPayoutRetired(data: RegistryPayoutRetiredData): Re
     lead,
     ``,
     next,
-    ...(kept ? [``, kept] : []),
+    ``,
+    kept,
     ``,
     advice,
     ``,
-    `Money gifts: ${data.moneyGiftsUrl}`,
+    `Registry settings: ${data.moneyGiftsUrl}`,
     ``,
     `Cire Weddings`,
   ].join("\n");
@@ -136,10 +138,10 @@ export function renderRegistryPayoutRetired(data: RegistryPayoutRetiredData): Re
       `<p>Hello,</p>` +
       `<p>${esc(lead)}</p>` +
       `<p>${esc(next)}</p>` +
-      (kept ? `<p>${esc(kept)}</p>` : "") +
+      `<p>${esc(kept)}</p>` +
       `<p>${esc(advice)}</p>` +
-      emailButton(data.moneyGiftsUrl, "Open Money gifts") +
-      `<p style="color:#666;font-size:14px">${esc(data.moneyGiftsUrl)}</p>` +
+      emailButton(data.moneyGiftsUrl, "Connect a Stripe account") +
+      `<p style="color:#666;font-size:14px;word-break:break-all">${esc(data.moneyGiftsUrl)}</p>` +
       `<p style="color:#666;font-size:14px">Cire Weddings</p>`,
   );
 
