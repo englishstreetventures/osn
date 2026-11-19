@@ -9,12 +9,14 @@
  *
  *   check-window            WINDOW_START, WINDOW_END. No secret, no request.
  *   plan-register           GITHUB_TOKEN, GITHUB_REPOSITORY. Reads which commit
- *                           production cire-api and osn-api run, and the scopes
- *                           cire-api signs with there. Writes `commit` and
- *                           `scopes` to GITHUB_OUTPUT. No production secret.
+ *                           production cire-api and osn-api run, the scopes
+ *                           cire-api signs with there, and how osn-api there
+ *                           takes them. Writes `commit`, `scopes` and `method`
+ *                           to GITHUB_OUTPUT. No production secret.
  *   register-cire-arc       INTERNAL_SERVICE_SECRET, EXPECTED_COMMIT,
- *                           GITHUB_TOKEN, GITHUB_REPOSITORY. Renews the scopes
- *                           of cire-api's registration at production osn-api.
+ *                           EXPECTED_METHOD, GITHUB_TOKEN, GITHUB_REPOSITORY.
+ *                           Renews the scopes of cire-api's registration at
+ *                           production osn-api.
  *   count-deletion-fanouts  CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN,
  *                           WINDOW_START, WINDOW_END. Two counts from
  *                           production zap-db-prod.
@@ -26,21 +28,30 @@
  * and nowhere else.
  *
  * register-cire-arc writes no key of cire-api's own. osn-api keeps a service's
- * scopes on the service (`service_accounts`, upserted by serviceId alone in
- * `POST /graph/internal/register-service`, osn/api/src/routes/graph-internal.ts)
- * and checks a token against them through whichever live key signed it
- * (shared/crypto/src/arc.ts, resolvePublicKey). So the action registers a key
- * generated here, under a new key id, already expired, whose private half is
- * never exported, and then revokes that key id: the scopes reach cire-api's
- * real key, and the throwaway one can verify nothing. Each run leaves one
- * expired, revoked row under cire-api in `service_account_keys`.
+ * scopes on the service (`service_accounts`, osn/db/src/schema/index.ts) and
+ * checks a token against them through whichever live key signed it
+ * (shared/crypto/src/arc.ts, resolvePublicKey). How the action sets them
+ * depends on the commit production osn-api runs:
+ *
+ *   renew     the commit has `PUT /graph/internal/service-scopes/:serviceId`
+ *             (osn/api/src/routes/graph-internal.ts): one request with the
+ *             scopes and no key. osn-api refuses it, writing nothing, unless
+ *             cire-api already has a row and a live key.
+ *   fallback  it has not: the action registers a key generated here through
+ *             `POST /graph/internal/register-service`, under a new key id,
+ *             already expired, whose private half is never exported, and then
+ *             revokes that key id. The scopes reach cire-api's real key through
+ *             the service row, and the throwaway key verifies nothing; each run
+ *             leaves one expired, revoked row under cire-api in
+ *             `service_account_keys`.
  *
  * The scopes are the `ARC_*_SCOPE` constants of
  * cire/api/src/services/osn-bridge.ts at the commit production cire-api runs,
  * as the release planner finds it (scripts/release-plan.ts, lastDeployed), and
  * each must be in `PERMITTED_SCOPES` at the commit production osn-api runs. The
- * register job reads them again when it runs and refuses unless cire-api's
- * commit is still the one the check job showed the approver.
+ * register job reads them again when it runs and refuses, before any request,
+ * unless cire-api's commit and the method are still the ones the check job
+ * showed the approver.
  *
  * Everything it loads, smoke-check.ts (for CI_USER_AGENT) and release-plan.ts
  * with what they import, imports only Bun, Node built-ins and other
@@ -65,10 +76,13 @@ export const ZAP_DATABASE = "zap-db-prod";
 export const SERVICE_ID = "cire-api";
 export const OSN_BRIDGE = "cire/api/src/services/osn-bridge.ts";
 export const GRAPH_INTERNAL = "osn/api/src/routes/graph-internal.ts";
+/** osn-api's scope renewal, under `/graph/internal`, the route group's prefix. */
+export const RENEW_PATH = `/graph/internal/service-scopes/${encodeURIComponent(SERVICE_ID)}`;
 const OSN_API_ORIGIN = `https://${PRODUCTION_HOSTS.osnApi}`;
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 const ROOT = join(import.meta.dir, "..");
 
+// Removed by englishstreetventures/osn#2432 with the fallback below.
 /** How far in the past the throwaway key expires, in seconds. */
 const EXPIRED_BY = 60;
 const OSN_TIMEOUT_MS = 30_000;
@@ -356,10 +370,27 @@ export function permittedIn(source: string): string[] {
   return [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1] ?? "");
 }
 
+/**
+ * Whether a version of graph-internal.ts declares the scope renewal: a line
+ * that starts, after spaces, with `.put(`, and the route's path next, on that
+ * line or the one after, as the formatter writes it. A `//` or ` * ` comment
+ * line never starts that way. Two things it would still count, and that no
+ * version has held: the route inside a block comment whose lines carry no
+ * leading `*`, and the route written in the file but not mounted.
+ */
+export function renewRouteIn(source: string): boolean {
+  return /^[ \t]*\.put\(\s*"\/service-scopes\/:serviceId"/m.test(source);
+}
+
+/** How the action sets the scopes; `fallback` goes with englishstreetventures/osn#2432. */
+export type Method = "renew" | "fallback";
+const METHODS: readonly string[] = ["renew", "fallback"] satisfies readonly Method[];
+
 interface ProductionScopes {
   readonly cireCommit: string;
   readonly osnCommit: string;
   readonly scopes: readonly string[];
+  readonly method: Method;
 }
 
 async function productionScopes(deps: Deps): Promise<ProductionScopes> {
@@ -408,14 +439,21 @@ async function productionScopes(deps: Deps): Promise<ProductionScopes> {
       `Production osn-api (${osnCommit}) does not permit ${refused.join(", ")}, which production cire-api (${cireCommit}) signs with. Release osn-api first.`,
     );
   }
-  return { cireCommit, osnCommit, scopes };
+  return { cireCommit, osnCommit, scopes, method: renewRouteIn(graph) ? "renew" : "fallback" };
 }
+
+/** The line that tells the approver, and the run's log, how the scopes are sent. */
+const methodLine = (planned: ProductionScopes): string =>
+  planned.method === "renew"
+    ? `Production osn-api serves PUT /graph/internal/service-scopes/:serviceId: the run sets the scopes and registers no key.`
+    : `Production osn-api (${planned.osnCommit}) predates PUT /graph/internal/service-scopes/:serviceId: the run registers a throwaway key, already expired, and revokes it (englishstreetventures/osn#2432 removes this path).`;
 
 async function planRegister(deps: Deps): Promise<void> {
   const planned = await productionScopes(deps);
   const lines = [
     `Production cire-api runs ${planned.cireCommit}; production osn-api runs ${planned.osnCommit}.`,
     `Approving register-cire-arc sets cire-api's ${planned.scopes.length} scopes at osn-api to: ${planned.scopes.join(", ")}.`,
+    methodLine(planned),
   ];
   for (const line of lines) deps.out(line);
   const onMain = scopesIn(deps.readFile(OSN_BRIDGE));
@@ -426,13 +464,17 @@ async function planRegister(deps: Deps): Promise<void> {
   }
   const output = deps.env.GITHUB_OUTPUT ?? "";
   if (output !== "") {
-    deps.appendFile(output, `commit=${planned.cireCommit}\nscopes=${planned.scopes.join(",")}\n`);
+    deps.appendFile(
+      output,
+      `commit=${planned.cireCommit}\nscopes=${planned.scopes.join(",")}\nmethod=${planned.method}\n`,
+    );
   }
   summary(deps, lines);
 }
 
 // ── register-cire-arc ───────────────────────────────────────────────────────
 
+/** What each status of the fallback's registration means. */
 const REGISTER_HINTS = new Map([
   [400, "osn-api refused the body: a scope it does not permit, or a key it cannot import."],
   [
@@ -451,19 +493,53 @@ const REGISTER_HINTS = new Map([
   [503, "osn-api is unavailable; dispatch again later."],
 ]);
 
+/** What each status of the renewal means, beside the two refusals `RENEW_REFUSALS` names. */
+const RENEW_HINTS = new Map([
+  [400, "osn-api refused a scope it does not permit."],
+  [
+    401,
+    "osn-api refused the bearer: the production Environment's INTERNAL_SERVICE_SECRET is not the value osn-api holds.",
+  ],
+  [403, "Something in front of osn-api refused the request."],
+  [404, "osn-api has no such route on this host."],
+  [409, "osn-api refused the renewal."],
+  [422, "osn-api found the body malformed."],
+  [429, "osn-api or Cloudflare limited the rate; dispatch again later."],
+  [501, "osn-api holds no INTERNAL_SERVICE_SECRET, so registration is off."],
+  [503, "osn-api is unavailable; dispatch again later."],
+]);
+
+/** The renewal's two refusals by the fixed token in the answer's `error`, the only field of a body this script reads. */
+const RENEW_REFUSALS = new Map([
+  [
+    "unknown_service",
+    "osn-api holds no registration for cire-api: register cire-api's key first, as wiki/shared/production-deploy.md §6.2 says.",
+  ],
+  [
+    "no_live_key",
+    "osn-api holds no live key for cire-api: each is revoked or expired. Register cire-api's new key first, as wiki/shared/production-deploy.md §6.2 says.",
+  ],
+]);
+
 /**
  * What the status means. `mitigated` is Cloudflare's `cf-mitigated` header:
  * null when absent, else its value when that is one short lower-case word, or
- * "" when it is anything else, which is never printed.
+ * "" when it is anything else, which is never printed. `refusal` is one of
+ * `RENEW_REFUSALS`' tokens, or undefined.
  */
-const hintFor = (status: number, mitigated: string | null): string => {
-  if (mitigated !== null) {
-    const named = mitigated === "" ? "cf-mitigated" : `cf-mitigated: ${mitigated}`;
+const hintFor = (
+  hints: ReadonlyMap<number, string>,
+  sent: { readonly status: number; readonly mitigated: string | null; readonly refusal?: string },
+): string => {
+  if (sent.mitigated !== null) {
+    const named = sent.mitigated === "" ? "cf-mitigated" : `cf-mitigated: ${sent.mitigated}`;
     return `Cloudflare answered in osn-api's place (${named}); the request never reached osn-api.`;
   }
+  const refusal = sent.refusal === undefined ? undefined : RENEW_REFUSALS.get(sent.refusal);
   return (
-    REGISTER_HINTS.get(status) ??
-    (status >= 300 && status < 400
+    refusal ??
+    hints.get(sent.status) ??
+    (sent.status >= 300 && sent.status < 400
       ? "osn-api answered a redirect, which this script never follows with the bearer."
       : "osn-api did not store the scopes.")
   );
@@ -474,14 +550,24 @@ const mitigation = (value: string | null): string | null =>
   value === null ? null : /^[a-z_-]{1,20}$/.test(value) ? value : "";
 
 type Sent =
-  | { readonly status: number; readonly ok: boolean; readonly mitigated: string | null }
+  | {
+      readonly status: number;
+      readonly ok: boolean;
+      readonly mitigated: string | null;
+      /** The answer's `error` when it is exactly one of `RENEW_REFUSALS`' tokens. */
+      readonly refusal: string | undefined;
+    }
   | { readonly failed: string };
 
-/** One request to osn-api with the bearer: its status and whether it said `ok: true`, never its body. */
+/**
+ * One request to osn-api with the bearer: its status, whether it said
+ * `ok: true`, and its `error` only when that is one of the fixed refusal
+ * tokens. Nothing else of the body is kept.
+ */
 async function toOsnApi(
   deps: Deps,
   bearer: string,
-  method: "POST" | "DELETE",
+  method: "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<Sent> {
@@ -494,10 +580,12 @@ async function toOsnApi(
       signal: AbortSignal.timeout(OSN_TIMEOUT_MS),
     });
     const answer: unknown = await response.json().catch(() => undefined);
+    const error = isRecord(answer) ? answer.error : undefined;
     return {
       status: response.status,
       ok: isRecord(answer) && answer.ok === true,
       mitigated: mitigation(response.headers.get("cf-mitigated")),
+      refusal: typeof error === "string" && RENEW_REFUSALS.has(error) ? error : undefined,
     };
   } catch (error) {
     return { failed: error instanceof Error ? error.name : "unknown error" };
@@ -508,12 +596,63 @@ async function registerCireArc(deps: Deps): Promise<void> {
   const bearer = required(deps.env, "INTERNAL_SERVICE_SECRET");
   const expected = required(deps.env, "EXPECTED_COMMIT");
   if (!SHA.test(expected)) throw new UsageError("EXPECTED_COMMIT is not a full commit SHA.");
+  const expectedMethod = required(deps.env, "EXPECTED_METHOD");
+  if (!METHODS.includes(expectedMethod)) {
+    throw new UsageError(`EXPECTED_METHOD is not one of ${METHODS.join(", ")}.`);
+  }
   const planned = await productionScopes(deps);
   if (planned.cireCommit !== expected) {
     throw new Refusal(
       `Production cire-api now runs ${planned.cireCommit}, not ${expected}, which the check job read and the approver saw. Nothing was sent. Dispatch again.`,
     );
   }
+  if (planned.method !== expectedMethod) {
+    throw new Refusal(
+      `Production osn-api now runs ${planned.osnCommit}, which takes the scopes by the ${planned.method} method, not the ${expectedMethod} method the approver saw. Nothing was sent. Dispatch again.`,
+    );
+  }
+  deps.out(methodLine(planned));
+  if (planned.method === "renew") {
+    await renewScopes(deps, bearer, planned);
+  } else {
+    await registerThrowaway(deps, bearer, planned);
+  }
+}
+
+/** What a 200 that said `ok` shows, in the log and the run summary. */
+function stored(deps: Deps, planned: ProductionScopes): void {
+  const lines = [
+    `osn-api answered 200: cire-api's ${planned.scopes.length} scopes are now ${planned.scopes.join(", ")}.`,
+    "Each osn-api isolate keeps a key's scopes for up to 5 minutes, so a host's removal of their Cire data may answer 503 until then.",
+    "A 200 shows osn-api stored the scopes; they apply only while cire-api's own key, CIRE_API_ARC_KEY_ID, is registered and live.",
+  ];
+  for (const line of lines) deps.out(line);
+  summary(deps, lines);
+}
+
+/** One PUT of the scopes, with no key. osn-api writes nothing unless cire-api has a row and a live key. */
+async function renewScopes(deps: Deps, bearer: string, planned: ProductionScopes): Promise<void> {
+  const renewed = await toOsnApi(deps, bearer, "PUT", RENEW_PATH, { scopes: planned.scopes });
+  if ("failed" in renewed) {
+    throw new Refusal(
+      `The renewal did not complete (${renewed.failed}); osn-api may or may not have stored the scopes. The renewal sets the whole list, so dispatching again is safe.`,
+    );
+  }
+  if (renewed.status !== 200 || !renewed.ok) {
+    throw new Refusal(
+      `The renewal answered ${renewed.status}${renewed.status === 200 ? " without ok" : ""}. ${hintFor(RENEW_HINTS, renewed)}`,
+    );
+  }
+  stored(deps, planned);
+}
+
+// Removed by englishstreetventures/osn#2432 once production osn-api serves the renewal.
+/** The fallback: a throwaway key, registered already expired with the scopes, then revoked. */
+async function registerThrowaway(
+  deps: Deps,
+  bearer: string,
+  planned: ProductionScopes,
+): Promise<void> {
   const keyId = deps.randomUUID();
   const registered = await toOsnApi(deps, bearer, "POST", "/graph/internal/register-service", {
     serviceId: SERVICE_ID,
@@ -544,16 +683,10 @@ async function registerCireArc(deps: Deps): Promise<void> {
   }
   if (registered.status !== 200 || !registered.ok) {
     throw new Refusal(
-      `The registration answered ${registered.status}${registered.status === 200 ? " without ok" : ""}. ${hintFor(registered.status, registered.mitigated)}`,
+      `The registration answered ${registered.status}${registered.status === 200 ? " without ok" : ""}. ${hintFor(REGISTER_HINTS, { status: registered.status, mitigated: registered.mitigated })}`,
     );
   }
-  const lines = [
-    `osn-api answered 200: cire-api's ${planned.scopes.length} scopes are now ${planned.scopes.join(", ")}.`,
-    "Each osn-api isolate keeps a key's scopes for up to 5 minutes, so a host's removal of their Cire data may answer 503 until then.",
-    "A 200 shows osn-api stored the scopes; they apply only while cire-api's own key, CIRE_API_ARC_KEY_ID, is registered and live.",
-  ];
-  for (const line of lines) deps.out(line);
-  summary(deps, lines);
+  stored(deps, planned);
   if (revoked === undefined) return;
   if ("failed" in revoked) {
     deps.out(
