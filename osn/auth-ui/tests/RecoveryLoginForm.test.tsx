@@ -114,6 +114,8 @@ const attestation = { id: "cred", rawId: "cred", type: "public-key" };
 /**
  * A promise that settles on `mock`'s next call. The mock keeps answering as
  * it was set to; this adds the signal a test awaits instead of polling it.
+ * Never pair it with a `mock…Once` answer: `getMockImplementation()` returns
+ * the queued once-answer, which this would then give on every call.
  */
 function nextCall(mock: ReturnType<typeof vi.fn>): Promise<void> {
   const answer = mock.getMockImplementation() as ((...args: unknown[]) => unknown) | undefined;

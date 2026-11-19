@@ -10,6 +10,7 @@ const REPO_ROOT = new URL("../../", import.meta.url).pathname;
 
 // Built from parts so this file never holds the comment the guard refuses.
 const DISABLE = ["oxlint", "disable"].join("-");
+const ESLINT_DISABLE = ["eslint", "disable"].join("-");
 
 const BASE = `{
   // A comment, as oxlintrc.json has hundreds.
@@ -83,6 +84,22 @@ test("refuses a raised count", () => {
     "landmines-testing/no-fixed-sleep: a/tests/one.test.ts is allowed 3, up from 2 on the base",
   ]);
 });
+
+test.each([["deny"], [2]])(
+  "reads a base severity written as %p and still refuses a raised count",
+  (level) => {
+    const written = BASE.replace(
+      `"landmines-testing/no-fixed-sleep": [
+      "error",`,
+      `"landmines-testing/no-fixed-sleep": [
+      ${JSON.stringify(level)},`,
+    );
+    const head = written.replace(`"a/tests/one.test.ts": 2`, `"a/tests/one.test.ts": 3`);
+    expect(problems(written, head)).toEqual([
+      "landmines-testing/no-fixed-sleep: a/tests/one.test.ts is allowed 3, up from 2 on the base",
+    ]);
+  },
+);
 
 test("refuses a key the base does not have, on a rule with an allow map", () => {
   const head = BASE.replace(
@@ -253,11 +270,17 @@ test("the CLI refuses an allow key that matches no tracked file", () => {
 test("the CLI refuses an added comment that disables a landmines rule", () => {
   const repo = repository(TRACKED);
   try {
-    repo.put("a/tests/one.test.ts", `// ${DISABLE} landmines-testing/no-fixed-sleep\nexport {};\n`);
+    repo.put(
+      "a/tests/one.test.ts",
+      `// ${DISABLE} landmines-testing/no-fixed-sleep\n// ${ESLINT_DISABLE}-next-line landmines-testing/no-fixed-sleep\nexport {};\n`,
+    );
     repo.commit();
     const { exitCode, output } = repo.run();
     expect(output).toContain(
       `a/tests/one.test.ts adds "// ${DISABLE} landmines-testing/no-fixed-sleep"`,
+    );
+    expect(output).toContain(
+      `a/tests/one.test.ts adds "// ${ESLINT_DISABLE}-next-line landmines-testing/no-fixed-sleep"`,
     );
     expect(exitCode).toBe(1);
   } finally {
