@@ -12,9 +12,18 @@ import { listMigrations, migrationStatements } from "../../../../scripts/migrati
 // stored gift that breaks a check stops the migration rather than being left
 // behind. The D1 replay of the same file is in d1-integration.test.ts.
 //
-// It is a live migration, so the chain before it is the live directory: the
-// baseline and everything after it, in the order wrangler runs them.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// It is in the long-lived chain, the one dev and production ran, so the chain
+// before it is that directory: the previous baseline and everything after it,
+// in the order wrangler and Alchemy ran them.
+const MIGRATIONS_DIR = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "db",
+  "migrations-archive",
+  "long-lived",
+);
 const MIG_CURRENCY_CHECK = "20261106023546_contribution_currency_check.sql";
 
 /** A file as wrangler sends it, one statement at a time, so a statement

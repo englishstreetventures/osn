@@ -2,14 +2,16 @@
 /**
  * Apply cire D1 migrations to one local database, after checking its ledger.
  *
- * `cire/db/migrations/0001_initial.sql` is a baseline that builds what every
- * file in `cire/db/migrations-archive/` builds. It keeps the name
- * `0001_initial.sql` because every deployed ledger holds that name, so
- * `wrangler d1 migrations apply` skips it there and applies only what comes
- * after it. That skip is right only on a database that had applied the whole
- * archived chain, or was built from this baseline. On one that stopped
- * part-way, wrangler would skip the baseline and never run the rest of the
- * archive either, and nothing would say so until a query hit a missing column.
+ * `cire/db/migrations/0001_initial.sql` is a baseline that builds what the
+ * archived chains build: `cire/db/migrations-archive/` (0001 to 0081), then
+ * `cire/db/migrations-archive/long-lived/` after its own baseline. It keeps
+ * the name `0001_initial.sql` because every local ledger an earlier chain
+ * built holds that name, so `wrangler d1 migrations apply` skips it there and
+ * applies only what comes after it. That skip is right only on a database that
+ * had applied a whole archived chain, or was built from this baseline. On one
+ * that stopped part-way, wrangler would skip the baseline and never run the
+ * rest of the archive either, and nothing would say so until a query hit a
+ * missing column.
  *
  * So this reads the target's schema and `d1_migrations` ledger first and
  * refuses that case (`checkLedger`, then `checkBaselineSchema` for a ledger
@@ -38,7 +40,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { listMigrations, migrationStatements } from "./migration-files";
+import { listMigrations, migrationStatements, sortMigrationNames } from "./migration-files";
 
 export { migrationStatements };
 
@@ -48,6 +50,8 @@ const WRANGLER = resolve(CIRE_API_DIR, "node_modules/.bin/wrangler");
 const WRANGLER_CONFIG = resolve(CIRE_API_DIR, "wrangler.toml");
 export const MIGRATIONS_DIR = resolve(REPO_ROOT, "cire/db/migrations");
 export const ARCHIVE_DIR = resolve(REPO_ROOT, "cire/db/migrations-archive");
+/** Every migration a squash after the first moved out of MIGRATIONS_DIR, its first the previous baseline. */
+export const LONG_LIVED_DIR = resolve(ARCHIVE_DIR, "long-lived");
 
 /** The baseline's filename, which every deployed ledger already holds. */
 export const BASELINE = "0001_initial.sql";
@@ -65,6 +69,7 @@ export const LEDGER_TABLE = "d1_migrations";
 export const CHAIN_STARTS: readonly string[] = [
   "0002_add_rsvp_dietary.sql",
   "0058_gift_summary_and_stripe_state.sql",
+  "0082_unlock_codes.sql",
 ];
 
 /** A ledger read that takes longer than this has stalled; it fails, and nothing is applied. */
@@ -73,9 +78,15 @@ const QUERY_TIMEOUT_MS = 120_000;
 /** How to bring a refused local database level: build it again from the live chain. */
 const RECOVERY = "Rebuild it: `bun run --cwd cire/db db:reset`.";
 
-/** The archived chain, in the name order wrangler applied it. */
-export function archivedMigrations(dir: string = ARCHIVE_DIR): readonly string[] {
-  return listMigrations(dir);
+/**
+ * The archived chains' names, in the order wrangler applied them: the original
+ * chain, then the long-lived chain after its baseline, whose name the original
+ * chain already holds.
+ */
+export function archivedMigrations(
+  dirs: readonly string[] = [ARCHIVE_DIR, LONG_LIVED_DIR],
+): readonly string[] {
+  return sortMigrationNames([...new Set(dirs.flatMap((dir) => listMigrations(dir)))]);
 }
 
 /** A migration's leading number, or NaN for a name that has none. */

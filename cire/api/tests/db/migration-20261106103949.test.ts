@@ -10,7 +10,17 @@ import { listMigrations, migrationStatements } from "../../../../scripts/migrati
 // Without one, the daily reconciliation would never retry a refused refund,
 // `refund.failed` would find nothing, and the purge, which no longer waits on
 // a refund, would delete the only row that says money is owed back.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// The chain dev and production ran, as wrangler and Alchemy ran it: the
+// previous baseline and everything after it, in name order.
+const MIGRATIONS_DIR = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "db",
+  "migrations-archive",
+  "long-lived",
+);
 const MIG = "20261106103949_platform_refunds.sql";
 
 function apply(db: Database, file: string): void {

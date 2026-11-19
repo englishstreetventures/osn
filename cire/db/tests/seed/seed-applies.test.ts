@@ -14,11 +14,13 @@ import { BOOTSTRAP_WEDDING_ID } from "../../src/schema";
 // resets its database: it applies new migrations, then re-imports the seed
 // whenever the file changes, on top of the rows already there.
 const MIGRATIONS = new URL("../../migrations/", import.meta.url);
+// The chain dev's database ran, before the migrations after the baseline.
+const LONG_LIVED = new URL("../../migrations-archive/long-lived/", import.meta.url);
 const SEED = new URL("../../seed/dev-seed.sql", import.meta.url);
 
-function migrate(db: Database, files: readonly string[]): void {
+function migrate(db: Database, files: readonly string[], dir: URL = MIGRATIONS): void {
   for (const file of files) {
-    for (const statement of migrationStatements(readFileSync(new URL(file, MIGRATIONS), "utf8"))) {
+    for (const statement of migrationStatements(readFileSync(new URL(file, dir), "utf8"))) {
       db.exec(statement);
     }
   }
@@ -64,7 +66,8 @@ describe("dev-seed.sql against the migrated schema", () => {
 // The dev database held the seed's seating chart before seating plans existed.
 // The plans migration gave the Reception a plan of its own, with a random id,
 // so the seed's plan is skipped there, and the seed's tables and seats must
-// still import on top.
+// still import on top. Dev ran the long-lived chain, so that is the chain
+// replayed here, then the migrations after the baseline.
 describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
   const PLANS_MIGRATION = "20261026040620_seating_plans.sql";
 
@@ -82,8 +85,10 @@ describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
   function movedDatabase(): Database {
     const db = new Database(":memory:");
     db.exec("PRAGMA foreign_keys = ON");
-    const files = listMigrations(fileURLToPath(MIGRATIONS));
-    migrate(db, files.slice(0, files.indexOf(PLANS_MIGRATION)));
+    const files = listMigrations(fileURLToPath(LONG_LIVED));
+    const cut = files.indexOf(PLANS_MIGRATION);
+    expect(cut, `${PLANS_MIGRATION} is not in the long-lived chain`).toBeGreaterThan(0);
+    migrate(db, files.slice(0, cut), LONG_LIVED);
     db.exec(seedWithoutSeating());
     const now = Math.floor(Date.now() / 1000);
     for (const t of seatingTables) {
@@ -97,7 +102,8 @@ describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
         "INSERT INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES (?, ?, ?, ?)",
       ).run(s.tableId, s.eventId, s.guestId, now);
     }
-    migrate(db, files.slice(files.indexOf(PLANS_MIGRATION)));
+    migrate(db, files.slice(cut), LONG_LIVED);
+    migrate(db, listMigrations(fileURLToPath(MIGRATIONS)).slice(1));
     return db;
   }
 

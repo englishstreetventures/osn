@@ -7,6 +7,7 @@ import {
   archivedPlaceholder,
   FREEZE_MIGRATION,
   migrationFiles,
+  type MigrationSources,
   PREBUILT_MODULE_RULES,
   PrebuiltSourceMapError,
   PRODUCTION_SITE_MODES,
@@ -24,7 +25,10 @@ import { devTarget, productionTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
   API_LOGICAL_IDS,
+  CIRE_DB_LONG_LIVED_MIGRATIONS,
+  CIRE_DB_MIGRATIONS,
   CIRE_DB_PRODUCTION_MIGRATIONS,
+  cireDbMigrations,
   cireDeclaration,
   cireProductionApis,
   cireProductionSites,
@@ -49,6 +53,37 @@ import {
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const packageDir = fileURLToPath(new URL("../", import.meta.url));
+
+/** The chain every squash moves out of cire/db/migrations, which dev and production recorded. */
+const LONG_LIVED = "cire/db/migrations-archive/long-lived";
+
+/** Each of `names` in the flattened `dir` holds the bytes of the same file under `from`, repo-relative. */
+function expectBytes(dir: string, from: string, names: readonly string[]): void {
+  for (const name of names) {
+    expect({
+      name,
+      same: readFileSync(join(dir, name)).equals(readFileSync(join(repoRoot, from, name))),
+    }).toEqual({
+      name,
+      same: true,
+    });
+  }
+}
+
+/**
+ * Every file `before` lists is in `after`'s listing with the same text, and
+ * `after` adds only migrations written after the baseline: what a squash must
+ * leave a long-lived database's directory.
+ */
+function expectKept(before: MigrationSources, after: MigrationSources): void {
+  const kept = new Map(migrationFiles(before, packageDir).map((file) => [file.name, file.sql]));
+  const now = migrationFiles(after, packageDir);
+  for (const [name, sql] of kept) {
+    expect({ name, sql: now.find((file) => file.name === name)?.sql }).toEqual({ name, sql });
+  }
+  const added = now.filter((file) => !kept.has(file.name)).map((file) => file.name);
+  expect(added).toEqual(listMigrations(join(repoRoot, "cire/db/migrations")).slice(1));
+}
 
 /** Every secret name a Worker holds on either tier: required, optional and forbidden. */
 const tierSecretNames = (worker: "cire-api" | "cire-invites"): string[] =>
@@ -378,7 +413,7 @@ describe("the cire stack, evaluated offline", () => {
     ).toEqual(Object.keys(resources).map((logicalId) => [logicalId, "retain"]));
   });
 
-  test("K6: the dev buckets take production's settings; cire-db-dev takes production's read replication in oc, migrated from the flattened chain", () => {
+  test("K6: the dev buckets take production's settings; cire-db-dev takes production's read replication in oc, migrated from the long-lived chain; an investigation stage from the baseline", async () => {
     const resources = resourcesOf(dev);
     // Production's cire-assets and cire-sheets: Standard, default
     // jurisdiction, ENAM, no CORS, no custom domains, r2.dev off, and one
@@ -415,10 +450,27 @@ describe("the cire stack, evaluated offline", () => {
     expect(db?.primaryLocationHint).toBe("oc");
     const migrations = join(dev.generatedDir, "migrations", "cire-db");
     expect(db?.migrations).toEqual({ dir: migrations, table: "__alchemy_migrations" });
-    // Dev's database was built from the baseline: the live chain alone, no
-    // archived name and no freeze, which are production's.
-    const chain = listMigrations(join(repoRoot, "cire/db/migrations")).toSorted();
-    expect(readdirSync(migrations).toSorted()).toEqual(chain);
+    // Dev's database recorded the long-lived chain by name and hash: it is
+    // handed that chain as written, then each migration after the baseline;
+    // no archived name and no freeze, which are production's.
+    const longLived = listMigrations(join(repoRoot, LONG_LIVED));
+    const after = listMigrations(join(repoRoot, "cire/db/migrations")).slice(1);
+    expect(readdirSync(migrations).toSorted()).toEqual([...longLived, ...after].toSorted());
+    expectBytes(migrations, LONG_LIVED, longLived);
+    expectBytes(migrations, "cire/db/migrations", after);
+    expect(cireDbMigrations("dev")).toEqual(CIRE_DB_LONG_LIVED_MIGRATIONS);
+    // What dev held before the squash, its live directory then, is all still
+    // there, byte for byte: the squash hands dev nothing new.
+    expectKept({ source: `../db/migrations-archive/long-lived` }, CIRE_DB_LONG_LIVED_MIGRATIONS);
+
+    // An investigation stage's new database is built from the baseline.
+    const investigation = await evaluateCire({ stage: "probe", env: stackEnv() });
+    const fresh = join(investigation.generatedDir, "migrations", "cire-db");
+    const chain = listMigrations(join(repoRoot, "cire/db/migrations"));
+    expect(readdirSync(fresh).toSorted()).toEqual(chain.toSorted());
+    expectBytes(fresh, "cire/db/migrations", chain);
+    expect(cireDbMigrations("probe")).toEqual(CIRE_DB_MIGRATIONS);
+    expect(() => cireDbMigrations("production")).toThrow("is the production tier");
   });
 
   test("S6: an invalid CIRE_DEV_OWNER_PROFILE_ID refuses the run and writes nothing; unset or empty seeds no owner seat; a valid one seeds it after the dev seed", async () => {
@@ -619,24 +671,34 @@ describe("the cire stack on production", () => {
       jurisdiction: "default",
       migrations: { dir: migrations, table: "__alchemy_migrations" },
     });
-    // The live chain, a refusing placeholder under every archived name the
-    // live chain lacks (production's ledger holds them all), and the freeze.
-    const live = listMigrations(join(repoRoot, "cire/db/migrations"));
+    // The long-lived chain as written, each migration after the baseline, a
+    // refusing placeholder under every name of the original chain the
+    // long-lived chain lacks (production's ledger holds them all), and the
+    // freeze.
+    const longLived = listMigrations(join(repoRoot, LONG_LIVED));
+    const after = listMigrations(join(repoRoot, "cire/db/migrations")).slice(1);
     const archived = listMigrations(join(repoRoot, "cire/db/migrations-archive")).filter(
-      (name) => !live.includes(name),
+      (name) => !longLived.includes(name),
     );
     expect(archived).toHaveLength(80);
     expect(readdirSync(migrations).toSorted()).toEqual(
-      [...live, ...archived, FREEZE_MIGRATION.name].toSorted(),
+      [...longLived, ...after, ...archived, FREEZE_MIGRATION.name].toSorted(),
     );
     for (const name of archived) {
       expect(readFileSync(join(migrations, name), "utf8")).toBe(archivedPlaceholder(name));
     }
-    for (const name of live) {
-      expect(readFileSync(join(migrations, name), "utf8")).toBe(
-        readFileSync(join(repoRoot, "cire/db/migrations", name), "utf8"),
-      );
-    }
+    expectBytes(migrations, LONG_LIVED, longLived);
+    expectBytes(migrations, "cire/db/migrations", after);
+    // What production held before the squash, whose live directory was the
+    // long-lived chain, is all still there, byte for byte.
+    expectKept(
+      {
+        source: "../db/migrations-archive/long-lived",
+        archive: "../db/migrations-archive",
+        freeze: true,
+      },
+      CIRE_DB_PRODUCTION_MIGRATIONS,
+    );
     for (const id of ["CireAssets", "CireSheets"]) {
       expect(resources[id]?.Props).not.toHaveProperty("locationHint");
       expect(resources[id]?.Props).toMatchObject({
@@ -953,6 +1015,36 @@ describe("the cire stack on production", () => {
     ]);
     for (const [id, bucket] of Object.entries(PRODUCTION_ADOPTED.buckets)) {
       expect({ id, name: resources[id]?.Props.name }).toEqual({ id, name: bucket.name });
+    }
+  });
+});
+
+describe("the test cache", () => {
+  // turbo replays this package's tests from its cache unless an input changed,
+  // so every migrations directory a stage's database is handed from is one.
+  test("K-cache: the test task reruns when any directory the cire-db migration sources name changes", () => {
+    const inputs =
+      (
+        Bun.JSONC.parse(readFileSync(join(packageDir, "turbo.json"), "utf8")) as {
+          readonly tasks: Readonly<Record<string, { readonly inputs?: readonly string[] }>>;
+        }
+      ).tasks.test?.inputs ?? [];
+    const dirs = [CIRE_DB_MIGRATIONS, CIRE_DB_LONG_LIVED_MIGRATIONS, CIRE_DB_PRODUCTION_MIGRATIONS]
+      .flatMap((sources) => [sources.source, sources.longLived, sources.archive])
+      .filter((dir): dir is string => dir !== undefined)
+      .map((dir) => posix.normalize(posix.join("cire/infra", dir)));
+    expect([...new Set(dirs)].toSorted()).toEqual([
+      "cire/db/migrations",
+      "cire/db/migrations-archive",
+      "cire/db/migrations-archive/long-lived",
+    ]);
+    for (const dir of dirs) {
+      const covered = inputs.some(
+        (input) =>
+          input.endsWith("/**") &&
+          `${dir}/`.startsWith(`${input.slice("$TURBO_ROOT$/".length, -"**".length)}`),
+      );
+      expect({ dir, covered }).toEqual({ dir, covered: true });
     }
   });
 });

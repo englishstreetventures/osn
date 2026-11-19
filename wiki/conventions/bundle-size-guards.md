@@ -700,29 +700,28 @@ guard reads; if the two disagree, it is right and this page is stale.
 
 | Chain | Schema writes now | Line | Priced at 27 | Replays a day (indicative) |
 |---|---:|---:|---:|---:|
-| `cire/db/migrations` | **200** | **200** | 5,400 rows | ~18 |
+| `cire/db/migrations` | **150** | **200** | 4,050 rows | ~24 |
 
 *Measured 2026-11-19 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
 
-The line is twice the squashed baseline's 96 writes, 192, plus eight more: the
-two writes of `platform_refunds` (a table and its index), which landed while
-the newest migration had not yet shipped to production, and the six of
-`gifts_keep_their_account` (three columns, an index, two triggers), which
-landed while the squash's method still had to be redesigned for Alchemy's
-ledger, which records each applied file's hash. Neither could wait for a
-squash; the owner chose the second raise over holding the gift work for it
-(englishstreetventures/osn#1950). Bounded until englishstreetventures/osn#2096
-lands.
+The chain is one baseline file, one `CREATE` per table, index and trigger,
+squashed on 2026-11-19. The line stays at 200 schema writes (5,400 rows), 50
+above it. It is not the baseline's doubling: the schema itself is now 150
+objects, so a doubling would have raised the line, and a guard that only ever
+gets raised is not a guard. The owner chose to keep 200
+(englishstreetventures/osn#2096).
 
-The left two columns are exact; the right two move with the constant. The
-chain is one baseline file, one `CREATE` per table and per index, and the line
-is its doubling. For scale, the archived chain it replaces —
-`cire/db/migrations-archive`, all 81 files — replays at 351 schema writes,
-about 9,477 rows, roughly 10 replays a day.
+The left two columns are exact; the right two move with the constant. For
+scale, the chains the baseline stands for replay at more:
 
-*Measured 2026-10-02 — `bun -e 'import { measureChain } from "./scripts/guard-d1-migration-cost.ts"; console.log(measureChain("cire/db/migrations-archive"))'`.*
+| Chain | Files | Schema writes | Priced at 27 |
+|---|---:|---:|---:|
+| `cire/db/migrations-archive/long-lived` (dev's and production's since the first squash) | 26 | 200 | 5,400 rows |
+| `cire/db/migrations-archive` (the original chain) | 81 | 351 | 9,479 rows |
 
-To see the guard fail, lower the row in the budgets file below 2,592 and run
+*Measured 2026-11-19 — `bun -e 'import { measureChain } from "./scripts/guard-d1-migration-cost.ts"; console.log(measureChain("cire/db/migrations-archive/long-lived"), measureChain("cire/db/migrations-archive"))'`.*
+
+To see the guard fail, lower the row in the budgets file below 4,050 and run
 it. When the chain reaches the line, squash it into a fresh baseline again —
 `cire/db/README.md` has the method — rather than raise the line.
 
@@ -732,24 +731,26 @@ total — which is another way of saying the true constant is nearer the bottom
 of the band than the top, and that the guard is deliberately charging more than
 a rebuild probably costs.
 
-### Why the headroom is a doubling, not a hair
+### Why the headroom is several migrations, not a hair
 
 The rule further up this page — headroom smaller than the smallest mistake —
 assumes a baseline that is not supposed to move. A migration chain is supposed
 to grow, and the mistake here is not one bad migration: nothing in the chain
-that went over the ceiling was wrong. So the line is drawn at a **doubling** of
-the squashed baseline, 96 schema writes — which is the smallest step that
-materially changes the answer to "how many rebuilds a day can we afford".
-A budget tight enough to trip on one ordinary feature migration —
+that went over the ceiling was wrong. So the line sits a real step above the
+squashed baseline: 50 schema writes over 150, four to eight ordinary
+migrations. A budget tight enough to trip on one ordinary feature migration —
 `0057_registry` was 15 schema writes on its own, `0058_gift_summary_and_stripe_state`
 12 — would be raised on sight every few pull requests, which is the failure the
-second rule names. The doubling is in the exact unit, so it holds wherever in
-the 22–27 band the constant really sits.
+second rule names. The headroom is not a doubling of the baseline because a
+squash needs no production step (`cire/db/README.md` §Squashing the chain): a
+tighter line costs one more squash, not a raise. The
+headroom is in the exact unit, so it holds wherever in the 22–27 band the
+constant really sits.
 
 The other half of that: **this guard has a remedy the bundle guards do not.**
 Squashing the chain into a fresh baseline puts the number back down instead of
-moving the line up: the archived chain's 351 schema writes rebuild as a
-96-write baseline. Reach for that before raising the budget.
+moving the line up: the 200 schema writes of the chain dev and production ran
+rebuild as a 150-write baseline. Reach for that before raising the budget.
 
 ### Where it runs
 

@@ -10,9 +10,18 @@ import { listMigrations, migrationStatements } from "../../../../scripts/migrati
 // to no listing, and one whose listing is already gone, stay NULL, and nothing
 // else about any gift changes.
 //
-// 0088 is a live migration, so the chain before it is the live directory: the
-// baseline and everything after it, in name order, as wrangler runs them.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// 0088 is in the long-lived chain, the one dev and production ran, so the
+// chain before it is that directory: the previous baseline and everything
+// after it, in name order, as wrangler and Alchemy ran them.
+const MIGRATIONS_DIR = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "db",
+  "migrations-archive",
+  "long-lived",
+);
 const MIG_0088 = "0088_contribution_item_title.sql";
 
 function apply(db: Database, file: string): void {

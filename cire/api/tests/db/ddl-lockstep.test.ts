@@ -15,7 +15,9 @@ import { DDL } from "../../src/db/setup";
 //
 // The schema has three hand-maintained surfaces that must describe the same
 // database shape:
-//   1. cire/db/migrations/*.sql — what production D1 actually is,
+//   1. cire/db/migrations/*.sql — the schema every D1 database has: a new one
+//      builds it from these files, and dev and production built the same
+//      schema from the archived chains the baseline stands for,
 //   2. the DDL string in src/db/setup.ts — what every bun:sqlite test runs on,
 //   3. cire/db/src/schema.ts — what Drizzle believes at query-build time.
 // A migration that skips a mirror would let the whole cire/api suite pass
@@ -41,12 +43,17 @@ import { DDL } from "../../src/db/setup";
 //   but every insert path supplies an id.)
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
-// `migrations/0001_initial.sql` is a baseline: it builds what every file in
-// `migrations-archive/` builds, replayed in name order. Wrangler never reads the
-// archive. This file does, to prove the baseline faithful, and the two DATA
-// migration replays at the bottom read it because their subject is what those
-// migrations did to rows that already existed.
+// `migrations/0001_initial.sql` is a baseline. It builds what the long-lived
+// chain builds (`migrations-archive/long-lived/`: the previous baseline, then
+// every migration after it, the chain dev and production hold), and what the
+// original chain (`migrations-archive/*.sql`, 0001 to 0081, which production
+// ran first) builds followed by the long-lived chain's migrations. Wrangler
+// never reads either archive. This file does, to prove the baseline faithful,
+// and the two DATA migration replays at the bottom read the original chain
+// because their subject is what those migrations did to rows that already
+// existed.
 const ARCHIVE_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
+const LONG_LIVED_DIR = join(ARCHIVE_DIR, "long-lived");
 
 type ColumnShape = {
   type: string;
@@ -209,6 +216,7 @@ function snapshotSchema(db: Database): SchemaSnapshot {
 
 const migrationFiles = (): string[] => listMigrations(MIGRATIONS_DIR);
 const archiveFiles = (): string[] => listMigrations(ARCHIVE_DIR);
+const longLivedFiles = (): string[] => listMigrations(LONG_LIVED_DIR);
 const numberOf = (file: string): number => Number.parseInt(file.split("_")[0]!, 10);
 
 // `wrangler d1 migrations apply` runs the files in the order `listMigrations`
@@ -386,31 +394,67 @@ describe("lockstep: migrations chain", () => {
     expect(migrationFiles()[0]).toBe("0001_initial.sql");
   });
 
-  // The baseline folds in the 81 archived migrations, 0001 to 0081 with none
-  // missing: scripts/cire-db-migrate.ts reads a deployed ledger against them,
-  // and the numbered live files continue from 0082.
-  it("archives every migration the baseline folds in, numbered 0001 to 0081", () => {
+  // The original chain, 0001 to 0081 with none missing: production's ledger
+  // names each, and scripts/cire-db-migrate.ts reads a local ledger against them.
+  it("archives the original chain, numbered 0001 to 0081", () => {
     expect(archiveFiles().map(numberOf)).toEqual(Array.from({ length: 81 }, (_, i) => i + 1));
   });
 
-  // Every number the archive spent is in some deployed ledger already, so
-  // wrangler would skip a live file reusing one and the change would never
-  // reach that database. New work is numbered after the archive.
-  it("reuses no migration number the archive already spent", () => {
-    const spent = new Set(archiveFiles().map(numberOf));
+  // The long-lived chain: the previous baseline, under the name dev's and
+  // production's ledgers recorded it by, then 0082 to 0091 with none missing,
+  // then timestamped files. Each squash adds what it moves out of migrations/.
+  it("archives the long-lived chain: the previous baseline, 0082 to 0091, then timestamped files", () => {
+    const files = longLivedFiles();
+    expect(files[0]).toBe("0001_initial.sql");
+    const numbered = files.slice(1).filter((f) => !/^\d{14}_/.test(f));
+    expect(numbered.map(numberOf)).toEqual(Array.from({ length: 10 }, (_, i) => i + 82));
+    expect(files.slice(1 + numbered.length).every((f) => /^\d{14}_/.test(f))).toBe(true);
+  });
+
+  // Every number and name either archive spent is in some ledger already, so
+  // wrangler would skip a live file reusing one locally, and the cire stack
+  // refuses a name both migrations/ and the long-lived chain hold. New work is
+  // timestamped after both.
+  it("reuses no migration number or name either archive already spent", () => {
+    const spent = new Set([...archiveFiles(), ...longLivedFiles()].map(numberOf));
+    const held = new Set(longLivedFiles());
     const reused = migrationFiles()
       .slice(1)
-      .filter((f) => spent.has(numberOf(f)));
+      .filter((f) => spent.has(numberOf(f)) || held.has(f));
     expect(reused).toEqual([]);
   });
 });
 
-describe("lockstep: the baseline ↔ the archived chain", () => {
-  // The baseline is generated from a replay of the archive, so every table and
-  // index must come out with the very SQL the archived chain leaves behind: the
-  // column order and index names a deployed database really has.
-  it("builds exactly what the archived chain builds", () => {
+describe("lockstep: the baseline ↔ the archived chains", () => {
+  // The baseline is generated from a replay of the long-lived chain, so every
+  // table, index and trigger must come out with the very SQL that chain leaves
+  // behind: the column order and index names dev and production really have.
+  it("builds exactly what the long-lived chain builds, as dev built it", () => {
     expect(storedSchema(applyChain(MIGRATIONS_DIR, ["0001_initial.sql"]))).toEqual(
+      storedSchema(applyChain(LONG_LIVED_DIR, longLivedFiles())),
+    );
+  });
+
+  // Production ran the original chain, then the long-lived chain after its
+  // baseline (which Wrangler skipped by name).
+  it("builds exactly what the original chain and then the long-lived migrations build, as production built it", () => {
+    const db = applyChain(ARCHIVE_DIR, archiveFiles());
+    for (const file of longLivedFiles().slice(1)) {
+      for (const statement of migrationStatements(
+        readFileSync(join(LONG_LIVED_DIR, file), "utf8"),
+      )) {
+        db.exec(statement);
+      }
+    }
+    expect(storedSchema(applyChain(MIGRATIONS_DIR, ["0001_initial.sql"]))).toEqual(
+      storedSchema(db),
+    );
+  });
+
+  // The previous baseline stands for the original chain in production's
+  // ledger, under the same name.
+  it("keeps a previous baseline that builds exactly what the original chain builds", () => {
+    expect(storedSchema(applyChain(LONG_LIVED_DIR, ["0001_initial.sql"]))).toEqual(
       storedSchema(applyChain(ARCHIVE_DIR, archiveFiles())),
     );
   });

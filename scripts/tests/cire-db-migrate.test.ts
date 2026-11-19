@@ -9,7 +9,7 @@
 
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
@@ -20,6 +20,7 @@ import {
   checkBaselineSchema,
   checkLedger,
   LEDGER_TABLE,
+  LONG_LIVED_DIR,
   migrationStatements,
   MIGRATIONS_DIR,
   namesOf,
@@ -338,16 +339,40 @@ test("parseArgs passes only --local and --persist-to, refusing every other flag"
 
 const archive = archivedMigrations();
 
+/** Where an archived name's file is: the original chain's, else the long-lived chain's. */
+const archivedPath = (name: string): string =>
+  existsSync(resolve(ARCHIVE_DIR, name))
+    ? resolve(ARCHIVE_DIR, name)
+    : resolve(LONG_LIVED_DIR, name);
+
+const TIMESTAMPED = /^\d{14}_/;
+
 // The rule reads "from the first archived file a ledger holds to the newest",
-// which only means anything if the archive has no holes: 0001 to 0081, the
-// migrations the baseline folds in, and every live numbered file above them.
-test("the real archive runs from 0001 to 0081 with no gaps, below every live migration", () => {
-  expect(archive.map((name) => Number.parseInt(name, 10))).toEqual(
-    Array.from({ length: 81 }, (_, i) => i + 1),
+// which only means anything if the archive has no holes: 0001 to 0091, the
+// numbered migrations the baseline folds in, then timestamped ones, every live
+// migration after them.
+test("the real archive runs from 0001 to 0091 with no gaps, then timestamped files, below every live migration", () => {
+  const numbered = archive.filter((name) => !TIMESTAMPED.test(name));
+  expect(numbered.map((name) => Number.parseInt(name, 10))).toEqual(
+    Array.from({ length: 91 }, (_, i) => i + 1),
   );
+  expect(archive.slice(numbered.length).every((name) => TIMESTAMPED.test(name))).toBe(true);
   expect(archive[0]).toBe(BASELINE);
+  const newest = Number.parseInt(archive.at(-1)!, 10);
   const live = listMigrations(MIGRATIONS_DIR).slice(1);
-  expect(live.filter((name) => Number.parseInt(name, 10) <= 81)).toEqual([]);
+  expect(live.filter((name) => Number.parseInt(name, 10) <= newest)).toEqual([]);
+});
+
+// A local database built from the October baseline holds 0001_initial.sql and
+// every long-lived migration after it; the new baseline stands for all of them.
+test("the real archive passes a complete ledger from the previous baseline, and refuses one missing a long-lived migration, naming it", () => {
+  const longLived = listMigrations(LONG_LIVED_DIR);
+  expect(checkLedger(longLived, archive)).toMatchObject({ ok: true, baselineOnly: false });
+  const lagging = longLived.slice(0, -1);
+  expect(checkLedger(lagging, archive)).toMatchObject({
+    ok: false,
+    missing: [longLived.at(-1)],
+  });
 });
 
 test("every chain start is an archived migration, the original chain's first among them", () => {
@@ -438,7 +463,7 @@ test("the real baseline refuses every older baseline since the one before it", (
     const lastPrevious = archive.indexOf(CHAIN_STARTS.at(-1)!) - 1;
     const refused: string[] = [];
     for (const [index, file] of archive.slice(0, -1).entries()) {
-      db.exec(readFileSync(resolve(ARCHIVE_DIR, file), "utf8"));
+      db.exec(readFileSync(archivedPath(file), "utf8"));
       if (index < lastPrevious) continue;
       const stored = (
         db.query("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL").all() as Array<{

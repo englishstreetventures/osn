@@ -43,7 +43,8 @@ import { migrationStatements } from "./migration-files";
 /**
  * Every directory a database is migrated from (Alchemy on dev and production,
  * Wrangler on local and staging databases), plus cire's archive, whose names
- * production's ledger holds.
+ * production's ledger holds; its `long-lived/` chain, which dev's and
+ * production's ledgers hold by hash, sits under it and is guarded with it.
  */
 export const MIGRATION_DIRS = [
   "cire/db/migrations",

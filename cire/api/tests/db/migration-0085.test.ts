@@ -10,9 +10,18 @@ import { listMigrations, migrationStatements } from "../../../../scripts/migrati
 // guest's claim, and every column but the status and its timestamp, stay as
 // they were.
 //
-// 0085 is a live migration, so the chain before it is the live directory:
-// the baseline and everything after it, in name order, as wrangler runs them.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// 0085 is in the long-lived chain, the one dev and production ran, so the
+// chain before it is that directory: the previous baseline and everything
+// after it, in name order, as wrangler and Alchemy ran them.
+const MIGRATIONS_DIR = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "db",
+  "migrations-archive",
+  "long-lived",
+);
 const MIG_0085 = "0085_release_preview_claims.sql";
 
 function apply(db: Database, file: string): void {

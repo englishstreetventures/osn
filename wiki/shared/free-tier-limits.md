@@ -244,9 +244,11 @@ data at all. Of the 200 heaviest queries on `cire-db-dev` in the week to
 *Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes`, and the same with `--sort-by=reads`.*
 
 No job rebuilds a database from zero. The dev stacks migrate each dev database
-forward, as production does, and import a seed only when its file changes; a
-fresh dev database replays the squashed baseline once, on the dev account's
-first deploy ([[dev-environment]]).
+forward, as production does, and import a seed only when its file changes. A
+new investigation stage's database replays the squashed baseline once; a
+rebuilt `cire-db-dev` would replay the chain dev and production ran,
+`cire/db/migrations-archive/long-lived/` (200 schema writes), which the guard
+below does not price ([[dev-environment]]).
 
 **The number to watch is per-deploy, not per-day.** Any job that rebuilds a
 database from zero costs rows in proportion to the *number of migrations*, not
@@ -254,11 +256,12 @@ the amount of data, and that number only grows. Before adding one, work out its
 cost against 100K/day. `scripts/guard-d1-migration-cost.ts` works the cire chain
 out on every pull request — replaying it offline into an in-memory SQLite and
 failing when the estimate passes the budget in
-`scripts/d1-migration-cost-budgets.txt`. The chain is **200 schema writes**,
-at its line of 200; priced at 27 rows each that is about 5,400 written and
-roughly 18 replays a day, but the price per schema write is only pinned to
-about 22–27, so read the row figure as indicative and the schema-write count
-as exact. A squash brings it back to its baseline (englishstreetventures/osn#2096).
+`scripts/d1-migration-cost-budgets.txt`. The chain is **150 schema writes**,
+the baseline squashed on 2026-11-19, against a line of 200; priced at 27 rows
+each that is about 4,050 written and roughly 24 replays a day, but the price
+per schema write is only pinned to about 22–27, so read the row figure as
+indicative and the schema-write count as exact. When the chain reaches the
+line, a squash brings it back to its baseline (`cire/db/README.md`).
 Method, calibration and how to re-baseline: [[bundle-size-guards]], which also
 sets out why the "89% / 11%" split above cannot be read as a share of one
 rebuild.

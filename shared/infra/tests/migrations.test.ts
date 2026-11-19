@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -225,5 +225,116 @@ describe("production's migrations: the archive and the freeze", () => {
         "  SELECT RAISE(ABORT, 'd1_migrations is frozen: the Alchemy stack migrates this database');\n" +
         "END;\n",
     );
+  });
+});
+
+/**
+ * cire/db after a squash: the live directory holds a new baseline and what
+ * followed it; the archive's `long-lived/` holds the chain the squash moved out,
+ * under the names and with the bytes dev's and production's ledgers recorded.
+ */
+function squashed(): {
+  readonly source: string;
+  readonly longLived: string;
+  readonly archive: string;
+  readonly target: string;
+} {
+  const { source, archive, target } = archived();
+  const longLived = join(archive, "long-lived");
+  mkdirSync(longLived);
+  // The chain the squash moved: the previous baseline and the files after it.
+  for (const name of ["0001_initial.sql", "0082_live.sql", "20261021132850_late.sql"]) {
+    writeFileSync(join(longLived, name), readFileSync(join(source, name)));
+  }
+  writeFileSync(join(source, "0001_initial.sql"), "CREATE TABLE baseline (id INTEGER, b TEXT);\n");
+  for (const name of ["0082_live.sql", "20261021132850_late.sql"]) rmSync(join(source, name));
+  writeFileSync(
+    join(source, "20261201000000_after.sql"),
+    "ALTER TABLE baseline ADD COLUMN c TEXT;\n",
+  );
+  return { source, longLived, archive, target };
+}
+
+const byName = (files: readonly { readonly name: string; readonly sql: string }[]) =>
+  Object.fromEntries(files.map((file) => [file.name, file.sql]));
+
+describe("a long-lived database's migrations after a squash", () => {
+  test("M12: each long-lived file is handed over byte for byte, the previous baseline in place of the new one; later live files follow", async () => {
+    const { source, longLived, target } = squashed();
+    flattenMigrations({ source, longLived, target });
+    expect(listing(target)).toEqual([
+      "0001_initial.sql",
+      "0082_live.sql",
+      "20261021132850_late.sql",
+      "20261201000000_after.sql",
+    ]);
+    for (const name of ["0001_initial.sql", "0082_live.sql", "20261021132850_late.sql"]) {
+      expect(readFileSync(join(target, name)).equals(readFileSync(join(longLived, name)))).toBe(
+        true,
+      );
+    }
+    const files = migrationFiles({ source, longLived });
+    const alchemy = await alchemyListing(target);
+    expect(files.map((file) => file.name)).toEqual(alchemy.map((file) => file.id));
+    expect(files.map((file) => migrationHash(file.sql))).toEqual(alchemy.map((file) => file.hash));
+    expect(files.every((file) => file.kind === "live")).toBe(true);
+  });
+
+  test("M13: production's directory keeps every name and byte it held before the squash, placeholders only for names neither chain holds", () => {
+    const { source, longLived, archive } = squashed();
+    // Before the squash production's live directory was what long-lived/ holds now.
+    const before = byName(migrationFiles({ source: longLived, archive, freeze: true }));
+    const after = byName(migrationFiles({ source, longLived, archive, freeze: true }));
+    for (const [name, sql] of Object.entries(before))
+      expect({ name, sql: after[name] }).toEqual({ name, sql });
+    expect(Object.keys(after).filter((name) => !(name in before))).toEqual([
+      "20261201000000_after.sql",
+    ]);
+    expect(after["0002_two.sql"]).toBe(archivedPlaceholder("0002_two.sql"));
+    expect(after["0001_initial.sql"]).toBe(
+      readFileSync(join(longLived, "0001_initial.sql"), "utf8"),
+    );
+  });
+
+  test("M14: a name both chains hold other than the live directory's first file is refused before the target is touched", () => {
+    const { source, longLived, target } = squashed();
+    // A moved file put back into the live directory: dev and production would
+    // never run it, while a new database would.
+    writeFileSync(join(source, "0082_live.sql"), "ALTER TABLE baseline ADD COLUMN b TEXT;\n");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "kept.sql"), "SELECT 1;\n");
+    expect(() => migrationFiles({ source, longLived })).toThrow(MigrationsSourceError);
+    expect(() => flattenMigrations({ source, longLived, target })).toThrow(/0082_live\.sql/);
+    expect(listing(target)).toEqual(["kept.sql"]);
+  });
+
+  test("M16: a live directory whose baseline is not named as the long-lived chain's first file is refused, so the baseline never reaches a long-lived database as a new migration", () => {
+    const { source, longLived, target } = squashed();
+    // The new baseline under another name: dev and production would apply
+    // the whole schema as a pending migration.
+    rmSync(join(source, "0001_initial.sql"));
+    writeFileSync(
+      join(source, "0002_baseline.sql"),
+      "CREATE TABLE baseline (id INTEGER, b TEXT);\n",
+    );
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "kept.sql"), "SELECT 1;\n");
+    expect(() => migrationFiles({ source, longLived })).toThrow(/0002_baseline\.sql/);
+    expect(() => flattenMigrations({ source, longLived, target })).toThrow(MigrationsSourceError);
+    expect(listing(target)).toEqual(["kept.sql"]);
+  });
+
+  test("M15: a missing long-lived directory, or a target overlapping it, is refused", () => {
+    const { source, longLived, archive } = squashed();
+    const target = join(mkdtempSync(join(tmpdir(), "migrations-")), "out");
+    expect(() =>
+      flattenMigrations({ source, longLived: join(archive, "nowhere"), target }),
+    ).toThrow(MigrationsSourceError);
+    for (const overlap of [join(longLived, "flat"), longLived]) {
+      expect(() => flattenMigrations({ source, longLived, target: overlap })).toThrow(
+        MigrationsSourceError,
+      );
+    }
+    expect(listing(longLived)).toContain("0082_live.sql");
   });
 });

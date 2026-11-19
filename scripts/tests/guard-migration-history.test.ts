@@ -93,6 +93,17 @@ test("refuses an edited archived migration", () => {
   );
 });
 
+test("refuses an edited or deleted file of the long-lived chain, which dev's and production's ledgers recorded by hash", () => {
+  expect(
+    onlyReason([
+      { status: "M", path: "cire/db/migrations-archive/long-lived/0082_unlock_codes.sql" },
+    ]),
+  ).toContain("was edited after it merged");
+  expect(
+    onlyReason([{ status: "D", path: "cire/db/migrations-archive/long-lived/0001_initial.sql" }]),
+  ).toContain("was deleted after it merged");
+});
+
 test("refuses a file added to the archive, which only a squash does", () => {
   expect(onlyReason([{ status: "A", path: "cire/db/migrations-archive/0092_late.sql" }])).toContain(
     "added to the archive",
@@ -138,8 +149,9 @@ test("the migrations:rewrite label lets a squash or a deliberate rebuild through
     {
       status: "R",
       from: "cire/db/migrations/0082_unlock_codes.sql",
-      path: "cire/db/migrations-archive/0082_unlock_codes.sql",
+      path: "cire/db/migrations-archive/long-lived/0082_unlock_codes.sql",
     },
+    { status: "A", path: "cire/db/migrations-archive/long-lived/0001_initial.sql" },
     { status: "M", path: "cire/db/migrations/0001_initial.sql" },
     { status: "A", path: "cire/db/migrations/20261021031503_rebuild.sql" },
   ];
