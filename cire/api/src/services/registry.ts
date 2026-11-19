@@ -1353,8 +1353,9 @@ interface WebhookContributionRow {
    */
   ownedAccountId: string | null;
   /**
-   * That account's stored type, beside `ownedAccountId`: the gift's own where
-   * it recorded an account, the wedding's where it did not.
+   * That account's stored type, beside `ownedAccountId`: `standard` whenever a
+   * settings row naming the account says so, else the gift's own where it
+   * recorded an account, the wedding's where it did not.
    */
   ownedAccountType: StripeAccountType | null;
 }
@@ -1371,6 +1372,13 @@ function contributionsOnAccount(
     // the wedding names now cannot move a gift paid into another, and a
     // refund on an account the wedding no longer names still finds its gift.
     const paidInto = sql`${registryContributions.stripeAccountId} = ${stripeAccountId}`;
+    // The type is Standard when any settings row naming the account says so,
+    // whatever the gift copied: an older Worker can give a Standard account no
+    // type, and a NULL copied from that row would read as Express for the life
+    // of the gift, opening adoption by `client_reference_id` to its holder.
+    const namedStandard = sql`EXISTS (SELECT 1 FROM ${registrySettings} named
+                                      WHERE named.stripe_account_id = ${stripeAccountId}
+                                        AND named.stripe_account_type = 'standard')`;
     const rows = yield* dbQuery(() =>
       db
         .select({
@@ -1383,7 +1391,7 @@ function contributionsOnAccount(
           ownedAccountId: sql<
             string | null
           >`CASE WHEN ${paidInto} THEN ${registryContributions.stripeAccountId} ELSE ${registrySettings.stripeAccountId} END`,
-          ownedAccountType: sql<StripeAccountType | null>`CASE WHEN ${paidInto} THEN ${registryContributions.stripeAccountType} ELSE ${registrySettings.stripeAccountType} END`,
+          ownedAccountType: sql<StripeAccountType | null>`CASE WHEN ${namedStandard} THEN 'standard' WHEN ${paidInto} THEN ${registryContributions.stripeAccountType} ELSE ${registrySettings.stripeAccountType} END`,
         })
         .from(registryContributions)
         .leftJoin(

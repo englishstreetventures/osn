@@ -1797,6 +1797,23 @@ describe("a gift keeps the account it was paid into", () => {
     expect(gift?.stripeCheckoutSessionId ?? null).toBeNull();
   });
 
+  it("adopts no session for a gift whose recorded type is missing when a wedding names its account as Standard", async () => {
+    // An older Worker can give a Standard account no type; the gift copied
+    // that NULL. Once a settings row naming the account says Standard, the
+    // adoption rule holds for the gift too.
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId, { sessionId: null });
+    recordGiftAccount(db, PAID_INTO, null);
+    moveWeddingTo(db, PAID_INTO, "standard");
+
+    const res = await deliver(app, checkoutCompleted({ session: { id: "cs_couple_made" } }));
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "rejected" });
+    const [gift] = await gifts(db);
+    expect(gift?.status).toBe("pending");
+    expect(gift?.stripeCheckoutSessionId ?? null).toBeNull();
+  });
+
   it("reads a gift's unrecorded type as Express, whatever the wedding's account is now", async () => {
     // An account attached before types were stored has none, and is Express.
     // The wedding has since moved to a Standard account; the gift's session,
