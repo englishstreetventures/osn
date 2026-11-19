@@ -18,6 +18,7 @@ import {
   accounts,
   appEnrollments,
   oauthClients,
+  oauthConsents,
   organisationMembers,
   organisations,
   passkeys,
@@ -86,7 +87,13 @@ function freshDatabase(path: string): Database {
 
 /** A first-party OIDC client row for osn-api's `oauth_clients`. */
 function firstPartyClient(
-  client: { rowId: string; clientId: string; secret: string; redirectUri: string },
+  client: {
+    rowId: string;
+    clientId: string;
+    secret: string;
+    redirectUri: string;
+    manageDataUrl?: string;
+  },
   name: string,
 ) {
   return {
@@ -100,6 +107,7 @@ function firstPartyClient(
     // which is what each relying party keys its session on.
     isFirstParty: true,
     createdAt: Math.floor(CLOCK_T0 / 1000),
+    manageDataUrl: client.manageDataUrl ?? null,
   };
 }
 
@@ -119,11 +127,13 @@ function thirdPartyClient() {
 }
 
 /**
- * osn-api: the schema, Pulse and cire registered as first-party OIDC clients,
- * one third-party client, `MUSUBI_ORG`'s member profile with the organisation
- * it owns, `RECOVERY_PERSON` with the passkey they have lost, and
- * `DELETION_PERSON` with a Pulse enrolment, a live session and an
- * organisation whose heir holds a live session too.
+ * osn-api: the schema, Pulse and cire registered as first-party OIDC clients
+ * (cire with its manage-your-data link), one third-party client,
+ * `MUSUBI_ORG`'s member profile with the organisation it owns,
+ * `RECOVERY_PERSON` with the passkey they have lost, `DELETION_PERSON` with a
+ * Pulse enrolment, a live session and an organisation whose heir holds a live
+ * session too, and `CIRE_REMOVAL_PERSON` with a live session and a consent to
+ * cire.
  */
 export function seedOsn(path: string, cireArc?: CireArcKey): void {
   const sqlite = freshDatabase(path);
@@ -341,6 +351,19 @@ export function seedOsn(path: string, cireArc?: CireArcKey): void {
           })
           .run();
       }
+
+      // The remover has signed in to cire through Musubi, so Musubi's
+      // Connected apps lists cire, with its link to the removal screen.
+      db.insert(oauthConsents)
+        .values({
+          id: "ocs_e2e_remover_cire",
+          accountId: remover.accountId,
+          clientId: CIRE_OIDC.clientId,
+          profileId: remover.profileId,
+          scope: "openid profile email",
+          grantedAt: atSec,
+        })
+        .run();
 
       // Sessions as a sign-in leaves them: the row holds the token's SHA-256,
       // never the token. Each lasts the run (the suite clock starts at

@@ -191,6 +191,7 @@ describe("derive-cire-seed", () => {
     const outputs = outputsOf(derive(secrets()).output);
     const sql = osnSeedSql({
       cireApiOrigin: origin(stageHosts("example.test", "dev").cireApi),
+      cireOrganiserOrigin: origin(stageHosts("example.test", "dev").cireHost),
       clientSecretSha256: outputs.client_secret_sha256 ?? "",
       arcKeyId: outputs.key_id ?? "",
       arcPublicJwk: outputs.public_jwk ?? "",
