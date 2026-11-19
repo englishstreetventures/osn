@@ -984,6 +984,22 @@ run, and `@starting-style` gives the opening its from-state. A dialog or popover
 the top layer cannot do this in Safari or Firefox: leaving the top layer needs
 `overlay`, which is Chrome only, so `Modal` defers `close()` in script instead.
 
+**The guest-data warning shrinks away when a save clears it** (the owner's
+choice, 2026-11-19, englishstreetventures/osn#2416, from a rendered
+comparison against going at once). The one `Notice` that does not go at once:
+the save that fixes the wedding is made in the editor below it, and the
+editor would jump up as it went. Its wrapper (`GuestDataBoundBanner`) takes
+`hidden` and `inert` together, so nothing in it can be focused or pressed
+from the first frame, and `bound-leave` moves its rows from `1fr` to `0fr`
+and its opacity to 0 on `--dur-base` with `--ease-out`, `display` held by
+`allow-discrete` until the shrink has run. The 32px the page sets under it is
+its own padding inside the part that shrinks, given back with `-mb-8`, so the
+space closes with it and nothing jumps at the end. Declared only under
+`no-preference`, so it goes at once under reduced motion; an engine before
+Chrome 117, Safari 17.4 or Firefox 129 drops the declaration and it goes at
+once there too. `GuestDataBoundNotice.browser.test.tsx` holds the shrink, the
+closed space and the reduced-motion path.
+
 **The unsaved-changes bar rises from the window's foot and goes at once.** The
 events and guests editors' bar, fixed to the foot of the window, mounts with
 whichever edit first makes the draft differ from the saved one — a keystroke
@@ -1817,14 +1833,23 @@ englishstreetventures/osn#2416). The decisions:
   wedding list again (`onScheduleChanged`), so the banner leaves on the save
   that dates the last event, with no reload. Another tab clears at its next
   read of the list.
-- **No motion of its own.** It arrives with the dashboard and goes at once, as
-  every `Notice` does: it holds a button, and a box collapsing away would leave
-  that button focusable in a box that is going.
+- **It arrives at once and shrinks away** (the owner's choice, 2026-11-19,
+  englishstreetventures/osn#2416, for this one banner). It arrives with the
+  dashboard, or with the save that brings it, at once, as every `Notice` does.
+  When the save that fixes the wedding clears it, it does not go at once: the
+  editor the host is looking at sits below it, and would jump. It takes
+  `hidden` and `inert` together, so its button can be neither focused nor
+  pressed from the first frame, and shrinks to nothing and fades on
+  `--dur-base` with `--ease-out` (150ms at a desk, 200ms on touch) while the
+  space under it closes with it (`bound-leave`, §4). Under reduced motion it
+  goes at once.
 
 `tests/lib/guest-data-bound.test.ts` holds the words (the names, the reader's
 zone, an unknown state); `tests/components/GuestDataBoundNotice.test.tsx` holds
-who sees it and when it is an alert; `GuestDataBoundNotice.browser.test.tsx`
-keeps a 200-letter name inside the banner at 390 and 1280px;
+who sees it, when it is an alert, and that a cleared one is hidden and inert
+while it leaves; `GuestDataBoundNotice.browser.test.tsx` keeps a 200-letter
+name inside the banner at 390 and 1280px and holds the shrink and the
+reduced-motion path;
 `tests/styles/pill-contrast.browser.test.tsx` holds the `outline` pill's word
 at 4.5:1 on both tints; `OrganiserApp.test.tsx` holds the announce on a save,
 and a save's re-read against an older read. The `cire-event-details`

@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { GuestDataBound } from "../../src/components/CreateWeddingForm";
-import GuestDataBoundNotice from "../../src/components/GuestDataBoundNotice";
+import GuestDataBoundNotice, {
+  GuestDataBoundBanner,
+} from "../../src/components/GuestDataBoundNotice";
 import type { WeddingRole } from "../../src/lib/wedding-roles";
 
 /**
@@ -53,6 +56,47 @@ describe("GuestDataBoundNotice", () => {
     ));
     expect(screen.getByRole("alert")).toHaveTextContent(
       "From 30 November 2026, Cire will delete this wedding's guest list.",
+    );
+  });
+});
+
+/**
+ * The dashboard's banner: when a save clears the bound, the last one stays
+ * mounted while it leaves, and nothing in it can be pressed or focused from
+ * the first frame (the owner's choice, `cire/host/DESIGN.md`). A bound that
+ * comes back is a new arrival, mounted afresh and announced.
+ */
+describe("GuestDataBoundBanner", () => {
+  const showBanner = () => {
+    const [bound, setBound] = createSignal<GuestDataBound | undefined>(BOUND);
+    render(() => <GuestDataBoundBanner bound={bound()} callerRole="owner" onFix={() => {}} />);
+    return setBound;
+  };
+  const wrapper = () => screen.getByTestId("guest-data-bound").closest(".bound-leave")!;
+
+  it("keeps a cleared warning mounted, hidden and inert, while it leaves", () => {
+    const setBound = showBanner();
+    expect(wrapper().hasAttribute("hidden")).toBe(false);
+    expect(wrapper().hasAttribute("inert")).toBe(false);
+
+    setBound(undefined);
+
+    expect(screen.getByTestId("guest-data-bound")).toBeInTheDocument();
+    expect(wrapper().hasAttribute("hidden")).toBe(true);
+    expect(wrapper().hasAttribute("inert")).toBe(true);
+  });
+
+  it("mounts a bound that comes back afresh, shown and announced", () => {
+    const setBound = showBanner();
+    expect(screen.queryByRole("alert")).toBeNull();
+    setBound(undefined);
+
+    setBound({ ...BOUND, state: "passed" });
+
+    expect(screen.getAllByTestId("guest-data-bound")).toHaveLength(1);
+    expect(wrapper().hasAttribute("hidden")).toBe(false);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Cire is deleting this wedding's guest list.",
     );
   });
 });

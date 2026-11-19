@@ -1839,17 +1839,19 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(banner()).not.toBeNull());
     expect(banner()!.getAttribute("role")).toBeNull();
 
-    // A save dates the event: the list is read again and the warning goes.
+    // A save dates the event: the list is read again and the warning leaves,
+    // hidden and inert while it shrinks away.
     bound = undefined;
     scheduleChanged("wed_a");
-    await waitFor(() => expect(banner()).toBeNull());
+    await waitFor(() => expect(banner()?.closest("[hidden]")).not.toBeNull());
+    expect(banner()!.closest("[inert]")).not.toBeNull();
     expect(listCalls()).toBe(2);
 
     // A save removes the last event of a wedding past its three years.
     bound = { ...BOUND, state: "passed", reason: "no-events", events: [], eventCount: 0 };
     scheduleChanged("wed_a");
-    await waitFor(() => expect(banner()).not.toBeNull());
-    expect(banner()!.getAttribute("role")).toBe("alert");
+    await waitFor(() => expect(banner()?.getAttribute("role")).toBe("alert"));
+    expect(banner()!.closest("[hidden]")).toBeNull();
     expect(banner()!.textContent).toContain("Cire is deleting this wedding's guest list.");
   });
 

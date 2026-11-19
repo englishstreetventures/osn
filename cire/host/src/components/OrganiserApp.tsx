@@ -69,7 +69,7 @@ import { deletedWeddingsOf, restoreUntilLabel } from "../lib/wedding-lifecycle";
 import { normaliseWeddingRole, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingRole } from "../lib/wedding-roles";
 import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm";
-import GuestDataBoundNotice from "./GuestDataBoundNotice";
+import { GuestDataBoundBanner } from "./GuestDataBoundNotice";
 import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
 import PanelLoading from "./PanelLoading";
@@ -214,20 +214,6 @@ function WeddingDashboard(props: {
   // keep the portal from offering what those gates would refuse.
   const surfaces = () => surfacesFor(props.wedding.role);
 
-  // The guest-data warning, keyed on its state and reason so a change mounts
-  // it afresh. One there when the dashboard first paints is a standing note;
-  // one that appears or changes after that does so in answer to something the
-  // host did — a save that dates the events, or removes the last one — and is
-  // announced.
-  let painted = false;
-  onMount(() => {
-    painted = true;
-  });
-  const boundKey = () => {
-    const bound = props.wedding.guestDataBound;
-    return bound && `${bound.state}:${bound.reason}`;
-  };
-
   return (
     <Show
       when={surfaces().canOpenDashboard}
@@ -241,22 +227,12 @@ function WeddingDashboard(props: {
       }
     >
       {/* Over every module, so a host who opens straight onto Guests reads it
-          too; it holds no rows, so it sits outside the cache scope. The key is
-          the function's argument on purpose: `keyed` calls only a children
-          function that takes one. */}
-      <Show when={boundKey()} keyed>
-        {(_key) => {
-          const announce = painted;
-          return (
-            <GuestDataBoundNotice
-              bound={props.wedding.guestDataBound!}
-              callerRole={props.wedding.role}
-              announce={announce}
-              onFix={() => props.onModule("events", "edit")}
-            />
-          );
-        }}
-      </Show>
+          too; it holds no rows, so it sits outside the cache scope. */}
+      <GuestDataBoundBanner
+        bound={props.wedding.guestDataBound}
+        callerRole={props.wedding.role}
+        onFix={() => props.onModule("events", "edit")}
+      />
       <WeddingCacheScope weddingId={props.weddingId}>
         <ModuleShell
           weddingId={props.weddingId}
