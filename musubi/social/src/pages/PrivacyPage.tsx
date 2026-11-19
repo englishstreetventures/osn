@@ -74,10 +74,8 @@ export function PrivacyPage(): JSX.Element {
       </p>
       <h3>Your sessions</h3>
       <p>
-        For each signed-in device: a coarse label ("Firefox on macOS"), when it was last used, and a{" "}
-        <em>hash</em> of the IP address — keyed with a secret, so it can be compared against itself
-        for anomaly detection but not turned back into an address. Sessions expire 30 days after
-        last use.
+        For each signed-in device: a coarse label ("Firefox on macOS") and when it was last used.
+        Sessions expire 30 days after last use.
       </p>
       <h3>Your social graph</h3>
       <p>
@@ -89,9 +87,11 @@ export function PrivacyPage(): JSX.Element {
       <h3>Security records</h3>
       <p>
         An audit trail of security-relevant actions on your account — a passkey added or removed,
-        recovery codes generated, an email change — kept 12 months, and visible to you. Recovery
-        codes are stored only as hashes; the codes themselves are shown once, to you, and never
-        again. Email-change attempts are logged for 90 days to enforce the two-changes-per-week cap.
+        recovery codes generated, an email change — kept 12 months, and visible to you. Each entry
+        keeps a coarse label for the device and a <em>hash</em> of the IP address it came from,
+        keyed with a secret so it cannot be turned back into an address. Recovery codes are stored
+        only as hashes; the codes themselves are shown once, to you, and never again. Email-change
+        attempts are logged for 90 days to enforce the two-changes-per-week cap.
       </p>
       <h3>Apps you have connected</h3>
       <p>
@@ -107,11 +107,11 @@ export function PrivacyPage(): JSX.Element {
       <h2>The legal bases</h2>
       <p>
         Most of the above is processed because we cannot give you the account you asked for without
-        it — contract, in GDPR terms (Art. 6(1)(b)). The IP hash, the passkey metadata and the
-        session timestamps rest on our legitimate interest in detecting abuse and showing you which
-        passkeys you hold (Art. 6(1)(f)). The security audit trail is partly a legal obligation
-        (Art. 6(1)(c), read with Art. 32). Connecting another app to your account is consent (Art.
-        6(1)(a)), and consent you can withdraw.
+        it — contract, in GDPR terms (Art. 6(1)(b)). The IP hash and device label on each security
+        record, the passkey metadata and the session timestamps rest on our legitimate interest in
+        detecting abuse and showing you which passkeys you hold (Art. 6(1)(f)). The security audit
+        trail is partly a legal obligation (Art. 6(1)(c), read with Art. 32). Connecting another app
+        to your account is consent (Art. 6(1)(a)), and consent you can withdraw.
       </p>
 
       <h2>What we do not do</h2>
