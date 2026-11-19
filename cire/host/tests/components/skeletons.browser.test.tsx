@@ -385,9 +385,9 @@ const HOLLOW: Record<string, Hollow> = {
     module: "overview",
     sub: "",
     held: "rsvps",
-    arrived: (scope) => scope.querySelector(".auto-grid") !== null,
-    // A card's frame and ground; an agenda row's rule.
-    grounds: [".auto-grid > *", "ul.grid > li"],
+    arrived: (scope) => scope.querySelector(".overview-body") !== null,
+    // A side card's frame and ground; an agenda row's rule.
+    grounds: [".overview-side > *", "ul.grid > li"],
   },
   households: {
     width: 1280,
