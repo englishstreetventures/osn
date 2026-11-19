@@ -111,6 +111,22 @@ const sampleProfile = {
 
 const attestation = { id: "cred", rawId: "cred", type: "public-key" };
 
+/**
+ * A promise that settles on `mock`'s next call. The mock keeps answering as
+ * it was set to; this adds the signal a test awaits instead of polling it.
+ * Never pair it with a `mock…Once` answer: `getMockImplementation()` returns
+ * the queued once-answer, which this would then give on every call.
+ */
+function nextCall(mock: ReturnType<typeof vi.fn>): Promise<void> {
+  const answer = mock.getMockImplementation() as ((...args: unknown[]) => unknown) | undefined;
+  return new Promise<void>((resolve) => {
+    mock.mockImplementation((...args: unknown[]) => {
+      resolve();
+      return answer?.(...args);
+    });
+  });
+}
+
 let stub: ClientStub;
 let registration: RegistrationStub;
 
@@ -635,13 +651,14 @@ describe("RecoveryLoginForm — the restricted session", () => {
         session: { ...restrictedSession, expiresAt: Date.now() },
         profile: sampleProfile,
       });
+      const answered = nextCall(stub.totpRecoveryComplete);
       mountFull();
       fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
       fill(/Email or @handle/i, "alice");
       typeCode("654321");
       fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
 
-      await vi.waitFor(() => expect(stub.totpRecoveryComplete).toHaveBeenCalled());
+      await answered;
       await vi.advanceTimersByTimeAsync(1000);
 
       // Somebody who has just proved who they are and then meets a bare 401
@@ -753,8 +770,9 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     expect(screen.getByRole("button", { name: /Add a passkey/i })).toBeTruthy();
 
+    const begun = nextCall(registration.passkeyRegisterBegin);
     fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
-    await vi.waitFor(() => expect(registration.passkeyRegisterBegin).toHaveBeenCalled());
+    await begun;
     expect(registration.passkeyRegisterBegin.mock.calls[0]![0].accessToken).toBe("acc_refreshed");
   });
 
@@ -826,15 +844,17 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     await vi.waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
 
+    const begun = nextCall(registration.passkeyRegisterBegin);
     fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
-    await vi.waitFor(() => expect(registration.passkeyRegisterBegin).toHaveBeenCalled());
+    await begun;
     expect(registration.passkeyRegisterBegin.mock.calls[0]![0].accessToken).toBe(ACCESS_TOKEN);
 
     // The user is still at their authenticator while the token dies.
     await vi.advanceTimersByTimeAsync(TTL_MS);
+    const completed = nextCall(registration.passkeyRegisterComplete);
     ceremony.settle(attestation as never);
 
-    await vi.waitFor(() => expect(registration.passkeyRegisterComplete).toHaveBeenCalled());
+    await completed;
     expect(registration.passkeyRegisterComplete.mock.calls[0]![0].accessToken).toBe(
       "acc_mid_ceremony",
     );
@@ -888,8 +908,9 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
     registration.passkeyRegisterComplete.mockReturnValue(complete.promise);
     await reachEnrolmentHolding(sessionExpiringIn(TTL_MS));
 
+    const completing = nextCall(registration.passkeyRegisterComplete);
     fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
-    await vi.waitFor(() => expect(registration.passkeyRegisterComplete).toHaveBeenCalled());
+    await completing;
 
     // The background timer fires while `/complete` is still on the wire. Its
     // grant takes a place in the queue but isn't dispatched yet.
@@ -899,8 +920,10 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
     // `/complete` resolves: enrolPasskey bumps epoch and clears `held`.
     // Only then does the queued grant get dispatched — genuinely in flight
     // against a session that, by the time it lands, no longer exists.
+    const granting = nextCall(hoisted.refreshHeldSession);
     complete.settle({ passkeyId: "pk_new" });
-    await vi.waitFor(() => expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1));
+    await granting;
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/You're back in/i)).toBeTruthy();
 
     // Settling it now must be a no-op.
@@ -936,12 +959,13 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
     const answer = deferred<{ session: ReturnType<typeof sessionExpiringIn>; profile: unknown }>();
     stub.totpRecoveryComplete.mockReturnValue(answer.promise);
     hoisted.refreshHeldSession.mockImplementation(grantsTokenExpiringIn(TTL_MS, "acc_orphan"));
+    const asked = nextCall(stub.totpRecoveryComplete);
     mountFull();
     fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
     fill(/Email or @handle/i, "alice");
     typeCode("654321");
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-    await vi.waitFor(() => expect(stub.totpRecoveryComplete).toHaveBeenCalled());
+    await asked;
 
     cleanup();
     answer.settle({ session: sessionExpiringIn(TTL_MS), profile: sampleProfile });
@@ -962,8 +986,10 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
     hoisted.refreshHeldSession.mockReturnValue(grant.promise);
     await reachEnrolmentHolding(sessionExpiringIn(LEAD_MS - 5_000));
 
+    const granting = nextCall(hoisted.refreshHeldSession);
     fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
-    await vi.waitFor(() => expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1));
+    await granting;
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
     // Still waiting on the grant — the ceremony itself never started.
     expect(registration.passkeyRegisterBegin).not.toHaveBeenCalled();
 

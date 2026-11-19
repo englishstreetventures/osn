@@ -379,7 +379,7 @@ describe("events routes", () => {
 
 - **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing. Ways that check is passed by a test which still cannot fail — a timestamp tie, a `waitFor`ed absence, a red-proof that ate its own fix, a route the app never mounted, a hand-written input where the driver's output belongs, and a helper that supplies the thing under test — are in [[#Assertions that cannot fail]].
 
-- **Wait on the event, never on a fixed sleep.** A test that sleeps 10 ms for a forked fiber fails whenever a loaded CI runner takes longer. Have the forked effect resolve a `Promise.withResolvers()` promise and await that; if the work never runs, the test fails on Vitest's timeout ("is a no-op reference outside a request" in `osn/api/tests/lib/background.test.ts`).
+- **Wait on the event, never on a fixed sleep.** A test that sleeps 10 ms for a forked fiber fails whenever a loaded CI runner takes longer. Have the forked effect resolve a `Promise.withResolvers()` promise and await that; if the work never runs, the test fails on Vitest's timeout ("is a no-op reference outside a request" in `osn/api/tests/lib/background.test.ts`). Polling a spy, `vi.waitFor(() => expect(spy).toHaveBeenCalled())`, races its deadline the same way: have the spy's implementation resolve the promise, await it, then assert the call count once (`nextCall` in `osn/auth-ui/tests/RecoveryLoginForm.test.tsx`). Under fake timers `vi.waitFor` also moved the clock 50 ms before each look, so a test that relied on that time advances it itself. `landmines-testing/no-fixed-sleep` and `no-unsignaled-poll` report the inline forms of both. A sleep behind a helper, testing-library's `waitFor` on a spy, and any file that uses fake timers get past them, and the rule holds there all the same ([[house-lint-rules#Landmines]]).
 
 - **Freeze the clock before the first read when asserting whole seconds.** Code that stamps a deadline in unix seconds, followed by a test that reads the real clock again to move time forward, gives a different answer whenever a second boundary falls between the two reads. Call `vi.useFakeTimers({ toFake: ["Date"] })` and `vi.setSystemTime(base)` before the code under test first reads the clock, then move by whole seconds ("a rotation late in the window" in `osn/api/tests/services/recovery-session.test.ts`). Fake only `Date`: faking every timer stalls Effect's scheduler.
 
@@ -758,20 +758,28 @@ unrelated test. `<body>` then carries `aria-hidden="true"`, and every
 test fails depends on where it sits in the file, so it shows up when someone
 adds or moves a test, far from the overlay that caused it.
 
-A suite that opens an overlay lets both writes run before the next test starts:
+A suite that opens an overlay lets both writes run before the next test starts. Name the drain for the path it follows, a timer turn and then a frame, and call it from the hook:
 
 ```ts
+/** Lets Kobalte's zero-delay `aria-hidden` writes, and the frame each one
+ *  requests, run before the next test starts. */
+function drainOverlayWrites() {
+  return new Promise<void>((resolve) => {
+    setTimeout(() => requestAnimationFrame(() => resolve()), 0);
+  });
+}
+
 afterEach(async () => {
   cleanup();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await drainOverlayWrites();
 });
 ```
 
-`cire/host/tests/components/OrganiserApp.test.tsx` does this for its
-profile-menu tests. Prove a fix like this with `--sequence.shuffle` under
+`cire/host/tests/components/OrganiserApp.test.tsx` drains its profile-menu tests this way, written inline. Prove a fix like this with `--sequence.shuffle` under
 several seeds, not with one green run in file order. Without the drain, that
 suite failed in file order and under two of three seeds.
+
+`landmines-testing/no-fixed-sleep` reports `await new Promise((r) => setTimeout(r, 0))` written inline in a hook or test. The named drain above does not trip it, and it should not: it waits for one turn of the timer queue and one frame, the path the overlay's writes take, and guesses no length of time. Write it that way in a new suite rather than adding an allow-map entry, which the allowlist guard refuses ([[house-lint-rules#The allowlist guard]]). A zero delay is the only delay this form allows: a drain that waits a number of milliseconds is a guess, and waits on a signal instead.
 
 *Measured 2026-10-02 — drain removed, in `cire/host`: `bunx --bun vitest run --project unit tests/components/OrganiserApp.test.tsx --sequence.shuffle --sequence.seed=<1|7|42>`; seeds 1 and 7 failed, 42 passed*
 

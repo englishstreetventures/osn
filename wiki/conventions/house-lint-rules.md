@@ -1,6 +1,6 @@
 ---
 title: House lint rules
-description: The oxlint rules this repository writes for itself in tools/oxlint/house, what each one catches, and the rule of code each enforces
+description: The oxlint rules this repository writes for itself in tools/oxlint/house, the landmines test rules it adopts, what each one catches, and the rule of code each enforces
 tags: [convention, lint, tooling]
 related:
   - "[[code-comments]]"
@@ -10,14 +10,15 @@ related:
   - "[[backend-patterns]]"
   - "[[d1-limits]]"
   - "[[design-tokens]]"
-last-reviewed: 2026-11-12
+  - "[[agent-tooling]]"
+last-reviewed: 2026-11-19
 ---
 
 # House lint rules
 
 `tools/oxlint/house` (`@tools/oxlint-house`) holds the lint rules this repository needs and nobody publishes. It is an ordinary workspace — formatted, linted, typechecked and tested like any other — and `oxlintrc.json` loads it as the `house` plugin. A rule this repository needs but nobody publishes belongs here. `tools/oxlint/anti-slop` beside it is a different thing: a verbatim upstream copy, covered in [[agent-tooling]].
 
-Each rule's own source file holds the full reasoning and the bug that prompted it. This page is the index.
+Each rule's own source file holds the full reasoning and the bug that prompted it. This page is the index. `oxlintrc.json` also loads five test rules from the published `@interfere/landmines` plugin, covered in [[#Landmines]] below.
 
 | Rule                              | Level                                                 | Catches                                                                                                                                                                           |
 | --------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -113,3 +114,54 @@ oxlint never parses `.css`, and `oxlintrc.json` ignores `*.astro` (oxlint would 
 | A class string in an Astro file's frontmatter or `<script>` | `// motion-literal: <reason>` (or `/* … */`) on the line directly above the line that holds the class |
 
 A marker with no reason keeps nothing. In a string that ships to the page, such as `Modal`'s injected stylesheet, keep the in-string reason to a short tag and write the full reason in a code comment beside it. The rule does not read JavaScript animation options (`element.animate()`'s `{ duration: 350 }`), Tailwind's bare `transition` and `transition-colors`, which run its default 150ms, or a `style={…}` expression in Astro markup, where only a quoted `style` attribute is read — englishstreetventures/osn#2104 covers the first two.
+
+## Landmines
+
+`@interfere/landmines` is a published oxlint plugin of rules that stop a test passing for the wrong reason. It is a pinned root `devDependency`, and `oxlintrc.json` registers two of its four plugins, `landmines-testing` and `landmines-structure`. The other two, `landmines-style` and `landmines-types`, are not loaded, so their rules (`no-comments`, `no-explicit-return-types`) cannot be switched on by accident. Its rules need Node 22.18 or later; the `lint` CI job and `release.yml`'s lint count pin Node 24.
+
+| Rule                                  | Level                  | Reports                                                                                                                                                                                                  |
+| ------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `landmines-testing/no-fixed-sleep`    | error, with an allow map | An awaited fixed delay in a test or hook body, or in an `act`, `waitFor` or `.then` callback inside one: `new Promise((r) => setTimeout(r, n))`, `setTimeout` from `timers/promises`, `Bun.sleep`, `scheduler.wait` |
+| `landmines-testing/no-flake-masking`  | error, with an allow map | A raised timeout or a `retry` on a test or suite, in `vi.setConfig`, or as `testTimeout` or `hookTimeout` in a Vitest config                                                                              |
+| `landmines-testing/no-unsignaled-poll` | error, no allow map    | `vi.waitFor` or `expect.poll` over a spy or a request recorder                                                                                                                                            |
+| `landmines-testing/strict-msw`        | error                  | MSW started without `onUnhandledRequest: "error"` (msw 2) or `onUnhandledFrame: "error"` (msw 3)                                                                                                          |
+| `landmines-structure/package-exports` | error                  | A `package.json` export that opens a whole tree, such as `"./*": "./src/*.ts"`                                                                                                                           |
+
+Three rules are off, each with its reason beside it in `oxlintrc.json`. `no-test-doubles` reports 4,358 sites in 430 test files (module mocks, `vi.fn(impl)`, stubbed globals), and the tests have no MSW server to use instead; englishstreetventures/osn#2436 adds one and turns the rule on. `no-comments` waits on englishstreetventures/osn#2437, which first settles which comments stay. `colocated-tests` and `test-file-names` reject the package-root `tests/` layout that `AGENTS.md` requires, in 577 and 1,584 files.
+
+*Measured 2026-11-19 on e4f812ccb — `bunx --bun oxlint -c oxlintrc.json --format json .` with each rule at `error`, diagnostics counted per rule*
+
+**What they cannot see.** `no-unsignaled-poll` reads `vi.waitFor` and `expect.poll` only, so testing-library's `waitFor(() => expect(spy).toHaveBeenCalled())` races the same deadline unreported. `no-fixed-sleep` reads only the forms in the table written inline, so `await sleep(50)` through a helper passes, and one `vi.useFakeTimers()` anywhere in a file exempts every sleep in it. Where lint is blind, the rule in [[testing-patterns]] still holds: wait on the event, never on a fixed sleep or a polled spy.
+
+### The allow maps
+
+`no-fixed-sleep` and `no-flake-masking` each carry an `allow` map in `oxlintrc.json`: every file that had sites when the rules were turned on, keyed by repo-relative path, sorted, one line per file, with its exact count. They hold 112 sleeps in 48 files and 265 raised timeouts in 41 files; no file retries.
+
+*Measured 2026-11-19 on e4f812ccb — `bunx --bun oxlint -c oxlintrc.json --format json .` with both rules at `error` and no allow map*
+
+The rule compares a file with its entry and nothing else:
+
+| The file has          | The rule                                                                    |
+| --------------------- | --------------------------------------------------------------------------- |
+| its count             | reports nothing                                                             |
+| more than its count   | reports every site in the file; fix the new one, never raise the count      |
+| fewer than its count  | reports the entry as stale until it is lowered to match; at none, delete it |
+
+Lower an entry in the pull request that removes the site: lint fails until you do. The stale and over-count messages tell you to edit `.oxlintrc.jsonc`; in this repository that file is `oxlintrc.json`.
+
+### The allowlist guard
+
+Since the rule only compares a file with its entry, lint passes a pull request that adds a sleep and raises the count by one. [scripts/check-landmines-allowlist.ts](../../scripts/check-landmines-allowlist.ts) stops that. CI's `Scripts` job runs it on every pull request against `HEAD^1`, the base the merge commit was made on, and runs the base's copy of the script once `main` has one, so a pull request cannot loosen the guard and a count together. For each `landmines-` rule the base sets, it refuses:
+
+- the rule missing at head, or at a lower severity; renaming the plugin alias renames every key, so the guard refuses that as well;
+- an `allow` count raised, or a key the base's map lacks; a file git sees as renamed keeps its count under the new key;
+- a landmines entry in `overrides[].rules` added, changed or dropped;
+- an added line in a code file that disables a landmines rule by name (`oxlint-disable-next-line landmines-…`); oxlint honours such a comment for these rules as for any other.
+
+On any base it also refuses an `allow` key that matches no tracked file, which would hand its budget to whatever file is created there next. Lowered and removed counts pass. Unlike a [[#Suppressing a house rule|house rule]], a landmines rule has no suppression with a reason: loosening one is the owner's call, made in a pull request that changes the guard. Run it before you push:
+
+```bash
+bun run scripts/check-landmines-allowlist.ts --base origin/main
+```
+
+It does not see a new `ignorePatterns` entry, which stops lint reading a file at all; a bare `/* oxlint-disable */` that names no rule, which silences every rule in its file, these included; a change to a rule's other options, such as `no-fixed-sleep`'s `runNow`; or the plugin's `specifier` pointed elsewhere under the same name. `.github/CODEOWNERS` requests the owner's review of every `oxlintrc.json` change, but that request does not block a merge, so review is the only check on those four.

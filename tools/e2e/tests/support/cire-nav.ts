@@ -170,8 +170,12 @@ export async function navSurfaces(flow: Flow, page: Page, host: string): Promise
   flow.check("nav: no unsaved-changes prompt between the builder's views", "", asked.join(" | "));
   const rail = page.getByRole("navigation", { name: "Wedding modules" });
   await flow.step("nav: leaving Invite with the draft asks, and a refusal keeps it", async () => {
+    // Armed before the click, so the prompt cannot come and go unseen; the
+    // limit is the suite's expect timeout, not the test's two minutes.
+    const prompted = page.waitForEvent("dialog", { timeout: 15_000 });
     await rail.getByRole("button", { name: /^Guests/ }).click();
-    await expect.poll(() => asked.length).toBe(1);
+    await prompted;
+    expect(asked.length).toBe(1);
     await expect(title).toHaveValue(`${saved} (draft)`);
     await expect(sections).toBeVisible();
   });

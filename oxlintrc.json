@@ -320,7 +320,136 @@
           "prose-legal"
         ]
       }
-    ]
+    ],
+    // @interfere/landmines: rules that stop a test passing for the wrong
+    // reason. wiki/conventions/house-lint-rules.md §landmines says what each
+    // one catches and what it cannot see. Their messages say to edit
+    // `.oxlintrc.jsonc`; here that file is this one.
+    //
+    // Each `allow` map gives a file its exact count of the sites it already
+    // has, keyed by repo-relative path, one line per file, sorted. A file over
+    // its count reports every site; a file under it reports the entry as
+    // stale until the count is lowered to match. On a pull request,
+    // scripts/check-landmines-allowlist.ts refuses a raised count, a new key
+    // and a rule turned down or off, so a count can only fall.
+    "landmines-testing/strict-msw": "error",
+    "landmines-structure/package-exports": "error",
+    "landmines-testing/no-unsignaled-poll": "error",
+    "landmines-testing/no-fixed-sleep": [
+      "error",
+      {
+        "allow": {
+          "cire/host/tests/components/BudgetView.undo.browser.test.tsx": 2,
+          "cire/host/tests/components/ChecklistView.assign.test.tsx": 5,
+          "cire/host/tests/components/ChecklistView.test.tsx": 6,
+          "cire/host/tests/components/ChecklistView.undo.browser.test.tsx": 3,
+          "cire/host/tests/components/EnquiriesView.test.tsx": 1,
+          "cire/host/tests/components/GuestTable.compact.browser.test.tsx": 1,
+          "cire/host/tests/components/GuestTable.plus-one.test.tsx": 2,
+          "cire/host/tests/components/HostsPanel.test.tsx": 16,
+          "cire/host/tests/components/ModuleShell.view-arrive.browser.test.tsx": 1,
+          "cire/host/tests/components/ModuleSidebar.keyboard.browser.test.tsx": 2,
+          "cire/host/tests/components/OrganiserApp.realtime.browser.test.tsx": 2,
+          "cire/host/tests/components/Overview.checklist.test.tsx": 4,
+          "cire/host/tests/components/RegistryView.undo.browser.test.tsx": 2,
+          "cire/host/tests/components/RsvpChangesCard.test.tsx": 1,
+          "cire/host/tests/components/RsvpView.changes.test.tsx": 2,
+          "cire/host/tests/components/SeatingView.test.tsx": 12,
+          "cire/host/tests/components/invite/FaqEditor.test.tsx": 1,
+          "cire/host/tests/lib/run-time-write.test.ts": 1,
+          "cire/host/tests/lib/tasks-store.test.ts": 2,
+          "cire/invites/tests/components/AnimatedModal.browser.test.tsx": 1,
+          "cire/invites/tests/components/EventSheet.browser.test.tsx": 4,
+          "cire/invites/tests/components/LoginSection.warm-no-plus-one.test.tsx": 1,
+          "cire/invites/tests/designs/classic/InviteHeader.test.tsx": 2,
+          "cire/invites/tests/designs/gala/InviteHeader.test.tsx": 3,
+          "cire/ui/tests/file-input.browser.test.tsx": 1,
+          "cire/ui/tests/message-thread.browser.test.tsx": 5,
+          "cire/vendor/tests/components/VendorApp.thread-chunk.test.tsx": 1,
+          "musubi/social/tests/App.pending-deletion.test.tsx": 1,
+          "musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx": 2,
+          "musubi/social/tests/components/ProfileSwitcherDialog.test.tsx": 2,
+          "musubi/social/tests/components/SecurityStepUp.browser.test.tsx": 1,
+          "musubi/social/tests/pages/OrgDetailPage.decline.browser.test.tsx": 1,
+          "osn/api/tests/d1/waituntil.test.ts": 2,
+          "osn/api/tests/routes/graph-internal.test.ts": 1,
+          "osn/auth-ui/tests/PasskeysView.test.tsx": 1,
+          "shared/billing/tests/billing/access.test.ts": 1,
+          "shared/observability/tests/plugin.test.ts": 1,
+          "shared/observability/tests/wrangler/workers-observability.e2e.ts": 1,
+          "shared/ui/tests/button-busy-preload-no-idle.browser.test.tsx": 1,
+          "shared/ui/tests/button-busy-preload.browser.test.tsx": 1,
+          "shared/ui/tests/choice-geometry.browser.test.tsx": 1,
+          "shared/ui/tests/control.browser.test.tsx": 1,
+          "shared/ui/tests/dropdown-menu.browser.test.tsx": 1,
+          "shared/ui/tests/modal.browser.test.tsx": 2,
+          "shared/ui/tests/orb.browser.test.tsx": 2,
+          "shared/ui/tests/overlay-motion.look.browser.test.tsx": 1,
+          "shared/ui/tests/tooltip.browser.test.tsx": 1,
+          "tools/e2e/tests/processes.test.ts": 3
+        }
+      }
+    ],
+    "landmines-testing/no-flake-masking": [
+      "error",
+      {
+        "allow": {
+          "cire/api/tests/db/d1-integration.test.ts": 110,
+          "cire/api/tests/db/d1-session.test.ts": 5,
+          "cire/api/tests/db/migrate-wrapper.test.ts": 4,
+          "cire/api/tests/index.test.ts": 17,
+          "cire/api/tests/lib/csv.test.ts": 1,
+          "cire/api/tests/services/gift-export.test.ts": 4,
+          "cire/api/tests/services/planning-export.test.ts": 6,
+          "cire/api/tests/services/r2-reconcile.test.ts": 3,
+          "cire/api/tests/services/seating-export.test.ts": 2,
+          "cire/api/tests/services/seating.test.ts": 2,
+          "cire/db/tests/migration-flow.test.ts": 9,
+          "cire/host/tests/components/GuestsStack.browser.test.tsx": 1,
+          "cire/infra/tests/bundle.test.ts": 1,
+          "cire/infra/tests/plan-guard.test.ts": 7,
+          "cire/invites/tests/components/first-scroll.ssr.test.tsx": 1,
+          "cire/waves/tests/hooks.test.ts": 2,
+          "musubi/infra/tests/bundle.test.ts": 1,
+          "musubi/infra/tests/plan-guard.test.ts": 5,
+          "musubi/social/tests/App.signed-in.browser.test.tsx": 1,
+          "musubi/social/tests/components/DeletionWindow.browser.test.tsx": 3,
+          "musubi/social/tests/csp.test.ts": 1,
+          "musubi/social/tests/pages/DeleteAccountPage.browser.test.tsx": 6,
+          "musubi/social/tests/pages/OrgDetailPage.decline.browser.test.tsx": 3,
+          "musubi/social/tests/pages/SettingsPage.account.browser.test.tsx": 1,
+          "osn/api/tests/routes/recovery-link.test.ts": 1,
+          "osn/db/tests/push-triggers.test.ts": 1,
+          "scripts/tests/deploy-workflows.test.ts": 1,
+          "scripts/tests/dev-deploy-order.cli.test.ts": 1,
+          "scripts/tests/guest-route-parity-relay-idle.slow.ts": 1,
+          "scripts/tests/guest-route-parity-wrangler.e2e.ts": 2,
+          "shared/coordination/tests/d1/store.test.ts": 31,
+          "shared/infra/vitest.config.ts": 2,
+          "shared/observability/tests/wrangler/workers-observability.e2e.ts": 1,
+          "shared/realtime/tests/d1/hub.test.ts": 14,
+          "shared/ui/tests/orb.browser.test.tsx": 1,
+          "tools/lab/tests/stories.test.tsx": 1,
+          "tools/oxlint/house/tests/no-literal-motion.test.ts": 3,
+          "tools/oxlint/house/tests/no-module-scope-process-env.test.ts": 3,
+          "tools/oxlint/house/tests/no-unbounded-in-array.test.ts": 2,
+          "zap/infra/tests/bundle.test.ts": 1,
+          "zap/infra/tests/plan-guard.test.ts": 3
+        }
+      }
+    ],
+    // Off: 4,358 sites in 430 test files replace a dependency's behaviour
+    // (module mocks, `vi.fn(impl)`, stubbed globals), and the repo has no MSW
+    // server for them to use instead. Off until englishstreetventures/osn#2436 lands.
+    "landmines-testing/no-test-doubles": "off",
+    // Off: both reject the layout AGENTS.md requires, tests in `tests/` at
+    // the package root mirroring `src/`. They report 577 and 1,584 files.
+    "landmines-structure/colocated-tests": "off",
+    "landmines-structure/test-file-names": "off"
+    // landmines-style (`no-comments`) and landmines-types
+    // (`no-explicit-return-types`) are not in jsPlugins, so neither rule can
+    // be switched on here by accident. no-comments waits on
+    // englishstreetventures/osn#2437.
     // house/no-non-subscribing-store-read is scoped to cire/**/*-store.ts in
     // the "overrides" block below, not turned on here — the pattern it flags
     // (`cache.get(id)?.accessor()`) is a cire-specific organiser-cache
@@ -504,10 +633,13 @@
     { "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" },
     { "name": "house", "specifier": "./tools/oxlint/house/index.ts" },
     // Declares its own name, `shadcn`, so the rule keys below read
-    // `shadcn/...`. Needs Node >= 20.19: the `lint` CI job installs only Bun
-    // and this works because the GitHub runner image ships Node anyway, which
-    // is worth knowing rather than discovering.
-    "@shadcn/lint"
+    // `shadcn/...`. Needs Node >= 20.19, and landmines needs 22.18: the
+    // `lint` CI job and release.yml's lint count pin Node 24 for them.
+    "@shadcn/lint",
+    // Only the testing and structure plugins: the rules above are all they
+    // hold that this repo runs.
+    { "name": "landmines-testing", "specifier": "@interfere/landmines/testing" },
+    { "name": "landmines-structure", "specifier": "@interfere/landmines/structure" }
   ],
   "ignorePatterns": [
     "node_modules",

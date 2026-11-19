@@ -229,13 +229,22 @@ describe("GildedWave", () => {
 
   it("ends a run whose frames stop, by its deadline", async () => {
     // A tab sent to the background, or throttled, stops calling back.
-    const raf = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(0);
+    const asked = new Promise<void>((resolve) => {
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => {
+        resolve();
+        return 0;
+      });
+    });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       flip(true);
-      // The transition is up and the run has asked for its first frame.
-      await vi.waitFor(() => expect(raf).toHaveBeenCalled(), { timeout: 5000 });
+      // The transition is up and the run has asked for its first frame. The
+      // deadline was armed in the same tick, just before that request.
+      await asked;
       expect(wave.debug.mode).toBe("wave");
+      // 50 ms on from the request, so the second advance below lands 50 ms
+      // past the deadline rather than exactly on it.
+      vi.advanceTimersByTime(50);
 
       // Not before the run's own length: a slow frame is not a frozen one.
       vi.advanceTimersByTime(WAVE.duration * 1000);

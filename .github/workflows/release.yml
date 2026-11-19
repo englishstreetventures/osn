@@ -14,9 +14,10 @@ jobs:
   # release job can lower scripts/lint-warning-ceiling.txt to it in the same
   # commit as the version bumps. A job of its own so that oxlint and its
   # jsPlugins (the vendored anti-slop tree, tools/oxlint/house and the npm
-  # package @shadcn/lint) never run inside the release job, which holds
-  # RELEASE_TOKEN and can push to main. This job has a read-only token, keeps
-  # no credentials in its checkout and runs no install scripts.
+  # packages @shadcn/lint and @interfere/landmines) never run inside the
+  # release job, which holds RELEASE_TOKEN and can push to main. This job has
+  # a read-only token, keeps no credentials in its checkout and runs no install
+  # scripts.
   #
   # That is all the split gives. On a hosted runner any step can reach the
   # runner's own token and write main's dependency cache, whatever the job's
@@ -48,6 +49,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+
+      # oxlint runs its jsPlugins on Node; ci.yml's lint job pins the same.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - name: Restore bun dependencies
         uses: actions/cache/restore@v4
