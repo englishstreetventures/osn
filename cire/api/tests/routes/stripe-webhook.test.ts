@@ -1892,6 +1892,14 @@ describe("an account a wedding retired", () => {
     expect(logs).not.toContain("stripe webhook: money event for a gift cire has no row for");
   });
 
+  it("counts an account nothing names or retired as unknown", async () => {
+    const { app } = buildApp();
+    const attrs = { event: "refund", account: "unknown" };
+    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs);
+    await deliver(app, chargeRefunded({ account: "acct_nobody_knows" }));
+    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs)).toBe(before + 1);
+  });
+
   it("still raises a missing gift on a retired Express account", async () => {
     const { app, db } = buildApp();
     retiredRow(db, "rra_one", { type: null });

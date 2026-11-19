@@ -9,7 +9,7 @@ import {
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
@@ -2096,6 +2096,7 @@ describe("retiring the wedding's account", () => {
       expect(retired(db)).toEqual([]);
       expect(logs).toContain("stripe account retire refused");
       expect(logs).toContain("handover_not_owner");
+      for (const secret of ["acct_old", OWNER, SECOND]) expect(logs).not.toContain(secret);
       expect(await outcomeCount("handover_not_owner")).toBe(before + 1);
     });
 
@@ -2129,10 +2130,14 @@ describe("retiring the wedding's account", () => {
     it("refuses a body that does not say whom money gifts go to", async () => {
       const { app, db } = buildApp();
       holding(db, OWNER);
-      for (const body of [{}, { handTo: 7 }, { handTo: "" }, { handTo: "x".repeat(65) }, "{"]) {
+      const bodies = [{}, { handTo: 7 }, { handTo: "" }, { handTo: "x".repeat(65) }, "{"];
+      const before = await outcomeCount("invalid");
+      for (const body of bodies) {
         const res = await retire(app, OWNER, body);
         expect(res.status).toBe(400);
+        expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
       }
+      expect(await outcomeCount("invalid")).toBe(before + bodies.length);
       expect(row(db)?.stripeAccountId).toBe("acct_old");
       expect(retired(db)).toEqual([]);
     });
@@ -2150,6 +2155,63 @@ describe("retiring the wedding's account", () => {
       expect(body.error).toBe("stripe_account_changed");
       expect(body.settings.stripeConnected).toBe(false);
       expect(retired(db)).toEqual([]);
+      expect(await outcomeCount("account_changed")).toBeGreaterThan(0);
+    });
+
+    it("says the account changed before it judges whom money gifts were handed to", async () => {
+      // A page holding an account another owner has since retired, naming an
+      // editor: the page is out of date, and that is what it is told, with
+      // the settings to catch up from.
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      db.update(registrySettings)
+        .set({ stripeAccountId: null, stripeConnectedByOsnProfileId: null })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        .run();
+      const before = await outcomeCount("account_changed");
+      const res = await retire(app, OWNER, { handTo: EDITOR });
+      expect(res.status).toBe(409);
+      const body = (await jsonBody(res)) as { error: string; settings?: unknown };
+      expect(body.error).toBe("stripe_account_changed");
+      expect(body.settings).toBeDefined();
+      expect(await outcomeCount("account_changed")).toBe(before + 1);
+    });
+
+    it("refuses an owner removed after the gate with 403, writing nothing", async () => {
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      beforeStatement(db, /^insert into "registry_retired_accounts"/, () => {
+        db.update(weddingHosts)
+          .set({ role: "editor" })
+          .where(eq(weddingHosts.osnProfileId, SECOND))
+          .run();
+      });
+      const before = await outcomeCount("forbidden");
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await retire(app, SECOND, { handTo: null });
+      });
+      expect(res?.status).toBe(403);
+      expect(await jsonBody(res!)).toEqual({ error: "forbidden" });
+      expect(row(db)?.stripeAccountId).toBe("acct_old");
+      expect(retired(db)).toEqual([]);
+      expect(logs).toContain("stripe account retire refused");
+      expect(logs).toContain("refusal: forbidden");
+      expect(await outcomeCount("forbidden")).toBe(before + 1);
+    });
+
+    it("answers 500, logging the wedding alone, when the database fails", async () => {
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      db.run(sql`DROP TABLE registry_retired_accounts`);
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await retire(app, OWNER, { handTo: null });
+      });
+      expect(res?.status).toBe(500);
+      expect(await jsonBody(res!)).toEqual({ error: "Internal error" });
+      expect(logs).toContain("registry stripe handler defect");
+      expect(row(db)?.stripeAccountId).toBe("acct_old");
     });
 
     it("retires nothing when another account was connected after the route read the row", async () => {
@@ -2249,6 +2311,18 @@ describe("retiring the wedding's account", () => {
       expect(sent.map((m) => m.to).toSorted()).toEqual(
         [`${OWNER}@example.test`, `${SECOND}@example.test`].toSorted(),
       );
+      // The owner money gifts were handed to is spoken to.
+      const named = sent.find((m) => m.to === `${SECOND}@example.test`);
+      expect(named?.text).toContain("and handed money gifts to you.");
+    });
+
+    it("tells the seated holder whose account another owner replaced that it was theirs", async () => {
+      const { app, db, mail } = noticeApp();
+      holding(db, SECOND);
+      expect((await retire(app, OWNER, { handTo: null })).status).toBe(200);
+      const holder = mail.recorded().find((m) => m.to === `${SECOND}@example.test`);
+      expect(holder?.text).toContain("disconnected the Stripe account you connected");
+      expect(holder?.text).toContain("Gifts already given stay in your Stripe account");
     });
 
     it("mails no one when the retire is refused", async () => {

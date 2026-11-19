@@ -372,7 +372,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
               : kind === "owner_left"
                 ? [`wedding:${weddingId}`]
                 : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
-      const allowed = inputs.length === 0 ? 0 : yield* spend(keys, inputs.length, now);
+      const allowed = yield* spend(keys, inputs.length, now);
       const budgeted = [...unbudgeted, ...inputs.slice(0, allowed)];
       if (budgeted.length === 0) return "throttled" as const;
       yield* Effect.annotateCurrentSpan({
@@ -535,8 +535,10 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
         Effect.gen(function* () {
           const wedding = yield* weddingOwnerSeats(input.weddingId);
           if (!wedding) return null;
-          const holder = input.reason === "replaced" ? input.holderOsnProfileId : null;
-          const named = input.reason === "handed_over" ? input.handToOsnProfileId : null;
+          // The route names a hand-over target only on a hand-over, and a
+          // holder only on a replace of a seated holder's account.
+          const named = input.handToOsnProfileId;
+          const holder = input.holderOsnProfileId;
           const freshlySeated = (seat: OwnerSeat) =>
             seat.addedByOsnProfileId === input.actorOsnProfileId &&
             now.getTime() - seat.createdAt.getTime() < FRESH_SEAT_MS;
@@ -545,28 +547,25 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
               seat.osnProfileId !== input.actorOsnProfileId &&
               (seat.osnProfileId === holder || !freshlySeated(seat)),
           );
-          const audienceOf = (id: string) =>
-            id === named
-              ? ("named" as const)
-              : id === holder
-                ? ("holder" as const)
-                : ("owner" as const);
-          const rank = { named: 0, holder: 1, owner: 2 } as const;
-          // The replaced holder's copy is never held back by the budget: each
-          // replace needs them to have connected an account again, so they
-          // bound it themselves, and a loop of retires cannot keep it from them.
-          const others: Recipient<RetiredAudience>[] = mailed
-            .map((seat) => {
-              const audience = audienceOf(seat.osnProfileId);
-              return audience === "holder"
-                ? { osnProfileId: seat.osnProfileId, audience, unbudgeted: true as const }
-                : { osnProfileId: seat.osnProfileId, audience };
-            })
-            .toSorted((a, b) => rank[a.audience] - rank[b.audience]);
+          const addressed = (seat: OwnerSeat) =>
+            seat.osnProfileId === named || seat.osnProfileId === holder;
           const recipients: Recipient<RetiredAudience>[] = [
-            ...others.filter((r) => r.audience !== "owner"),
+            ...mailed.filter(addressed).map((seat) =>
+              seat.osnProfileId === holder
+                ? // Never held back by the budget: each replace needs the
+                  // holder to have connected an account again, so they bound
+                  // it themselves, and a loop of retires cannot keep it from them.
+                  {
+                    osnProfileId: seat.osnProfileId,
+                    audience: "holder" as const,
+                    unbudgeted: true as const,
+                  }
+                : { osnProfileId: seat.osnProfileId, audience: "named" as const },
+            ),
             { osnProfileId: input.actorOsnProfileId, audience: "actor" },
-            ...others.filter((r) => r.audience === "owner"),
+            ...mailed
+              .filter((seat) => !addressed(seat))
+              .map((seat) => ({ osnProfileId: seat.osnProfileId, audience: "owner" as const })),
           ];
           const moneyGiftsUrl = `${deps.portalUrl}/#/w/${encodeURIComponent(input.weddingId)}/registry/settings`;
           const render: RenderFor<RetiredAudience> = (recipient, to, displays) => ({

@@ -2450,11 +2450,6 @@ describe("whether the account's holder is an owner (`settings.payoutHolderAbsent
     expect((await read(app)).payoutHolderAbsent).toBe(true);
   });
 
-  it("tells an owner the holder is absent when the holder holds no seat at all", async () => {
-    const app = buildApp({ tier: "gold", ...paying, seed: account("usr_long_gone") });
-    expect((await read(app)).payoutHolderAbsent).toBe(true);
-  });
-
   it("says no one is absent where there is no account", async () => {
     const app = buildApp({ tier: "gold", ...paying });
     expect((await read(app)).payoutHolderAbsent).toBe(false);

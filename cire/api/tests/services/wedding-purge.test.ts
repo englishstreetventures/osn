@@ -13,7 +13,9 @@ import { CLAIM_TTL_MS } from "../../src/services/changes";
 import {
   MAX_PURGES_PER_RUN,
   maintenanceSweeps,
+  PURGE_HAND_BACKS,
   PURGE_PENDING_HOLD_S,
+  PURGE_RETIRED_READ,
 } from "../../src/services/maintenance-sweeps";
 import type { PurgeStripe } from "../../src/services/maintenance-sweeps";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
@@ -563,6 +565,69 @@ describe("handing a purged wedding's Standard account back", () => {
     expect(handedBack).toEqual(["acct_first", "acct_second"]);
     expect(logs).toContain("stripe account not handed back after purge");
     expect(logs).toContain("acct_third");
+  });
+
+  it("warns when a wedding holds as many retired Standard accounts as the purge reads", async () => {
+    for (const [count, warned] of [
+      [PURGE_RETIRED_READ, true],
+      [PURGE_RETIRED_READ - 1, false],
+    ] as const) {
+      const db = makeDb();
+      seedWedding(db, "wed_gone", daysAgo(9));
+      for (let i = 0; i < count; i += 1) retiredOn(db, "wed_gone", `acct_many_${i}`);
+      const { handedBack, stripe } = recordingStripe();
+      const logs = await captureLogs(async () => {
+        await purgeWith(db, stripe);
+      });
+      expect(logs.includes("wedding purged past the retired-account read")).toBe(warned);
+      if (warned) expect(logs).toContain("wed_gone");
+      expect(handedBack).toHaveLength(PURGE_HAND_BACKS);
+    }
+  });
+
+  it("purges a wedding that never opened its registry", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    db.run(sql`DELETE FROM registry_settings WHERE wedding_id = 'wed_gone'`);
+    const { handedBack, stripe } = recordingStripe();
+    const run = await purgeWith(db, stripe);
+    expect(run.purged).toBe(1);
+    expect(handedBack).toEqual([]);
+  });
+
+  it("purges, handing nothing back, where OAuth is not configured", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    nameAccount(db, "wed_gone", "acct_own", "standard");
+    retiredOn(db, "wed_gone", "acct_retired");
+    const run = await purgeWith(db, {});
+    expect(run).toEqual({ purged: 1, held: 0, errors: 0, backlog: 0 });
+  });
+
+  it("hands nothing back when it cannot tell what else holds the accounts", async () => {
+    // Unknown is not "nobody": the read that would say fails.
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    nameAccount(db, "wed_gone", "acct_own", "standard");
+    const failing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "all") {
+          return (query: Parameters<typeof target.all>[0]) => {
+            throw new Error(`refused: ${String(query)}`);
+          };
+        }
+        const value: unknown = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const { handedBack, stripe } = recordingStripe();
+    const run = await Effect.runPromise(
+      maintenanceSweeps
+        .purgeDeletedWeddings(NOW, {}, stripe)
+        .pipe(Effect.provideService(DbService, failing)),
+    );
+    expect(run.purged).toBe(1);
+    expect(handedBack).toEqual([]);
   });
 
   it("logs the account it could not hand back, and still counts the purge", async () => {
