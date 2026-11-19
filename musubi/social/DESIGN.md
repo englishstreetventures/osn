@@ -587,8 +587,10 @@ its three motions that are not a colour or opacity change.
   every route but the bare ones, so nothing that would send a request the
   pending session is refused mounts. It is drawn as a bare route's card: the
   product name over one `Card` at `padding="lg"` in the `max-w-md` column,
-  centred both ways; its `h1` at `text-title` and 500; its date a `<time>`
-  in the reader's locale and zone; its buttons as wide as the card at
+  centred both ways; its `h1` at `text-title` and 500; its date a `<time>`,
+  the day the window ends on in the reader's locale and zone with no clock
+  time ("We delete it on or shortly after …", `localDay`), and the keep
+  offered "Before that day"; its buttons as wide as the card at
   `size="lg"` with `max-md:h-11`: Keep my account (`default`), Download my
   data (`secondary`), Sign out (`ghost`). Too late to keep it, the card says
   so and offers Sign out alone. Kept from another device, or kept here, while
@@ -870,9 +872,13 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
 
   *Measured 2026-11-16 — `getBoundingClientRect()` in Chromium (Vitest browser
   tier, Musubi's `App.css`): the "Delete everything" card 143.5px at 320px,
-  124px at 360–430px, 104.5px at 600px and up; "We delete it on Wednesday,
-  September 30, 2026 at 12:00 PM." two lines (36px) at 320, 390, 768 and
-  1280px. At 320px step 2's placeholder is 19.5px shorter than the card.*
+  124px at 360–430px, 104.5px at 600px and up. At 320px step 2's placeholder
+  is 19.5px shorter than the card.*
+
+  *Measured 2026-11-19 — line boxes of a `Range` over the sentence and
+  `getBoundingClientRect()`, `tests/components/DeletionWindow.browser.test.tsx`
+  in Chromium: "We delete it on or shortly after Wednesday, September 30,
+  2026." two lines (36px) at 320, 390, 768 and 1280px.*
 - **A page that throws while it renders** shows "This page didn't load." with
   "Try again" in the content column, inside the shell: `PageErrorBoundary`
   wraps each route, so the rail, the tab bar and the account banners stay
