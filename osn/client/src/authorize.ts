@@ -5,19 +5,24 @@ import type { PublicProfile } from "./tokens";
  * Plain-fetch client for the OIDC consent screen (`/authorize` in @musubi/social).
  *
  * The screen is handed nothing but an opaque request id — every OAuth
- * parameter stays parked server-side. These two calls read the request back
- * and post the user's answer:
+ * parameter stays parked server-side. These calls read the request back and
+ * post the user's answer:
  *
- *  1. `getContext(requestId)` — who is asking, for what, and whether this
- *     browser already holds a session.
+ *  1. `getContext(requestId)` — who is asking, for what, whether this
+ *     browser already holds a session, and whether that account's deletion
+ *     is pending.
  *  2. `submitDecision({ requestId, profileId, approved })` — the answer.
  *     Success returns an opaque `redirectTo` to assign verbatim.
+ *  3. `decline(requestId)` — a refusal with no profile, for a screen that has
+ *     none to decide with (an account whose deletion is pending). The same
+ *     opaque `redirectTo`, carrying the refusal a Cancel sends.
  *
- * Both calls must ride the per-request binding cookie
+ * Every call must ride the per-request binding cookie
  * (`__Host-osn_oar_<12hex>`, HttpOnly) the provider set on the redirect that
- * brought the user here, so both are `credentials: "include"` and must be
+ * brought the user here, so each is `credentials: "include"` and must be
  * made same-site with the issuer. A missing binding cookie is answered
- * exactly like an unknown id: 404 `invalid_request`.
+ * exactly like an unknown id: 404 `invalid_request` from the read, 400 from
+ * the two writes.
  */
 
 export interface AuthorizeClientConfig {
@@ -62,6 +67,11 @@ export type AuthorizeErrorCode =
   | "unauthorized"
   /** Client disabled mid-flow. Terminal. */
   | "invalid_client"
+  /**
+   * An approval from an account whose deletion is pending. The request
+   * survives: read the context again, which says `pendingDeletion`.
+   */
+  | "access_denied"
   /** Rate limited. */
   | "rate_limited"
   /** Anything else, including a transport failure. */
@@ -104,6 +114,12 @@ export interface AuthorizeContext {
   /** Requested scopes, already split. */
   scopes: string[];
   signedIn: boolean;
+  /**
+   * True while the signed-in account's deletion is pending. The screen then
+   * shows the deletion screen in place of consent, and ignores `profiles`;
+   * an approval is refused with `access_denied`.
+   */
+  pendingDeletion: boolean;
   /** Empty when signed out. */
   profiles: PublicProfile[];
   /** The profile this client already knows, if any — the default selection. */
@@ -132,6 +148,14 @@ export interface AuthorizeClient {
     input: AuthorizeDecisionInput,
     options?: AuthorizeCallOptions,
   ): Promise<{ redirectTo: string }>;
+  /**
+   * Refuse the request with no profile, the way back for a screen that has
+   * none to decide with. Spends the request; the relying party gets the same
+   * refusal a Cancel sends. The returned `redirectTo` is opaque: assign it.
+   * Throws `AuthorizeError` with code `invalid_request` when the request has
+   * expired, been answered, or was opened in a different browser.
+   */
+  decline(requestId: string, options?: AuthorizeCallOptions): Promise<{ redirectTo: string }>;
 }
 
 interface ErrorBody {
@@ -145,6 +169,7 @@ const KNOWN_CODES: AuthorizeErrorCode[] = [
   "login_required",
   "unauthorized",
   "invalid_client",
+  "access_denied",
 ];
 
 const toError = (status: number, body: ErrorBody): AuthorizeError => {
@@ -249,6 +274,7 @@ export function createAuthorizeClient(config: AuthorizeClientConfig): AuthorizeC
       client: json.client,
       scopes: json.scopes,
       signedIn: json.signedIn === true,
+      pendingDeletion: json.pendingDeletion === true,
       profiles: Array.isArray(json.profiles) ? json.profiles : [],
       linkedProfileId: json.linkedProfileId ?? null,
     };
@@ -267,7 +293,7 @@ export function createAuthorizeClient(config: AuthorizeClientConfig): AuthorizeC
         body: JSON.stringify(input),
       },
       options,
-      // NO default deadline on this one, deliberately (S-M1).
+      // NO default deadline on this one, deliberately.
       //
       // Aborting a fetch does not un-send the request. This POST is the
       // state-changing call: the server consumes the parked request, writes
@@ -289,5 +315,30 @@ export function createAuthorizeClient(config: AuthorizeClientConfig): AuthorizeC
     return { redirectTo: json.redirectTo };
   };
 
-  return { getContext, submitDecision };
+  const decline = async (
+    requestId: string,
+    options?: AuthorizeCallOptions,
+  ): Promise<{ redirectTo: string }> => {
+    const { res, json: body } = await send(
+      `${base}/authorize/decline`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId }),
+      },
+      options,
+      // No default deadline, for the reason `submitDecision` gives: the
+      // server spends the request, and a timeout that fires while it does
+      // would show a retry for a refusal already made.
+      0,
+    );
+    const json = body as { redirectTo?: string } & ErrorBody;
+    if (!res.ok || typeof json.redirectTo !== "string") {
+      throw toError(res.status, json);
+    }
+    return { redirectTo: json.redirectTo };
+  };
+
+  return { getContext, submitDecision, decline };
 }

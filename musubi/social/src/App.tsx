@@ -118,8 +118,10 @@ const BARE_PREFIXES = ["/verify/"];
  * Bare routes also run outside `AuthProvider`. Mounting it bootstraps a
  * session — `POST /token`, which rotates the refresh session — and then lists
  * profiles; the consent screen reads neither, since `/authorize/context`
- * already carries both, and the emailed-link page signs nobody in. It mounts its own provider around the sign-in island
- * when a ceremony is actually needed.
+ * already carries both, and the emailed-link page signs nobody in. The consent
+ * screen mounts its own provider around the sign-in island when a ceremony is
+ * actually needed, and around the deletion screen's island for an account
+ * whose deletion is pending, which reads the deletion's status with a token.
  */
 export function Layout(props: { children?: JSX.Element }) {
   const location = useLocation();

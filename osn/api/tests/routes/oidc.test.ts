@@ -2473,6 +2473,13 @@ describe("GET /authorize with a restricted recovery session", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// An account whose deletion is pending signs in to no relying party. Its
+// session is a real one, so it reaches the code-minting branches unless they
+// refuse it; instead the request is parked for Musubi's `/authorize` page,
+// which shows the deletion screen, and the relying party learns nothing until
+// the person acts: a refusal identical to a Cancel, or a code after a keep.
+// ---------------------------------------------------------------------------
 describe("GET /authorize for an account whose deletion is pending", () => {
   /** What the soft delete leaves on the account: `deleted_at` set. */
   const tombstoneEveryAccount = (h: Harness) =>
@@ -2481,7 +2488,20 @@ describe("GET /authorize for an account whose deletion is pending", () => {
   const count = (h: Harness, table: "oauth_consents" | "oauth_authorization_codes") =>
     (h.sqlite.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
 
-  it("answers a first-party client access_denied on a first visit, writing no consent and no code", async () => {
+  /** The browser goes to Musubi's page with a parked request, never to the relying party. */
+  const expectParked = (res: Response) => {
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.pathname).toBe("/authorize");
+    expect(loc.searchParams.get("request")).toMatch(/^oar_[a-f0-9]{12}$/);
+    // The URL lands in the person's own history: it does not name the deletion.
+    expect(loc.searchParams.get("reason")).toBe("consent");
+    expect(loc.searchParams.get("code")).toBeNull();
+    expect(loc.searchParams.get("error")).toBeNull();
+    expect(res.headers.get("set-cookie")).toContain(`osn_${loc.searchParams.get("request")}=oab_`);
+  };
+
+  it("parks a first-party request on a first visit, writing no consent and no code", async () => {
     const h = setup();
     h.seedClient({ firstParty: true });
     const cookie = await signIn(h, "pd-first@example.com", "pd_first");
@@ -2489,17 +2509,12 @@ describe("GET /authorize for an account whose deletion is pending", () => {
 
     const res = await h.app.handle(new Request(authorizeUrl(goodParams), { headers: { cookie } }));
 
-    expect(res.status).toBe(302);
-    const loc = new URL(res.headers.get("location")!);
-    expect(loc.origin + loc.pathname).toBe(REDIRECT_URI);
-    expect(loc.searchParams.get("error")).toBe("access_denied");
-    expect(loc.searchParams.get("code")).toBeNull();
-    expect(loc.searchParams.get("state")).toBe("st_123");
+    expectParked(res);
     expect(count(h, "oauth_consents")).toBe(0);
     expect(count(h, "oauth_authorization_codes")).toBe(0);
   });
 
-  it("answers access_denied where a consent is on record, writing no code", async () => {
+  it("parks the request where a consent is on record, writing no code", async () => {
     const h = setup();
     h.seedClient({ firstParty: true });
     const cookie = await signIn(h, "pd-consent@example.com", "pd_consent");
@@ -2512,11 +2527,165 @@ describe("GET /authorize for an account whose deletion is pending", () => {
 
     const res = await h.app.handle(new Request(authorizeUrl(goodParams), { headers: { cookie } }));
 
-    expect(res.status).toBe(302);
-    const loc = new URL(res.headers.get("location")!);
-    expect(loc.searchParams.get("error")).toBe("access_denied");
-    expect(loc.searchParams.get("code")).toBeNull();
+    expectParked(res);
     expect(count(h, "oauth_consents")).toBe(1);
     expect(count(h, "oauth_authorization_codes")).toBe(codesBefore);
+  });
+
+  it("answers prompt=none exactly as it answers a browser with no session", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "pd-silent@example.com", "pd_silent");
+    tombstoneEveryAccount(h);
+    const silent = authorizeUrl({ ...goodParams, prompt: "none" });
+
+    const pending = await h.app.handle(new Request(silent, { headers: { cookie } }));
+    const signedOut = await h.app.handle(new Request(silent));
+
+    expect(pending.status).toBe(302);
+    // Byte for byte: a silent probe cannot tell this account from no session.
+    expect(pending.headers.get("location")).toBe(signedOut.headers.get("location"));
+    expect(new URL(pending.headers.get("location")!).searchParams.get("error")).toBe(
+      "login_required",
+    );
+    expect(pending.headers.get("set-cookie")).toBeNull();
+    expect(count(h, "oauth_consents")).toBe(0);
+    expect(count(h, "oauth_authorization_codes")).toBe(0);
+  });
+
+  // `max_age` answers a live session "older than the requested max_age", so a
+  // silent probe with `max_age=0` would tell a session from none, and a second
+  // without it would then single out the pending account. Silent, the account
+  // is read first, and a pending one answers as no session whatever `max_age`.
+  it("answers prompt=none with max_age=0 exactly as it answers a browser with no session", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "pd-maxage@example.com", "pd_maxage");
+    ageSessions(h, 60);
+    tombstoneEveryAccount(h);
+    const silent = authorizeUrl({ ...goodParams, prompt: "none", max_age: "0" });
+
+    const pending = await h.app.handle(new Request(silent, { headers: { cookie } }));
+    const signedOut = await h.app.handle(new Request(silent));
+
+    expect(pending.status).toBe(302);
+    expect(pending.headers.get("location")).toBe(signedOut.headers.get("location"));
+    expect(new URL(pending.headers.get("location")!).searchParams.get("error_description")).toBe(
+      "No session",
+    );
+  });
+
+  it("refuses the account's approval without spending the request, writing no consent and no code", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const session = await signIn(h, "pd-approve@example.com", "pd_approve");
+    tombstoneEveryAccount(h);
+    const { requestId, binding } = await startAuthorize(h, session);
+    const cookie = `${session}; ${binding}`;
+    const ctxRes = await h.app.handle(
+      new Request(`http://localhost/authorize/context?request=${requestId}`, {
+        headers: { cookie },
+      }),
+    );
+    const ctx = (await ctxRes.json()) as {
+      pendingDeletion: boolean;
+      profiles: { id: string }[];
+    };
+    expect(ctx.pendingDeletion).toBe(true);
+
+    const res = await h.app.handle(approvalRequest(requestId, ctx.profiles[0]!.id, cookie));
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("access_denied");
+    expect(count(h, "oauth_consents")).toBe(0);
+    expect(count(h, "oauth_authorization_codes")).toBe(0);
+    // Not claimed: the person can still keep the account and continue, or go back.
+    const again = await h.app.handle(
+      new Request(`http://localhost/authorize/context?request=${requestId}`, {
+        headers: { cookie },
+      }),
+    );
+    expect(again.status).toBe(200);
+  });
+
+  it("sends the relying party, on the way back, exactly the refusal a Cancel sends", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const session = await signIn(h, "pd-back@example.com", "pd_back");
+    tombstoneEveryAccount(h);
+    const { requestId, binding } = await startAuthorize(h, session);
+
+    const res = await h.app.handle(declineRequest(requestId, `${session}; ${binding}`));
+
+    expect(res.status).toBe(200);
+    expectRefusalRedirect(((await res.json()) as { redirectTo: string }).redirectTo);
+    expect(count(h, "oauth_consents")).toBe(0);
+    expect(count(h, "oauth_authorization_codes")).toBe(0);
+  });
+
+  // A page from before `pendingDeletion` shows such an account consent with
+  // its profiles, and its Cancel posts a refusal: that must still reach the
+  // relying party, since only an approval waits for a keep.
+  it("lets the account's Cancel through, as the refusal every Cancel sends", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const session = await signIn(h, "pd-cancel@example.com", "pd_cancel");
+    tombstoneEveryAccount(h);
+    const { requestId, binding } = await startAuthorize(h, session);
+    const cookie = `${session}; ${binding}`;
+    const profileId = await firstProfileId(h, requestId, cookie);
+
+    const res = await h.app.handle(
+      new Request("http://localhost/authorize/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ requestId, profileId, approved: false }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expectRefusalRedirect(((await res.json()) as { redirectTo: string }).redirectTo);
+    expect(count(h, "oauth_consents")).toBe(0);
+    expect(count(h, "oauth_authorization_codes")).toBe(0);
+    const after = await h.app.handle(
+      new Request(`http://localhost/authorize/context?request=${requestId}`, {
+        headers: { cookie },
+      }),
+    );
+    expect(after.status).toBe(404);
+  });
+
+  it("still renders an unregistered redirect_uri before anything else, setting no cookie", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "pd-uri@example.com", "pd_uri");
+    tombstoneEveryAccount(h);
+
+    const res = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, redirect_uri: "https://attacker.example/steal" }), {
+        headers: { cookie },
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(res.headers.get("content-type")).toContain("text/html");
+  });
+
+  it("still renders an unknown client before anything else, setting no cookie", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "pd-client@example.com", "pd_client");
+    tombstoneEveryAccount(h);
+
+    const res = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, client_id: "cid_nope" }), { headers: { cookie } }),
+    );
+
+    expect(res.status).toBe(401);
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(res.headers.get("content-type")).toContain("text/html");
   });
 });

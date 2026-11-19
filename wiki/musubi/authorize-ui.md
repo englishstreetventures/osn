@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-20
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -73,8 +73,9 @@ along. If the user opens the link in a *different* browser, every call
 
 | Call | When | Notes |
 |---|---|---|
-| `GET /authorize/context?request=<id>` | On load, and again after any sign-in | Returns `{ client: { clientId, name, logoUrl, firstParty, redirectDomain }, scopes: string[], signedIn: boolean, profiles: PublicProfile[], linkedProfileId: string \| null }`. 404 ⇒ expired (10 min TTL), consumed, or wrong browser. |
+| `GET /authorize/context?request=<id>` | On load, and again after any sign-in, keep or sign-out | Returns `{ client: { clientId, name, logoUrl, firstParty, redirectDomain }, scopes: string[], signedIn: boolean, pendingDeletion: boolean, profiles: PublicProfile[], linkedProfileId: string \| null }`. `pendingDeletion` is true while the signed-in account's deletion is pending: show the deletion screen (state 9) and ignore `profiles`. 404 ⇒ expired (10 min TTL), consumed, or wrong browser. |
 | `POST /authorize/decision` `{ requestId, profileId, approved }` | On Allow / Cancel | Success ⇒ `{ redirectTo }` — assign `window.location`. The request id is single-use on success either way. |
+| `POST /authorize/decline` `{ requestId }` | On the deletion screen's Back to <app> | A refusal with no profile and no session read: success ⇒ `{ redirectTo }`, the refusal a Cancel sends. `400 invalid_request` ⇒ terminal, as for the decision. |
 | Existing sign-in surface (`/passkey/login/*`, registration, recovery) | When `signedIn` is false or a fresh login is demanded | Reuse the `@osn/auth-ui` `<SignIn>`/`<Register>` components; no new auth UI. `AuthorizeSignIn` holds both and swaps between them — a "No account yet? Create one" link under sign-in, and Cancel back from registration. Without that second half, a relying party's "Create account" button would land on a screen demanding a passkey the visitor has not got. |
 
 ### Decision error handling — exhaustive
@@ -85,6 +86,7 @@ along. If the user opens the link in a *different* browser, every call
 | `400 { error: "invalid_request", error_description: "Unknown or expired request" }` | Expired (10 min), already consumed, or this browser doesn't hold the binding cookie. Deliberately indistinguishable. | Terminal: "This sign-in request has expired.", then "Go back to <app> and start again." No retry button. |
 | `401 { error: "unauthorized" }` | No session cookie at all. | Same as `login_required` but the sign-in is a first sign-in, not a re-auth. |
 | `400 { error: "invalid_client" }` | Client disabled mid-flow. | Terminal error naming no client details beyond what context already showed. |
+| `400 { error: "access_denied" }` | An approval from an account whose deletion is pending (asked for since the screen loaded). The parked request is **still alive**. | Read the context again, which shows the deletion screen. |
 | `429` | Rate limited. | Generic "try again in a minute". |
 
 ## Screen states
@@ -150,6 +152,12 @@ along. If the user opens the link in a *different* browser, every call
    the app you came from and try again." The heading says which ending:
    - "This sign-in request has expired." — expired, consumed, or opened in
      a different browser.
+   - "Your account is back, but this sign-in has expired." — the same, read
+     again after a keep on the deletion screen.
+   - "Your account is back, but this sign-in can't carry on." — read again
+     after a keep, the request still says `pendingDeletion` (the deletion's
+     status and the account disagree); the page stops rather than show the
+     deletion screen again.
    - "This app is no longer able to sign you in." — `invalid_client`.
    - "This sign-in link is not valid." — the URL carries no well-formed
      `request`.
@@ -157,10 +165,28 @@ along. If the user opens the link in a *different* browser, every call
      back to the app and try again." — the decision still answered
      `login_required` after two fresh sign-ins on this page, so the page
      stops rather than ask for a third.
+9. **Deletion screen** (signed in, `pendingDeletion: true`, after any fresh
+   sign-in the request demands) — the client card, then 24px under it the
+   account-deletion window as a card (`DeletionWindow` with `app`, in the
+   lazy `AuthorizeDeletionWindow` island, which mounts its own
+   `AuthProvider` and lists no profiles with it): its heading an `h2` under the app's `h1`, the day the
+   account is deleted, "Before that day, you can keep it…", then "You're not
+   signed in to <app>. Keep your account to carry on signing in.", and
+   **Keep my account**, **Download my data**, **Back to <app>** ("Taking you
+   back…" while it leaves) and **Sign out**. Back declines; too late to
+   keep, it offers Back and Sign out. A keep (or a status read that finds
+   nothing pending) renews the session and reads the context again, which
+   leads to consent (state 6) for the same request; expired by then, state 8
+   says the account is back. Sign out, or the session ending, reads the
+   context again, which offers sign-in (state 3). If the island's code fails
+   to load, the card shows its heading, the failed-load line and Back to
+   <app>. Nothing of consent shows,
+   and no code goes to the app, while the deletion is pending
+   ([[account-deletion#Signing in to an app during the window]]).
 
 First-party clients reach this page only on `prompt=select_account`,
-`prompt=login`, `prompt=create` or `prompt=consent`; otherwise the provider
-grants them without a screen. The provider parks `select_account` before
+`prompt=login`, `prompt=create` or `prompt=consent`, or when the account's
+deletion is pending; otherwise the provider grants them without a screen. The provider parks `select_account` before
 both the stored-consent and the first-party short-cuts, so the account
 screen shows even when consent is on record (pinned in
 `osn/api/tests/routes/oidc.test.ts`).
@@ -176,7 +202,8 @@ screen shows even when consent is on record (pinned in
   "helpfully" parse or rewrite it.
 - **No local persistence** of anything from context (no localStorage) —
   the request id in the URL plus server state is the entire session.
-- **A denial is a decision** — Cancel must POST, not abandon.
+- **A denial is a decision** — Cancel must POST, not abandon; the deletion
+  screen's Back to <app>, with no profile to post, declines.
 
 ## Build order (estimate: one focused PR)
 

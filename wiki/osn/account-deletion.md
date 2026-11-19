@@ -12,7 +12,7 @@ related:
   - "[[cire-auth]]"
   - "[[pulse]]"
   - "[[zap]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-20
 ---
 
 # Account deletion
@@ -38,7 +38,7 @@ flowchart TD
 |---|---|---|
 | Download their data | Any time, and during the window | Settings → Account → "Download my data" (`GET /account/export`, an `account_export` step-up, one a day) or "Send me a link" by email; during the window, "Download my data" on the window screen, since the limited session cannot ask for the link ([[dsar#Art. 15 — Right of access]]) |
 | Delete the account | Any time | Settings → Account → Danger zone → "Delete account…" ([[#The person's side]]) |
-| Keep the account | Until the window ends, seven days on; the screen and the email offer it before the day it ends on | Sign in to Musubi by passkey or email, then "Keep my account" ([[#The person's side]]) |
+| Keep the account | Until the window ends, seven days on; the screen and the email offer it before the day it ends on | Sign in to Musubi by passkey or email, or start a sign-in from an app, then "Keep my account" ([[#The person's side]]) |
 | Remove their data from one app and keep the account | Any time | Pulse's leave route; cire's "Remove my Cire data" ([[#Leaving one app]]) |
 
 ## The person's side
@@ -49,11 +49,21 @@ Musubi's Settings → Account ([[social]]) is where the person deletes the accou
 - **"Delete account…" in Danger zone.** A flow: what is deleted and what stays, and the seven days; the download again; each open action from `GET /account/deletion-preview`, grouped by app, with its choices as the server describes them, its erase date and its link (a cire wedding's link opens its download page in Cire, which also offers to add another owner; Musubi builds no Cire address, and follows an app's link only when it is `https:`, or `http:` to this machine, which osn-api forwards from a local run alone); one "Delete everything" switch; the handle typed; an `account_delete` step-up; `DELETE /account`. An app that could not be checked blocks the flow and is named; each refusal (409 `open_actions`, `stale_choices`, `could_not_check`; 400 `invalid_choice`, `choices_with_delete_everything`, `handle_mismatch`; 403 `step_up_required`) returns the person to the step they can act on. On the 202 the page renews its token onto the pending audience at once.
 - **The window.** While the deletion is pending, every sign-in to Musubi, and the device that asked, show one screen in place of the app: the day the window ends on ("We delete it on or shortly after <day>", in the reader's zone, with no clock time, then "Before that day, you can keep it"), "Keep my account" (an `account_restore` step-up, then `POST /account/restore`; the page renews onto the ordinary audience and the app comes back) and "Download my data". `@osn/client` keeps such a session rather than ending it on the first refused route ([[sessions#The pending-deletion session]]).
 
-A person keeps the account by signing in to Musubi before the window ends — with a passkey, or with their email address (sign-in by handle finds nothing during the window) — and choosing "Keep my account". Signing in to Pulse or cire during the window lands on Musubi's `/authorize`, which refuses the account (`access_denied`) and shows no window screen.
+A person keeps the account by signing in to Musubi before the window ends — with a passkey, or with their email address (sign-in by handle finds nothing during the window) — and choosing "Keep my account".
+
+### Signing in to an app during the window
+
+A sign-in started from Pulse or cire lands on Musubi's `/authorize`, which shows the same screen under the app's card, and signs the person in to no app ([[oidc-provider#An account whose deletion is pending]], [[authorize-ui]]):
+
+- Signed out, they sign in on the page first (passkey or email); signed in already, the screen shows at once.
+- It names the app and says they are not signed in to it, then offers "Keep my account", "Download my data", "Back to <app>" and "Sign out" (after which the page offers sign-in, for another account).
+- "Back to <app>" sends the app `access_denied` with the description a Cancel on the consent screen sends ("The user refused the request"), so the app learns nothing it would not learn from a Cancel. Closing the tab sends it nothing, as for any sign-in left unfinished.
+- "Keep my account" (the same `account_restore` step-up and `POST /account/restore`) carries the same sign-in on: the page reads the request again and shows the consent screen, and Allow gives the app its code. The request lives 10 minutes from the app's redirect, a keep does not extend it, and one that has expired by then ends with "Your account is back, but this sign-in has expired" and a line to start again from the app.
+- No code is issued and no consent is recorded while the deletion is pending. A silent request (`prompt=none`) gets the answer a browser with no session gets.
+
+Tests: `osn/api/tests/routes/oidc.test.ts` ("GET /authorize for an account whose deletion is pending"), `musubi/social/tests/components/AuthorizePage.test.tsx` and `DeletionWindow.test.tsx`, `musubi/social/tests/components/AuthorizeDeletion.browser.test.tsx`; end to end, `tools/e2e/tests/flows/musubi-account-deletion.flow.ts` (from Pulse signed out, back to Pulse; from cire signed in, kept, into cire).
 
 No "Remove my data" link sits in Musubi's Connected apps settings: Musubi keeps no address of an app's portal, and cire's portal origin reaches osn-api only inside one call's answer. A host removes their Cire data from cire's own portal, which sends them to Musubi's `/confirm/<request id>` page for the step-up and back ([[step-up#App step-up requests]]). Pulse has the leave route only.
-
-Signing in to an app during the window does not show the date or a way to keep the account (englishstreetventures/osn#2348).
 
 ## What happens, in order
 
@@ -72,7 +82,7 @@ Signing in to an app during the window does not show the date or a way to keep t
 
    An app join (`/internal/app-enrollment/join`, `joinApp`) for an account whose deletion is pending writes no enrolment and answers `enrolled: false`: its insert reads `accounts.deleted_at` in the same statement. It changes nothing on the job, which reaches every app anyway. Tests: `osn/api/tests/services/account-erasure.test.ts` ("joinApp writes nothing for an account whose deletion is pending", "a join refused during the window leaves the job as it is").
 
-   Passkeys, recovery codes and TOTP stay until the hard delete, so a person who can still sign in can cancel. The soft delete ends OSN sessions, and, in the background, the person's Pulse web sessions (`POST /internal/account-sessions/revoke` on pulse-api, scope `account:sessions-revoke`, best effort: a refusal is counted as `osn.account.deletion.app_sessions_ended` and logged, and Pulse's erasure at the end of the window deletes any that survived). Cire's organiser sessions are not OSN sessions: the route then asks cire-api to end them through the same revoke sign-out-everywhere uses (`POST <CIRE_API_URL>/internal/revoke-organiser-sessions`, one call per profile of the account that has signed in to cire, trigger `account_deletion` on `osn.auth.cire_session.revocations`, [[sessions#Sign out everywhere else reaches cire]]), best effort and only where both Workers hold `CIRE_INTERNAL_REVOKE_SECRET`; cire's erasure at the end of the window deletes any that survived. Nothing else changes in cire during the window, so a cancel loses nothing there. A new sign-in to any relying party is refused, since `/authorize` answers `access_denied` for an account whose deletion is pending, before it records a consent or mints a code (`osn/api/tests/routes/oidc.test.ts`, "GET /authorize for an account whose deletion is pending").
+   Passkeys, recovery codes and TOTP stay until the hard delete, so a person who can still sign in can cancel. The soft delete ends OSN sessions, and, in the background, the person's Pulse web sessions (`POST /internal/account-sessions/revoke` on pulse-api, scope `account:sessions-revoke`, best effort: a refusal is counted as `osn.account.deletion.app_sessions_ended` and logged, and Pulse's erasure at the end of the window deletes any that survived). Cire's organiser sessions are not OSN sessions: the route then asks cire-api to end them through the same revoke sign-out-everywhere uses (`POST <CIRE_API_URL>/internal/revoke-organiser-sessions`, one call per profile of the account that has signed in to cire, trigger `account_deletion` on `osn.auth.cire_session.revocations`, [[sessions#Sign out everywhere else reaches cire]]), best effort and only where both Workers hold `CIRE_INTERNAL_REVOKE_SECRET`; cire's erasure at the end of the window deletes any that survived. Nothing else changes in cire during the window, so a cancel loses nothing there. A new sign-in to any relying party issues no code: `/authorize` parks the request for Musubi's page, which shows the window screen, before it records a consent or mints a code ([[#Signing in to an app during the window]]).
 
    Two deletes at once answer one 202 scheduled and one 202 `already_pending`, never a 500. A repeat during the window answers `already_pending` with the date, before the handle check, since the handle is redacted by then; it needs no step-up. Tests: `osn/api/tests/routes/account-erasure.test.ts` ("two deletions at once…", "DELETE /account returns 202 with both scheduling fields, and is idempotent") and `osn/api/tests/d1/account-hard-delete.test.ts` ("two deletions of one account at once on D1"); credentials kept and the restore record written: `osn/api/tests/services/account-erasure.test.ts` ("soft-deletes the account, redacts identity, keeps credentials and the cancel session", "holds every profile's handle and records each in the restore record").
 
@@ -256,5 +266,4 @@ gh workflow run production-operator.yml --repo englishstreetventures/osn --ref m
 
 - englishstreetventures/osn#2386 — erase the account on the run that reaches the apps, not the one after.
 - englishstreetventures/osn#2303 — a dashboard panel and an alert on the age of each app's oldest unfinished job.
-- englishstreetventures/osn#2348 — signing in from an app during the window shows the date and a way to keep the account.
 - englishstreetventures/osn#2299 — remove `deletion_jobs.cancel_session_id`, `sessions.replaced_at` and the handling of jobs written before the restore record.

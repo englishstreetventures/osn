@@ -648,6 +648,35 @@ export async function callOsnApiFrom(context: BrowserContext, address: string): 
 }
 
 /**
+ * Sends an app's two OIDC redirect legs, `<api>/api/auth/oidc/start` and
+ * `/callback`, from `address`, and counts each one sent so. Playwright routes
+ * only the first address of a redirect chain, so `callOsnApiFrom` never sees
+ * osn-api's `/authorize`, which the start leg redirects to; but a header added
+ * here rides that redirect, so `/authorize` spends `address`'s window too.
+ * cire-api keeps a sent `cf-connecting-ip` on this stack, so its legs spend
+ * that address's window as well; pulse-api keys on the socket and spends the
+ * suite's. A flow that starts an app's sign-in itself checks the counts, so a
+ * leg this misses fails the flow rather than spending the suite's windows.
+ */
+export async function routeOidcLegsFrom(
+  context: BrowserContext,
+  apiOrigin: string,
+  address: string,
+): Promise<{ readonly sent: () => number }> {
+  let sent = 0;
+  const leg = (url: URL) =>
+    url.origin === apiOrigin &&
+    (url.pathname === "/api/auth/oidc/start" || url.pathname === "/api/auth/oidc/callback");
+  await context.route(leg, async (route: Route) => {
+    sent += 1;
+    await route.continue({
+      headers: { ...(await route.request().allHeaders()), "cf-connecting-ip": address },
+    });
+  });
+  return { sent: () => sent };
+}
+
+/**
  * Holds the browser's `method` requests to the URL it is routed on until
  * `release` runs; the preflight and every other method go on. Route it with
  * `page.route(url, handler)`, and once released undo it with
