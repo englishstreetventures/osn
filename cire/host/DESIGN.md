@@ -379,8 +379,11 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   `GuestsStack.browser.test.tsx` fails "card header holds" with `hidden`.
 - **Fields** take the 14px field corner at one of two heights, below (One
   form-field height).
-- **The event drawer** (`Modal presentation="drawer"`) and the module nav's
-  sheet are square: each runs to the window's edge.
+- **The event drawer** (`Modal presentation="drawer"`) is square: it runs to
+  the window's edge.
+- **The phone's module menu** rises from the foot of the screen with the
+  `sheet` corner on its top edge (`rounded-t-ui-sheet`) and none at its foot,
+  over the house scrim (`bg-ui-scrim`) (§5, The bar at the foot, on a phone).
 - Tailwind's other default steps (`rounded-xs`, `rounded-lg`, `rounded-xl`,
   `rounded-2xl`) still generate and belong to no role. None is written in
   `src/`; a corner that wants one takes a role utility instead.
@@ -389,7 +392,9 @@ The scale is the same in all four cire apps, and so is `--toast-radius`
 (`md`, in the three that load `@shared/toast`). `cire/vendor`'s
 `tests/styles/tokens.test.ts` reads all four stylesheets and fails if a role or
 a step differs. The guest site and the marketing site add one role, `sheet`, at
-1.75rem, for their bottom sheets; the portals draw none. They give the steps the
+1.75rem, for their bottom sheets; this portal's one sheet, the phone's module
+menu, reads the same role, which it leaves at the contract's fallback, the
+`lg` corner. They give the steps the
 same kinds as here, and two more: a small panel the size of a notice at 6px (the
 gift page's "Send gifts to" box) and a legal page's inline placeholder at 2px.
 Their pages list every corner they paint
@@ -657,11 +662,11 @@ arrives on CSS's own `ease-out`, a keyword in its own stylesheet.
 
 Exits keep their own curves. `Popover`'s exit, like every `animate-out`, runs
 the contract's `--ui-ease-exit`, `cubic-bezier(0.22, 1, 0.36, 1)`, which no
-cire stylesheet maps; `Modal`'s and the toast's run `ease-in`, the nav sheet's
-`--ease-in-out`, and the droplet's `--ease-out`. A `Switch`'s thumb and a
-`Meter`'s fill move between two places, which would take `--ease-in-out`, but
-they name no easing, so they run `--ease-out`; naming one is a change to
-`@shared/ui`.
+cire stylesheet maps; `Modal`'s and the toast's run `ease-in`, the phone's
+module menu's `--ease-in-out`, and the droplet's `--ease-out`. A `Switch`'s
+thumb and a `Meter`'s fill move between two places, which would take
+`--ease-in-out`, but they name no easing, so they run `--ease-out`; naming one
+is a change to `@shared/ui`.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor
@@ -804,8 +809,10 @@ vendor portal:
   non-positioned siblings in the same stacking context, and without it the
   underlay covers its own labels.
 
-The sheet variant of the module nav deliberately gets no pill. A pill measures a
-strip the eye can see all of at once, and a sheet is a list.
+The phone's module menu deliberately gets no pill. A pill measures a strip the
+eye can see all of at once, and the menu is a grid; its open tile is washed
+instead. The bottom bar gets none either: its open tab's icon sits on a fixed
+gold wash, which comes and goes in place rather than travelling.
 
 **A view arrives by fading in** (the owner's choice, 2026-11-10, from a
 rendered comparison, englishstreetventures/osn#2164: "the arriving view fades in
@@ -1228,8 +1235,8 @@ Each choice, and what it was weighed against:
   it narrows (§1). The active row keeps its icon, pill and bar, and locked rows
   stay dimmer than the rest, so the organiser still sees where they are and
   still reaches any module in one click. A rail hidden outright makes every
-  move two clicks and drops the "you are here" mark; an off-canvas drawer at
-  desktop is the phone's sheet, a modal per move.
+  move two clicks and drops the "you are here" mark; an off-canvas menu at
+  desktop is the phone's, a modal per move.
 - **A collapsed icon reads at 3:1.** Collapsed, the icon is the only mark a row
   shows, so it is held to the 3:1 WCAG asks of a graphic that identifies a
   control: it drops the `opacity-80` fade it wears beside a label, and the
@@ -1303,12 +1310,12 @@ Each choice, and what it was weighed against:
   read as the sidebar is created, so a collapsed page paints collapsed and never
   slides on load, and every storage failure reads as expanded. Per browser, not
   per wedding: the choice is about the screen.
-- **The sheet ignores it.** Below `@2xl/shell` the sheet stands in for the rail
-  and shows every label; the toggle lives inside the rail, which is not laid out
-  there.
+- **The phone ignores it.** Below `@2xl/shell` the bottom bar and its menu
+  stand in for the rail and show every label; the toggle lives inside the rail,
+  which is not laid out there.
 - **No keyboard shortcut and no palette entry.** A single key or a chord risks
   clashing with the browser and with screen readers, and the palette does not
-  know whether the rail or the sheet is showing.
+  know whether the rail or the bottom bar is showing.
 - **The rail sticks under the top bar**, at `top-[calc(5.5rem+1px)]`: the bar's
   4rem and hairline at every width that has a rail, plus 1.5rem. A smaller
   offset slides the rail's first rows under the bar once the page scrolls.
@@ -1318,6 +1325,58 @@ tooltip ink, the tooltip, the names and the motion in Chromium; the
 `cire-checklist-starter` end-to-end flow checks the toggle, the stored choice
 across a reload, a locked card opened and closed from the narrow rail and the rail
 sticking below the real top bar.
+
+### The bar at the foot, on a phone
+
+Below `@2xl/shell` the rail gives way to a bar fixed to the foot of the screen,
+where a thumb rests, and a menu that rises from it. Each choice, and what it was
+weighed against:
+
+- **Four modules and More, not all eleven.** Overview, Guests, Events and
+  Invite: none has a tier lock (Settings, the fifth with none, opens less
+  often), so the bar never holds an offer, and the
+  four a host opens week to week. A fifth of a 390px screen is 78px, room for
+  an icon over one short word and nothing more; eleven would be a strip that
+  scrolls, which is the treatment the bar replaced.
+- **More names where the host is.** When the open module is not one of the
+  four, More wears that module's icon and name in `--gold-ink`, so the bar
+  still says where the host is without opening anything. Its accessible name
+  starts with the word it shows: "More, open wedding navigation", or
+  "Budget, open wedding navigation" (WCAG 2.5.3). The open tab's word is
+  semibold as well as `--gold-ink`, so the mark is not colour alone (WCAG
+  1.4.1); the open tile's is too.
+- **The menu is a grid that fits one screen.** Every module, the bar's four
+  included, as a tile: icon over name, three to a row (four once the menu's own
+  container is `@md`), at the field corner, with the menus' 10% gold wash
+behind the open one. The
+  hint each rail row carries is left out: with it, eleven rows ran past a
+  phone's height and the list scrolled. A locked tile is dimmer, carries a lock
+  in its corner, and opens its card above it, as a locked rail row does.
+- **It rises from the bar.** A Kobalte dialog anchored to the foot, with the
+  card corner on its top edge, over a blurred scrim: `sheet-rise` on
+  `--dur-slow` with `--ease-out` in, `--dur-base` with `--ease-in-out` out
+  (§4). Focus trap, Escape, scroll lock and focus back on More come from the
+  library.
+- **The bar is portalled to `<body>`.** A `fixed` element inside a
+  `container-type` box pins to that box, not the screen. A 1px probe that the
+  shell's container query hides tells the sidebar which side of the breakpoint
+  it is on; the bar mounts only below it, and widening the shell past it closes
+  an open menu.
+- **What else stands at the foot stands on the bar.** While the bar shows, the
+  sidebar sets `data-tab-bar` on `<html>`, and `--foot-h` becomes the bar's
+  height plus the safe-area inset under it (0 otherwise). The inset is 0
+  today: `index.astro`'s viewport meta has no `viewport-fit=cover`, so the
+  browser keeps the page clear of the home indicator itself. The Guests and Events
+  editors' save bars, the invite builder's narrow preview and the toasts sit at
+  `bottom: var(--foot-h)`; the shell pads its own foot by the same amount, so a
+  view's last row scrolls clear of it.
+- **Sentence case.** The rail's words are tracked uppercase; at `text-ui-xs` in
+  a 78px cell a tracked uppercase word does not fit, so the bar's are not.
+
+`ModuleSidebar.test.tsx` checks the bar's four and More, and More naming an
+open module the bar lacks; `ModuleSidebar.collapse.browser.test.tsx` and
+`ModuleSidebar.contrast.browser.test.tsx` check the menu's tiles, their words
+and their ink on a phone in Chromium.
 
 ---
 

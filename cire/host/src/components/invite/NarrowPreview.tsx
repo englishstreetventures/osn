@@ -352,7 +352,7 @@ export function PreviewFrame(props: { preview: NarrowPreview; children: JSX.Elem
         data-preview-frame
         aria-label={PREVIEW_REGION}
         tabIndex={-1}
-        class={`bg-bg fixed bottom-0 z-30 overflow-y-auto overscroll-contain px-4 pt-4 pb-8 ${PREVIEW_REGION_FOCUS}`}
+        class={`bg-bg fixed bottom-(--foot-h) z-30 overflow-y-auto overscroll-contain px-4 pt-4 pb-8 ${PREVIEW_REGION_FOCUS}`}
         style={{
           top: `${p.box().top}px`,
           left: `${p.box().left}px`,

@@ -143,10 +143,8 @@ async function renderShell(module: Module, tier: Tier = "ivory") {
  */
 function namesOutsideNav(text: string): HTMLElement[] {
   const rail = screen.getByRole("navigation", { name: /Wedding modules/i });
-  const sheetTrigger = screen.getByRole("button", { name: /Open wedding navigation/i });
-  return screen
-    .queryAllByText(text)
-    .filter((el) => !rail.contains(el) && !sheetTrigger.contains(el));
+  const bar = screen.getByRole("navigation", { name: "Main modules" });
+  return screen.queryAllByText(text).filter((el) => !rail.contains(el) && !bar.contains(el));
 }
 
 describe("Overview header", () => {

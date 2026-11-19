@@ -668,7 +668,7 @@ export default function EventsEditor(props: { weddingId: string }) {
         <Portal>
           <div
             ref={(bar) => trackSaveBarHeight(bar, rowsBox)}
-            class="border-border bg-surface/95 bar-rise fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur"
+            class="border-border bg-surface/95 bar-rise fixed inset-x-0 bottom-(--foot-h) z-40 border-t backdrop-blur"
           >
             <div class="page-frame flex flex-wrap items-center justify-between gap-3 py-3">
               <span class="font-body text-text-muted text-ui-sm">

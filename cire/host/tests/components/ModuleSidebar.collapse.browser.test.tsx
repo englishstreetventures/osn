@@ -598,7 +598,7 @@ describe.runIf(import.meta.env.VITE_RAIL_SLIDE_BENCH === "1")("rail slide cost",
 
 describe("on a phone", () => {
   for (const theme of ["light", "dark"] as const) {
-    it(`ignores a stored collapsed rail: the sheet shows every label, ${theme}`, async () => {
+    it(`ignores a stored collapsed rail: the menu shows every label, ${theme}`, async () => {
       document.documentElement.dataset.theme = theme;
       localStorage.setItem(RAIL_PREFERENCE_KEY, "collapsed");
       await page.viewport(390, 844);
@@ -606,16 +606,16 @@ describe("on a phone", () => {
       expect(screen.queryByRole("button", { name: /sidebar$/ })).toBeNull();
       await page.screenshot({ path: shot(`${theme}-390-closed`) });
 
-      await userEvent.click(screen.getByRole("button", { name: /Open wedding navigation/ }));
+      await userEvent.click(screen.getByRole("button", { name: /open wedding navigation$/ }));
       const sheet = await vi.waitFor(() => screen.getByRole("dialog", { name: "Wedding modules" }));
       await Promise.all(sheet.getAnimations().map((animation) => animation.finished));
       for (const label of ["Overview", "Guests", "Settings"]) {
         expect(width(within(sheet).getByText(label))).toBeGreaterThan(20);
       }
-      // Each row's words sit one gap after its icon, as on the expanded rail.
-      const overviewRow = within(sheet).getByRole("button", { name: /^Overview/ });
-      expect(box(labelOf(overviewRow)).left - box(glyph(overviewRow)).right).toBeCloseTo(12, 1);
-      // The sheet's rows show their own words; a locked one shows no label
+      // Each tile's words sit one gap under its icon.
+      const overviewTile = within(sheet).getByRole("button", { name: /^Overview/ });
+      expect(box(labelOf(overviewTile)).top - box(glyph(overviewTile)).bottom).toBeCloseTo(8, 1);
+      // The menu's tiles show their own words; a locked one shows no label
       // beside it, even on keyboard focus, which opens one at once on the rail.
       within(sheet)
         .getByRole("button", { name: /^Vendors — locked/ })
@@ -625,4 +625,50 @@ describe("on a phone", () => {
       await page.screenshot({ path: shot(`${theme}-390-sheet`) });
     });
   }
+});
+
+describe("the bar at the foot", () => {
+  const bar = () => document.querySelector<HTMLElement>("nav[aria-label='Main modules']");
+  const tabBarOn = () => document.documentElement.hasAttribute("data-tab-bar");
+
+  it("draws no bar and sets no foot when the rail shows", async () => {
+    await page.viewport(1280, 800);
+    await ready(renderPage());
+    await vi.waitFor(() => expect(bar()).toBeNull());
+    expect(tabBarOn()).toBe(false);
+    expect(getComputedStyle(document.documentElement).getPropertyValue("--foot-h").trim()).toBe(
+      "0px",
+    );
+  });
+
+  it("stands what is fixed to the foot on the bar, and closes the menu on widening", async () => {
+    await page.viewport(390, 844);
+    await ready(renderPage());
+    await vi.waitFor(() => expect(bar()).not.toBeNull());
+    expect(tabBarOn()).toBe(true);
+    // A save bar, the narrow preview and the toasts all stand at
+    // `bottom: var(--foot-h)`: one probe in that shape stands for them.
+    const probe = document.createElement("div");
+    probe.style.cssText = "position: fixed; left: 0; right: 0; height: 10px; bottom: var(--foot-h)";
+    document.body.append(probe);
+    const barTop = bar()!.getBoundingClientRect().top;
+    expect(Math.abs(probe.getBoundingClientRect().bottom - barTop)).toBeLessThanOrEqual(1);
+    probe.remove();
+    // A toast region sits on the bar too.
+    const toaster = document.createElement("div");
+    toaster.className = "ui-toaster--bottom-right";
+    toaster.style.cssText = "position: fixed; height: 10px; width: 10px";
+    document.body.append(toaster);
+    expect(Math.abs(toaster.getBoundingClientRect().bottom - barTop)).toBeLessThanOrEqual(1);
+    toaster.remove();
+
+    await userEvent.click(screen.getByRole("button", { name: /open wedding navigation$/ }));
+    await vi.waitFor(() => screen.getByRole("dialog", { name: "Wedding modules" }));
+    await page.viewport(1280, 800);
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Wedding modules" })).toBeNull(),
+    );
+    await vi.waitFor(() => expect(bar()).toBeNull());
+    expect(tabBarOn()).toBe(false);
+  });
 });
