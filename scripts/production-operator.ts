@@ -42,11 +42,13 @@
  * register job reads them again when it runs and refuses unless cire-api's
  * commit is still the one the check job showed the approver.
  *
- * Imports only Bun, Node built-ins and repository files that themselves
- * import nothing else (smoke-check.ts for CI_USER_AGENT among them), so
- * `--no-install` holds: a package import fails rather than being
- * fetched beside a production secret. release-plan.ts is loaded only by the
- * two actions that read deployment records.
+ * Everything it loads, smoke-check.ts (for CI_USER_AGENT) and release-plan.ts
+ * with what they import, imports only Bun, Node built-ins and other
+ * repository files, so `--no-install` holds: a package import fails rather
+ * than being fetched beside a production secret. Test R14 walks that import
+ * graph. Top-level code in any of those files runs beside the secret too.
+ * release-plan.ts is loaded only by the two actions that read deployment
+ * records.
  *
  * Exit codes: 0 done; 1 refused, or a request failed; 2 a usage error, before
  * any request.

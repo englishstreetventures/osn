@@ -734,6 +734,47 @@ describe("register-cire-arc", () => {
     expect(await run(["register-cire-arc"], odd.deps)).toBe(1);
     expect(odd.text()).toContain("Cloudflare answered in osn-api's place (cf-mitigated);");
     expectClean(odd);
+
+    // One word, but longer than the 20 characters a Cloudflare value needs.
+    const long = "abcdefghijklmnopqrstu";
+    const longer = harness({
+      env,
+      routes: {
+        [REGISTER]: [new Response("", { status: 403, headers: { "cf-mitigated": long } })],
+      },
+    });
+    expect(await run(["register-cire-arc"], longer.deps)).toBe(1);
+    expect(longer.text()).toContain("(cf-mitigated);");
+    expect(longer.text()).not.toContain(long);
+  });
+
+  // The action runs beside INTERNAL_SERVICE_SECRET or the production
+  // Cloudflare token with `bun --no-install`. Every module it can load,
+  // dynamic imports included, imports only repository files, Node built-ins
+  // and Bun's, so no package code is fetched or run beside them.
+  test("R14: everything the script can load imports no package", () => {
+    const transpiler = new Bun.Transpiler({ loader: "ts" });
+    const seen = new Set<string>();
+    const packages: string[] = [];
+    const walk = (file: string): void => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const source = readFileSync(file, "utf8").replace(/^#!.*\n/, "");
+      for (const { path } of transpiler.scanImports(source)) {
+        if (path.startsWith("node:") || path.startsWith("bun:") || path === "bun") continue;
+        if (!path.startsWith(".")) {
+          packages.push(`${file.slice(root.length + 1)}: ${path}`);
+          continue;
+        }
+        const target = join(file, "..", path);
+        walk(target.endsWith(".ts") ? target : `${target}.ts`);
+      }
+    };
+    walk(join(root, "scripts/production-operator.ts"));
+    expect(packages).toEqual([]);
+    for (const file of ["smoke-check.ts", "release-plan.ts"]) {
+      expect(seen.has(join(root, "scripts", file))).toBe(true);
+    }
   });
 
   test("R4: a 200 that does not say ok refuses", async () => {
