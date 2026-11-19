@@ -560,6 +560,21 @@ CREATE TABLE IF NOT EXISTS registry_stripe_oauth_states (
   PRIMARY KEY (wedding_id, osn_profile_id)
 );
 CREATE INDEX IF NOT EXISTS registry_stripe_oauth_states_expires_idx ON registry_stripe_oauth_states(expires_at);
+CREATE TABLE IF NOT EXISTS registry_retired_accounts (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  stripe_account_id TEXT NOT NULL,
+  stripe_account_type TEXT,
+  stripe_connected_at INTEGER,
+  retired_at INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  released_at INTEGER,
+  last_hand_back_at INTEGER,
+  CONSTRAINT registry_retired_accounts_reason_ck CHECK (reason in ('handed_over','disconnected','replaced','holder_absent')),
+  CONSTRAINT registry_retired_accounts_type_ck CHECK (stripe_account_type IS NULL OR stripe_account_type in ('express','standard'))
+);
+CREATE INDEX IF NOT EXISTS registry_retired_accounts_account_idx ON registry_retired_accounts(stripe_account_id);
+CREATE INDEX IF NOT EXISTS registry_retired_accounts_wedding_idx ON registry_retired_accounts(wedding_id);
 CREATE TABLE IF NOT EXISTS registry_items (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,

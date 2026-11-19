@@ -14,7 +14,7 @@ related:
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
   - "[[toast]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-20
 ---
 
 # Gift registry
@@ -55,6 +55,20 @@ One row per wedding, keyed by `wedding_id` (PK + FK cascade). **An absent row re
 | `stripe_connected_by_osn_profile_id` | The owner who connected the account, and so the only one who may open its onboarding links (see [Only the connecting owner](#connecting-the-account-built)). Written in the statement that fills a NULL `stripe_account_id`, kept while the id is kept, cleared with it. NULL beside an account means nobody is on record, and then no owner may. It is also what lets that owner give the account to another wedding of theirs |
 | `stripe_deauthorized_at`, `stripe_deauthorized_account_id` | What a revocation leaves behind. `account.application.deauthorized` NULLs `stripe_account_id` — that is what disarms the guest gate and what lets the couple reconnect, since the attach path only ever fills a NULL — so these two record which account the wedding last lost, and when Stripe said so. No route reads them; migration `20261118180052` read `stripe_deauthorized_at` once, to place each gift on its account |
 | `gift_summary_json`, `gift_summary_at` (migration 0058)                                              | What the couple keeps after the guest-data sweep takes the detail: counts, per-currency totals and each money gift's amount, currency and day — no household, no name, no note. Written by the sweep itself, in the delete's batch |
+
+### `registry_retired_accounts`
+
+One row per Stripe account a wedding stopped naming by a retire (see [Retiring an account](#retiring-an-account)), migration `20261119132712`. A retire calls Stripe for nothing, so the account stays connected to cire and refunds and disputes on the gifts paid into it keep arriving; this row is cire's record that it still holds the account.
+
+| Column | Notes |
+| --- | --- |
+| `id` (`rra_*`), `wedding_id` | FK cascade: the row goes with the wedding |
+| `stripe_account_id`, `stripe_account_type`, `stripe_connected_at` | Copied from the settings row by the retire's own `INSERT … SELECT` |
+| `retired_at`, `reason` | `handed_over` or `disconnected` by its holder; `replaced` by another owner while the holder held an owner seat; `holder_absent` while no current owner held it. The write's standing, not the route's earlier read |
+| `released_at` | When cire let it go: Stripe's deauthorization of it, or a hand-back of a Standard account. NULL while cire holds it, which keeps the OAuth hand-back and the purge from giving it back |
+| `last_hand_back_at` | The last failed hand-back attempt |
+
+No profile id. Two CHECKs hold `reason` to its four values and the type to `express`, `standard` or NULL; nothing cascades from the table, so a fifth reason is a hand-written rebuild. Indexed on `stripe_account_id` (the hand-back reads, the unmatched-refund log, the deauthorization's release) and `wedding_id` (the purge's read, the cascade).
 
 ### `registry_items`
 
@@ -135,6 +149,7 @@ Rendering goes through `formatMinorPair` in `cire/host/src/lib/money.ts`. That m
 | `POST …/registry/stripe/refresh` | `weddingOwner` + Gold        | One live `GET /v1/accounts/:id`, caches what it says, then answers the stored row: the capability flags and `moneyGiftsBlockedBy`. Open to every owner |
 | `GET …/registry/stripe/accounts` | `weddingOwner` + Gold | The accounts the caller connected on other weddings they own, one entry per account: `{ fromWeddingId, weddingNames, chargesEnabled, currencyKnown, blockedBy }`. No account id, no currency code, no Stripe call |
 | `POST …/registry/stripe/reuse` | `weddingOwner` + Gold, then the source account's connector | Body `{ fromWeddingId }`. Gives this wedding the account on that wedding, recording the caller as its connector here too. No Stripe call. **404** `stripe_account_not_found`, **409** `stripe_already_connected`, `stripe_owners_differ` or `currency_mismatch` (below) |
+| `POST …/registry/stripe/retire` | `weddingOwner`, no tier, mounted with no Stripe key | Body `{ handTo: string \| null }`. Stops naming the account and records it; no Stripe call. **403** `forbidden`, **409** `stripe_account_changed` (with the settings) or `handover_not_owner`. See [Retiring an account](#retiring-an-account) |
 | `POST /api/stripe/webhook`       | Stripe signature             | `account.updated` → caches the capability booleans; `account.application.deauthorized` → clears the account; the seven gift events below |
 
 Creating that endpoint in the Stripe dashboard — its scope, the nine events, the local forwarder and how to verify a tier — is [[stripe-webhooks]].
@@ -167,10 +182,35 @@ Creating that endpoint in the Stripe dashboard — its scope, the nine events, t
   ```
 
   Tell the owners of each wedding that lost the account that they need to connect one.
-- **The connector leaves the wedding, or is removed**: nothing on the account changes. Their profile id stays on the row; without an owner seat they fail `weddingOwner`, so no current owner may open links, and payouts still go to the account they connected. Seated as an owner again, they get the links back. Clearing the column on removal would hand the account to the next owner who presses Connect.
+- **The connector leaves the wedding, or is removed**: nothing on the account changes. Their profile id stays on the row; without an owner seat they fail `weddingOwner`, so no current owner may open links, and payouts still go to the account they connected. Seated as an owner again, they get the links back. Clearing the column on removal would hand the account to the next owner who presses Connect. Owners' settings say so (`payoutHolderAbsent: true`), and any owner may retire the account ([Retiring an account](#retiring-an-account)).
 - **Stripe deauthorizes the account** (`account.application.deauthorized`): `detachStripeAccount` clears the connector with the id, on every wedding naming the account, so whoever connects the next account is its connector.
 
-How a wedding with two owners should receive its gifts, hand the account from one partner to the other, or replace it, is designed in englishstreetventures/osn#1950.
+How a wedding with two owners receives its gifts, hands the account from one partner to the other, or replaces it, is designed in englishstreetventures/osn#1950; the API half is built ([Retiring an account](#retiring-an-account)), and the portal has no control for it yet.
+
+#### Retiring an account
+
+Cire cannot hand an Express account from one person to another: after the first account link it cannot change whose identity the account carries. So a hand-over is a new account, and the wedding stops naming the old one — a **retire**. `POST …/registry/stripe/retire`, body `{ handTo: string | null }`:
+
+| Who | What it records |
+| --- | --- |
+| The holder (the connector), naming another owner | `handed_over` |
+| The holder, naming no one | `disconnected` |
+| Any other owner, while the holder holds an owner seat | `replaced` |
+| Any owner, while no current owner holds it, or none is recorded | `holder_absent` |
+
+`registryService.retireStripeAccount` runs ONE D1 batch of two statements, each carrying every rule in its `WHERE`: the row still names the account at the generation the route read (two owners replacing at once, or a deauthorization and a reconnect in between, retire nothing); the caller owns the live wedding; and `handTo`, when given, holds an owner seat, is not the caller, and is named by the holder. First an `INSERT … SELECT` writes the `registry_retired_accounts` row with the reason the row's standing gives at the write (`RETURNING`); then the `UPDATE` clears the id, connector, type, connect time, both flags, settlement currency and `stripe_account_updated_at`. The insert goes first because once the update has run the row names no account; a D1 batch is one transaction, so both land or neither (`tests/db/d1-integration.test.ts`). The generation trigger moves the row on, so the next Connect asks Stripe for a new account. `cash_gifts_enabled` and the two `stripe_deauthorized_*` columns are left alone.
+
+A refusal pays one read, and answers the first of these that holds: **403** `forbidden` (the caller does not own the live wedding now); **409** `stripe_account_changed` with the settings (no account, another one, or another generation); **409** `handover_not_owner`; **409** `stripe_account_changed` (everything holds now: look again). A malformed body is **400**. A success answers `{ settings }`.
+
+- **Nothing at Stripe changes.** The account stays connected and its payouts stay its holder's; refunds and disputes on its gifts still reach them, since each gift is matched by its own account. Guests cannot give money until an owner connects the next account, as after a deauthorization.
+- **On every tier and every deployment.** The retire calls Stripe for nothing, so it sits in a group of its own behind `weddingOwner` and the per-organiser limiter it shares with onboarding, with no Gold gate and no Stripe key: a holder on a wedding below Gold can still hand over.
+- **Per wedding.** Another wedding naming the same account keeps it, and `account.updated` still reaches that row.
+- **Every owner is told** by email (`registry-payout-retired`), the holder of a replaced account included; see [[cire-auth#Equal owners]].
+- **Logged** as `stripe account retired` with the wedding, `by: holder | other_owner | absent_holder` and `handed: yes | no`; a refusal as `stripe account retire refused` with `refusal: forbidden | account_changed | handover_not_owner | invalid`. No profile id or account id: the retired row is the account's record.
+
+**What owners see.** Owners' settings and the refresh carry `payoutHolderAbsent`: the account's holder holds no owner seat here, or none is recorded. One predicate decides it, `payoutHolderAbsentSql` in [`services/payout-holder.ts`](../../cire/api/src/services/payout-holder.ts), answered in each settings read's own statement. It closes nothing: what guests are offered does not read it. Editors and viewers receive `null`. `GET /hosts` marks the holder's owner seat `payoutHolder: true`, for an owner reading it only. The gift log marks a gift `paidIntoEarlierAccount` when its recorded account is set and is not the one the wedding names now — every such gift while the wedding names none.
+
+**Keeping a retired account until cire lets it go.** The OAuth callback's hand-back (`stripeAccountNamed`) and the purge's count an unreleased retired row as holding the account, so neither cuts it short. The purge reads its wedding's unreleased retired Standard accounts inside its delete batch and, once the delete has matched, hands back those nothing else holds (no settings row names one, and no other unreleased retired row) with the wedding's own Standard account: at most two a purge (`PURGE_HAND_BACKS`), logging each further one, each refused call, and every candidate when the read that would say what else holds them fails, as `stripe account not handed back after purge` with its id for a hand fix. It reads every such account, with no cap: each needed an owner's Stripe sign-in to connect, and an id left unread would leave cire holding the account with no record of it. Stripe's deauthorization releases the retired rows naming the account that were connected at or before its event, and moves no row already released. The unmatched-refund log reads a retired row's type ([[stripe-webhooks]]).
 
 #### One account, several weddings
 
@@ -200,7 +240,7 @@ A refusal pays for one more read, which names the first rule that failed: **404*
 - **Gift events act on their own gift.** A settle, refund or dispute matches the contribution row, and the event must arrive on the account that gift was paid into (`contributionOnAccount`; see [Giving money](#giving-money-built)).
 - **Each wedding is judged on its own currency.** `moneyGiftsBlockedBy` and the guest gate compare the account's settlement currency with that wedding's.
 - **Deleting one wedding leaves the others.** The purge removes that wedding's row by cascade; the account stays on the rest. The delete dialog says the account keeps taking gifts for any other wedding that uses it.
-- **There is no per-wedding disconnect**, as there is none for a newly connected account: how a couple hands over, replaces or detaches an account is englishstreetventures/osn#1950.
+- **A retire is per wedding.** It clears this wedding's row alone; every other wedding naming the account keeps it ([Retiring an account](#retiring-an-account)).
 - **What the target's people see.** Its owners see the connector's profile id and the account's status; its editors whether it can take charges; its guests the business profile the connector gave Stripe on the other wedding, on Stripe's own page. The Stripe account's metadata names only the wedding it was created for, and nothing reads it.
 
 **The portal asks at Connect, not on load.** Pressing "Connect an account" on a wedding with none first reads `…/stripe/accounts`. Where the site connects existing Stripe accounts (`connectsExistingStripe` on the registry read), or the owner has accounts to offer, the panel asks which account should take this wedding's gifts — one already theirs, a new one, or "Connect a Stripe account you already have" — with nothing chosen for them; an account that cannot is a line saying why. With neither, it goes on to Stripe as before. "Use this account" posts the reuse and stays in the portal.
@@ -219,11 +259,11 @@ A couple who already sell through Stripe can connect that account instead of mak
 | The account | `GET /v1/accounts/:id` is required: it must be `standard`, and settle in the wedding's currency or not have said (`currency_mismatch`), checked again in the attach's `WHERE` against the currency as it then stands |
 | Another wedding names it | Allowed only where the reuse rules hold for some wedding naming it: the caller connected it there, owns that wedding, and every owner here owns it there. Else `owners_differ`, or `account_on_deleted_wedding` when the only wedding holding it is being deleted. An account across weddings of different couples is a planner's, which is englishstreetventures/osn#2018's |
 | Attach | One write, the rules above in its `WHERE`, filling only a NULL id, recording the caller as connector and the type `standard` |
-| Refused after the exchange | The account is handed back (`POST /oauth/deauthorize`) when no wedding names it; else left, since Stripe's deauthorization event clears every row naming it. After a hand-back cire clears any row that took the account meanwhile (`stripe account handed back while a wedding connected it`), since that connection is gone. A failed hand-back logs `stripe account connected but not stored` with the id |
+| Refused after the exchange | The account is handed back (`POST /oauth/deauthorize`) when no wedding names it and no wedding retired it that cire still holds; else left, since Stripe's deauthorization event clears every row naming it. After a hand-back cire clears any row that took the account meanwhile (`stripe account handed back while a wedding connected it`), since that connection is gone. A failed hand-back logs `stripe account connected but not stored` with the id |
 
 Every answer is a 302 to `${organiserOrigin}/?stripe_connect=<outcome>#/w/<wedding>/registry/settings`, or without the hash before the state matched a row: the address is configuration and cire's own row, never the query. A rate-limited (20 a minute per IP) or failed callback says `unavailable`. The portal reads the word, strips it and toasts what it means (`lib/stripe-connect-return.ts`); it grants nothing, and the page reads the settings as stored. The code and the state never reach a portal URL.
 
-**What a Standard account changes.** No onboarding link: `…/stripe/session` answers 409 `stripe_standard_account`, and the panel shows its connector "Open your Stripe Dashboard" in place of "Continue on Stripe", and any other owner a note that only the person who connected it can manage it. Refresh, `account.updated`, deauthorization, Checkout and the gift events work unchanged. A completed, expired or failed session acts only on the gift that stored its id — never adopted by `client_reference_id`, which the holder's own API keys can write. When the purge deletes the last wedding naming it, the account is handed back. A deauthorization clears only rows connected at or before Stripe's event (`stripe_connected_at`), so a reconnect made after cire handed an account back survives a late event, and a refresh in flight cannot make a revocation miss. An Express onboarding that loses a race to an OAuth connect answers 409 `stripe_standard_account` too.
+**What a Standard account changes.** No onboarding link: `…/stripe/session` answers 409 `stripe_standard_account`, and the panel shows its connector "Open your Stripe Dashboard" in place of "Continue on Stripe", and any other owner a note that only the person who connected it can manage it. Refresh, `account.updated`, deauthorization, Checkout and the gift events work unchanged. A completed, expired or failed session acts only on the gift that stored its id — never adopted by `client_reference_id`, which the holder's own API keys can write. When the purge deletes the last wedding naming it, the account is handed back, unless a wedding retired it and cire still holds it; the purge also hands back the Standard accounts its wedding retired ([Retiring an account](#retiring-an-account)). A deauthorization clears only rows connected at or before Stripe's event (`stripe_connected_at`), so a reconnect made after cire handed an account back survives a late event, and a refresh in flight cannot make a revocation miss. An Express onboarding that loses a race to an OAuth connect answers 409 `stripe_standard_account` too.
 
 On a deployment without `STRIPE_CONNECT_CLIENT_ID`, the key or `CIRE_API_ORIGIN`, neither route is mounted and the choice is not offered. Setting it up: [[stripe-webhooks#Turn on Connect OAuth]].
 
@@ -876,7 +916,7 @@ The refusals in isolation (no cookie, a household of another wedding, the host p
 
 `money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET` (warning) is logged when the app is built with a Stripe key and no Connect webhook secret; see [Giving money](#giving-money-built). `stripe connect oauth disabled: STRIPE_CONNECT_CLIENT_ID is not a ca_ id` (warning) when the client id is set and malformed.
 
-`cire.registry.stripe.oauth` counts OAuth callbacks by `outcome` (`connected`, `denied`, `expired`, `signed_out`, `forbidden`, `already_connected`, `rejected`, `unavailable`, `currency_mismatch`, `owners_differ`, `account_on_deleted_wedding`). `cire.registry.stripe.unmatched` carries `event` and `account` (`express`, `standard`, `unknown`).
+`cire.registry.stripe.retire` counts retires by `outcome`: the recorded reason (`handed_over`, `disconnected`, `replaced`, `holder_absent`) or the refusal (`forbidden`, `account_changed`, `handover_not_owner`, `invalid`). `cire.registry.stripe.oauth` counts OAuth callbacks by `outcome` (`connected`, `denied`, `expired`, `signed_out`, `forbidden`, `already_connected`, `rejected`, `unavailable`, `currency_mismatch`, `owners_differ`, `account_on_deleted_wedding`). `cire.registry.stripe.unmatched` carries `event` and `account` (`express`, `standard`, `unknown`).
 
 Every handler runs `Effect.tapDefect` before its catch-all, so a defect is **logged** (`registry handler defect`, annotated with `weddingId` alone) instead of being swallowed into a bare 500. `weddingId` alone is the point: a guest's note, display name or contribution message is PII and never reaches a log line, so the annotation is deliberately the one field that identifies the wedding and nothing that identifies a person.
 

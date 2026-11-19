@@ -1,13 +1,22 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, registrySettings, weddingHosts, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  registryRetiredAccounts,
+  registrySettings,
+  weddingHosts,
+  weddings,
+} from "@cire/db";
+import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import type { AppOptions } from "../../src/app";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import { registryService } from "../../src/services/registry";
 import {
   createStripeClient,
@@ -16,8 +25,9 @@ import {
   type StripeClient,
 } from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
-import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
+import { appRequest, beforeStatement, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -124,12 +134,15 @@ function buildApp({
   stripe,
   limiter,
   stripeWebhookSecret = null,
+  options = {},
 }: {
   tier?: Tier;
   stripe?: StripeClient | null;
   limiter?: ReturnType<typeof createRateLimiter>;
   /** The Connect webhook's signing secret: with it, the site takes money gifts. */
   stripeWebhookSecret?: string | null;
+  /** Anything else the app takes, such as the owner-notice transport. */
+  options?: Partial<AppOptions>;
 } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
@@ -164,6 +177,7 @@ function buildApp({
     // happened to run last.
     registryStripeLimiter: limiter ?? createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
     stripeWebhookSecret,
+    ...options,
   });
   return { app, db };
 }
@@ -483,8 +497,40 @@ describe("only the owner who connected the account may open its links", () => {
       chargesEnabled: true,
       payoutsEnabled: true,
       moneyGiftsBlockedBy: "payments_unavailable",
+      payoutHolderAbsent: false,
     });
     expect(stripe.calls).toEqual(["retrieveAccount:acct_first"]);
+  });
+
+  it("tells every owner, on the refresh, when the account's holder is not an owner", async () => {
+    const live = {
+      id: "acct_first",
+      chargesEnabled: true,
+      payoutsEnabled: true,
+      detailsSubmitted: true,
+      defaultCurrency: "AUD",
+    };
+    // Held by the editor, and held by nobody on record: both absent.
+    for (const connector of [EDITOR, null]) {
+      const { app, db } = buildApp({ stripe: stripeStub({ account: live }).client });
+      connectedBy(db, connector);
+      const answer = (await jsonBody(await req(app, `${base}/refresh`, SECOND))) as {
+        payoutHolderAbsent: unknown;
+      };
+      expect(answer.payoutHolderAbsent).toBe(true);
+    }
+    // And when the write kept a later state, the answer read again says the same.
+    const kept = buildApp({ stripe: stripeStub({ account: live }).client });
+    connectedBy(kept.db, EDITOR);
+    kept.db
+      .update(registrySettings)
+      .set({ stripeAccountUpdatedAt: new Date(Date.now() + 3_600_000) })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const reread = (await jsonBody(await req(kept.app, `${base}/refresh`, OWNER))) as {
+      payoutHolderAbsent: unknown;
+    };
+    expect(reread.payoutHolderAbsent).toBe(true);
   });
 });
 
@@ -766,6 +812,7 @@ describe("refreshing what Stripe says", () => {
       chargesEnabled: false,
       payoutsEnabled: false,
       moneyGiftsBlockedBy: "payments_unavailable",
+      payoutHolderAbsent: false,
     });
     expect(stripe.calls).toEqual([]);
 
@@ -799,6 +846,7 @@ describe("refreshing what Stripe says", () => {
       payoutsEnabled: true,
       // No webhook secret on this app, so the site takes no money gift.
       moneyGiftsBlockedBy: "payments_unavailable",
+      payoutHolderAbsent: false,
     });
     const row = await db
       .select()
@@ -881,6 +929,7 @@ describe("refreshing what Stripe says", () => {
         chargesEnabled: false,
         payoutsEnabled: true,
         moneyGiftsBlockedBy: "stripe_not_ready",
+        payoutHolderAbsent: false,
       });
     });
 
@@ -1762,6 +1811,529 @@ describe("using an account connected on another wedding", () => {
       sourceWedding(db);
       expect((await accounts(app)).status).toBe(200);
       expect(stripe.calls).toEqual([]);
+    });
+  });
+});
+
+/**
+ * Retiring the wedding's account: the wedding stops naming it, and nothing at
+ * Stripe changes. The holder hands money gifts to another owner or
+ * disconnects; another owner replaces it, whether or not its holder still
+ * holds an owner seat. A retire is a state change on the money path, so every
+ * rule sits in the write, and the record of the account is written in the same
+ * batch as the clear.
+ */
+describe("retiring the wedding's account", () => {
+  type Built = ReturnType<typeof buildApp>;
+  const retirePath = `${base}/retire`;
+  const CONNECTED_AT = new Date("2026-10-01T00:00:00.000Z");
+
+  async function retire(app: App, profileId: string | undefined, body: unknown) {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(app, retirePath, {
+      method: "POST",
+      headers,
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  }
+
+  /** The bootstrap wedding's account, held by `holder` (null: nobody recorded). */
+  function holding(
+    db: Built["db"],
+    holder: string | null,
+    { weddingId = BOOTSTRAP_WEDDING_ID, accountId = "acct_old" } = {},
+  ) {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId,
+        cashGiftsEnabled: true,
+        stripeAccountId: accountId,
+        stripeConnectedByOsnProfileId: holder,
+        stripeAccountType: "standard",
+        stripeConnectedAt: CONNECTED_AT,
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        stripeAccountUpdatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const row = (db: Built["db"], weddingId = BOOTSTRAP_WEDDING_ID) =>
+    db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).get();
+
+  const retired = (db: Built["db"]) =>
+    db.select().from(registryRetiredAccounts).orderBy(registryRetiredAccounts.retiredAt).all();
+
+  const outcomeCount = (outcome: string) =>
+    counterValue(CIRE_METRICS.registryStripeRetire, { outcome });
+
+  describe("what a retire writes", () => {
+    for (const [label, caller, holder, handTo, reason, by, handed] of [
+      [
+        "the holder hands money gifts to another owner",
+        OWNER,
+        OWNER,
+        SECOND,
+        "handed_over",
+        "holder",
+        "yes",
+      ],
+      ["the holder disconnects", OWNER, OWNER, null, "disconnected", "holder", "no"],
+      [
+        "another owner replaces a seated holder's account",
+        SECOND,
+        OWNER,
+        null,
+        "replaced",
+        "other_owner",
+        "no",
+      ],
+      [
+        "an owner replaces an account whose holder sits below owner",
+        OWNER,
+        EDITOR,
+        null,
+        "holder_absent",
+        "absent_holder",
+        "no",
+      ],
+      [
+        "an owner replaces an account nobody is recorded as holding",
+        OWNER,
+        null,
+        null,
+        "holder_absent",
+        "absent_holder",
+        "no",
+      ],
+    ] as const) {
+      it(`records ${reason} when ${label}, and clears the row`, async () => {
+        const { app, db } = buildApp({ stripeWebhookSecret: "whsec_test_connect" });
+        holding(db, holder);
+        const before = await outcomeCount(reason);
+
+        let res: Response | undefined;
+        const logs = await captureLogs(async () => {
+          res = await retire(app, caller, { handTo });
+        });
+
+        expect(res?.status).toBe(200);
+        const body = (await jsonBody(res!)) as { settings: Record<string, unknown> };
+        expect(body.settings).toMatchObject({
+          stripeConnected: false,
+          stripeConnectedByOsnProfileId: null,
+          stripeAccountType: null,
+          stripeChargesEnabled: false,
+          payoutHolderAbsent: false,
+          // The switch is the couple's intent, and a retire leaves it.
+          cashGiftsEnabled: true,
+          moneyGiftsBlockedBy: "stripe_not_ready",
+        });
+
+        const after = row(db);
+        expect(after).toMatchObject({
+          stripeAccountId: null,
+          stripeConnectedByOsnProfileId: null,
+          stripeAccountType: null,
+          stripeConnectedAt: null,
+          stripeChargesEnabled: false,
+          stripePayoutsEnabled: false,
+          stripeDefaultCurrency: null,
+          stripeAccountUpdatedAt: null,
+          cashGiftsEnabled: true,
+          // A retire is not a deauthorization, and records none.
+          stripeDeauthorizedAt: null,
+          stripeDeauthorizedAccountId: null,
+        });
+        expect(after?.stripeAccountGeneration).toBe(1);
+
+        const records = retired(db);
+        expect(records).toHaveLength(1);
+        expect(records[0]).toMatchObject({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          stripeAccountId: "acct_old",
+          stripeAccountType: "standard",
+          stripeConnectedAt: CONNECTED_AT,
+          reason,
+          releasedAt: null,
+          lastHandBackAt: null,
+        });
+        expect(records[0]?.id).toMatch(/^rra_/);
+
+        expect(logs).toContain("stripe account retired");
+        expect(logs).toContain(`by: ${by}`);
+        expect(logs).toContain(`handed: ${handed}`);
+        // No profile id and no account id: the record row holds the account.
+        for (const secret of ["acct_old", OWNER, SECOND, EDITOR]) {
+          expect(logs).not.toContain(secret);
+        }
+        expect(await outcomeCount(reason)).toBe(before + 1);
+      });
+    }
+
+    it("retires on a wedding below Gold: it calls Stripe for nothing", async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ tier: "ivory", stripe: stripe.client });
+      holding(db, OWNER);
+      expect((await retire(app, OWNER, { handTo: null })).status).toBe(200);
+      expect(row(db)?.stripeAccountId).toBeNull();
+      expect(stripe.calls).toEqual([]);
+    });
+
+    it("exists on a deployment with no Stripe key", async () => {
+      const { app, db } = buildApp({ stripe: null });
+      holding(db, OWNER);
+      expect((await retire(app, OWNER, { handTo: null })).status).toBe(200);
+      expect(retired(db)).toHaveLength(1);
+    });
+
+    it("leaves another wedding that names the same account as it was", async () => {
+      const { app, db } = buildApp();
+      insertWedding(db, {
+        id: "wed_other",
+        slug: "other-wedding",
+        displayName: "Other",
+        owners: [OWNER],
+      });
+      holding(db, OWNER, { weddingId: "wed_other", accountId: "acct_shared" });
+      holding(db, OWNER, { accountId: "acct_shared" });
+
+      expect((await retire(app, OWNER, { handTo: null })).status).toBe(200);
+
+      expect(row(db, "wed_other")?.stripeAccountId).toBe("acct_shared");
+      expect(row(db, "wed_other")?.stripeConnectedByOsnProfileId).toBe(OWNER);
+      // And what Stripe says about the account still reaches it.
+      const later = Math.floor(Date.now() / 1000) + 60;
+      const matched = await Effect.runPromise(
+        registryService
+          .applyStripeAccountState({
+            id: "acct_shared",
+            chargesEnabled: false,
+            payoutsEnabled: true,
+            observedAt: later,
+          })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(matched).toBe(true);
+      expect(row(db, "wed_other")?.stripeChargesEnabled).toBe(false);
+      expect(row(db)?.stripeChargesEnabled).toBe(false);
+      expect(row(db)?.stripeAccountId).toBeNull();
+    });
+
+    it("asks Stripe for a new account on the next Connect, not the retired one", async () => {
+      const fetchKeys: string[] = [];
+      const byKey = new Map<string, string>();
+      const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const json = (body: unknown) =>
+          new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+        if (url.endsWith("/v1/accounts") && init?.method === "POST") {
+          const key = new Headers(init.headers).get("idempotency-key") ?? "";
+          fetchKeys.push(key);
+          if (!byKey.has(key)) byKey.set(key, `acct_made_${byKey.size + 1}`);
+          return json({
+            id: byKey.get(key),
+            charges_enabled: false,
+            payouts_enabled: false,
+            details_submitted: false,
+          });
+        }
+        if (url.endsWith("/v1/account_links") && init?.method === "POST") {
+          return json({ url: "https://connect.stripe.test/setup/x", expires_at: 1_800_000_000 });
+        }
+        throw new Error(`not part of this test: ${init?.method} ${url}`);
+      }) as unknown as typeof fetch;
+      const client = createStripeClient({
+        secretKey: "sk_test",
+        apiBase: "https://stripe.test",
+        fetchImpl,
+      });
+      const { app, db } = buildApp({ stripe: client });
+
+      expect((await req(app, `${base}/session`, OWNER)).status).toBe(200);
+      expect(row(db)?.stripeAccountId).toBe("acct_made_1");
+      expect((await retire(app, OWNER, { handTo: SECOND })).status).toBe(200);
+      expect((await req(app, `${base}/session`, SECOND)).status).toBe(200);
+
+      expect(fetchKeys).toEqual([
+        `cire-account-${BOOTSTRAP_WEDDING_ID}-0`,
+        `cire-account-${BOOTSTRAP_WEDDING_ID}-1`,
+      ]);
+      expect(row(db)?.stripeAccountId).toBe("acct_made_2");
+      expect(row(db)?.stripeConnectedByOsnProfileId).toBe(SECOND);
+    });
+  });
+
+  describe("who may", () => {
+    it("refuses an editor, a stranger and anyone with no token", async () => {
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      const editor = await retire(app, EDITOR, { handTo: null });
+      expect(editor.status).toBe(403);
+      expect(await jsonBody(editor)).toEqual({ error: "forbidden" });
+      expect((await retire(app, STRANGER, { handTo: null })).status).toBe(403);
+      expect((await retire(app, undefined, { handTo: null })).status).toBe(401);
+      expect(row(db)?.stripeAccountId).toBe("acct_old");
+      expect(retired(db)).toEqual([]);
+    });
+
+    it("lets only the holder name an owner to hand money gifts to", async () => {
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      const before = await outcomeCount("handover_not_owner");
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await retire(app, SECOND, { handTo: OWNER });
+      });
+      expect(res?.status).toBe(409);
+      expect(await jsonBody(res!)).toEqual({ error: "handover_not_owner" });
+      expect(row(db)?.stripeAccountId).toBe("acct_old");
+      expect(retired(db)).toEqual([]);
+      expect(logs).toContain("stripe account retire refused");
+      expect(logs).toContain("handover_not_owner");
+      for (const secret of ["acct_old", OWNER, SECOND]) expect(logs).not.toContain(secret);
+      expect(await outcomeCount("handover_not_owner")).toBe(before + 1);
+    });
+
+    for (const [label, handTo] of [
+      ["an editor", EDITOR],
+      ["a profile with no seat", "usr_nobody"],
+      ["the holder themself", OWNER],
+    ] as const) {
+      it(`refuses a hand-over to ${label}`, async () => {
+        const { app, db } = buildApp();
+        holding(db, OWNER);
+        const res = await retire(app, OWNER, { handTo });
+        expect(res.status).toBe(409);
+        expect(await jsonBody(res)).toEqual({ error: "handover_not_owner" });
+        expect(row(db)?.stripeAccountId).toBe("acct_old");
+        expect(row(db)?.stripeAccountGeneration).toBe(0);
+        expect(retired(db)).toEqual([]);
+      });
+    }
+
+    it("spends the per-organiser budget, after the owner gate", async () => {
+      const { app, db } = buildApp({
+        limiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+      });
+      holding(db, OWNER);
+      expect((await retire(app, STRANGER, { handTo: null })).status).toBe(403);
+      expect((await retire(app, OWNER, { handTo: null })).status).toBe(200);
+      expect((await retire(app, OWNER, { handTo: null })).status).toBe(429);
+    });
+
+    it("refuses a body that does not say whom money gifts go to", async () => {
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      const bodies = [{}, { handTo: 7 }, { handTo: "" }, { handTo: "x".repeat(65) }, "{"];
+      const before = await outcomeCount("invalid");
+      for (const body of bodies) {
+        const res = await retire(app, OWNER, body);
+        expect(res.status).toBe(400);
+        expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+      }
+      expect(await outcomeCount("invalid")).toBe(before + bodies.length);
+      expect(row(db)?.stripeAccountId).toBe("acct_old");
+      expect(retired(db)).toEqual([]);
+    });
+  });
+
+  describe("an account that changed under the request", () => {
+    it("answers stripe_account_changed, with the settings, for a wedding with no account", async () => {
+      const { app, db } = buildApp();
+      const res = await retire(app, OWNER, { handTo: null });
+      expect(res.status).toBe(409);
+      const body = (await jsonBody(res)) as {
+        error: string;
+        settings: { stripeConnected: boolean };
+      };
+      expect(body.error).toBe("stripe_account_changed");
+      expect(body.settings.stripeConnected).toBe(false);
+      expect(retired(db)).toEqual([]);
+      expect(await outcomeCount("account_changed")).toBeGreaterThan(0);
+    });
+
+    it("says the account changed before it judges whom the holder named", async () => {
+      // A page holding an account another owner has since retired, naming an
+      // editor: the page is out of date, and that is what it is told, with
+      // the settings to catch up from.
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      db.update(registrySettings)
+        .set({ stripeAccountId: null, stripeConnectedByOsnProfileId: null })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        .run();
+      const before = await outcomeCount("account_changed");
+      const res = await retire(app, OWNER, { handTo: EDITOR });
+      expect(res.status).toBe(409);
+      const body = (await jsonBody(res)) as { error: string; settings?: unknown };
+      expect(body.error).toBe("stripe_account_changed");
+      expect(body.settings).toBeDefined();
+      expect(await outcomeCount("account_changed")).toBe(before + 1);
+    });
+
+    it("refuses an owner removed after the gate with 403, writing nothing", async () => {
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      beforeStatement(db, /^insert into "registry_retired_accounts"/, () => {
+        db.update(weddingHosts)
+          .set({ role: "editor" })
+          .where(eq(weddingHosts.osnProfileId, SECOND))
+          .run();
+      });
+      const before = await outcomeCount("forbidden");
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await retire(app, SECOND, { handTo: null });
+      });
+      expect(res?.status).toBe(403);
+      expect(await jsonBody(res!)).toEqual({ error: "forbidden" });
+      expect(row(db)?.stripeAccountId).toBe("acct_old");
+      expect(retired(db)).toEqual([]);
+      expect(logs).toContain("stripe account retire refused");
+      expect(logs).toContain("refusal: forbidden");
+      expect(await outcomeCount("forbidden")).toBe(before + 1);
+    });
+
+    it("answers 500, logging the wedding alone, when the database fails", async () => {
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      db.$client.exec("DROP TABLE registry_retired_accounts");
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await retire(app, OWNER, { handTo: null });
+      });
+      expect(res?.status).toBe(500);
+      expect(await jsonBody(res!)).toEqual({ error: "Internal error" });
+      expect(logs).toContain("registry stripe handler defect");
+      expect(row(db)?.stripeAccountId).toBe("acct_old");
+    });
+
+    it("retires nothing when another account was connected after the route read the row", async () => {
+      const { app, db } = buildApp();
+      holding(db, OWNER);
+      // Between the read and the batch: the account is cleared and another
+      // connected, as two owners replacing at once, or a deauthorization and
+      // a reconnect, would leave it.
+      beforeStatement(db, /^insert into "registry_retired_accounts"/, () => {
+        db.update(registrySettings)
+          .set({ stripeAccountId: null })
+          .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+          .run();
+        db.update(registrySettings)
+          .set({ stripeAccountId: "acct_newer", stripeConnectedByOsnProfileId: SECOND })
+          .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+          .run();
+      });
+      const res = await retire(app, OWNER, { handTo: null });
+      expect(res.status).toBe(409);
+      const body = (await jsonBody(res)) as {
+        error: string;
+        settings: { stripeConnected: boolean; stripeConnectedByOsnProfileId: string | null };
+      };
+      expect(body.error).toBe("stripe_account_changed");
+      expect(body.settings.stripeConnectedByOsnProfileId).toBe(SECOND);
+      expect(row(db)?.stripeAccountId).toBe("acct_newer");
+      expect(retired(db)).toEqual([]);
+    });
+
+    it("records the standing the write saw, not the one the route read", async () => {
+      // The holder's record is cleared between the read and the batch, as an
+      // account erasure clears it: the retire is of an absent holder's account.
+      const mail = makeLogEmailLive();
+      const { app, db } = buildApp({
+        options: {
+          organiserEmailLookup: async (ids) => ({
+            answered: true,
+            emails: new Map(ids.map((id) => [id, `${id}@example.test`] as const)),
+          }),
+          emailLayer: mail.layer,
+        },
+      });
+      holding(db, OWNER);
+      beforeStatement(db, /^insert into "registry_retired_accounts"/, () => {
+        db.update(registrySettings)
+          .set({ stripeConnectedByOsnProfileId: null })
+          .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+          .run();
+      });
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await retire(app, SECOND, { handTo: null });
+      });
+      expect(res?.status).toBe(200);
+      expect(retired(db)[0]?.reason).toBe("holder_absent");
+      expect(logs).toContain("by: absent_holder");
+      // Every owner reads the absent-holder words; no one is told it was theirs.
+      const sent = mail.recorded();
+      expect(sent.length).toBeGreaterThan(0);
+      expect(
+        sent.every((m) => m.text.includes("None of the wedding's owners had connected it")),
+      ).toBe(true);
+      expect(sent.some((m) => m.text.includes("the Stripe account you connected"))).toBe(false);
+      expect(
+        sent.some((m) => m.text.includes("Gifts already given stay in your Stripe account")),
+      ).toBe(false);
+    });
+  });
+
+  describe("telling the owners", () => {
+    const longAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+
+    function noticeApp() {
+      const mail = makeLogEmailLive();
+      const built = buildApp({
+        options: {
+          organiserEmailLookup: async (ids) => ({
+            answered: true,
+            emails: new Map(ids.map((id) => [id, `${id}@example.test`] as const)),
+          }),
+          emailLayer: mail.layer,
+        },
+      });
+      // The second owner was seated long enough ago to be mailed.
+      built.db
+        .update(weddingHosts)
+        .set({ createdAt: longAgo })
+        .where(eq(weddingHosts.osnProfileId, SECOND))
+        .run();
+      return { ...built, mail };
+    }
+
+    it("mails every owner once after a retire, and no one else", async () => {
+      const { app, db, mail } = noticeApp();
+      holding(db, OWNER);
+      expect((await retire(app, OWNER, { handTo: SECOND })).status).toBe(200);
+      const sent = mail.recorded();
+      expect(sent.every((m) => m.template === "registry-payout-retired")).toBe(true);
+      expect(sent.map((m) => m.to).toSorted()).toEqual(
+        [`${OWNER}@example.test`, `${SECOND}@example.test`].toSorted(),
+      );
+      // The owner money gifts were handed to is spoken to.
+      const named = sent.find((m) => m.to === `${SECOND}@example.test`);
+      expect(named?.text).toContain("and asked you to connect the next one.");
+    });
+
+    it("tells the seated holder whose account another owner replaced that it was theirs", async () => {
+      const { app, db, mail } = noticeApp();
+      holding(db, SECOND);
+      expect((await retire(app, OWNER, { handTo: null })).status).toBe(200);
+      const holder = mail.recorded().find((m) => m.to === `${SECOND}@example.test`);
+      expect(holder?.text).toContain("disconnected the Stripe account you connected");
+      expect(holder?.text).toContain("Gifts already given stay in your Stripe account");
+    });
+
+    it("mails no one when the retire is refused", async () => {
+      const { app, db, mail } = noticeApp();
+      holding(db, OWNER);
+      expect((await retire(app, OWNER, { handTo: EDITOR })).status).toBe(409);
+      expect((await retire(app, EDITOR, { handTo: null })).status).toBe(403);
+      expect(mail.recorded()).toEqual([]);
     });
   });
 });
