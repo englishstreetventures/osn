@@ -740,9 +740,10 @@ export function AuthorizePage() {
 }
 
 /**
- * The deletion screen once its chunk is in; until then the shape of its card,
- * and if the chunk fails, its heading and the failed-load line, as the
- * shell's own window screen does (`App.tsx`, `WindowScreen`).
+ * The deletion screen once its chunk is in; until then the shape of its card
+ * (the line naming the app and four buttons, as the screen draws them), and if
+ * the chunk fails, its heading and the failed-load line, as the shell's own
+ * window screen does (`App.tsx`, `WindowScreen`).
  */
 function DeletionScreen(props: {
   app: { name: string; back: () => Promise<void> };
@@ -759,7 +760,7 @@ function DeletionScreen(props: {
       when={state() === "ready"}
       fallback={
         <Card padding="lg" class="flex flex-col gap-6">
-          <WindowLoading failed={state() === "failed"} />
+          <WindowLoading failed={state() === "failed"} app={props.app.name} />
         </Card>
       }
     >

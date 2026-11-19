@@ -188,15 +188,19 @@ rest at 3:1 and unwaived (§Choices).
   app's name on its client card at `text-display` and 500, so the app the
   reader is signing in to is the screen's first word ([the owner's
   call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06), breaking anywhere since the app chose the words; the screen's own heading under it
-  is `text-title` at 500 (the sign-in panel's title, "Signed in as"). The
+  is `text-title` at 500 (the sign-in panel's title, "Signed in as", the
+  deletion window's heading). The
   profile picker, which draws no client card, titles its screen "Choose a
   profile" at `text-title` and 500. The rail's account trigger is shell chrome and keeps its own
   size.
 - **Words someone else wrote break anywhere** (`wrap-anywhere`), so a name
   with no space in it, or a pasted address, stays in its column: `/authorize`'s
   client name; an organisation's name in its page's `h1`, which its admins
-  write; and in the deletion flow, an app's words for an open action and for
-  each of its choices (`OpenActionCard.tsx`).
+  write; in the deletion flow, an app's words for an open action and for
+  each of its choices (`OpenActionCard.tsx`); and the app's name in the line
+  the deletion window adds on `/authorize`. A button's label never wraps, so
+  an app's name in one ends in an ellipsis instead, where the whole name is
+  on screen elsewhere (Back to <app> under the client card, §Layout).
 - **Dialog and card titles** — `@shared/ui`'s `DialogTitle` and `CardTitle`
   are `text-title`'s 14px at 500. Both set their size with `--ui-text-md` and
   their weight with `--ui-weight-title`, which the contract block in `App.css`
@@ -602,6 +606,31 @@ its three motions that are not a colour or opacity change.
   shell's failed-load line ("Musubi could not finish loading. Reload and try
   again.", an inline danger `Notice` with `alert`).
   `tests/components/DeletionWindow.browser.test.tsx` holds it.
+- **The deletion window on `/authorize`**: when an app's sign-in meets an
+  account pending deletion, `/authorize` draws the same card under the app's
+  client card, 24px down, as the sign-in panel and the consent screen sit
+  there. The card stands alone in the bare route's column: no product name,
+  and its heading is an `h2`, since the app's name above it is the page's
+  `h1`. Its words keep the order above (heading, date, the keep offer) and add
+  one line last, just above the buttons it explains, in the secondary ink:
+  "You're not signed in to <app>. Keep your account to carry on signing in."
+  The app's name in it breaks anywhere and is `translate="no"`. Four buttons,
+  as wide as the card at `size="lg"` with `max-md:h-11`: Keep my account
+  (`default`), Download my data (`secondary`), Back to <app> (`secondary`),
+  Sign out (`ghost`). The first two act on the account and keep the places
+  they have on the shell's screen; the last two leave it, one to the app and
+  one to the sign-in panel, where another account can sign in. Back to <app>
+  is busy "Taking you back…", the words the page shows once it leaves, and a
+  failure is the danger line above the buttons ("Couldn't go back to <app>."
+  and the copy map's sentence). Its label is one line: a long name ends in an
+  ellipsis (`truncate`), since the whole name heads the page, and a screen
+  reader hears it whole. Too late to keep the account, the card offers Back to
+  <app> (`default`) over Sign out (`ghost`). While the screen's code loads,
+  the page draws `WindowLoading` with the app's name: the line in words, which
+  wrap where the card's do, and four blocks, so neither the client card nor
+  the card moves when the screen lands, nor when the date does.
+  `tests/components/AuthorizeDeletion.browser.test.tsx` holds it at 320, 390
+  and 1280px.
 - **An app's step-up request**: `/confirm/:requestId`
   (`ConfirmRequestPage.tsx`), where an app that cannot run a step-up itself
   (cire's organiser portal) sends the person in the same tab. A shell page, not
@@ -986,7 +1015,8 @@ authenticator app" and Generate while the read they act on is out
 ("Checking…"), Download my data ("Downloading…"), Send me a link
 ("Sending…"), Delete my account ("Deleting…"), an app's request's "Confirm
 it's you" ("Confirming…", then "Taking you back…" while the tab leaves), Keep my account
-("Restoring…"), an organisation's Decline ("Declining…") and the Delete in
+("Restoring…"), `/authorize`'s Back to <app> on the deletion window ("Taking you
+back…"), an organisation's Decline ("Declining…") and the Delete in
 its confirmation dialog ("Deleting…"). The
 rail's results panel shows the same words as text, since
 a listbox option holds no button (`SearchResultRows.tsx`). The auth views' are
@@ -1150,8 +1180,9 @@ passed on" or "Organisation deleted".
   `runPasskeyRegistrationDeferred` (`src/lib/webauthn-registration-deferred.ts`)
   to `SignIn`.
 - The Turnstile site key, `TURNSTILE_SITEKEY` (`src/lib/auth.ts`).
-- `AuthProvider` around the shell, and a second one inside
-  `AuthorizeSignIn` on `/authorize`, both on the same `osnAuth` runtime; the `Toaster` in `App.tsx`; and the
+- `AuthProvider` around the shell, and on `/authorize` one inside
+  `AuthorizeSignIn` and one inside `AuthorizeDeletionWindow`, all on the same
+  `osnAuth` runtime; the `Toaster` in `App.tsx`; and the
   `Dialog` that frames `SignIn` and `Register`, which draw none of their own.
 
 ## Token contract

@@ -12,6 +12,7 @@ import { accountClient } from "../lib/authClients";
 import { createStepUp } from "../lib/step-up";
 import { createAccountData } from "./AccountDataActions";
 import {
+  AppLine,
   BEFORE_THAT_DAY,
   WINDOW_HEADING,
   WindowColumn,
@@ -172,6 +173,8 @@ export default function DeletionWindow(props: DeletionWindowProps) {
   }
 
   const busy = () => keeping() || data.downloading() || leaving();
+  /** On `/authorize` the app's name above the card is the page's `h1`. */
+  const level = () => (props.app ? 2 : 1);
   const scheduledFor = () => {
     const current = status();
     return current.state === "ready" ? current.scheduledFor : undefined;
@@ -183,7 +186,7 @@ export default function DeletionWindow(props: DeletionWindowProps) {
         <Switch>
           <Match when={closed()}>
             <div class="flex flex-col gap-2">
-              <WindowHeading>It's too late to keep this account</WindowHeading>
+              <WindowHeading level={level()}>It's too late to keep this account</WindowHeading>
               <p class="text-muted-foreground text-body">
                 The 7 days to keep it have ended, and it is being deleted.
               </p>
@@ -198,7 +201,7 @@ export default function DeletionWindow(props: DeletionWindowProps) {
                     busy={leaving()}
                     onClick={() => void back()}
                   >
-                    Back to {app().name}
+                    <BackLabel name={app().name} leaving={leaving()} />
                   </Button>
                 )}
               </Show>
@@ -216,7 +219,7 @@ export default function DeletionWindow(props: DeletionWindowProps) {
 
           <Match when={kept()}>
             <div class="flex flex-col gap-2">
-              <WindowHeading>Your account is back</WindowHeading>
+              <WindowHeading level={level()}>Your account is back</WindowHeading>
               <p class="text-muted-foreground text-body">Reload to carry on.</p>
             </div>
             <Button size="lg" class="w-full max-md:h-11" onClick={() => location.reload()}>
@@ -226,14 +229,7 @@ export default function DeletionWindow(props: DeletionWindowProps) {
 
           <Match when={true}>
             <div class="flex flex-col gap-2">
-              <WindowHeading>{WINDOW_HEADING}</WindowHeading>
-              <Show when={props.app}>
-                {(app) => (
-                  <p class="text-muted-foreground text-body">
-                    You came here from {app().name}. You are not signed in to it.
-                  </p>
-                )}
-              </Show>
+              <WindowHeading level={level()}>{WINDOW_HEADING}</WindowHeading>
               <Switch>
                 <Match when={status().state === "loading"}>
                   <div aria-busy="true">
@@ -272,6 +268,9 @@ export default function DeletionWindow(props: DeletionWindowProps) {
                   ? "You can keep it for 7 days after you asked. Your profiles and handles come back as they were."
                   : BEFORE_THAT_DAY}
               </p>
+              {/* Last, just above the buttons it explains: Keep carries the
+                  sign-in on, Back to the app leaves it. */}
+              <Show when={props.app}>{(app) => <AppLine name={app().name} />}</Show>
             </div>
 
             <Show when={keepError()}>
@@ -313,7 +312,7 @@ export default function DeletionWindow(props: DeletionWindowProps) {
                     disabled={!leaving() && busy()}
                     onClick={() => void back()}
                   >
-                    Back to {app().name}
+                    <BackLabel name={app().name} leaving={leaving()} />
                   </Button>
                 )}
               </Show>
@@ -346,6 +345,22 @@ function Frame(props: { app: DeletionWindowApp | undefined; children: JSX.Elemen
       <Card padding="lg" class="flex flex-col gap-6">
         {props.children}
       </Card>
+    </Show>
+  );
+}
+
+/**
+ * Back to the app's label: "Taking you back…" while it leaves, the words the
+ * page shows once it has; else the app's name, cut short with an ellipsis
+ * rather than wrap or spill out of the card, since the full name heads the
+ * page above it. The words stay whole for a screen reader.
+ */
+function BackLabel(props: { name: string; leaving: boolean }) {
+  return (
+    <Show when={!props.leaving} fallback="Taking you back…">
+      <span class="truncate">
+        Back to <span translate="no">{props.name}</span>
+      </span>
     </Show>
   );
 }
