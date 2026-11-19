@@ -6868,9 +6868,9 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
   it(
     "an erasure on D1 answers a deleted wedding the purge holds as kept, and leaves no deleter naming the account",
     async () => {
-      // On D1: the soft delete's deleter sub-select, the held count reading
-      // `purgeHeld` against `weddings`, and the clear, across a call that
-      // answers not finished and the one that finishes.
+      // The soft delete's deleter sub-select, the held count reading
+      // `purgeHeld` against `weddings`, and the clear, run on Miniflare's D1
+      // across a call that answers not finished and the one that finishes.
       const erased = "usr_d1_held";
       const other = "usr_d1_held_other";
       const held = ["wed_d1_held_a", "wed_d1_held_b", "wed_d1_held_c", "wed_d1_held_d"];
