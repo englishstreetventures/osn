@@ -949,6 +949,25 @@ jobs:
       - name: Check release-age excludes are marked and bounded
         run: bun run check:release-age-excludes
 
+      # The landmines rules' `allow` maps in oxlintrc.json only fall: this
+      # refuses a raised count, a new key, a rule turned down or off, a
+      # landmines override and an added disable comment, against the base the
+      # merge commit was made on (`HEAD^1`). Pull requests only: a raise shows
+      # against any older base, so the queue and main need no second look. It
+      # runs the base's copy of the script once main has one, as the `changes`
+      # job takes its classifier from the base, so a pull request cannot loosen
+      # the guard and a count together. The script imports nothing but Bun, so
+      # the copy runs from the temporary directory; git reads the checkout.
+      - name: Check landmines allow counts only fall
+        if: github.event_name == 'pull_request'
+        run: |
+          base="$(git rev-parse HEAD^1)"
+          script=scripts/check-landmines-allowlist.ts
+          if git show "$base:$script" > "$RUNNER_TEMP/check-landmines-allowlist.ts" 2>/dev/null; then
+            script="$RUNNER_TEMP/check-landmines-allowlist.ts"
+          fi
+          bun run "$script" --base "$base"
+
       # Every playwright, @playwright/test, vitest and @vitest/* specifier is
       # an exact version, and each group agrees on one.
       - name: Check Playwright and Vitest pins
