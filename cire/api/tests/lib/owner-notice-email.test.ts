@@ -453,10 +453,16 @@ describe("createOwnerNotices — a payout account retired", () => {
       ["usr_a", { handle: "ama", displayName: "Ama", avatarUrl: null }],
       ["usr_b", { handle: "jo", displayName: null, avatarUrl: null }],
     ]);
-    const { notices, run, transport } = setup({ resolveDisplays: async () => displays }, [
-      "usr_a",
-      "usr_b",
-    ]);
+    // Answers only for the ids it is asked about, as osn-api does.
+    const { notices, run, transport } = setup(
+      {
+        resolveDisplays: async (ids) =>
+          new Map(
+            ids.flatMap((id) => (displays.has(id) ? [[id, displays.get(id)!] as const] : [])),
+          ),
+      },
+      ["usr_a", "usr_b"],
+    );
     await run(
       notices.payoutRetired(retired({ reason: "handed_over", handToOsnProfileId: "usr_b" })),
     );

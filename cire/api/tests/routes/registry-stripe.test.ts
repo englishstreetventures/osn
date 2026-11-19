@@ -2276,6 +2276,9 @@ describe("retiring the wedding's account", () => {
         sent.every((m) => m.text.includes("No current owner of the wedding had connected it")),
       ).toBe(true);
       expect(sent.some((m) => m.text.includes("the Stripe account you connected"))).toBe(false);
+      expect(
+        sent.some((m) => m.text.includes("Gifts already given stay in your Stripe account")),
+      ).toBe(false);
     });
   });
 
