@@ -47,5 +47,7 @@
 # hash, accepts it. So the line stands eight writes higher, at 200 (5400
 # rows): two for `platform_refunds` (a table and its index), and six for the
 # account each gift was paid into (three columns, an index, two triggers).
+# The owner chose that raise over holding the gift work for the squash
+# (englishstreetventures/osn#1950, 2026-11-19).
 # Bounded until englishstreetventures/osn#2096 lands.
 cire/db/migrations 5400

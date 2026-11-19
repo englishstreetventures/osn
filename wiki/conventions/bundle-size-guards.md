@@ -675,7 +675,9 @@ the newest migration had not yet shipped to production, and the six of
 `gifts_keep_their_account` (three columns, an index, two triggers), which
 landed while the squash's method still had to be redesigned for Alchemy's
 ledger, which records each applied file's hash. Neither could wait for a
-squash. Bounded until englishstreetventures/osn#2096 lands.
+squash; the owner chose the second raise over holding the gift work for it
+(englishstreetventures/osn#1950). Bounded until englishstreetventures/osn#2096
+lands.
 
 The left two columns are exact; the right two move with the constant. The
 chain is one baseline file, one `CREATE` per table and per index, and the line
