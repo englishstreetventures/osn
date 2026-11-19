@@ -42,11 +42,11 @@ Size and speed follow from the bar above, not from a ratio of test lines to sour
 
 A deletion is read case by case, never cut by line range: most ranges one audit proposed held a refusal or a case no flow reached. Each removed case goes in the plan's table with the test or flow step that covers it afterwards. A cover counts only when it reaches the same branch whatever today's data holds, and through the same entry point. A stack test that reaches a branch because one product declares a value today (a location hint, invocation logs left on, a file present in two directories) stops covering it the day that value changes, with nothing turning red. A test of a function does not cover a test that runs the script around it: the script's argument parsing and exit codes are their own branch. A test in another package does not cover a library's case: that package may later be trimmed against this one, and this package's own mutation run no longer sees the line. `cire/envelope`'s `src/index.ts` scores 73.33 instead of 93.33 without "accepts every catalog id", the only case in the package that kills three of its mutants.
 
-*Measured 2026-11-16 — `bun run --cwd cire/envelope test:mutation --mutate src/index.ts`, with and without "accepts every catalog id" in `cire/envelope`'s tests*
+_Measured 2026-11-16 — `bun run --cwd cire/envelope test:mutation --mutate src/index.ts`, with and without "accepts every catalog id" in `cire/envelope`'s tests_
 
 **A cover is proved, not read.** Before a case is cut, break the source line it guards, by hand ([[#Commit before you red-proof]]) or with `test:mutation --mutate <src>` where the package has it, and see the named cover go red with the case deleted; a cover that stays green is not a cover, and the case stays. Covers named by reading failed in every trim that checked them: 3 of 8 in `@shared/billing`, 5 of 31 in `@shared/infra`, at least 3 of 47 in `@tools/pr-metrics` and 4 of about 50 across fifteen small packages.
 
-*Measured 2026-11-16 — in the fifteen small packages, a hand break of each guarded source line, then the package's tests; in `@shared/billing`, the plan's review, then a mutation for each of the five cuts; in `@tools/pr-metrics`, a break of each line whose cover looked thin; in `@shared/infra`, a plan review and a test review that traced each cover's branch*
+_Measured 2026-11-16 — in the fifteen small packages, a hand break of each guarded source line, then the package's tests; in `@shared/billing`, the plan's review, then a mutation for each of the five cuts; in `@tools/pr-metrics`, a break of each line whose cover looked thin; in `@shared/infra`, a plan review and a test review that traced each cover's branch_
 
 **A cover survives the same pass.** When two cases each name the other as cover, one of them stays; a cut table never lists a cover as a cut.
 
@@ -62,11 +62,11 @@ A deletion is read case by case, never cut by line range: most ranges one audit 
 
 CI runs the suite in two jobs, each on a runner of its own, and one flow against Stripe's real test mode in a third:
 
-| Job | Runs | When | What it uploads |
-|---|---|---|---|
-| `E2E` (`ci.yml`) | `bun run test:e2e` once; a failed run is run again whole, at most two runs, each cut at 12 minutes ([`e2e-with-retry.sh`](../../scripts/e2e-with-retry.sh)) | Every pull request and every push to `main`; never in the merge queue. Not a required check | `e2e-artifacts` (the last run's), and `e2e-artifacts-attempt-1` when the first run failed |
-| `E2E determinism` ([`e2e-repro.yml`](../../.github/workflows/e2e-repro.yml)) | `bun run test:e2e:repro` | Daily at 05:17 UTC, and by hand (`workflow_dispatch`); never on a pull request, a push or a merge-queue group. Not a required check | `e2e-repro-artifacts` (the second run's) |
-| `E2E Stripe test mode` ([`e2e-stripe-test-mode.yml`](../../.github/workflows/e2e-stripe-test-mode.yml)) | `bun run test:e2e:stripe` once, after a preflight; skips, successfully, while its Environment holds neither value, and fails when it holds the account without the key ([[#A gift against Stripe's test mode]]) | Daily at 04:41 UTC, and by hand; never on a pull request, a push or a merge-queue group. Not a required check | `e2e-stripe-test-mode-artifacts`, when the preflight said run |
+| Job                                                                                                     | Runs                                                                                                                                                                                                            | When                                                                                                                                | What it uploads                                                                           |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `E2E` (`ci.yml`)                                                                                        | `bun run test:e2e` once; a failed run is run again whole, at most two runs, each cut at 12 minutes ([`e2e-with-retry.sh`](../../scripts/e2e-with-retry.sh))                                                     | Every pull request and every push to `main`; never in the merge queue. Not a required check                                         | `e2e-artifacts` (the last run's), and `e2e-artifacts-attempt-1` when the first run failed |
+| `E2E determinism` ([`e2e-repro.yml`](../../.github/workflows/e2e-repro.yml))                            | `bun run test:e2e:repro`                                                                                                                                                                                        | Daily at 05:17 UTC, and by hand (`workflow_dispatch`); never on a pull request, a push or a merge-queue group. Not a required check | `e2e-repro-artifacts` (the second run's)                                                  |
+| `E2E Stripe test mode` ([`e2e-stripe-test-mode.yml`](../../.github/workflows/e2e-stripe-test-mode.yml)) | `bun run test:e2e:stripe` once, after a preflight; skips, successfully, while its Environment holds neither value, and fails when it holds the account without the key ([[#A gift against Stripe's test mode]]) | Daily at 04:41 UTC, and by hand; never on a pull request, a push or a merge-queue group. Not a required check                       | `e2e-stripe-test-mode-artifacts`, when the preflight said run                             |
 
 **The retry is the whole run, never one flow.** Each run boots the stack afresh, on newly seeded databases with empty in-memory rate-limit windows. The flows spend small windows that last the whole run — five osn-api sign-up begins a minute from the suite's one address, ten link confirms, five step-up email begins, ten profile lists, three recovery links an account a day — and seeded state a flow can use once, so a flow retried inside the run it failed in can fail again for that alone. Playwright's own `retries` stay at 0 (`tools/e2e/playwright.config.ts`). A pass on the second run is still a flake: the job passes, but shows a warning annotation and a line in its summary naming the failed run, and uploads that run's traces, screenshots and logs as `e2e-artifacts-attempt-1`. Read them before calling the change done.
 
@@ -92,26 +92,26 @@ A script test that needs no install but waits out seconds is named out of `bun t
 7. Runs Playwright, serially and with no retries. CI's retry runs the launcher again, so a second run starts from step 1.
 8. Stops every process group, the Playwright runner's included, whether the run passed, failed or was interrupted. A `SIGINT` or `SIGTERM` sent to the launcher alone stops them too.
 
-| App | Port | Started as |
-|---|---|---|
-| osn-api | 4000 | `bun --no-env-file --preload src/clock.mjs src/local.ts` |
-| osn-api, with the Email Verification API on | 4593 | same |
-| pulse-api | 3001 | same |
-| cire-api | 8787 | same |
-| cire-api, with a Stripe key and no Connect webhook secret | 4594 | same |
-| Musubi | 1422 | `bun run build`, then `wrangler dev --config tools/e2e/musubi-social.wrangler.jsonc` |
-| Pulse web | 1420 | `bun run dev:app` |
-| cire invites | 4321 | `bun run dev:app --ignore-lock` |
-| cire host (the organiser portal) | 4322 | `bun run dev:app --ignore-lock` |
-| cire landing | 4323 | `bun run dev:app --ignore-lock` |
+| App                                                       | Port | Started as                                                                           |
+| --------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------ |
+| osn-api                                                   | 4000 | `bun --no-env-file --preload src/clock.mjs src/local.ts`                             |
+| osn-api, with the Email Verification API on               | 4593 | same                                                                                 |
+| pulse-api                                                 | 3001 | same                                                                                 |
+| cire-api                                                  | 8787 | same                                                                                 |
+| cire-api, with a Stripe key and no Connect webhook secret | 4594 | same                                                                                 |
+| Musubi                                                    | 1422 | `bun run build`, then `wrangler dev --config tools/e2e/musubi-social.wrangler.jsonc` |
+| Pulse web                                                 | 1420 | `bun run dev:app`                                                                    |
+| cire invites                                              | 4321 | `bun run dev:app --ignore-lock`                                                      |
+| cire host (the organiser portal)                          | 4322 | `bun run dev:app --ignore-lock`                                                      |
+| cire landing                                              | 4323 | `bun run dev:app --ignore-lock`                                                      |
 
 cire landing and cire host reach the internet as they start: their Astro font pipelines fetch Google Fonts (`fonts` in each package's `astro.config.mjs`) and cache them under the package's `.astro/`. With no network each logs `No data found for font family …` and serves pages in fallback faces, so the stack still boots. The portal runs under `astro dev`, which serves no Content Security Policy (the build writes it into `dist/_headers`), so the browser tier keeps the CSP checks.
 
 **Musubi runs as it deploys.** Its build writes the Content-Security-Policy into `dist/_headers` ([[social#Response headers]]), and only a server that reads that file sends it, so the stack builds Musubi and serves the build through Wrangler's local asset server, which applies `_headers` and answers deep links with the single-page fallback as the deployed Worker does (`musubi-social.wrangler.jsonc`). The build carries Cloudflare's always-pass Turnstile test sitekey (`TURNSTILE_TEST_SITEKEY` in `config.ts`), so its sign-in and registration forms load the widget, and osn-api, holding no secret, checks no token, as on the dev tier. A flow that sets the `turnstile` fixture option gets a stand-in for Turnstile at its real script and frame URLs (`standInForTurnstile` in `tests/support/fixtures.ts`), so the page loads both through the policy, and the fixture counts what it served. It is an option, not the default, because any `route` in a browser context turns off that context's HTTP cache, which `cire-invite-envelope` counts on. The fixture records every Content-Security-Policy refusal twice over: the browser's `securitypolicyviolation` event, filed under the document it happened in whichever script caused it, and the console line, filed under the page; each Musubi flow checks that none happened on a Musubi page, and `musubi-passkey` checks the policy it is served. A change to Musubi needs no dev server restart between runs: each run builds afresh.
 
-*Measured 2026-10-20 — `astro dev` for `@cire/landing` with `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9`: `/privacy` answered 200 after 4.2 s.*
+_Measured 2026-10-20 — `astro dev` for `@cire/landing` with `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9`: `/privacy` answered 200 after 4.2 s._
 
-*Measured 2026-10-20 — `astro dev` for `@cire/host` with the same two variables, `PORT=4322`, in a sandbox whose egress proxy refused `fonts.google.com`: `/login` answered 200 after 8.9 s, its log saying `No data found for font family Schibsted Grotesk`.*
+_Measured 2026-10-20 — `astro dev` for `@cire/host` with the same two variables, `PORT=4322`, in a sandbox whose egress proxy refused `fonts.google.com`: `/login` answered 200 after 8.9 s, its log saying `No data found for font family Schibsted Grotesk`._
 
 The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `tools/e2e/tests/config.test.ts` keeps the two lists equal. Children get an explicit environment, not your shell's: `PATH`, `HOME` and a few proxy and certificate variables, plus every sibling origin set by name. The APIs also start with `--no-env-file`, so neither a `.env` file nor your shell's `OSN_DATABASE_URL`, `OSN_ENV` or Turnstile key reaches them. The frontends still read their own `.env*` files, as Vite and Astro always do. Every variable the suite relies on there (each API origin, the Turnstile site keys) is set in their environment, and that beats a `.env` value.
 
@@ -192,10 +192,10 @@ The Musubi flow reports conditional mediation as unavailable. The virtual authen
 
 It reads two values, from the `stripe-test-mode` GitHub Environment in CI and from the shell locally:
 
-| Name | Kind | What it holds |
-|---|---|---|
-| `STRIPE_TEST_SECRET_KEY` | Environment secret | The sandbox's test-mode key: `sk_test_` (or `rk_test_`, untested) followed by letters and digits, nothing around it |
-| `STRIPE_TEST_CONNECTED_ACCOUNT` | Environment variable | The sandbox's Australian connected account, `acct_…`, that can take card charges and settles in AUD |
+| Name                            | Kind                 | What it holds                                                                                                       |
+| ------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `STRIPE_TEST_SECRET_KEY`        | Environment secret   | The sandbox's test-mode key: `sk_test_` (or `rk_test_`, untested) followed by letters and digits, nothing around it |
+| `STRIPE_TEST_CONNECTED_ACCOUNT` | Environment variable | The sandbox's Australian connected account, `acct_…`, that can take card charges and settles in AUD                 |
 
 The sandbox's default API version is the one cire-api pins on its requests (`STRIPE_API_VERSION`, `2025-03-31.basil`, in [`cire/api/src/services/stripe.ts`](../../cire/api/src/services/stripe.ts)): `stripe listen` delivers events in the sandbox's default version and has no flag to ask for another, and the flow's last check fails the run while the two differ.
 
@@ -281,13 +281,14 @@ Service tests use `it.effect` from `@effect/vitest` with an isolated DB per test
 // Service tests: it.effect from @effect/vitest, isolated DB per test
 import { it, expect } from "@effect/vitest";
 import { Effect } from "effect";
+
 import { createTestLayer } from "../helpers/db";
 
 it.effect("creates event with evt_ prefix", () =>
   Effect.gen(function* () {
     const event = yield* createEvent({ title: "Test", startTime: "2030-06-01T10:00:00.000Z" });
     expect(event.id).toMatch(/^evt_/);
-  }).pipe(Effect.provide(createTestLayer()))
+  }).pipe(Effect.provide(createTestLayer())),
 );
 ```
 
@@ -301,7 +302,7 @@ it.effect("fails with EventNotFound", () =>
   Effect.gen(function* () {
     const error = yield* Effect.flip(getEvent("nonexistent"));
     expect(error._tag).toBe("EventNotFound");
-  }).pipe(Effect.provide(createTestLayer()))
+  }).pipe(Effect.provide(createTestLayer())),
 );
 ```
 
@@ -315,9 +316,9 @@ type-check:
 
 ```typescript
 // v3: exit.cause._tag === "Fail" && exit.cause.error instanceof VendorNotInWedding
-expect(
-  Option.getOrUndefined(Cause.findErrorOption(exit.cause)) instanceof VendorNotInWedding,
-).toBe(true);
+expect(Option.getOrUndefined(Cause.findErrorOption(exit.cause)) instanceof VendorNotInWedding).toBe(
+  true,
+);
 ```
 
 `findErrorOption` returns `None` for a **defect**, so this refuses one exactly
@@ -346,11 +347,14 @@ Route tests use plain vitest with a fresh app per test via `beforeEach`:
 ```typescript
 // Route tests: plain vitest, fresh app per test via beforeEach
 import { describe, it, expect, beforeEach } from "vitest";
+
 import { createEventsRoutes } from "../../src/routes/events";
 
 describe("events routes", () => {
   let app: ReturnType<typeof createEventsRoutes>;
-  beforeEach(() => { app = createEventsRoutes(createTestLayer()); });
+  beforeEach(() => {
+    app = createEventsRoutes(createTestLayer());
+  });
 
   it("GET /events -> 200", async () => {
     const res = await app.handle(new Request("http://localhost/events"));
@@ -416,7 +420,7 @@ The check is the same as for the entries below: break the line the test names, a
 Four separate false greens in one epic, all the same shape.
 
 A helper picked "the newest row" by sorting `created_at`. Two credentials
-enrolled in the same second tied, so the test read the *parent's* value and
+enrolled in the same second tied, so the test read the _parent's_ value and
 asserted it against the child — and an implementation that did the wrong thing
 passed the one test written to catch it. Elsewhere every fixture was backdated,
 so `<` and `<=` agreed on every row and a boundary went untested until a
@@ -488,7 +492,7 @@ Four things together make it able to fail, and all four are needed:
   promise), then wait one macrotask. Without the wait the read happens before
   the fetch has resolved.
 - **Pair it with a success twin** that uses the same wait and asserts the value
-  *changed*. That is what proves the wait is long enough to see a write at all.
+  _changed_. That is what proves the wait is long enough to see a write at all.
 - **Compare identity against one sentinel** (`toBe`, on a module-level object),
   not shape. `toEqual` cannot tell the painted value from a lookalike a failure
   path rebuilt.
@@ -556,17 +560,17 @@ shows the form.
 ### A route the app never mounted
 
 A test POSTed to `/api/stripe/platform-webhook` on an app that did not mount it, and asserted the response was not 403. An Elysia `onBeforeHandle` hook never runs for a path the router does not match, so an unmatched POST returns 404 with or without the exemption under test. The assertion passed on the 404.
-*Instead:* mount a stub route at the real path on a bare origin guard, as `cire/api/tests/lib/origin-guard.test.ts` does, so the hook is reached.
+_Instead:_ mount a stub route at the real path on a bare origin guard, as `cire/api/tests/lib/origin-guard.test.ts` does, so the hook is reached.
 
 ### Hand-written input where the driver's output should be
 
 A test passed a literal error string containing an index name to the classifier that reads it. SQLite names the columns in a unique-violation message, never the index, so the production path could never reach the matching branch, and the test was green either way.
-*Instead:* drive a real insert against the real index, and assert the message does **not** contain the index name, so the classifier cannot match on it.
+_Instead:_ drive a real insert against the real index, and assert the message does **not** contain the index name, so the classifier cannot match on it.
 
 ### A test helper that supplies the thing under test
 
 `appRequest` in `cire/api/tests/test-helpers.ts` adds an `Origin` header to every request. Any origin-guard test written through it passes whether or not the guard works.
-*Instead:* build the request by hand for any test of a header the helper injects.
+_Instead:_ build the request by hand for any test of a header the helper injects.
 
 Each of these was caught the same way: revert the fix and watch the test go red. Two cautions. A revert made by text substitution must be confirmed applied before the result is trusted: `bun fmt` reflows code, so a multi-line pattern captured before formatting can fail to match, and the "mutation" never happens while the test stays green. And restore the fix before committing.
 
@@ -586,7 +590,7 @@ Stryker config (`stryker/config.mjs`) and a
 
 Outside cire, break the changed lines by hand: a scratch script swaps one line at a time for a broken form, runs the test file that covers it, and restores the file, checking its hash after the last swap. Confirm each swap matched, as [[#Assertions that cannot fail]] warns. It pays even after a failure-modes-first list. For the alchemy D1 import patch (`shared/infra/tests/d1-import.test.ts`), 19 cases, each seen red before the code, still let 8 of 11 hand mutants survive. The list named behaviours, and the survivors were mostly fields copied from one shape into another (`error: init.error` set to `undefined`), plus an error branch whose test reply, carrying no bookmark, also failed the next branch down with the same text.
 
-*Measured 2026-10-26 — 11 one-line mutants of the patched `src/Cloudflare/D1/ImportDatabase.ts` in `alchemy@2.0.0-beta.83` (now `src/D1/ImportDatabase.ts` in `@alchemy.run/cloudflare`), each run with `bunx --bun vitest run --project package tests/d1-import.test.ts -t "src copy"` in `shared/infra`*
+_Measured 2026-10-26 — 11 one-line mutants of the patched `src/Cloudflare/D1/ImportDatabase.ts` in `alchemy@2.0.0-beta.83` (now `src/D1/ImportDatabase.ts` in `@alchemy.run/cloudflare`), each run with `bunx --bun vitest run --project package tests/d1-import.test.ts -t "src copy"` in `shared/infra`_
 
 ### When to run it
 
@@ -626,8 +630,8 @@ timeouts, 123 survivors and 73.3%. Read the `# timeout` column before the score.
 Leave `tests/routes/tier-gate-pairing.test.ts` out of `STRYKER_TESTS`: it
 parses the source files, which Stryker has instrumented, and fails the dry run.
 
-*Measured 2026-10-26 — `bun run --cwd cire/api test:mutation --changed` on the
-seating plans branch, at the default concurrency and again with the flags above.*
+_Measured 2026-10-26 — `bun run --cwd cire/api test:mutation --changed` on the
+seating plans branch, at the default concurrency and again with the flags above._
 
 Run a long one in the background: the agent shell's foreground limit is ten
 minutes, and an interrupted run only wastes the time already spent. The report
@@ -681,11 +685,11 @@ changed without one of the answers above.
 
 ### How the runners differ
 
-| Packages | Runner | What it runs per mutant |
-|---|---|---|
-| `@cire/host`, `@cire/invites`, `@cire/vendor`, `@cire/ui`, `@cire/waves`, `@cire/landing`, `@cire/build-tools`, `@cire/invite-designs` | `@stryker-mutator/vitest-runner` | only the tests that cover the mutated line |
-| `@cire/api`, `@cire/db`, `@cire/dietary`, `@cire/theme` | Stryker's `command` runner | the whole command — `bun test`, or `@cire/api`'s `STRYKER_TESTS` |
-| `@cire/infra` | Stryker's `command` runner | the whole suite, `bunx --bun vitest run`, under Bun: its tests evaluate the stacks with Bun's platform layer and read SQLite through `bun:sqlite`, which the vitest runner cannot, since it runs tests under Node. Four mutants at a time with a 60-second timeout: one per core starves each run past Stryker's default timeout. The sandbox keeps `musubi/`, whose declaration the cross-stack test imports, and `osn/`, whose `osn/api/wrangler.toml` it reads |
+| Packages                                                                                                                               | Runner                           | What it runs per mutant                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@cire/host`, `@cire/invites`, `@cire/vendor`, `@cire/ui`, `@cire/waves`, `@cire/landing`, `@cire/build-tools`, `@cire/invite-designs` | `@stryker-mutator/vitest-runner` | only the tests that cover the mutated line                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `@cire/api`, `@cire/db`, `@cire/dietary`, `@cire/theme`                                                                                | Stryker's `command` runner       | the whole command — `bun test`, or `@cire/api`'s `STRYKER_TESTS`                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `@cire/infra`                                                                                                                          | Stryker's `command` runner       | the whole suite, `bunx --bun vitest run`, under Bun: its tests evaluate the stacks with Bun's platform layer and read SQLite through `bun:sqlite`, which the vitest runner cannot, since it runs tests under Node. Four mutants at a time with a 60-second timeout: one per core starves each run past Stryker's default timeout. The sandbox keeps `musubi/`, whose declaration the cross-stack test imports, and `osn/`, whose `osn/api/wrangler.toml` it reads |
 
 What the configs depend on, and what breaks without it:
 
@@ -699,7 +703,7 @@ What the configs depend on, and what breaks without it:
   version on both and breaks one of them: under `^7` Stryker crashes while
   instrumenting.
 - **The vitest runner must be 10.1.1 or later.** Stryker filters the tests to
-  run per mutant by name, and Vitest 5 joins a test's suite chain with ` > `;
+  run per mutant by name, and Vitest 5 joins a test's suite chain with `>`;
   an earlier runner joins it with a space, so every mutant runs no tests and
   survives. A run reporting `Ran 0.00 tests per mutant` is that failure.
 - **Every vitest config names `@stryker-mutator/vitest-runner` in `plugins`.**
@@ -758,32 +762,30 @@ unrelated test. `<body>` then carries `aria-hidden="true"`, and every
 test fails depends on where it sits in the file, so it shows up when someone
 adds or moves a test, far from the overlay that caused it.
 
-A suite that opens an overlay lets both writes run before the next test starts:
+A suite that opens an overlay lets both writes run before the next test starts. Name the drain for the path it follows, a timer turn and then a frame, and call it from the hook:
 
 ```ts
+/** Lets Kobalte's zero-delay `aria-hidden` writes, and the frame each one
+ *  requests, run before the next test starts. */
+function drainOverlayWrites() {
+  return new Promise<void>((resolve) => {
+    setTimeout(() => requestAnimationFrame(() => resolve()), 0);
+  });
+}
+
 afterEach(async () => {
   cleanup();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await drainOverlayWrites();
 });
 ```
 
-`cire/host/tests/components/OrganiserApp.test.tsx` does this for its
-profile-menu tests. Prove a fix like this with `--sequence.shuffle` under
+`cire/host/tests/components/OrganiserApp.test.tsx` drains its profile-menu tests this way, written inline. Prove a fix like this with `--sequence.shuffle` under
 several seeds, not with one green run in file order. Without the drain, that
 suite failed in file order and under two of three seeds.
 
-`landmines-testing/no-fixed-sleep` reports the drain's first line wherever it
-is written inline in a hook or test, though it guesses at no length of time: it
-runs the timer queue once and then a frame, the path the overlay's writes take.
-The suites that hold it are on that rule's allow map, or call
-`vi.useFakeTimers()` elsewhere in the file, which exempts the whole file, as
-`OrganiserApp.test.tsx` does. A suite that is not on the map cannot add the
-drain: the allowlist guard refuses a new key and a disable comment alike
-([[house-lint-rules#The allowlist guard]]), so a new one waits on the owner's
-decision.
+`landmines-testing/no-fixed-sleep` reports `await new Promise((r) => setTimeout(r, 0))` written inline in a hook or test. The named drain above does not trip it, and it should not: it waits for one turn of the timer queue and one frame, the path the overlay's writes take, and guesses no length of time. Write it that way in a new suite rather than adding an allow-map entry, which the allowlist guard refuses ([[house-lint-rules#The allowlist guard]]). A zero delay is the only delay this form allows: a drain that waits a number of milliseconds is a guess, and waits on a signal instead.
 
-*Measured 2026-10-02 — drain removed, in `cire/host`: `bunx --bun vitest run --project unit tests/components/OrganiserApp.test.tsx --sequence.shuffle --sequence.seed=<1|7|42>`; seeds 1 and 7 failed, 42 passed*
+_Measured 2026-10-02 — drain removed, in `cire/host`: `bunx --bun vitest run --project unit tests/components/OrganiserApp.test.tsx --sequence.shuffle --sequence.seed=<1|7|42>`; seeds 1 and 7 failed, 42 passed_
 
 A closed overlay also stays mounted under happy-dom. Kobalte keeps a closing
 panel in the page until its exit animation ends, and solid-presence reads
@@ -831,7 +833,7 @@ its Chromium tests. [[browser-tests]] covers that tier. Without the warm-up, a
 1.5 s transform failed both packs' first FAQ test in every run; with it, every
 run passed.
 
-*Measured 2026-11-05 — in `cire/invites`, a throwaway Vitest config adding a Vite plugin that delays `FaqSection.tsx`'s transform by 1.5 s, then `bunx vitest run --config <it> --no-fsModuleCache tests/designs/gala/InvitePage.test.tsx tests/designs/classic/InvitePage.test.tsx`, 10 runs each way: without the `beforeAll` both failed at 1010–1015 ms with `expected null to be truthy`; with it both passed in 11–39 ms*
+_Measured 2026-11-05 — in `cire/invites`, a throwaway Vitest config adding a Vite plugin that delays `FaqSection.tsx`'s transform by 1.5 s, then `bunx vitest run --config <it> --no-fsModuleCache tests/designs/gala/InvitePage.test.tsx tests/designs/classic/InvitePage.test.tsx`, 10 runs each way: without the `beforeAll` both failed at 1010–1015 ms with `expected null to be truthy`; with it both passed in 11–39 ms_
 
 A test that watches the chunk arrive cannot warm it: the warm-up loads the
 module before the first frame the test measures. Import every chunk the
@@ -860,7 +862,7 @@ awaits the same `load` in `railChunks()` and `topBarChunks()`. Every wait for
 a shell in that package's browser tests awaits one of them first, so a load
 added to a shell's `load` reaches those waits with no second edit.
 
-*Measured 2026-11-10 — in `musubi/social`, a throwaway Vitest config adding a Vite plugin that delays `Sidebar.tsx`'s transform by 2.5 s and logs each request for a shell module, then `bunx --bun vitest run --config <it> --no-fsModuleCache tests/App.browser.test.tsx`: waiting with `waitFor` alone, the first rail test failed at 1110–1131 ms in 3 of 3 runs; awaiting the chunks, it passed in 2645–2702 ms in 10 of 10, with one request per shell module in each run*
+_Measured 2026-11-10 — in `musubi/social`, a throwaway Vitest config adding a Vite plugin that delays `Sidebar.tsx`'s transform by 2.5 s and logs each request for a shell module, then `bunx --bun vitest run --config <it> --no-fsModuleCache tests/App.browser.test.tsx`: waiting with `waitFor` alone, the first rail test failed at 1110–1131 ms in 3 of 3 runs; awaiting the chunks, it passed in 2645–2702 ms in 10 of 10, with one request per shell module in each run_
 
 ## Schema-derived test databases
 
@@ -891,16 +893,16 @@ When you write one of these, prove it can fail. Mutate the emitter — drop a co
 
 Reach for these before hand-rolling setup:
 
-| Harness | Use for |
-|---|---|
-| `@shared/crypto/testing` → `makeAccessTokenSigner()` | ES256 OSN access tokens (`aud: "osn-access"`, 5-minute `exp` matching production). Returns `{ privateKey, publicKey, sign(profileId, claims?) }`; `claims` covers `email`, `audience`, `expiresIn`, `issuer`, `kid` for negative tests. Used by the pulse, zap and cire route suites. |
-| `cire/api/tests/test-helpers/osn-token.ts` → `makeOsnTestAuth()` | The cire-shaped `{ key, sign }` adapter over the above. `sign(profileId, claims?)` takes the same claims, so a cire suite reaches the expired, foreign-issuer and wrong-audience reject paths. |
-| `cire/api/tests/test-helpers/organiser-session.ts` → `seedOrganiserSession()` | A live `cire_org_session` token for a profile, minted by `organiserSessionService.create`, the function the OIDC callback calls. Send it as a `Cookie` with no bearer to test that an organiser route reads the cookie. |
-| `cire/api/tests/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
-| `cire/host/tests/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
-| `pulse/web/tests/helpers/toast.ts` → `toastMock()` | Same idea for the Pulse app. |
+| Harness                                                                                         | Use for                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@shared/crypto/testing` → `makeAccessTokenSigner()`                                            | ES256 OSN access tokens (`aud: "osn-access"`, 5-minute `exp` matching production). Returns `{ privateKey, publicKey, sign(profileId, claims?) }`; `claims` covers `email`, `audience`, `expiresIn`, `issuer`, `kid` for negative tests. Used by the pulse, zap and cire route suites.                                                                                                                            |
+| `cire/api/tests/test-helpers/osn-token.ts` → `makeOsnTestAuth()`                                | The cire-shaped `{ key, sign }` adapter over the above. `sign(profileId, claims?)` takes the same claims, so a cire suite reaches the expired, foreign-issuer and wrong-audience reject paths.                                                                                                                                                                                                                   |
+| `cire/api/tests/test-helpers/organiser-session.ts` → `seedOrganiserSession()`                   | A live `cire_org_session` token for a profile, minted by `organiserSessionService.create`, the function the OIDC callback calls. Send it as a `Cookie` with no bearer to test that an organiser route reads the cookie.                                                                                                                                                                                          |
+| `cire/api/tests/test-helpers.ts` → `appRequest()`                                               | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected.                                                                                                                                                                                                                                                                                                                                                 |
+| `cire/host/tests/test-support/mocks.ts`                                                         | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`.                                                                                                                                                                                                                                                                                                   |
+| `pulse/web/tests/helpers/toast.ts` → `toastMock()`                                              | Same idea for the Pulse app.                                                                                                                                                                                                                                                                                                                                                                                     |
 | `cire/invites/tests/test-support/consent.ts` → `seedConsentForTest()` / `resetConsentForTest()` | A returning guest's consent cookie, written with the app's own record encoder under the http name `cire_consent` (an https origin reads only `__Host-cire_consent`, so it ignores the seed), and a reset that deletes both consent cookie names and returns the store to before hydration. For any `cire/invites` suite that renders a consent-gated component on the default http origin. See [[cire-consent]]. |
-| `cire/api/tests/test-helpers/metrics-harness.ts` → `counterValue()` | Reading a counter back in a `@cire/api` test. See [[#Asserting a metric]]. |
+| `cire/api/tests/test-helpers/metrics-harness.ts` → `counterValue()`                             | Reading a counter back in a `@cire/api` test. See [[#Asserting a metric]].                                                                                                                                                                                                                                                                                                                                       |
 
 Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no reason to re-key per test.
 
@@ -942,10 +944,10 @@ Never return an object that lists a few exports. The next export added to `lib/a
 
 `@osn/api` and `@pulse/api` run most test files with `isolate: false`: a Vitest worker loads the app and its dependencies once and reuses that module cache for every file it runs, rather than loading them again per file. Each `vitest.config.ts` reads its test files when the config loads and splits them into two projects:
 
-| Project | Files | Isolation |
-|---|---|---|
-| `shared` | every file that calls none of `vi.mock`, `vi.doMock` or `vi.resetModules` | `isolate: false` |
-| `isolated` | the files that call one of them | the default, a fresh module cache per file |
+| Project    | Files                                                                     | Isolation                                  |
+| ---------- | ------------------------------------------------------------------------- | ------------------------------------------ |
+| `shared`   | every file that calls none of `vi.mock`, `vi.doMock` or `vi.resetModules` | `isolate: false`                           |
+| `isolated` | the files that call one of them                                           | the default, a fresh module cache per file |
 
 A file that replaces a module cannot share the cache: `vi.mock` cannot apply to a module another file in the worker already loaded, and `vi.resetModules` clears the cache for every file after it. The split is read from the files, so a new test file lands in the right project with nobody editing a list.
 
@@ -953,7 +955,7 @@ A file that replaces a module cannot share the cache: `vi.mock` cannot apply to 
 
 In `@osn/api` this halves the suite's CPU time, 44 s to 22 s, with the same 94 files and 1,707 tests. Both suites pass with every shared file in one worker under five shuffled file orders.
 
-*Measured 2026-11-02 — `/usr/bin/time -p bunx --bun vitest run` in `osn/api` on a 10-core Mac, against the config without the split; `vitest run --maxWorkers=1 --sequence.shuffle.files --sequence.seed=<11, 23, 37, 41, 59>` in each package*
+_Measured 2026-11-02 — `/usr/bin/time -p bunx --bun vitest run` in `osn/api` on a 10-core Mac, against the config without the split; `vitest run --maxWorkers=1 --sequence.shuffle.files --sequence.seed=<11, 23, 37, 41, 59>` in each package_
 
 ## Asserting a metric
 
@@ -983,8 +985,8 @@ metric test that runs after a route test reads zero and fails. The harness insta
 an on-demand `MetricReader`, and exports one function:
 
 ```typescript
-import { counterValue } from "../test-helpers/metrics-harness";
 import { CIRE_METRICS } from "../../src/metrics";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 const before = await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "dietary_consent" });
 await post(body, cookie);
@@ -1030,10 +1032,10 @@ Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1
 
 How the fast tier avoids these files differs by runner, and the difference is worth knowing before you read a CI log:
 
-| Package | Fast-tier runner | Does `bun run test` load the D1/Miniflare file? |
-|---|---|---|
-| `osn/api`, `pulse/api`, `zap/api`, `shared/realtime`, `shared/coordination`, `shared/billing` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
-| `cire/api` | bare `bun test` | **No.** The `test` script passes `--path-ignore-patterns='tests/db/d1-integration.test.ts'`, which bun applies only to the files it discovers: `test:d1` names the file, so it still runs it, and a mutation run reaches it whenever `STRYKER_TESTS` lists it. Other files in the fast tier still boot workerd: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
+| Package                                                                                       | Fast-tier runner | Does `bun run test` load the D1/Miniflare file?                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `osn/api`, `pulse/api`, `zap/api`, `shared/realtime`, `shared/coordination`, `shared/billing` | vitest           | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`.                                                                                                                                                                                                                                                                                                                                                                 |
+| `cire/api`                                                                                    | bare `bun test`  | **No.** The `test` script passes `--path-ignore-patterns='tests/db/d1-integration.test.ts'`, which bun applies only to the files it discovers: `test:d1` names the file, so it still runs it, and a mutation run reaches it whenever `STRYKER_TESTS` lists it. Other files in the fast tier still boot workerd: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
 
 See [[realtime]] for what `hub.test.ts` covers.
 
@@ -1046,7 +1048,7 @@ Run serially. Concurrent Miniflare workerd instances contend and fail spuriously
 
 Most CI runs replay this lane from turbo's cache, so a test in it that fails one run in a few can sit unseen for weeks. A change that moves the lane or what it runs on should be checked on cold runs: set `TURBO_FORCE: "true"` in the workflow's `env` on a throwaway commit, run it three times, and revert the commit. A wall-clock window in a Miniflare test needs room for one call to a new Durable Object, which has taken over 300 ms on a fresh runner.
 
-*Measured 2026-11-02 — CI runs 41410437803 and 41415396574 on #1910 with `TURBO_FORCE`, n=6: one read past a 300 ms TTL*
+_Measured 2026-11-02 — CI runs 41410437803 and 41415396574 on #1910 with `TURBO_FORCE`, n=6: one read past a 300 ms TTL_
 
 ### osn-api on workerd, end to end
 
@@ -1084,7 +1086,7 @@ So keep bulk reads and writes inside workerd. Give Miniflare a small Worker scri
 
 The R2 walk test read a thousand listed objects through the proxy and took 28–36 s against its 30 s budget in a cold run.
 
-*Measured 2026-10-07 — `bun run test` on ubuntu-latest with no turbo cache, n=3*
+_Measured 2026-10-07 — `bun run test` on ubuntu-latest with no turbo cache, n=3_
 
 ### Seeding a Miniflare test
 
@@ -1096,23 +1098,23 @@ Keeping bulk work inside workerd holds for every Miniflare-backed file, not only
 
 The osn co-member fan-out test seeded 1,522 rows with about 3,000 proxied `prepare` and `bind` calls and took 4.7 s of its 5 s budget on an idle machine. Seeded in one request, it takes 0.5 s idle and under 1 s with every core busy.
 
-*Measured 2026-10-21 — `bun test tests/d1/d1-integration.test.ts --reporter=junit` in `osn/api`, 4-core cloud container, idle and beside four `while :; do :; done` loops; n=1 before, n=5 after*
+_Measured 2026-10-21 — `bun test tests/d1/d1-integration.test.ts --reporter=junit` in `osn/api`, 4-core cloud container, idle and beside four `while :; do :; done` loops; n=1 before, n=5 after_
 
 One request writing 7,000 R2 objects (13–18 s) broke the request after it 4 times in 4. The same objects in 100-key requests did not, and neither did one request that slept for 16 s.
 
-*Measured 2026-10-21 — scratch Miniflare probe in `cire/api/tests`, 4-core cloud container, idle, n=4 each*
+_Measured 2026-10-21 — scratch Miniflare probe in `cire/api/tests`, 4-core cloud container, idle, n=4 each_
 
 ### D1's error shape in a bun test
 
 On both drivers drizzle wraps a failed single statement in `DrizzleQueryError`, whose message is `Failed query: <statement>`. What sits on its `cause` differs:
 
-| Driver | Error chain, outermost first |
-|---|---|
-| bun:sqlite | `DrizzleQueryError` → the database's error |
-| D1, one statement | `DrizzleQueryError` → `D1_ERROR: <reason>` → the database's error |
-| D1, `batch()` | `D1_ERROR: <reason>` → the database's error (no `DrizzleQueryError`) |
+| Driver            | Error chain, outermost first                                         |
+| ----------------- | -------------------------------------------------------------------- |
+| bun:sqlite        | `DrizzleQueryError` → the database's error                           |
+| D1, one statement | `DrizzleQueryError` → `D1_ERROR: <reason>` → the database's error    |
+| D1, `batch()`     | `D1_ERROR: <reason>` → the database's error (no `DrizzleQueryError`) |
 
-*Measured 2026-10-21 — scratch probe in `cire/api/tests`: one unique conflict on Miniflare D1 and on bun:sqlite, each error's `cause` chain printed*
+_Measured 2026-10-21 — scratch probe in `cire/api/tests`: one unique conflict on Miniflare D1 and on bun:sqlite, each error's `cause` chain printed_
 
 Code that reads the reason from `String(e)` misses it on every driver, and code that reads a fixed depth of `cause` can pass on bun:sqlite and miss on D1. That is why cire reads it through `driverErrorText`, which walks the whole chain ([[cire-development]]).
 
@@ -1143,9 +1145,9 @@ that one rule, runs the real `oxlint` binary over them, and asserts on the JSON:
       "code": "house(no-in-operator-key-guard)",
       "severity": "error",
       "filename": "/abs/path/bad.ts",
-      "labels": [{ "span": { "offset": 118, "length": 12, "line": 4, "column": 9 } }]
-    }
-  ]
+      "labels": [{ "span": { "offset": 118, "length": 12, "line": 4, "column": 9 } }],
+    },
+  ],
 }
 ```
 
@@ -1233,10 +1235,10 @@ comparison's child.
 
 TypeScript 7 exports no in-process compiler API: `import ts from "typescript"` gives only `{ version }`. A test that parses source or reads a tsconfig uses the client API, which talks to the native compiler in a child process, and which client works depends on the runtime the test runs under:
 
-| Client | Under `bun test` | Under Vitest (Node) |
-|---|---|---|
-| `typescript/async` (`await api.createSourceFile(…)`) | Works | Works |
-| `typescript/sync` (`api.readConfigFile(…)`) | Throws at `new API()`: it needs Node's child-process stream handles | Works |
+| Client                                               | Under `bun test`                                                    | Under Vitest (Node) |
+| ---------------------------------------------------- | ------------------------------------------------------------------- | ------------------- |
+| `typescript/async` (`await api.createSourceFile(…)`) | Works                                                               | Works               |
+| `typescript/sync` (`api.readConfigFile(…)`)          | Throws at `new API()`: it needs Node's child-process stream handles | Works               |
 
 Create one `API` per file and close it in `afterAll`: each instance is a process. AST guards come from `typescript/ast/is` (`isCallExpression`, `isStringLiteralLikeNode`), and a node walks with `node.forEachChild(visit)`. To ask which files a program loads, run `node_modules/.bin/tsc -p <dir> --listFilesOnly` (add `--runExternalCode` for an Astro site). `cire/api/tests/routes/tier-gate-pairing.test.ts` (async, under Bun) and `cire/invites/tests/browser-floor.test.ts` (sync, under Vitest) are the two shapes.
 
@@ -1291,10 +1293,10 @@ tier once more. It does so on every event: pull request, merge queue and push
 to `main`. The `E2E` job does the same through
 [`e2e-with-retry.sh`](../../scripts/e2e-with-retry.sh) ([[#The end-to-end suite]]).
 
-| Step (`.github/workflows/ci.yml`) | Runs | Each run cut at |
-|---|---|---|
-| `Scripts`, "Test the scripts" | `bun run test:scripts` | 5 minutes |
-| `Browser tests (<leg>)`, "Browser tests" | `turbo run test:browser` with the leg's filters | 10 minutes |
+| Step (`.github/workflows/ci.yml`)        | Runs                                            | Each run cut at |
+| ---------------------------------------- | ----------------------------------------------- | --------------- |
+| `Scripts`, "Test the scripts"            | `bun run test:scripts`                          | 5 minutes       |
+| `Browser tests (<leg>)`, "Browser tests" | `turbo run test:browser` with the leg's filters | 10 minutes      |
 
 - **Only after a failure.** A run that passes never runs again, and no step
   repeats tests that passed (`--rerun-each`, `--repeats`) or shuffles them
@@ -1325,7 +1327,7 @@ over every workflow step spends bun's 5000 ms default on a slow machine.
 `deploy-workflows.test.ts` PW10 runs each production Alchemy step as its own
 case, and its slowest case takes 0.68 s.
 
-*Measured 2026-11-13 — `bun test scripts/tests/deploy-workflows.test.ts -t PW10 --reporter=junit --reporter-outfile=<file>`, slowest `testcase` time, 11 cases.*
+_Measured 2026-11-13 — `bun test scripts/tests/deploy-workflows.test.ts -t PW10 --reporter=junit --reporter-outfile=<file>`, slowest `testcase` time, 11 cases._
 
 ## Related
 

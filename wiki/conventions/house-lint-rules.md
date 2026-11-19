@@ -31,7 +31,7 @@ Each rule's own source file holds the full reasoning and the bug that prompted i
 | `no-unbounded-in-array`           | error                                                 | An `inArray` or `notInArray` list whose length the source does not fix — one D1 parameter per element                                                                             |
 | `no-sequential-independent-await` | error, `**/src/**` only                               | Two adjacent awaited reads (`get*`, `find*`, `list*`, `load*` ...) where the second does not use the first's result — start both and wait once with `Promise.all` or `Effect.all` |
 | `no-serial-effect-concurrency`    | error, `**/src/**` only                               | `{ concurrency: 1 }` on an Effect batch — items run one at a time; suppress with the reason when the order is the point                                                           |
-| `no-literal-motion`               | error, product `src/**` only                          | A written duration, delay or easing where a motion token belongs, and `transition: all` — see §Literal motion below; `.css` and `.astro` files are checked by a script |
+| `no-literal-motion`               | error, product `src/**` only                          | A written duration, delay or easing where a motion token belongs, and `transition: all` — see §Literal motion below; `.css` and `.astro` files are checked by a script            |
 
 ## Suppressing a house rule
 
@@ -91,10 +91,10 @@ A motion takes its duration, delay and curve from a token chosen by its job: the
 
 It runs in two halves that share one matcher, [scripts/lib/motion-literals.ts](../../scripts/lib/motion-literals.ts), so they cannot disagree:
 
-| Half | Reads | Runs in |
-| ---- | ----- | ------- |
-| `house/no-literal-motion` | `.ts`, `.tsx`, `.js` under `osn/*/src`, `musubi/*/src`, `pulse/*/src`, `cire/*/src`, `shared/*/src`, `zap/*/src`: class strings, style objects, `x.style.transition = …`, injected stylesheets in strings | `bun run lint`, locally and in CI |
-| [scripts/check-motion-literals.ts](../../scripts/check-motion-literals.ts) | `.css` files, and `.astro` `<style>` blocks, markup classes, quoted `style` attributes, and classes in the frontmatter and `<script>`, under the same trees | `bun run scripts/check-motion-literals.ts` locally; CI's `script-tests` job, and its tests in `bun run test:scripts` |
+| Half                                                                       | Reads                                                                                                                                                                                                     | Runs in                                                                                                              |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `house/no-literal-motion`                                                  | `.ts`, `.tsx`, `.js` under `osn/*/src`, `musubi/*/src`, `pulse/*/src`, `cire/*/src`, `shared/*/src`, `zap/*/src`: class strings, style objects, `x.style.transition = …`, injected stylesheets in strings | `bun run lint`, locally and in CI                                                                                    |
+| [scripts/check-motion-literals.ts](../../scripts/check-motion-literals.ts) | `.css` files, and `.astro` `<style>` blocks, markup classes, quoted `style` attributes, and classes in the frontmatter and `<script>`, under the same trees                                               | `bun run scripts/check-motion-literals.ts` locally; CI's `script-tests` job, and its tests in `bun run test:scripts` |
 
 oxlint never parses `.css`, and `oxlintrc.json` ignores `*.astro` (oxlint would read only an Astro file's frontmatter and `<script>`), which is why the second half exists. `bun run lint` does not run the script, so a literal in a stylesheet passes it and fails CI; run the script before you push a style change.
 
@@ -106,12 +106,12 @@ oxlint never parses `.css`, and `oxlintrc.json` ignores `*.astro` (oxlint would 
 
 **Keeping a literal.** Replace a literal with the token of its job, even when the value moves: a hover takes `--ui-dur-fast` whether it was written 150ms or 160ms. Keep one only where no token's job fits it: a loop, a stagger, choreography slower than the ladder's longest step, or a time shared with script. A number is never the reason. A kept literal stays with its reason, in the form its file takes:
 
-| Where | Form |
-| ----- | ---- |
-| A declaration in a stylesheet, an Astro `<style>` or a quoted `style` attribute | `/* motion-literal: <reason> */` inside the declaration, on the line above it, or after its `;` on the same line. It keeps that declaration and no other |
+| Where                                                                            | Form                                                                                                                                                                                                                                              |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A declaration in a stylesheet, an Astro `<style>` or a quoted `style` attribute  | `/* motion-literal: <reason> */` inside the declaration, on the line above it, or after its `;` on the same line. It keeps that declaration and no other                                                                                          |
 | Anything in `.ts`, `.tsx` or `.js`: a class string, a style object, a CSS string | `// oxlint-disable-next-line house/no-literal-motion -- <reason>` on the line above. It keeps every report on that line, so in a CSS string with several motion declarations, put `/* motion-literal: <reason> */` in the one declaration instead |
-| A class in Astro markup | `{/* motion-literal: <reason> */}` straight before the tag. Astro drops the comment from the page |
-| A class string in an Astro file's frontmatter or `<script>` | `// motion-literal: <reason>` (or `/* … */`) on the line directly above the line that holds the class |
+| A class in Astro markup                                                          | `{/* motion-literal: <reason> */}` straight before the tag. Astro drops the comment from the page                                                                                                                                                 |
+| A class string in an Astro file's frontmatter or `<script>`                      | `// motion-literal: <reason>` (or `/* … */`) on the line directly above the line that holds the class                                                                                                                                             |
 
 A marker with no reason keeps nothing. In a string that ships to the page, such as `Modal`'s injected stylesheet, keep the in-string reason to a short tag and write the full reason in a code comment beside it. The rule does not read JavaScript animation options (`element.animate()`'s `{ duration: 350 }`), Tailwind's bare `transition` and `transition-colors`, which run its default 150ms, or a `style={…}` expression in Astro markup, where only a quoted `style` attribute is read — englishstreetventures/osn#2104 covers the first two.
 
@@ -119,17 +119,17 @@ A marker with no reason keeps nothing. In a string that ships to the page, such 
 
 `@interfere/landmines` is a published oxlint plugin of rules that stop a test passing for the wrong reason. It is a pinned root `devDependency`, and `oxlintrc.json` registers two of its four plugins, `landmines-testing` and `landmines-structure`. The other two, `landmines-style` and `landmines-types`, are not loaded, so their rules (`no-comments`, `no-explicit-return-types`) cannot be switched on by accident. Its rules need Node 22.18 or later; the `lint` CI job and `release.yml`'s lint count pin Node 24.
 
-| Rule                                  | Level                  | Reports                                                                                                                                                                                                  |
-| ------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `landmines-testing/no-fixed-sleep`    | error, with an allow map | An awaited fixed delay in a test or hook body, or in an `act`, `waitFor` or `.then` callback inside one: `new Promise((r) => setTimeout(r, n))`, `setTimeout` from `timers/promises`, `Bun.sleep`, `scheduler.wait` |
-| `landmines-testing/no-flake-masking`  | error, with an allow map | A raised timeout or a `retry` on a test or suite, in `vi.setConfig`, or as `testTimeout` or `hookTimeout` in a Vitest config                                                                              |
-| `landmines-testing/no-unsignaled-poll` | error, no allow map    | `vi.waitFor` or `expect.poll` over a spy or a request recorder                                                                                                                                            |
-| `landmines-testing/strict-msw`        | error                  | MSW started without `onUnhandledRequest: "error"` (msw 2) or `onUnhandledFrame: "error"` (msw 3)                                                                                                          |
-| `landmines-structure/package-exports` | error                  | A `package.json` export that opens a whole tree, such as `"./*": "./src/*.ts"`                                                                                                                           |
+| Rule                                   | Level                    | Reports                                                                                                                                                                                                             |
+| -------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `landmines-testing/no-fixed-sleep`     | error, with an allow map | An awaited fixed delay in a test or hook body, or in an `act`, `waitFor` or `.then` callback inside one: `new Promise((r) => setTimeout(r, n))`, `setTimeout` from `timers/promises`, `Bun.sleep`, `scheduler.wait` |
+| `landmines-testing/no-flake-masking`   | error, with an allow map | A raised timeout or a `retry` on a test or suite, in `vi.setConfig`, or as `testTimeout` or `hookTimeout` in a Vitest config                                                                                        |
+| `landmines-testing/no-unsignaled-poll` | error, no allow map      | `vi.waitFor` or `expect.poll` over a spy or a request recorder                                                                                                                                                      |
+| `landmines-testing/strict-msw`         | error                    | MSW started without `onUnhandledRequest: "error"` (msw 2) or `onUnhandledFrame: "error"` (msw 3)                                                                                                                    |
+| `landmines-structure/package-exports`  | error                    | A `package.json` export that opens a whole tree, such as `"./*": "./src/*.ts"`                                                                                                                                      |
 
-Three rules are off, each with its reason beside it in `oxlintrc.json`. `no-test-doubles` reports 4,358 sites in 430 test files (module mocks, `vi.fn(impl)`, stubbed globals), and the tests have no MSW server to use instead. `colocated-tests` and `test-file-names` reject the package-root `tests/` layout that `AGENTS.md` requires, in 577 and 1,584 files.
+Three rules are off, each with its reason beside it in `oxlintrc.json`. `no-test-doubles` reports 4,358 sites in 430 test files (module mocks, `vi.fn(impl)`, stubbed globals), and the tests have no MSW server to use instead; englishstreetventures/osn#2436 adds one and turns the rule on. `no-comments` waits on englishstreetventures/osn#2437, which first settles which comments stay. `colocated-tests` and `test-file-names` reject the package-root `tests/` layout that `AGENTS.md` requires, in 577 and 1,584 files.
 
-*Measured 2026-11-19 on e4f812ccb — `bunx --bun oxlint -c oxlintrc.json --format json .` with each rule at `error`, diagnostics counted per rule*
+_Measured 2026-11-19 on e4f812ccb — `bunx --bun oxlint -c oxlintrc.json --format json .` with each rule at `error`, diagnostics counted per rule_
 
 **What they cannot see.** `no-unsignaled-poll` reads `vi.waitFor` and `expect.poll` only, so testing-library's `waitFor(() => expect(spy).toHaveBeenCalled())` races the same deadline unreported. `no-fixed-sleep` reads only the forms in the table written inline, so `await sleep(50)` through a helper passes, and one `vi.useFakeTimers()` anywhere in a file exempts every sleep in it. Where lint is blind, the rule in [[testing-patterns]] still holds: wait on the event, never on a fixed sleep or a polled spy.
 
@@ -137,15 +137,15 @@ Three rules are off, each with its reason beside it in `oxlintrc.json`. `no-test
 
 `no-fixed-sleep` and `no-flake-masking` each carry an `allow` map in `oxlintrc.json`: every file that had sites when the rules were turned on, keyed by repo-relative path, sorted, one line per file, with its exact count. They hold 112 sleeps in 48 files and 265 raised timeouts in 41 files; no file retries.
 
-*Measured 2026-11-19 on e4f812ccb — `bunx --bun oxlint -c oxlintrc.json --format json .` with both rules at `error` and no allow map*
+_Measured 2026-11-19 on e4f812ccb — `bunx --bun oxlint -c oxlintrc.json --format json .` with both rules at `error` and no allow map_
 
 The rule compares a file with its entry and nothing else:
 
-| The file has          | The rule                                                                    |
-| --------------------- | --------------------------------------------------------------------------- |
-| its count             | reports nothing                                                             |
-| more than its count   | reports every site in the file; fix the new one, never raise the count      |
-| fewer than its count  | reports the entry as stale until it is lowered to match; at none, delete it |
+| The file has         | The rule                                                                    |
+| -------------------- | --------------------------------------------------------------------------- |
+| its count            | reports nothing                                                             |
+| more than its count  | reports every site in the file; fix the new one, never raise the count      |
+| fewer than its count | reports the entry as stale until it is lowered to match; at none, delete it |
 
 Lower an entry in the pull request that removes the site: lint fails until you do. The stale and over-count messages tell you to edit `.oxlintrc.jsonc`; in this repository that file is `oxlintrc.json`.
 

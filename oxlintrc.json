@@ -440,7 +440,7 @@
     ],
     // Off: 4,358 sites in 430 test files replace a dependency's behaviour
     // (module mocks, `vi.fn(impl)`, stubbed globals), and the repo has no MSW
-    // server for them to use instead.
+    // server for them to use instead. Off until englishstreetventures/osn#2436 lands.
     "landmines-testing/no-test-doubles": "off",
     // Off: both reject the layout AGENTS.md requires, tests in `tests/` at
     // the package root mirroring `src/`. They report 577 and 1,584 files.
@@ -448,7 +448,8 @@
     "landmines-structure/test-file-names": "off"
     // landmines-style (`no-comments`) and landmines-types
     // (`no-explicit-return-types`) are not in jsPlugins, so neither rule can
-    // be switched on here by accident.
+    // be switched on here by accident. no-comments waits on
+    // englishstreetventures/osn#2437.
     // house/no-non-subscribing-store-read is scoped to cire/**/*-store.ts in
     // the "overrides" block below, not turned on here — the pattern it flags
     // (`cache.get(id)?.accessor()`) is a cire-specific organiser-cache
