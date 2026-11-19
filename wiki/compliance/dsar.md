@@ -162,23 +162,35 @@ owners, each with an `owner` seat. Two consequences:
   - *Erasure,* per wedding the account has an owner seat in, one D1 batch:
     the seats and their `host_rsvp_notices` rows go, and the wedding is
     soft-deleted in that batch when no owner is left, whatever was answered,
-    since the rules run on the rows as they stand. The purge takes a deleted
-    wedding with no owner at once, money holds still applying
-    ([[retention]]). Then, once per account: seats below owner and the notice
-    rows left; organiser sessions; guest account links (by the account or a
+    since the rules run on the rows as they stand, naming as its deleter the
+    profile whose owner seat went. The purge takes a deleted wedding with no
+    owner at once, money holds still applying ([[retention]]); its log names
+    the deleter of a wedding with an owner only. Then, once per account:
+    seats below owner and the notice rows left; organiser sessions; guest
+    account links (by the account or a
     profile); `registry_stripe_oauth_states`, `realtime_subscribe_budget` and
     the `actor:` rows of `owner_notice_budget`; an enquiry the person opened
     that never reached a chat; and every column that names a profile, cleared
     as the entries below say (`'deleted'` where the column cannot be NULL, or
     beside a time that stays or where NULL would say the guest or household
-    wrote it). cire answers `kept: []`, so the `account-deleted` email lists
-    nothing for cire. A wedding the erasure deleted is hidden from every
-    reader at once but stays in cire's database, with its guest data, until
-    the daily purge takes it: at most three weddings a run, and none while an
-    upgrade purchase or gift from the last 14 days is still pending, while any
-    gift on it is disputed, however long that takes, or while a change to it
-    is still writing (`purgeHeld`,
-    `cire/api/src/services/maintenance-sweeps.ts`).
+    wrote it), the deleter of every wedding the erasure deleted among them,
+    once no owner seat of the profiles is left. A wedding the erasure deleted
+    is hidden from every reader at once but stays in cire's database, with its
+    guest data, until the daily purge takes it: at most three weddings a run,
+    and none while an upgrade purchase or gift from the last 14 days is still
+    pending, while any gift on it is disputed, however long that takes, or
+    while a change to it is still writing (`purgeHeld`,
+    `cire/api/src/services/maintenance-sweeps.ts`). So, just before it clears
+    the deleters, the call that finishes counts the deleted weddings with no
+    owner left whose deleter is one of the profiles and that `purgeHeld`
+    holds, and answers them as one kept item, which the `account-deleted`
+    email lists: "A deleted wedding you owned, kept until a payment or gift
+    for it settles, then erased in Cire's daily clean-up." (or "<n> deleted
+    weddings …"), with no date and no link. It names no wedding, since a
+    wedding's name usually names the couple. Two limits: a repeat call after
+    osn-api lost cire's done answer reports nothing kept, since the deleters
+    are gone by then; and a wedding someone else deleted and then left to the
+    person alone names no profile of theirs, so it is not counted.
   - *A host removing their Cire data* and keeping the account
     ([[cire-auth#A host removes their Cire data]]): the same erasure, at once,
     for every profile of the account, after a step-up the person confirms on
