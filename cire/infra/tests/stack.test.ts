@@ -1018,3 +1018,33 @@ describe("the cire stack on production", () => {
     }
   });
 });
+
+describe("the test cache", () => {
+  // turbo replays this package's tests from its cache unless an input changed,
+  // so every migrations directory a stage's database is handed from is one.
+  test("K-cache: the test task reruns when any directory the cire-db migration sources name changes", () => {
+    const inputs =
+      (
+        Bun.JSONC.parse(readFileSync(join(packageDir, "turbo.json"), "utf8")) as {
+          readonly tasks: Readonly<Record<string, { readonly inputs?: readonly string[] }>>;
+        }
+      ).tasks.test?.inputs ?? [];
+    const dirs = [CIRE_DB_MIGRATIONS, CIRE_DB_LONG_LIVED_MIGRATIONS, CIRE_DB_PRODUCTION_MIGRATIONS]
+      .flatMap((sources) => [sources.source, sources.longLived, sources.archive])
+      .filter((dir): dir is string => dir !== undefined)
+      .map((dir) => posix.normalize(posix.join("cire/infra", dir)));
+    expect([...new Set(dirs)].toSorted()).toEqual([
+      "cire/db/migrations",
+      "cire/db/migrations-archive",
+      "cire/db/migrations-archive/long-lived",
+    ]);
+    for (const dir of dirs) {
+      const covered = inputs.some(
+        (input) =>
+          input.endsWith("/**") &&
+          `${dir}/`.startsWith(`${input.slice("$TURBO_ROOT$/".length, -"**".length)}`),
+      );
+      expect({ dir, covered }).toEqual({ dir, covered: true });
+    }
+  });
+});

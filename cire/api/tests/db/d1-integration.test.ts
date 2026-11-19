@@ -163,6 +163,9 @@ import { ownerSeat } from "../test-helpers/wedding";
 // Schema setup and FK-ordered truncation are inherently sequential here.
 /* eslint-disable no-await-in-loop */
 
+// The migrations written after the baseline, which dev and production apply
+// after the long-lived chain.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 // The chain dev and production ran: the previous baseline and every migration
 // a squash moved out after it.
 const LONG_LIVED_DIR = join(
@@ -199,18 +202,17 @@ function fileStatements(file: string, dir: string = ARCHIVE_DIR): readonly strin
 }
 
 /**
- * Every table and index `files` (from `dir`, in that order) leave behind on
- * bun:sqlite, in creation order, tables first: each the SQL SQLite stored for
- * it, one statement apiece. The same method generates the live baseline.
+ * Every table and index the migration files at `paths` (in that order) leave
+ * behind on bun:sqlite, in creation order, tables first: each the SQL SQLite
+ * stored for it, one statement apiece.
  */
 function sqliteSchemaStatements(
-  dir: string,
-  files: readonly string[],
+  paths: readonly string[],
 ): Array<{ type: string; name: string; sql: string }> {
   const db = new Database(":memory:");
   try {
     db.exec("PRAGMA foreign_keys = ON;");
-    for (const file of files) db.exec(readFileSync(join(dir, file), "utf8"));
+    for (const path of paths) db.exec(readFileSync(path, "utf8"));
     const objects = db
       .query(
         "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
@@ -226,8 +228,8 @@ function sqliteSchemaStatements(
 }
 
 /** {@link sqliteSchemaStatements}, as sorted text to compare D1 against. */
-function sqliteStoredSchema(dir: string, files: readonly string[]): string[] {
-  return sqliteSchemaStatements(dir, files)
+function sqliteStoredSchema(paths: readonly string[]): string[] {
+  return sqliteSchemaStatements(paths)
     .map((o) => `${o.type} ${o.name}: ${o.sql}`)
     .toSorted();
 }
@@ -4466,7 +4468,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "builds the schema from the long-lived migration chain on D1's own SQLite, and the gift currency rebuild keeps every gift, column for column, and refuses a four-character currency, and the gift account back-fill and triggers run",
+    "builds the schema from the long-lived migration chain and the migrations after the baseline on D1's own SQLite, and the gift currency rebuild keeps every gift, column for column, and refuses a four-character currency, and the gift account back-fill and triggers run",
     async () => {
       // Its own instance: the suite's shared database is built from the test
       // DDL, and replaying a migration into it would mean dropping a table every
@@ -4586,6 +4588,15 @@ describe("cire/api over real D1 (Miniflare)", () => {
           }
         }
 
+        // Then every migration written after the baseline, as dev and
+        // production apply them after the long-lived chain.
+        const after = listMigrations(MIGRATIONS_DIR).slice(1);
+        for (const file of after) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+            await chainD1.prepare(stmt).run();
+          }
+        }
+
         // D1 stores every table and index with the SQL bun:sqlite stores for
         // the same chain, so what the suite proves on bun:sqlite holds on D1.
         const onD1 = await chainD1
@@ -4594,7 +4605,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
           )
           .all<{ type: string; name: string; sql: string }>();
         expect(onD1.results.map((o) => `${o.type} ${o.name}: ${o.sql}`).toSorted()).toEqual(
-          sqliteStoredSchema(LONG_LIVED_DIR, files),
+          sqliteStoredSchema([
+            ...files.map((file) => join(LONG_LIVED_DIR, file)),
+            ...after.map((file) => join(MIGRATIONS_DIR, file)),
+          ]),
         );
 
         const columns = await chainD1
@@ -4659,7 +4673,9 @@ describe("cire/api over real D1 (Miniflare)", () => {
           .toSorted();
         const cut = files.indexOf(MIGRATION_0076);
         expect(cut).toBeGreaterThan(0);
-        for (const object of sqliteSchemaStatements(ARCHIVE_DIR, files.slice(0, cut))) {
+        for (const object of sqliteSchemaStatements(
+          files.slice(0, cut).map((file) => join(ARCHIVE_DIR, file)),
+        )) {
           await chainD1.prepare(object.sql).run();
         }
         for (const stmt of [

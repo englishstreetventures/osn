@@ -972,6 +972,21 @@ describe.skipIf(!TIER)("cire-db: the squash", () => {
     readReplication: "auto",
   };
 
+  /** A timestamped migration's creation time, as Alchemy records it: its name's UTC stamp. */
+  const stampMillis = (name: string): number => {
+    const [, year, month, day, hour, minute, second] =
+      /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_/.exec(name) ?? [];
+    expect(second, `${name} is not timestamped`).toBeDefined();
+    return Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+    );
+  };
+
   /** Dev's and an investigation stage's props, their migrations in `migrations`; no seed, which the squash leaves alone. */
   const devProps = (target: Target, migrations: string) =>
     retainedD1Props({
@@ -1137,7 +1152,7 @@ describe.skipIf(!TIER)("cire-db: the squash", () => {
       expect(sent).toEqual([
         [
           ...statements,
-          `INSERT INTO "__alchemy_migrations" (hash, created_at, name, applied_at) VALUES ('${migrated.migrationsHashes[last.name]}', ${Date.UTC(2026, 10, 18, 18, 0, 52)}, '${last.name}', datetime('now'));`,
+          `INSERT INTO "__alchemy_migrations" (hash, created_at, name, applied_at) VALUES ('${migrated.migrationsHashes[last.name]}', ${stampMillis(last.name)}, '${last.name}', datetime('now'));`,
         ].join("\n"),
       ]);
       api.sent.length = 0;
