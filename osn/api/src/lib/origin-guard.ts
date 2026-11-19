@@ -27,13 +27,15 @@ const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * route like `/graph/internal-x` is NOT exempted.
  *
  * A path here is exempt only with `Authorization: Bearer …` — the
- * `INTERNAL_SERVICE_SECRET` that `/graph/internal/register-service` and
- * `/graph/internal/service-keys/:keyId` compare. Without a credential header a
- * request here is Origin-checked like any other, so a cookie-bearing browser
- * request cannot reach these paths unchecked. `/organisations/internal…` also
- * matches the user organisation routes for a handle `internal`; those
- * authenticate by Bearer access token only and read no cookie, so the
- * exemption gives a cross-site request nothing to borrow there either.
+ * `INTERNAL_SERVICE_SECRET` that `/graph/internal/register-service`,
+ * `/graph/internal/service-keys/:keyId` and
+ * `/graph/internal/service-scopes/:serviceId` compare. Without a credential
+ * header a request here is Origin-checked like any other, so a cookie-bearing
+ * browser request cannot reach these paths unchecked.
+ * `/organisations/internal…` also matches the user organisation routes for a
+ * handle `internal`; those authenticate by Bearer access token only and read
+ * no cookie, so the exemption gives a cross-site request nothing to borrow
+ * there either.
  */
 const S2S_PREFIXES = ["/graph/internal", "/organisations/internal", "/internal"];
 

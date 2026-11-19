@@ -23,6 +23,7 @@ export {
   verifyArcToken,
   // Public key resolution (Effect-based)
   resolvePublicKey,
+  PUBLIC_KEY_CACHE_TTL_SECONDS,
   clearPublicKeyCache,
   evictPublicKeyCacheEntry,
   // Token cache

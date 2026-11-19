@@ -1136,3 +1136,61 @@ describe("id lists past D1's 100-parameter cap, over real D1 (Miniflare)", () =>
     expect(result).toHaveLength(20);
   });
 });
+
+// The renewal is one UPDATE whose WHERE holds an EXISTS over the service's
+// keys, with RETURNING: the shape D1 has to run, not only bun:sqlite.
+describe("service scope renewal over real D1 (Miniflare)", () => {
+  const SECRET = "d1-internal-secret";
+  const OLD = new Date(1_700_000_000_000);
+
+  const seed = async (serviceId: string, revokedAt: number | null): Promise<void> => {
+    await rawDb
+      .insert(serviceAccounts)
+      .values({ serviceId, allowedScopes: "graph:read", createdAt: OLD, updatedAt: OLD });
+    await rawDb.insert(serviceAccountKeys).values({
+      keyId: crypto.randomUUID(),
+      serviceId,
+      publicKeyJwk: await exportKeyToJwk((await generateArcKeyPair()).publicKey),
+      registeredAt: OLD,
+      expiresAt: null,
+      revokedAt,
+    });
+  };
+
+  const renew = (serviceId: string) =>
+    createInternalGraphRoutes(layer, undefined, SECRET).handle(
+      new Request(`http://localhost/graph/internal/service-scopes/${serviceId}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${SECRET}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ scopes: ["graph:read", "org:read"] }),
+      }),
+    );
+
+  const stored = async (serviceId: string) => {
+    const [row] = await rawDb
+      .select()
+      .from(serviceAccounts)
+      .where(eq(serviceAccounts.serviceId, serviceId));
+    return { scopes: row?.allowedScopes, updatedAt: row?.updatedAt.getTime() };
+  };
+
+  it("stores the scopes of a service with a live key", async () => {
+    const serviceId = `d1-renew-${crypto.randomUUID().slice(0, 8)}`;
+    await seed(serviceId, null);
+
+    const res = await renew(serviceId);
+
+    expect(res.status).toBe(200);
+    expect((await stored(serviceId)).scopes).toBe("graph:read,org:read");
+  });
+
+  it("refuses a service whose only key is revoked, and writes nothing", async () => {
+    const serviceId = `d1-dead-${crypto.randomUUID().slice(0, 8)}`;
+    await seed(serviceId, 1_000);
+
+    const res = await renew(serviceId);
+
+    expect(res.status).toBe(409);
+    expect(await stored(serviceId)).toEqual({ scopes: "graph:read", updatedAt: OLD.getTime() });
+  });
+});

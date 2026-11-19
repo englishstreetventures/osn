@@ -7,11 +7,15 @@ import {
   users,
 } from "@osn/db/schema";
 import { Db, DbLive } from "@osn/db/service";
-import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
+import {
+  evictPublicKeyCacheEntry,
+  importKeyFromJwk,
+  PUBLIC_KEY_CACHE_TTL_SECONDS,
+} from "@shared/crypto";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { jsonEachIn } from "@shared/db-utils";
 import { handlePrefixRange, likeContains, normaliseHandleQuery } from "@shared/db-utils/search";
-import { and, asc, gte, inArray, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, exists, gt, gte, inArray, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
@@ -121,6 +125,97 @@ function normaliseHandle(raw: string): string | null {
   return stripped.length > 0 ? stripped : null;
 }
 
+/**
+ * The gate of the three service-registry routes: answers 501 when this
+ * instance holds no `INTERNAL_SERVICE_SECRET`, and 401 unless `authorization`
+ * is exactly `Bearer <secret>`, compared in constant time. Returns the refusal
+ * to send, or null when the caller may go on.
+ */
+function refuseWithoutServiceSecret(
+  secret: string | undefined,
+  authorization: string | undefined,
+  set: { status?: number | string },
+): { error: string } | null {
+  if (!secret) {
+    set.status = 501;
+    return { error: "Service registration is disabled on this instance" };
+  }
+  if (!timingSafeEqualString(authorization ?? "", `Bearer ${secret}`)) {
+    set.status = 401;
+    return { error: "Unauthorized" };
+  }
+  return null;
+}
+
+/** What a scope renewal did: stored the scopes, or found no service, or found no live key. */
+type ScopeRenewal = "renewed" | "unknown_service" | "no_live_key";
+
+/**
+ * Sets `serviceId`'s allowed scopes in one statement, and only while the
+ * service holds a live key: one neither revoked nor past its expiry, the test
+ * `resolvePublicKey` applies. A refusal writes nothing; the read after it only
+ * names the reason. Keys are never touched, and no cached scopes are evicted.
+ */
+const renewServiceScopes = (
+  serviceId: string,
+  scopes: readonly string[],
+): Effect.Effect<ScopeRenewal, Error, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const now = new Date();
+    const nowSecs = Math.floor(now.getTime() / 1000);
+    const renewed = yield* Effect.tryPromise({
+      try: () =>
+        db
+          .update(serviceAccounts)
+          .set({ allowedScopes: scopes.join(","), updatedAt: now })
+          .where(
+            and(
+              eq(serviceAccounts.serviceId, serviceId),
+              exists(
+                db
+                  .select({ keyId: serviceAccountKeys.keyId })
+                  .from(serviceAccountKeys)
+                  .where(
+                    and(
+                      eq(serviceAccountKeys.serviceId, serviceId),
+                      isNull(serviceAccountKeys.revokedAt),
+                      or(
+                        isNull(serviceAccountKeys.expiresAt),
+                        gt(serviceAccountKeys.expiresAt, nowSecs),
+                      ),
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .returning({ serviceId: serviceAccounts.serviceId }),
+      catch: (cause) => new Error("DB error renewing service scopes", { cause }),
+    });
+    if (renewed.length > 0) {
+      yield* Effect.logInfo("ARC service scopes renewed").pipe(
+        Effect.annotateLogs({ service_id: serviceId, scopes: scopes.join(",") }),
+      );
+      return "renewed" as const;
+    }
+    const known = yield* Effect.tryPromise({
+      try: () =>
+        db
+          .select({ serviceId: serviceAccounts.serviceId })
+          .from(serviceAccounts)
+          .where(eq(serviceAccounts.serviceId, serviceId))
+          .limit(1),
+      catch: (cause) => new Error("DB error reading service_accounts", { cause }),
+    });
+    const reason = known.length > 0 ? ("no_live_key" as const) : ("unknown_service" as const);
+    yield* Effect.logWarning("ARC service scopes renewal refused").pipe(
+      Effect.annotateLogs({ service_id: serviceId, reason }),
+    );
+    return reason;
+  }).pipe(
+    Effect.withSpan("arc.service_scopes.renew", { attributes: { "arc.service_id": serviceId } }),
+  );
+
 // ---------------------------------------------------------------------------
 // Internal graph routes — ARC token protected
 // ---------------------------------------------------------------------------
@@ -138,7 +233,8 @@ export function createInternalGraphRoutes(
   dbLayer: Layer.Layer<Db> = DbLive,
   /** Shared application runtime (see `createAuthRoutes`). */
   runtime?: AppRuntime,
-  // INTERNAL_SERVICE_SECRET gates `/register-service` + `/service-keys/:keyId`.
+  // INTERNAL_SERVICE_SECRET gates `/register-service`, `/service-keys/:keyId`
+  // and `/service-scopes/:serviceId`.
   // Threaded in by the caller because on workerd secrets live ONLY on the `env`
   // binding, not `process.env`. Defaults to `process.env` for the Bun path;
   // unset ⇒ those endpoints answer 501 (service registration disabled).
@@ -277,15 +373,12 @@ export function createInternalGraphRoutes(
       .post(
         "/register-service",
         async ({ body, headers, set }) => {
-          const secret = internalServiceSecret;
-          if (!secret) {
-            set.status = 501;
-            return { error: "Service registration is disabled on this instance" };
-          }
-          if (!timingSafeEqualString(headers["authorization"] ?? "", `Bearer ${secret}`)) {
-            set.status = 401;
-            return { error: "Unauthorized" };
-          }
+          const refused = refuseWithoutServiceSecret(
+            internalServiceSecret,
+            headers["authorization"],
+            set,
+          );
+          if (refused) return refused;
           // Validate requested scopes against the server-side allowlist.
           const requestedScopes = body.allowedScopes
             .split(",")
@@ -419,15 +512,12 @@ export function createInternalGraphRoutes(
       .delete(
         "/service-keys/:keyId",
         async ({ params, headers, set }) => {
-          const secret = internalServiceSecret;
-          if (!secret) {
-            set.status = 501;
-            return { error: "Service registration is disabled on this instance" };
-          }
-          if (!timingSafeEqualString(headers["authorization"] ?? "", `Bearer ${secret}`)) {
-            set.status = 401;
-            return { error: "Unauthorized" };
-          }
+          const refused = refuseWithoutServiceSecret(
+            internalServiceSecret,
+            headers["authorization"],
+            set,
+          );
+          if (refused) return refused;
           try {
             const nowSecs = Math.floor(Date.now() / 1000);
             const outcome = await run(
@@ -479,6 +569,75 @@ export function createInternalGraphRoutes(
         },
         {
           params: t.Object({ keyId: t.String({ minLength: 1 }) }),
+        },
+      )
+      // -----------------------------------------------------------------------
+      // Renew a service's allowed scopes, with no key
+      //
+      // Sets the scopes of a service that already has a row and a live key.
+      // It grants nothing `/register-service` cannot: same secret, same
+      // allowlist, and it can neither add a key nor create a service. Scope
+      // names are matched exactly, so a caller sends the canonical ones.
+      //
+      // For a service with a fixed key whose scopes nothing else sets, such
+      // as cire-api. A service that registers itself (zap-api on each isolate
+      // start, pulse-api locally) sends its scopes with every registration,
+      // which replaces a renewal at its next one.
+      //
+      // 404 `unknown_service` for a service with no row, 409 `no_live_key`
+      // when every key is revoked or expired; neither writes. Each osn-api
+      // isolate keeps a key's scopes for up to `staleForUpToSeconds` after a
+      // renewal. A 500 does not say whether the write landed; the renewal is
+      // a set, so the caller sends it again.
+      // -----------------------------------------------------------------------
+      .put(
+        "/service-scopes/:serviceId",
+        async ({ params, body, headers, set }) => {
+          const refused = refuseWithoutServiceSecret(
+            internalServiceSecret,
+            headers["authorization"],
+            set,
+          );
+          if (refused) return refused;
+          const invalidScopes = body.scopes.filter((s) => !PERMITTED_SCOPES.has(s));
+          if (invalidScopes.length > 0) {
+            set.status = 400;
+            return { error: `Unknown scopes: ${invalidScopes.join(", ")}` };
+          }
+          try {
+            const outcome = await run(renewServiceScopes(params.serviceId, body.scopes));
+            if (outcome === "unknown_service") {
+              set.status = 404;
+              return { error: outcome };
+            }
+            if (outcome === "no_live_key") {
+              set.status = 409;
+              return { error: outcome };
+            }
+            return {
+              ok: true as const,
+              scopes: body.scopes,
+              staleForUpToSeconds: PUBLIC_KEY_CACHE_TTL_SECONDS,
+            };
+          } catch (e) {
+            await run(
+              Effect.logError("ARC service scopes renewal failed").pipe(
+                Effect.annotateLogs({ service_id: params.serviceId }),
+              ),
+            );
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        {
+          params: t.Object({ serviceId: t.String({ minLength: 1 }) }),
+          body: t.Object({
+            scopes: t.Array(t.String({ minLength: 1 }), {
+              minItems: 1,
+              maxItems: PERMITTED_SCOPES.size,
+              uniqueItems: true,
+            }),
+          }),
         },
       )
       // -----------------------------------------------------------------------

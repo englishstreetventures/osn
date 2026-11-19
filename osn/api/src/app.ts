@@ -133,10 +133,11 @@ export interface AppDeps {
    */
   clientIpConfig: Omit<ClientIpOptions, "socketIp">;
   /**
-   * Shared `INTERNAL_SERVICE_SECRET` gating `/graph/internal/register-service`
-   * + `/graph/internal/service-keys/:keyId`. Threaded through the factory (not
-   * read from `process.env` inside the route) because on workerd secrets live
-   * ONLY on the `env` binding. `undefined` ⇒ those endpoints answer 501.
+   * Shared `INTERNAL_SERVICE_SECRET` gating `/graph/internal/register-service`,
+   * `/graph/internal/service-keys/:keyId` and
+   * `/graph/internal/service-scopes/:serviceId`. Threaded through the factory
+   * (not read from `process.env` inside the route) because on workerd secrets
+   * live ONLY on the `env` binding. `undefined` ⇒ those endpoints answer 501.
    */
   internalServiceSecret: string | undefined;
   /**

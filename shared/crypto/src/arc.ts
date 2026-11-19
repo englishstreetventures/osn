@@ -211,8 +211,10 @@ const pkCacheKey = (issuer: string, kid: string): string => `${issuer}\n${kid}`;
  * Overridable via `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS`; defaults to 300 (5 min).
  * A finite, conservative default is the trade-off for not yet having a
  * cross-node eviction fan-out (an open issue in `englishstreetventures/osn`).
+ * It also bounds how long an isolate keeps a key's old scopes after the
+ * service's scopes change, which is why osn-api's scope renewal reports it.
  */
-const PUBLIC_KEY_CACHE_TTL_SECONDS = (() => {
+export const PUBLIC_KEY_CACHE_TTL_SECONDS = (() => {
   const raw = Number(process.env.ARC_PUBLIC_KEY_CACHE_TTL_SECONDS);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 300;
 })();
