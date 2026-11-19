@@ -15,7 +15,6 @@ import {
   maintenanceSweeps,
   PURGE_HAND_BACKS,
   PURGE_PENDING_HOLD_S,
-  PURGE_RETIRED_READ,
 } from "../../src/services/maintenance-sweeps";
 import type { PurgeStripe } from "../../src/services/maintenance-sweeps";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
@@ -567,22 +566,20 @@ describe("handing a purged wedding's Standard account back", () => {
     expect(logs).toContain("acct_third");
   });
 
-  it("warns when a wedding holds as many retired Standard accounts as the purge reads", async () => {
-    for (const [count, warned] of [
-      [PURGE_RETIRED_READ, true],
-      [PURGE_RETIRED_READ - 1, false],
-    ] as const) {
-      const db = makeDb();
-      seedWedding(db, "wed_gone", daysAgo(9));
-      for (let i = 0; i < count; i += 1) retiredOn(db, "wed_gone", `acct_many_${i}`);
-      const { handedBack, stripe } = recordingStripe();
-      const logs = await captureLogs(async () => {
-        await purgeWith(db, stripe);
-      });
-      expect(logs.includes("wedding purged past the retired-account read")).toBe(warned);
-      if (warned) expect(logs).toContain("wed_gone");
-      expect(handedBack).toHaveLength(PURGE_HAND_BACKS);
-    }
+  it("logs every retired Standard account it does not hand back, however many", async () => {
+    // Past the two a purge hands back, each account cire still holds is named
+    // for a hand fix: the cascade then deletes the only rows that knew them.
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    const day = Math.floor(NOW.getTime() / 1000) - 86_400;
+    const ids = Array.from({ length: 12 }, (_, i) => `acct_many_${String(i).padStart(2, "0")}`);
+    ids.forEach((id, i) => retiredOn(db, "wed_gone", id, { at: day - 1_000 + i }));
+    const { handedBack, stripe } = recordingStripe();
+    const logs = await captureLogs(async () => {
+      await purgeWith(db, stripe);
+    });
+    expect(handedBack).toEqual(ids.slice(0, PURGE_HAND_BACKS));
+    for (const id of ids.slice(PURGE_HAND_BACKS)) expect(logs).toContain(id);
   });
 
   it("purges a wedding that never opened its registry", async () => {
@@ -620,14 +617,22 @@ describe("handing a purged wedding's Standard account back", () => {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
+    retiredOn(db, "wed_gone", "acct_retired");
     const { handedBack, stripe } = recordingStripe();
-    const run = await Effect.runPromise(
-      maintenanceSweeps
-        .purgeDeletedWeddings(NOW, {}, stripe)
-        .pipe(Effect.provideService(DbService, failing)),
-    );
-    expect(run.purged).toBe(1);
+    let run: { purged: number } | undefined;
+    const logs = await captureLogs(async () => {
+      run = await Effect.runPromise(
+        maintenanceSweeps
+          .purgeDeletedWeddings(NOW, {}, stripe)
+          .pipe(Effect.provideService(DbService, failing)),
+      );
+    });
+    expect(run?.purged).toBe(1);
     expect(handedBack).toEqual([]);
+    // Each is named for a hand fix: nothing else records it once the rows go.
+    expect(logs).toContain("stripe account not handed back after purge");
+    expect(logs).toContain("acct_own");
+    expect(logs).toContain("acct_retired");
   });
 
   it("logs the account it could not hand back, and still counts the purge", async () => {

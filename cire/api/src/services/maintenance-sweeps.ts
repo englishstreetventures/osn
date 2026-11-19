@@ -78,13 +78,6 @@ export const MAX_PURGES_PER_RUN = 3;
 export const PURGE_HAND_BACKS = 2;
 
 /**
- * The purged wedding's retired Standard accounts the purge reads, a payload
- * bound. Each retire needs an account connected first, so a wedding reaching
- * it is not expected; one that does is logged.
- */
-export const PURGE_RETIRED_READ = 10;
-
-/**
  * The `weddings` row the statement is about has no owner seat left. Only an
  * owner can restore a deleted wedding, so one with none has nothing to wait
  * for: the erasure of its only owner's account leaves it this way
@@ -211,7 +204,11 @@ function purgeOne(
             .where(eq(registrySettings.weddingId, weddingId)),
           // The Standard accounts the wedding retired that cire still holds,
           // read before the delete cascades them away: each is handed back
-          // below once nothing else holds it.
+          // below once nothing else holds it, or named in a log line. Every
+          // one, with no cap: a row exists only where an owner signed in at
+          // Stripe to connect that account and then retired it, and an id
+          // left unread here would leave cire holding the account with no
+          // record of it.
           db
             .select({ stripeAccountId: registryRetiredAccounts.stripeAccountId })
             .from(registryRetiredAccounts)
@@ -226,8 +223,7 @@ function purgeOne(
             .orderBy(
               min(registryRetiredAccounts.retiredAt),
               registryRetiredAccounts.stripeAccountId,
-            )
-            .limit(PURGE_RETIRED_READ),
+            ),
           db
             .delete(weddings)
             .where(
@@ -261,11 +257,6 @@ function purgeOne(
     const retired = (results[5] as readonly { stripeAccountId: string }[]).map(
       (row) => row.stripeAccountId,
     );
-    if (retired.length === PURGE_RETIRED_READ) {
-      yield* Effect.logWarning("wedding purged past the retired-account read").pipe(
-        Effect.annotateLogs({ weddingId, read: PURGE_RETIRED_READ }),
-      );
-    }
     const current =
       settings?.stripeAccountId && settings.stripeAccountType === "standard"
         ? [settings.stripeAccountId]
@@ -295,8 +286,9 @@ export interface PurgeStripe {
  * uses and stops hearing its events. An Express account cire created stays at
  * Stripe, as it always has. At most {@link PURGE_HAND_BACKS} a purge, in the
  * order given; each further one nothing else holds is logged with its id for a
- * hand fix, as is a refused call. Best-effort: the rows are already gone, and
- * the purge still counts.
+ * hand fix, as is a refused call, and as is every candidate when the read that
+ * would say what else holds them fails. Best-effort: the rows are already
+ * gone, and the purge still counts.
  */
 function handBackStandardAccounts(
   weddingId: string,
@@ -322,15 +314,18 @@ function handBackStandardAccounts(
         ),
       catch: () => null,
     }).pipe(Effect.catch(() => Effect.succeed(null)));
-    // Unknown is not "nobody": handing back an account another wedding uses
-    // would end that wedding's gifts.
-    if (held === null) return;
-    const heldIds = new Set(held.map((row) => row.id));
-    const free = candidates.filter((id) => !heldIds.has(id));
     const notHandedBack = (accountId: string) =>
       Effect.logError("stripe account not handed back after purge").pipe(
         Effect.annotateLogs({ weddingId, stripeAccountId: accountId }),
       );
+    // Unknown is not "nobody": handing back an account another wedding uses
+    // would end that wedding's gifts. Each is named for a hand fix instead.
+    if (held === null) {
+      yield* Effect.forEach(candidates, notHandedBack, { discard: true });
+      return;
+    }
+    const heldIds = new Set(held.map((row) => row.id));
+    const free = candidates.filter((id) => !heldIds.has(id));
     yield* Effect.forEach(
       free,
       (accountId, i) =>
