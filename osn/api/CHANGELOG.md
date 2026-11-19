@@ -1,5 +1,12 @@
 # @osn/osn
 
+## 3.45.2
+
+### Patch Changes
+
+- Updated dependencies [ec393cb]
+  - @shared/email@0.21.3
+
 ## 3.45.1
 
 ### Patch Changes

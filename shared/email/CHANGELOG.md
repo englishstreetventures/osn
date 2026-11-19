@@ -1,5 +1,11 @@
 # @shared/email
 
+## 0.21.3
+
+### Patch Changes
+
+- ec393cb: `account-deleted`: an app's kept item ends with a full stop before its date and its link, so text an app wrote without one reads as a sentence of its own.
+
 ## 0.21.2
 
 ### Patch Changes
