@@ -309,11 +309,12 @@ describe("while the screen's code loads", () => {
     expect(within(region()).queryAllByRole("button")).toHaveLength(0);
 
     const held = new Map<number, ReturnType<typeof measure>>();
-    for (const viewport of [PHONE, DESKTOP]) {
+    for (const viewport of [NARROW, PHONE, DESKTOP]) {
       await atViewport(viewport);
       await painted();
       expect(shownBlocks(region())).toHaveLength(5);
       held.set(viewport.width, measure());
+      if (viewport === NARROW) continue;
       for (const theme of ["light", "dark"] as const) {
         setTheme(theme);
         await shot("loading", viewport, theme);
@@ -323,7 +324,7 @@ describe("while the screen's code loads", () => {
 
     mocks.chunk.open();
     await screen.findByRole("button", { name: "Keep my account" }, { timeout: 5_000 });
-    for (const viewport of [PHONE, DESKTOP]) {
+    for (const viewport of [NARROW, PHONE, DESKTOP]) {
       await atViewport(viewport);
       await painted();
       const now = measure();
@@ -333,7 +334,7 @@ describe("while the screen's code loads", () => {
 
     land(scheduled(LONGEST));
     await waitFor(() => expect(document.querySelector("time")?.textContent).toContain("Wednesday"));
-    for (const viewport of [PHONE, DESKTOP]) {
+    for (const viewport of [NARROW, PHONE, DESKTOP]) {
       await atViewport(viewport);
       await painted();
       const now = measure();
@@ -406,6 +407,19 @@ describe("the deletion screen on /authorize", () => {
       expect(lineRect.left).toBeGreaterThanOrEqual(left - 0.5);
       expect(lineRect.right).toBeLessThanOrEqual(right + 0.5);
       expect(line.scrollWidth).toBeLessThanOrEqual(line.clientWidth);
+
+      // A Back that fails says so naming the app, and breaks the name too.
+      mocks.decline.mockRejectedValueOnce(
+        new AuthorizeError("unknown", 0, "Could not reach the server."),
+      );
+      back.click();
+      const failed = await within(box).findByRole("alert");
+      expect(failed.textContent).toContain(`Couldn't go back to ${LONG.name}. `);
+      const failedRect = failed.getBoundingClientRect();
+      expect(failedRect.left).toBeGreaterThanOrEqual(left - 0.5);
+      expect(failedRect.right).toBeLessThanOrEqual(right + 0.5);
+      expect(failed.scrollWidth).toBeLessThanOrEqual(failed.clientWidth);
+      expect(document.documentElement.scrollWidth).toBe(viewport.width);
     }, 30_000);
   }
 
@@ -449,7 +463,11 @@ describe("the deletion screen on /authorize", () => {
           );
         await openScreen(viewport);
         screen.getByRole("button", { name: "Back to Cire" }).click();
-        await screen.findByText(/^Couldn't go back to Cire\./);
+        await screen.findByText(
+          (_, element) =>
+            element?.getAttribute("role") === "alert" &&
+            (element.textContent ?? "").includes("Couldn't go back to Cire. "),
+        );
         expect(screen.getByRole("button", { name: "Back to Cire" })).toBeTruthy();
         await shot("back-failed", viewport, theme);
         cleanup();
@@ -493,7 +511,13 @@ describe("the deletion screen on /authorize", () => {
         await openScreen(viewport);
         screen.getByRole("button", { name: "Keep my account" }).click();
         await screen.findByText("Your account is back, but this sign-in has expired.");
-        expect(screen.getByText("Go back to Cire and start again.")).toBeTruthy();
+        expect(
+          screen.getByText(
+            (_: string, element: Element | null) =>
+              element?.tagName === "P" &&
+              element.textContent === "Go back to Cire and start again.",
+          ),
+        ).toBeTruthy();
         await shot("kept-expired", viewport, theme);
       }, 60_000);
     }

@@ -21,6 +21,7 @@ import {
   Switch,
 } from "solid-js";
 
+import { BackError, BackLabel } from "../components/DeletionWindowBack";
 import { WindowLoading } from "../components/DeletionWindowFrame";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { PRODUCT_NAME } from "../lib/auth";
@@ -109,7 +110,7 @@ type Screen =
   | "error";
 
 /**
- * A-L1. `<Switch>` swaps the whole screen without moving focus, so a screen
+ * `<Switch>` swaps the whole screen without moving focus, so a screen
  * reader is told nothing when the page flips to "Taking you back…" or to a
  * terminal state — the user is left on a page that silently changed under
  * them. One polite live region announces each transition.
@@ -415,10 +416,21 @@ export function AuthorizePage() {
    * the page goes on to consent for the same request. Expired by now, it ends
    * saying the account is back.
    */
-  function afterKeep() {
+  async function afterKeep() {
     setKeptHere(true);
     setNotice(null);
-    void refetch();
+    try {
+      await refetch();
+    } catch {
+      // A failed read shows its own ending; there is nothing more to decide.
+      return;
+    }
+    // The screen hands back when the deletion's status says nothing is
+    // pending; this page reads the account itself. Should the two still
+    // disagree, it stops here rather than hand back and forth without end.
+    if (ctx()?.pendingDeletion) {
+      setFatal("Your account is back, but this sign-in can't carry on.");
+    }
   }
 
   /** The deletion screen's session has gone: read again, which offers sign-in. */
@@ -442,7 +454,7 @@ export function AuthorizePage() {
 
   return (
     <main class="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-10">
-      {/* A-L1: the region itself is always mounted — a live region added to
+      {/* The region itself is always mounted — a live region added to
           the DOM at the same moment as its text is not reliably announced.
           `<output>` carries an implicit `role="status"` (and with it
           `aria-live="polite"`), which is the semantic element for a value the
@@ -460,7 +472,15 @@ export function AuthorizePage() {
             <h1 class="text-foreground text-title font-medium">{deadMessage()}</h1>
             <p class="text-muted-foreground text-body">
               <Show when={clientName()} fallback="Go back to the app you came from and try again.">
-                {(name) => <>Go back to {name()} and start again.</>}
+                {(name) => (
+                  <>
+                    Go back to{" "}
+                    <span class="wrap-anywhere" translate="no">
+                      {name()}
+                    </span>{" "}
+                    and start again.
+                  </>
+                )}
               </Show>
             </p>
           </Card>
@@ -540,7 +560,7 @@ export function AuthorizePage() {
           <div class="mt-6">
             <DeletionScreen
               app={{ name: clientName() ?? "the app", back: backToApp }}
-              onKept={afterKeep}
+              onKept={() => void afterKeep()}
               onSignedOut={afterDeletionSignOut}
             />
           </div>
@@ -743,7 +763,8 @@ export function AuthorizePage() {
  * The deletion screen once its chunk is in; until then the shape of its card
  * (the line naming the app and four buttons, as the screen draws them), and if
  * the chunk fails, its heading and the failed-load line, as the shell's own
- * window screen does (`App.tsx`, `WindowScreen`).
+ * window screen does (`App.tsx`, `WindowScreen`), and Back to the app, which
+ * needs none of that code, so the app still hears the refusal a Cancel sends.
  */
 function DeletionScreen(props: {
   app: { name: string; back: () => Promise<void> };
@@ -755,12 +776,36 @@ function DeletionScreen(props: {
     () => setState("ready"),
     () => setState("failed"),
   );
+  const [leaving, setLeaving] = createSignal(false);
+  const [backError, setBackError] = createSignal<unknown>(null);
+  async function back() {
+    if (leaving()) return;
+    setBackError(null);
+    setLeaving(true);
+    try {
+      await props.app.back();
+    } catch (err) {
+      setBackError(err);
+      setLeaving(false);
+    }
+  }
   return (
     <Show
       when={state() === "ready"}
       fallback={
         <Card padding="lg" class="flex flex-col gap-6">
           <WindowLoading failed={state() === "failed"} app={props.app.name} />
+          <Show when={state() === "failed"}>
+            <BackError name={props.app.name} error={backError()} />
+            <Button
+              size="lg"
+              class="w-full max-md:h-11"
+              busy={leaving()}
+              onClick={() => void back()}
+            >
+              <BackLabel name={props.app.name} leaving={leaving()} />
+            </Button>
+          </Show>
         </Card>
       }
     >

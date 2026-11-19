@@ -11,6 +11,7 @@ import { localDay, statusOf } from "../lib/account-deletion";
 import { accountClient } from "../lib/authClients";
 import { createStepUp } from "../lib/step-up";
 import { createAccountData } from "./AccountDataActions";
+import { BackError, BackLabel } from "./DeletionWindowBack";
 import {
   AppLine,
   BEFORE_THAT_DAY,
@@ -80,7 +81,8 @@ export default function DeletionWindow(props: DeletionWindowProps) {
   /** The account is back, but the session did not renew: a reload brings the app. */
   const [kept, setKept] = createSignal(false);
   const [leaving, setLeaving] = createSignal(false);
-  const [backError, setBackError] = createSignal<string | null>(null);
+  /** Why Back did not leave, for `BackError`; null while it has not failed. */
+  const [backError, setBackError] = createSignal<unknown>(null);
 
   // On `/authorize` nothing else watches this session: once it is gone (Sign
   // out, a refused status read, or the runtime ending it) the page takes over.
@@ -115,7 +117,7 @@ export default function DeletionWindow(props: DeletionWindowProps) {
       // Resolves as the page leaves: the screen stays busy until it has gone.
       await props.app.back();
     } catch (err) {
-      setBackError(`Couldn't go back to ${props.app.name}. ${describeAuthError(err)}`);
+      setBackError(err);
       setLeaving(false);
     }
   }
@@ -191,7 +193,9 @@ export default function DeletionWindow(props: DeletionWindowProps) {
                 The 7 days to keep it have ended, and it is being deleted.
               </p>
             </div>
-            <BackError line={backError()} />
+            <Show when={props.app}>
+              {(app) => <BackError name={app().name} error={backError()} />}
+            </Show>
             <div class="flex flex-col gap-2">
               <Show when={props.app}>
                 {(app) => (
@@ -280,7 +284,9 @@ export default function DeletionWindow(props: DeletionWindowProps) {
                 </Notice>
               )}
             </Show>
-            <BackError line={backError()} />
+            <Show when={props.app}>
+              {(app) => <BackError name={app().name} error={backError()} />}
+            </Show>
 
             <div class="flex flex-col gap-2">
               <Button
@@ -345,34 +351,6 @@ function Frame(props: { app: DeletionWindowApp | undefined; children: JSX.Elemen
       <Card padding="lg" class="flex flex-col gap-6">
         {props.children}
       </Card>
-    </Show>
-  );
-}
-
-/**
- * Back to the app's label: "Taking you back…" while it leaves, the words the
- * page shows once it has; else the app's name, cut short with an ellipsis
- * rather than wrap or spill out of the card, since the full name heads the
- * page above it. The words stay whole for a screen reader.
- */
-function BackLabel(props: { name: string; leaving: boolean }) {
-  return (
-    <Show when={!props.leaving} fallback="Taking you back…">
-      <span class="truncate">
-        Back to <span translate="no">{props.name}</span>
-      </span>
-    </Show>
-  );
-}
-
-function BackError(props: { line: string | null }) {
-  return (
-    <Show when={props.line}>
-      {(line) => (
-        <Notice tone="danger" size="inline" alert>
-          {line()}
-        </Notice>
-      )}
     </Show>
   );
 }

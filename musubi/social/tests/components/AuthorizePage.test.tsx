@@ -63,6 +63,13 @@ import { AuthorizePage } from "../../src/pages/AuthorizePage";
 const REQUEST_ID = "oar_0123456789ab";
 
 /**
+ * A paragraph whose whole text is `text`: the app's name in it is a span of
+ * its own (`translate="no"`), so its words are not one text node.
+ */
+const paragraph = (text: string) => (_: string, element: Element | null) =>
+  element?.tagName === "P" && element.textContent === text;
+
+/**
  * The context READ carries the page's abort signal, so a read left in
  * flight past unmount is cancelled rather than resolving into a component that
  * no longer exists. Asserted rather than loosened away, so dropping the signal
@@ -413,7 +420,7 @@ describe("<AuthorizePage />", () => {
     fireEvent.click(await screen.findByText("Allow"));
 
     expect(await screen.findByText("This app is no longer able to sign you in.")).toBeDefined();
-    expect(screen.getByText("Go back to Cire and start again.")).toBeDefined();
+    expect(screen.getByText(paragraph("Go back to Cire and start again."))).toBeDefined();
   });
 
   it("shows the sign-in surface, not consent, when the browser has no session", async () => {
@@ -780,7 +787,7 @@ describe("<AuthorizePage />", () => {
       fireEvent.click(await screen.findByText("island back"));
 
       expect(await screen.findByText("This sign-in request has expired.")).toBeDefined();
-      expect(screen.getByText("Go back to Cire and start again.")).toBeDefined();
+      expect(screen.getByText(paragraph("Go back to Cire and start again."))).toBeDefined();
       expect(mocks.decline).toHaveBeenCalledWith(REQUEST_ID);
       expect(assign).not.toHaveBeenCalled();
     });
@@ -798,7 +805,7 @@ describe("<AuthorizePage />", () => {
       expect(
         await screen.findByText("Your account is back, but this sign-in has expired."),
       ).toBeDefined();
-      expect(screen.getByText("Go back to Cire and start again.")).toBeDefined();
+      expect(screen.getByText(paragraph("Go back to Cire and start again."))).toBeDefined();
       expect(screen.queryByText("Allow")).toBeNull();
     });
 
@@ -814,6 +821,23 @@ describe("<AuthorizePage />", () => {
       expect((await screen.findByTestId("deletion-window")).dataset.app).toBe("Cire");
       expect(screen.queryByText("Allow")).toBeNull();
       expect(assign).not.toHaveBeenCalled();
+    });
+
+    // The screen hands back when the deletion's status says nothing is
+    // pending; the page reads the account itself. Should the two disagree,
+    // the page stops there rather than hand back and forth without end.
+    it("ends after one hand-back when the request still reads as pending after a keep", async () => {
+      mocks.getContext.mockResolvedValue(pending());
+
+      renderPage();
+      fireEvent.click(await screen.findByText("island kept"));
+
+      expect(
+        await screen.findByText("Your account is back, but this sign-in can't carry on."),
+      ).toBeDefined();
+      expect(screen.getByText(paragraph("Go back to Cire and start again."))).toBeDefined();
+      expect(screen.queryByTestId("deletion-window")).toBeNull();
+      expect(mocks.getContext).toHaveBeenCalledTimes(2);
     });
 
     it("offers sign-in once the deletion screen's session has ended", async () => {

@@ -154,6 +154,10 @@ along. If the user opens the link in a *different* browser, every call
      a different browser.
    - "Your account is back, but this sign-in has expired." — the same, read
      again after a keep on the deletion screen.
+   - "Your account is back, but this sign-in can't carry on." — read again
+     after a keep, the request still says `pendingDeletion` (the deletion's
+     status and the account disagree); the page stops rather than show the
+     deletion screen again.
    - "This app is no longer able to sign you in." — `invalid_client`.
    - "This sign-in link is not valid." — the URL carries no well-formed
      `request`.
@@ -165,7 +169,7 @@ along. If the user opens the link in a *different* browser, every call
    sign-in the request demands) — the client card, then 24px under it the
    account-deletion window as a card (`DeletionWindow` with `app`, in the
    lazy `AuthorizeDeletionWindow` island, which mounts its own
-   `AuthProvider`): its heading an `h2` under the app's `h1`, the day the
+   `AuthProvider` and lists no profiles with it): its heading an `h2` under the app's `h1`, the day the
    account is deleted, "Before that day, you can keep it…", then "You're not
    signed in to <app>. Keep your account to carry on signing in.", and
    **Keep my account**, **Download my data**, **Back to <app>** ("Taking you
@@ -174,7 +178,9 @@ along. If the user opens the link in a *different* browser, every call
    nothing pending) renews the session and reads the context again, which
    leads to consent (state 6) for the same request; expired by then, state 8
    says the account is back. Sign out, or the session ending, reads the
-   context again, which offers sign-in (state 3). Nothing of consent shows,
+   context again, which offers sign-in (state 3). If the island's code fails
+   to load, the card shows its heading, the failed-load line and Back to
+   <app>. Nothing of consent shows,
    and no code goes to the app, while the deletion is pending
    ([[account-deletion#Signing in to an app during the window]]).
 

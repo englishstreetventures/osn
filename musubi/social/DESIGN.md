@@ -622,13 +622,18 @@ its three motions that are not a colour or opacity change.
   one to the sign-in panel, where another account can sign in. Back to <app>
   is busy "Taking you back…", the words the page shows once it leaves, and a
   failure is the danger line above the buttons ("Couldn't go back to <app>."
-  and the copy map's sentence). Its label is one line: a long name ends in an
+  and the copy map's sentence, the name breaking anywhere). Its label is one line: a long name ends in an
   ellipsis (`truncate`), since the whole name heads the page, and a screen
   reader hears it whole. Too late to keep the account, the card offers Back to
   <app> (`default`) over Sign out (`ghost`). While the screen's code loads,
   the page draws `WindowLoading` with the app's name: the line in words, which
   wrap where the card's do, and four blocks, so neither the client card nor
-  the card moves when the screen lands, nor when the date does.
+  the card moves when the screen lands, nor when the date does. If that code
+  fails to load, the card keeps its heading and the failed-load line and adds
+  Back to <app> (`default`), which needs none of it, so the app still hears
+  the refusal. After a keep whose request has expired, or still reads as
+  pending, the page's ending card names the app in the same way: it breaks
+  anywhere and is `translate="no"`, as in the danger line.
   `tests/components/AuthorizeDeletion.browser.test.tsx` holds it at 320, 390
   and 1280px.
 - **An app's step-up request**: `/confirm/:requestId`
