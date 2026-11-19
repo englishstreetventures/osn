@@ -68,33 +68,42 @@ function ButtonsLoading() {
 }
 
 /**
- * The window screen while its chunk loads: the loading screen's shape, every
- * button a block. If the chunk fails (offline, or a chunk a deploy renamed),
- * the heading stays and the shell's failed-load line takes the rest.
+ * The window screen's card while its chunk loads: the loading screen's shape,
+ * every button a block. If the chunk fails (offline, or a chunk a deploy
+ * renamed), the heading stays and the shell's failed-load line takes the rest.
+ * The consent page draws it in its own card for the screen it shows an app's
+ * sign-in (`AuthorizePage.tsx`).
  */
+export function WindowLoading(props: { failed: boolean }) {
+  return (
+    <Show
+      when={!props.failed}
+      fallback={
+        <div class="flex flex-col gap-2">
+          <WindowHeading>{WINDOW_HEADING}</WindowHeading>
+          <Notice tone="danger" size="inline" alert>
+            {LOAD_FAILED}
+          </Notice>
+        </div>
+      }
+    >
+      <div aria-busy="true" class="flex flex-col gap-6">
+        <div class="flex flex-col gap-2">
+          <WindowHeading>{WINDOW_HEADING}</WindowHeading>
+          <WindowDateLoading />
+          <p class="text-muted-foreground text-body">{BEFORE_THAT_DAY}</p>
+        </div>
+        <ButtonsLoading />
+      </div>
+    </Show>
+  );
+}
+
+/** The window screen while its chunk loads, in the screen's own column. */
 export function DeletionWindowFrame(props: { failed: boolean }) {
   return (
     <WindowColumn>
-      <Show
-        when={!props.failed}
-        fallback={
-          <div class="flex flex-col gap-2">
-            <WindowHeading>{WINDOW_HEADING}</WindowHeading>
-            <Notice tone="danger" size="inline" alert>
-              {LOAD_FAILED}
-            </Notice>
-          </div>
-        }
-      >
-        <div aria-busy="true" class="flex flex-col gap-6">
-          <div class="flex flex-col gap-2">
-            <WindowHeading>{WINDOW_HEADING}</WindowHeading>
-            <WindowDateLoading />
-            <p class="text-muted-foreground text-body">{BEFORE_THAT_DAY}</p>
-          </div>
-          <ButtonsLoading />
-        </div>
-      </Show>
+      <WindowLoading failed={props.failed} />
     </WindowColumn>
   );
 }

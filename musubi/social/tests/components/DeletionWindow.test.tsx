@@ -3,6 +3,7 @@ import { AccountError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -195,5 +196,72 @@ describe("<DeletionWindow />", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Keep my account" })).toBeTruthy();
     expect(mocks.renewSession).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The screen on Musubi's `/authorize`, for a sign-in an app started: it hands
+ * the page every ending (kept, signed out) instead of waiting for the shell to
+ * swap, and every ending that leaves offers the way back to the app, so the
+ * app hears the refusal a Cancel sends.
+ */
+describe("<DeletionWindow app={…} />", () => {
+  function renderAppWindow() {
+    const [session, setSession] = createSignal<unknown>({ accessToken: "pending" });
+    const sessionResource = Object.assign(() => session(), { loading: false, error: undefined });
+    const value = {
+      session: sessionResource,
+      renewSession: mocks.renewSession,
+      logout: mocks.logout,
+      pendingDeletion: () => true,
+    };
+    const back = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const onKept = vi.fn();
+    const onSignedOut = vi.fn();
+    render(() => (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mocked AuthContext
+      <AuthContext.Provider value={value as any}>
+        <DeletionWindow app={{ name: "Cire", back }} onKept={onKept} onSignedOut={onSignedOut} />
+      </AuthContext.Provider>
+    ));
+    return { back, onKept, onSignedOut, endSession: () => setSession(null) };
+  }
+
+  it("hands back to the page when nothing is pending any more, rather than asking for a reload", async () => {
+    mocks.status.mockResolvedValue({ scheduled: false });
+    const { onKept } = renderAppWindow();
+    await waitFor(() => expect(onKept).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("button", { name: "Reload" })).toBeNull();
+  });
+
+  it("offers the way back to the app when it is too late to keep the account", async () => {
+    mocks.status.mockResolvedValue({
+      scheduled: true,
+      scheduledFor: SCHEDULED_FOR,
+      softDeletedAt: 0,
+    });
+    mocks.cancel.mockResolvedValue({ cancelled: false });
+    const { back, onKept } = renderAppWindow();
+    fireEvent.click(await screen.findByRole("button", { name: "Keep my account" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "It's too late to keep this account" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to Cire" }));
+    await waitFor(() => expect(back).toHaveBeenCalledOnce());
+    expect(onKept).not.toHaveBeenCalled();
+  });
+
+  it("hands back to the page when its session ends", async () => {
+    mocks.status.mockResolvedValue({
+      scheduled: true,
+      scheduledFor: SCHEDULED_FOR,
+      softDeletedAt: 0,
+    });
+    const { onSignedOut, endSession } = renderAppWindow();
+    await screen.findByRole("button", { name: "Keep my account" });
+    expect(onSignedOut).not.toHaveBeenCalled();
+    endSession();
+    await waitFor(() => expect(onSignedOut).toHaveBeenCalledOnce());
   });
 });

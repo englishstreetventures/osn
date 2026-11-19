@@ -10,9 +10,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getContext: vi.fn(),
   submitDecision: vi.fn(),
+  decline: vi.fn(),
 }));
 
 vi.mock("../../src/lib/authorize", () => ({ authorizeClient: mocks }));
+// The deletion screen's island carries its own AuthProvider, the restore and
+// the step-up; the page only hands it the app and hears back how it ended.
+vi.mock("../../src/components/AuthorizeDeletionWindow", () => ({
+  AuthorizeDeletionWindow: (props: {
+    app: { name: string; back: () => Promise<void> };
+    onKept: () => void;
+    onSignedOut: () => void;
+  }) => (
+    <div data-testid="deletion-window" data-app={props.app.name}>
+      <button type="button" onClick={() => void props.app.back().catch(() => undefined)}>
+        island back
+      </button>
+      <button type="button" onClick={() => props.onKept()}>
+        island kept
+      </button>
+      <button type="button" onClick={() => props.onSignedOut()}>
+        island signed out
+      </button>
+    </div>
+  ),
+}));
 // The sign-in island carries its own AuthProvider and the WebAuthn client;
 // the page only cares that it reports success. `initialMode` is echoed into the
 // DOM because it is a decision the PAGE makes — which half of the panel leads —
@@ -84,6 +106,7 @@ function context(overrides: Record<string, unknown> = {}) {
     },
     scopes: ["openid", "profile", "email"],
     signedIn: true,
+    pendingDeletion: false,
     profiles: [alice],
     linkedProfileId: null,
     ...overrides,
@@ -739,5 +762,70 @@ describe("<AuthorizePage />", () => {
     fireEvent.click(screen.getByText("Try again"));
 
     expect(await screen.findByText("Allow")).toBeDefined();
+  });
+
+  // An account whose deletion is pending: the page shows the deletion screen
+  // in place of consent. The E2E flow drives the screen, the way back and the
+  // keep through to a code; these are the endings it cannot reach.
+  describe("an account whose deletion is pending", () => {
+    const pending = () => context({ pendingDeletion: true, linkedProfileId: null });
+
+    it("ends naming the app when the way back finds the request gone", async () => {
+      mocks.getContext.mockResolvedValue(pending());
+      mocks.decline.mockRejectedValue(
+        new AuthorizeError("invalid_request", 400, "Unknown or expired request"),
+      );
+
+      renderPage();
+      fireEvent.click(await screen.findByText("island back"));
+
+      expect(await screen.findByText("This sign-in request has expired.")).toBeDefined();
+      expect(screen.getByText("Go back to Cire and start again.")).toBeDefined();
+      expect(mocks.decline).toHaveBeenCalledWith(REQUEST_ID);
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("says the account is back but the sign-in expired, naming the app, when the request is gone after a keep", async () => {
+      mocks.getContext
+        .mockResolvedValueOnce(pending())
+        .mockRejectedValueOnce(
+          new AuthorizeError("invalid_request", 404, "Unknown or expired request"),
+        );
+
+      renderPage();
+      fireEvent.click(await screen.findByText("island kept"));
+
+      expect(
+        await screen.findByText("Your account is back, but this sign-in has expired."),
+      ).toBeDefined();
+      expect(screen.getByText("Go back to Cire and start again.")).toBeDefined();
+      expect(screen.queryByText("Allow")).toBeNull();
+    });
+
+    it("shows the deletion screen when the decision answers that the account is being deleted", async () => {
+      mocks.getContext.mockResolvedValueOnce(context()).mockResolvedValueOnce(pending());
+      mocks.submitDecision.mockRejectedValue(
+        new AuthorizeError("access_denied", 400, "The account is scheduled for deletion"),
+      );
+
+      renderPage();
+      fireEvent.click(await screen.findByText("Allow"));
+
+      expect((await screen.findByTestId("deletion-window")).dataset.app).toBe("Cire");
+      expect(screen.queryByText("Allow")).toBeNull();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("offers sign-in once the deletion screen's session has ended", async () => {
+      mocks.getContext
+        .mockResolvedValueOnce(pending())
+        .mockResolvedValueOnce(context({ signedIn: false, profiles: [] }));
+
+      renderPage();
+      fireEvent.click(await screen.findByText("island signed out"));
+
+      expect(await screen.findByText("finish sign-in")).toBeDefined();
+      expect(screen.queryByTestId("deletion-window")).toBeNull();
+    });
   });
 });

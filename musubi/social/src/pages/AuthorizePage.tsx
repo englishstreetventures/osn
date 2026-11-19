@@ -21,6 +21,7 @@ import {
   Switch,
 } from "solid-js";
 
+import { WindowLoading } from "../components/DeletionWindowFrame";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { PRODUCT_NAME } from "../lib/auth";
 import { authorizeClient } from "../lib/authorize";
@@ -38,7 +39,8 @@ import { profileInitials, safeAvatarUrl } from "../lib/utils";
  *   - never render an OAuth parameter out of its own URL;
  *   - `redirectTo` is opaque — assign it verbatim, never parse or rewrite it;
  *   - a denial is a decision — Cancel posts `approved: false` rather than
- *     abandoning the request for the rest of its 10-minute life;
+ *     abandoning the request for the rest of its 10-minute life, and the
+ *     deletion screen's Back to <app>, which has no profile to post, declines;
  *   - nothing from the context is persisted locally.
  */
 
@@ -51,6 +53,17 @@ const REQUEST_PATTERN = /^oar_[a-f0-9]{12}$/;
  */
 const AuthorizeSignIn = lazy(() =>
   import("../components/AuthorizeSignIn").then((m) => ({ default: m.AuthorizeSignIn })),
+);
+
+/**
+ * The deletion screen, for an account whose deletion is pending. It carries
+ * its own `AuthProvider` and the step-up ceremony, so it too loads only on the
+ * branch that needs it.
+ */
+const AuthorizeDeletionWindow = lazy(() =>
+  import("../components/AuthorizeDeletionWindow").then((m) => ({
+    default: m.AuthorizeDeletionWindow,
+  })),
 );
 
 type ScopeCopy = { label: string; detail?: string };
@@ -90,6 +103,7 @@ type Screen =
   | "account"
   | "picker"
   | "consent"
+  | "deletion"
   | "redirecting"
   | "dead"
   | "error";
@@ -111,6 +125,7 @@ const SCREEN_ANNOUNCEMENT = {
   account: "Check the account to use.",
   picker: "Choose a profile.",
   consent: "Review what this app is asking for.",
+  deletion: "Your account is set to be deleted.",
   redirecting: "Taking you back to the app.",
   dead: "This sign-in request cannot continue.",
   error: null,
@@ -183,6 +198,10 @@ export function AuthorizePage() {
   // session, with a way back to the account screen.
   const [switching, setSwitching] = createSignal(false);
   const [pending, setPending] = createSignal<boolean | null>(null);
+  // The account was kept on the deletion screen here: if the request has
+  // expired by the time the page reads it again, the ending says the account
+  // is back all the same.
+  const [keptHere, setKeptHere] = createSignal(false);
   const [fatal, setFatal] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
 
@@ -208,16 +227,21 @@ export function AuthorizePage() {
   });
   const showPicker = createMemo(() => pickerOpen() || (autoPicker() && chosenId() === null));
 
-  /** Terminal states name the app only if context was ever loaded. */
-  const clientName = () => ctx()?.client.name ?? null;
+  /**
+   * Terminal states name the app only if context was ever loaded. The last
+   * name loaded stays, so a read that fails after one (the request expired
+   * while the person kept their account) still names the app.
+   */
+  const clientName = createMemo<string | null>((last) => ctx()?.client.name ?? last, null);
 
   const deadMessage = createMemo(() => {
     if (fatal()) return fatal();
     if (requestId() === null) return "This sign-in link is not valid.";
     const err = context.error;
     if (err instanceof AuthorizeError && err.terminal) {
-      return err.code === "invalid_client"
-        ? "This app is no longer able to sign you in."
+      if (err.code === "invalid_client") return "This app is no longer able to sign you in.";
+      return keptHere()
+        ? "Your account is back, but this sign-in has expired."
         : "This sign-in request has expired.";
     }
     return null;
@@ -246,6 +270,9 @@ export function AuthorizePage() {
     if (!ctx()!.signedIn || reauth() || switching() || (fresh && !signedInHere())) {
       return "signedOut";
     }
+    // Nothing of consent while the account's deletion is pending: no
+    // profile, no Allow. The profiles the context lists are ignored.
+    if (ctx()!.pendingDeletion) return "deletion";
     if (reason() === "select_account" && !accountConfirmed() && !signedInHere()) {
       return "account";
     }
@@ -304,6 +331,14 @@ export function AuthorizePage() {
           setSubmitting(false);
           return;
         }
+        if (err.code === "access_denied") {
+          // The account's deletion is pending (asked for since this screen
+          // loaded): the request is still alive, and reading it again shows
+          // the deletion screen.
+          setSubmitting(false);
+          void refetch();
+          return;
+        }
         if (err.needsSignIn) {
           // A fresh sign-in already didn't satisfy the freshness demand this
           // many times — stop looping and end the flow.
@@ -352,6 +387,45 @@ export function AuthorizePage() {
       return;
     }
     if (answer !== null) await decide(answer);
+  }
+
+  /**
+   * Back to the app from the deletion screen: a refusal with no profile,
+   * which sends the app what a Cancel sends. A request already gone ends the
+   * flow here; any other failure goes back to the screen, which says so.
+   */
+  async function backToApp() {
+    const id = requestId();
+    if (!id) return;
+    try {
+      const { redirectTo } = await authorizeClient.decline(id);
+      setRedirecting(true);
+      navigateTo(redirectTo);
+    } catch (err) {
+      if (err instanceof AuthorizeError && err.terminal) {
+        setFatal("This sign-in request has expired.");
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * The account is kept: the request is read again, and with the account live
+   * the page goes on to consent for the same request. Expired by now, it ends
+   * saying the account is back.
+   */
+  function afterKeep() {
+    setKeptHere(true);
+    setNotice(null);
+    void refetch();
+  }
+
+  /** The deletion screen's session has gone: read again, which offers sign-in. */
+  function afterDeletionSignOut() {
+    setNotice(null);
+    setChosenId(null);
+    void refetch();
   }
 
   /**
@@ -457,6 +531,19 @@ export function AuthorizePage() {
               Back
             </Button>
           </Show>
+        </Match>
+
+        <Match when={screen() === "deletion"}>
+          {/* The app's card, as every other screen draws it, so this screen
+              loads nothing the consent screen would not. */}
+          <ClientCard context={ctx()} />
+          <div class="mt-6">
+            <DeletionScreen
+              app={{ name: clientName() ?? "the app", back: backToApp }}
+              onKept={afterKeep}
+              onSignedOut={afterDeletionSignOut}
+            />
+          </div>
         </Match>
 
         <Match when={screen() === "account"}>
@@ -649,6 +736,39 @@ export function AuthorizePage() {
         </Match>
       </Switch>
     </main>
+  );
+}
+
+/**
+ * The deletion screen once its chunk is in; until then the shape of its card,
+ * and if the chunk fails, its heading and the failed-load line, as the
+ * shell's own window screen does (`App.tsx`, `WindowScreen`).
+ */
+function DeletionScreen(props: {
+  app: { name: string; back: () => Promise<void> };
+  onKept: () => void;
+  onSignedOut: () => void;
+}) {
+  const [state, setState] = createSignal<"loading" | "ready" | "failed">("loading");
+  AuthorizeDeletionWindow.preload().then(
+    () => setState("ready"),
+    () => setState("failed"),
+  );
+  return (
+    <Show
+      when={state() === "ready"}
+      fallback={
+        <Card padding="lg" class="flex flex-col gap-6">
+          <WindowLoading failed={state() === "failed"} />
+        </Card>
+      }
+    >
+      <AuthorizeDeletionWindow
+        app={props.app}
+        onKept={props.onKept}
+        onSignedOut={props.onSignedOut}
+      />
+    </Show>
   );
 }
 

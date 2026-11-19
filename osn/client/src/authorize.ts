@@ -293,7 +293,7 @@ export function createAuthorizeClient(config: AuthorizeClientConfig): AuthorizeC
         body: JSON.stringify(input),
       },
       options,
-      // NO default deadline on this one, deliberately (S-M1).
+      // NO default deadline on this one, deliberately.
       //
       // Aborting a fetch does not un-send the request. This POST is the
       // state-changing call: the server consumes the parked request, writes
