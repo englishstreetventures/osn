@@ -35,7 +35,7 @@ export function PrivacyPage(): JSX.Element {
   return (
     <LegalDocument
       title="Privacy Notice"
-      updated="2026-11-18"
+      updated="2026-11-19"
       draft={draftPending(LEGAL_ENTITY.regulator)}
     >
       <p>
@@ -150,7 +150,8 @@ export function PrivacyPage(): JSX.Element {
         you sent to a chat others are still in stays there without your name. A Cire wedding deleted
         with your account is hidden at once and erased once any payment or gift for it has settled.
         Sessions: 30 days from last use. Security events: 12 months, and email-change records: 90
-        days, including after the account is deleted.
+        days, including after the account is deleted. Deleted data can stay in our database
+        provider&rsquo;s restore copies for up to 30 days.
       </p>
 
       <h2>Your rights</h2>
@@ -177,10 +178,7 @@ export function PrivacyPage(): JSX.Element {
       </p>
 
       <h2>Changes</h2>
-      <p>
-        If this changes, the date at the top changes with it, and anything material is flagged in
-        the app before it takes effect.
-      </p>
+      <p>If this changes, the date at the top changes with it.</p>
     </LegalDocument>
   );
 }

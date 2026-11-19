@@ -239,13 +239,35 @@ Dev steps:
 
 `OSN_SESSION_IP_PEPPER` is the HMAC key that hashes a request's IP into
 `security_events.ip_hash`, and it also keys the digests in
-`osn/api/src/services/auth/server-mac.ts` and the handle-hold digest. No session
-stores an IP hash. In a non-local env it must be set and **≥32 bytes**, or the app
-throws (`osn/api/src/build-deps.ts:405-410`).
+`osn/api/src/services/auth/server-mac.ts` and the handle-hold digest
+([[account-deletion#Handle holds]]). No session stores an IP hash. In a non-local
+env it must be set and **≥32 bytes**, or the app throws
+(`osn/api/src/build-deps.ts:405-410`).
 
 ```bash
 openssl rand -base64 48   # ≥32 bytes after decode; store as OSN_SESSION_IP_PEPPER
 ```
+
+**Rotating it ends every handle hold.** A hold is a keyed hash of the handle, so
+under a new pepper no hold matches its handle and every held handle comes free at
+once (`osn/api/src/lib/handle-hold.ts:41-43`). Musubi's privacy notice promises
+that no one can take a deleted account's handles for 30 days. So:
+
+- Do not rotate production's pepper while an account's deletion is pending, or
+  within 30 days of an account's hard delete. Rotate inside that time only when
+  keeping the pepper is worse, such as when it has leaked, and accept that every
+  hold ends then.
+- Nothing outside the database tells an operator whether a hold is live. The
+  hard delete logs nothing when it succeeds, osn-api's metrics reach no exporter
+  ([[shared/observability/metrics]]), and Workers Logs keep 7 days on Workers
+  Paid ([[logging]]). Since no one may read production rows, the rule cannot be
+  checked before a rotation: treat every rotation as ending holds that may be
+  live. A count of live holds through the `production-operator` workflow would
+  answer the question; that action does not exist.
+
+A rotation also voids the passkey challenges, emailed sign-in links and Email
+Verification API nonces in flight, which live ten minutes at most
+(`server-mac.ts`), so a person part-way through signing in starts again.
 
 ### 1.4 Workers Paid on the production account
 
@@ -877,8 +899,9 @@ Owner steps, in order:
 
    Keep the three bookmarks with the release run's link. A restore
    (`bunx wrangler d1 time-travel restore <db> --env production --bookmark=<bookmark>`)
-   loses every write since, so it is the last resort; a failed release is fixed forward
-   (§4.2).
+   loses every write since, deletions people asked for among them
+   ([[backup-dr#Failure modes and mitigations]]), so it is the last resort; a failed
+   release is fixed forward (§4.2).
 3. **After the release**, the next release's counts read `(__alchemy_migrations)` and
    "Wrangler's ledger frozen". Do not approve a re-run of any release run that started
    before this one.
@@ -1715,7 +1738,8 @@ To add or change one:
 
    osn-api's `OSN_PAIRWISE_SALT`, `OSN_TOTP_ENCRYPTION_KEY` and
    `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` go through the `set-osn-api-secret` workflow
-   instead (§3.1, §10).
+   instead (§3.1, §10). A new `OSN_SESSION_IP_PEPPER` ends every handle hold: read
+   §1.3 before you change it.
 3. `bun run --cwd shared/infra secrets:check-live -- --tier production` compares every
    Worker's live names with the inventory.
 

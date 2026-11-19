@@ -29,7 +29,7 @@ const { level = 2 } = Astro.props
 const Section = level === 2 ? 'h2' : 'h3'
 const Sub = level === 2 ? 'h3' : 'h4'
 
-const updated = '2026-11-18'
+const updated = '2026-11-19'
 
 // The third-party lists are generated from the consent vendor registry, so the
 // notice cannot disagree with what the guest site's consent framework governs:
@@ -366,8 +366,7 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
   <Section>How long it is kept</Section>
   <p>
     Guest information — names, RSVPs, dietary needs, email addresses — is deleted
-    <strong>1 year after the final wedding event</strong>, after which it is
-    permanently removed from our systems. If the wedding has no events, or we cannot
+    <strong>1 year after the final wedding event</strong>. If the wedding has no events, or we cannot
     read the date of one of them, guest information is deleted 3 years after your
     hosts created the wedding on Cire instead, whatever the other events’ dates.
     Now and then it goes up to 30 days later, while we finish the record of your
@@ -391,6 +390,9 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
     rest of the wedding’s guest information. For an address you added yourself, the fingerprint
     applies to you alone: your hosts are told if they add it back for you, and it does not stop
     anyone else at the wedding adding it for themselves.
+  </p>
+  <p>
+    Deleted information can stay in our database provider’s restore copies for up to 30 days.
   </p>
 
   <Section>Your rights</Section>

@@ -110,6 +110,21 @@ describe("guest privacy notice", () => {
   });
 
   /**
+   * The database is Cloudflare D1, whose Time Travel restores it to any minute
+   * of the last 30 days on Workers Paid, the production account's plan
+   * (`wiki/compliance/backup-dr.md`), so deleted guest information is not gone
+   * from every system at once.
+   */
+  it("says deleted information can stay in the restore copies for 30 days", () => {
+    expect(body).toMatch(
+      phrase(
+        "Deleted information can stay in our database provider’s restore copies for up to 30 days.",
+      ),
+    );
+    expect(body).not.toMatch(/permanently removed/);
+  });
+
+  /**
    * The sweep leaves the couple a record of their gifts: no names, but the
    * amount, currency and day of each money gift (`GiftSummary` in
    * `cire/api/src/services/retention.ts`). It outlives the year, so the notice

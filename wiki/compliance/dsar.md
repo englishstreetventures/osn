@@ -108,7 +108,9 @@ How the flows work — the screens, the soft delete, the seven-day window and it
 - **What is kept, and why.** `security_events` (12 months) and `email_changes` (90 days), with the account id they name, as security records (Art. 6(1)(c)+(f), [[data-map]]); handle holds, keyed hashes with no account id, for 30 days; and what each app reports keeping, which the `account-deleted` email repeats ([[account-deletion#What is kept after the deletion]]). The periods are in [[retention]].
 - **When.** Seven days after the request, the fan-out reaches every app, and the hard delete follows once every app has finished. On a deployed tier that is 6 to 12 hours after the date the person is shown (englishstreetventures/osn#2386), later while an app has not answered; Musubi's privacy notice ([`PrivacyPage.tsx`](../../musubi/social/src/pages/PrivacyPage.tsx)) says "usually within a day of the date we show you".
 - **Cancelling.** Until then the person can keep the account: they sign in to Musubi by passkey or email and choose "Keep my account". Mailbox access alone is enough ([[account-deletion#What happens, in order]]).
-- Backups remain until next rotation cycle (document in privacy notice).
+- Backups: every production database is Cloudflare D1, whose Time Travel can restore it to any minute of the last 30 days on Workers Paid, the production account's plan, so erased rows stay restorable for up to 30 days ([[backup-dr]]). Musubi's privacy notice and Cire's host, guest and vendor notices say so.
+
+  *Quoted 2026-11-19 from Cloudflare's [D1 Time Travel documentation](https://developers.cloudflare.com/d1/reference/time-travel/): "up to 30 days in the past (Workers Paid plan)".*
 - Logs: the redacting logger keeps personal data out of log lines at write time ([[shared/observability/overview]]); Workers Logs and traces age out on Cloudflare's own retention ([[retention]]).
 
 #### Cire (wedding-invite) data
