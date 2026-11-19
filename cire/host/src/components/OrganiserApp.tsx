@@ -491,14 +491,26 @@ function Dashboard(props: {
   }
 
   /**
-   * Whether a recheck started after read `since` (a `recheckSeq`) has had its
-   * answer applied. A read made outside `recheckWeddings` — a redeemed code, a
-   * restore, the upgrade return — notes `recheckSeq` when it starts and writes
-   * its answer only if this is false, so it never puts back a list older than
-   * the one on screen: a schedule save's re-read can overtake it.
+   * Read the list outside `recheckWeddings` — after a redeemed code, a
+   * restore, the upgrade return — and apply the answer unless a recheck that
+   * started after this read has been applied meanwhile: a schedule save's
+   * re-read can overtake it, and an older answer must not put back the list it
+   * replaced. Resolves to the list on screen afterwards, or null when the read
+   * was refused. `stillWanted` is asked once the answer is in; the upgrade
+   * return's poll says no once the dashboard has gone.
    */
-  function newerReadApplied(since: number): boolean {
-    return appliedSeq > since;
+  async function readListOutsideRecheck(
+    stillWanted: () => boolean = () => true,
+  ): Promise<WeddingSummary[] | null> {
+    const since = recheckSeq;
+    const res = await authFetch(apiUrl("/api/organiser/weddings"));
+    if (!res.ok) return null;
+    const body = (await res.json()) as { weddings: WeddingSummary[] };
+    if (stillWanted() && appliedSeq <= since) {
+      setWeddings(body.weddings.map(withKnownRole));
+      setDeletedWeddings(deletedWeddingsOf(body));
+    }
+    return untrack(weddings) ?? [];
   }
 
   /** Recheck unless the last check is under a minute old. */
@@ -885,19 +897,10 @@ function Dashboard(props: {
 
   /** A restore went through: ask the API for both lists again, then open it. */
   async function handleWeddingRestored(weddingId: string) {
-    const since = recheckSeq;
     try {
-      const res = await authFetch(apiUrl("/api/organiser/weddings"));
-      if (!res.ok) return;
-      const body = (await res.json()) as { weddings: WeddingSummary[] };
-      let next = body.weddings.map(withKnownRole);
-      if (newerReadApplied(since)) {
-        next = untrack(weddings) ?? [];
-      } else {
-        setWeddings(next);
-        setDeletedWeddings(deletedWeddingsOf(body));
-      }
-      const restored = next.find((w) => w.id === weddingId);
+      const list = await readListOutsideRecheck();
+      if (list === null) return;
+      const restored = list.find((w) => w.id === weddingId);
       toast.success("Wedding restored.");
       if (restored) selectWedding(restored);
     } catch (err) {
@@ -919,14 +922,8 @@ function Dashboard(props: {
     });
     invalidateCatalogue(weddingId);
     toast.success(`Code accepted. This wedding is now on ${TIER_LABEL[tier]}.`);
-    const since = recheckSeq;
     try {
-      const res = await authFetch(apiUrl("/api/organiser/weddings"));
-      if (!res.ok) return;
-      const body = (await res.json()) as { weddings: WeddingSummary[] };
-      if (newerReadApplied(since)) return;
-      setWeddings(body.weddings.map(withKnownRole));
-      setDeletedWeddings(deletedWeddingsOf(body));
+      await readListOutsideRecheck();
     } catch (err) {
       // The code was spent and the tier patched in either way; a reload shows
       // the rest.
@@ -1022,16 +1019,8 @@ function Dashboard(props: {
           // The wedding's tier is raised server-side; the list is what the nav
           // reads, so refetching it is what unlocks the modules.
           invalidateCatalogue(receipt.weddingId);
-          const since = recheckSeq;
           try {
-            const res = await authFetch(apiUrl("/api/organiser/weddings"));
-            if (res.ok) {
-              const body = (await res.json()) as { weddings: WeddingSummary[] };
-              if (!cancelled && !newerReadApplied(since)) {
-                setWeddings(body.weddings.map(withKnownRole));
-                setDeletedWeddings(deletedWeddingsOf(body));
-              }
-            }
+            await readListOutsideRecheck(() => !cancelled);
           } catch {
             // The purchase landed even if this refresh did not; a reload shows
             // it. Saying so beats a scary error about a payment that worked.

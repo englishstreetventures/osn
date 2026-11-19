@@ -557,7 +557,7 @@ describe("OrganiserApp Dashboard", () => {
 
   it("names the tier bought when a returning purchase has settled, and refreshes the list", async () => {
     // Stripe sends the organiser back with the receipt in the query.
-    history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1");
+    history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1#/w/wed_a");
     let listReads = 0;
     authFetchMock.mockImplementation(async (url: string) => {
       if (url.endsWith("/upgrade/purchases/upg_1")) {
@@ -580,8 +580,12 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() =>
       expect(toastSuccess).toHaveBeenCalledWith("Upgrade complete — this wedding is on Gold."),
     );
-    // The list is what the nav locks by, so it is read again once the tier is raised.
+    // The list is what the nav locks by, so it is read again once the tier is
+    // raised, and the dashboard takes the tier from that answer.
     expect(listReads).toBe(2);
+    await waitFor(() =>
+      expect(screen.getByTestId("module-shell").getAttribute("data-tier")).toBe("gold"),
+    );
     // And the receipt is gone from the URL, so a refresh does not poll again.
     expect(window.location.search).toBe("");
     toastSuccess.mockReset();
