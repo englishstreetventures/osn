@@ -9,7 +9,7 @@ import {
   registryRetiredAccounts,
   registrySettings,
 } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
@@ -2930,6 +2930,70 @@ describe("registryService.retireStripeAccount", () => {
     expect(error).toBeInstanceOf(StripeRetireForbidden);
     expect(settingsRow(db)?.stripeAccountId).toBe("acct_held");
     expect(records(db)).toEqual([]);
+  });
+
+  it("says the account changed before it judges the hand-over, for a stale account or generation", async () => {
+    // A hand-over to someone who holds no owner seat, on a read gone stale:
+    // the change is what the caller is told.
+    for (const stale of [{ accountId: "acct_stale" }, { generation: 1 }]) {
+      const db = db0();
+      held(db);
+      const error = await failureOf(
+        db,
+        registryService.retireStripeAccount(
+          {
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: OWNER,
+            handTo: "usr_nobody",
+            accountId: "acct_held",
+            generation: 0,
+            ...stale,
+          },
+          PAYING_SITE,
+        ),
+      );
+      expect(error).toBeInstanceOf(StripeAccountChanged);
+    }
+  });
+
+  it("refuses a wedding that does not exist as it refuses a caller who does not own one", async () => {
+    const db = db0();
+    const error = await failureOf(
+      db,
+      registryService.retireStripeAccount(
+        {
+          weddingId: "wed_missing",
+          osnProfileId: OWNER,
+          handTo: null,
+          accountId: "acct_held",
+          generation: 0,
+        },
+        PAYING_SITE,
+      ),
+    );
+    expect(error).toBeInstanceOf(StripeRetireForbidden);
+  });
+
+  it("tells a caller to look again when every rule holds at the refusal read", async () => {
+    // The batch refused, then the row came back to what the caller read:
+    // nothing was written, and the answer carries the settings as they stand.
+    const db = db0();
+    held(db);
+    const error = await failureOf(
+      db,
+      registryService.stripeRetireRefusal(
+        {
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: OWNER,
+          accountId: "acct_held",
+          generation: 0,
+        },
+        sql`1`,
+        PAYING_SITE,
+      ),
+    );
+    expect(error).toBeInstanceOf(StripeAccountChanged);
+    expect((error as StripeAccountChanged).current.stripeConnected).toBe(true);
   });
 
   it("writes both for the account and generation the row holds", async () => {

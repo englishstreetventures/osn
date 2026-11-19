@@ -448,6 +448,86 @@ describe("createOwnerNotices — a payout account retired", () => {
     expect(transport.batches).toHaveLength(2);
   });
 
+  it("names who retired it, whom it was handed to and whose it was", async () => {
+    const displays = new Map([
+      ["usr_a", { handle: "ama", displayName: "Ama", avatarUrl: null }],
+      ["usr_b", { handle: "jo", displayName: null, avatarUrl: null }],
+    ]);
+    const { notices, run, transport } = setup({ resolveDisplays: async () => displays }, [
+      "usr_a",
+      "usr_b",
+    ]);
+    await run(
+      notices.payoutRetired(retired({ reason: "handed_over", handToOsnProfileId: "usr_b" })),
+    );
+    const handed = transport.batches[0]?.[0];
+    expect(handed?.template === "registry-payout-retired" ? handed.data : null).toMatchObject({
+      actorName: "Ama (@ama)",
+      namedName: "@jo",
+      holderName: null,
+    });
+    await run(
+      notices.payoutRetired(
+        retired({
+          weddingId: "wed_two",
+          actorOsnProfileId: "usr_b",
+          reason: "replaced",
+          holderOsnProfileId: "usr_a",
+        }),
+      ),
+    );
+    const replaced = transport.batches[1]?.[0];
+    expect(replaced?.template === "registry-payout-retired" ? replaced.data : null).toMatchObject({
+      actorName: "@jo",
+      namedName: null,
+      holderName: "Ama (@ama)",
+      audience: "holder",
+    });
+  });
+
+  it("mails an owner the actor seated exactly a day before", async () => {
+    const { notices, run, transport, db } = setup({}, ["usr_a"]);
+    const now = new Date("2026-11-20T12:00:00.000Z");
+    db.insert(weddingHosts)
+      .values({
+        ...ownerSeat("wed_one", "usr_b", new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+        addedByOsnProfileId: "usr_a",
+      })
+      .run();
+    await run(notices.payoutRetired(retired({ now })));
+    expect(copies(transport.batches[0])).toEqual([
+      ["a@example.test", "actor"],
+      ["b@example.test", "owner"],
+    ]);
+  });
+
+  it("tells a replaced holder even when no one else has an address", async () => {
+    // usr_x retired it and osn-api has no address for them.
+    const { notices, run, transport } = setup({}, ["usr_a", "usr_x"]);
+    await run(
+      notices.payoutRetired(
+        retired({ actorOsnProfileId: "usr_x", reason: "replaced", holderOsnProfileId: "usr_a" }),
+      ),
+    );
+    expect(copies(transport.batches[0])).toEqual([["a@example.test", "holder"]]);
+  });
+
+  it("counts a wedding that is gone as nobody to tell", async () => {
+    const { notices, run, transport } = setup();
+    const attrs = { kind: "payout_retired", result: "no_recipients" } as const;
+    const before = await counterValue(CIRE_METRICS.ownerNotice, attrs);
+    await run(notices.payoutRetired(retired({ weddingId: "wed_gone" })));
+    expect(transport.batches).toEqual([]);
+    expect(await counterValue(CIRE_METRICS.ownerNotice, attrs)).toBe(before + 1);
+  });
+
+  it("keeps one wedding's retire budget apart from another's", async () => {
+    const { notices, run, transport } = setup({ emailsPerDay: 2 }, ["usr_a", "usr_b"]);
+    await run(notices.payoutRetired(retired()));
+    await run(notices.payoutRetired(retired({ weddingId: "wed_two" })));
+    expect(transport.batches).toHaveLength(2);
+  });
+
   it("always tells the holder of a replace, however many retires came before it", async () => {
     // Retires earlier in the day have spent the wedding's retire budget. Each
     // replace needs the holder to have connected an account again, so their
@@ -464,6 +544,43 @@ describe("createOwnerNotices — a payout account retired", () => {
     expect(copies(transport.batches[1])).toEqual([["a@example.test", "holder"]]);
   });
 });
+
+/**
+ * An owner who removed their Cire data and left: cire keeps nothing naming
+ * them afterwards, so the notice spends the wedding's budget only, never a
+ * budget keyed by the person.
+ */
+describe("createOwnerNotices — an owner who left", () => {
+  it("spends each wedding's budget alone, and none keyed by the person who left", async () => {
+    const { notices, run, transport } = setup({ emailsPerDay: 1 }, ["usr_a", "usr_b"]);
+    // usr_a's own budget is spent by a change they made on the other wedding.
+    await run(
+      notices.ownerChanged({
+        weddingId: "wed_two",
+        actorOsnProfileId: "usr_a",
+        subjectOsnProfileId: "usr_b",
+        change: "removed",
+      }),
+    );
+    expect(transport.batches).toHaveLength(1);
+    const left = (weddingId: string) =>
+      notices.ownerLeft({ weddingId, leaverOsnProfileId: "usr_a" });
+    await run(left("wed_one"));
+    expect(copiesOf(transport.batches[1])).toEqual(["b@example.test"]);
+    // The wedding's budget is now spent; the other wedding's is not.
+    await run(left("wed_one"));
+    expect(transport.batches).toHaveLength(2);
+  });
+
+  it("keeps one wedding's budget apart from another's", async () => {
+    const { notices, run, transport } = setup({ emailsPerDay: 1 }, ["usr_a", "usr_b"]);
+    await run(notices.ownerLeft({ weddingId: "wed_one", leaverOsnProfileId: "usr_a" }));
+    await run(notices.ownerLeft({ weddingId: "wed_two", leaverOsnProfileId: "usr_a" }));
+    expect(transport.batches).toHaveLength(2);
+  });
+});
+
+const copiesOf = (batch: SendEmailInput[] | undefined) => (batch ?? []).map((m) => m.to);
 
 describe("formatRestoreUntil", () => {
   it("prints the instant in UTC", () => {

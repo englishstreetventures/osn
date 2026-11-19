@@ -748,7 +748,7 @@ const defaultSettings = (weddingId: string): RegistrySettingsRecord => ({
  * A settings row as a statement read it, with {@link payoutHolderAbsentSql}
  * answered beside its columns.
  */
-type SettingsRowRead = SettingsRow & { payoutHolderAbsent: number | boolean | null };
+type SettingsRowRead = SettingsRow & { payoutHolderAbsent: number | null };
 
 const toSettingsRecord = (r: SettingsRowRead): RegistrySettingsRecord => ({
   weddingId: r.weddingId,
@@ -765,7 +765,7 @@ const toSettingsRecord = (r: SettingsRowRead): RegistrySettingsRecord => ({
   stripePayoutsEnabled: r.stripePayoutsEnabled,
   stripeDefaultCurrency: r.stripeDefaultCurrency,
   // SQLite answers the predicate as 0 or 1.
-  payoutHolderAbsent: r.payoutHolderAbsent === 1 || r.payoutHolderAbsent === true,
+  payoutHolderAbsent: r.payoutHolderAbsent === 1,
   updatedAt: r.updatedAt.getTime(),
 });
 
