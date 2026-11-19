@@ -483,8 +483,40 @@ describe("only the owner who connected the account may open its links", () => {
       chargesEnabled: true,
       payoutsEnabled: true,
       moneyGiftsBlockedBy: "payments_unavailable",
+      payoutHolderAbsent: false,
     });
     expect(stripe.calls).toEqual(["retrieveAccount:acct_first"]);
+  });
+
+  it("tells every owner, on the refresh, when the account's holder is not an owner", async () => {
+    const live = {
+      id: "acct_first",
+      chargesEnabled: true,
+      payoutsEnabled: true,
+      detailsSubmitted: true,
+      defaultCurrency: "AUD",
+    };
+    // Held by the editor, and held by nobody on record: both absent.
+    for (const connector of [EDITOR, null]) {
+      const { app, db } = buildApp({ stripe: stripeStub({ account: live }).client });
+      connectedBy(db, connector);
+      const answer = (await jsonBody(await req(app, `${base}/refresh`, SECOND))) as {
+        payoutHolderAbsent: unknown;
+      };
+      expect(answer.payoutHolderAbsent).toBe(true);
+    }
+    // And when the write kept a later state, the answer read again says the same.
+    const kept = buildApp({ stripe: stripeStub({ account: live }).client });
+    connectedBy(kept.db, EDITOR);
+    kept.db
+      .update(registrySettings)
+      .set({ stripeAccountUpdatedAt: new Date(Date.now() + 3_600_000) })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const reread = (await jsonBody(await req(kept.app, `${base}/refresh`, OWNER))) as {
+      payoutHolderAbsent: unknown;
+    };
+    expect(reread.payoutHolderAbsent).toBe(true);
   });
 });
 
@@ -766,6 +798,7 @@ describe("refreshing what Stripe says", () => {
       chargesEnabled: false,
       payoutsEnabled: false,
       moneyGiftsBlockedBy: "payments_unavailable",
+      payoutHolderAbsent: false,
     });
     expect(stripe.calls).toEqual([]);
 
@@ -799,6 +832,7 @@ describe("refreshing what Stripe says", () => {
       payoutsEnabled: true,
       // No webhook secret on this app, so the site takes no money gift.
       moneyGiftsBlockedBy: "payments_unavailable",
+      payoutHolderAbsent: false,
     });
     const row = await db
       .select()
@@ -881,6 +915,7 @@ describe("refreshing what Stripe says", () => {
         chargesEnabled: false,
         payoutsEnabled: true,
         moneyGiftsBlockedBy: "stripe_not_ready",
+        payoutHolderAbsent: false,
       });
     });
 

@@ -337,6 +337,7 @@ describe("registry settings", () => {
       chargesEnabled: false,
       payoutsEnabled: false,
       moneyGiftsBlockedBy: "stripe_not_ready",
+      payoutHolderAbsent: false,
     });
   });
 });
