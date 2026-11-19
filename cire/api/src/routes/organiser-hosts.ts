@@ -80,6 +80,9 @@ interface HostSeatDto extends HostPersonDto {
   /** How far into the run sheet the seat sees. On a helper's seat only: it is
    *  a helper's setting, and no other role's (see {@link helperScope}). */
   runSheetScope?: RunSheetScope;
+  /** On the owner seat whose holder connected the Stripe account money gifts
+   *  are paid into, for an owner reading the list only. Absent otherwise. */
+  payoutHolder?: true;
 }
 
 /**
@@ -157,7 +160,7 @@ export const createOrganiserHostsReadRoutes = (
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group.use(weddingMember(db)).get("/hosts", ({ weddingId, set }) => {
+      group.use(weddingMember(db)).get("/hosts", ({ weddingId, weddingIsOwner, set }) => {
         if (!weddingId) {
           set.status = 500;
           return { error: "Internal error" };
@@ -216,6 +219,9 @@ export const createOrganiserHostsReadRoutes = (
                     if (display?.displayName) row.displayName = display.displayName;
                     if (display?.avatarUrl) row.avatarUrl = display.avatarUrl;
                     if (addedBy) row.addedByHandle = addedBy.handle;
+                    // Whose bank the gifts reach is an owner's to know, as on
+                    // the registry settings.
+                    if (weddingIsOwner && h.payoutHolder) row.payoutHolder = true;
                     return row;
                   }),
                   // True row count, so a truncated list can never look complete.

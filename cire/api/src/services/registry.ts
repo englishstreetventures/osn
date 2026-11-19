@@ -3029,47 +3029,59 @@ export const registryService = {
     }).pipe(Effect.withSpan("cire.registry.stripeRetireRefusal"));
   },
 
-  /** Whether any wedding names this account — what decides handing it back. */
+  /**
+   * Whether cire still holds this account for some wedding — what decides
+   * handing it back: a wedding names it, or a wedding retired it and cire has
+   * not let it go (`registry_retired_accounts.released_at` NULL), since
+   * refunds and disputes on the gifts paid into it still need the connection.
+   */
   stripeAccountNamed(accountId: string): Effect.Effect<boolean, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      // A SELECT with no FROM answers exactly one row.
       const rows = yield* dbQuery(() =>
-        db
-          .select({ weddingId: registrySettings.weddingId })
-          .from(registrySettings)
-          .where(eq(registrySettings.stripeAccountId, accountId))
-          .limit(1)
-          .all(),
+        db.all<{ held: number }>(
+          sql`SELECT (EXISTS (SELECT 1 FROM ${registrySettings} named
+                              WHERE named.stripe_account_id = ${accountId})
+                      OR EXISTS (SELECT 1 FROM ${registryRetiredAccounts} retired
+                                 WHERE retired.stripe_account_id = ${accountId}
+                                   AND retired.released_at IS NULL)) AS held`,
+        ),
       );
-      return rows.length > 0;
+      return rows.some((row) => row.held === 1);
     }).pipe(Effect.withSpan("cire.registry.stripeAccountNamed"));
   },
 
   /**
-   * The stored type of an account some wedding names, or `unknown` when none
-   * does. Read only for a refund or dispute that matched no gift: on a
-   * Standard account that is the holder's own business, not a gift cire lost.
+   * The stored type of an account some wedding names or has retired, or
+   * `unknown` when none does. Read only for a refund or dispute that matched
+   * no gift: on a Standard account that is the holder's own business, not a
+   * gift cire lost. `standard` when any row naming it says so (a retired row
+   * keeps the type the settings row had); otherwise `express`, which a NULL
+   * type reads as.
    */
   stripeAccountTypeNamed(
     accountId: string,
   ): Effect.Effect<StripeAccountType | "unknown", never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      // A SELECT with no FROM answers exactly one row.
       const [row] = yield* dbQuery(() =>
-        db
-          .select({
-            stripeAccountId: registrySettings.stripeAccountId,
-            stripeAccountType: registrySettings.stripeAccountType,
-          })
-          .from(registrySettings)
-          .where(eq(registrySettings.stripeAccountId, accountId))
-          .limit(1)
-          .all(),
+        db.all<{ named: number; standard: number }>(
+          sql`SELECT (EXISTS (SELECT 1 FROM ${registrySettings} named
+                              WHERE named.stripe_account_id = ${accountId})
+                      OR EXISTS (SELECT 1 FROM ${registryRetiredAccounts} retired
+                                 WHERE retired.stripe_account_id = ${accountId})) AS named,
+                     (EXISTS (SELECT 1 FROM ${registrySettings} named
+                              WHERE named.stripe_account_id = ${accountId}
+                                AND named.stripe_account_type = 'standard')
+                      OR EXISTS (SELECT 1 FROM ${registryRetiredAccounts} retired
+                                 WHERE retired.stripe_account_id = ${accountId}
+                                   AND retired.stripe_account_type = 'standard')) AS standard`,
+        ),
       );
-      const found = row as
-        | { stripeAccountId: string | null; stripeAccountType: StripeAccountType | null }
-        | undefined;
-      return found ? (accountTypeOf(found) ?? "unknown") : "unknown";
+      if (row?.standard === 1) return "standard" as const;
+      return row?.named === 1 ? ("express" as const) : ("unknown" as const);
     }).pipe(Effect.withSpan("cire.registry.stripeAccountTypeNamed"));
   },
 
@@ -3102,8 +3114,13 @@ export const registryService = {
    * An attach stamps its own time and a reuse copies the source's; nothing else
    * writes the column, so a refresh in flight cannot make a revocation miss.
    *
-   * Returns whether a row matched, so the caller can 200 either way: an event
-   * for an account this platform does not know is not an error.
+   * In the same batch it RELEASES every retired row naming the account that
+   * was connected at or before Stripe's event, by the same guard: cire no
+   * longer holds it, so no hand-back waits on it. A row already released
+   * keeps its time, so a repeated event moves nothing.
+   *
+   * Returns whether a settings row matched, so the caller can 200 either way:
+   * an event for an account this platform does not know is not an error.
    */
   detachStripeAccount(input: {
     accountId: string;
@@ -3117,44 +3134,60 @@ export const registryService = {
       const db = yield* DbService;
       const now = new Date();
       const observed = input.observedAt === undefined ? now : new Date(input.observedAt * 1000);
-      const rows = yield* dbQuery(() =>
-        db
-          .update(registrySettings)
-          .set({
-            stripeAccountId: null,
-            // Nobody connected the account the wedding no longer has, so the
-            // next one is whoever connects it.
-            stripeConnectedByOsnProfileId: null,
-            stripeAccountType: null,
-            stripeConnectedAt: null,
-            // What the cleared id leaves behind — see the column comments.
-            stripeDeauthorizedAccountId: input.accountId,
-            stripeDeauthorizedAt: observed,
-            stripeChargesEnabled: false,
-            stripePayoutsEnabled: false,
-            stripeAccountUpdatedAt: observed,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(registrySettings.stripeAccountId, input.accountId),
-              // A row connected after the revocation is a newer connection: the
-              // couple reconnected, or cire handed the account back and they
-              // connected it again. Its own connect time decides, never the
-              // capability stamp, which a refresh or `account.updated` moves.
-              // Without Stripe's time, every row naming the account is cleared.
-              input.observedAt === undefined
-                ? undefined
-                : or(
-                    isNull(registrySettings.stripeConnectedAt),
-                    lte(registrySettings.stripeConnectedAt, observed),
-                  ),
+      const [cleared] = yield* dbQuery(() =>
+        commitBatchResults(db, [
+          db
+            .update(registrySettings)
+            .set({
+              stripeAccountId: null,
+              // Nobody connected the account the wedding no longer has, so the
+              // next one is whoever connects it.
+              stripeConnectedByOsnProfileId: null,
+              stripeAccountType: null,
+              stripeConnectedAt: null,
+              // What the cleared id leaves behind — see the column comments.
+              stripeDeauthorizedAccountId: input.accountId,
+              stripeDeauthorizedAt: observed,
+              stripeChargesEnabled: false,
+              stripePayoutsEnabled: false,
+              stripeAccountUpdatedAt: observed,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(registrySettings.stripeAccountId, input.accountId),
+                // A row connected after the revocation is a newer connection: the
+                // couple reconnected, or cire handed the account back and they
+                // connected it again. Its own connect time decides, never the
+                // capability stamp, which a refresh or `account.updated` moves.
+                // Without Stripe's time, every row naming the account is cleared.
+                input.observedAt === undefined
+                  ? undefined
+                  : or(
+                      isNull(registrySettings.stripeConnectedAt),
+                      lte(registrySettings.stripeConnectedAt, observed),
+                    ),
+              ),
+            )
+            .returning({ weddingId: registrySettings.weddingId }),
+          db
+            .update(registryRetiredAccounts)
+            .set({ releasedAt: observed })
+            .where(
+              and(
+                eq(registryRetiredAccounts.stripeAccountId, input.accountId),
+                isNull(registryRetiredAccounts.releasedAt),
+                input.observedAt === undefined
+                  ? undefined
+                  : or(
+                      isNull(registryRetiredAccounts.stripeConnectedAt),
+                      lte(registryRetiredAccounts.stripeConnectedAt, observed),
+                    ),
+              ),
             ),
-          )
-          .returning({ weddingId: registrySettings.weddingId })
-          .all(),
+        ]),
       );
-      return (rows as Array<{ weddingId: string }>).length > 0;
+      return (cleared as Array<{ weddingId: string }>).length > 0;
     }).pipe(Effect.withSpan("cire.registry.detachStripeAccount"));
   },
 

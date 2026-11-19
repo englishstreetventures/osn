@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
+  registryRetiredAccounts,
   registrySettings,
   registryStripeOAuthStates,
   weddingHosts,
@@ -564,6 +565,41 @@ describe("the callback refuses what the wedding cannot take", () => {
     expect(settingsRow(db)?.stripeAccountId ?? null).toBeNull();
     expect(settingsRow(db, "wed_other")?.stripeAccountId).toBe(STANDARD.id);
     expect(oauth.deauthorized).toEqual([]);
+  });
+
+  it("refuses an account a wedding retired, and keeps cire's hold on it", async () => {
+    // Another wedding retired it: its refunds and disputes still need cire's
+    // connection, so a refused connect must not hand it back.
+    const oauth = oauthStub();
+    const { app, db } = buildApp({
+      oauth: oauth.client,
+      stripe: stripeStub({ ...STANDARD, defaultCurrency: "USD" }).client,
+    });
+    insertWedding(db, {
+      id: "wed_retired",
+      slug: "retired",
+      displayName: "Retired",
+      owners: [OWNER],
+    });
+    db.insert(registryRetiredAccounts)
+      .values({
+        id: "rra_held",
+        weddingId: "wed_retired",
+        stripeAccountId: STANDARD.id,
+        stripeAccountType: "standard",
+        retiredAt: new Date(),
+        reason: "disconnected",
+      })
+      .run();
+    const state = await start(app);
+    expect((await callback(app, { state, code: "ac_x" })).outcome).toBe("currency_mismatch");
+    expect(oauth.deauthorized).toEqual([]);
+
+    // Once Stripe has said it is no longer connected, nothing holds it back.
+    db.update(registryRetiredAccounts).set({ releasedAt: new Date() }).run();
+    const again = await start(app);
+    expect((await callback(app, { state: again, code: "ac_x" })).outcome).toBe("currency_mismatch");
+    expect(oauth.deauthorized).toEqual([STANDARD.id]);
   });
 
   it("lets the same couple bring an account from their other wedding", async () => {
