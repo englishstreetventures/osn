@@ -36,9 +36,15 @@ afterEach(() => {
 /** Gitignored; a rerun of this file draws them again. */
 const shot = (name: string) => `__screenshots__/dialog-default.browser.test.tsx/${name}.png`;
 
-/** Jump every running animation to its end, so no value is read part-way. */
+/**
+ * Jump every timed animation to its end, so no value is read part-way. The
+ * fade under `DialogHeader` runs on the panel's scroll, not on time; finished,
+ * it would hold the fade whole at rest.
+ */
 function settle() {
-  for (const animation of document.getAnimations()) animation.finish();
+  for (const animation of document.getAnimations()) {
+    if (animation.timeline instanceof DocumentTimeline) animation.finish();
+  }
 }
 
 /** Every computed property of `element`, plus any of `names` it does not enumerate. */

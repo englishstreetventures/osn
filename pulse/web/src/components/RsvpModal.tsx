@@ -63,7 +63,7 @@ export function RsvpModal(props: {
         if (!open) props.onClose();
       }}
     >
-      <DialogContent class="flex max-h-[85vh] flex-col">
+      <DialogContent class="flex flex-col">
         <DialogHeader>
           <DialogTitle>Guest list</DialogTitle>
           <DialogClose aria-label="Close" treatment="glyph">

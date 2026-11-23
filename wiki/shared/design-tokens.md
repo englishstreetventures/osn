@@ -319,6 +319,38 @@ profile switcher sliding on a real page, and pulse's
 `share-sheet-motion.browser.test.tsx` holds its share sheet's first frame,
 sliding and fading.
 
+**A dialog's scroll edge follows the scroll.** Under a `DialogHeader` stuck
+to the top of a scrolling panel, a 16px band of `--ui-surface` fading to
+clear comes in over the first 16px of scroll and holds to the end, in place
+of the hairline (the owner's choice on #2034, 2026-11-14;
+[[component-library]] §Kobalte components). It is the one animation here
+that runs on a scroll timeline, not on time, so no duration or easing token
+applies: `scroll-edge-timeline` on the panel names its block scroll
+`--ui-scroll-edge` and declares the band's length, `--ui-scroll-edge-size`
+(1rem), once; `scroll-edge-fade` on the header's `::after` is that tall, paints
+`--theme(--color-ui-surface)` (the header's own fill, fallback included) to
+clear, and runs `ui-scroll-edge` (opacity 0 to 1) on the timeline, `linear` so
+the band keeps level with the distance scrolled, over the same length.
+`Dialog`'s scroll padding reads the length too. Its 1ms
+duration only scales to the scroll range; MDN's scroll-driven examples set
+one for Firefox, which runs nothing at `auto` or 0s. The band's own
+`opacity: 0` is what shows at rest in a panel whose body fits: such a panel
+has no scroll range, its timeline is inactive and no keyframe applies.
+`Dialog` writes the fade class behind
+`supports-[animation-timeline:scroll()]:`, and as `base:after:`, since the
+other order puts the declarations inside `:where(…::after)`, which no browser
+reads. A browser below Chrome 115 or Safari 26 therefore never runs the
+keyframes, which it would fill at their end and so hold the band whole at
+rest; it keeps the header's hairline. The reduced-motion block leaves the
+band alone, so it ramps over the same 16px there: it moves nothing and runs
+on no clock (the owner's "Ramp, same as normal" on #2391, 2026-11-18). A test or a script that finishes every animation on
+the page holds the band whole at rest: finish only those on the
+`DocumentTimeline`, as `dialog.browser.test.tsx` and the E2E suite's
+`animationsSettled` do. Playwright's `animations: "disabled"` cancels a
+scroll-driven run for the shot, so an E2E shot of a scrolled dialog shows no
+fade; `dialog-scroll-edge.browser.test.tsx` and Musubi's and pulse's browser
+tests take the scrolled shots.
+
 **A fade with no scale is the two scale tokens at 1.** An app whose overlays
 should fade without moving sets `--ui-scale-enter` and `--ui-scale-exit` to 1
 on its root. Every Kobalte overlay — `Dialog` as a card (and as a sheet at
