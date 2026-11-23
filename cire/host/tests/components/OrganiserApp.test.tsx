@@ -231,7 +231,7 @@ vi.mock("../../src/components/RunSheetView", () => ({
 
 import OrganiserApp from "../../src/components/OrganiserApp";
 import { __resetHostsCache, hasCachedHosts, setFreshHosts } from "../../src/lib/hosts-store";
-import { ensureInviteLoaded, freshInvite } from "../../src/lib/invite-store";
+import { ensureInviteLoaded } from "../../src/lib/invite-store";
 import {
   __resetRunSheetCache,
   ensureRunSheetLoaded,
@@ -418,15 +418,19 @@ describe("OrganiserApp Dashboard", () => {
     render(() => <OrganiserApp />);
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
     fireEvent.click(screen.getByText("select-first"));
-    // Opening the dashboard on the wedding's tier is not a change of it.
-    expect(freshInvite("wed_a")).not.toBeNull();
+    // Opening the dashboard on the wedding's tier is not a change of it: the
+    // cached invite still answers without a read.
+    const readAgain = vi.fn(async () => ({ designId: "classic" }) as never);
+    await ensureInviteLoaded("wed_a", readAgain);
+    expect(readAgain).not.toHaveBeenCalled();
 
     // A redeemed code raises the tier, which changes what the builder offers.
     fireEvent.click(screen.getByText("redeem-code"));
     await waitFor(() =>
       expect(screen.getByTestId("module-shell").getAttribute("data-tier")).toBe("gold"),
     );
-    expect(freshInvite("wed_a")).toBeNull();
+    await ensureInviteLoaded("wed_a", readAgain);
+    expect(readAgain).toHaveBeenCalledTimes(1);
   });
 
   it("passes editor edit rights (no owner management) through to the module shell", async () => {

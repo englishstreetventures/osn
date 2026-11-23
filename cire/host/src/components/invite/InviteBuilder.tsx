@@ -79,7 +79,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/a
 import { INVITE_VIEWS, type InviteView } from "../../lib/dashboard-route";
 import type { ImageCrop } from "../../lib/image-crop";
 import { faqState, footerState, heroState, storyState } from "../../lib/invite-emptiness";
-import { freshInvite, patchInviteFaqs, refuseInvite, setFreshInvite } from "../../lib/invite-store";
+import { patchInviteFaqs, refuseInvite, setFreshInvite } from "../../lib/invite-store";
 import { CIRE_WEB_URL } from "../../lib/osn";
 import { CLEAR_OF_SAVE_BAR, trackSaveBarHeight } from "../../lib/save-bar";
 import { haptic } from "../../lib/touch-feedback";
@@ -250,34 +250,32 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // read's failure is drawn in place of the builder; a later one keeps what is
   // on screen and says so beside the save button.
   const [loadFailed, setLoadFailed] = createSignal(false);
-  // The first read answers from the invite cache (`invite-store.ts`) when it
-  // holds a fresh body with the FAQs — the builder's own last read or save —
-  // so a revisit draws at once; a reload after an image upload always reads.
+  // Read on every visit, never drawn from the invite cache: each slice saves
+  // whole with no version, so the builder starts from a read taken as it
+  // opens, or a co-host's save within the minute would go back. Every body it
+  // holds still goes into the cache (`invite-store.ts`) for the guest list and
+  // Getting started.
   const [data, { mutate, refetch }] = createResource<InviteCustomisation | undefined>(
-    (_source, info) => {
-      const cached = info.refetching ? null : untrack(() => freshInvite(props.weddingId));
-      if (cached?.faqs) return adopt(structuredClone(cached));
-      return (async () => {
-        const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
-        if (res.status === 401) {
-          redirectToLogin();
-          throw new Error("unauthorised");
+    async (_source, info) => {
+      const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
+      if (res.status === 401) {
+        redirectToLogin();
+        throw new Error("unauthorised");
+      }
+      if (!res.ok) {
+        // Nobody draws the cached invite after a refused read.
+        refuseInvite(props.weddingId);
+        if (info.value) {
+          setError("Could not reload the invite. Try again.");
+          return info.value;
         }
-        if (!res.ok) {
-          // Nobody draws the cached invite after a refused read.
-          refuseInvite(props.weddingId);
-          if (info.value) {
-            setError("Could not reload the invite. Try again.");
-            return info.value;
-          }
-          setLoadFailed(true);
-          return undefined;
-        }
-        setLoadFailed(false);
-        const body = adopt((await res.json()) as InviteCustomisation);
-        keep(body);
-        return body;
-      })();
+        setLoadFailed(true);
+        return undefined;
+      }
+      setLoadFailed(false);
+      const body = adopt((await res.json()) as InviteCustomisation);
+      keep(body);
+      return body;
     },
   );
   function adopt(body: InviteCustomisation): InviteCustomisation {
@@ -294,7 +292,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   function keep(body: InviteCustomisation) {
     setFreshInvite(props.weddingId, structuredClone({ ...body, faqs: untrack(faqs) }));
   }
-  /** Show a write's answer and keep it for the next visit. */
+  /** Show a write's answer and keep it for the views that read the cache. */
   function commit(body: InviteCustomisation) {
     mutate(body);
     keep(body);

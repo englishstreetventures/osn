@@ -13,7 +13,7 @@ import {
 import {
   __resetSettingsCache,
   ensureSettingsLoaded,
-  peekCachedSettings,
+  settingsAccessor,
 } from "../../src/lib/settings-store";
 
 const authFetch = vi.fn();
@@ -781,7 +781,7 @@ describe("BudgetView — amounts in the wedding's currency", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Edit budget" }));
       fireEvent.input(screen.getByLabelText("Total budget (AUD)"), { target: { value: "7000" } });
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
-      await waitFor(() => expect(peekCachedSettings("wed_1")?.budgetTotalMinor).toBe(700_000));
+      await waitFor(() => expect(settingsAccessor("wed_1")()?.budgetTotalMinor).toBe(700_000));
     });
 
     it("closes the budget total on Cancel, keeping the saved one and sending nothing", async () => {

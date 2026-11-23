@@ -33,7 +33,7 @@ import { __resetBudgetCache } from "../../src/lib/budget-store";
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache, setCachedGuests } from "../../src/lib/guests-store";
 import { peekCachedRsvps, rsvpChangesAccessor } from "../../src/lib/rsvps-store";
-import { peekCachedSettings } from "../../src/lib/settings-store";
+import { settingsAccessor } from "../../src/lib/settings-store";
 import { __resetTasksCache } from "../../src/lib/tasks-store";
 import { __resetVendorsCache } from "../../src/lib/vendors-store";
 import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
@@ -303,7 +303,7 @@ describe("Overview", () => {
     routeWithRefusals({ "/settings": 401 });
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
-    expect(peekCachedSettings("wed_1")).toBeNull();
+    expect(settingsAccessor("wed_1")()).toBeNull();
   });
 
   it("caches nothing from a page read the API refused", async () => {
@@ -316,7 +316,7 @@ describe("Overview", () => {
     );
     // Let both answers settle before looking at what they left.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(peekCachedSettings("wed_1")).toBeNull();
+    expect(settingsAccessor("wed_1")()).toBeNull();
     expect(peekCachedRsvps("wed_1")).toBeNull();
     expect(redirectSpy).not.toHaveBeenCalled();
   });

@@ -34,7 +34,7 @@ vi.mock("@cire/invite-designs", () => ({
 }));
 
 import InviteBuilder from "../../src/components/InviteBuilder";
-import { freshInvite } from "../../src/lib/invite-store";
+import { inviteAccessor } from "../../src/lib/invite-store";
 import { authFetchMock, redirectSpy, resetOrganiserMocks, toastError } from "../test-support/mocks";
 
 const CUSTOMISATION = {
@@ -106,7 +106,7 @@ describe("InviteBuilder envelope picker, saved", () => {
     renderBuilder();
     fireEvent.click(await findCard(/Wax seal/));
 
-    await waitFor(() => expect(freshInvite("wed_1")?.envelopeId).toBe("wax-seal"));
+    await waitFor(() => expect(inviteAccessor("wed_1")()?.envelopeId).toBe("wax-seal"));
   });
 });
 

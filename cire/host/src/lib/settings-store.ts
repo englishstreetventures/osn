@@ -1,9 +1,12 @@
 // The wedding's profile (`GET …/settings`), cached per wedding: the date, the
-// guest estimate, the currency and budget total the Overview shows, and the
-// form Settings › Profile seeds from.
+// guest estimate, the currency and budget total the Overview shows.
 //
-// Written by the profile save with the API's answer, and patched by the budget
-// total. A co-host's edit shows once the value is a minute old.
+// Settings › Profile reads it again on every visit, through this cache, and
+// never seeds its form from a cached value: its save sends the whole profile
+// with no version, so a form drawn from a value up to a minute old could put
+// back a co-host's newer save. Each read and each save's answer is written in,
+// and the budget total patches it. A co-host's edit shows on the Overview once
+// the value is a minute old.
 //
 // Frontend code: no Effect.
 import { CACHE_MAX_AGE_MS, createWeddingCache } from "./wedding-cache";
@@ -25,10 +28,10 @@ export interface WeddingSettings {
 const cache = createWeddingCache<WeddingSettings>({ maxAgeMs: CACHE_MAX_AGE_MS });
 
 export const settingsAccessor = (weddingId: string) => cache.accessor(weddingId);
-export const hasCachedSettings = (weddingId: string) => cache.has(weddingId);
-export const peekCachedSettings = (weddingId: string) => cache.peek(weddingId);
 export const ensureSettingsLoaded = (weddingId: string, fetcher: () => Promise<WeddingSettings>) =>
   cache.ensureLoaded(weddingId, fetcher);
+/** Settings › Profile opened: the next load reads, whatever the cache holds. */
+export const invalidateSettings = (weddingId: string) => cache.invalidate(weddingId);
 /** The profile the save answered with: the newest there is. */
 export const setFreshSettings = (weddingId: string, settings: WeddingSettings) =>
   cache.setFresh(weddingId, settings);

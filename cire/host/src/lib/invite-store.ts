@@ -1,11 +1,11 @@
 // The wedding's invite (`GET …/invite`), cached per wedding: the invite message
-// the guest list copies, the hero and story Getting started checks, and the
-// whole builder's state.
+// the guest list copies, and the hero and story Getting started checks.
 //
 // The invite builder writes every answer it holds into it — each read, each
-// save's answer, its FAQs — so a later visit opens on the invite as last seen.
-// A tier change can change what the builder is offered, so it drops the value.
-// A co-host's edit shows once the value is a minute old.
+// save's answer, its FAQs — but never opens on it: each slice saves whole with
+// no version, so the builder reads again on every visit. A tier change can
+// change what the API answers (what the builder is offered), so it marks the
+// value stale. A co-host's edit shows once the value is a minute old.
 //
 // Frontend code: no Effect.
 import type { InviteCustomisation } from "../components/invite/model";
@@ -35,9 +35,4 @@ export function patchInviteFaqs(
 ): void {
   const invite = cache.peek(weddingId);
   if (invite && faqs) cache.setCached(weddingId, { ...invite, faqs });
-}
-
-/** The invite, when still fresh. */
-export function freshInvite(weddingId: string): InviteCustomisation | null {
-  return cache.has(weddingId) ? cache.peek(weddingId) : null;
 }

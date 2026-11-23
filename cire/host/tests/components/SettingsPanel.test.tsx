@@ -39,7 +39,11 @@ import {
   type RegistrySnapshot,
   setCachedRegistry,
 } from "../../src/lib/registry-store";
-import { hasCachedSettings, peekCachedSettings } from "../../src/lib/settings-store";
+import {
+  ensureSettingsLoaded,
+  patchBudgetTotal,
+  settingsAccessor,
+} from "../../src/lib/settings-store";
 import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib/tasks-store";
 import {
   authFetchMock,
@@ -161,8 +165,47 @@ describe("SettingsPanel", () => {
     fireEvent.click(screen.getByText("Save settings"));
 
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Settings saved"));
-    expect(peekCachedSettings("wed_1")?.displayName).toBe("Aisha & Benjamin");
-    expect(hasCachedSettings("wed_1")).toBe(true);
+    expect(settingsAccessor("wed_1")()?.displayName).toBe("Aisha & Benjamin");
+    // Fresh: the Overview's next load sends nothing.
+    const overviewRead = vi.fn(async () => PROFILE);
+    await ensureSettingsLoaded("wed_1", overviewRead);
+    expect(overviewRead).not.toHaveBeenCalled();
+  });
+
+  // The save sends the whole profile with no version, so the form starts from
+  // a read taken as it opens, never from the cache: a co-host's save within
+  // the minute would otherwise go back.
+  it("reads the profile on every visit, even with a fresh one cached, and keeps the answer", async () => {
+    // The Overview's read, before a co-host moved the date.
+    await ensureSettingsLoaded("wed_1", async () => PROFILE);
+    authFetchMock.mockResolvedValueOnce(
+      json({ wedding: { ...PROFILE, weddingDate: "2027-04-10" } }),
+    );
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
+
+    await waitFor(() => expect(screen.getByText(/10 April 2027/)).toBeTruthy());
+    expect(screen.queryByText(/20 March 2027/)).toBeNull();
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    expect(settingsAccessor("wed_1")()?.weddingDate).toBe("2027-04-10");
+  });
+
+  it("leaves a budget total saved while its read was out in the cache", async () => {
+    let answer!: (res: Response) => void;
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
+    await ensureSettingsLoaded("wed_1", async () => PROFILE);
+    const panel = render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    // On to Budget, where the total is saved before the profile read lands.
+    panel.unmount();
+    patchBudgetTotal("wed_1", 700_000);
+    answer(json({ wedding: PROFILE }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(settingsAccessor("wed_1")()?.budgetTotalMinor).toBe(700_000);
   });
 
   describe("a refused profile read", () => {
@@ -172,7 +215,7 @@ describe("SettingsPanel", () => {
         <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
       ));
       await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
-      expect(peekCachedSettings("wed_1")).toBeNull();
+      expect(settingsAccessor("wed_1")()).toBeNull();
     });
 
     it("names the refusal's status, and caches nothing", async () => {
@@ -181,7 +224,17 @@ describe("SettingsPanel", () => {
         <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
       ));
       expect(await screen.findByText("Could not load the wedding profile (403).")).toBeTruthy();
-      expect(peekCachedSettings("wed_1")).toBeNull();
+      expect(settingsAccessor("wed_1")()).toBeNull();
+    });
+
+    it("stops the Overview drawing a cached profile once the panel's read is refused", async () => {
+      await ensureSettingsLoaded("wed_1", async () => PROFILE);
+      authFetchMock.mockResolvedValueOnce(json({ error: "Forbidden" }, 403));
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+      ));
+      expect(await screen.findByText("Could not load the wedding profile (403).")).toBeTruthy();
+      expect(settingsAccessor("wed_1")()).toBeNull();
     });
 
     it("blames the API being out of reach when the read never answers", async () => {

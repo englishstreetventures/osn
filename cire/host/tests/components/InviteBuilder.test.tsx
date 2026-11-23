@@ -84,12 +84,7 @@ import InviteBuilder, { isDesignLocked } from "../../src/components/InviteBuilde
 import type { InviteView } from "../../src/lib/dashboard-route";
 // Real (unmocked) — the guard-lifecycle test asserts the builder's dirty state
 // reaches the process-global registry the dashboard consults.
-import {
-  ensureInviteLoaded,
-  freshInvite,
-  invalidateInvite,
-  inviteAccessor,
-} from "../../src/lib/invite-store";
+import { ensureInviteLoaded, inviteAccessor } from "../../src/lib/invite-store";
 import { confirmNavigation } from "../../src/lib/unsaved-guard";
 import { captureDeclaredStyles } from "../test-support/declared-style";
 import {
@@ -205,7 +200,10 @@ describe("InviteBuilder theme", () => {
     expect(body.value).toBe("system-sans");
   });
 
-  it("reopens on its last read without asking again", async () => {
+  // Each slice saves whole with no version, so the builder starts from a read
+  // taken as it opens, never from the cache: a co-host's save within the
+  // minute would otherwise go back.
+  it("reads the invite again on reopen, and keeps the answer for the guest list", async () => {
     authFetchMock.mockResolvedValueOnce(
       json({
         ...EMPTY_CUSTOMISATION,
@@ -219,10 +217,21 @@ describe("InviteBuilder theme", () => {
     );
     first.unmount();
     authFetchMock.mockClear();
+    // A co-host changed the heading font since.
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        faqs: [],
+        theme: { ...EMPTY_CUSTOMISATION.theme, headingFont: "cormorant" },
+      }),
+    );
 
     render(() => <InviteBuilder {...WEDDING} />);
-    expect((screen.getByLabelText("Heading font") as HTMLSelectElement).value).toBe("georgia");
-    expect(authFetchMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect((screen.getByLabelText("Heading font") as HTMLSelectElement).value).toBe("cormorant"),
+    );
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    expect(inviteAccessor("wed_1")()?.theme.headingFont).toBe("cormorant");
   });
 
   it("seeds the typography selects from the loaded theme (0048)", async () => {
@@ -318,7 +327,7 @@ describe("InviteBuilder theme", () => {
     expect(sent.welcomeTone).toBeNull();
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Invite saved"));
     // The save's answer is what the next visit opens on.
-    expect(freshInvite("wed_1")?.theme.headingFont).toBe("cormorant");
+    expect(inviteAccessor("wed_1")()?.theme.headingFont).toBe("cormorant");
   });
 
   it("PUTs both halves in order when copy AND theme changed", async () => {
@@ -1373,7 +1382,7 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
       expect(sentBody("/image/hero/crop")).toEqual({ crop: { x: 0.6, y: 0, w: 0.3, h: 0.9 } }),
     );
     // The crop the save answered with is what the next visit opens on.
-    await waitFor(() => expect(freshInvite("wed_1")?.hero.imageCrop).toEqual(crop));
+    await waitFor(() => expect(inviteAccessor("wed_1")()?.hero.imageCrop).toEqual(crop));
   });
 
   it("crop reset PUTs an explicit null — desktop and phone nouns both toast", async () => {
@@ -1518,7 +1527,7 @@ describe("InviteBuilder UX guards", () => {
     expect(String(url)).toMatch(/\/invite\/image\/hero$/);
     expect(init.method).toBe("DELETE");
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Image removed"));
-    await waitFor(() => expect(freshInvite("wed_1")?.hero.imageUrl).toBeNull());
+    await waitFor(() => expect(inviteAccessor("wed_1")()?.hero.imageUrl).toBeNull());
   });
 
   it("surfaces an upload failure inside its own section, not the save bar", async () => {
@@ -1566,9 +1575,9 @@ describe("InviteBuilder UX guards", () => {
   });
 
   it("stops anyone drawing the cached invite once its read is refused", async () => {
+    // Fresh in the cache, as Getting started left it: the builder reads anyway,
+    // and the read is refused.
     await ensureInviteLoaded("wed_1", async () => ({ ...EMPTY_CUSTOMISATION, faqs: [] }) as never);
-    // A tier change: the builder must read, and the read is refused.
-    invalidateInvite("wed_1");
     authFetchMock.mockResolvedValueOnce(json({ error: "Forbidden" }, 403));
 
     render(() => <InviteBuilder {...WEDDING} />);
@@ -2226,7 +2235,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     expect(sentBody("/theme")).toBeNull();
     await waitFor(() => expect(save.disabled).toBe(true));
     screen.getByText("All changes saved");
-    await waitFor(() => expect(freshInvite("wed_1")?.visibility?.story).toBe(false));
+    await waitFor(() => expect(inviteAccessor("wed_1")()?.visibility?.story).toBe(false));
   });
 
   it("does not count switching off and back on as a change", async () => {
@@ -2519,6 +2528,6 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     await waitFor(() => expect(state()).toBe("shown"));
     within(sectionStrip()).getByRole("tab", { name: "FAQ" });
     // The next visit opens on the list with the new question, without a read.
-    expect(freshInvite("wed_1")?.faqs).toEqual([FAQS[0]]);
+    expect(inviteAccessor("wed_1")()?.faqs).toEqual([FAQS[0]]);
   });
 });
