@@ -1,0 +1,190 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "chore/shared-ui-test-audit",
+    "base_sha": "42b935c89bceaabf14946fff142b2796101f713e",
+    "head_sha": "bcc2d23cc05429819f2896469e4d24605e493bbc",
+    "generated_at": "2026-11-23T03:40:13.455Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2405,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-17T23:52:25.514Z",
+    "last_ts": "2026-11-23T03:40:10.117Z",
+    "span_seconds": 445665,
+    "active_seconds": 5546,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 55.115137399999995,
+    "tokens": {
+      "input": 930,
+      "output": 503515,
+      "thinking": 253496,
+      "cache_write_5m": 3065597,
+      "cache_write_1h": 0,
+      "cache_read": 74282831
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 930,
+          "output": 503515,
+          "thinking": 253496,
+          "cache_write_5m": 3065597,
+          "cache_write_1h": 0,
+          "cache_read": 74282831
+        },
+        "usd_equivalent": 55.115137399999995,
+        "messages": 450
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 930,
+          "output": 503515,
+          "thinking": 253496,
+          "cache_write_5m": 3065597,
+          "cache_write_1h": 0,
+          "cache_read": 74282831
+        },
+        "usd_equivalent": 55.115137399999995,
+        "messages": 452
+      }
+    },
+    "effort": {
+      "high": 176,
+      "xhigh": 274
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 8,
+      "docs": 0,
+      "config": 0,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 24,
+        "deleted": 172
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "shared/ui"
+    ],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 364,
+      "Read": 63,
+      "Write": 15,
+      "Edit": 15,
+      "Skill": 7,
+      "Agent": 6,
+      "SubagentHandback": 6,
+      "ToolSearch": 3,
+      "TaskStop": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 13
+    },
+    "skills": {
+      "new-feat": 2,
+      "rate-complexity": 1,
+      "review-tests": 3,
+      "stress-plan": 1
+    },
+    "subagents": {
+      "reviewer": 4,
+      "attacker": 1,
+      "implementer": 1
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 450,
+      "with_tools": 441,
+      "with_one_tool": 408,
+      "context_median": 149856,
+      "context_p90": 335199
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 2,
+    "located": 2,
+    "acted_on": 1,
+    "paired": 2,
+    "acted_on_paired": 1,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}
