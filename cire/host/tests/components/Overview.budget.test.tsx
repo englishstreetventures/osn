@@ -38,6 +38,10 @@ const authFetch = vi.fn(async (url: string) => {
 });
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 
+/** A local `YYYY-MM-DD`. */
+const dayKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 const snap = (over: Partial<BudgetSnapshot>): BudgetSnapshot => ({
   items: [],
   payments: [],
@@ -163,11 +167,15 @@ describe("Overview budget widget", () => {
     expect(await screen.findByText(/170,000 tracked — set a total/)).toBeInTheDocument();
   });
 
-  it("dates the next payment as What's next dates it, not as a raw ISO date", async () => {
+  // The API keeps a due date as the string it was given: a day, or a full
+  // timestamp. Either way it reads as What's next prints the same payment.
+  it.each([
+    { form: "a day", raw: (d: Date) => dayKey(d) },
+    { form: "a timestamp", raw: (d: Date) => d.toISOString() },
+  ])("dates the next payment due on $form as What's next dates it", async ({ raw }) => {
     // Inside the agenda's 90 days, so the same payment is a What's next row too.
     const now = new Date();
-    const due = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 20);
-    const dueKey = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`;
+    const dueAt = raw(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 20, 12));
     setCachedBudget(
       "wed_1",
       snap({
@@ -178,7 +186,7 @@ describe("Overview budget widget", () => {
             budgetItemId: "b1",
             label: "Balance",
             amountMinor: 250_000,
-            dueAt: dueKey,
+            dueAt,
             paidAt: null,
             createdAt: 1,
           },
@@ -190,7 +198,6 @@ describe("Overview budget widget", () => {
     const agendaRow = (await screen.findByText("Balance")).closest("button")!;
     const agendaDate = agendaRow.querySelector("span")!.textContent!;
     const next = await screen.findByText(/Next: Balance/);
-    expect(next.textContent).toContain(`due ${agendaDate}`);
-    expect(next.textContent).not.toContain(dueKey);
+    expect(next.textContent).toBe(`Next: Balance · due ${agendaDate}`);
   });
 });

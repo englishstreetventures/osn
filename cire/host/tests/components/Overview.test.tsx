@@ -190,6 +190,36 @@ describe("Overview", () => {
     expect(guestsCard.textContent).toContain("2");
   });
 
+  // Five events fit the card; past five it names how many it leaves out.
+  it.each([
+    { events: 5, rows: 5, more: null },
+    { events: 7, rows: 5, more: "+2 more" },
+  ])("lists $rows of $events events' attending counts under one head", async (c) => {
+    const rsvps = Array.from({ length: c.events }, (_, i) => ({
+      ...RSVPS[0],
+      id: `e${i + 1}`,
+      name: `Event ${i + 1}`,
+      attending: 10 + i,
+    }));
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    render(() => (
+      <Overview weddingId={`wed_more_${c.events}`} tier="crimson" onNavigate={vi.fn()} />
+    ));
+
+    const list = await screen.findByRole("list", { name: "Attending" });
+    const items = [...list.querySelectorAll("li")];
+    const shown = items.filter((li) => !li.textContent!.endsWith("more"));
+    expect(shown.map((li) => li.lastElementChild?.textContent)).toEqual(
+      rsvps.slice(0, c.rows).map((e) => String(e.attending)),
+    );
+    expect(items.find((li) => li.textContent!.endsWith("more"))?.textContent ?? null).toBe(c.more);
+  });
+
   it("draws a revisit at once from the caches, sending nothing", async () => {
     routeFetch({
       settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
