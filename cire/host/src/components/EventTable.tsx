@@ -372,7 +372,9 @@ function EventImageField(props: {
   };
 
   return (
-    <div class="border-border/60 mt-1 flex flex-col gap-2 rounded-sm border border-dashed p-3">
+    // One more of the card's fields, under its label like the others: no box
+    // of its own, which on every card read as an empty slot.
+    <div class="mt-1 flex flex-col gap-2">
       <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
         Event image
       </span>

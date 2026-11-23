@@ -42,6 +42,7 @@ import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { downloadLockedExport, LOCKED_EXPORTS } from "../lib/locked-exports";
 import {
   guestName,
@@ -476,7 +477,8 @@ export default function SeatingView(props: SeatingViewProps) {
           {(current) => (
             <>
               <Show when={props.canEdit}>
-                <form class="flex flex-wrap items-end gap-3" onSubmit={addTable}>
+                {/* On a card bar, as every module's add form is. */}
+                <form class={FIELD_BAR_CLASS} onSubmit={addTable}>
                   <Field label="Table name">
                     {(field) => (
                       <Input
