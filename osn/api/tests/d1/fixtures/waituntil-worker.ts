@@ -12,9 +12,8 @@ import {
  * then returns, so a test can ask the only question that matters on workerd:
  * did the work still run after the response went out?
  *
- * `?mode=bypass` swaps `forkBackground` for the bare `Effect.forkDetach` this
- * branch replaced, so the red-proof is encoded here permanently rather than
- * performed once by hand.
+ * `?mode=bypass` forks with a bare `Effect.forkDetach` instead of
+ * `forkBackground`, so a test can show the work is lost without `waitUntil`.
  */
 
 const WORK_MS = 250;

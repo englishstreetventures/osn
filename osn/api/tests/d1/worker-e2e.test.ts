@@ -95,6 +95,8 @@ const steps: Step[] = [];
 const store: Record<string, number | string | null> = {};
 const mail: Mail[] = [];
 const strayOutbound: string[] = [];
+/** Called once each, and cleared, when the next mail arrives. */
+const mailWaiters: Array<() => void> = [];
 
 async function capture(request: MiniflareRequest): Promise<MiniflareResponse> {
   const url = new URL(request.url);
@@ -102,6 +104,7 @@ async function capture(request: MiniflareRequest): Promise<MiniflareResponse> {
     const payload = (await request.json()) as { to?: string | string[]; text?: string };
     const to = typeof payload.to === "string" ? [payload.to] : [...(payload.to ?? [])];
     mail.push({ to, text: payload.text ?? "" });
+    for (const wake of mailWaiters.splice(0)) wake();
     return MiniflareResponse.json({ id: `mail-${mail.length}` });
   }
   strayOutbound.push(`${request.method} ${url.origin}${url.pathname}`);
@@ -224,13 +227,14 @@ function sessionCookie(answer: Answer): string {
 /**
  * The newest emailed link (sign-up or step-up) mailed to `to` after `after`
  * mails. The link goes out after the answer, through the request's
- * `waitUntil`, so this waits for it.
+ * `waitUntil`, so this waits for each mail that arrives, for 2 s at most.
  */
 async function linkMailedTo(
   to: string,
   after: number,
 ): Promise<{ requestId: string; linkSecret: string }> {
-  for (let i = 0; i < 200; i++) {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
     const sent = mail.slice(after).filter((m) => m.to.includes(to));
     const text = sent.at(-1)?.text ?? "";
     const match = text.match(/\/verify\/((?:signup|stepup)_[a-f0-9]{12})#([a-f0-9]{64})/);
@@ -239,10 +243,17 @@ async function linkMailedTo(
       expect(text).toContain(`https://musubi.example/verify/${match[1]}#`);
       return { requestId: match[1]!, linkSecret: match[2]! };
     }
-    // eslint-disable-next-line no-await-in-loop -- polling for a send that runs after the answer
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error(`no emailed link mailed to ${to}`);
+    // eslint-disable-next-line no-await-in-loop -- waits for the next mail, then reads again
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, remaining);
+      mailWaiters.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
-  throw new Error(`no emailed link mailed to ${to}`);
 }
 
 /** A store object, reached through the binding the Worker uses. */
@@ -554,6 +565,11 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     });
     expect(done.status).toBe(201);
     expect(sessionCookie(done)).toContain("osn_session=");
+    // This tier is local (no Secure), so the flags are these three.
+    const sessionHeader = done.setCookies.find((cookie) => cookie.startsWith("osn_session="));
+    expect(sessionHeader).toMatch(/;\s*HttpOnly(;|$)/i);
+    expect(sessionHeader).toMatch(/;\s*SameSite=Lax(;|$)/i);
+    expect(sessionHeader).toMatch(/;\s*Path=\/(;|$)/);
 
     const again = await call("sign-up claimed again", "POST", `/register/${requestId}/status`, {
       ip: MAIN_IP,

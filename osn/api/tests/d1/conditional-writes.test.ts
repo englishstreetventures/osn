@@ -516,6 +516,7 @@ describe("erasure cancel and purge on D1", () => {
 
     expect(await cancel).toMatchObject({ _tag: "Success", success: { cancelled: false } });
     expect(await deletedAt(accountId)).not.toBeNull();
+    expect(await deletedAt(accountId)).toBeGreaterThan(0);
     expect((await job(accountId))?.purgeStartedAt).toBeGreaterThan(0);
   });
 
