@@ -5,11 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 /**
  * The Overview screen names itself once.
  *
- * `ModuleShell` renders the panel header — the module's label, its `hint` and
- * the gilt rule — for every module but Overview, whose header is the label and
- * the rule alone: its hint says nothing the cards under it do not. A panel that
- * also led with its own title would say it twice before any content. This
- * suite is the guard on both, and it
+ * `ModuleShell` renders the panel header — the module's label and the gilt
+ * rule, with no hint under the label — for every module; the hint stays in the
+ * nav. A panel that also led with its own title would say it twice before any
+ * content. This suite is the guard on both, and it
  * needs the shell and the panel rendered together: `Overview.test.tsx` renders
  * `Overview` on its own, where a duplicate of the shell's header is absent
  * rather than singular.
@@ -155,17 +154,6 @@ describe("Overview header", () => {
     resetAll();
   });
 
-  it("draws no line under the Overview title", async () => {
-    routeEmpty();
-    await renderShell("overview");
-
-    // The hint stays in the nav — the rail's tooltip, the sheet and the
-    // palette — but not under the title.
-    const header = screen.getByRole("heading", { name: "Overview", level: 2 }).closest("header")!;
-    expect(header.textContent).not.toContain("Your wedding at a glance");
-    expect(header.querySelectorAll("p")).toHaveLength(0);
-  });
-
   it("names the module once above the content", async () => {
     routeEmpty();
     await renderShell("overview");
@@ -173,11 +161,11 @@ describe("Overview header", () => {
     expect(namesOutsideNav("Overview")).toHaveLength(1);
   });
 
-  it("leaves every module's shell header naming its own module", async () => {
+  it("names every module in its shell header, with no hint under the name", async () => {
     // Driven off MODULE_NAV rather than a copied list of strings: the claim is
-    // "the shell header still names every module", and the header is rendered
-    // once for all of them. It pins no layout — a control added to that row
-    // leaves this green.
+    // "the shell header names every module and draws no hint", and the header
+    // is rendered once for all of them. It pins no layout — a control added to
+    // that row leaves this green.
     for (const mod of MODULE_NAV) {
       routeEmpty();
       // A module the wedding's tier does not include is coerced to Overview by
@@ -185,8 +173,11 @@ describe("Overview header", () => {
       await renderShell(mod.id, mod.lock?.tier ?? "ivory");
 
       expect(namesOutsideNav(mod.label)).toHaveLength(1);
-      // Every header but Overview's carries its hint, once.
-      expect(screen.queryAllByText(mod.hint)).toHaveLength(mod.id === "overview" ? 0 : 1);
+      // The hint stays in the nav — the rail's tooltip, the sheet and the
+      // palette — but not under the name.
+      const header = screen.getByRole("heading", { name: mod.label, level: 2 }).closest("header")!;
+      expect(header.textContent).not.toContain(mod.hint);
+      expect(header.querySelectorAll("p")).toHaveLength(0);
 
       cleanup();
       resetAll();

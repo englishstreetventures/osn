@@ -248,24 +248,25 @@ intro: the chosen sub-tab says "RSVPs" on screen, and a hidden `<h2>` gives a
 reader moving by headings the name the visible intros of Households and Edit
 give theirs. Its download ends the bar's first row, after the event strip,
 and on a phone the search row (§4, One pill language, A page's download).
-Overview's panel header is its label and the gilt rule, with no hint under the
-label: "Your wedding at a glance" tells a reader nothing its cards do not. The
-rail, the sheet and the palette keep the hint, and every other module's header
-still draws its own (`tests/components/Overview.header.test.tsx`).
+A module's panel header is its label and the gilt rule, with no hint under the
+label (the owner's choice, englishstreetventures/osn#2359): a line such as
+"Your wedding at a glance" tells a reader nothing the panel under it does not.
+The hint stays where it tells a reader what is behind a module before they open
+it — the rail's tooltip and collapsed label, the mobile sheet and the command
+palette — and the run sheet's helper seat draws the same header
+(`tests/components/Overview.header.test.tsx`).
 
-**A word that repeats on every row heads the column once.** The Overview's
-RSVPs card lists each event's attending count under one "Attending", right
-over the figures, in a table head's small caps (`text-ui-xs`,
-`tracking-ui-wider`) in the secondary ink, since a quiet label is muted
-(§7, `Eyebrow`). The list carries the same word as its name (`aria-label`),
-and the head is hidden from a screen reader: a name read from small caps can
-come out in capitals. A figure keeps its line (`shrink-0`,
-`whitespace-nowrap`) and a long event name is cut short instead (`min-w-0`,
-`truncate`); `tests/components/Overview.look.browser.test.tsx` holds both at
-390px and 1280px. It is a list of rows like the card's tally above it, not a
-`Table`: a table's cells carry a full row's padding, which a five-line card
-cannot spare. **A date on the Overview reads as What's next prints it**
-("25 Oct", `fmtAgendaDate`), the Budget card's next payment included.
+**A word a card's label already says is not repeated on its rows** (the
+owner's choice, englishstreetventures/osn#2359). The Overview's "Attending by
+event" card lists each event and its figure alone, not "200 attending". The
+list carries the label as its name (`aria-label`), since a name read from the
+small-caps label can come out in capitals. A figure keeps its line
+(`shrink-0`, `whitespace-nowrap`) and a long event name is cut short instead
+(`min-w-0`, `truncate`); the narrow body's one column is `minmax(0, 1fr)`
+(`overview-body`), so the name cannot widen the column past the screen.
+`tests/components/Overview.look.browser.test.tsx` holds both at 390px and
+1280px. **A date on the Overview reads as What's next prints it** ("25 Oct",
+`fmtAgendaDate`), the Budget card's next payment included.
 
 **An eyebrow over a heading says what the screen does not** (the owner's
 choice, englishstreetventures/osn#1991). Where the module's header, the open
@@ -1747,9 +1748,9 @@ It is read-only for every role. The decisions it settles:
   `EmptyState` worded by scope, with "Set times on the checklist" for an owner
   or editor. Loading is `PanelLoading`. A loaded sheet offers owners and
   editors "Change times on the checklist" (`quiet`, small) above the days.
-- **A helper's seat** wears the panel header the module shell gives the run
-  sheet — the module's label, its hint, the gilt rule — so it reads as the
-  same page an owner opens.
+- **A helper's seat** wears the panel header the module shell gives every
+  module — the module's label and the gilt rule — so it reads as the same page
+  an owner opens.
 - **The clock never moves the focus.** "Coming up" is re-read on a timer set
   for the next flag change and when the tab becomes visible; nothing else
   changes on screen when it fires.
@@ -2251,7 +2252,7 @@ message alone.
 ### The stuck stack
 
 A long view keeps what it is about on screen while its rows scroll by. The
-module title and its hint scroll away; under the top bar, layers hold at the
+module title scrolls away; under the top bar, layers hold at the
 top of the window, each one's top at the foot of the one above. On a laptop
 the whole stack, top bar included, is at most 220px; on a phone, 200px (both
 asserted in `GuestsStack.browser.test.tsx`).

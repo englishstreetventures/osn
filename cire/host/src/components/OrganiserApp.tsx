@@ -318,12 +318,9 @@ function RunSheetSeat(props: {
         {/* The panel header the module shell gives every module, so the seat
             reads as the same page an owner opens. */}
         <header class="flex flex-col gap-4">
-          <div class="flex min-w-0 flex-col gap-1">
-            <h2 class="font-display text-text text-ui-lg leading-ui-none font-light">
-              {moduleDef("run-sheet").label}
-            </h2>
-            <p class="font-body text-text-muted text-ui-sm">{moduleDef("run-sheet").hint}</p>
-          </div>
+          <h2 class="font-display text-text text-ui-lg leading-ui-none font-light">
+            {moduleDef("run-sheet").label}
+          </h2>
           <hr class="gilt-rule opacity-60" />
         </header>
         <Show when={props.askedForExport}>

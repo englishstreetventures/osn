@@ -9,12 +9,12 @@ import "../../src/styles/global.css";
  * a phone width and a laptop width, with a wedding whose event names are long
  * and whose counts run to three digits.
  *
- * The RSVPs card lists each event's attending count. Each count stays on one
- * line however long the event's name is: the name gives way and is cut short,
- * the count does not wrap, and no row runs past the card's inner edge. The word
- * "Attending" heads the column once rather than following every count.
+ * The "Attending by event" card lists each event's attending count. Each count
+ * stays on one line however long the event's name is: the name gives way and
+ * is cut short, the count does not wrap, and no row runs past the card's inner
+ * edge. The card's label says "Attending" once; no count repeats the word.
  *
- * The page head, the RSVPs card and the Budget card are screenshotted at both
+ * The page head, the attending-by-event card and the Budget card are screenshotted at both
  * widths into `e2e-artifacts/cire-host/overview-look/` at the repository root
  * (gitignored), so a reviewer can see what the assertions describe.
  *
@@ -174,36 +174,43 @@ afterEach(() => {
 });
 
 for (const viewport of VIEWPORTS) {
-  it(`keeps each event's attending count on one line under one head, at ${viewport.name}`, async () => {
+  it(`keeps each event's attending count on one line under the card's one label, at ${viewport.name}`, async () => {
     await page.viewport(viewport.width, viewport.height);
     route();
     renderOrganiserPage({ module: "overview", sub: "" });
 
     // The loaded card, not the hollow one drawn while the replies load: only
     // the loaded one names the events.
-    const rsvpCard = cardOf(await screen.findByText(EVENTS[0].name));
+    const byEventCard = cardOf(await screen.findByText(EVENTS[0].name));
     const budgetCard = cardOf(await screen.findByText(/Next: Balance/));
     // Let the panel's height settle before the pictures are taken.
     await new Promise((done) => setTimeout(done, 400));
 
-    const head = document.querySelector<HTMLElement>("main header")!;
-    await page.screenshot({ path: `${SHOTS}/page-head-${viewport.name}.png`, element: head });
-    await page.screenshot({ path: `${SHOTS}/rsvps-card-${viewport.name}.png`, element: rsvpCard });
-    await page.screenshot({
-      path: `${SHOTS}/budget-card-${viewport.name}.png`,
-      element: budgetCard,
-    });
+    // Each picture is taken with its element in the middle of the window, clear
+    // of the phone's fixed bottom bar.
+    const shoot = async (name: string, element: HTMLElement) => {
+      element.scrollIntoView({ block: "center" });
+      await page.screenshot({ path: `${SHOTS}/${name}-${viewport.name}.png`, element });
+    };
+    await shoot("page-head", document.querySelector<HTMLElement>("main header")!);
+    await shoot("rsvps-card", byEventCard);
+    await shoot("budget-card", budgetCard);
 
-    const list = within(rsvpCard).getByRole("list", { name: "Attending" });
+    const list = within(byEventCard).getByRole("list", { name: "Attending by event" });
     const rows = within(list).getAllByRole("listitem");
     expect(rows).toHaveLength(EVENTS.length);
 
-    const inner = rsvpCard.getBoundingClientRect();
-    const padRight = Number.parseFloat(getComputedStyle(rsvpCard).paddingRight);
+    // The card keeps to the panel: a long name does not widen its column
+    // past the screen.
+    expect(byEventCard.getBoundingClientRect().right).toBeLessThanOrEqual(
+      document.documentElement.clientWidth,
+    );
+    const inner = byEventCard.getBoundingClientRect();
+    const padRight = Number.parseFloat(getComputedStyle(byEventCard).paddingRight);
     for (const [i, row] of rows.entries()) {
       const name = within(row).getByText(EVENTS[i]!.name);
       const count = row.lastElementChild as HTMLElement;
-      // The figure alone: the word lives in the head, once.
+      // The figure alone: the word lives in the card's label, once.
       expect(count.textContent?.trim()).toBe(String(EVENTS[i]!.attending));
       const lineHeight = Number.parseFloat(getComputedStyle(count).lineHeight);
       expect(count.getBoundingClientRect().height).toBeLessThan(lineHeight * 1.5);

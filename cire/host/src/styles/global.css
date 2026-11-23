@@ -805,11 +805,16 @@
  * others, and the second row takes what the side column adds (`auto 1fr`), so
  * the module cards sit right under the agenda however tall the side column is.
  * Each child names its area with `overview-agenda`, `-side` or `-modules`.
+ * The narrow panel's one column is `minmax(0, 1fr)`, not the implicit `auto`:
+ * an `auto` column grows to its widest unbreakable line, so a long event name
+ * in the attending-by-event card pushed the column past a 390px screen
+ * instead of being cut short.
  */
 @utility overview-body {
   display: grid;
   gap: 1rem;
   align-items: start;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "agenda" "side" "modules";
   @container panel (min-width: 56rem) {
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);

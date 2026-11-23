@@ -190,36 +190,6 @@ describe("Overview", () => {
     expect(guestsCard.textContent).toContain("2");
   });
 
-  // Five events fit the card; past five it names how many it leaves out.
-  it.each([
-    { events: 5, rows: 5, more: null },
-    { events: 7, rows: 5, more: "+2 more" },
-  ])("lists $rows of $events events' attending counts under one head", async (c) => {
-    const rsvps = Array.from({ length: c.events }, (_, i) => ({
-      ...RSVPS[0],
-      id: `e${i + 1}`,
-      name: `Event ${i + 1}`,
-      attending: 10 + i,
-    }));
-    routeFetch({
-      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
-      rsvps,
-      events: EVENTS,
-      guests: GUESTS,
-    });
-    render(() => (
-      <Overview weddingId={`wed_more_${c.events}`} tier="crimson" onNavigate={vi.fn()} />
-    ));
-
-    const list = await screen.findByRole("list", { name: "Attending" });
-    const items = [...list.querySelectorAll("li")];
-    const shown = items.filter((li) => !li.textContent!.endsWith("more"));
-    expect(shown.map((li) => li.lastElementChild?.textContent)).toEqual(
-      rsvps.slice(0, c.rows).map((e) => String(e.attending)),
-    );
-    expect(items.find((li) => li.textContent!.endsWith("more"))?.textContent ?? null).toBe(c.more);
-  });
-
   it("draws a revisit at once from the caches, sending nothing", async () => {
     routeFetch({
       settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
@@ -641,14 +611,16 @@ describe("Overview", () => {
     routeFetch({ rsvps: six, events: EVENTS, guests: GUESTS });
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
-    const card = (await screen.findByText("Attending by event")).parentElement!;
-    const rows = within(card).getAllByRole("listitem");
+    // The card's label says "Attending" once; a row is the event and its
+    // figure alone, and the list carries the label as its name.
+    const list = await screen.findByRole("list", { name: "Attending by event" });
+    const rows = within(list).getAllByRole("listitem");
     expect(rows.map((r) => r.textContent)).toEqual([
-      "Event 10 attending",
-      "Event 21 attending",
-      "Event 32 attending",
-      "Event 43 attending",
-      "Event 54 attending",
+      "Event 10",
+      "Event 21",
+      "Event 32",
+      "Event 43",
+      "Event 54",
       "+1 more",
     ]);
   });
