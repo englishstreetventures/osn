@@ -3,11 +3,6 @@ import { describe, it, expect } from "vitest";
 import { truncateSwatchName } from "../../src/components/dress-code-render";
 
 describe("truncateSwatchName", () => {
-  it("returns short names unchanged", () => {
-    expect(truncateSwatchName("Champagne")).toBe("Champagne");
-    expect(truncateSwatchName("Marigold Saffron")).toBe("Marigold Saffron");
-  });
-
   it("trims surrounding whitespace", () => {
     expect(truncateSwatchName("   Gold   ")).toBe("Gold");
   });

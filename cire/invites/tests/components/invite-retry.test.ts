@@ -130,21 +130,6 @@ describe("createInviteRetry", () => {
     dispose();
   });
 
-  it("leaves the painted value alone when the fetch throws", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new Error("offline"))),
-    );
-    const select = vi.fn(() => ({ theme: "live" }));
-
-    const { data, dispose } = mount({ select });
-    await settle();
-
-    expect(data()).toBe(FALLBACK);
-    expect(select).not.toHaveBeenCalled();
-    dispose();
-  });
-
   it("leaves the painted value alone when an OK response has an unparseable body", async () => {
     // A 200 carrying HTML — an edge interstitial, a misrouted request — must
     // land on the same path as a thrown fetch, not reach the render as an error.

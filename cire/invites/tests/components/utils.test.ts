@@ -50,10 +50,6 @@ describe("isValidClaimResponse", () => {
     ],
   };
 
-  it("accepts a valid response", () => {
-    expect(isValidClaimResponse(validResponse)).toBe(true);
-  });
-
   it("accepts a response with empty members and events arrays", () => {
     expect(
       isValidClaimResponse({

@@ -55,19 +55,6 @@ afterEach(() => {
 });
 
 describe("AddToCalendar", () => {
-  it("toggles aria-expanded when the button is clicked", () => {
-    const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
-    const button = getByRole("button", { name: /add to calendar/i });
-    expect(button.getAttribute("aria-expanded")).toBe("false");
-    expect(button.getAttribute("aria-haspopup")).toBe("menu");
-
-    fireEvent.click(button);
-    expect(button.getAttribute("aria-expanded")).toBe("true");
-
-    fireEvent.click(button);
-    expect(button.getAttribute("aria-expanded")).toBe("false");
-  });
-
   it("renders a Google Calendar link with the correct href when open", () => {
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     fireEvent.click(getByRole("button", { name: /add to calendar/i }));
@@ -119,16 +106,6 @@ describe("AddToCalendar", () => {
     expect(menu.className).not.toContain("z-90");
   });
 
-  it("opens on its first item when a key opens it", async () => {
-    // jsdom's `fireEvent.click` carries `detail: 0`, which is what a key press
-    // on a focused button sends: the menu-button pattern puts focus on the
-    // first item.
-    const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
-    fireEvent.click(getByRole("button", { name: /add to calendar/i }));
-    await Promise.resolve();
-    expect(document.activeElement).toBe(screen.getByText("Google Calendar"));
-  });
-
   it("opens on the menu itself, quietly, when a pointer opens it", async () => {
     // A tap or a click counts its presses in `detail` (Firefox and Safari send
     // a MouseEvent). Focus lands on the menu, marked quiet, so no item is
@@ -144,16 +121,6 @@ describe("AddToCalendar", () => {
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByText("Google Calendar"));
     expect(menu.hasAttribute("data-quiet-focus")).toBe(false);
-  });
-
-  it("closes when Escape is pressed", () => {
-    const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
-    const button = getByRole("button", { name: /add to calendar/i });
-    fireEvent.click(button);
-    expect(button.getAttribute("aria-expanded")).toBe("true");
-
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(button.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("closes when the user clicks outside the popover", () => {

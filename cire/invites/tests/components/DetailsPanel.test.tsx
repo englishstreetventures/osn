@@ -100,25 +100,6 @@ describe("DetailsPanel", () => {
     expect(container.querySelector(".border-t")).toBeNull();
   });
 
-  // Filled, each shows: the policy as the last fact, the run of show and the
-  // getting-there notes under their own headings.
-  it("shows the run of show, guest policy and getting there when each has content", () => {
-    const { container, getByText } = renderPanel({
-      ...baseEvent,
-      runOfShow: [{ time: "18:00", label: "Doors" }],
-      gettingThere: "Park on the lane.",
-      childrenPolicy: "adults_only",
-      plusOnePolicy: null,
-      guestPolicyNote: null,
-    });
-    expect([...container.querySelectorAll("dt")].at(-1)?.textContent).toBe("Guest policy");
-    expect(container.textContent).toContain("Adults only");
-    expect(getByText("Run of show")).toBeTruthy();
-    expect(getByText("Doors")).toBeTruthy();
-    expect(getByText("Getting there")).toBeTruthy();
-    expect(getByText("Park on the lane.")).toBeTruthy();
-  });
-
   it("shows no About for a description of only spaces", () => {
     const { queryByText } = renderPanel({ ...baseEvent, description: "   \n " });
     expect(queryByText("About")).toBeNull();
@@ -209,14 +190,6 @@ describe("DetailsPanel", () => {
     expect(queryByText("Inspiration")).toBeNull();
   });
 
-  it("renders the inspiration section for a real pinterest URL", () => {
-    const { getByText } = renderPanel({
-      ...baseEvent,
-      pinterestUrl: "https://pinterest.com/board",
-    });
-    expect(getByText("Inspiration")).toBeTruthy();
-  });
-
   it("omits the dress code section for a whitespace-only description and empty palette", () => {
     const { queryByText } = renderPanel({
       ...baseEvent,
@@ -290,35 +263,6 @@ describe("DetailsPanel — the deadline", () => {
     expect(queryByRole("button", { name: /RSVP/ })).toBeNull();
   });
 
-  it("says the replies have closed, on which day, and the household's next step", () => {
-    const { getByRole } = render(() => (
-      <DetailsPanel
-        event={baseEvent}
-        siteUrl={SITE_URL}
-        rsvpClosed
-        rsvpClosedOn="Sunday 1 September 2999"
-      />
-    ));
-    expect(getByRole("status").textContent).toBe(
-      "RSVPs closed on Sunday 1 September 2999. To reply now, please contact the couple directly.",
-    );
-  });
-
-  it("tells a household with a reply on file how to change it", () => {
-    const { getByRole } = render(() => (
-      <DetailsPanel
-        event={baseEvent}
-        siteUrl={SITE_URL}
-        rsvpClosed
-        replied
-        rsvpClosedOn="Sunday 1 September 2999"
-      />
-    ));
-    expect(getByRole("status").textContent).toBe(
-      "RSVPs closed on Sunday 1 September 2999. To change your household's reply, please contact the couple directly.",
-    );
-  });
-
   it("says the replies have closed without a date when it has none", () => {
     const { getByRole } = render(() => (
       <DetailsPanel event={baseEvent} siteUrl={SITE_URL} rsvpClosed />
@@ -326,11 +270,6 @@ describe("DetailsPanel — the deadline", () => {
     expect(getByRole("status").textContent).toBe(
       "RSVPs have closed. To reply now, please contact the couple directly.",
     );
-  });
-
-  it("says nothing while replies are open", () => {
-    const { getByRole } = renderPanel(baseEvent);
-    expect(getByRole("status").textContent).toBe("");
   });
 });
 

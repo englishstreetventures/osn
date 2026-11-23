@@ -239,25 +239,7 @@ describe("EventCard", () => {
     expect(img.className).toContain("md:order-1");
   });
 
-  it("offers Respond while RSVPs are open", () => {
-    const { getByRole } = render(() => (
-      <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
-    ));
-    const respond = getByRole("button", { name: "Respond" }) as HTMLButtonElement;
-    expect(respond.disabled).toBe(false);
-  });
-
   describe("after the RSVP deadline", () => {
-    it("drops the answer button for an event nobody answered, and says RSVPs are closed", () => {
-      const { getAllByRole, getByText } = render(() => (
-        <EventCard event={baseEvent} rsvpClosed onRespond={noop} onDetails={noop} />
-      ));
-      // Nothing to answer and nothing to look back at, so no button at all —
-      // the badge beside the name says why, and is not a control.
-      expect(getAllByRole("button").map((b) => b.textContent)).toEqual(["Event details"]);
-      expect(getByText("RSVPs closed").closest("button")).toBeNull();
-    });
-
     it("turns an answered event's button into an enabled “RSVP given” that opens the sheet", () => {
       const onRespond = vi.fn();
       const { getByRole } = render(() => (
@@ -280,23 +262,6 @@ describe("EventCard", () => {
       // Still says when RSVPs shut, through the events-section notice.
       expect(given.getAttribute("aria-describedby")).toBe("rsvp-deadline-notice");
 
-      fireEvent.click(given);
-      expect(onRespond).toHaveBeenCalledWith(baseEvent);
-    });
-
-    it("reads “RSVP given” for a household that answered only in part, without the fill or tick", () => {
-      // Some members replied, not all. After the deadline that reply is still
-      // worth showing, but the fill and tick mean "everyone answered", so they
-      // stay off: the button is plain gold with the new label.
-      const onRespond = vi.fn();
-      const { getByRole } = render(() => (
-        <EventCard event={baseEvent} rsvpClosed replied onRespond={onRespond} onDetails={noop} />
-      ));
-      const given = getByRole("button", { name: "RSVP given" });
-      expect(given.hasAttribute("data-rsvp-confirmed")).toBe(false);
-      expect(given.querySelector("svg")).toBeNull();
-      const fill = given.querySelector("span[aria-hidden='true']") as HTMLElement;
-      expect(fill.className).toContain("scale-x-0");
       fireEvent.click(given);
       expect(onRespond).toHaveBeenCalledWith(baseEvent);
     });

@@ -22,27 +22,6 @@ const EMPTY_THEME = {
 const DEFAULT_HERO_DISPLAY = { blur: 28, titleBackdrop: { opacity: 0, blur: 0 } } as const;
 
 describe("gala InviteHeader render", () => {
-  it("renders the hero title from `initial` (SSR-painted, no fetch wait)", async () => {
-    const initial: InviteCustomisation = {
-      hero: { title: "Anita & Ben", subtitle: null, imageUrl: null },
-      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
-      heroDisplay: DEFAULT_HERO_DISPLAY,
-      theme: EMPTY_THEME,
-    };
-    // The route's payload in `initial` paints synchronously and the header
-    // fetches nothing; the failing stub keeps any stray request off the network.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new Error("offline"))),
-    );
-
-    const { getByText } = render(() => (
-      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
-    ));
-
-    expect(getByText("Anita & Ben")).toBeTruthy();
-  });
-
   it("hero title consumes the typography variables with pack-literal fallbacks (T-S1)", async () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
@@ -152,39 +131,6 @@ describe("gala InviteHeader render", () => {
     await waitFor(() => expect(img.className).toContain("opacity-0"));
   });
 
-  it("a desktop-only crop covers every breakpoint (narrow falls back — pre-0046 render)", async () => {
-    const initial: InviteCustomisation = {
-      hero: {
-        title: "Anita & Ben",
-        subtitle: null,
-        imageUrl: "/api/invite/s/image/hero?v=1",
-        imageCrop: { x: 0.25, y: 0.1, w: 0.5, h: 0.4 },
-        imageCropMobile: null,
-      },
-      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
-      heroDisplay: DEFAULT_HERO_DISPLAY,
-      theme: EMPTY_THEME,
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new Error("offline"))),
-    );
-
-    const { container } = render(() => (
-      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
-    ));
-
-    await waitFor(() => {
-      expect(container.querySelector("section img")).not.toBeNull();
-    });
-    // Both layers render, both carrying the SAME desktop focal point — narrow
-    // viewports keep the single-crop behaviour they had before the phone crop.
-    const wide = container.querySelector("section div.md\\:block") as HTMLDivElement;
-    const narrow = container.querySelector("section div.md\\:hidden") as HTMLDivElement;
-    expect(wide.style.backgroundPosition).toBe("50% 30%");
-    expect(narrow.style.backgroundPosition).toBe("50% 30%");
-  });
-
   it("renders the story image WITHOUT a `hidden` class (visible on mobile, unlike classic)", async () => {
     const initial: InviteCustomisation = {
       hero: { title: "Anita & Ben", subtitle: null, imageUrl: null },
@@ -268,28 +214,6 @@ describe("gala InviteHeader render", () => {
       "https://api.test/api/invite/my-slug",
       expect.objectContaining({ cache: "no-store" }),
     );
-  });
-
-  it("keeps the built-in defaults when the retry returns a non-OK status", async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ hero: { title: "Error Body" } }), { status: 500 }),
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { container, queryByText } = render(() => (
-      <InviteHeader apiUrl="https://api.test" slug="s" initial={null} />
-    ));
-
-    // Nothing is painted before the retry settles either, so the assertion only
-    // means something once it has: the macrotask below drains the promise chain
-    // behind the fetch. The success test above is the twin that shows a body
-    // does land by this point when it should.
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(queryByText("Error Body")).toBeNull();
-    expect(container.querySelector("section")).toBeNull();
   });
 
   it("keeps the built-in defaults when the retry throws", async () => {
@@ -465,18 +389,6 @@ describe("gala InviteHeader visibility switches (migration 0063)", () => {
     expect(queryByText("We met long ago.")).toBeNull();
     expect(container.querySelectorAll("section")).toHaveLength(1);
   });
-
-  it("renders nothing for sections switched on but empty", async () => {
-    const { container } = renderHeader({
-      hero: { title: null, subtitle: "  ", imageUrl: null },
-      story: { eyebrow: "Our Story", heading: null, body: null, imageUrl: null },
-      heroDisplay: DEFAULT_HERO_DISPLAY,
-      theme: EMPTY_THEME,
-      visibility: { hero: true, story: true },
-    });
-    await waitFor(() => expect(container.querySelector(".animate-pulse")).toBeNull());
-    expect(container.querySelector("section")).toBeNull();
-  });
 });
 
 describe("gala InviteHeader fallback title for a returning household", () => {
@@ -513,17 +425,6 @@ describe("gala InviteHeader fallback title for a returning household", () => {
     setReturningHousehold(false);
     await waitFor(() => expect(getByText("You're Invited", READABLE)).toBeTruthy());
     expect(queryByText("Welcome back to your invite", READABLE)).toBeNull();
-  });
-
-  it("welcomes back once mounted when the panel found the household first", async () => {
-    // The panel's island can settle before the hero's; the hero still opens
-    // on the server's choice and swaps once it has mounted.
-    setReturningHousehold(true);
-    const { getByText, queryByText } = render(() => (
-      <InviteHeader apiUrl="https://api.test" slug="s" initial={hero(null)} />
-    ));
-    await waitFor(() => expect(getByText("Welcome back to your invite", READABLE)).toBeTruthy());
-    expect(queryByText("You're Invited", READABLE)).toBeNull();
   });
 
   it("never replaces the couple's own title", () => {

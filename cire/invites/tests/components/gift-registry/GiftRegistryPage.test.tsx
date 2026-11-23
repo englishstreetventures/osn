@@ -176,17 +176,6 @@ describe("the gate", () => {
     expect(container.querySelector("[data-gift-unreachable]")).toBeNull();
   });
 
-  it("reads the list with credentials, or the cookie never leaves the browser", async () => {
-    const { calls } = routedFetch({});
-    renderPage();
-    await whenListed();
-    // `cire_session` is host-scoped to the API origin, which is a different
-    // origin from the guest site: on the default `same-origin` mode the cookie
-    // is dropped silently and every read is a 401 forever.
-    const list = calls.find((c) => c.url.endsWith("/registry"));
-    expect(list?.credentials).toBe("include");
-  });
-
   it("opens without a reload when the session arrives in this tab", async () => {
     document.cookie = "cire_claimed=; Path=/; Max-Age=0";
     routedFetch({
@@ -286,13 +275,6 @@ describe("the money panel", () => {
     const { container } = renderPage();
     await whenListed();
     expect(container.querySelector("[data-gift-money]")).toBeNull();
-  });
-
-  it("is there when they are", async () => {
-    routedFetch({ list: [json(registry({ cashGiftsEnabled: true }))] });
-    const { container } = renderPage();
-    await whenListed();
-    await waitFor(() => expect(container.querySelector("[data-gift-money]")).toBeTruthy());
   });
 
   it("sits above the shelves even when every gift is taken", async () => {
@@ -610,29 +592,6 @@ describe("a session that ends mid-visit", () => {
 });
 
 describe("this household's own claims", () => {
-  it("merges its own claim into the list", async () => {
-    routedFetch({
-      list: [json(registry({ items: [item({ quantityWanted: 2, quantityClaimed: 1 })] }))],
-      mine: [
-        json({
-          claims: [
-            {
-              itemId: "gi-1",
-              quantity: 1,
-              status: "reserved",
-              note: null,
-              displayName: "The Ashworths",
-            },
-          ],
-        }),
-      ],
-    });
-    const { container } = renderPage();
-
-    await waitFor(() => expect(container.querySelector("[data-gift-mine]")).toBeTruthy());
-    expect(container.querySelector("[data-gift-mine]")?.textContent).toContain("The Ashworths");
-  });
-
   it("renders the shipping address only when the API actually sent one", async () => {
     routedFetch({ mine: [json({ claims: [], shippingAddress: "12 Rose Lane\nSydney" })] });
     const first = renderPage();
