@@ -248,6 +248,23 @@ intro: the chosen sub-tab says "RSVPs" on screen, and a hidden `<h2>` gives a
 reader moving by headings the name the visible intros of Households and Edit
 give theirs. Its download ends the bar's first row, after the event strip,
 and on a phone the search row (§4, One pill language, A page's download).
+Overview's panel header is its label and the gilt rule, with no hint under the
+label: "Your wedding at a glance" tells a reader nothing its cards do not. The
+rail, the sheet and the palette keep the hint, and every other module's header
+still draws its own (`tests/components/Overview.header.test.tsx`).
+
+**A word that repeats on every row heads the column once.** The Overview's
+RSVPs card lists each event's attending count under one "Attending", right
+over the figures, in a table head's small caps (`text-ui-xs`,
+`tracking-ui-wider`) in the secondary ink, since a quiet label is muted
+(§7, `Eyebrow`). The head names the list for a screen reader
+(`aria-labelledby`). A figure keeps its line (`shrink-0`,
+`whitespace-nowrap`) and a long event name is cut short instead (`min-w-0`,
+`truncate`); `tests/components/Overview.look.browser.test.tsx` holds both at
+390px and 1280px. It is a list of rows like the card's tally above it, not a
+`Table`: a table's cells carry a full row's padding, which a five-line card
+cannot spare. **A date on the Overview reads as What's next prints it**
+("25 Oct", `fmtAgendaDate`), the Budget card's next payment included.
 
 **An eyebrow over a heading says what the screen does not** (the owner's
 choice, englishstreetventures/osn#1991). Where the module's header, the open
@@ -1729,8 +1746,8 @@ It is read-only for every role. The decisions it settles:
   `EmptyState` worded by scope, with "Set times on the checklist" for an owner
   or editor. Loading is `PanelLoading`. A loaded sheet offers owners and
   editors "Change times on the checklist" (`quiet`, small) above the days.
-- **A helper's seat** wears the panel header the module shell gives every
-  module — the module's label, its hint, the gilt rule — so it reads as the
+- **A helper's seat** wears the panel header the module shell gives the run
+  sheet — the module's label, its hint, the gilt rule — so it reads as the
   same page an owner opens.
 - **The clock never moves the focus.** "Coming up" is re-read on a timer set
   for the next flag change and when the tab becomes visible; nothing else

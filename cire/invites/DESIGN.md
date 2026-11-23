@@ -105,6 +105,16 @@ card because a thumb reads them as the place to drag.
 differs from the host's. What each corner paints here, and the fields, boxes
 and checkboxes: `wiki/cire/cire-invite-designs.md` §Corners, labels and motion.
 
+**A frame holds a picture or nothing.** An event image or a closing image that
+fails to load draws as no image: the event card falls back to its one text
+column, and the closing section drops its band and keeps the couple's note, or
+renders nothing when there is no note. The frame goes at once, with no motion:
+the failure usually lands before the guest scrolls to it, and moving it would
+point at a fault. A cropped image is a CSS background, which reports no
+failure, so a hidden lazy copy of its request does (`BackgroundProbe`).
+`tests/components/failed-image.browser.test.tsx` holds both at 390px and
+1280px.
+
 ---
 
 ## 5. Motion

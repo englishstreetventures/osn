@@ -9,7 +9,8 @@ import { createSignal, Show } from "solid-js";
  * - **The same fetch, not a second one.** `src` and `srcset` name what the
  *   background names — for an `image-set()`, the same URLs with the same
  *   `1x`/`2x` descriptors, which pick the same candidate — so the browser
- *   answers both from one request.
+ *   answers both from one request. A browser without `image-set()` paints
+ *   the plain `url()` fallback, so on a 2x screen there it asks for both.
  * - **No earlier than the background.** Lazy, and inside the layer it
  *   reports for, so a layer hidden at this width (`display: none`) fetches
  *   neither its background nor its probe.
