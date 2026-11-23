@@ -41,8 +41,9 @@
  * the budget; the Overview; the guest list, its editor and the RSVPs, each
  * twice; Settings › Profile and Co-hosts and the invite builder, twice; the
  * events editor. The page's time holds still meanwhile, so no cached value
- * ages. A second visit inside a minute asks for nothing
- * before it draws; an editor checks its change head only after drawing. The
+ * ages. A second visit inside a minute asks for nothing before it draws,
+ * except Settings › Profile and the invite builder, which read on every visit;
+ * an editor checks its change head only after drawing. The
  * RSVP table reads its replies again with their badges after the Overview read
  * them without, marks Ada's reply New and seen, and the Overview's changes
  * card reads again. A rename in the events editor shows on the Overview's next
@@ -851,17 +852,19 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     await page.getByText("Nothing new since your last visit.", { exact: true }).isVisible(),
   );
 
-  // Settings › Profile and Co-hosts, and the invite builder, each twice.
+  // Settings › Profile and Co-hosts, and the invite builder, each twice. The
+  // profile and the builder save whole objects with no version, so each reads
+  // on every visit; their answers still keep the Overview's caches fresh.
   const PROFILE: ViewContent = { selector: "label", text: "Wedding name" };
   const COHOSTS: ViewContent = { selector: "div", text: CIRE_ORGANISER.profileId };
   const INVITE: ViewContent = { selector: '[aria-label="Invite design"]' };
-  await logged("settings profile, first visit", "", PROFILE, toModule("Settings"));
+  await logged("settings profile, first visit", "settings", PROFILE, toModule("Settings"));
   await logged("co-hosts, first visit", "hosts", COHOSTS, toTab("Co-hosts"));
-  await logged("settings profile, second visit", "", PROFILE, toTab("Profile"));
+  await logged("settings profile, second visit", "settings", PROFILE, toTab("Profile"));
   await logged("co-hosts, second visit", "", COHOSTS, toTab("Co-hosts"));
   await logged("invite builder, first visit", "invite", INVITE, toModule("Invite"));
   await logged("overview, between invite builder visits", "", OVERVIEW, toModule("Overview"));
-  await logged("invite builder, second visit", "", INVITE, toModule("Invite"));
+  await logged("invite builder, second visit", "invite", INVITE, toModule("Invite"));
 
   // The events editor, drawn from the rows the guest editor read after its
   // head, then a rename the Overview shows on its next visit.

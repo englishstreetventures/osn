@@ -8,7 +8,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-23
 ---
 # Host Portal Layout System
 
@@ -489,12 +489,33 @@ only task and seat changes reach the portal as a push
 visit. `setFresh` (a server's whole answer) restarts the age; `setCached` (a
 patch) keeps it.
 
+**A patch drops the load sent before it.** `setFresh`, `invalidate`, `refuse`
+and `drop` each bump the wedding's generation, so a load already in flight
+caches nothing. `setCached` does the same when a load is in flight: it bumps,
+clears the in-flight slot and marks the patched value stale, since that read
+went out before the write and its answer may not hold it; the next load reads
+again. With no load in flight it keeps the stale mark and the age as they
+were. The RSVP table, which records replies while its own read may be out,
+reads the replies once more when a reply it recorded dropped that read. The
+directory, which reads its pages without `ensureLoaded`, numbers each page
+read, draws only the newest, caches only a read sent unfiltered at offset 0,
+and marks a listing added from the view "in the wedding" on every answer.
+
+**Settings › Profile and the invite builder read on every visit.** Each saves
+whole objects with no version — the profile as one body, the builder a slice
+at a time — so a form seeded from a value up to a minute old could put back a
+co-host's newer save. Both open on a read taken as they mount, never on the
+cache: Settings › Profile through `invalidateSettings` and
+`ensureSettingsLoaded`, so a budget total patched while its read is out stays,
+and the builder on its own read. Both still write every server answer they
+hold into the cache, for the Overview, the guest list and Getting started.
+
 | Cache | File | Read | Readers | Kept right by |
 |---|---|---|---|---|
-| Settings | `settings-store.ts` | `GET …/settings` | Overview, Settings › Profile | the profile save writes its answer; the budget total patches it |
+| Settings | `settings-store.ts` | `GET …/settings` | Overview (Settings › Profile reads on every visit and writes in) | the profile's read and save write their answers; the budget total patches it |
 | RSVP replies | `rsvps-store.ts` | `GET …/rsvps` | Overview tallies, the RSVP table | `guestListChanged`; a reply the table records is written in |
-| RSVP changes card | `rsvps-store.ts` | `GET …/rsvp-changes` | Overview card | the digest switch writes in; the table's `seen` POST drops it once answered |
-| Invite | `invite-store.ts` | `GET …/invite` | guest list (message), Getting started, invite builder | the builder writes every body it holds, read or saved, with its FAQs; any tier change drops it (`WeddingCacheScope`) |
+| RSVP changes card | `rsvps-store.ts` | `GET …/rsvp-changes` | Overview card | the digest switch writes in; once the table's `seen` POST is saved, `noteRsvpChangesSeen` writes the card as nothing unseen (when the badge rows were under the API's 500-pair cap) and marks it stale |
+| Invite | `invite-store.ts` | `GET …/invite` | guest list (message), Getting started (the builder reads on every visit and writes in) | the builder writes every body it holds, read or saved, with its FAQs; any tier change marks it stale (`WeddingCacheScope`) |
 | Starter preview | `starter-store.ts` | `GET …/tasks/templates/starter` | the starter checklist dialog | every change `tasks-store.ts` learns of drops it |
 | Co-hosts panel | `hosts-store.ts` (beside the seats) | `GET …/hosts` | Settings › Co-hosts | `invalidateHosts` drops it; so does the panel's run-sheet scope write |
 | Directory first page | `directory-store.ts` | `GET …/directory`, unfiltered | Vendors › Browse | an add patches the listing; a vendor deleted drops it |
@@ -506,7 +527,8 @@ table draws those at once and reads both again as it mounts; replies the table
 itself read, still fresh, draw with nothing read, and once drawn
 (`after-paint.ts`) only the badge rows are read: that read confirms the seat may
 still see the replies, and a change since sends the table to read the replies
-too, badged. A refused read empties the table. The replies hold dietary answers: like every cache here they
+too, badged. A refused read (403 or 404) empties the table and says the seat
+can no longer see the replies. The replies hold dietary answers: like every cache here they
 stay only while the dashboard is on screen ([[retention]]).
 
 **What a minute allows.** A seat removed or narrowed loses its cached rows at
@@ -528,10 +550,22 @@ before its rows ([[cire-guest-event-editor]] §3.2). `change-basis.ts` records,
 per slice, the head an editor read and the exact rows array it then loaded. A
 later visit whose slices are still those arrays, fresh, under one head, draws
 the draft from them at once and reads `/changes/head` after the frame that drew
-it (`after-paint.ts`): a head that moved reloads an untouched draft and marks an
-edited one stale with the save bar's notice, and a refused head (403 or 404)
-drops the draft. Any reload or patch replaces an
-array, which ends the basis; so does the wedding's drop.
+it (`after-paint.ts`). The check acts only on the draft it started from: if a
+save or a keep-edits reload moved the draft's head while the head read was out,
+or is still running, the check does nothing. A head that moved marks an edited
+draft stale with the save bar's notice. An untouched draft reloads with the
+head as its basis, with Save held (`busy`) until the rows land; if the
+organiser edited meanwhile, the edits go back on top of the new rows as
+"Reload and keep my edits" puts them, replay notes included, and the schedule
+editor's open drawer stays on its event. A refused head (403 or 404) drops the
+draft. Any reload or patch replaces an array, which ends the basis; so does the
+wedding's drop.
+
+**The Overview draws stale values at once, with one exception.** Its events and
+guests decide whether the home is Getting started or the briefing, so when
+either is marked stale and both are empty — an import may have just filled
+them — the outline holds until their read lands. Stale rows that are not empty
+draw the briefing at once.
 
 **Left reading on every visit:** the seating chart, which its page keeps only
 while on screen ([[cire-seating]]); the re-mint warning's count, which guests
