@@ -1,3 +1,5 @@
+import { passkeys } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
 import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
 import type { StepUpPurpose } from "@shared/observability/metrics";
 import type { RateLimiterBackend } from "@shared/rate-limit";
@@ -9,6 +11,7 @@ import {
   createAuthRoutes as createAuthRoutesRaw,
   createDefaultAuthRateLimiters,
 } from "../../src/routes/auth";
+import { AUTH_RATE_LIMITS } from "../../src/routes/auth/limiters";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settledHandle } from "../helpers/background";
@@ -500,7 +503,7 @@ describe("auth routes", () => {
       });
     }
 
-    it("a step-up link's claim yields a step-up token and never a session", async () => {
+    it("a step-up link's claim yields a token with the step-up audience", async () => {
       // The step-up link is confirmed on any device and signs nobody in; the
       // tab that began, already signed in, gets a token only gates accept.
       const capture = buildEmailCapture(layer);
@@ -635,25 +638,52 @@ describe("auth routes", () => {
 
     it("returns 400 for a malformed assertion", async () => {
       const svc = createAuthService(config);
-      await Effect.runPromise(
+      const profile = await Effect.runPromise(
         svc.registerProfile("pk-complete@example.com", "pkcomplete").pipe(Effect.provide(layer)),
       );
-      // Issue a challenge (matches what /login/passkey/begin would do for a
-      // user with a registered passkey — we don't have one, but the challenge
-      // guard itself is populated by beginPasskeyLogin's precondition failure,
-      // so just hit complete with a bogus payload and expect a 400 from the
-      // downstream "passkey not found" / verification-failed path).
+      const credentialId = "pk-complete-credential";
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          yield* Effect.promise(() =>
+            db.insert(passkeys).values({
+              id: "pk_0123456789ab",
+              accountId: profile.accountId,
+              credentialId,
+              publicKey: "AAAA",
+              counter: 0,
+              createdAt: new Date(),
+            }),
+          );
+        }).pipe(Effect.provide(layer)),
+      );
+      // A real begin parks the account's challenge, so the complete below
+      // gets past the challenge lookup and the credential lookup, and the
+      // assertion itself is what is refused.
+      const begun = await app.handle(
+        new Request("http://localhost/login/passkey/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: "pk-complete@example.com" }),
+        }),
+      );
+      expect(begun.status).toBe(200);
+      const options = (await begun.json()) as { options: { allowCredentials: { id: string }[] } };
+      expect(options.options.allowCredentials.map((c) => c.id)).toEqual([credentialId]);
+
       const res = await app.handle(
         new Request("http://localhost/login/passkey/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             identifier: "pk-complete@example.com",
-            assertion: { id: "fake", rawId: "fake", response: {}, type: "public-key" },
+            assertion: { id: credentialId, rawId: credentialId, response: {}, type: "public-key" },
           }),
         }),
       );
       expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_request" });
+      expect(res.headers.getSetCookie()).toEqual([]);
     });
 
     // Identifier ⊕ challengeId — exactly one must be present.
@@ -948,7 +978,6 @@ describe("auth routes", () => {
       );
       // Seed one passkey to flip the account out of the bootstrap path.
       const { passkeys: passkeysTable } = await import("@osn/db/schema");
-      const { Db } = await import("@osn/db/service");
       await Effect.runPromise(
         Effect.gen(function* () {
           const { db } = yield* Db;
@@ -1018,7 +1047,6 @@ describe("auth routes", () => {
       );
       // Seed a SECOND, non-default profile on the SAME account.
       const { users: usersTable } = await import("@osn/db/schema");
-      const { Db } = await import("@osn/db/service");
       const secondProfileId = "usr_wendysecond0";
       await Effect.runPromise(
         Effect.gen(function* () {
@@ -1361,21 +1389,29 @@ describe("auth routes", () => {
     });
 
     it("passes when the injected limiter returns true", async () => {
-      const allowAll: RateLimiterBackend = { check: () => true };
+      let checks = 0;
+      const allowAll: RateLimiterBackend = {
+        check: () => {
+          checks += 1;
+          return true;
+        },
+      };
       const limiters = { ...createDefaultAuthRateLimiters(), handleCheck: allowAll };
 
       const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
-      // Fire a burst that would exceed the default 10/min cap; everything
-      // should pass because the injected limiter always says yes.
-      for (let i = 0; i < 20; i++) {
+      // One more request than the default limiter allows from one IP: every
+      // one passes, and each is asked of the injected limiter.
+      const burst = AUTH_RATE_LIMITS.handleCheck.maxRequests + 1;
+      for (let i = 0; i < burst; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         const res = await freshApp.handle(
           new Request(`http://localhost/handle/user${i}`, {
             headers: { "x-forwarded-for": "7.7.7.7" },
           }),
         );
-        expect(res.status).not.toBe(429);
+        expect(res.status).toBe(200);
       }
+      expect(checks).toBe(burst);
     });
   });
 
@@ -1432,7 +1468,8 @@ describe("auth routes", () => {
           headers: { Authorization: "Bearer not.a.valid.token" },
         }),
       );
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
     });
 
     it("rate limits profile list requests", async () => {
@@ -1504,7 +1541,10 @@ describe("auth routes", () => {
           }),
         }),
       );
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      // The caller's session is live, so the refusal is the switch's own: no
+      // such profile, answered as any other refused switch.
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_request" });
     });
 
     it("returns error for invalid access token", async () => {
@@ -1517,7 +1557,8 @@ describe("auth routes", () => {
           }),
         }),
       );
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
     });
 
     it("rate limits profile switch requests", async () => {
@@ -2257,7 +2298,7 @@ describe("auth routes", () => {
       expect((await list()).map((e) => e.id)).toContain(event.id);
     });
 
-    it("POST /account/email/:requestId/complete fails without a step-up token", async () => {
+    it("POST /account/email/:requestId/complete refuses an invalid step-up token", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
       const request = await confirmedChange(
         freshApp,
@@ -2273,6 +2314,7 @@ describe("auth routes", () => {
         "not.a.jwt",
       );
       expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_request" });
     });
 
     it("rate limits /account/email/begin aggressively (3/hr)", async () => {

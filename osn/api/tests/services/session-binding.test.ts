@@ -193,7 +193,11 @@ describe("session binding (osn_sid)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("auth_time survives silent rotation — max_age reflects real presence", () =>
+  // The aged seed is what makes this the check that a rotation keeps the time:
+  // tests/services/auth.test.ts "rotation carries uaLabel and authenticatedAt,
+  // and no IP hash" issues and rotates within one second, so a rotation that
+  // stamped the time anew would pass there and fails here.
+  it.effect("a rotation keeps the session's authentication time", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("sid-authtime@example.com", "sidauthtime");
       const tokens = yield* auth.issueTokens(

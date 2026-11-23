@@ -57,7 +57,7 @@ describe("a ceremony begin whose entry cannot be stored", () => {
     expect(h.recorded()).toEqual([]);
   });
 
-  it("POST /register/begin answers 503 and mails nothing", async () => {
+  it("POST /register/begin answers 503 and mails nothing when the pending registration cannot be stored", async () => {
     const h = harness((call) => call.store === "pending_registration");
     h.fail();
     const res = await h.app.handle(

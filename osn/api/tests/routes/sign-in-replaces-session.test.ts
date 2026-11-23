@@ -667,8 +667,9 @@ describe("a sign-in on a browser holding a session of an account scheduled for d
   });
 
   it("keeps a session marked replaced renewing only as its own account, the deletion cancelled or not", async () => {
-    // No path marks a session now; a row that carries the mark keeps its rule
-    // until it expires.
+    // The mark is planted by hand here; a sign-in sets it only over the cancel
+    // handle of a deletion with no restore record (the describe below). A row
+    // that carries the mark keeps its rule until it expires.
     const h = makeHarness();
     const leaving = await scheduledForDeletion(h);
     const newcomer = await withPasskey(h, "newcomer");

@@ -353,6 +353,9 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
 
     expect(res.status).toBe(200);
     expect(calls).toHaveLength(1);
+    // The stand-in follows nothing itself, so "not followed" is the request
+    // asking fetch not to follow: the bearer goes to cire's origin only.
+    expect(calls[0]?.redirect).toBe("manual");
     const errors = errorLogs(h.logs);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.annotations).toMatchObject({ status: 307 });

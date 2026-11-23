@@ -87,7 +87,9 @@ vi.mock("@simplewebauthn/server", async (importOriginal) => {
 });
 
 const { createAuthService } = await import("../../src/services/auth");
-const { RECOVERY_COOLDOWN_MS } = await import("../../src/services/auth/constants");
+const { RECOVERY_COOLDOWN_MS, RECOVERY_DISOWN_TTL_MS } =
+  await import("../../src/services/auth/constants");
+const { createDefaultCeremonyStores } = await import("../../src/services/auth/stores");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
 const { createAuthRoutes } = await import("../helpers/routes");
 const { recoveredResponse } = await import("../helpers/recovery-link");
@@ -132,18 +134,18 @@ function makeApp(overrides: Partial<AuthConfig> = {}, wrapDb: (db: TestDb) => Te
 const post = (app: { handle: (r: Request) => Promise<Response> }, path: string, body: unknown) =>
   app.handle(json(path, { method: "POST", body: JSON.stringify(body) }));
 
-/** Wait for the detached notice, then pull the disown token out of its link. */
-async function disownTokenFrom(recorded: () => readonly RecordedEmail[]): Promise<string> {
-  for (let i = 0; i < 100; i++) {
-    const notice = recorded().find((r) => r.template === "recovery-used");
-    if (notice) {
-      const match = /#token=([^\s"<]+)/.exec(notice.text + notice.html);
-      if (!match) throw new Error("recovery-used notice carried no disown token");
-      return decodeURIComponent(match[1]!);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2));
-  }
-  throw new Error("no recovery-used notice was sent");
+/**
+ * The disown token out of the recovery notice's link. The claiming poll that
+ * `recoveredResponse` sends waits for the work the request started, so the
+ * notice has been sent by the time this reads it, or was never handed to the
+ * request's background sink.
+ */
+function disownTokenFrom(recorded: () => readonly RecordedEmail[]): string {
+  const notice = recorded().find((r) => r.template === "recovery-used");
+  if (!notice) throw new Error("no recovery-used notice was sent");
+  const match = /#token=([^\s"<]+)/.exec(notice.text + notice.html);
+  if (!match) throw new Error("recovery-used notice carried no disown token");
+  return decodeURIComponent(match[1]!);
 }
 
 const fakeAttestation = () =>
@@ -391,12 +393,10 @@ describe("one recovery per account per 72 hours", () => {
     ]);
   });
 
-  it("the recovery-CODE path is NOT refused inside the window, and stamps it", async () => {
-    // Deviation (a), pinned. Capping this path would shut the owner's only
-    // unauthenticated door for three days — the one door a mailbox holder
-    // cannot open. Goes red on moving the second-recovery guard into
-    // `consumeRecoveryCode`, which is the obvious "apply it to all three
-    // paths" reading of the issue.
+  it("the recovery-code path is not refused inside the window", async () => {
+    // Capping this path would shut the owner's only unauthenticated door for
+    // three days — the one door a mailbox holder cannot open. Goes red if the
+    // second-recovery guard is applied in `consumeRecoveryCode`.
     const h = makeApp();
     const profile = await h.svc(h.auth.registerProfile("cd-code@example.com", "cdcode"));
     await h.svc(h.auth.beginPasskeyRegistration(profile.accountId));
@@ -415,13 +415,7 @@ describe("one recovery per account per 72 hours", () => {
     expect(stamped!.lastRecoveredAt).not.toBeNull();
 
     // The owner's printed codes still work, inside that window.
-    const stepUp = await h.svc(
-      mintStepUpToken(h.auth, profile.accountId, "otp", "recovery_generate"),
-    );
-    const generated = await h.svc(
-      h.auth.generateRecoveryCodesForAccount(profile.accountId).pipe(Effect.tap(() => Effect.void)),
-    );
-    void stepUp;
+    const generated = await h.svc(h.auth.generateRecoveryCodesForAccount(profile.accountId));
     const recoveryLogin = await post(h.app, "/login/recovery/complete", {
       identifier: "cd-code@example.com",
       code: generated.recoveryCodes[0]!,
@@ -494,7 +488,7 @@ describe("POST /recovery/disown", () => {
         body: JSON.stringify({ profileId: profile.id, attestation: {} }),
       }),
     );
-    const token = await disownTokenFrom(h.recorded);
+    const token = disownTokenFrom(h.recorded);
     return { profile, original: original!, token };
   }
 
@@ -548,8 +542,8 @@ describe("POST /recovery/disown", () => {
 
   it("is single use, and an expired or wrong token changes nothing", async () => {
     // Goes red on deleting the store entry after the revocation instead of
-    // before it, or on comparing the secret with `===` against a stored
-    // plaintext.
+    // before it, on comparing the secret with `===` against a stored
+    // plaintext, or on dropping the expiry check from the disown lookup.
     const h = makeApp();
     const { profile, token } = await recoverAndEnrol(h, "dis-once@example.com", "disonce");
 
@@ -589,6 +583,33 @@ describe("POST /recovery/disown", () => {
     const junk = await post(h2.app, "/recovery/disown", { token: "not-a-token" });
     expect(junk.status).toBe(202);
     expect(await passkeyIds(h2, second.profile.accountId)).toHaveLength(2);
+
+    // A token past its expiry that the store still answers, as a store whose
+    // clock runs behind the service's would: the service's own expiry check
+    // is all that refuses it.
+    const stores = createDefaultCeremonyStores();
+    const lagging = stores.recoveryDisownTokens;
+    const h3 = makeApp({
+      ceremonyStores: {
+        ...stores,
+        recoveryDisownTokens: {
+          ...lagging,
+          set: (key, value, ttlMs) => lagging.set(key, value, ttlMs * 2),
+        },
+      },
+    });
+    const late = await recoverAndEnrol(h3, "dis-late@example.com", "dislate");
+    const mark = disownOutcomes.length;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + RECOVERY_DISOWN_TTL_MS + 60_000);
+      const expired = await post(h3.app, "/recovery/disown", { token: late.token });
+      expect(expired.status).toBe(202);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(disownOutcomes.slice(mark)).toEqual(["invalid"]);
+    expect(await passkeyIds(h3, late.profile.accountId)).toHaveLength(2);
   });
 
   it("never drops the account below one passkey", async () => {
@@ -626,7 +647,7 @@ describe("POST /recovery/disown", () => {
     );
     expect(await passkeyIds(h, profile.accountId)).toHaveLength(1);
 
-    const token = await disownTokenFrom(h.recorded);
+    const token = disownTokenFrom(h.recorded);
     const res = await post(h.app, "/recovery/disown", { token });
     expect(res.status).toBe(202);
 
@@ -1088,7 +1109,7 @@ describe("POST /recovery/disown — when the write fails", () => {
         body: JSON.stringify({ profileId: profile.id, attestation: {} }),
       }),
     );
-    return { profile, token: await disownTokenFrom(h.recorded) };
+    return { profile, token: disownTokenFrom(h.recorded) };
   }
 
   const stateOf = (h: ReturnType<typeof makeApp>, accountId: string) =>

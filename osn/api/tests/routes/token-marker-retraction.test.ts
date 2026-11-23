@@ -187,7 +187,10 @@ describe("POST /logout", () => {
     const res = await call(app, "osn_session=ses_dead");
 
     expect(res.status).toBe(200);
-    expect(res.headers.getSetCookie().some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
+    const cookies = res.headers.getSetCookie();
+    expect(cookies.some((c) => c.startsWith("osn_session=;"))).toBe(true);
+    expect(cookies.some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
+    expect(cookies.every((c) => c.includes("Max-Age=0"))).toBe(true);
   });
 
   it("clears both cookies with no session cookie sent at all", async () => {
@@ -198,6 +201,9 @@ describe("POST /logout", () => {
     expect(res.status).toBe(200);
     // Nothing to destroy — but the marker may still be sitting in the browser.
     expect(seen).toEqual([]);
-    expect(res.headers.getSetCookie().some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
+    const cookies = res.headers.getSetCookie();
+    expect(cookies.some((c) => c.startsWith("osn_session=;"))).toBe(true);
+    expect(cookies.some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
+    expect(cookies.every((c) => c.includes("Max-Age=0"))).toBe(true);
   });
 });
