@@ -108,9 +108,7 @@ describe("ModuleSidebar", () => {
         onSelect={vi.fn()}
       />
     ));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Open wedding navigation, currently Guests/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^More, open wedding navigation$/ }));
     const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
     const selected = within(sheet)
       .getAllByRole("button")
@@ -132,14 +130,32 @@ describe("ModuleSidebar", () => {
         onSelect={vi.fn()}
       />
     ));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Open wedding navigation, currently Guests/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^More, open wedding navigation$/ }));
     const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
-    // A drawer's own × belongs to the frame it closes (DESIGN.md §4, One pill
+    // A sheet's own × belongs to the frame it closes (DESIGN.md §4, One pill
     // language): `bare`, so no hairline circle reads as one more of its actions.
     const close = within(sheet).getByRole("button", { name: "Close modules" });
     expect(close.className).toContain(buttonClass({ variant: "bare", size: "icon" }));
+  });
+
+  it("names the open module on More when the bar does not hold it", () => {
+    render(() => (
+      <ModuleSidebar
+        weddingId="wed_test"
+        weddingSlug="test-wedding"
+        canManage={false}
+        active="budget"
+        tier={TOP}
+        onSelect={vi.fn()}
+      />
+    ));
+    const bar = screen.getByRole("navigation", { name: "Main modules" });
+    // None of the bar's four is where the host is.
+    expect(within(bar).queryAllByRole("button", { current: "page" })).toHaveLength(0);
+    const more = within(bar).getByRole("button", {
+      name: /^Budget, open wedding navigation$/,
+    });
+    expect(more.textContent).toBe("Budget");
   });
 
   it("marks the active module with aria-current and no others", () => {
@@ -173,14 +189,22 @@ describe("ModuleSidebar", () => {
       />
     ));
 
-    // The narrow-container surface: a trigger naming the current module, so a
-    // guest never has to open the sheet to know where they are. The visible
-    // text names only the module; "currently Overview" lives in the
-    // accessible name so the button isn't announced as the page it's already on.
+    // The narrow-container surface: a bottom bar with four modules and More.
+    // Overview is on the bar, so the bar marks it and More reads "More";
+    // More's accessible name starts with its visible word (WCAG 2.5.3).
+    const bar = screen.getByRole("navigation", { name: "Main modules" });
+    expect(
+      within(bar)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Overview", "Guests", "Events", "Invite", "More"]);
+    expect(within(bar).getByRole("button", { name: "Overview" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
     const trigger = screen.getByRole("button", {
-      name: /Open wedding navigation, currently Overview/,
+      name: /^More, open wedding navigation$/,
     });
-    expect(trigger.textContent).toContain("Overview");
+    expect(trigger.textContent).toBe("More");
     fireEvent.click(trigger);
 
     const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
@@ -194,8 +218,8 @@ describe("ModuleSidebar", () => {
     // Every module reachable in one screen — the point of replacing the strip.
     expect(sheetLabels.some((l) => l?.includes("Settings"))).toBe(true);
 
-    // Every sheet row leads with its icon, and only the current module's is
-    // tinted full gold — on a phone this list is the only navigation.
+    // Every tile carries its icon, and only the current module's is tinted
+    // full gold.
     const rows = within(sheet)
       .getAllByRole("button")
       .filter((b) => b.getAttribute("aria-label") !== "Close modules");
@@ -616,9 +640,7 @@ describe("ModuleSidebar", () => {
           onSelect={onSelect}
         />
       ));
-      fireEvent.click(
-        screen.getByRole("button", { name: /Open wedding navigation, currently Overview/ }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: /^More, open wedding navigation$/ }));
       const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
 
       const row = within(sheet).getByRole("button", { name: /Registry/ });
@@ -647,9 +669,7 @@ describe("ModuleSidebar", () => {
           onSelect={vi.fn()}
         />
       ));
-      fireEvent.click(
-        screen.getByRole("button", { name: /Open wedding navigation, currently Overview/ }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: /^More, open wedding navigation$/ }));
       const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
       vi.useFakeTimers();
       const row = within(sheet).getByRole("button", { name: /Registry/ });
@@ -835,9 +855,7 @@ describe("ModuleSidebar", () => {
       it("offers the download from the sheet's locked card too", async () => {
         moduleRows = counts({ budgetLines: 2 });
         asOwner();
-        fireEvent.click(
-          screen.getByRole("button", { name: /Open wedding navigation, currently Overview/ }),
-        );
+        fireEvent.click(screen.getByRole("button", { name: /^More, open wedding navigation$/ }));
         const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
         fireEvent.click(within(sheet).getByRole("button", { name: /^Budget/ }));
 

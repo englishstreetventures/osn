@@ -23,7 +23,9 @@
  * collapsed, opens and closes the locked Vendors card from the narrow rail,
  * presses its Upgrade to find Crimson not for sale on this stack, which prices
  * Gold alone, expands the rail again and scrolls to check it sticks below the
- * top bar.
+ * top bar. At a phone's width the rail gives way to the bottom bar: the owner
+ * opens Guests from it, opens More, opens the locked Vendors tile's offer,
+ * goes back to the checklist from its tile, and returns to the desk's width.
  *
  * Last, the owner deletes three of the starter's tasks with their ✕, each of
  * which offers Undo on a toast and sends nothing until that toast has gone.
@@ -627,6 +629,61 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   });
   flow.check("rail: the page scrolled past the rail's own place", true, stuck.far);
   flow.check("rail: sticks below the top bar", true, stuck.below);
+
+  // On a phone the rail gives way to a bar at the foot of the screen: four
+  // modules and More, which opens every module as a tile.
+  const desk = page.viewportSize();
+  const phoneBar = page.getByRole("navigation", { name: "Main modules" });
+  const menu = page.getByRole("dialog", { name: "Wedding modules" });
+  const phone = await flow.step(
+    "on a phone, move between modules from the bottom bar",
+    async () => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      // `astro dev`'s own toolbar sits over the middle of the bar; production
+      // has none.
+      await page.addStyleTag({ content: "astro-dev-toolbar { display: none !important; }" });
+      await expect(phoneBar).toBeVisible();
+      const box = await phoneBar.boundingBox();
+      const more = phoneBar.getByRole("button", { name: "Checklist, open wedding navigation" });
+      await expect(more).toBeVisible();
+      await phoneBar.getByRole("button", { name: "Guests", exact: true }).click();
+      await page.waitForURL(/\/guests/);
+      const guestsMarked =
+        (await phoneBar
+          .getByRole("button", { name: "Guests", exact: true })
+          .getAttribute("aria-current")) ?? "";
+      await phoneBar.getByRole("button", { name: "More, open wedding navigation" }).click();
+      await expect(menu).toBeVisible();
+      const tiles = await menu.getByRole("button").count();
+      await page.screenshot({
+        path: resolve(SCREENSHOT_DIR, "cire-checklist-starter", "phone-menu.png"),
+        animations: "disabled",
+      });
+      await menu.getByRole("button", { name: /^Vendors — locked/ }).click();
+      const offer = await page.getByText("Included with Crimson").first().isVisible();
+      await page.keyboard.press("Escape");
+      await menu.getByRole("button", { name: "Checklist", exact: true }).click();
+      await expect(menu).toBeHidden();
+      await page.waitForURL(/\/checklist/);
+      return {
+        atFoot: box !== null && Math.abs(box.y + box.height - 844) <= 1,
+        guestsMarked,
+        tiles,
+        offer,
+        back: await more.isVisible(),
+      };
+    },
+  );
+  flow.check("phone: the bar sits at the foot of the screen", true, phone.atFoot);
+  flow.check("phone: a tab press opens its module, marked current", "page", phone.guestsMarked);
+  flow.check("phone: More lists every module and its close button", 12, phone.tiles);
+  flow.check("phone: a locked tile opens its offer", true, phone.offer);
+  flow.check("phone: a tile press returns to the checklist, named on More", true, phone.back);
+  await flow.step("back to the desk's width, the rail again", async () => {
+    if (desk) await page.setViewportSize(desk);
+    await expect(phoneBar).toHaveCount(0);
+    await expect(nav).toBeVisible();
+  });
 
   // Deletes that wait on their undo toast. Each task is found by its template
   // key, and its row on the page by the checkbox its title names, so a toast

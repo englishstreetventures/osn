@@ -4,9 +4,11 @@ import { createSlidingPill } from "@cire/ui/sliding-pill";
 import { Dialog } from "@kobalte/core/dialog";
 import { Popover } from "@kobalte/core/popover";
 import { Tooltip } from "@kobalte/core/tooltip";
-import Menu from "lucide-solid/icons/menu";
+import LayoutGrid from "lucide-solid/icons/layout-grid";
+import Lock from "lucide-solid/icons/lock";
 import PanelLeftClose from "lucide-solid/icons/panel-left-close";
 import PanelLeftOpen from "lucide-solid/icons/panel-left-open";
+import X from "lucide-solid/icons/x";
 import {
   type ComponentProps,
   createEffect,
@@ -42,18 +44,6 @@ const rowBase =
 
 const rowIdle = "text-text-muted hover:text-text hover:bg-surface/50";
 
-/**
- * The selected row's label is `gold-ink`, not `gold`. Gold is a metal with no
- * contrast contract (`styles/global.css`): in the light theme it paints about
- * 2.2:1 on its own wash, and this label, the one that says where the organiser
- * is, is normal-size text that needs 4.5:1. `gold-ink` clears that on the wash
- * in both themes. Where the label shows, the icon beside it stays gold, set on
- * the icon itself: it is decoration (hidden from assistive tech, the label
- * names the row), so no contrast floor applies to it. On the collapsed rail the
- * icon is all the row shows, and it takes `gold-ink` there (see the rail).
- */
-const rowActive = "text-gold-ink bg-gold/10";
-
 /** The rail's active row carries no background of its own — the pill behind it
  *  is the background, and it travels. Colour is all the row has to change. */
 const railActive = "text-gold-ink";
@@ -70,6 +60,50 @@ const railActive = "text-gold-ink";
  * already translucent, and stacking one would multiply the two.
  */
 const rowLocked = "text-text-faint cursor-default";
+
+/**
+ * The phone's bottom bar: the four modules a host opens most, then More.
+ * None of the four is ever locked, so the bar never holds an offer; every
+ * module, these four included, is also in the menu More opens.
+ */
+const PHONE_TABS = ["overview", "guests", "events", "invite"] as const satisfies readonly Module[];
+
+/** A tab in the bottom bar: icon over a short label, the whole cell a target
+ *  at least 44px square. Sentence case, unlike the rail: at 11px a tracked
+ *  uppercase word does not fit a fifth of a phone. */
+const tabBase =
+  "font-body text-ui-xs tracking-ui-normal flex min-w-0 flex-1 flex-col items-center justify-center gap-1 " +
+  "transition-ui-colors duration-(--dur-fast) ease-(--ease-out) touch-manipulation";
+
+const tabIdle = "text-text-muted hover:text-text";
+
+/** The tab where the host is: readable gold, and semibold, so the mark is
+ *  not carried by colour alone (WCAG 1.4.1). The wash behind the icon is the
+ *  rail's and the menus' 10%. */
+const tabActive = "text-gold-ink font-semibold";
+
+/** The pill behind a tab's icon, washed in gold when that tab is where the
+ *  host is. Fixed size, so the icon never moves when the wash comes or goes. */
+const tabMark =
+  "grid h-7 w-12 place-items-center rounded-full transition-ui-colors duration-(--dur-fast) ease-(--ease-out)";
+
+/** A tile in the module menu: a block pressed to choose, so the field corner. */
+const menuTile =
+  "font-body text-ui-xs tracking-ui-normal relative flex w-full flex-col items-center justify-center gap-2 " +
+  "rounded-ui-field border px-2 py-4 text-center transition-ui-colors duration-(--dur-fast) ease-(--ease-out)";
+
+const menuTileIdle = "border-border bg-surface/60 text-text hover:border-border-strong";
+
+/** The open module's tile. Its word is `gold-ink`, not `gold`: gold is a metal
+ *  with no contrast contract (`styles/global.css`), about 2.2:1 on its own
+ *  wash in the light theme, and this word, the one that says where the host
+ *  is, needs 4.5:1. Its icon stays `gold`: decoration, hidden from assistive
+ *  tech, beside the word that names the tile. */
+const menuTileActive = "border-gold-dim bg-gold/10 text-gold-ink font-semibold";
+
+/** A locked tile: the same dim ink as a locked rail row, and a lock glyph in
+ *  its corner, since a tile has no row of neighbours to look dimmer than. */
+const menuTileLocked = "border-border bg-transparent text-text-faint cursor-default";
 
 /** How long a pointer has to rest on a locked row before its card opens. Long
  *  enough that a pointer merely crossing the rail opens nothing. */
@@ -210,7 +244,7 @@ function LockedTrigger(props: ComponentProps<typeof Popover.Trigger>) {
 function LockedRow(props: {
   mod: ModuleDef;
   rowClass: string;
-  placement: "right-start" | "bottom-start";
+  placement: "right-start" | "top";
   /** Whether a pointer resting on the row opens the card. */
   dwell: boolean;
   /** Whether the row shows its label beside it — on the collapsed rail, while
@@ -410,14 +444,13 @@ function LockedRow(props: {
  *
  * - Wide container — a persistent vertical rail with a gold marker on the
  *   active module.
- * - Narrow container — a single trigger row naming the current module, opening
- *   a left-edge sheet. The sheet is a Kobalte dialog, so focus trapping,
- *   escape-to-close, background scroll lock, `aria-modal`, and focus restored
- *   to the trigger on close all come from the library.
- *
- * The previous narrow treatment was a horizontally scrolling strip: half the
- * modules sat off the right edge with nothing to say so. The sheet shows all
- * eight at once, each with its hint text.
+ * - Narrow container — a bar fixed to the foot of the screen, in reach of a
+ *   thumb: Overview, Guests, Events and Invite, then More. More opens every
+ *   module as a grid of tiles in a sheet that rises from the bar, all of them
+ *   on one screen with no scrolling. The sheet is a Kobalte dialog, so focus
+ *   trapping, escape-to-close, background scroll lock, `aria-modal`, and focus
+ *   restored to More on close all come from the library. When the open module
+ *   is not one of the bar's four, More wears its icon and name.
  *
  * Only one surface is laid out at a time — the other is `display: none`, so
  * assistive tech sees one nav, never a duplicate.
@@ -444,6 +477,20 @@ export default function ModuleSidebar(props: {
   onSelect: (module: Module) => void;
 }) {
   const [sheetOpen, setSheetOpen] = createSignal(false);
+  /** Whether the shell is below the rail breakpoint, so the bottom bar shows.
+   *  Starts true: the probe's first report lands after layout and before
+   *  paint, so a wide shell never paints the bar, and a test DOM with no
+   *  layout keeps it. */
+  const [narrow, setNarrow] = createSignal(true);
+  // Tells what lives outside the shell — a view's save bar, the toasts — that
+  // the bar holds the foot of the screen (`--foot-h` in `global.css`).
+  createEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.toggleAttribute("data-tab-bar", narrow());
+  });
+  onCleanup(() => {
+    if (typeof document !== "undefined") document.documentElement.removeAttribute("data-tab-bar");
+  });
   // Which locked module's offer is open, or null. One dialog for the whole nav:
   // every locked row would otherwise mount its own, and each would price itself
   // on open.
@@ -502,6 +549,14 @@ export default function ModuleSidebar(props: {
 
   const current = () => moduleDef(props.active);
 
+  /** The open module lives only in the menu, not on the bar: More then wears
+   *  its icon and name, so the bar still says where the host is. */
+  const inMenu = () => !(PHONE_TABS as readonly Module[]).includes(props.active);
+  /** More's visible word: the open module's name when the bar lacks it. Its
+   *  accessible name starts with this word, so a voice command that says what
+   *  it sees reaches it (WCAG 2.5.3). */
+  const moreWord = () => (inMenu() ? current().label : "More");
+
   /** The download a locked module's card offers this caller, if any. Read
    *  through a function so a role change reaches a row already rendered. */
   const lockedExport = (module: Module): LockedExportSpec | undefined =>
@@ -518,20 +573,23 @@ export default function ModuleSidebar(props: {
   };
 
   /**
-   * Close the sheet when the container grows past the rail breakpoint.
+   * Close the menu when the container grows past the rail breakpoint.
    *
    * The two surfaces swap by container query, so widening the shell hides the
-   * trigger with `display: none`. The sheet itself lives in a portal and would
-   * survive that, leaving a modal open with no way back to its trigger. A
+   * bottom bar with `display: none`. The menu itself lives in a portal and
+   * would survive that, leaving a modal open with no way back to its trigger. A
    * `ResizeObserver` reports a 0×0 box for a `display: none` element, which is
    * exactly the signal we want — and it reads the real container width rather
    * than duplicating the `@2xl` threshold in JS.
    */
-  const watchNarrowSurface = (el: HTMLDivElement) => {
+  const watchNarrowSurface = (el: HTMLElement) => {
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => {
       const box = entry?.contentRect;
-      if (box && box.width === 0 && box.height === 0) setSheetOpen(false);
+      if (!box) return;
+      const shown = box.width > 0 || box.height > 0;
+      setNarrow(shown);
+      if (!shown) setSheetOpen(false);
     });
     observer.observe(el);
     onCleanup(() => observer.disconnect());
@@ -707,120 +765,167 @@ export default function ModuleSidebar(props: {
         </nav>
       </div>
 
-      {/* ── Narrow container: trigger + sheet ──────────────────────────── */}
-      <div class="@2xl/shell:hidden" ref={watchNarrowSurface}>
-        {/* The dismiss haptic hangs off `onOpenChange` rather than off
-            `setSheetOpen`, which is exactly the split we want: escape, the
-            scrim and the close button all come through here, while picking a
-            module (which closes the sheet by setting the signal directly) stays
-            silent — a module switch is navigation, not a dismissal. */}
-        <Dialog
-          open={sheetOpen()}
-          onOpenChange={(open) => {
-            if (!open) haptic("dismiss");
-            setSheetOpen(open);
-          }}
-        >
-          <Dialog.Trigger
-            ref={sheetTrigger}
-            aria-label={`Open wedding navigation, currently ${current().label}`}
-            class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim text-ui-sm justify-between gap-3 border px-4 py-3`}
+      {/* ── Narrow container: bottom bar + module menu ─────────────────── */}
+      {/* The probe is what the shell's container query hides: a 1px box,
+          out of the flow, that is laid out only below the rail breakpoint.
+          The bar itself is portalled to <body>, because a `fixed` element
+          inside a `container-type` box pins to that box rather than to the
+          screen. The shell pads its own foot by the bar, so the last row of
+          a view is never under it. */}
+      <span
+        ref={watchNarrowSurface}
+        aria-hidden="true"
+        class="pointer-events-none invisible absolute size-px @2xl/shell:hidden"
+      />
+      <Show when={narrow()}>
+        <Portal>
+          <nav
+            aria-label="Main modules"
+            data-tab-bar=""
+            class="border-border bg-bg/95 fixed inset-x-0 bottom-0 z-30 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-md"
           >
-            <span class="flex min-w-0 items-center gap-3">
-              <ModuleIcon icon={current().icon} class="text-gold" />
-              <span class="min-w-0 truncate">{current().label}</span>
-            </span>
-            <span class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2">
-              <ModuleIcon icon={Menu} class="text-gold" />
-            </span>
-          </Dialog.Trigger>
-
-          <Dialog.Portal>
-            <Dialog.Overlay class="sheet-scrim bg-bg/80 fixed inset-0 z-40" />
-            {/* The dialog takes its accessible name from Dialog.Title below —
-                Kobalte wires the aria-labelledby — so it carries no aria-label
-                of its own. The name belongs on the element that owns the role. */}
-            <Dialog.Content class="sheet-panel border-border bg-surface fixed inset-y-0 left-0 z-50 flex w-[min(19rem,86vw)] flex-col border-r">
-              <div class="border-border flex items-center justify-between gap-4 border-b px-5 py-4">
-                <Dialog.Title class="font-display text-text text-ui-md leading-ui-none font-light">
-                  Wedding modules
-                </Dialog.Title>
-                <Dialog.CloseButton
-                  aria-label="Close modules"
-                  class={buttonClass({ variant: "bare", size: "icon" })}
-                >
-                  <span aria-hidden="true">✕</span>
-                </Dialog.CloseButton>
-              </div>
-
-              <nav
-                aria-label="Wedding modules"
-                class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3"
-              >
-                <For each={MODULE_NAV}>
-                  {(mod) => {
-                    const isActive = () => props.active === mod.id;
-                    const locked = () => isModuleLocked(mod.id, props.tier);
-                    const Body = () => (
-                      <>
-                        <ModuleIcon
-                          icon={mod.icon}
-                          class={isActive() ? "text-gold" : "text-gold-dim"}
-                        />
-                        <span class="flex min-w-0 flex-col gap-1">
-                          <span class={locked() ? "text-text-muted truncate" : "truncate"}>
-                            {mod.label}
-                          </span>
-                          <span class="text-text-muted text-ui-xs leading-ui-snug tracking-ui-normal normal-case">
-                            {mod.hint}
-                          </span>
-                        </span>
-                      </>
-                    );
-                    const sheetRow = `${rowBase} items-start gap-3 px-3 py-2.5 text-ui-sm`;
-                    // `Show` for the same reason as the rail above.
-                    return (
-                      <Show
-                        when={locked()}
-                        fallback={
-                          <button
-                            type="button"
-                            aria-current={isActive() ? "page" : undefined}
-                            onClick={() => select(mod.id)}
-                            class={`${sheetRow} ${isActive() ? rowActive : rowIdle}`}
-                          >
-                            <Body />
-                          </button>
-                        }
+            <ul class="mx-auto grid h-(--tabbar-h) max-w-lg grid-cols-5 px-1">
+              <For each={PHONE_TABS}>
+                {(id) => {
+                  const mod = moduleDef(id);
+                  const isActive = () => props.active === id;
+                  return (
+                    <li class="flex">
+                      <button
+                        type="button"
+                        aria-current={isActive() ? "page" : undefined}
+                        onClick={() => select(id)}
+                        class={`${tabBase} ${isActive() ? tabActive : tabIdle}`}
                       >
-                        <LockedRow
-                          mod={mod}
-                          placement="bottom-start"
-                          rowClass={`${sheetRow} ${rowLocked}`}
-                          dwell={false}
-                          weddingId={props.weddingId}
-                          weddingSlug={props.weddingSlug}
-                          lockedExport={lockedExport(mod.id)}
-                          onUpgrade={() => {
-                            // The sheet is a modal; leaving it open behind the
-                            // dialog would trap focus in the wrong layer. Its
-                            // rows go with it, so focus comes back to the
-                            // trigger that opens it.
-                            setSheetOpen(false);
-                            offerUpgrade(mod, sheetTrigger);
-                          }}
-                        >
-                          <Body />
-                        </LockedRow>
-                      </Show>
-                    );
+                        <span class={`${tabMark} ${isActive() ? "bg-gold/10" : ""}`}>
+                          <ModuleIcon icon={mod.icon} />
+                        </span>
+                        <span class="max-w-full truncate">{mod.label}</span>
+                      </button>
+                    </li>
+                  );
+                }}
+              </For>
+              <li class="flex">
+                {/* The dismiss haptic hangs off `onOpenChange` rather than off
+                  `setSheetOpen`: escape, the scrim and the close button all
+                  come through here, while picking a module (which closes the
+                  menu by setting the signal directly) stays silent — a module
+                  switch is navigation, not a dismissal. */}
+                <Dialog
+                  open={sheetOpen()}
+                  onOpenChange={(open) => {
+                    if (!open) haptic("dismiss");
+                    setSheetOpen(open);
                   }}
-                </For>
-              </nav>
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog>
-      </div>
+                >
+                  <Dialog.Trigger
+                    ref={sheetTrigger}
+                    aria-label={`${moreWord()}, open wedding navigation`}
+                    class={`${tabBase} ${inMenu() ? tabActive : sheetOpen() ? "text-gold-ink" : tabIdle}`}
+                  >
+                    <span class={`${tabMark} ${inMenu() ? "bg-gold/10" : ""}`}>
+                      <ModuleIcon icon={inMenu() ? current().icon : LayoutGrid} />
+                    </span>
+                    <span aria-hidden="true" class="max-w-full truncate">
+                      {moreWord()}
+                    </span>
+                  </Dialog.Trigger>
+
+                  <Dialog.Portal>
+                    <Dialog.Overlay class="sheet-scrim bg-ui-scrim fixed inset-0 z-40" />
+                    {/* The dialog takes its accessible name from Dialog.Title —
+                      Kobalte wires the aria-labelledby. */}
+                    <Dialog.Content class="sheet-rise border-border bg-surface-raised rounded-t-ui-sheet @container/menu fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[calc(100dvh-var(--chrome-h))] max-w-lg flex-col border-x border-t shadow-(--elev-2) outline-none">
+                      <div class="flex items-center justify-between gap-4 px-5 pt-4 pb-2">
+                        <Dialog.Title class="font-display text-text text-ui-md leading-ui-tight font-light">
+                          Wedding modules
+                        </Dialog.Title>
+                        <Dialog.CloseButton
+                          aria-label="Close modules"
+                          class={buttonClass({ variant: "bare", size: "icon" })}
+                        >
+                          <X aria-hidden="true" strokeWidth={1.75} class="size-4" />
+                        </Dialog.CloseButton>
+                      </div>
+
+                      <nav
+                        aria-label="All wedding modules"
+                        class="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]"
+                      >
+                        <ul class="grid grid-cols-3 gap-2 @md/menu:grid-cols-4">
+                          <For each={MODULE_NAV}>
+                            {(mod) => {
+                              const isActive = () => props.active === mod.id;
+                              const locked = () => isModuleLocked(mod.id, props.tier);
+                              const Body = () => (
+                                <>
+                                  <Show when={locked()}>
+                                    <Lock
+                                      aria-hidden="true"
+                                      strokeWidth={1.75}
+                                      class="absolute top-2 right-2 size-3"
+                                    />
+                                  </Show>
+                                  <ModuleIcon
+                                    icon={mod.icon}
+                                    class={
+                                      isActive() ? "text-gold" : locked() ? "" : "text-gold-dim"
+                                    }
+                                  />
+                                  <span class={locked() ? "text-text-muted" : ""}>{mod.label}</span>
+                                </>
+                              );
+                              // `Show` for the same reason as the rail above.
+                              return (
+                                <li class="flex">
+                                  <Show
+                                    when={locked()}
+                                    fallback={
+                                      <button
+                                        type="button"
+                                        aria-current={isActive() ? "page" : undefined}
+                                        onClick={() => select(mod.id)}
+                                        class={`${menuTile} ${isActive() ? menuTileActive : menuTileIdle}`}
+                                      >
+                                        <Body />
+                                      </button>
+                                    }
+                                  >
+                                    <LockedRow
+                                      mod={mod}
+                                      placement="top"
+                                      rowClass={`${menuTile} ${menuTileLocked}`}
+                                      dwell={false}
+                                      weddingId={props.weddingId}
+                                      weddingSlug={props.weddingSlug}
+                                      lockedExport={lockedExport(mod.id)}
+                                      onUpgrade={() => {
+                                        // The menu is a modal; leaving it open behind
+                                        // the dialog would trap focus in the wrong
+                                        // layer. Its tiles go with it, so focus comes
+                                        // back to the bar's More tab.
+                                        setSheetOpen(false);
+                                        offerUpgrade(mod, sheetTrigger);
+                                      }}
+                                    >
+                                      <Body />
+                                    </LockedRow>
+                                  </Show>
+                                </li>
+                              );
+                            }}
+                          </For>
+                        </ul>
+                      </nav>
+                    </Dialog.Content>
+                  </Dialog.Portal>
+                </Dialog>
+              </li>
+            </ul>
+          </nav>
+        </Portal>
+      </Show>
 
       {/* One dialog for the whole nav, driven by which row asked for it.
           Mounted per offer: closing clears `upgrading`, so every open starts

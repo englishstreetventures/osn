@@ -66,12 +66,13 @@ describe("module icons", () => {
     }
   });
 
-  it("draws the sheet trigger's icons at the same size on a phone", () => {
-    const { container } = mountAt(375);
-    const trigger = container.querySelector("button[aria-label^='Open wedding navigation']")!;
-    const icons = [...trigger.querySelectorAll("svg")];
-    // The current module's icon and the menu mark beside it.
-    expect(icons).toHaveLength(2);
+  it("draws the bottom bar's icons at the same size on a phone", () => {
+    mountAt(375);
+    // Portalled to <body>, out of the mounted container.
+    const bar = document.querySelector("nav[aria-label='Main modules']")!;
+    const icons = [...bar.querySelectorAll("svg")];
+    // Four modules and More.
+    expect(icons).toHaveLength(5);
     for (const icon of icons) {
       const box = icon.getBoundingClientRect();
       expect(box.width).toBe(18);

@@ -135,18 +135,25 @@ async function choosePlace(page: Page, name: RegExp): Promise<void> {
   await page.getByRole("menuitemradio", { name }).click();
 }
 
-/** The frame lies under the view bar, across it, to the window's foot. */
+/**
+ * The frame lies under the view bar, across it, down to the foot: the top of
+ * the phone's bottom bar when that shows, which the frame stands on so the
+ * modules stay in reach, or the window's foot when it does not.
+ */
 async function frameUnderBar(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const frame = document.querySelector("[data-preview-frame]")?.getBoundingClientRect();
     const bar = document.querySelector("[data-view-bar]")?.getBoundingClientRect();
     if (!frame || !bar) return false;
+    const foot =
+      document.querySelector("nav[data-tab-bar]")?.getBoundingClientRect().top ??
+      window.innerHeight;
     const near = (a: number, b: number) => Math.abs(a - b) <= 1;
     return (
       near(frame.top, bar.bottom) &&
       near(frame.left, bar.left) &&
       near(frame.width, bar.width) &&
-      near(frame.bottom, window.innerHeight)
+      near(frame.bottom, foot)
     );
   });
 }
@@ -319,7 +326,9 @@ export async function builderPreviewWave(
         const barFoot = await page.evaluate(
           () => document.querySelector("[data-view-bar]")!.getBoundingClientRect().bottom,
         );
-        await page.evaluate(() => window.scrollBy(0, 120));
+        // Up when the page has scrolled, where the view bar is stuck under
+        // the top bar and only a move up can free it; down from the top.
+        await page.evaluate(() => window.scrollBy(0, window.scrollY > 0 ? -120 : 120));
         await page.waitForFunction(
           (was) =>
             document.querySelector("[data-view-bar]")!.getBoundingClientRect().bottom !== was,

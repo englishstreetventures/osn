@@ -248,7 +248,7 @@ describe("on the rail", () => {
 
 describe("in the sheet", () => {
   const sheet = () => screen.getByRole("dialog", { name: "Wedding modules" });
-  const sheetTrigger = () => screen.getByRole("button", { name: /Open wedding navigation/ });
+  const sheetTrigger = () => screen.getByRole("button", { name: /open wedding navigation$/ });
   const lockedRow = (label: string) =>
     within(sheet()).getByRole("button", { name: new RegExp(`^${label} — locked`) });
 

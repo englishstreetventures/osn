@@ -54,7 +54,7 @@ export interface ModuleDef {
  *  module, not hidden here.
  *
  *  This lives in `lib/` rather than in the sidebar because four surfaces now
- *  read it — the rail, the narrow sheet, the command palette and the Overview
+ *  read it — the rail, the phone's bar and menu, the command palette and the Overview
  *  cards — and a module that exists in one but not the others is a bug nobody
  *  notices. */
 export const MODULE_NAV: ModuleDef[] = [

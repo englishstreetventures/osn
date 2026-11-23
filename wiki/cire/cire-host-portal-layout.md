@@ -18,7 +18,7 @@ and because getting it wrong is visible on every screen the portal is used on.
 
 Two rules cover almost every case:
 
-1. **A container query when the layout changes *shape*** — rail or sheet, one
+1. **A container query when the layout changes *shape*** — rail or bottom bar, one
    column or two, agenda above the stats or beside them.
 2. **An intrinsic value when it only needs to *scale*** — page gutters, card
    counts, field counts.
@@ -129,7 +129,7 @@ That guard is the one CSS-layer risk here that *is* mechanically checkable.
 |---|---|---|
 | `frame` | document wrapper (`index.astro`) | masthead/main vertical rhythm |
 | `page` | `OrganiserApp`'s root | views outside the module shell |
-| `shell` | `ModuleShell`'s root | rail vs sheet, shell gap, rail width |
+| `shell` | `ModuleShell`'s root | rail vs bottom bar, shell gap, rail width, the shell's foot padding |
 | `panel` | the module panel | per-module layout switches |
 | `builder` | the invite-builder card | form-only vs form + preview pane |
 | `card` | an event card | the card's own details grid |
@@ -142,8 +142,8 @@ component was previously reading a container it did not live in.
 
 ## Layout switches worth knowing
 
-- **Module rail** (`ModuleSidebar`) — `@2xl/shell` swaps the sheet trigger for the
-  rail, and the rail is `sticky self-start` from the same threshold, at
+- **Module rail** (`ModuleSidebar`) — `@2xl/shell` swaps the phone's bottom bar for
+  the rail, and the rail is `sticky self-start` from the same threshold, at
   `top-[calc(var(--chrome-h)+1.5rem)]`: under the page's sticky top bar, whose
   height is `--chrome-h`, plus 1.5rem of air.
   A smaller offset slides the rail's top rows under the bar once the page
@@ -159,14 +159,14 @@ component was previously reading a container it did not live in.
   once. Collapsed, an icon is all a row shows, so it drops its 80% fade and the
   active one turns `gold-ink`, to read at 3:1. The browser keeps the choice in `localStorage`
   (`cire.host.rail`, `src/lib/rail-preference.ts`), read as the sidebar is
-  created so a collapsed page never slides on load; the sheet ignores it.
+  created so a collapsed page never slides on load; the phone ignores it.
   Collapsed, a row keeps its label as its accessible name — in flow at no
   width, because `sr-only` would drop the label's line box and every row below
   would rise — and shows it, with the module's hint, in a Kobalte tooltip on
   hover after 300ms or at once on keyboard focus. `cire/host/DESIGN.md` §5 The
   rail, collapsed holds the design and its trade-offs.
   A row for a module the wedding's tier does not include stays on both the rail
-  and the sheet, faded to `text-text-faint` and inert: it navigates nowhere, and
+  and the phone's module menu, faded to `text-text-faint` and inert: it navigates nowhere, and
   a press — click, tap, Enter or Space — opens a card (a Kobalte `Popover`)
   naming the tier that includes it — "Included with Gold", in `gold-ink` because
   it is small text that has to be read — with an **Upgrade to Gold** button.
@@ -175,12 +175,12 @@ component was previously reading a container it did not live in.
   on the row. On the expanded rail only, a pointer resting on the row for three
   seconds also opens the card, as a preview that takes no focus and closes once
   the pointer has left the row and the card; once focus goes into it, it stays.
-  The sheet has no dwell, because an open card stands down the sheet's focus
+  The menu has no dwell, because an open card stands down the menu's focus
   trap, and neither does the collapsed rail, whose tooltip already names the
   tier; there a press opens the card and a second press on the same row closes
   it, and no tooltip shows while a card is open.
-  The card portals out on both surfaces, because the sheet's nav scrolls and
-  would clip it, so `LockedRow` puts it back in the tab order by hand: Tab on
+  The card portals out on both surfaces, because the menu is a modal of its
+  own and the rail's nav holds only rows, so `LockedRow` puts it back in the tab order by hand: Tab on
   the open row enters the card, Shift+Tab from its first button returns to the
   row, and Tab from its last button moves on to the next row. That last step
   needs a locked row never to be the nav's last, which holds while Invite and
@@ -204,14 +204,26 @@ component was previously reading a container it did not live in.
   is pinned in real Chromium by
   [`ModuleSidebar.keyboard.browser.test.tsx`](../../cire/host/tests/components/ModuleSidebar.keyboard.browser.test.tsx).
   See [[cire-entitlements]] and [[cire-upgrades]].
+- **Phone bottom bar** (`ModuleSidebar`) — below `@2xl/shell`, Overview, Guests,
+  Events, Invite and More sit in a bar fixed to the foot of the screen; More
+  opens every module as a grid of tiles in a sheet that rises from the bar, on
+  one screen, with no scrolling. The bar is portalled to `<body>`, since a
+  `fixed` element inside a `container-type` box pins to that box: a 1px probe
+  the shell's container query hides decides whether it mounts. While it shows,
+  `<html>` carries `data-tab-bar` and `--foot-h` is the bar's height plus the
+  safe-area inset (0 today: the viewport meta has no `viewport-fit=cover`);
+  the editors' save bars, the invite builder's narrow preview and the toasts
+  stand at `bottom: var(--foot-h)`, and the shell pads its foot
+  by the same. `cire/host/DESIGN.md` §5 The bar at the foot, on a phone holds
+  the design.
 - **Module icons** — every mark for a module is an inline SVG. All but one
   come from `lucide-solid`, imported one icon at a time
   (`lucide-solid/icons/<name>`) so only the icons in use ship. Overview's is
   `NestedDiamondIcon`, the portal's original `◈` redrawn on lucide's 24-unit
   grid and stroke, because lucide has no nested diamond; it takes lucide's
   props, so nothing downstream treats it differently. `MODULE_NAV` (`src/lib/module-nav.ts`) holds each
-  module's icon, and every surface that marks a module — the rail, the sheet and
-  its trigger, the command palette, Overview's agenda — draws it through
+  module's icon, and every surface that marks a module — the rail, the phone's bar and
+  menu, the command palette, Overview's agenda — draws it through
   `ModuleIcon`, which sets the size (`size-icon`, from `--size-icon: 1.125rem` in
   `global.css`), a 1.75 stroke and `aria-hidden`; the row's own text carries the
   meaning. The size is fixed in `rem` rather than `em`, since every one of those
@@ -738,7 +750,7 @@ writes are over.
 
 happy-dom does not evaluate container queries, so both surfaces of a two-surface
 component are in the DOM during tests and neither is hidden. Scope queries to the
-landmark you mean (the nav tests do this for the rail vs the sheet, the
+landmark you mean (the nav tests do this for the rail vs the module menu, the
 checklist/budget tests for each bucket or category `<section>`) rather than
 asserting on visibility. Do not assert on class strings.
 
@@ -762,7 +774,7 @@ What that leaves testable, and where it lives:
 | Master-detail behaviour: draft-per-enquiry, no cross-thread messages, placeholder, `aria-current` cardinality, post-reply refresh | `EnquiriesView.test.tsx`, `EnquiryInbox.test.tsx` |
 | Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
 | The RSVP view's event tabs (in the view bar beside the shell's sub-tabs, ids apart, keys, a strip of twelve), sort heads, the head row stuck under the bar, and the stacked rows on a phone | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
-| The collapsed rail: icons and toggle that do not move, collapsed icons at 3:1 and the tooltip's text at 4.5:1 in both themes, the tooltip's place and stacking, labels only on the collapsed rail, Chrome's names and descriptions, labels kept off a locked row's card and no dwell, the label fade only after a press, the slide only on a press, reduced motion, and the sheet ignoring the choice at 390 | `ModuleSidebar.collapse.browser.test.tsx`, real Chromium, real `ModuleShell`; clears `cire.host.rail` before and after each test, since the browser context is shared across files. Its frame-time measurement runs only with `VITE_RAIL_SLIDE_BENCH=1`. The toggle, the stored choice across a reload, a locked card opened and closed from the narrow rail and the rail sticking below the real top bar are in the `cire-checklist-starter` E2E flow |
+| The collapsed rail: icons and toggle that do not move, collapsed icons at 3:1 and the tooltip's text at 4.5:1 in both themes, the tooltip's place and stacking, labels only on the collapsed rail, Chrome's names and descriptions, labels kept off a locked row's card and no dwell, the label fade only after a press, the slide only on a press, reduced motion, and the phone's menu ignoring the choice at 390; the phone's bottom bar absent at 1280 with `--foot-h` at 0px, at 390 a fixed box at `bottom: var(--foot-h)` and a toast region standing on its top, and an open menu closed by widening past the rail breakpoint | `ModuleSidebar.collapse.browser.test.tsx`, real Chromium, real `ModuleShell`; clears `cire.host.rail` before and after each test, since the browser context is shared across files. Its frame-time measurement runs only with `VITE_RAIL_SLIDE_BENCH=1`. The toggle, the stored choice across a reload, a locked card opened and closed from the narrow rail and the rail sticking below the real top bar are in the `cire-checklist-starter` E2E flow |
 | The stuck stack on every Guests tab at 1280 and 390, under the real `TopBar`: layers meeting to the pixel inside the height limits, the household bar on screen, searches, reply filters, sorts, event and sub-tab changes landing at the stack's foot, the panel's hold letting go, `--bar-h` ahead of the bar's slide and gone with the bar, focus kept clear, an invite-message link's heading on screen, no sideways scroll on a phone, each view's narrow line, the invite builder's two tiers in the bar (one row at 1280, two at 1024, the phone's pill and menu at 390), one tooltip and no per-household popup | `GuestsStack.browser.test.tsx`, 300 households in the real `ModuleShell`; a pass or fail per check in `cire/host/.vitest/guests-stack/results.json` |
 | The arriving view's fade in the module panel: the first view not fading, a sub-tab press under the stuck bar, a module change to a view with no `Suspense`, the `Suspense` hand-off, the run sheet's day replacing its own loading row at once, reduced motion, the invite builder not re-faded, and the Guests and Events editors' save bars outside the fade | `ModuleShell.view-arrive.browser.test.tsx`, real Chromium, real `ModuleShell` under the real `TopBar`; a pass or fail per check in `cire/host/.vitest/view-arrive/results.json`, and pictures of a sub-tab press at 390 and 1280 in light and dark in `e2e-artifacts/cire-host/view-arrive/` |
 | The page's one tooltip: hover after its delay, the skip window, never for a touch or a tap, keyboard focus at once, closed by Escape, activation, a press, leaving or blur, gone with its control, in `<body>` over a sticky bar, `TipNote`'s hidden text, and the scale-in on a delayed open only | `ActionTip.browser.test.tsx`, real Chromium |

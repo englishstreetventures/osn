@@ -294,9 +294,24 @@
  */
 :root {
   --chrome-h: calc(3.5rem + 1px);
+  /* The phone's bottom bar, without the safe-area inset under it. */
+  --tabbar-h: 4rem;
+  /* What the bar takes from the foot of the screen: nothing while the rail
+     shows, the bar and the inset under it while the bar does. A save bar and
+     the toasts stand on it. */
+  --foot-h: 0px;
   --hh-bar-h: 2.75rem;
   --card-head-h: 2.75rem;
   --head-strip-h: 2.125rem;
+}
+
+:root[data-tab-bar] {
+  --foot-h: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+}
+
+/* The toasts stand on the bottom bar rather than under it. */
+:root .ui-toaster--bottom-right {
+  bottom: var(--foot-h);
 }
 
 @container frame (min-width: 42rem) {
@@ -808,44 +823,34 @@
 }
 
 /* ── Nav sheet motion ───────────────────────────────────────────────────────
- * The mobile module sheet is a Kobalte dialog. Kobalte keeps a closing dialog
- * mounted until its *animation* ends (not its transition), so the enter/exit
- * pair below is keyframes rather than a transition. Both are suppressed by the
- * reduced-motion block above, which leaves the sheet appearing instantly.
+ * The phone's module menu is a Kobalte dialog that rises from the bottom bar.
+ * Kobalte keeps a closing dialog mounted until its *animation* ends (not its
+ * transition), so the enter/exit pair below is keyframes rather than a
+ * transition. It enters on `--ease-out` over `--dur-slow`, and leaves faster
+ * on `--ease-in-out`, the way something put away goes. The reduced-motion
+ * block above zeroes both, and the menu appears and goes at once.
  */
 @keyframes sheet-scrim-in {
   from {
     opacity: 0;
   }
-  to {
-    opacity: 1;
-  }
 }
 
 @keyframes sheet-scrim-out {
-  from {
-    opacity: 1;
-  }
   to {
     opacity: 0;
   }
 }
 
-@keyframes sheet-panel-in {
+@keyframes sheet-rise-in {
   from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
+    transform: translateY(100%);
   }
 }
 
-@keyframes sheet-panel-out {
-  from {
-    transform: translateX(0);
-  }
+@keyframes sheet-rise-out {
   to {
-    transform: translateX(-100%);
+    transform: translateY(100%);
   }
 }
 
@@ -858,12 +863,12 @@
   }
 }
 
-@utility sheet-panel {
+@utility sheet-rise {
   &[data-expanded] {
-    animation: sheet-panel-in var(--dur-slow) var(--ease-out);
+    animation: sheet-rise-in var(--dur-slow) var(--ease-out);
   }
   &[data-closed] {
-    animation: sheet-panel-out var(--dur-base) var(--ease-in-out);
+    animation: sheet-rise-out var(--dur-base) var(--ease-in-out);
   }
 }
 
