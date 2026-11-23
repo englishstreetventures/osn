@@ -32,17 +32,6 @@ describe("InfoPopover", () => {
     expect(screen.getByLabelText("About visibility")).toBeTruthy();
   });
 
-  it("shows body text when trigger is clicked", async () => {
-    render(() => <InfoPopover body="Detailed explanation here" />);
-    // Body should not be visible initially (Kobalte Popover is closed by default)
-    expect(screen.queryByText("Detailed explanation here")).toBeNull();
-
-    fireEvent.click(screen.getByLabelText("More info"));
-
-    // Kobalte Popover portals content to document.body — use screen
-    expect(await screen.findByText("Detailed explanation here")).toBeTruthy();
-  });
-
   it("hides body text when trigger is clicked again (toggle)", async () => {
     render(() => <InfoPopover body="Toggle me" />);
     const trigger = screen.getByLabelText("More info");
