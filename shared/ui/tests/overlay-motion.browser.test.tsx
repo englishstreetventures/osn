@@ -299,6 +299,7 @@ describe("an overlay's scale", () => {
     it(`${overlay.name}: enters from --ui-scale-enter, not a number of its own`, async () => {
       oddScales();
       const { enter } = await cycle(overlay);
+      expect(enter, "no entry animation").toBeDefined();
       expect(enter!.enterScale).toBe("0.5");
     });
   }
