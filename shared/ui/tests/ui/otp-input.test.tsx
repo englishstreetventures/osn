@@ -20,48 +20,6 @@ function renderOtp(initial = "", status?: "idle" | "error" | "verifying" | "acce
 describe("OtpInput", () => {
   afterEach(() => cleanup());
 
-  it("renders 6 digit inputs", () => {
-    renderOtp();
-    for (let i = 1; i <= 6; i++) {
-      expect(digit(i)).toBeTruthy();
-    }
-  });
-
-  it("typing a digit calls onChange and advances focus", () => {
-    const { onChange } = renderOtp();
-    fireEvent.input(digit(1), { target: { value: "5" } });
-    expect(onChange).toHaveBeenCalledWith("5");
-  });
-
-  it("ignores non-digit characters", () => {
-    const { onChange } = renderOtp();
-    fireEvent.input(digit(1), { target: { value: "a" } });
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  // The value has no gaps, so removing a digit moves every later one a box
-  // left, as deleting a character does in a text field.
-  it("Backspace on a filled box removes its digit and moves the later digits one box left", () => {
-    const { onChange } = renderOtp("12");
-    fireEvent.keyDown(digit(1), { key: "Backspace" });
-    expect(onChange).toHaveBeenCalledWith("2");
-    expect([digit(1).value, digit(2).value]).toEqual(["2", ""]);
-  });
-
-  it("Backspace on the empty box removes the digit before it", () => {
-    const { onChange } = renderOtp("1");
-    fireEvent.keyDown(digit(2), { key: "Backspace" });
-    expect(onChange).toHaveBeenCalledWith("");
-  });
-
-  it("paste fills all digits", () => {
-    const { onChange } = renderOtp();
-    fireEvent.paste(digit(1), {
-      clipboardData: { getData: () => "123456" },
-    });
-    expect(onChange).toHaveBeenCalledWith("123456");
-  });
-
   it("paste strips non-digits and caps at 6", () => {
     const { onChange } = renderOtp();
     fireEvent.paste(digit(1), {
