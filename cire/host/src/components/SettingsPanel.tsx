@@ -180,19 +180,23 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   onCleanup(() => {
     gone = true;
   });
+  /** Read the profile and seed the form from that read. A write that lands
+   *  while the read is out drops it; read once more, unless the panel has
+   *  closed meanwhile. */
+  async function load(retried = false): Promise<void> {
+    invalidateSettings(props.weddingId);
+    if (await ensureSettingsLoaded(props.weddingId, read)) {
+      const profile = settingsAccessor(props.weddingId)();
+      if (profile) seed(profile);
+      return;
+    }
+    if (gone) return;
+    if (!retried) return load(true);
+    setLoadError("Could not load the wedding profile. Is the API running?");
+  }
   onMount(async () => {
     try {
-      // A write that lands while the read is out drops it; read once more,
-      // unless the panel has closed meanwhile.
-      for (let attempt = 0; attempt < 2 && !gone; attempt++) {
-        invalidateSettings(props.weddingId);
-        if (await ensureSettingsLoaded(props.weddingId, read)) {
-          const profile = settingsAccessor(props.weddingId)();
-          if (profile) seed(profile);
-          return;
-        }
-      }
-      if (!gone) setLoadError("Could not load the wedding profile. Is the API running?");
+      await load();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       // A refused read names its status; anything else is the API out of reach.
