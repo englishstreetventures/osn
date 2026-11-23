@@ -35,9 +35,12 @@ GitHub's GraphQL limit, 5,000 points an hour, is shared by every agent on the ac
 gh api orgs/englishstreetventures/projectsV2/1/fields \
   --jq '.[] | select(.name=="Status") | {id, options: [.options[] | {id, name: .name.raw}]}'
 gh api --paginate --slurp -X GET orgs/englishstreetventures/projectsV2/1/items -f per_page=100 \
-  -f fields=<Status field id> -f q='status:"In Review","In Progress","Up Next"' > /tmp/board-raw.json
+  -f fields=<Status field id>,449016881,449016914 \
+  -f q='status:"In Review","In Progress","Up Next"' > /tmp/board-raw.json
 jq '[add[] | {item: .id, repo: (.content.repository_url | split("/") | last), n: .content.number,
   status: ([.fields[] | select(.name=="Status") | .value.name.raw][0]),
+  heldBy: ([.fields[] | select(.name=="Held by") | .value.raw][0]),
+  lastTouched: ([.fields[] | select(.name=="Last touched") | .value][0] // "" | .[0:10]),
   labels: [.content.labels[].name], title: .content.title, body: .content.body}]' \
   /tmp/board-raw.json > /tmp/board.json
 gh api 'repos/englishstreetventures/osn/pulls?state=open&per_page=100' \
@@ -46,7 +49,8 @@ gh api 'repos/englishstreetventures/osn/pulls?state=open&per_page=100' \
 
 - The owner is `englishstreetventures`.
 - `--paginate` follows every page. The GraphQL way, `gh project item-list`, returns 30 items by default and truncates at `--limit` without a warning: it needs `--limit 2000` and `.items|length` equal to `.totalCount`.
-- `/tmp/board.json` holds each item's REST id (`item`), status, labels, title and body, and `/tmp/open-prs.json` every open PR. Triage works from these two files; §Claim is the one deliberate second read.
+- `449016881` and `449016914` are the **Held by** and **Last touched** fields (§Claim step 2).
+- `/tmp/board.json` holds each item's REST id (`item`), status, holder, last-touched date, labels, title and body, and `/tmp/open-prs.json` every open PR. Triage works from these two files; §Claim is the one deliberate second read.
 - Standing owner rules at the top of `ORCHESTRATE.md` (scope, products to skip) still apply. Ask about any that looks out of date rather than dropping it.
 - The board mixes `englishstreetventures/osn` with the private `englishstreetventures/osn-tracker`, and numbers repeat across the two. Write every item as `osn#N` or `osn-tracker#N`, and use the item's `repo` in every call.
 
@@ -66,12 +70,12 @@ Record CI red (the job and its decisive line), CI never started (the last comman
 
 ## Step 3 — In Progress: hands off
 
-Another session holds each of these. Never dispatch onto one and never move one. Mark each live or stale:
+Another session holds each of these. Never dispatch onto one and never move one. Report each card's **Held by** and **Last touched** (`jq '.[] | select(.status=="In Progress") | "\(.repo)#\(.n) \(.heldBy // "no holder") \(.lastTouched)"' /tmp/board.json`), and mark it live or stale:
 
-- **Live**: an open PR refers to it, or a worktree (`git -C /Users/ac/.work/osn.git worktree list`) or an open task in `ORCHESTRATE.md` names it.
-- **Stale**: the issue is closed, or its PR merged and the card did not move; or there is no PR, no worktree and no open task.
+- **Live**: an open PR refers to it, or a worktree (`git -C /Users/ac/.work/osn.git worktree list`) or an open task in `ORCHESTRATE.md` names it, or its Last touched is within three days.
+- **Stale**: the issue is closed, or its PR merged and the card did not move; or it has no Held by; or its Last touched is more than three days old and no PR is open for it.
 
-A stale card is a question: release it to Up Next? Only the owner releases another session's claim.
+The owner runs sessions under several Claude accounts, and no account can see another's sessions, so Held by is often the only sign of who has a card: name it in the question. A stale card is a question: release it to Up Next? Only the owner releases another session's claim.
 
 ## Step 4 — Up Next: read every item
 
@@ -121,12 +125,19 @@ gh api repos/englishstreetventures/<repo>/issues/<n>/dependencies/blocked_by --j
 
 An open blocker sends the task back to the Queue. The issue is held when it, its parent or an open sub-issue is in the first list, or an open PR refers to it. A reference is not always a claim, since a PR also names the issues it opened, so read each PR before believing it. A tracker fix's PR often names nothing, which leaves the Status as the whole claim. Held: skip it and say why. Any other failed call (the parent's 404 aside) means the answer is unknown: do not claim and do not dispatch. No status at all means unclaimed.
 
-**2. Write it**, with the item's REST id from `/tmp/board.json`:
+**2. Write it**, with the item's REST id from `/tmp/board.json`. One write sets the Status, **Held by** (field `449016881`, text) and **Last touched** (field `449016914`, date):
 
 ```bash
-gh api -X PATCH orgs/englishstreetventures/projectsV2/1/items/<item> \
-  -F 'fields[][id]=<Status field id>' -f 'fields[][value]=<In Progress option id>'
+held="${CLAUDE_ACCOUNT:-unknown} · $(hostname -s) · $(basename "$PWD") · $(date +%F)"   # REMOTE: cloud for the worktree
+jq -n --arg h "$held" --arg d "$(date +%F)" \
+  '{fields: [{id: <Status field id>, value: "<In Progress option id>"}, {id: 449016881, value: $h}, {id: 449016914, value: $d}]}' \
+  > /tmp/claim.json
+gh api -X PATCH orgs/englishstreetventures/projectsV2/1/items/<item> --input /tmp/claim.json
 ```
+
+- `CLAUDE_ACCOUNT` names the Claude account: `admin`, `aniket` or `personal`, set in that account's `settings.json` `env` block. A session reads it when it starts, so one without it writes `unknown`; never leave the field empty, which reads as no claim.
+- `$(basename "$PWD")` is the worktree's directory, so run this from inside the worktree; `orchestrate` claims before it cuts one, so it writes the directory it is about to add.
+- The body goes through `--input` because `gh api` mangles repeated `-F 'fields[][id]=…'` pairs into a 422 ("object is missing required key: id") as soon as there are two fields.
 
 An item outside the snapshot, such as a child of an epic, needs its id from GraphQL (one point):
 
@@ -142,9 +153,9 @@ gh api graphql -f query='{repository(owner:"englishstreetventures",name:"<repo>"
 
 Taking an epic claims every child it will build.
 
-**3. Record it**, with the card's Status from before the write: `claimed: <repo>#<n> item <item> from <Status name> <option id>` in the task's block in `ORCHESTRATE.md`, or, for a session `orchestrate` did not dispatch (its brief has no `CLAIMED:`), `Claimed: <repo>#<n> item <item> from <Status name> <option id>` under the `Issue:` line of `NEW-FEAT.md`. The board says an issue is held, not by whom; that line is how a run knows its own claims after a compaction, and what step 5 puts back.
+**3. Record it**, with the card's Status from before the write: `claimed: <repo>#<n> item <item> from <Status name> <option id>` in the task's block in `ORCHESTRATE.md`, or, for a session `orchestrate` did not dispatch (its brief has no `CLAIMED:`), `Claimed: <repo>#<n> item <item> from <Status name> <option id>` under the `Issue:` line of `NEW-FEAT.md`, each followed by `held "<the Held by value>"`. Held by tells the owner and other accounts who has the card; the line is how this run knows its own claims after a compaction, and what step 5 puts back.
 
-**4. Move it on.** PR opened → In Review, with the same `PATCH`. Task dropped → step 5, with the reason in `ORCHESTRATE.md`. Parked until a limit resets → it stays In Progress, and `next:` says why. Never set Done: merging closes the issue, and the board moves a closed issue's card.
+**4. Move it on.** PR opened → In Review, with the same `PATCH`, its body the Status and a fresh Last touched. A session still building more than a day after its claim sets Last touched again at each push, so step 3 does not read it as stale. Task dropped → step 5, with the reason in `ORCHESTRATE.md`. Parked until a limit resets → it stays In Progress, and `next:` says why. Never set Done: merging closes the issue, and the board moves a closed issue's card.
 
 **5. Release it.** A claim ends in one of two ways: the merge closes the issue, or the session puts the card back. A merge closes only the issues its `Closes` lines name, so an issue the pull request only touched (`Part of`), an epic, a tracker close the classifier refused and a dropped task all stay In Progress with no session working on them, and step 1 then refuses them to the next session. When a pull request merges, is dropped or is parked, read each issue **this task or session** claimed (its `claimed:` or `Claimed:` lines, no one else's):
 
@@ -156,7 +167,7 @@ Then read the card's current Status with step 2's query. Touch the card only whi
 
 - `closed`: nothing to do.
 - Open, and a pull request is open for it, this session's draft included: In Review.
-- Open and no pull request is open: put it back, with step 2's `PATCH` and the option id on the claim line (`from <Status name> <option id>`), and not the In Progress option id. A card that had no Status goes to Up Next. Write no comment.
+- Open and no pull request is open: put it back, with step 2's `PATCH` and the option id on the claim line (`from <Status name> <option id>`), and not the In Progress option id. The same body sets Held by to `null`, which clears it (an empty string is refused with HTTP 400), and Last touched to today. A card that had no Status goes to Up Next. Write no comment.
 - Parked until a limit resets: it stays In Progress, and `next:` says why.
 
 Then print the reminder to the owner, one line per issue taken and what became of it. `orchestrate` prints it after each merge, not only at the end; a session without `orchestrate` prints it when the owner says the pull request has merged:
@@ -167,7 +178,7 @@ osn#2364 — Musubi sign-up: turn on the browser email verification path in prod
 osn#2089 — OSN docs: record the browser Email Verification API's status — open, put back in Backlog (the pull request only touched it)
 ```
 
-The claim is the Status, not an assignee: every session runs as the same GitHub user, and `new-feat` and the owner already read the board by Status.
+The claim is the Status, and Held by says whose it is, not an assignee: every session runs as the same GitHub user, under any of the owner's Claude accounts, and `new-feat` and the owner already read the board by Status.
 
 ## Common mistakes
 
@@ -176,6 +187,8 @@ The claim is the Status, not an assignee: every session runs as the same GitHub 
 | Counting only the new batch against capacity | Running tasks and In Review fixes count too; about three in all |
 | Two items that edit one file run in parallel, "the second one rebases" | One PR, or one after the other |
 | `gh issue edit --add-assignee @me` as the claim | The Status; an assignee cannot tell sessions apart |
+| A claim that sets the Status and leaves Held by empty | One `--input` body with all three fields (§Claim step 2); `unknown` when `CLAUDE_ACCOUNT` is unset |
+| Repeated `-F 'fields[][id]=…'` pairs, or `""` to clear Held by | A JSON body through `--input`; `null` clears a field |
 | Moving another session's In Progress card | A question to the owner |
 | A claimed issue left In Progress after its pull request merged | Step 5 |
 | An issue number without its repository | `osn#N` or `osn-tracker#N`; the numbers repeat |

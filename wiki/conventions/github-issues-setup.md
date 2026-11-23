@@ -5,7 +5,7 @@ related:
   - "[[review-findings]]"
   - "[[agent-tooling]]"
   - "[[index]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-24
 ---
 
 # GitHub Issues setup
@@ -183,13 +183,38 @@ owner reads the board by it. The check and the commands are in
 run it. Nobody sets Done by hand: merging closes the issue, and a closed issue's
 card moves to Done.
 
-The other two fields don't exist yet, so they are ordinary creates:
+**Held by and Last touched say whose claim it is.** The owner runs sessions
+under three Claude accounts, and no account can see another's sessions, so the
+Status alone cannot say which session holds a card. The same write that sets
+In Progress sets both:
+
+| Field | Id | Type | Value |
+|---|---|---|---|
+| Held by | `449016881` | text | `<account> · <machine> · <worktree> · <YYYY-MM-DD>`, for example `personal · MacBook-Pro · board-claim-holder · 2026-11-24` |
+| Last touched | `449016914` | date | the day of the claim, of the move to In Review, and of each push by a session still building a day after its claim |
+
+The account is `CLAUDE_ACCOUNT` from the `env` block of that account's
+`settings.json` (`admin`, `aniket` or `personal`), `unknown` when it is unset;
+the machine is `hostname -s`; the worktree is its directory name, or `cloud` for
+a remote session. Putting a card back clears Held by. `next-batch` Step 3 reads
+both: a card with no Held by, or one untouched for three days with no open pull
+request, is stale. A board view grouped by Held by is made in the UI, like the
+other views (§7).
+
+Write all three fields in one PATCH with a JSON body through `--input`.
+Repeated `-F 'fields[][id]=…'` pairs are refused with HTTP 422 once there are
+two of them, and a text field is cleared with `null`; an empty string is
+refused with HTTP 400.
+
+The other fields are ordinary creates:
 
 ```bash
 gh project field-create $N --owner englishstreetventures --name "Priority" \
   --data-type SINGLE_SELECT --single-select-options "P0,P1,P2,P3"
 gh project field-create $N --owner englishstreetventures --name "Effort" \
   --data-type SINGLE_SELECT --single-select-options "XS,S,M,L,XL"
+gh api -X POST orgs/englishstreetventures/projectsV2/$N/fields -f name="Held by" -f data_type=text
+gh api -X POST orgs/englishstreetventures/projectsV2/$N/fields -f name="Last touched" -f data_type=date
 ```
 
 ## 6. Workflows (UI only — no API)
