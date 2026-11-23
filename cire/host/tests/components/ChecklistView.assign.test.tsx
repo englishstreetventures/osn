@@ -997,12 +997,15 @@ describe("the popover from the keyboard", () => {
       holder: ({ method, hostId }) => stored(method === "PUT" ? [hostId] : []),
     });
     render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
-    const { listbox } = await openPopover("Book venue");
-    await waitFor(() => expect(document.activeElement).toBe(listbox));
+    const { dialog, listbox } = await openPopover("Book venue");
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
 
     expect(listbox.id).not.toBe("");
+    // Each key the list answers is taken from the page: none scrolls it. The
+    // first, on the panel, moves into the list and onto its first person.
+    expect(fireEvent.keyDown(dialog, { key: "ArrowDown" })).toBe(false);
+    expect(document.activeElement).toBe(listbox);
     expect(activeName(listbox, listbox)).toBe("Sam Lee");
-    // Each key the list answers is taken from the page: none scrolls it.
     expect(fireEvent.keyDown(listbox, { key: "ArrowDown" })).toBe(false);
     expect(activeName(listbox, listbox)).toBe("@jo");
     expect(fireEvent.keyDown(listbox, { key: "ArrowUp" })).toBe(false);
@@ -1061,7 +1064,7 @@ describe("the popover from the keyboard", () => {
     expect(activeName(listbox, listbox)).toBe("Kim Park");
   });
 
-  it("starts in the search for six people; Enter toggles and a space is typed", async () => {
+  it("moves into the search for six people; Enter toggles and a space is typed", async () => {
     setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
     api({
       hosts: hostsAnswer([SAM, JO, ANON, KIM, ROBIN, ALEX]),
@@ -1070,9 +1073,16 @@ describe("the popover from the keyboard", () => {
     render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
     const { dialog, listbox } = await openPopover("Book venue");
     const search = within(dialog).getByRole("combobox", { name: "Search people" });
-    await waitFor(() => expect(document.activeElement).toBe(search));
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
     expect(search).toHaveAttribute("aria-controls", listbox.id);
+    expect(search).not.toHaveAttribute("aria-activedescendant");
 
+    // Tab from the panel moves into the search, on nobody.
+    expect(fireEvent.keyDown(dialog, { key: "Tab" })).toBe(false);
+    expect(document.activeElement).toBe(search);
+    expect(search).not.toHaveAttribute("aria-activedescendant");
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    expect(activeName(search, listbox)).toBe("Sam Lee");
     fireEvent.keyDown(search, { key: "ArrowDown" });
     expect(activeName(search, listbox)).toBe("@jo");
     const space = fireEvent.keyDown(search, { key: " " });
@@ -1089,9 +1099,12 @@ describe("the popover from the keyboard", () => {
     expect(activeName(search, listbox)).toBe(listed(listbox)[0]);
     fireEvent.input(search, { target: { value: "moore" } });
     expect(activeName(search, listbox)).toBe("Alex Moore");
+    // A search emptied or left blank aims at nobody.
+    fireEvent.input(search, { target: { value: "  " } });
+    expect(search).not.toHaveAttribute("aria-activedescendant");
   });
 
-  it("moves into the search when the people arriving after it opened bring one", async () => {
+  it("moves into the search when the people arriving after the list took the focus bring one", async () => {
     setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
     const seats = held();
     api({ hosts: seats.route });
@@ -1100,7 +1113,9 @@ describe("the popover from the keyboard", () => {
     fireEvent.click(assignButton("Book venue"));
     const dialog = await screen.findByRole("dialog", { name: "Assign people" });
     const listbox = within(dialog).getByRole("listbox", { name: "People" });
-    await waitFor(() => expect(document.activeElement).toBe(listbox));
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(document.activeElement).toBe(listbox);
     expect(within(dialog).getByText("Finding the people on this wedding…")).toBeVisible();
 
     seats.answer(hostsAnswer([SAM, JO, ANON, KIM, ROBIN, ALEX])());
@@ -1115,14 +1130,31 @@ describe("the popover from the keyboard", () => {
     ["Escape", { key: "Escape" }],
     ["Tab", { key: "Tab" }],
     ["Shift+Tab", { key: "Tab", shiftKey: true }],
-  ])("closes on %s and gives the focus back to the trigger", async (_, key) => {
+  ])("closes on %s from the list and gives the focus back to the trigger", async (_, key) => {
     setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
     api({ hosts: hostsAnswer([SAM, JO]) });
     render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
     const { dialog, listbox } = await openPopover("Book venue");
-    await waitFor(() => expect(document.activeElement).toBe(listbox));
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(document.activeElement).toBe(listbox);
 
     fireEvent.keyDown(listbox, key);
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(assignButton("Book venue")));
+  });
+
+  it.each([
+    ["Escape", { key: "Escape" }],
+    ["Shift+Tab", { key: "Tab", shiftKey: true }],
+  ])("closes on %s from the panel and gives the focus back to the trigger", async (_, key) => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    api({ hosts: hostsAnswer([SAM, JO]) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const { dialog } = await openPopover("Book venue");
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+
+    fireEvent.keyDown(dialog, key);
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
     await waitFor(() => expect(document.activeElement).toBe(assignButton("Book venue")));
   });

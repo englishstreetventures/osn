@@ -658,17 +658,19 @@ arrives on CSS's own `ease-out`, a keyword in its own stylesheet.
 Exits keep their own curves. `Popover`'s exit, like every `animate-out`, runs
 the contract's `--ui-ease-exit`, `cubic-bezier(0.22, 1, 0.36, 1)`, which no
 cire stylesheet maps; `Modal`'s and the toast's run `ease-in`, the nav sheet's
-and the droplet's `--ease-in-out`. A `Switch`'s thumb and a `Meter`'s fill move
-between two places, which would take `--ease-in-out`, but they name no easing,
-so they run `--ease-out`; naming one is a change to `@shared/ui`.
+`--ease-in-out`, and the droplet's `--ease-out`. A `Switch`'s thumb and a
+`Meter`'s fill move between two places, which would take `--ease-in-out`, but
+they name no easing, so they run `--ease-out`; naming one is a change to
+`@shared/ui`.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor
 (Chrome 111, Safari 16.4) has no `linear()`, and an easing it cannot parse voids
 the whole `animation` declaration, so `@theme` declares a one-overshoot
 `cubic-bezier` and an unlayered `@supports` block swaps the spring in. It is for
-small things arriving — a popover, a tick — never for a sheet or a page, which
-should not bounce.
+small things arriving — a tick, a send button — never for a sheet, a page or
+a panel, which should not bounce: the checklist row's popovers grew on it until
+the owner found the overshoot jittery (the droplet, below).
 
 `--ease-glide` is the same spring damped harder (ratio 0.75, the same natural
 frequency per run): it goes 3% past at about half the run and settles, against
@@ -680,8 +682,8 @@ desk. The move is the owner's choice from a rendered comparison (#2164): the
 house spring grew the glass past its own tab and threw it 8% past a far one,
 and a host taps these strips many times a session, so the move is a little
 slower than a pill slide, to be felt, and lands without a bounce. The glide is
-a token of its own rather than a firmer `--ease-spring`, so the droplet, a task
-holder's tick and the thread's send button keep the house spring. A second tap
+a token of its own rather than a firmer `--ease-spring`, so a task holder's
+tick and the thread's send button keep the house spring. A second tap
 mid-move starts from where the glass is on screen, never from where it was
 going; a CSS transition carries the place over but not the speed, so the glass
 starts the new move at the curve's own pace. `@cire/ui`'s
@@ -728,7 +730,7 @@ fallbacks) and every
 `--dur-*` or `--ease-*` a cire story in the component lab sets inline. The two
 springs are the two portals' alone, because only their animations read them —
 the glass strips glide on `--ease-glide` in both, the thread's send button
-grows on `--ease-spring` in both, the droplet in host: the guest site and the
+grows on `--ease-spring` in both, a task holder's tick in host: the guest site and the
 marketing site declare neither token nor the `@supports` block, and the test
 fails if one gains a copy. The vendor portal
 renders no `Modal`, so it alone
@@ -846,19 +848,62 @@ tested.
 
 **The droplet.** A checklist row's popovers — the assign popover and the
 time editor — grow out of the control that opened them (`droplet-popover`,
-`droplet-popover-body`): a small round drop at the trigger springs out to the
-panel (`droplet-grow`, `--ease-spring`) while its corners settle from round to
-the popover's 10px (`droplet-round`, `--ease-out`), and the contents fade in
-once there is room.
+`droplet-popover-body`): from 40% of the panel's size, with corners at `50%`
+so it starts round, the panel grows to full size while its corners square to
+the popover's 10px, both on `--ease-out` over `--dur-slow` (200ms at a desk,
+320ms on touch), with no overshoot. It is opaque by 30% of the run, and the
+contents fade in from 20% of it, while the panel is still growing, so the
+growth, the corners and the contents arrive as one movement.
 `transform-origin` is Kobalte's `--kb-popover-content-transform-origin`, the
-panel's corner at the trigger whichever side it opened on. The fade is timed by
-keyframe percentage, never by `animation-delay`: the reduced-motion switch zeroes
-durations and leaves delays alone, so a delay would hold the list back from a
-reader who asked for no motion. A true "goo" — an SVG filter melting the panel
-out of the trigger — is not done: the panel portals to `<body>`, away from the
-trigger, and the filter would blur its border and shadow. The exit is a quick
-shrink and fade, as keyframes, because Kobalte keeps a closing popover mounted
-until its animation ends.
+panel's corner at the trigger whichever side it opened on. The exit shrinks
+to 60% and fades, its corners going on to 10px, on `--dur-fast` and
+`--ease-out`. Opened from the keyboard (Enter or Space on the trigger, which
+sets `data-instant`), the popover neither grows nor fades: it is there at
+once and goes at once, as a tooltip the keyboard opens is.
+
+The owner's choice, 2026-11-17, on #2373. From a pressable prototype: "The
+animation is a little jittery, not so smooth. It jumps from scaling up to fully
+grown. Don't like that. I do like the no bounce better in those options but
+yeah could be better I think." Measured frame by frame at a desk, a drop from
+12% on `--ease-spring` grows about 90px a frame for three frames, overshoots by
+7%, and squares its corners only once it is full size, from a pill's 999px that
+changes nothing visible until the last eighth of the run, with its contents
+fading in after that: three movements in a fifth of a second. The owner then
+picked "Bigger drop" from a second prototype (2026-11-17, on #2373), over a
+start at 60% ("Smooth") and one at 85% ("Fuller"): from 40% on `--ease-out`
+the panel grows about 58px in its first frame at a desk and less each frame
+after, so more of its growth out of the trigger shows, and corners at `50%`
+change visibly on every frame.
+
+The panel moves on transitions from `@starting-style`, never keyframes, so it
+can be caught: closed while it is still growing it goes on from the size it
+reached, and opened again while it is closing it grows from there, where
+keyframes would jump to their own first frame. Kobalte keeps a closing popover
+mounted only while a CSS animation runs, and only one named unlike the last to
+start on it, so two keyframes that change nothing, `droplet-open` and
+`droplet-close`, carry that lifecycle. The transitions are declared only under
+`prefers-reduced-motion: no-preference`: the global switch shortens a
+transition rather than removing it, and a starting style would still paint
+the drop for a frame. The starting style sits on `[data-expanded]`, so its
+round corners outrank the call site's `rounded-md`. The contents' fade is
+timed by keyframe percentage, never
+by `animation-delay`: the switch zeroes durations and leaves delays alone, so
+a delay would hold the list back from a reader who asked for no motion. A true
+"goo" — an SVG filter melting the panel out of the trigger — is not done: the
+panel portals to `<body>`, away from the trigger, and the filter would blur its
+border and shadow. `tests/components/ChecklistView.popovers.browser.test.tsx`
+catches the panel mid-growth and mid-close at a twentieth of the speed, reads
+the growth at full speed frame by frame (larger every frame, never past full
+size, at most 62px a frame, the corners as far along as the growth), and
+checks a keyboard opening is whole on its first frame.
+
+**A row's popover opens with the focus on its panel.** The `role="dialog"`
+element takes the focus (`lib/popover-open.ts`, Kobalte's `onOpenAutoFocus`),
+with no ring of its own, so no field wears the focus ring and nobody in a list
+is highlighted until the pointer or a key moves there. Left to its default,
+Kobalte would focus the first field or the list, and Chromium draws the ring
+on that even after a mouse click. A screen reader hears the popover's name;
+Tab moves into the form or the list.
 
 **Every other menu and picker pops.** Every portal menu — the account menu,
 the wedding switcher, the seat menu, the household menu, the invite builder's
@@ -1064,7 +1109,9 @@ portal toast keeps the package's 160ms arrival, as the vendor portal's do. An
 undo toast leaves at once (`.undo-toast.ui-toast--leaving`), because it holds
 Undo. The row Undo puts back fades in where it stood (`row-return`: opacity
 alone, so the box a drag measures does not move, on `--dur-slow` and
-`--ease-out`), and only on that return. Under reduced motion the global switch
+`--ease-out`). A task the organiser adds on the checklist fades in the same
+way where it lands, the owner's choice of 2026-11-17 (#2373); a row read from
+the server, another session's included, arrives at once. Under reduced motion the global switch
 makes all of it immediate. `tests/lib/undo-delete.browser.test.tsx` and the
 three `*.undo.browser.test.tsx` files hold it, and picture the stack at 390
 and 1280px in both ramps in `e2e-artifacts/cire-host/undo-delete/`.
@@ -1475,7 +1522,20 @@ heads the list and it shows about four and a half rows, the half saying it
 scrolls. The list draws the house focus ring inside its own edge, and the
 search field turns its border and a 1px ring `--focus` while it has the focus:
 the panel clips anything drawn outside it, for the droplet's rounded corners.
-A popover that focuses something as it opens focuses it without scrolling, and
+
+It opens with the focus on the panel (§4) and **nobody highlighted**: the
+reader is listed first, and a highlight there on opening would read as already
+chosen, one stray Enter from putting them on the task. The highlight follows
+the pointer, and the keys bring it in: from the panel, Tab moves into the
+search or the list on nobody; an arrow, Home or End moves in and onto a person
+(ArrowDown and Home the first, ArrowUp and End the last); Enter moves in and
+toggles whoever the pointer left highlighted, else nobody, and Space does the
+same on a list with no search. With a search, a key that types, Space
+included, goes into the search. Typing aims the highlight at the first match,
+so Enter takes it; a search emptied or left blank aims at nobody.
+Shift+Tab on the panel, and Tab or Shift+Tab inside it, close the popover.
+
+A popover focuses as it opens without scrolling, and
 a list in it follows its highlight by setting its own `scrollTop`, never with
 `scrollIntoView`, which scrolls the page as well: Kobalte opens the panel at the
 page's top left and moves it beside its trigger a frame later, and anything that
@@ -1634,7 +1694,13 @@ holders' stack:
 - **The popover is a form**, so unlike the assign popover it is `modal`: Tab
   moves between its fields and stays inside, Escape closes it, and the focus
   goes back to the trigger. It does not lock the page's scroll. It grows as
-  the droplet (§4), `w-80`, on `--surface-raised`.
+  the droplet (§4), `w-80`, on `--surface-raised`, and opens with the focus on
+  its panel, so no field wears the ring until Tab reaches it.
+- **Its heading is "Set task time"**, the eyebrow step, and nothing sits
+  between it and the first field: the task's title is the dialog's
+  description for a screen reader (`sr-only`), never painted, since the row it
+  grew from shows it. Each select in it is `min-w-0`, so a long zone or event
+  name keeps to the panel's padding rather than widening its field.
 - **Its fields**: Event (`No event — a fixed time`, then the events by start,
   each with its day and time); linked, a choice of "Before or after the start"
   (minutes, and before or after, with where that lands on the event's clock
