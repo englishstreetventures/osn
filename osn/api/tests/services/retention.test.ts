@@ -1,5 +1,6 @@
 import { it, expect, describe } from "@effect/vitest";
-import { Effect, Logger } from "effect";
+import { Effect, Fiber, Logger } from "effect";
+import { TestClock } from "effect/testing";
 import { afterEach, vi } from "vitest";
 
 import * as metrics from "../../src/metrics";
@@ -7,6 +8,7 @@ import {
   EMAIL_CHANGE_RETENTION_SECONDS,
   RETENTION_SWEEP_CHUNK,
   RETENTION_SWEEP_MAX_CHUNKS,
+  RETENTION_SWEEP_PAUSE_MS,
   runEmailChangeSweep,
   runHandleHoldSweep,
   runSecurityEventSweep,
@@ -103,6 +105,17 @@ const capture = (table: string) => {
   return { layer, warnings };
 };
 
+/** Up to 100 turns of the scheduler, stopping once `done` holds. */
+const until = (done: () => boolean) =>
+  Effect.gen(function* () {
+    for (let i = 0; i < 100 && !done(); i++) yield* Effect.yieldNow;
+  });
+
+/** Enough turns for a sweep waiting on its pause to do anything it would. */
+const settle = Effect.gen(function* () {
+  for (let i = 0; i < 20; i++) yield* Effect.yieldNow;
+});
+
 describe.each(SWEEPS)("the $table sweep", ({ table, sweep, cutoff, seed, keys }) => {
   it.effect("deletes rows past the window, from its first second, and keeps rows inside", () => {
     const { layer, sqlite } = createTestLayerWithSqlite();
@@ -118,7 +131,7 @@ describe.each(SWEEPS)("the $table sweep", ({ table, sweep, cutoff, seed, keys })
     }).pipe(Effect.provide(layer));
   });
 
-  it.live(
+  it.effect(
     "deletes at most its cap a pass, warns when it ends on a full chunk, and the next pass goes on",
     () => {
       const { layer, sqlite } = createTestLayerWithSqlite();
@@ -129,7 +142,17 @@ describe.each(SWEEPS)("the $table sweep", ({ table, sweep, cutoff, seed, keys })
         seed(sqlite, "old_", cap + 10, cutoff - 1);
         seed(sqlite, "new_", 1, cutoff + 1);
 
-        const first = yield* sweep({ nowMs: NOW_MS });
+        // The first pass on the test clock: after its first chunk it deletes
+        // nothing more until the pause has passed.
+        const fiber = yield* Effect.forkChild(sweep({ nowMs: NOW_MS }));
+        const afterFirstChunk = cap + 11 - RETENTION_SWEEP_CHUNK;
+        yield* until(() => keys(sqlite).length === afterFirstChunk);
+        expect(keys(sqlite)).toHaveLength(afterFirstChunk);
+        yield* TestClock.adjust(RETENTION_SWEEP_PAUSE_MS - 1);
+        yield* settle;
+        expect(keys(sqlite)).toHaveLength(afterFirstChunk);
+        yield* TestClock.adjust(1);
+        const first = yield* Fiber.join(fiber);
         expect(first.deleted).toBe(cap);
         expect(keys(sqlite)).toHaveLength(11);
         expect(log.warnings()).toHaveLength(1);
@@ -144,13 +167,15 @@ describe.each(SWEEPS)("the $table sweep", ({ table, sweep, cutoff, seed, keys })
         expect(keys(sqlite)).toEqual(["new_1"]);
         expect(log.warnings()).toHaveLength(1);
 
-        // Every pass is counted under its table, the empty one too.
+        // Every pass is counted under its table, the empty one too, with its
+        // time: one pause for the first, none for a pass that ends on its first
+        // chunk.
         const third = yield* sweep({ nowMs: NOW_MS });
         expect(third.deleted).toBe(0);
         expect(recorded.mock.calls).toEqual([
-          [table, cap, expect.any(Number)],
-          [table, 10, expect.any(Number)],
-          [table, 0, expect.any(Number)],
+          [table, cap, RETENTION_SWEEP_PAUSE_MS / 1000],
+          [table, 10, 0],
+          [table, 0, 0],
         ]);
       }).pipe(Effect.provide(layer), Effect.provide(log.layer));
     },

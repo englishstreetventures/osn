@@ -12,7 +12,7 @@ import {
   previewDeletionApps,
 } from "../../src/services/deletion-apps";
 import { createTestLayer } from "../helpers/db";
-import { appStandIns, type AppAnswer } from "../helpers/deletion-apps";
+import { appStandIns, arcClaims, type AppAnswer } from "../helpers/deletion-apps";
 
 /**
  * Where the deletion reaches each app, and what one app's preview answer can
@@ -69,7 +69,7 @@ describe("deletionAppsConfig", () => {
     ],
     ["plain HTTP to another host on a local run", { ZAP_API_URL: "http://zap.example" }],
     [
-      "a plain-HTTP cire URL on a deployed tier, where it used to only disable the session revoke",
+      "a plain-HTTP cire URL on a deployed tier",
       { OSN_ENV: "dev", INTERNAL_SERVICE_SECRET: SECRET, CIRE_API_URL: "http://api.cire.example" },
     ],
     ["an app URL that does not parse", { ZAP_API_URL: "zap.example" }],
@@ -141,6 +141,10 @@ describe("previewDeletionApps", () => {
         for (const call of calls) {
           expect(call.body).toEqual(input);
           expect(call.authorization).toMatch(/^ARC /);
+          expect(arcClaims(call.authorization)).toMatchObject({
+            aud: `${call.app}-api`,
+            scope: "account:deletion-preview",
+          });
         }
       }).pipe(Effect.provide(createTestLayer())),
   );
@@ -203,15 +207,24 @@ describe("previewDeletionApps", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("holds the deletion when an app does not answer in time, and counts a timeout", () =>
-    Effect.gen(function* () {
+  it.effect("holds the deletion when an app does not answer in time, and counts a timeout", () => {
+    // The timeout is a real `AbortSignal.timeout`, so only pulse is called (a
+    // local tier skips an app with no URL), and its answer waits on a gate the
+    // case opens when it ends: nothing races the 50 ms budget, and no timer
+    // outlives the case.
+    const gate = Promise.withResolvers<void>();
+    return Effect.gen(function* () {
       const counted = vi.spyOn(metrics, "metricAccountDeletionAppPreview");
-      pulseAnswer = () => ({ delayMs: 500 });
-      const previews = yield* previewDeletionApps(apps.config({ previewTimeoutMs: 50 }), input);
+      pulseAnswer = () => ({ until: gate.promise });
+      const config = apps.config({ previewTimeoutMs: 50 });
+      const previews = yield* previewDeletionApps(
+        { ...config, urls: { pulse: config.urls.pulse! } },
+        input,
+      );
       expect(previews[0]).toEqual({ app: "pulse", status: "could_not_check" });
       expect(counted).toHaveBeenCalledWith("pulse", "timeout");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.ensuring(Effect.sync(() => gate.resolve())), Effect.provide(createTestLayer()));
+  });
 
   it.effect("skips an app the tier does not run, without asking it", () =>
     Effect.gen(function* () {

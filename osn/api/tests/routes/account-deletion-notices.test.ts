@@ -312,6 +312,10 @@ describe("POST /account/data-link", () => {
     expect(more).toEqual([]);
     expect(mail!.to).toBe("eraser@example.com");
     expect(mail!.text).toContain("/settings#account");
+    // Nothing of the account rides in the mail: not even its display name.
+    for (const part of [mail!.subject, mail!.text, mail!.html]) {
+      expect(part).not.toContain("Erase Me");
+    }
   });
 
   it("refuses a caller with no token", async () => {

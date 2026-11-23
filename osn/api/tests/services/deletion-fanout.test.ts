@@ -18,7 +18,7 @@ import {
   createTestLayer,
   createTestLayerWithSqlite,
 } from "../helpers/db";
-import { appStandIns, type AppAnswer, type AppCall } from "../helpers/deletion-apps";
+import { appStandIns, arcClaims, type AppAnswer, type AppCall } from "../helpers/deletion-apps";
 
 /**
  * The fan-out at the end of the window: every app, for every account, with the
@@ -144,6 +144,12 @@ describe("the deletion fan-out", () => {
           deleteEverything: false,
         });
         expect(pulse.authorization).toMatch(/^ARC /);
+        for (const call of calls) {
+          expect(arcClaims(call.authorization)).toMatchObject({
+            aud: `${call.app}-api`,
+            scope: "account:erase",
+          });
+        }
         const zap = calls.find((call) => call.app === "zap")!;
         expect(zap.body.choices).toEqual({});
         expect(zap.body).not.toHaveProperty("email");
@@ -219,7 +225,7 @@ describe("the deletion fan-out", () => {
   );
 
   it.effect(
-    "sends a job written before every account went to every app (`-1` marks, no cire mark) to every app",
+    "sends a job whose pulse and zap marks are `-1` and whose cire mark is unset to every app",
     () =>
       Effect.gen(function* () {
         answer = () => undefined;
@@ -305,26 +311,35 @@ describe("the deletion fan-out", () => {
   );
 
   it.effect(
-    "leaves the mark pending and stamps the job when an app answers outside the contract, logging no address",
+    "leaves the mark pending and stamps the job when an app answers outside the contract, logging neither address nor account id",
     () => {
       const log = logLines();
       return Effect.gen(function* () {
+        // Each answer carries the account's address, as an app's error text
+        // might, so a warning that passed the answer on would log it.
         const cases: ReadonlyArray<readonly [string, AppAnswer]> = [
-          ["error", { status: 500, body: {} }],
-          ["shape", { body: { ok: true } }],
+          ["error", { status: 500, body: { error: "no account baderror@example.com" } }],
+          ["shape", { body: { ok: true, email: "badshape@example.com" } }],
           [
             "long",
             {
               body: {
                 kept: Array.from({ length: 101 }, () => ({
-                  what: "x",
+                  what: "badlong@example.com",
                   erasedOn: null,
                   requestUrl: null,
                 })),
               },
             },
           ],
-          ["http", { body: { kept: [{ what: "x", erasedOn: null, requestUrl: "http://x" }] } }],
+          [
+            "http",
+            {
+              body: {
+                kept: [{ what: "badhttp@example.com", erasedOn: null, requestUrl: "http://x" }],
+              },
+            },
+          ],
         ];
         for (const [name, given] of cases) {
           answer = (call) => (call.app === "zap" ? given : undefined);
@@ -338,9 +353,15 @@ describe("the deletion fan-out", () => {
           });
           expect(job.pulseDoneAt).toBeGreaterThan(0);
         }
-        expect(
-          log.lines.some((line) => JSON.stringify(line).includes("fan-out to an app failed")),
-        ).toBe(true);
+        // The fan-out's own warnings, one for each refused answer: each pass
+        // also retries every earlier job, whose zap mark is still pending, so
+        // 1 + 2 + 3 + 4 of them. None names the address or the account.
+        const failures = log.lines.filter((line) =>
+          JSON.stringify(line).includes("fan-out to an app failed"),
+        );
+        expect(failures).toHaveLength(10);
+        expect(JSON.stringify(failures)).not.toContain("@example.com");
+        expect(JSON.stringify(failures)).not.toContain("acc_bad");
         expect(JSON.stringify(log.lines)).not.toContain("@example.com");
         expect(JSON.stringify(log.lines)).not.toContain("acc_bad");
       }).pipe(Effect.provide(createTestLayer()), Effect.provide(log.layer));

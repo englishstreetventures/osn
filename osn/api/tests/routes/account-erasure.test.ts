@@ -1,4 +1,4 @@
-import { deletionJobs, oauthConsents, users } from "@osn/db/schema";
+import { accounts, deletionJobs, oauthConsents, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { EmailService } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
@@ -21,6 +21,7 @@ import { NO_DELETION_APPS, type DeletionAppsConfig } from "../../src/services/de
 import { createOrganisationService } from "../../src/services/organisation";
 import { createProfileService } from "../../src/services/profile";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { appStandIns, everyAppDone, type AppAnswer, type AppCall } from "../helpers/deletion-apps";
 import { holdQueries } from "../helpers/held-query";
@@ -39,7 +40,7 @@ beforeAll(async () => {
  * than pooled into a shared "unknown" bucket, matching the
  * auth / profile routes.
  */
-describe("account-erasure routes — client-IP keying (S-M5)", () => {
+describe("account-erasure routes — client-IP keying", () => {
   function recordingLimiters(): {
     limiters: AccountErasureRateLimiters;
     keys: string[];
@@ -222,8 +223,10 @@ const requestDeletion = (
   app: Awaited<ReturnType<typeof seed>>["app"],
   authed: Record<string, string>,
   body: Record<string, unknown>,
+  handle: typeof settledHandle = (target, request) => target.handle(request),
 ) =>
-  app.handle(
+  handle(
+    app,
     new Request("http://localhost/account", {
       method: "DELETE",
       headers: { ...authed, "content-type": "application/json" },
@@ -241,7 +244,7 @@ const requestDeletion = (
  */
 describe("account-erasure routes — response bodies", () => {
   it("DELETE /account returns 202 with both scheduling fields, and is idempotent", async () => {
-    const layer = createTestLayer();
+    const { layer, sqlite } = createTestLayerWithSqlite();
     const { auth, profile, app, authed } = await seed(layer);
 
     const first = await requestDeletion(app, authed, {
@@ -260,8 +263,15 @@ describe("account-erasure routes — response bodies", () => {
     expect(firstBody.scheduled_for).toBeLessThan(1e12);
     expect(firstBody.already_pending).toBe(false);
 
-    // A repeat inside the window: same schedule, flag flipped, and the date
-    // does not move — that is what makes the endpoint safe to retry. A
+    // The stored date moves an hour back, so a repeat that worked the date
+    // out afresh would answer another one than the job holds.
+    sqlite.run(
+      "UPDATE deletion_jobs SET hard_delete_at = hard_delete_at - 3600 WHERE account_id = ?",
+      [profile.accountId],
+    );
+
+    // A repeat inside the window: the stored schedule, flag flipped, and the
+    // date does not move — that is what makes the endpoint safe to retry. A
     // pending deletion is answered before the handle check and the step-up,
     // so the handle the user typed and the redacted one both get it, with
     // no step-up token.
@@ -269,7 +279,7 @@ describe("account-erasure routes — response bodies", () => {
       const again = await requestDeletion(app, authed, { confirm_handle });
       expect(again.status).toBe(202);
       expect(await again.json()).toEqual({
-        scheduled_for: firstBody.scheduled_for,
+        scheduled_for: firstBody.scheduled_for - 3600,
         already_pending: true,
       });
     }
@@ -1037,6 +1047,14 @@ describe("the apps' open actions", () => {
         step_up_token: token,
         ...body,
       });
+    /** `attempt`, then the work it started after its answer: the session ends. */
+    const settledAttempt = (body: Record<string, unknown> = {}) =>
+      requestDeletion(
+        seeded.app,
+        seeded.authed,
+        { confirm_handle: seeded.profile.handle, step_up_token: token, ...body },
+        settledHandle,
+      );
     const job = async () =>
       (
         await runOn(
@@ -1052,7 +1070,7 @@ describe("the apps' open actions", () => {
           }),
         )
       )[0];
-    return { ...seeded, layer, attempt, job };
+    return { ...seeded, layer, attempt, settledAttempt, job };
   }
 
   /** The calls to `path` about `profileId`: no preview or session end names the account. */
@@ -1214,6 +1232,15 @@ describe("the apps' open actions", () => {
       ),
     );
     expect(solo.id).toBeTruthy();
+    // Without delete everything, the event with no default and the solo
+    // organisation wait for an answer.
+    const waiting = await p.attempt();
+    expect(waiting.status).toBe(409);
+    const open = (await waiting.json()) as { error: string; open_actions: { id: string }[] };
+    expect(open.error).toBe("open_actions");
+    expect(open.open_actions.map((a) => a.id).toSorted()).toEqual(
+      ["pulse:event:evt_1", `osn:organisation:${solo.id}`].toSorted(),
+    );
     const res = await p.attempt({ delete_everything: true });
     expect(res.status).toBe(202);
     const job = await p.job();
@@ -1224,11 +1251,10 @@ describe("the apps' open actions", () => {
   it("a soft delete ends the person's Pulse sessions, with their profiles, and only Pulse's", async () => {
     pulseHolds();
     const p = await person();
-    expect((await p.attempt()).status).toBe(202);
-    await vi.waitFor(() =>
-      expect(callsTo("/internal/account-sessions/revoke", p.profile.id)).toHaveLength(1),
-    );
-    const [call] = callsTo("/internal/account-sessions/revoke", p.profile.id);
+    expect((await p.settledAttempt()).status).toBe(202);
+    const revokes = callsTo("/internal/account-sessions/revoke", p.profile.id);
+    expect(revokes.map((c) => c.app)).toEqual(["pulse"]);
+    const [call] = revokes;
     expect(call).toMatchObject({ app: "pulse", body: { profileIds: [p.profile.id] } });
     expect(call!.body).not.toHaveProperty("accountId");
     expect(call!.authorization).toMatch(/^ARC /);
@@ -1266,12 +1292,13 @@ describe("the apps' open actions", () => {
           call.body.osnProfileId === p.profile.id,
       );
 
-    expect((await p.attempt()).status).toBe(202);
-    await vi.waitFor(() => expect(revokes()).toHaveLength(1));
+    expect((await p.settledAttempt()).status).toBe(202);
+    expect(revokes()).toHaveLength(1);
     expect(revokes()[0]!.authorization).toBe(`Bearer ${cire.secret}`);
 
-    // A repeat while the deletion stands ends nothing again.
-    expect((await p.attempt()).status).toBe(202);
+    // A repeat while the deletion stands ends nothing again: its background
+    // work has finished by the time the calls are read.
+    expect((await p.settledAttempt()).status).toBe(202);
     expect(revokes()).toHaveLength(1);
   });
 
@@ -1279,7 +1306,24 @@ describe("the apps' open actions", () => {
     answer = (call) =>
       call.path === "/internal/account-sessions/revoke" ? { status: 503, body: {} } : undefined;
     const p = await person();
-    expect((await p.attempt()).status).toBe(202);
+    expect((await p.settledAttempt()).status).toBe(202);
+    // The refused revoke was sent and answered before the job is read.
+    expect(callsTo("/internal/account-sessions/revoke", p.profile.id).map((c) => c.app)).toEqual([
+      "pulse",
+    ]);
     expect((await p.job())!.accountId).toBe(p.profile.accountId);
+    const deletedAt = await runOn(
+      p.layer,
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        return yield* Effect.promise(() =>
+          db
+            .select({ deletedAt: accounts.deletedAt })
+            .from(accounts)
+            .where(eq(accounts.id, p.profile.accountId)),
+        );
+      }),
+    );
+    expect(deletedAt[0]!.deletedAt).toBeGreaterThan(0);
   });
 });
