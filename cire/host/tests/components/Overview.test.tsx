@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -177,14 +177,8 @@ describe("Overview", () => {
     // count floats ±1 across the local-midnight boundary, so read whatever the
     // headline renders and assert no OTHER element on the page holds that same
     // bare number (the old markup printed it twice: a big "30" + "30 days to go").
-    const headline = screen
-      .getByText(/days to go/i)
-      .closest("div")!
-      // `[class~=]` rather than `.tabular-nums`: `Stat` is `@shared/ui`'s now, and
-      // every class a library component writes is `base:`-prefixed so a call
-      // site can still override it. The attribute selector matches the
-      // whitespace-separated token without needing the colon escaped.
-      .querySelector('[class~="base:tabular-nums"]')!;
+    // The figure is the label's sibling, in the same headline paragraph.
+    const headline = screen.getByText(/days to go/i).parentElement!.querySelector(".tabular-nums")!;
     const count = headline.textContent!.trim();
     expect(count).toMatch(/^\d+$/);
     // getAllByText(exact) matches only elements whose OWN text is exactly `count`.
@@ -606,5 +600,48 @@ describe("Overview", () => {
     expect(screen.getByText("Reception")).toBeInTheDocument();
     // The RSVP progress bar is present.
     expect(screen.getAllByRole("progressbar").length).toBeGreaterThan(0);
+  });
+  it("lists the first five events' attending counts, then how many more", async () => {
+    const six = Array.from({ length: 6 }, (_, i) => ({
+      ...RSVPS[0]!,
+      id: `e${i + 1}`,
+      name: `Event ${i + 1}`,
+      attending: i,
+    }));
+    routeFetch({ rsvps: six, events: EVENTS, guests: GUESTS });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
+    const card = (await screen.findByText("Attending by event")).parentElement!;
+    const rows = within(card).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "Event 10 attending",
+      "Event 21 attending",
+      "Event 32 attending",
+      "Event 43 attending",
+      "Event 54 attending",
+      "+1 more",
+    ]);
+  });
+
+  it("lists five events with no line for more", async () => {
+    const five = Array.from({ length: 5 }, (_, i) => ({
+      ...RSVPS[0]!,
+      id: `e${i + 1}`,
+      name: `E${i}`,
+    }));
+    routeFetch({ rsvps: five, events: EVENTS, guests: GUESTS });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
+    const card = (await screen.findByText("Attending by event")).parentElement!;
+    expect(within(card).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(card).queryByText(/more$/)).toBeNull();
+  });
+
+  it("draws no attending-by-event card when no event has a tally", async () => {
+    routeFetch({ rsvps: [], events: EVENTS, guests: GUESTS });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
+    await screen.findByText("Guests & events");
+    expect(screen.queryByText("Attending by event")).toBeNull();
   });
 });

@@ -114,7 +114,7 @@ That guard is the one CSS-layer risk here that *is* mechanically checkable.
 
 | Surface | `--auto-grid-min` | Why |
 |---|---|---|
-| Overview stat cards | 15rem | A number plus a label; small cards read fine. |
+| Overview module cards | 15rem | A number plus a label; small cards read fine. |
 | Wedding list | 20rem | Slug + display name + CTA line. |
 | Checklist buckets | 22rem | A task row with a checkbox and reorder arrows. |
 | Budget categories | 32rem | Name + three money cells + payments toggle — below this the row wraps and stops reading as a row. |
@@ -232,9 +232,19 @@ component was previously reading a container it did not live in.
   share a mark. `ModuleSidebar.icons.browser.test.tsx` measures the rendered box
   in Chromium, because a missing token leaves each SVG at lucide's 24px default
   with every class assertion still passing.
-- **Overview** (`Overview`) — `@4xl/panel` turns the stacked agenda + cards into
-  `minmax(20rem,26rem) minmax(0,1fr)`: the agenda takes a fixed-measure left
-  column, the stat cards fill the rest. A six-row dated list does not want 1300px.
+- **Overview** (`Overview`) — three bands. The briefing, one accent card with
+  the countdown and the RSVP totals, splits into two halves at `@3xl/panel`
+  (`2fr 3fr`, a hairline between); the RSVP half is its own `replies`
+  container, so its four figures run two to a row until `@md/replies` and four
+  after. Under it, `overview-body` (a utility in `global.css`) stacks the
+  agenda, a side column (the RSVP changes, attending by event, and guests &
+  events) and the checklist, vendors and budget cards; from 56rem of panel
+  (`@4xl/panel`) the side column runs down the right of the other two
+  (`3fr 2fr`, rows `auto 1fr`), so the module cards sit right under the agenda
+  however tall the side column is. The agenda card is its own `agenda`
+  container and splits its rows in two only at `@3xl/agenda`, which it reaches
+  only when it runs the full width. The areas are a named utility rather than
+  arbitrary classes, which Tailwind does not extract from a quoted template.
 - **Invite builder** (`invite/InviteBuilder`) — `@4xl/builder` puts the composed
   `PreviewPane` beside the form (sticky, `w-80`, `w-96` from `@6xl/builder`). This
   code predates this pass; it was simply unreachable under the old page cap.

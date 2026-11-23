@@ -798,6 +798,38 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--auto-grid-min, 18rem)), 1fr));
 }
 
+/* ── The overview's body ────────────────────────────────────────────────────
+ * Under the briefing: the agenda, a side column of reply and guest cards, and
+ * the planning modules' cards, stacked in that order on a narrow panel. From
+ * 56rem of panel (`@4xl/panel`) the side column runs down the right of both
+ * others, and the second row takes what the side column adds (`auto 1fr`), so
+ * the module cards sit right under the agenda however tall the side column is.
+ * Each child names its area with `overview-agenda`, `-side` or `-modules`.
+ */
+@utility overview-body {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+  grid-template-areas: "agenda" "side" "modules";
+  @container panel (min-width: 56rem) {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "agenda side" "modules side";
+  }
+}
+
+@utility overview-agenda {
+  grid-area: agenda;
+}
+
+@utility overview-side {
+  grid-area: side;
+}
+
+@utility overview-modules {
+  grid-area: modules;
+}
+
 /* ── Ornament ───────────────────────────────────────────────────────────────
  * The house's one piece of decoration: a rule that is a gradient rather than a
  * flat line, brightest in the middle where the eye lands. It is the only place
