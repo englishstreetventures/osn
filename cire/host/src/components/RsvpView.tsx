@@ -55,6 +55,7 @@ import {
   markRsvpChangesSeen,
   newRowCheck,
   type RsvpChangeRows,
+  UNSEEN_ROWS_CAP,
 } from "../lib/rsvp-changes";
 import {
   filterRows,
@@ -76,8 +77,8 @@ import { applySavedReply, isSavedReply } from "../lib/rsvp-save";
 import {
   ensureRsvpsLoaded,
   hasTableRsvps,
-  invalidateRsvpChanges,
   invalidateRsvps,
+  noteRsvpChangesSeen,
   peekCachedRsvps,
   refuseRsvps,
   type RsvpEvent,
@@ -500,9 +501,11 @@ export default function RsvpView(props: RsvpViewProps) {
       if (!feed) return false;
       setIsNewRow(() => newRowCheck(feed.rows));
       if (feed.markSeq === 0) return false;
-      await markRsvpChangesSeen(authFetch, props.weddingId, feed.markSeq);
-      // The Overview's card counts what this organiser has not seen.
-      invalidateRsvpChanges(props.weddingId);
+      const saved = await markRsvpChangesSeen(authFetch, props.weddingId, feed.markSeq);
+      // The Overview's card counts what this organiser has not seen: nothing,
+      // once the marker is saved and the read held every change (a read at
+      // the cap may have left some out).
+      noteRsvpChangesSeen(props.weddingId, saved && feed.rows.length < UNSEEN_ROWS_CAP);
       return true;
     });
   }

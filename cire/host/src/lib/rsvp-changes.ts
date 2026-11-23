@@ -160,20 +160,29 @@ export async function fetchRsvpChangeRows(
   }
 }
 
-/** Mark every change up to `seq` seen. Best effort: a failure only means the badges come back. */
+/**
+ * The most badge rows one read returns: the API's `UNSEEN_PAIR_LIMIT`. A read
+ * that returns this many may have left changes out, still unseen.
+ */
+export const UNSEEN_ROWS_CAP = 500;
+
+/** Mark every change up to `seq` seen. True when the API saved it. Best
+ *  effort: a failure only means the badges come back. */
 export async function markRsvpChangesSeen(
   authFetch: AuthFetch,
   weddingId: string,
   seq: number,
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await authFetch(`${base(weddingId)}/seen`, {
+    const res = await authFetch(`${base(weddingId)}/seen`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ seq }),
     });
+    return res.ok;
   } catch {
     // Nothing to do: the next visit shows the same changes again.
+    return false;
   }
 }
 

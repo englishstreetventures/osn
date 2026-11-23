@@ -68,8 +68,19 @@ export const ensureRsvpChangesLoaded = (weddingId: string, fetcher: () => Promis
 /** The card after a change of its own (the digest switch). */
 export const setCachedRsvpChanges = (weddingId: string, next: RsvpChanges) =>
   changes.setCached(weddingId, next);
-/** The table marked changes seen: the card's count is out of date. */
-export const invalidateRsvpChanges = (weddingId: string) => changes.invalidate(weddingId);
+/**
+ * The RSVP table marked changes seen, so the card's count is out of date: it
+ * is read again on the Overview's next visit. When the table read and marked
+ * every change there was, the card says nothing is unseen meanwhile, rather
+ * than naming households the organiser has just looked at.
+ */
+export function noteRsvpChangesSeen(weddingId: string, everyChangeSeen: boolean): void {
+  const card = changes.peek(weddingId);
+  if (everyChangeSeen && card) {
+    changes.setCached(weddingId, { ...card, households: 0, truncated: false, items: [] });
+  }
+  changes.invalidate(weddingId);
+}
 
 export function dropRsvps(weddingId: string): void {
   replies.drop(weddingId);

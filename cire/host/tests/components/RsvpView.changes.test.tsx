@@ -4,10 +4,12 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ensureRsvpChangesLoaded,
   ensureRsvpsLoaded,
   hasTableRsvps,
   peekCachedRsvps,
   type RsvpEvent,
+  rsvpChangesAccessor,
 } from "../../src/lib/rsvps-store";
 
 /**
@@ -166,6 +168,58 @@ describe("RsvpView — New badges", () => {
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(seenCalls()).toHaveLength(1));
     expect(seenCalls()[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ seq: 9 }) });
+  });
+
+  /** The Overview card's summary as it stood before the table was opened. */
+  const CARD = {
+    households: 3,
+    truncated: false,
+    items: [
+      { familyId: "f1", familyName: "Test", kinds: ["reply_new"], at: "2026-11-01T00:00:00Z" },
+    ],
+    digest: { available: true, enabled: false },
+  };
+  /** Whether the card's next load reads again. */
+  async function cardReadsAgain() {
+    const read = vi.fn(async () => CARD);
+    await ensureRsvpChangesLoaded("wed_a", read);
+    return read.mock.calls.length > 0;
+  }
+
+  it("writes the Overview's card as nothing unseen once the seen POST is saved", async () => {
+    await ensureRsvpChangesLoaded("wed_a", async () => CARD);
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 9));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+
+    await waitFor(() => expect(rsvpChangesAccessor("wed_a")()?.households).toBe(0));
+    expect(rsvpChangesAccessor("wed_a")()).toEqual({
+      households: 0,
+      truncated: false,
+      items: [],
+      digest: CARD.digest,
+    });
+    expect(await cardReadsAgain()).toBe(true);
+  });
+
+  it.each([
+    ["the seen POST is refused", 1, () => json({ error: "Forbidden" }, 403)],
+    ["the badge rows reached the API's cap of 500", 500, () => json({ seenSeq: 9 })],
+  ])("leaves the card's count, to be read again, when %s", async (_label, count, seen) => {
+    await ensureRsvpChangesLoaded("wed_a", async () => CARD);
+    const rows = Array.from({ length: count }, (_, i) => ({ guestId: `g${i}`, eventId: "evt_1" }));
+    authFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/rsvp-changes/seen")) return Promise.resolve(seen());
+      if (url.endsWith("/rsvp-changes/rows")) return Promise.resolve(json(feed(rows, 9)));
+      if (url.endsWith("/rsvps")) return Promise.resolve(json(VIEW));
+      return Promise.resolve(json({}, 404));
+    });
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(rsvpChangesAccessor("wed_a")()?.households).toBe(3);
+    expect(await cardReadsAgain()).toBe(true);
   });
 
   it("draws a reopened table from its own fresh read, and reads again only once drawn", async () => {
