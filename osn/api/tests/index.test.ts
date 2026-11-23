@@ -7,17 +7,9 @@ import { osnLoggerLayer } from "../src/observability";
 import { createTestLayer } from "./helpers/db";
 
 /**
- * Mirrors the route tests (and the production composition): build the app via
- * the `createApp` factory rather than importing the runnable Bun/Workers entry.
- * After the `export default { fetch }` rewrite of `src/index.ts`, the entry is
- * no longer importable as `{ app }` — it constructs its app from the Workers
- * `env` binding.
- *
- * T-L1: build with the WORKERS-SHAPED wiring — `includeObservabilityPlugin:
- * false` + the redacting `osnLoggerLayer` (no full OTel SDK) — and assert that
- * path still mounts `healthRoutes` (`GET /health`), the root route, and the
- * OIDC discovery doc, and that the redacting logger is the one installed. This
- * is exactly what `src/index.ts`'s `buildAll` hands to `createApp`.
+ * Builds the app through createApp with the wiring src/index.ts's buildAll
+ * uses — includeObservabilityPlugin: false and the redacting osnLoggerLayer —
+ * and checks that it still mounts GET /health and the OIDC discovery document.
  */
 async function buildWorkersApp(): Promise<App> {
   const dbAndEmailLayer = createTestLayer();
@@ -32,8 +24,8 @@ async function buildWorkersApp(): Promise<App> {
       includeObservabilityPlugin: false,
     },
   );
-  // T-L1: the Workers wiring must omit the per-request observability plugin and
-  // adopt the redacting logger.
+  // The Workers wiring omits the per-request observability plugin and uses the
+  // redacting logger.
   expect(built.deps.includeObservabilityPlugin).toBe(false);
   expect(built.deps.observabilityLayer).toBe(osnLoggerLayer);
   return createApp(built.deps);
@@ -47,7 +39,7 @@ describe("OSN auth server (Workers-shaped factory wiring)", () => {
 
   describe("GET /health", () => {
     it("returns ok status from shared observability health route", async () => {
-      // T-L1: healthRoutes stay mounted even with includeObservabilityPlugin:false.
+      // healthRoutes stay mounted with includeObservabilityPlugin: false.
       const res = await app.handle(new Request("http://localhost/health"));
       expect(res.status).toBe(200);
       const json = (await res.json()) as { status: string; service: string };

@@ -18,7 +18,6 @@ const PENDING_CHANGE = {
 };
 
 describe("durable ceremony store", () => {
-  // F-CL5
   it("rejects set, get, delete and consume when the object call fails", async () => {
     const fake = createFakeNamespace();
     fake.failWhen(() => true);
@@ -57,7 +56,6 @@ describe("durable ceremony store", () => {
     expect(new Set(fake.hints)).toEqual(new Set(["oc"]));
   });
 
-  // F-CL6
   it("round-trips a value through JSON and expires it with its TTL", async () => {
     const fake = createFakeNamespace();
     const store = createDurableCeremonyStore<typeof VALUE>(fake.ns, "pending_totp_enroll", vi.fn());
@@ -108,7 +106,6 @@ describe("durable ceremony store", () => {
 });
 
 describe("durable step-up token guard", () => {
-  // F-CL7
   it("rejects when the object call fails, rather than answering either way", async () => {
     const fake = createFakeNamespace();
     fake.failWhen(() => true);
@@ -128,7 +125,6 @@ describe("durable step-up token guard", () => {
 });
 
 describe("durable lockout counters", () => {
-  // F-CL8
   it.each(["recovery_lockout", "recovery_otp_lockout", "totp_lockout"] as const)(
     "%s answers unknown on a failed call, reports it, and swallows a failed reset",
     async (name) => {
@@ -169,23 +165,23 @@ describe("durable lockout counters", () => {
     expect(await store.status(KEY)).toEqual({ status: "open", failures: 0 });
   });
 
-  // F-CL9
-  it("keeps the four counters apart for one account", async () => {
+  it("keeps the five lockout counters apart for one account", async () => {
     const fake = createFakeNamespace();
     const bundle = createDurableCoordination(fake.ns, vi.fn());
     await bundle.recoveryLockoutStore.recordFailure(KEY);
     await bundle.recoveryOtpLockoutStore.recordFailure(KEY);
     await bundle.totpLockoutStore.recordFailure(KEY);
     await bundle.registrationLinkLockoutStore.recordFailure(KEY);
-    expect(new Set(fake.names).size).toBe(4);
+    await bundle.stepUpLinkLockoutStore.recordFailure(KEY);
+    expect(new Set(fake.names).size).toBe(5);
     expect(await bundle.recoveryLockoutStore.recordFailure(KEY)).toBe(2);
     expect(await bundle.totpLockoutStore.recordFailure(KEY)).toBe(2);
     expect(await bundle.registrationLinkLockoutStore.recordFailure(KEY)).toBe(2);
+    expect(await bundle.stepUpLinkLockoutStore.recordFailure(KEY)).toBe(2);
   });
 });
 
 describe("what a failed call reports", () => {
-  // F-CL11
   it("never carries a key, an IP, an account or a value", async () => {
     const fake = createFakeNamespace();
     fake.failWhen(() => true);
@@ -230,7 +226,7 @@ describe("what a failed call reports", () => {
         { store: "auth.recovery_generate", op: "increment", result: "error" },
       ]);
       const reported = JSON.stringify(counted.mock.calls);
-      for (const secret of ["203.0.113.77", KEY, VALUE.codeHash]) {
+      for (const secret of ["203.0.113.77", KEY, VALUE.codeHash, PENDING_CHANGE.newEmail]) {
         expect(reported).not.toContain(secret);
       }
     } finally {

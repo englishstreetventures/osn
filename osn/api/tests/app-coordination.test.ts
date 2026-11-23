@@ -223,11 +223,11 @@ describe("createApp wires the coordination bundle into the account routes", () =
   });
 });
 
-// Pulse spends a step-up token here with no OSN session on the hop, so the
-// token's binding to the session family that minted it is the only session
-// check this route makes.
-describe("POST /internal/step-up/verify, for a token whose minting session has ended", () => {
-  it("refuses it and claims nothing on the shared store", async () => {
+describe("POST /internal/step-up/verify refusals", () => {
+  it("refuses a token whose minting session has ended, and claims nothing on the shared store", async () => {
+    // Pulse spends a step-up token here with no OSN session on the hop, so the
+    // token's binding to the session family that minted it is the only session
+    // check this route makes.
     // Red on removing the family check from `verifyStepUpToken`, or on
     // making it after the single-use claim.
     const h = await signedIn();

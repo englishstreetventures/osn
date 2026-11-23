@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { createRateLimiter, type WorkersRateLimitBinding } from "@shared/rate-limit";
+import {
+  createRateLimiter,
+  type RateLimiterBackend,
+  type WorkersRateLimitBinding,
+} from "@shared/rate-limit";
 import { describe, it, expect } from "vitest";
 
 import { createInMemoryCoordination } from "../../src/lib/coordination/memory";
@@ -25,68 +29,9 @@ import { AUTH_RATE_LIMITS, MINUTE_MS, OSN_RATE_LIMITS } from "../../src/routes/a
  */
 function fallbackBundle(): AuthRateLimiters {
   const rl = () => createRateLimiter({ maxRequests: 999, windowMs: 60_000 });
-  return Object.fromEntries(
-    (
-      [
-        "registerBegin",
-        "registerStatus",
-        "registerResend",
-        "emailLinkConfirm",
-        "emailLinkCandidates",
-        "handleCheck",
-        "passkeyLoginBegin",
-        "passkeyLoginComplete",
-        "passkeyRegisterBegin",
-        "passkeyRegisterComplete",
-        "profileSwitch",
-        "profileList",
-        "recoveryGenerate",
-        "recoveryStatus",
-        "recoveryComplete",
-        "recoveryEmailBegin",
-        "recoveryEmailStatus",
-        "recoveryEmailResend",
-        "recoveryTotpComplete",
-        "recoveryDisown",
-        "stepUpPasskeyBegin",
-        "stepUpPasskeyComplete",
-        "stepUpEmailBegin",
-        "stepUpEmailStatus",
-        "stepUpEmailResend",
-        "stepUpTotpComplete",
-        "stepUpRequestRead",
-        "stepUpRequestConfirm",
-        "totpDisable",
-        "totpEnrollBegin",
-        "totpEnrollComplete",
-        "totpStatus",
-        "sessionList",
-        "sessionRevoke",
-        "emailChangeBegin",
-        "emailChangeStatus",
-        "emailChangeResend",
-        "emailChangeComplete",
-        "securityEventList",
-        "securityEventAck",
-        "passkeyList",
-        "passkeyRename",
-        "passkeyDelete",
-        "crossDeviceBegin",
-        "crossDevicePoll",
-        "crossDeviceApprove",
-        "crossDeviceReject",
-        "oidcAuthorize",
-        "oidcAuthorizeContext",
-        "oidcAuthorizeDecision",
-        "oidcToken",
-        "oidcConnectionsList",
-        "oidcConnectionsRevoke",
-        "oidcClientCreate",
-        "oidcClientList",
-        "oidcClientDisable",
-      ] as const
-    ).map((k) => [k, rl()]),
-  ) as unknown as AuthRateLimiters;
+  const out = {} as Record<keyof AuthRateLimiters, RateLimiterBackend>;
+  for (const key of Object.keys(AUTH_RATE_LIMITS) as (keyof AuthRateLimiters)[]) out[key] = rl();
+  return out;
 }
 
 /** A stub native binding that records every key it was asked to limit. */
@@ -195,6 +140,7 @@ describe("selectAuthRateLimiters — limiter routing", () => {
 
     // The 1-hour slots are returned UNCHANGED (same object identity as fallback).
     for (const key of HOUR_WINDOW_IP_AUTH_LIMITERS) {
+      expect(fallback[key]).toBeDefined();
       expect(selected[key]).toBe(fallback[key]);
     }
     // Sanity: the set is exactly the five 1-hour windows.
@@ -407,6 +353,12 @@ describe("wrangler.toml agrees with the budget table", () => {
         .map((block) => block.namespace_id);
     for (const id of [...ids(config.env.staging), ...ids(config.env.production)]) {
       expect(taken.has(id)).toBe(false);
+    }
+    // No two blocks in one environment share a namespace, so no two limiters
+    // share a counter.
+    for (const tier of [config.env.staging, config.env.production]) {
+      const all = tier.ratelimits.map((block) => block.namespace_id);
+      expect(new Set(all).size).toBe(all.length);
     }
     const staging = new Set(config.env.staging.ratelimits.map((block) => block.namespace_id));
     for (const block of config.env.production.ratelimits) {

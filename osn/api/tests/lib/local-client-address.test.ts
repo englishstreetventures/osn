@@ -18,6 +18,11 @@ const sent = (value?: string) =>
 describe("keepSentClientAddress", () => {
   it("keeps a sent IPv4 address", () => {
     expect(keepSentClientAddress(peer)(sent("192.0.2.11"))?.address).toBe("192.0.2.11");
+    expect(keepSentClientAddress(peer)(sent("192.0.2.11"))).toEqual({
+      address: "192.0.2.11",
+      family: "IPv4",
+      port: 0,
+    });
   });
 
   it("keeps a sent IPv6 address", () => {

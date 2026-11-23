@@ -12,10 +12,10 @@ const safeError = makeSafeError(["GraphError", "NotFoundError"]);
 /**
  * Reject the way route handlers see failures: through `makeAppRunner`'s `run`.
  *
- * This has to be `run` and not a raw `runtime.runPromise`. The S-M17 invariant
- * belongs to the runner/helper PAIR — `run` is what turns a defect into a
- * tagless `OpaqueDefect`, and `makeSafeError` is what applies the allowlist to
- * what survives. A harness that called `runPromise` directly would be testing a
+ * This has to be `run` and not a raw `runtime.runPromise`. The guarantee that a
+ * defect never reaches the client belongs to the runner and helper together —
+ * `run` is what turns a defect into a tagless `OpaqueDefect`, and
+ * `makeSafeError` is what applies the allowlist to what survives. A harness that called `runPromise` directly would be testing a
  * code path no route uses, and would go green on the leak below.
  */
 async function rejectionOf(effect: Effect.Effect<never, unknown>): Promise<unknown> {
@@ -66,10 +66,9 @@ describe("makeSafeError", () => {
   });
 
   /**
-   * S-M17, the structural half. `Data.TaggedError` IS an `Error` carrying a
-   * `_tag`, so an allow-listed tag is NOT on its own evidence that a service
-   * chose to expose the message: every route below turns the very same class
-   * into a defect, and Effect v4's `Cause.squash` (what a plain `runPromise`
+   * `Data.TaggedError` IS an `Error` carrying a `_tag`, so an allow-listed tag
+   * is NOT on its own evidence that a service chose to expose the message:
+   * every route below turns the very same class into a defect, and Effect v4's `Cause.squash` (what a plain `runPromise`
    * rejects with) hands that defect back verbatim. Only the runner's `Fail`/
    * defect split keeps these out of the allowlist check.
    *

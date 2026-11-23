@@ -351,13 +351,14 @@ describe("dev-login", () => {
     });
   });
 
-  it("sets both session cookies, and keeps the secret out of the Referer", async () => {
+  it("sets both session cookies, and sends no Referer onward", async () => {
     const { app } = await build(LOCAL);
     const res = await app.handle(devLogin(SECRET));
     const cookies = res.headers.getSetCookie();
     expect(cookies.some((c) => c.startsWith("osn_session="))).toBe(true);
     expect(cookies.some((c) => c.startsWith("osn_has_session=1"))).toBe(true);
-    // The secret rides in the query string, so this URL is a credential.
+    // The page's URL can carry return_to, and nothing about a sign-in should
+    // reach another site through Referer.
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
   });
 

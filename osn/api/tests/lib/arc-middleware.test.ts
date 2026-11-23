@@ -7,7 +7,7 @@ import {
   generateArcKeyPair,
 } from "@shared/crypto";
 import { Effect } from "effect";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { requireArc } from "../../src/lib/arc-middleware";
 import { createTestLayer } from "../helpers/db";
@@ -18,8 +18,24 @@ import { createTestLayer } from "../helpers/db";
 // The route integration tests cover the happy path (valid ARC token) and the
 // basic 401 cases (wrong audience, wrong scope, expired). These unit tests
 // cover the untrusted-input parse paths that short-circuit before the DB is
-// touched, ensuring no 500 leaks implementation details.
+// touched, ensuring no 500 leaks implementation details. Every refusal answers
+// the same null + 401, so each case also reads the verification counter: a
+// malformed token is counted "malformed" before any key lookup, and an unknown
+// key "unknown_issuer" after it.
 // ---------------------------------------------------------------------------
+
+/** Every `arc.token.verification` count requireArc records, in order. */
+const verifications = vi.hoisted(() => [] as Array<[string, string]>);
+vi.mock("@shared/crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@shared/crypto")>();
+  return {
+    ...actual,
+    metricArcTokenVerification: (...args: Parameters<typeof actual.metricArcTokenVerification>) => {
+      verifications.push([args[0], args[1]]);
+      actual.metricArcTokenVerification(...args);
+    },
+  };
+});
 
 const dbLayer = createTestLayer();
 const run = <A>(eff: Effect.Effect<A, unknown, Db>) =>
@@ -36,6 +52,7 @@ function b64u(obj: unknown): string {
 
 beforeEach(() => {
   clearPublicKeyCache();
+  verifications.length = 0;
 });
 
 describe("requireArc — missing / non-ARC authorization", () => {
@@ -63,10 +80,14 @@ describe("requireArc — missing / non-ARC authorization", () => {
 
 describe("requireArc — malformed ARC token structure", () => {
   it("returns null + 401 for a token with only two segments", async () => {
+    // Both segments parse, so only the segment count can refuse it before the
+    // key lookup.
+    const token = `${b64u({ alg: "ES256", kid: "k" })}.${b64u({ iss: "pulse-api" })}`;
     const set = makeSet();
-    const result = await requireArc("ARC header.payload", set, run, "osn-api", "graph:read");
+    const result = await requireArc(`ARC ${token}`, set, run, "osn-api", "graph:read");
     expect(result).toBeNull();
     expect(set.status).toBe(401);
+    expect(verifications).toEqual([["unknown", "malformed"]]);
   });
 
   it("returns null + 401 for a token with non-JSON header", async () => {
@@ -96,6 +117,7 @@ describe("requireArc — malformed ARC token structure", () => {
     );
     expect(result).toBeNull();
     expect(set.status).toBe(401);
+    expect(verifications).toEqual([["unknown", "malformed"]]);
   });
 
   it("returns null + 401 for payload missing iss field", async () => {
@@ -111,6 +133,7 @@ describe("requireArc — malformed ARC token structure", () => {
     );
     expect(result).toBeNull();
     expect(set.status).toBe(401);
+    expect(verifications).toEqual([["unknown", "malformed"]]);
   });
 });
 
@@ -128,15 +151,18 @@ describe("requireArc — valid structure but unregistered service", () => {
     );
     expect(result).toBeNull();
     expect(set.status).toBe(401);
+    expect(verifications).toEqual([["unknown", "unknown_issuer"]]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Issuer binding: requireArc passes the peeked `iss` to verifyArcToken as
-// expectedIssuer, so the signed `iss` is cryptographically required to match
-// the issuer its `kid` is registered under in the DB.
+// Issuer binding: the key is looked up by the (kid, iss) pair, so a token that
+// names another issuer finds no key and is refused at the DB lookup. The
+// expected-issuer argument requireArc also hands verifyArcToken cannot be
+// reached through a signed token (the peeked `iss` is the signed one), so no
+// case here checks it.
 // ---------------------------------------------------------------------------
-describe("requireArc — issuer binding (X1)", () => {
+describe("requireArc — a key answers only for the issuer it is registered under", () => {
   /** Register a service + key under `serviceId`, return a signing key pair + keyId. */
   async function registerKey(serviceId: string, scopes = "graph:read") {
     const kp = await generateArcKeyPair();
@@ -186,9 +212,9 @@ describe("requireArc — issuer binding (X1)", () => {
   });
 
   it("rejects a token whose signed iss differs from the kid's registered issuer", async () => {
-    // Key registered under "real-svc", but token claims iss "evil-api" while
-    // re-using the same kid. The kid→issuer DB binding rejects it at resolve,
-    // and even if it resolved, X1's expectedIssuer check would reject it.
+    // Key registered under "real-svc"; the token claims iss "evil-api" with the
+    // same kid. The kid-to-issuer lookup refuses it before the signature is
+    // checked.
     const { keyPair, keyId } = await registerKey("real-svc");
     const forged = await createArcToken(keyPair.privateKey, {
       iss: "evil-api",

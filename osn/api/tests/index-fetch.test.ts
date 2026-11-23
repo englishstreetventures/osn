@@ -30,7 +30,7 @@ async function read503(res: Response): Promise<{ status: number; error: string }
   return { status: res.status, error: json.error };
 }
 
-describe("handler.fetch — fail-closed (T-R1)", () => {
+describe("handler.fetch — fail-closed", () => {
   it("returns 503 with the misconfigured JSON body when env.DB is missing (local)", async () => {
     // No OSN_ENV ⇒ local. DB is still mandatory in every tier.
     const env = {} as Env;
@@ -55,11 +55,12 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
   });
 
   it("reports DB first when both DB and the non-local vars are missing", async () => {
-    // DB absence wins regardless of tier (the `|| !env.DB` short-circuit).
+    // DB is listed first in every tier.
     const env = { OSN_ENV: "production" } as Env;
     const { error } = await read503(await handler.fetch(req(), env));
     expect(error).toContain("Worker misconfigured");
     expect(error).toContain("DB");
+    expect(error.startsWith("Worker misconfigured: missing DB,")).toBe(true);
   });
 
   it("returns 503 naming RESEND_API_URL when a deployed tier carries the emulator override", async () => {
