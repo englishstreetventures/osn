@@ -20,6 +20,7 @@ import { describe, it, expect, beforeAll, vi } from "vitest";
 
 import { createApp } from "../../src/app";
 import { buildAppDeps } from "../../src/build-deps";
+import type { CeremonyStore } from "../../src/lib/ceremony-store";
 import { createDurableCeremonyStore } from "../../src/lib/coordination/durable";
 import { createInMemoryCoordination } from "../../src/lib/coordination/memory";
 import { osnLoggerLayer } from "../../src/observability";
@@ -735,6 +736,49 @@ async function parkRequest(
   return { requestId, profileId: profiles[0].id, cookie };
 }
 
+/**
+ * `store`, and `pairs(k)`: the next `2k` calls that read an entry — `get`, and
+ * the single-use `consume` — run as they arrive, two at a time, and neither of
+ * a pair answers until both have run. Every other call goes straight through.
+ * A read left without its pair for two seconds fails, saying so; a passing run
+ * never reaches the bound.
+ */
+function readsInPairs<V>(store: CeremonyStore<V>) {
+  let left = 0;
+  let waiting: (() => void)[] = [];
+  const paired = async <A>(read: Promise<A>): Promise<A> => {
+    const value = await read;
+    if (left === 0) return value;
+    left -= 1;
+    await new Promise<void>((resolve, reject) => {
+      const bound = setTimeout(
+        () => reject(new Error("a read waited two seconds for its pair")),
+        2_000,
+      );
+      waiting.push(() => {
+        clearTimeout(bound);
+        resolve();
+      });
+      if (waiting.length < 2) return;
+      const pair = waiting;
+      waiting = [];
+      for (const answer of pair) answer();
+    });
+    return value;
+  };
+  const wrapped: CeremonyStore<V> = {
+    ...store,
+    get: (key) => paired(store.get(key)),
+    consume: (key, expected) => paired(store.consume(key, expected)),
+  };
+  return {
+    store: wrapped,
+    pairs: (k: number) => {
+      left = 2 * k;
+    },
+  };
+}
+
 describe("POST /authorize/decision", () => {
   it("401s when the decider is not signed in", async () => {
     const h = setup();
@@ -823,10 +867,17 @@ describe("POST /authorize/decision", () => {
   });
 
   it("answers exactly one of two decisions sent at once on one request", async () => {
-    const h = setup();
+    // Each decision reads the parked request, then claims it. Both reads run
+    // before either answers, and both claims likewise, so the claim alone
+    // decides: one that read the entry and then deleted it would let both
+    // decisions through.
+    const stores = createDefaultCeremonyStores();
+    const reads = readsInPairs(stores.authorizeRequests);
+    const h = setup({ ceremonyStores: { ...stores, authorizeRequests: reads.store } });
     h.seedClient();
     const sessionCookie = await signIn(h, "race@example.com", "race_user");
     const { requestId, profileId, cookie } = await parkRequest(h, sessionCookie);
+    reads.pairs(2);
 
     const decide = () =>
       h.app.handle(

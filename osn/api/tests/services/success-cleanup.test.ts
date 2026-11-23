@@ -52,7 +52,7 @@ const ANSWER_WITHIN = "2 seconds";
 /**
  * `ns` with every call `held` accepts waiting until `release()`. Calls reach
  * the stand-in, and are recorded there, only once let go. `reached(n)`
- * resolves once `n` held calls have been sent.
+ * resolves once `n` held calls have been sent; `sent()` counts them so far.
  */
 function holding(ns: CoordinationNamespace, held: (store: string, op: CoordinationOp) => boolean) {
   let release!: () => void;
@@ -90,7 +90,7 @@ function holding(ns: CoordinationNamespace, held: (store: string, op: Coordinati
       };
     },
   };
-  return { ns: wrapped, release, reached };
+  return { ns: wrapped, release, reached, sent: () => waiting };
 }
 
 /**
@@ -140,8 +140,18 @@ function harness(
         throw new Error(`${wanted.join(" or ")} never reached the store`);
       }
     });
-  /** Waits until `n` held calls have been sent and are waiting on the gate. */
-  const holdingAtLeast = (n: number) => Effect.promise(() => gate.reached(n));
+  /**
+   * Waits until `n` held calls have been sent and are waiting on the gate. A
+   * call that is never sent fails the case after two seconds, naming how many
+   * arrived; a passing run never reaches the bound.
+   */
+  const holdingAtLeast = (n: number) =>
+    Effect.promise(() => gate.reached(n)).pipe(
+      Effect.timeoutOrElse({
+        duration: "2 seconds",
+        orElse: () => Effect.die(new Error(`only ${gate.sent()} of ${n} held calls were sent`)),
+      }),
+    );
   return {
     auth,
     bundle,

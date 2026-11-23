@@ -32,6 +32,7 @@ import {
   createInMemoryRecoveryLockoutStore,
   type RecoveryLockoutStore,
 } from "../../src/lib/recovery-lockout-store";
+import * as metrics from "../../src/metrics";
 import { createAuthService, type AuthConfig } from "../../src/services/auth";
 import {
   RECOVERY_TOKEN_AUDIENCE,
@@ -247,8 +248,12 @@ describe("POST /login/recovery/totp/complete", () => {
     // One recovery per account per 72 hours (`completeRecoveryFactor`), on the
     // TOTP arm as on the email one. The second request carries a fresh code,
     // one step later, so the code's single use is not what refuses it.
+    // Every recovery failure answers the same 400, so the cooldown's own
+    // metric names the check that refused: recorded on that refusal and no
+    // other.
     // Goes red on: dropping the cooldown check from `completeRecoveryFactor`.
     vi.useFakeTimers({ toFake: ["Date"] });
+    const cooldown = vi.spyOn(metrics, "metricRecoveryCooldown");
     try {
       const { app, secret } = await seedEnrolled("rt-again@example.com", "rtagain");
       const step = Math.floor(Date.now() / 1000 / STEP_SECONDS) + 1;
@@ -260,6 +265,7 @@ describe("POST /login/recovery/totp/complete", () => {
         }),
       );
       expect(first.status).toBe(200);
+      expect(cooldown).not.toHaveBeenCalled();
 
       vi.setSystemTime(Date.now() + STEP_SECONDS * 1000);
       const second = await app.handle(
@@ -272,7 +278,9 @@ describe("POST /login/recovery/totp/complete", () => {
         }),
       );
       expect(second.status).toBe(400);
+      expect(cooldown.mock.calls).toEqual([["second_recovery_refused"]]);
     } finally {
+      cooldown.mockRestore();
       vi.useRealTimers();
     }
   });

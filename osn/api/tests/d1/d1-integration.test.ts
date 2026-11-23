@@ -7,6 +7,7 @@ import {
   it,
   mock,
   setDefaultTimeout,
+  spyOn,
 } from "bun:test";
 
 import type { D1Database as DrizzleD1 } from "@cloudflare/workers-types";
@@ -52,6 +53,7 @@ import {
   type TotpKeyRing,
 } from "../../src/lib/totp-secret-crypto";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../src/lib/unique-constraint";
+import * as metrics from "../../src/metrics";
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import {
   cancelErasure,
@@ -501,16 +503,27 @@ describe("TOTP blob columns over real D1 (Miniflare)", () => {
 
     // The enrolment's own code, so its step is already spent, sent under a
     // ring that would re-encrypt the row if the step were still free.
+    const spent = await deriveTotpCode(secret, step);
+    const verified = spyOn(metrics, "metricTotpVerified");
+    let verdicts: unknown[] = [];
     const outcome = await Effect.runPromise(
       Effect.result(
-        completeTotpStepUp(
-          serviceWith(createTotpKeyRing(k2, k1)),
-          accountId,
-          await deriveTotpCode(secret, step),
-        ).pipe(Effect.provide(layer)),
+        completeTotpStepUp(serviceWith(createTotpKeyRing(k2, k1)), accountId, spent).pipe(
+          Effect.provide(layer),
+        ),
       ),
-    );
+    ).finally(() => {
+      verdicts = verified.mock.calls.map(([verdict]) => verdict);
+      verified.mockRestore();
+    });
     expect(outcome._tag).toBe("Failure");
+    expect(outcome).toMatchObject({
+      failure: { _tag: "AuthError", message: "Invalid or expired code" },
+    });
+    // Every TOTP refusal answers that same error, so the verdict the check
+    // records names which one fired: the conditional UPDATE found the step
+    // spent. A refusal before that statement records another verdict, or none.
+    expect(verdicts).toEqual(["replayed"]);
 
     const row = await credentialRow(accountId);
     expect(Buffer.from(row.secretCiphertext).equals(Buffer.from(before.secretCiphertext))).toBe(
@@ -1184,11 +1197,17 @@ describe("recovery passkey reclaim over real D1 (Miniflare)", () => {
         "CREATE TRIGGER d1_refuse_security_events BEFORE INSERT ON security_events BEGIN SELECT RAISE(ABORT, 'refused by the test'); END",
       )
       .run();
-    try {
-      expect((await enrol(accountId, sessionHash))._tag).toBe("Failure");
-    } finally {
-      await d1.prepare("DROP TRIGGER IF EXISTS d1_refuse_security_events").run();
-    }
+    const outcome = await enrol(accountId, sessionHash).finally(() =>
+      d1.prepare("DROP TRIGGER IF EXISTS d1_refuse_security_events").run(),
+    );
+    expect(outcome._tag).toBe("Failure");
+    // The batch's own failure: a database error carrying the trigger's abort,
+    // which only the batch's security-event rows can meet. A refusal earlier
+    // in the ceremony stops before the batch runs, and would leave the rows
+    // below as they are for a reason that is not atomicity.
+    const failure = outcome._tag === "Failure" ? outcome.failure : null;
+    expect(failure?._tag).toBe("DatabaseError");
+    expect(driverErrorText(failure)).toContain("refused by the test");
 
     const ids = await passkeyIds(accountId);
     // The credential is still there. Without atomicity the account would be one

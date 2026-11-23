@@ -486,7 +486,10 @@ describe("the deletion fan-out", () => {
         const job = yield* jobOf(accountId);
         expect(job.zapDoneAt).toBeNull();
         expect(job.fanoutFailedAt).toBe(NOW);
-        expect(job.pulseDoneAt).toBeGreaterThan(0);
+        // Pulse, with no URL, is skipped rather than called: zap's timeout
+        // leaves the skip it recorded in the same pass as it was.
+        expect(erasures(accountId).map((call) => call.app)).toEqual(["zap"]);
+        expect(JSON.parse(job.appOutcomes!).pulse).toEqual({ status: "skipped" });
         expect(counted).toHaveBeenCalledWith("zap", "timeout");
       }).pipe(Effect.provide(createTestLayer())),
   );

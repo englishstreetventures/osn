@@ -490,11 +490,14 @@ describe("POST /login/recovery/complete, a refusal's last two calls", () => {
     }) as typeof db;
     const layer = Layer.merge(Layer.succeed(Db, { db: holding }), makeLogEmailLive().layer);
     /**
-     * Waits for the failure record to reach the store. A refusal that records
-     * only after the read never gets there while the read is held, and the
-     * case times out.
+     * Answers whether the failure record reaches the store within a second. A
+     * refusal that records only after the read never gets there while the read
+     * is held, so it answers `false`; a passing run never reaches the bound.
      */
-    const recorded = Effect.promise(() => failureRecorded).pipe(Effect.as(true));
+    const recorded = Effect.promise(() => failureRecorded).pipe(
+      Effect.timeoutOption("1 second"),
+      Effect.map((arrived) => arrived._tag === "Some"),
+    );
     return { auth, layer, recorded, release };
   }
 

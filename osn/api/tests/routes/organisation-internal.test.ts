@@ -266,5 +266,33 @@ describe("internal organisation routes (ARC-protected)", () => {
       expect(allowed.status).toBe(200);
       expect(await allowed.json()).toEqual({ role: "admin" });
     });
+
+    it("refuses a token without org:read, and one addressed to another service, with 401 and no role", async () => {
+      const { token } = await setupArcService();
+      // A service the registry lets hold `graph:read` only, presenting that scope.
+      const { token: graphOnly } = await setupArcService("zap-api", "graph:read");
+      // A service holding `org:read`, presenting a token minted for another audience.
+      const { token: elsewhere } = await setupArcService("cire-api", "org:read", "pulse-api");
+      const profileId = await registerProfile("alice@example.com", "alice");
+      const organisation = await runWithLayer(
+        org.createOrganisation(profileId, "acme", "Acme Corp"),
+      );
+      const url = `http://localhost/organisations/internal/membership?orgId=${organisation.id}&profileId=${profileId}`;
+
+      for (const refusedToken of [graphOnly, elsewhere]) {
+        const refused = await app.handle(
+          new Request(url, { headers: { Authorization: `ARC ${refusedToken}` } }),
+        );
+        expect(refused.status).toBe(401);
+        expect(await refused.json()).toEqual({ error: "Unauthorized" });
+      }
+
+      // Control: the same call with a token for this audience and scope answers the role.
+      const allowed = await app.handle(
+        new Request(url, { headers: { Authorization: `ARC ${token}` } }),
+      );
+      expect(allowed.status).toBe(200);
+      expect(await allowed.json()).toEqual({ role: "admin" });
+    });
   });
 });
