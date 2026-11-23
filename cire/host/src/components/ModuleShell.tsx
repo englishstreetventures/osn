@@ -712,7 +712,10 @@ export default function ModuleShell(props: ModuleShellProps) {
               chrome, this is the only thing that says which module is open —
               and unlike a chrome band it scrolls away with the content it
               titles. The hint under it is the same sentence the rail and the
-              palette use, so a module reads the same wherever it is met. */}
+              palette use, so a module reads the same wherever it is met.
+              Overview's is the one header without it: "Your wedding at a
+              glance" says nothing its cards do not (DESIGN.md §3, "A line
+              earns its place"). The rail and the palette keep it. */}
           <header class="mb-4 flex flex-col gap-4">
             <div class="flex min-w-0 flex-col gap-1">
               <h2
@@ -722,7 +725,9 @@ export default function ModuleShell(props: ModuleShellProps) {
               >
                 {moduleDef(module()).label}
               </h2>
-              <p class="font-body text-text-muted text-ui-sm">{moduleDef(module()).hint}</p>
+              <Show when={module() !== "overview"}>
+                <p class="font-body text-text-muted text-ui-sm">{moduleDef(module()).hint}</p>
+              </Show>
             </div>
 
             <hr class="gilt-rule opacity-60" />

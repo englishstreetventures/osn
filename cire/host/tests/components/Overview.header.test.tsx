@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 /**
  * The Overview screen names itself once.
  *
- * `ModuleShell` renders the panel header — the module's label and its `hint` —
- * for every module, so a panel that also leads with its own title says the same
- * two things twice before any content. This suite is the guard on that, and it
+ * `ModuleShell` renders the panel header — the module's label, its `hint` and
+ * the gilt rule — for every module but Overview, whose header is the label and
+ * the rule alone: its hint says nothing the cards under it do not. A panel that
+ * also led with its own title would say it twice before any content. This
+ * suite is the guard on both, and it
  * needs the shell and the panel rendered together: `Overview.test.tsx` renders
  * `Overview` on its own, where a duplicate of the shell's header is absent
  * rather than singular.
@@ -153,14 +155,15 @@ describe("Overview header", () => {
     resetAll();
   });
 
-  it("prints the module's hint once, not once per header", async () => {
+  it("draws no line under the Overview title", async () => {
     routeEmpty();
     await renderShell("overview");
 
-    // At most once is the contract. Exactly once is the stronger true statement
-    // and the one worth pinning: it also catches a change that leaves the screen
-    // with no subtitle at all.
-    expect(screen.queryAllByText("Your wedding at a glance")).toHaveLength(1);
+    // The hint stays in the nav — the rail's tooltip, the sheet and the
+    // palette — but not under the title.
+    const header = screen.getByRole("heading", { name: "Overview", level: 2 }).closest("header")!;
+    expect(header.textContent).not.toContain("Your wedding at a glance");
+    expect(header.querySelectorAll("p")).toHaveLength(0);
   });
 
   it("names the module once above the content", async () => {
@@ -182,7 +185,8 @@ describe("Overview header", () => {
       await renderShell(mod.id, mod.lock?.tier ?? "ivory");
 
       expect(namesOutsideNav(mod.label)).toHaveLength(1);
-      expect(screen.queryAllByText(mod.hint)).toHaveLength(1);
+      // Every header but Overview's carries its hint, once.
+      expect(screen.queryAllByText(mod.hint)).toHaveLength(mod.id === "overview" ? 0 : 1);
 
       cleanup();
       resetAll();

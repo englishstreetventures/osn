@@ -162,4 +162,35 @@ describe("Overview budget widget", () => {
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
     expect(await screen.findByText(/170,000 tracked — set a total/)).toBeInTheDocument();
   });
+
+  it("dates the next payment as What's next dates it, not as a raw ISO date", async () => {
+    // Inside the agenda's 90 days, so the same payment is a What's next row too.
+    const now = new Date();
+    const due = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 20);
+    const dueKey = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`;
+    setCachedBudget(
+      "wed_1",
+      snap({
+        budgetTotalMinor: 4_500_000,
+        payments: [
+          {
+            id: "p1",
+            budgetItemId: "b1",
+            label: "Balance",
+            amountMinor: 250_000,
+            dueAt: dueKey,
+            paidAt: null,
+            createdAt: 1,
+          },
+        ],
+      }),
+    );
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
+
+    const agendaRow = (await screen.findByText("Balance")).closest("button")!;
+    const agendaDate = agendaRow.querySelector("span")!.textContent!;
+    const next = await screen.findByText(/Next: Balance/);
+    expect(next.textContent).toContain(`due ${agendaDate}`);
+    expect(next.textContent).not.toContain(dueKey);
+  });
 });

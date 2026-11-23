@@ -37,7 +37,7 @@ import {
 } from "../lib/guests-store";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { formatMinor } from "../lib/money";
-import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
+import { buildAgenda, type AgendaItem, toLocalDateKey } from "../lib/overview-agenda";
 import { fetchRsvpChanges, type RsvpChanges } from "../lib/rsvp-changes";
 import {
   ensureRsvpChangesLoaded,
@@ -680,13 +680,20 @@ export default function Overview(props: {
     <Show when={(summary()?.rsvpEvents.length ?? 0) > 0}>
       <Card>
         <Eyebrow>Attending by event</Eyebrow>
-        <ul class="font-body text-text-muted text-ui-sm flex flex-col">
+        {/* The card's label says "Attending" once, so a row is the event and
+            its figure alone. The list carries the label as its name: one read
+            from the small-caps label would come out in capitals. A figure
+            keeps its line; a long event name is cut short instead. */}
+        <ul
+          aria-label="Attending by event"
+          class="font-body text-text-muted text-ui-sm flex flex-col"
+        >
           <For each={summary()!.rsvpEvents.slice(0, 5)}>
             {(e) => (
               <li class="border-border/40 flex items-baseline justify-between gap-3 border-t py-1.5 first:border-t-0 first:pt-0">
                 <span class="min-w-0 truncate">{e.name}</span>
-                <span class="text-text font-ui-mono shrink-0 tabular-nums">
-                  {e.attending} attending
+                <span class="text-text font-ui-mono shrink-0 whitespace-nowrap tabular-nums">
+                  {e.attending}
                 </span>
               </li>
             )}
@@ -937,9 +944,11 @@ export default function Overview(props: {
                       <Show when={upcomingPaymentsMemo().length > 0}>
                         <p class="text-text-muted text-ui-sm">
                           Next: {upcomingPaymentsMemo()[0]!.label}
+                          {/* Dated as What's next dates the same payment. */}
                           <Show when={upcomingPaymentsMemo()[0]!.dueAt}>
-                            {" "}
-                            · due {upcomingPaymentsMemo()[0]!.dueAt}
+                            {(dueAt) => (
+                              <> · due {fmtAgendaDate(toLocalDateKey(dueAt()) ?? dueAt())}</>
+                            )}
                           </Show>
                         </p>
                       </Show>
