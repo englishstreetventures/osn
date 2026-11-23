@@ -105,6 +105,17 @@ function lowestY1(floor: number): number {
   return y1;
 }
 
+/** How a settle may end sooner than at rest. */
+export interface SettleOptions {
+  /**
+   * End the curve the first millisecond the spring is within this many px of
+   * its target, however fast it still moves; the last of it snaps there. A
+   * sheet leaving the screen ends this way, since nobody watches its last few
+   * pixels go.
+   */
+  endWithinPx?: number;
+}
+
 /**
  * The settle of something released at `from` px, bound for `to`, moving at
  * `velocity` px per ms — or null when it is already there.
@@ -118,12 +129,18 @@ function lowestY1(floor: number): number {
  * finger had. A release far faster strays further, since that tangent alone
  * does, and so does a curve that would need more than 64 stops, which is
  * sampled again more loosely. It ends at rest, within a pixel of its target
- * and under 30px/s. A full 366px from rest settles in about 0.4s, 95% of the
+ * and under 30px/s, or with `endWithinPx` once that close. A full 366px from
+ * rest settles in about 0.4s, 95% of the
  * way by about 0.23s. A flick faster than the spring can bring to rest would
  * pass its target and come back; the curve ends where it reaches the target
  * instead, so nothing shows beyond the rest.
  */
-export function settleCurve(from: number, to: number, velocity: number): SettleCurve | null {
+export function settleCurve(
+  from: number,
+  to: number,
+  velocity: number,
+  options: SettleOptions = {},
+): SettleCurve | null {
   const distance = to - from;
   if (distance === 0) return null;
   const w = SETTLE_OMEGA;
@@ -145,7 +162,12 @@ export function settleCurve(from: number, to: number, velocity: number): SettleC
       end = crossing;
       break;
     }
-    if (Math.abs(offset(t)) <= REST_PX && Math.abs(speed(t)) <= REST_SPEED) {
+    const left = Math.abs(offset(t));
+    if (options.endWithinPx !== undefined && left <= options.endWithinPx) {
+      end = t;
+      break;
+    }
+    if (left <= REST_PX && Math.abs(speed(t)) <= REST_SPEED) {
       end = t;
       break;
     }

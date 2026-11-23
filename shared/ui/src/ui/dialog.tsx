@@ -26,6 +26,7 @@ import {
 
 import { readsLinearEasing, settleCurve } from "../lib/spring";
 import {
+  CLOSE_ENDS_WITHIN_PX,
   closesOnRelease,
   dragOffset,
   releaseSpeed,
@@ -583,7 +584,9 @@ function sheetDrag(
   /** Closes through Kobalte; false when the host kept the sheet open. */
   function dismiss(p: Press, speed: number): boolean {
     const motion = !fades();
-    const curve = motion ? settleCurve(p.offset, p.height, speed) : null;
+    const curve = motion
+      ? settleCurve(p.offset, p.height, speed, { endWithinPx: CLOSE_ENDS_WITHIN_PX })
+      : null;
     const timed = [panel, scrim()].filter((el) => el !== undefined);
     phase = "closing";
     for (const el of timed) {

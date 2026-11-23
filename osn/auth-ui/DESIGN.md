@@ -889,7 +889,7 @@ host a short-lived token through `onToken`.
   leaves as every Musubi dialog does before the host removes it: below `md` it
   slides down (under reduced motion it fades, on the same pace), from `md` the
   card fades, and dragged down and let go it leaves on the release's spring,
-  about 300 to 460ms. If the exit has not ended after the longer of 300ms and
+  about 280 to 360ms on a phone. If the exit has not ended after the longer of 300ms and
   the exit's own run plus 100ms (the panel's `animation-duration`, read as it
   closes and taken as 2s at most, the longest a drag's spring runs; a drag's
   release writes the spring's length there), because a tab the browser has

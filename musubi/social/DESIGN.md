@@ -513,13 +513,14 @@ need no drag. The owner chose it on #2288 (2026-11-23): "Soft spring,
 top; no grabber", and for the thresholds "Yes, those numbers". The spring has
 no token, since it differs with every release; `@shared/ui` samples it into
 a `linear()` easing as it lets go (`wiki/shared/design-tokens.md` §Motion). A
-close from rest at a quarter of the sheet's height runs 340ms on a 200px
-sheet, 360ms on a 293px one and 414ms on an 800px one; a return of 30px from
-rest runs 250ms. So on a sheet taller than 293px the spring runs past the
-owner's 360ms, but with under 3px of travel left by then: what reads is the
-same spring the owner tried in the prototype, whose own lengths it shares.
+close ends once 3px of travel is left, since nobody watches a sheet's last
+pixels leave the screen: the owner's answer on #2288 (2026-11-23) to a spring
+that otherwise ran past 360ms on taller sheets. So a close from rest at a
+quarter of the sheet's height runs 279ms on a 200px sheet, 302ms on a 300px
+one and 355ms on an 800px one. A return runs on to rest: 30px from rest takes
+250ms.
 
-*Measured 2026-11-23 — `settleCurve(0.25 × height, height, 0).duration` and `settleCurve(30, 0, 0).duration` from `shared/ui/src/lib/spring.ts`, run with `bun` for heights 200 to 800px; the travel left at 360ms from the spring's displacement `(d0 + b·t)·e^(−ωt)` for an 800px sheet, 2.7px.*
+*Measured 2026-11-23 — `settleCurve(0.25 × height, height, 0, { endWithinPx: 3 }).duration` and `settleCurve(30, 0, 0).duration` from `shared/ui/src/lib/spring.ts`, run with `bun` for heights 200 to 800px.*
 
 `shared/ui/tests/dialog-drag.browser.test.tsx` holds the drag,
 `tests/components/SecurityStepUp.browser.test.tsx` the step-up refusing it

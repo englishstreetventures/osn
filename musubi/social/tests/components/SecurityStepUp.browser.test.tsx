@@ -518,8 +518,9 @@ describe("a drag down the step-up sheet at 390px", () => {
     await settle();
     const finger = await dragTitle(sheet, sheet.offsetHeight * 0.5);
     await finger.lift();
-    // The spring is longer than the 300ms the hand-over waits at least.
-    expect(Number.parseFloat(sheet.style.animationDuration)).toBeGreaterThan(300);
+    // The release's spring, not the class's 200ms exit, is what the sheet
+    // leaves on, and the outcome waits for it.
+    expect(Number.parseFloat(sheet.style.animationDuration)).toBeGreaterThan(200);
     await waitFor(() => expect(onCancel).toHaveBeenCalledOnce(), { timeout: 2000 });
     expect(goneAtHandOver, "the outcome arrived while the sheet was on screen").toBe(true);
   });
@@ -532,7 +533,10 @@ describe("a drag down the step-up sheet at 390px", () => {
     slow.textContent = '[role="dialog"] { animation-duration: 60s !important; }';
     document.head.append(slow);
     try {
-      const onCancel = vi.fn();
+      let handedOver = 0;
+      const onCancel = vi.fn(() => {
+        handedOver = performance.now();
+      });
       render(() => (
         <StepUpDialog
           client={{} as StepUpClient}
@@ -542,10 +546,20 @@ describe("a drag down the step-up sheet at 390px", () => {
         />
       ));
       const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Confirm it's you" }));
+      // The moment the sheet closes, read off its own attribute rather than
+      // after the click's round trip.
+      let closed = 0;
+      const seen = new MutationObserver(() => {
+        if (!closed && sheet.hasAttribute("data-closed")) closed = performance.now();
+      });
+      seen.observe(sheet, { attributes: true, attributeFilter: ["data-closed"] });
       await userEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
-      const closed = performance.now();
       await waitFor(() => expect(onCancel).toHaveBeenCalledOnce(), { timeout: 3000 });
-      expect(performance.now() - closed).toBeLessThan(2600);
+      seen.disconnect();
+      // The 2s cap and the 100ms margin, and no more than a few frames' slack:
+      // never as soon as the 300ms floor, never as late as the 60s run.
+      expect(handedOver - closed).toBeGreaterThanOrEqual(2000);
+      expect(handedOver - closed).toBeLessThan(2300);
     } finally {
       slow.remove();
     }

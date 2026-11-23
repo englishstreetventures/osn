@@ -1290,8 +1290,8 @@ finger's last move was a flick back up, or after a flick down of 0.4px/ms
 over at least 24px of travel, it closes through Kobalte's `close()`, the path
 Cancel takes, so the host's `onOpenChange(false)` decides; otherwise, or when
 the host keeps it open, it goes back. Both ride a spring started at the
-panel's speed ([[design-tokens#Motion]]); Cancel, Escape and the scrim keep
-the 200ms exit. A press on a sheet springing back, or rising as it opens,
+panel's speed ([[design-tokens#Motion]]), a close ending once 3px are left;
+Cancel, Escape and the scrim keep the 200ms exit. A press on a sheet springing back, or rising as it opens,
 stops it under the finger once the finger moves; a tap goes through, and the
 one click a drag past its slop would make is swallowed. A sheet already
 closing is not caught. Under reduced motion the drag still follows the

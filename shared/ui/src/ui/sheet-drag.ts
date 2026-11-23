@@ -15,6 +15,12 @@ const FLICK_TRAVEL = 24;
 const SPEED_WINDOW_MS = 100;
 /** How long a sample is kept, in ms: enough to cover the window at any frame rate. */
 export const SAMPLE_KEEP_MS = 200;
+/**
+ * How close to gone a sheet's close ends, in px: the spring's last stretch
+ * to the bottom edge is too small to watch, so the close ends there and the
+ * panel leaves (the owner's choice on #2288).
+ */
+export const CLOSE_ENDS_WITHIN_PX = 3;
 /** A move under this, in px, is treated as noise when finding the finger's last turn. */
 const TURN_NOISE_PX = 0.5;
 

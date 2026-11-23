@@ -98,6 +98,24 @@ describe("settleCurve", () => {
     }
   });
 
+  it("asked to end within 3px, ends the first millisecond the spring is that close, however fast it still moves", () => {
+    for (const [from, to, velocity] of [
+      [50, 200, 0],
+      [200, 800, 0],
+      [400, 800, 1.5],
+      [24, 717, 0.4],
+    ] as const) {
+      const place = (ms: number) => spring(from, to, velocity, ms / 1000);
+      let ms = 1;
+      while (Math.abs(place(ms) - to) > 3) ms++;
+      const curve = settleCurve(from, to, velocity, { endWithinPx: 3 })!;
+      expect(curve.duration).toBeCloseTo(ms, 6);
+      // Sooner than the same spring brought to rest.
+      expect(curve.duration).toBeLessThan(settleCurve(from, to, velocity)!.duration);
+      expect(stopsOf(curve.easing).at(-1)).toEqual([1, 1]);
+    }
+  });
+
   it("lands on the rest: its last stop is 1 at the end", () => {
     const stops = stopsOf(settleCurve(-120, -366, -0.5)!.easing);
     expect(stops.at(-1)).toEqual([1, 1]);

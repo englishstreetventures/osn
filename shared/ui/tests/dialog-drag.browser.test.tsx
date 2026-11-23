@@ -16,9 +16,10 @@
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { createSignal, For, type JSX } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { cdp, page, userEvent } from "vitest/browser";
 
+import { settleCurve } from "../src/lib/spring";
 import {
   Dialog,
   DialogClose,
@@ -181,12 +182,19 @@ function centre(el: Element): Point {
 function owned(el = sheet()) {
   const s = el.style;
   const veil = scrimOf(el).style;
+  // The transition's longhands as well as its shorthand: with only some of
+  // them set inline, the shorthand reads empty.
+  const timing = (t: CSSStyleDeclaration) => [
+    t.transitionProperty,
+    t.transitionDuration,
+    t.transitionTimingFunction,
+  ];
   return {
-    panel: [s.transform, s.transition, s.animationDuration, s.opacity, s.boxShadow],
-    scrim: [veil.opacity, veil.transition, veil.animationDuration],
+    panel: [s.transform, ...timing(s), s.animationDuration, s.opacity, s.boxShadow],
+    scrim: [veil.opacity, ...timing(veil), veil.animationDuration],
   };
 }
-const NOTHING_OWNED = { panel: ["", "", "", "", ""], scrim: ["", "", ""] };
+const NOTHING_OWNED = { panel: ["", "", "", "", "", "", ""], scrim: ["", "", "", "", ""] };
 
 /**
  * Every run on the sheet and its scrim, ended. A transition can start a frame
@@ -323,7 +331,8 @@ describe("a sheet dragged by its title row", () => {
 
   it("let go slowly past a quarter of its height, carries on down on the spring and gives focus back", async () => {
     await atSize(390);
-    const { el, trigger, height } = await openSheet();
+    // A tall sheet, whose close runs well past the class's 200ms exit.
+    const { el, trigger, height } = await openSheet({ tall: true });
     const f = finger();
     await f.down(handle(el));
     await f.by(height * 0.5, 25);
@@ -331,13 +340,18 @@ describe("a sheet dragged by its title row", () => {
     const released = offset(el);
     await f.up(150);
     // The exit's timing is the spring's, on the panel's transitions and its
-    // run alike, so Kobalte keeps it mounted until it has left.
+    // run alike, so Kobalte keeps it mounted until it has left. Let go still,
+    // it leaves at no speed, and ends once 3px are left (the owner's choice).
     const time = el.style.transitionDuration;
     expect(time).toMatch(/ms$/);
     expect(el.style.animationDuration).toBe(time);
     expect(scrimOf(el).style.animationDuration).toBe(time);
-    expect(Number.parseFloat(time)).toBeGreaterThan(300);
-    expect(Number.parseFloat(time)).toBeLessThan(460);
+    const spring = settleCurve(released, height, 0, { endWithinPx: 3 })!.duration;
+    expect(Number.parseFloat(time)).toBeCloseTo(spring, 0);
+    expect(Number.parseFloat(time), "it ran on to rest").toBeLessThan(
+      settleCurve(released, height, 0)!.duration,
+    );
+    expect(Number.parseFloat(time)).toBeLessThan(360);
     expect(el.style.transitionTimingFunction).toMatch(/^linear\(/);
     await vi.waitFor(
       () =>
@@ -384,6 +398,17 @@ describe("a sheet dragged by its title row", () => {
     expect(offset(el)).toBeLessThan(height * 0.25);
     await f.up(8);
     await gone();
+  });
+
+  it("twitched down fast but under 24px, stays open", async () => {
+    await atSize(390);
+    const { el } = await openSheet();
+    const f = finger();
+    await f.down(handle(el));
+    await f.by(10, 1, 8);
+    await f.up(8);
+    await atRest(el);
+    expect(panel()).toBe(el);
   });
 
   it("pulled past a quarter and flicked back up at the end, stays open", async () => {
@@ -515,6 +540,97 @@ describe("a moving sheet", () => {
     expect(Math.abs(offset(el) - (caught + 30))).toBeLessThanOrEqual(1);
     await g.up(150);
     await atRest(el);
+  });
+
+  it("is caught as it rises, and follows the finger from where it was", async () => {
+    await atSize(390);
+    // A rise slow enough to press its title row in the middle of it.
+    document.documentElement.style.setProperty("--ui-dur-slow", "3000ms");
+    onTestFinished(() => {
+      document.documentElement.style.removeProperty("--ui-dur-slow");
+    });
+    leaves = 0;
+    render(() => <UncontrolledSheet />);
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    const el = await vi.waitFor(sheet, { timeout: 3000 });
+    // Far enough up that its title row is on screen, still rising.
+    await vi.waitFor(
+      () => {
+        const y = offset(el);
+        expect(y).toBeLessThan(100);
+        expect(y).toBeGreaterThan(40);
+      },
+      { timeout: 3000, interval: 1 },
+    );
+    // Stamped now, not after the last case's touches, so the press lands on the
+    // title row where it is rather than where the row will have risen to.
+    clock = 0;
+    const f = finger();
+    await f.down(handle(el));
+    await f.by(2, 1);
+    const caught = offset(el);
+    expect(caught, "it jumped to rest under the finger").toBeGreaterThan(10);
+    await wait(150);
+    expect(Math.abs(offset(el) - caught), "it went on rising under the finger").toBeLessThan(0.5);
+    await f.by(30, 3);
+    expect(Math.abs(offset(el) - (caught + 30))).toBeLessThanOrEqual(1);
+    // Past a quarter of its height, a lift would close it; a cancelled touch
+    // sends it back.
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await atRest(el);
+  });
+
+  it("closed by Cancel as it springs back, leaves on the class's exit with nothing of the drag's left", async () => {
+    await atSize(390);
+    const { el } = await openSheet();
+    const f = finger();
+    await f.down(handle(el));
+    await f.by(30, 6);
+    await f.up(150);
+    await wait(45);
+    expect(offset(el), "it had already landed").toBeGreaterThan(1);
+    // The mouse pressed straight away over the moving button, through the
+    // DevTools protocol: Playwright's click would wait for it to stop, and so
+    // for the return to land.
+    const stay = toTop(centre(screen.getByText("Stay")));
+    await cdp().send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      ...stay,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    });
+    await cdp().send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      ...stay,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+    });
+    expect(el.hasAttribute("data-closed"), "Cancel did not close it").toBe(true);
+    expect(owned(el)).toEqual(NOTHING_OWNED);
+    expect(getComputedStyle(el).transitionDuration.split(",")[0]).toBe("0.2s");
+    // The slide that runs is the class's, started from where the sheet was,
+    // not one the return had already timed.
+    await frames(1);
+    const slide = el
+      .getAnimations()
+      .find((a) => a instanceof CSSTransition && a.transitionProperty === "transform");
+    expect(slide?.effect?.getTiming().duration, "the exit runs on the return's spring").toBe(200);
+    await gone();
+  });
+
+  it("dragged from the close glyph past the slop and let go short, stays open", async () => {
+    await atSize(390);
+    const { el } = await openSheet();
+    const glyph = screen.getByRole("button", { name: "Close" });
+    const f = finger();
+    await f.down(centre(glyph));
+    await f.by(12, 2);
+    await f.up(150);
+    await atRest(el);
+    await wait(400);
+    expect(panel(), "the glyph's click closed it").toBe(el);
   });
 
   it("lets a tap during its return land, and the tap's click through", async () => {
@@ -740,7 +856,139 @@ describe("a sheet that changes its mind", () => {
   });
 });
 
+describe("a drag the browser takes back", () => {
+  it("never closes the sheet, however far it was pulled", async () => {
+    await atSize(390);
+    const { el, height } = await openSheet();
+    const f = finger();
+    await f.down(handle(el));
+    await f.by(height * 0.5, 20);
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await atRest(el);
+    expect(panel()).toBe(el);
+  });
+
+  it("follows the first finger only, whatever a second finger or a mouse does", async () => {
+    await atSize(390);
+    const { el } = await openSheet();
+    const one = handle(el);
+    const two = { x: one.x + 60, y: one.y };
+    const point = (p: Point, id: number) => ({ ...toTop(p), id, radiusX: 1, radiusY: 1, force: 1 });
+    const t0 = Math.max(Date.now() / 1000, clock + 0.05) - 1;
+    const touch = (type: "touchStart" | "touchMove", points: [Point, number][], dt: number) =>
+      cdp().send("Input.dispatchTouchEvent", {
+        type,
+        timestamp: t0 + dt,
+        touchPoints: points.map(([p, id]) => point(p, id)),
+      });
+    await touch("touchStart", [[one, 1]], 0);
+    await touch("touchMove", [[{ x: one.x, y: one.y + 20 }, 1]], 0.016);
+    const first = offset(el);
+    expect(Math.abs(first - 20)).toBeLessThanOrEqual(1);
+    await touch(
+      "touchStart",
+      [
+        [{ x: one.x, y: one.y + 20 }, 1],
+        [two, 2],
+      ],
+      0.032,
+    );
+    await touch(
+      "touchMove",
+      [
+        [{ x: one.x, y: one.y + 20 }, 1],
+        [{ x: two.x, y: two.y + 80 }, 2],
+      ],
+      0.048,
+    );
+    expect(Math.abs(offset(el) - first), "the second finger moved the sheet").toBeLessThanOrEqual(
+      1,
+    );
+    // A mouse is a primary pointer of its own: pressed and moved while the
+    // finger holds the sheet, it moves nothing either.
+    const m = toTop({ x: one.x - 60, y: one.y + 20 });
+    await cdp().send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      ...m,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    });
+    await cdp().send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: m.x,
+      y: m.y + 80,
+      button: "left",
+      buttons: 1,
+    });
+    expect(Math.abs(offset(el) - first), "the mouse moved the sheet").toBeLessThanOrEqual(1);
+    await cdp().send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: m.x,
+      y: m.y + 80,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+    });
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await atRest(el);
+  });
+});
+
 describe("what never drags", () => {
+  it("a centred dialog at a phone's width, whose title row stays an ordinary one", async () => {
+    await atSize(390);
+    const { el } = await openSheet({ presentation: "centred" });
+    const header = el.querySelector<HTMLElement>("[data-dialog-header]")!;
+    expect(getComputedStyle(header).touchAction).toBe("auto");
+    const top0 = el.getBoundingClientRect().top;
+    const f = finger();
+    await f.down(handle(el));
+    let moved = 0;
+    await f.by(
+      150,
+      10,
+      16,
+      () => (moved = Math.max(moved, Math.abs(el.getBoundingClientRect().top - top0))),
+    );
+    await f.up(150);
+    expect(moved).toBeLessThan(0.5);
+  });
+
+  it("a drag with the mouse's other buttons", async () => {
+    await atSize(390);
+    const { el } = await openSheet();
+    const a = toTop(handle(el));
+    for (const button of ["right", "middle"] as const) {
+      const held = button === "right" ? 2 : 4;
+      await cdp().send("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        ...a,
+        button,
+        buttons: held,
+        clickCount: 1,
+      });
+      await cdp().send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: a.x,
+        y: a.y + 60,
+        button,
+        buttons: held,
+      });
+      expect(offset(el), `a ${button}-button drag moved it`).toBe(0);
+      await cdp().send("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x: a.x,
+        y: a.y + 60,
+        button,
+        buttons: 0,
+        clickCount: 1,
+      });
+    }
+    await userEvent.keyboard("{Escape}");
+    await gone();
+  });
+
   it("the centred card at md and up", async () => {
     await atSize(1024, 800);
     const { el } = await openSheet();

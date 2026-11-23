@@ -404,7 +404,8 @@ These rules govern `pulse/web`. The landing site's motion is in
   height, or after a flick down of 0.4px/ms over at least 24px, it closes as
   the × does; otherwise it goes back. Either way it leaves the finger on a
   critically damped spring with a 0.3s response, started at the finger's
-  speed, with no bounce: the release's alone, so the ×, Escape and the scrim
+  speed, with no bounce, a close ending once 3px are left: the release's
+  alone, so the ×, Escape and the scrim
   keep the 200ms close on `--ui-ease-sheet`. Up past rest it gives on a
   rubber band. A tap on the × with a few pixels of jitter still presses it.
   Under reduced motion it still follows the finger and fades, rather than

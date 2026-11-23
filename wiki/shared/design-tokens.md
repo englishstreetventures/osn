@@ -330,7 +330,10 @@ guest-site event sheet settles its swipe on) samples the spring into a
 `linear()` easing, or a `cubic-bezier()` with the same first slope where the
 engine has none, and the drag writes that easing and its length inline as the
 panel's and the scrim's `transition-duration` and `transition-timing-function`.
-A close writes the same length as their `animation-duration` too, so
+A close ends once 3px of travel is left (`endWithinPx`, the owner's answer
+on #2288), since nobody watches a sheet's last pixels leave the screen; a
+return runs on to rest. A close writes the same length as their
+`animation-duration` too, so
 `ui-sheet-exit` runs as long as the slide and Kobalte keeps both mounted until
 the panel has left. Only the release takes the spring: a sheet closed by
 Cancel, Escape or the scrim still leaves over `--ui-dur-base` on

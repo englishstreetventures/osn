@@ -600,8 +600,8 @@ async function menus(flow: Flow, page: Page): Promise<void> {
  * row with a finger and let go past a quarter of its height: it follows the
  * finger to the pixel, and closes. The finger goes through Chromium's own
  * input pipeline (CDP `Input.dispatchTouchEvent`), each event stamped with its
- * own time and sent no earlier than it, so `touch-action` and the drag's speed
- * are as on a phone. Shoots the sheet half way down.
+ * own time, so `touch-action` and the drag's speed are as on a phone. Shoots
+ * the sheet half way down.
  */
 async function dragsClosed(
   flow: Flow,
@@ -628,10 +628,11 @@ async function dragsClosed(
   const session = await page.context().newCDPSession(page);
   const x = box.x + box.width / 2;
   const y0 = box.y + box.height / 2;
-  let t = Date.now() / 1000 + 0.02;
+  // The scripted clock starts a second behind the page's and stays behind it,
+  // so no event waits on its own time: the drag closes on distance, held
+  // still before the lift, so only the order of the stamps matters.
+  let t = Date.now() / 1000 - 1;
   const touch = async (kind: "touchStart" | "touchMove" | "touchEnd", y?: number) => {
-    const ahead = t * 1000 - Date.now();
-    if (ahead > 0) await new Promise((r) => setTimeout(r, ahead));
     await session.send("Input.dispatchTouchEvent", {
       type: kind,
       timestamp: t,
