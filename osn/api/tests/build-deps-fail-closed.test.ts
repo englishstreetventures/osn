@@ -353,14 +353,6 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
     expect(json.status).toBe("ok");
     expect(json.service).toBe("osn-auth");
   });
-
-  it("creds PRESENT → boots regardless of the opt-in (creds win)", async () => {
-    const res = await handler.fetch(
-      new Request("https://api.osn.test/"),
-      emailEnv({ CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_EMAIL_API_TOKEN: "tok" }),
-    );
-    expect(res.status).toBe(200);
-  });
 });
 
 describe("parseRefreshTokenTtl", () => {

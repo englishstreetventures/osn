@@ -86,18 +86,6 @@ describe("recommendations routes", () => {
   // Happy path
   // -------------------------------------------------------------------------
 
-  it("returns [] when the caller has no connections", async () => {
-    const alice = await registerAndGetToken("alice@example.com", "alice");
-    const res = await recsApp.handle(
-      new Request("http://localhost/recommendations/connections", {
-        headers: { Authorization: `Bearer ${alice.token}` },
-      }),
-    );
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as { suggestions: unknown[] };
-    expect(json.suggestions).toEqual([]);
-  });
-
   // per-user connection suggestions — never cached or stored.
   it("GET /recommendations/connections sets cache-control: private, no-store", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");

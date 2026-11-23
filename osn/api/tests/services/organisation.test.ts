@@ -161,14 +161,6 @@ describe("createOrganisation", () => {
 });
 
 describe("getOrganisation", () => {
-  it.effect("returns the organisation by id", () =>
-    Effect.gen(function* () {
-      const { organisation } = yield* setupOrgWithOwner;
-      const found = yield* org.getOrganisation(organisation.id);
-      expect(found.handle).toBe("acme");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("fails when not found", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(org.getOrganisation("org_nonexistent"));

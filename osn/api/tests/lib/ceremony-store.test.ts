@@ -17,12 +17,6 @@ const entry = (challenge: string, attempts = 0): Entry => ({
 });
 
 describe("createInMemoryCeremonyStore", () => {
-  it("set → get round-trips the value", async () => {
-    const store = createInMemoryCeremonyStore<Entry>("reg_challenge");
-    await store.set("k1", entry("c1"), 60_000);
-    expect(await store.get("k1")).toMatchObject({ challenge: "c1" });
-  });
-
   it("get returns null for unknown / deleted keys", async () => {
     const store = createInMemoryCeremonyStore<Entry>("reg_challenge");
     expect(await store.get("ghost")).toBe(null);

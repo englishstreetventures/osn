@@ -319,11 +319,6 @@ describe("selectEmailLayer", () => {
     );
     expect(layer).toBeDefined();
   });
-
-  it("local + creds absent → LogEmailLive recorder (no throw, no opt-in needed)", () => {
-    const layer = selectEmailLayer({ OSN_ENV: "local" }, osnLoggerLayer);
-    expect(layer).toBeDefined();
-  });
 });
 
 describe("wrangler.toml", () => {

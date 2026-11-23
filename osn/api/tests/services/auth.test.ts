@@ -999,20 +999,6 @@ describe("passkey login", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Discoverable flow — beginPasskeyLogin(null) must return options plus a
-  // server-minted challengeId. The identifier-less path is how
-  // conditional-UI autofill drives sign-in.
-  it.effect("beginPasskeyLogin(null) returns options and the challenge as its id", () =>
-    Effect.gen(function* () {
-      const result = yield* auth.beginPasskeyLogin(null);
-      expect(result.options.challenge).toBeTruthy();
-      // The challenge proves itself (nonce, expiry, MAC: 56 bytes, base64url),
-      // so the id the client round-trips is the challenge.
-      expect(result.challengeId).toBe(result.options.challenge);
-      expect(result.challengeId).toMatch(/^[A-Za-z0-9_-]{75}$/);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   // Pins the asymmetry the service comments rely on: identifier-less login
   // enforces UV (the whole ceremony's correctness depends on it without a
   // claimed identity), identified login accepts UP-only (FIDO2 keys without

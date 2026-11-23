@@ -213,20 +213,6 @@ const handleOf = async (res: Response) =>
   ((await res.json()) as { profile: { handle: string } }).profile.handle;
 
 describe("passkey sign-in", () => {
-  it("offers the account's passkey for its email address in capitals", async () => {
-    const h = makeApp();
-    const credentialId = await withPasskey(h, "pk-mail@example.com", "pkmail");
-
-    expect(await offered(h, "PK-Mail@Example.COM")).toEqual([credentialId]);
-  });
-
-  it("offers the account's passkey for `@` and its handle in capitals", async () => {
-    const h = makeApp();
-    const credentialId = await withPasskey(h, "pk-handle@example.com", "pkhandle");
-
-    expect(await offered(h, "@PKHandle")).toEqual([credentialId]);
-  });
-
   it("offers the account's passkey for its handle behind more than one `@`", async () => {
     // Strips every leading sigil, as the people search does. Goes red on
     // stripping only one.

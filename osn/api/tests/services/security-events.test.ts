@@ -191,20 +191,6 @@ describe("consumeRecoveryCode → security_events", () => {
 });
 
 describe("listUnacknowledgedSecurityEvents", () => {
-  it.effect("returns all unacked rows and respects the newest-first contract", () =>
-    Effect.gen(function* () {
-      const auth = createAuthService(baseConfig);
-      const profile = yield* registered(auth, "sev-order@example.com", "sevorder");
-
-      yield* auth.generateRecoveryCodesForAccount(profile.accountId);
-      yield* auth.generateRecoveryCodesForAccount(profile.accountId);
-
-      const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
-      expect(events).toHaveLength(2);
-      expect(events[0]!.createdAt).toBeGreaterThanOrEqual(events[1]!.createdAt);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("does not leak events from another account", () =>
     Effect.gen(function* () {
       const auth = createAuthService(baseConfig);

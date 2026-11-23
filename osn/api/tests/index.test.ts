@@ -45,16 +45,6 @@ describe("OSN auth server (Workers-shaped factory wiring)", () => {
     app = await buildWorkersApp();
   });
 
-  describe("GET /", () => {
-    it("returns status ok", async () => {
-      const res = await app.handle(new Request("http://localhost/"));
-      expect(res.status).toBe(200);
-      const json = (await res.json()) as { status: string; service: string };
-      expect(json.status).toBe("ok");
-      expect(json.service).toBe("osn-auth");
-    });
-  });
-
   describe("GET /health", () => {
     it("returns ok status from shared observability health route", async () => {
       // T-L1: healthRoutes stay mounted even with includeObservabilityPlugin:false.

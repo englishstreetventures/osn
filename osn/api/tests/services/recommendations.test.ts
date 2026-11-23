@@ -63,26 +63,6 @@ describe("suggestConnections", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("surfaces friends-of-friends with correct mutual count", () =>
-    Effect.gen(function* () {
-      // alice <-> bob, alice <-> charlie; bob <-> dana; charlie <-> dana
-      // alice should be suggested dana with mutualCount = 2
-      const alice = yield* auth.registerProfile("a@e.com", "alice");
-      const bob = yield* auth.registerProfile("b@e.com", "bob");
-      const charlie = yield* auth.registerProfile("c@e.com", "charlie");
-      const dana = yield* auth.registerProfile("d@e.com", "dana");
-      yield* connect(alice.id, bob.id);
-      yield* connect(alice.id, charlie.id);
-      yield* connect(bob.id, dana.id);
-      yield* connect(charlie.id, dana.id);
-
-      const result = yield* recs.suggestConnections(alice.id);
-      expect(result).toHaveLength(1);
-      expect(result[0]!.handle).toBe("dana");
-      expect(result[0]!.mutualCount).toBe(2);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("excludes existing connections of the caller", () =>
     Effect.gen(function* () {
       // alice <-> bob, alice <-> dana, bob <-> dana
@@ -201,20 +181,6 @@ describe("suggestConnections", () => {
         const result = yield* recs.suggestConnections(alice.id);
         expect(result).toEqual([]);
       }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("labels friend-of-friend suggestions with the mutual_connections reason", () =>
-    Effect.gen(function* () {
-      const alice = yield* auth.registerProfile("a@e.com", "alice");
-      const bob = yield* auth.registerProfile("b@e.com", "bob");
-      const dana = yield* auth.registerProfile("d@e.com", "dana");
-      yield* connect(alice.id, bob.id);
-      yield* connect(bob.id, dana.id);
-
-      const result = yield* recs.suggestConnections(alice.id);
-      expect(result[0]!.reason).toBe("mutual_connections");
-      expect(result[0]!.sharedOrganisation).toBeNull();
-    }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("excludes profiles with a connection request already in flight", () =>

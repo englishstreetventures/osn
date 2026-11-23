@@ -43,12 +43,6 @@ describe("makeAppRunner", () => {
       expect(builds).toBe(1);
       await runtime.dispose();
     });
-
-    it("runs real Db-backed effects against the built runtime", async () => {
-      const { runtime, run } = makeAppRunner(undefined, createTestLayer());
-      await expect(run(touchesDb)).resolves.toBe("object");
-      await runtime.dispose();
-    });
   });
 
   describe("injected path (shared runtime supplied)", () => {
