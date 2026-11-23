@@ -3,7 +3,7 @@ import type { StepUpClient, StepUpPurpose, StepUpToken, TotpClient } from "@osn/
 import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 import { render, cleanup, screen, fireEvent, waitFor, within } from "@solidjs/testing-library";
 import { createSignal, onMount, Show, Suspense } from "solid-js";
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest";
 
 import { StepUpDialog, type StepUpDialogProps } from "../src/StepUpDialog";
 import { codeBoxes, enterCode, expectTied, findCodeBoxes } from "./helpers/code";
@@ -391,7 +391,7 @@ describe("StepUpDialog", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(PASSKEY_NOT_USED));
     expect(alertsText()).not.toContain("PLANTED");
     // A retry button is available (passkey factor, not the choose menu).
-    expect(screen.getByRole("button", { name: /Try again|Use passkey/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("announces the failure rather than leaving it to be noticed", async () => {
@@ -904,7 +904,7 @@ describe("StepUpDialog — the sheet", () => {
 
   // F2
   it("a Resend still out when the person went back writes nothing into the next wait", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     try {
       const resend = held<{ status: "sent" | "limit" | "expired" }>();
       stub.emailBegin.mockResolvedValueOnce(LINK_REQUEST).mockResolvedValueOnce(LINK_REQUEST_2);
@@ -929,7 +929,7 @@ describe("StepUpDialog — the sheet", () => {
 
   // F2b
   it("a Resend that fails after the person went back writes nothing into the next wait", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     try {
       const failing = refused();
       stub.emailBegin.mockResolvedValueOnce(LINK_REQUEST).mockResolvedValueOnce(LINK_REQUEST_2);
@@ -957,7 +957,7 @@ describe("StepUpDialog — the sheet", () => {
    */
   describe("Resend on the wait still on screen", () => {
     beforeEach(() => {
-      vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
       stub.emailBegin.mockResolvedValue(LINK_REQUEST);
       stub.emailStatus.mockReturnValue(new Promise(() => {}));
     });
@@ -1200,6 +1200,8 @@ describe("StepUpDialog — the sheet", () => {
 
   // F12
   it("leaves focus where the host put it after the token", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    onTestFinished(() => vi.useRealTimers());
     stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
     stub.passkeyComplete.mockResolvedValue({ token: "eyJpk", expiresIn: 300 });
     function NextStep() {
@@ -1238,9 +1240,9 @@ describe("StepUpDialog — the sheet", () => {
     fireEvent.click(open);
     fireEvent.click(await screen.findByRole("button", { name: "Use passkey" }));
     const field = await screen.findByRole("textbox", { name: "Next step" });
-    // The hand-back runs on a timer after the sheet unmounts; wait it out.
-    await flush();
-    await new Promise((r) => setTimeout(r, 20));
+    // The hand-back can wait on the exit's fallback timer; run it and anything after.
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(document.activeElement).toBe(field);
   });
 
