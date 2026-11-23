@@ -572,7 +572,13 @@ export async function addVirtualAuthenticator(page: Page): Promise<{
   };
 }
 
-/** One row from a stack database, opened read-only for this query alone. */
+/** How long a stack-database read or write waits out the server's write lock. */
+const DB_BUSY_TIMEOUT_MS = 2000;
+
+/**
+ * One row from a stack database, opened read-only for this query alone. Waits
+ * out a server write lock rather than throwing `database is locked`.
+ */
 export function queryOne<T>(
   dbPath: string,
   sql: string,
@@ -580,6 +586,7 @@ export function queryOne<T>(
 ): T | undefined {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
+    db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
     return db.prepare(sql).get(...params) as T | undefined;
   } finally {
     db.close();
@@ -595,7 +602,7 @@ export function queryOne<T>(
 export function writeRow(dbPath: string, sql: string, ...params: Array<string | number>): void {
   const db = new DatabaseSync(dbPath);
   try {
-    db.exec("PRAGMA busy_timeout = 5000");
+    db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
     const changed = db.prepare(sql).run(...params).changes;
     if (changed !== 1) throw new Error(`writeRow: ${changed} rows changed by ${sql}`);
   } finally {
