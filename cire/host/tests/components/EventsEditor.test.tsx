@@ -1058,6 +1058,28 @@ describe("EventsEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
   }
 
+  it("says an event that ends before it starts as a warning notice in the save bar", async () => {
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/events")) {
+        return Promise.resolve(json([{ ...EVENTS[0], endAt: "2026-11-14T14:00:00+11:00" }]));
+      }
+      return Promise.resolve(fallback(url));
+    });
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    fireEvent.input(await waitFor(() => screen.getByLabelText("Event name")), {
+      target: { value: "Wedding Ceremony" },
+    });
+
+    const words = await waitFor(() =>
+      screen.getByText(/"Wedding Ceremony" ends before it starts\./),
+    );
+    // Drawn by `Notice`, whose warn tone names itself to a screen reader.
+    expect(words.parentElement!.textContent).toMatch(/^Warning: "Wedding Ceremony" ends before/);
+  });
+
   it("surfaces a 409 apply as a re-preview prompt", async () => {
     await applyRenameAgainst409({ error: "State changed — re-preview" });
     await waitFor(() => expect(screen.getByText("State changed — re-preview")).toBeTruthy());
@@ -1068,7 +1090,12 @@ describe("EventsEditor", () => {
     await waitFor(() =>
       expect(screen.getByText(/Someone else changed the schedule/i)).toBeTruthy(),
     );
-    expect(screen.getByRole("button", { name: /Reload and keep my edits/i })).toBeTruthy();
+    // The save bar's failure is one boxed notice holding its way out, as the
+    // guest editor draws it.
+    const failure = screen
+      .getAllByRole("alert")
+      .find((alert) => /Someone else changed the schedule/.test(alert.textContent ?? ""))!;
+    expect(within(failure).getByRole("button", { name: /Reload and keep my edits/i })).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: /Review changes before applying/i })).toBeNull();
   });
 

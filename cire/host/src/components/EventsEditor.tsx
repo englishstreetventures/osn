@@ -715,27 +715,32 @@ export default function EventsEditor(props: { weddingId: string }) {
               </div>
             </div>
             <Show when={store.warnings().length > 0 && !hasErrors()}>
-              <p class="border-gold/20 bg-gold/5 text-gold-ink page-frame text-ui-sm border-t py-2">
-                {store.warnings().join(" ")}
-              </p>
-            </Show>
-            <Show when={saveError()}>
-              <div class="border-error/20 bg-error/5 text-error page-frame text-ui-sm flex flex-wrap items-center gap-3 border-t py-2">
-                {/* Announced: a refused apply closes the preview, and focus
-                    returning to Save says nothing about why. */}
-                <Notice size="inline" tone="danger" alert>
-                  {saveError()}
+              <div class="page-frame pb-3">
+                <Notice tone="warn" size="inline">
+                  {store.warnings().join(" ")}
                 </Notice>
-                <Show when={stale()}>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleKeepEdits()}
-                    disabled={busy()}
-                  >
-                    Reload and keep my edits
-                  </Button>
-                </Show>
+              </div>
+            </Show>
+            {/* The bar's own error, boxed as the guest editor's is, rather than
+                a full-bleed strip that reads as part of the chrome. Announced:
+                a refused apply closes the preview, and focus returning to Save
+                says nothing about why. */}
+            <Show when={saveError()}>
+              <div class="page-frame pb-3">
+                <Notice tone="danger" alert>
+                  <p>{saveError()}</p>
+                  <Show when={stale()}>
+                    <Button
+                      class="mt-3"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleKeepEdits()}
+                      disabled={busy()}
+                    >
+                      Reload and keep my edits
+                    </Button>
+                  </Show>
+                </Notice>
               </div>
             </Show>
           </div>
