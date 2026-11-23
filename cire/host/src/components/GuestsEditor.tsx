@@ -339,22 +339,41 @@ export default function GuestsEditor(props: {
   }
 
   // Drawn at once from the caches when they hold rows read after a head, then
-  // checked against the head once drawn: moved by someone else's change, a
-  // draft nobody has touched reloads, and one already edited says it is stale.
+  // checked against the head once drawn. The check acts only on the draft it
+  // started from: a save or a reload that moved the draft's head meanwhile, or
+  // one still running, owns the draft. Moved by someone else's change, an
+  // edited draft says it is stale. An untouched one reloads with Save held
+  // until the rows land, and edits made meanwhile go back on top of the new
+  // rows as "Reload and keep my edits" puts them; the rows are drawn again, so
+  // a field being typed in loses focus.
   const cached = untrack(cachedRows);
   if (cached) store.load(cached.events, cached.guests, cached.households, cached.revision);
   let gone = false;
   onCleanup(() => {
     gone = true;
   });
-  async function checkHead(revision: string) {
+  async function checkHead() {
+    const from = store.baseRevision();
     try {
       const head = await loadHeadRevision(authFetch, props.weddingId);
-      if (gone || head === revision) return;
+      if (gone || busy() || from === null || store.baseRevision() !== from || head === from) {
+        return;
+      }
       if (store.dirty()) {
         setStale(true);
         setSaveError("Someone else changed the guest list since you opened the editor.");
-      } else await loadInto(head);
+        return;
+      }
+      setBusy(true);
+      try {
+        const rows = await fetchRows(head);
+        if (gone) return;
+        if (store.dirty()) {
+          setReplayNotes(store.rebase(rows.events, rows.guests, rows.households, rows.revision));
+        } else store.load(rows.events, rows.guests, rows.households, rows.revision);
+      } finally {
+        setBusy(false);
+      }
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       // Refused: this seat may no longer edit, so the rows drawn from the
@@ -377,7 +396,7 @@ export default function GuestsEditor(props: {
     // guest I deleted came back".
     onCleanup(registerUnsavedGuard(() => store.dirty()));
     if (cached) {
-      afterPaint(() => void checkHead(cached.revision));
+      afterPaint(() => void checkHead());
       return;
     }
     try {

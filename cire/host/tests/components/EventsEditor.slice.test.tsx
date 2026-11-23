@@ -238,6 +238,56 @@ it("keeps the edits and says the schedule is stale when the head moved under a d
   expect(authFetchMock).toHaveBeenCalledTimes(1);
 });
 
+it("keeps a rename made while the moved head's events are read, with the drawer still open", async () => {
+  await openOnceAndClose();
+  // A co-host added the Reception since the events were cached.
+  const reception = { ...EVENTS[0]!, id: "evt_2", name: "Reception", slug: "reception" };
+  let releaseEvents!: () => void;
+  const eventsHeld = new Promise<void>((resolve) => (releaseEvents = resolve));
+  const posted: Record<string, unknown>[] = [];
+  authFetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    const u = String(url);
+    if (u.endsWith("/changes/head")) return json({ revision: "rev_moved" });
+    if (u.endsWith("/events")) {
+      await eventsHeld;
+      return json([...EVENTS, { ...reception, sortOrder: 1 }]);
+    }
+    if (u.endsWith("/changes/preview")) {
+      posted.push(JSON.parse(String(init?.body)));
+      return json({ error: "stop here" }, 500);
+    }
+    return fallback(url);
+  });
+
+  render(() => <EventsEditor weddingId="wed_a" />);
+  await waitFor(() =>
+    expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/events"))).toBe(true),
+  );
+  fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+  await waitFor(() => expect(screen.getByRole("dialog", { name: /Edit event/i })).toBeTruthy());
+  fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "Wedding Ceremony" } });
+  // Save waits for the events: a save now would start a second reload beside them.
+  const working = await waitFor(
+    () => screen.getByRole("button", { name: "Working…" }) as HTMLButtonElement,
+  );
+  expect(working.disabled).toBe(true);
+
+  releaseEvents();
+  await waitFor(() => expect(screen.getByText("Reception")).toBeTruthy());
+  // The drawer stays on the event being renamed, with the rename in it.
+  expect(screen.getByRole("dialog", { name: /Edit event/i })).toBeTruthy();
+  expect((screen.getByLabelText("Event name") as HTMLInputElement).value).toBe("Wedding Ceremony");
+  expect(
+    screen.queryByText("Someone else changed the schedule since you opened the editor."),
+  ).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+  await waitFor(() => expect(posted).toHaveLength(1));
+  expect(posted[0]!.baseRevision).toBe("rev_moved");
+  const wire = posted[0]!.desiredState as { events: { name: string }[] };
+  expect(wire.events.map((e) => e.name)).toEqual(["Wedding Ceremony", "Reception"]);
+});
+
 it("stops showing a cached schedule when the head is refused once drawn", async () => {
   await openOnceAndClose();
   // The seat lost its edit rights: the editor-only head is refused.
