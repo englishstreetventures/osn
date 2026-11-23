@@ -237,6 +237,11 @@ function KeyButton(props: SafeProps<"button">) {
 /** What "New" on a guest's meta line says. */
 const NEW_TEXT = "Changed by the guest since you last looked";
 
+/** A read refused 403 or 404: the seat's access changed, and a reload shows
+ *  what it is now. Worded as the editors and Settings word the same cause. */
+const ACCESS_LOST =
+  "You can no longer see these replies. Reload the page to see your current access.";
+
 /** The reply key's name, which is also its button's. */
 const KEY_LABEL = "What the reply icons mean";
 
@@ -398,6 +403,7 @@ export default function RsvpView(props: RsvpViewProps) {
   const load = async (retried = false): Promise<RsvpChangeRows | null | false> => {
     let feed: RsvpChangeRows | null = null;
     const savesBefore = saves;
+    let refused = false;
     try {
       // Whatever the cache holds is shown meanwhile; the read replaces it.
       invalidateRsvps(props.weddingId);
@@ -410,6 +416,7 @@ export default function RsvpView(props: RsvpViewProps) {
           redirectToLogin();
           throw new Error("unauthenticated");
         }
+        refused = res.status === 403 || res.status === 404;
         if (!res.ok) throw new Error(`Failed to load (${res.status})`);
         const body = (await res.json()) as { events: RsvpViewEvent[] };
         feed = rows;
@@ -427,7 +434,7 @@ export default function RsvpView(props: RsvpViewProps) {
       }
       // Rows drawn from the cache stop being shown once a read is refused.
       setState("events", []);
-      setError("Could not load RSVPs. Is the API running?");
+      setError(refused ? ACCESS_LOST : "Could not load RSVPs. Is the API running?");
       return false;
     } finally {
       setLoading(false);
@@ -483,7 +490,7 @@ export default function RsvpView(props: RsvpViewProps) {
         // This seat may no longer see the replies: they stop being shown.
         refuseRsvps(props.weddingId);
         setState("events", []);
-        setError("Could not load RSVPs. Is the API running?");
+        setError(ACCESS_LOST);
         return;
       }
       // Anything else unread leaves the rows drawn; nothing new was seen.

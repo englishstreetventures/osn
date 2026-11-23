@@ -271,8 +271,30 @@ describe("RsvpView — New badges", () => {
     render(() => <RsvpView weddingId="wed_a" />);
     expect(screen.getByRole("tab", { name: /^Reception/ })).toBeVisible();
     await waitFor(() => expect(screen.queryByRole("tab", { name: /^Reception/ })).toBeNull());
-    expect(screen.getByText(/Could not load RSVPs/i)).toBeTruthy();
+    // The cause is the seat's access, not the API, and reloading is the fix.
+    expect(
+      screen.getByText(
+        "You can no longer see these replies. Reload the page to see your current access.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Is the API running/i)).toBeNull();
   });
+
+  it.each([403, 404])(
+    "says the seat can no longer see the replies when the table's own read is refused %i",
+    async (status) => {
+      authFetchMock.mockImplementation(async (url: string) =>
+        url.endsWith("/rsvps") ? json({ error: "refused" }, status) : json(feed([], 0)),
+      );
+      render(() => <RsvpView weddingId="wed_a" />);
+      expect(
+        await screen.findByText(
+          "You can no longer see these replies. Reload the page to see your current access.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText(/Is the API running/i)).toBeNull();
+    },
+  );
 
   it("reads the badges and marks them seen when the cached replies came without them", async () => {
     routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 9));
