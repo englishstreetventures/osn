@@ -508,8 +508,11 @@ event and the panel to open on.
   tap, a held finger or a scroll lets the settle go on to where it was going,
   with that tap's click swallowed so it presses nothing on the moving panel.
   A catch reads the panels' place off their computed transform mid-transition.
-  The thresholds, the band and the curve are pure functions in
-  [`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts).
+  The thresholds are pure functions in
+  [`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts); the
+  band and the curve are `@shared/ui`'s, in
+  [`spring.ts`](../../shared/ui/src/lib/spring.ts), which the `Dialog`
+  sheet's drag settles on too.
   The wrapper is `touch-action: pan-y pinch-zoom`, so vertical scroll and
   zoom stay the browser's. A mouse drag, a drag that starts in a text field,
   and a drag on a box that scrolls sideways of its own (the dietary chips, the
@@ -606,7 +609,8 @@ takes focus; the bar's two titles, one per panel; the badge's names, its
 place in the bar ahead of the panels, its double-tap guard and its states;
 the deadline), `AnimatedModal.test.tsx` (the bar's order — title, action,
 cross — as the scrollport's first child), `sheet-swipe.test.ts` (the swipe's
-thresholds), `EventSheet.browser.test.tsx` (in Chromium, see
+thresholds; the band and the curve are held by `@shared/ui`'s
+`tests/lib/spring.test.ts`), `EventSheet.browser.test.tsx` (in Chromium, see
 [[browser-tests]]; the swipes are real touches sent through `cdp()`; the
 bar unmoved while the details scroll 200px under it at 390×844 and 320×568,
 frosted with its words held over black and white content on every scheme;
