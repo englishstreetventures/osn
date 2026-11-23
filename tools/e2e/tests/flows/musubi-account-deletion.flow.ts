@@ -585,8 +585,19 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     await expect(
       heirPage.getByRole("heading", { name: "This organisation passed to you" }),
     ).toBeVisible();
+    // The list the decline lands on reads the heir's organisations. The
+    // context closes once that read has answered, so every run records it.
+    const listed = heirPage.waitForResponse((r) => {
+      const url = new URL(r.url());
+      return (
+        url.origin === ORIGINS.osnApi &&
+        url.pathname === "/organisations" &&
+        r.request().method() === "GET"
+      );
+    });
     await heirPage.getByRole("button", { name: "Decline" }).click();
     await expect(heirPage).toHaveURL(`${ORIGINS.musubi}/organisations`);
+    await listed;
   });
   await heirContext.close();
   flow.check(
