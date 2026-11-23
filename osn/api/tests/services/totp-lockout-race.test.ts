@@ -30,10 +30,14 @@ beforeAll(async () => {
 
 const STEP_SECONDS = 30;
 
-/** `ns` with every `totp_lockout` call held, once armed, until `release()`; `sent` counts them. */
+/**
+ * `ns` with every `totp_lockout` call held, once armed, until `release()`;
+ * `sent` counts them, and `sentAtLeast(n)` resolves once `n` have been sent.
+ */
 function holdingLockout(ns: CoordinationNamespace) {
   let armed = false;
   let sent = 0;
+  const waiting: { readonly n: number; readonly resolve: () => void }[] = [];
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -45,6 +49,7 @@ function holdingLockout(ns: CoordinationNamespace) {
       const call = <A>(run: () => Promise<A>): Promise<A> => {
         if (!armed || !held) return run();
         sent += 1;
+        for (const waiter of waiting) if (sent >= waiter.n) waiter.resolve();
         return gate.then(run);
       };
       return {
@@ -66,19 +71,26 @@ function holdingLockout(ns: CoordinationNamespace) {
       armed = true;
     },
     sent: () => sent,
+    sentAtLeast: (n: number) =>
+      new Promise<void>((resolve) => {
+        if (sent >= n) resolve();
+        else waiting.push({ n, resolve });
+      }),
     release: () => release(),
   };
 }
 
-/** Waits until `count()` reaches `n`. */
-const reached = (count: () => number, n: number) =>
-  Effect.gen(function* () {
-    for (let i = 0; i < 400; i++) {
-      if (count() >= n) return;
-      yield* Effect.sleep("5 millis");
-    }
-    throw new Error(`only ${count()} of ${n} lockout calls were sent`);
-  });
+/**
+ * Waits until `gate` has held `n` lockout calls. The bound only ends a wait
+ * that would never end; a passing run never reaches it.
+ */
+const reached = (gate: ReturnType<typeof holdingLockout>, n: number) =>
+  Effect.promise(() => gate.sentAtLeast(n)).pipe(
+    Effect.timeoutOrElse({
+      duration: "2 seconds",
+      orElse: () => Effect.die(new Error(`only ${gate.sent()} of ${n} lockout calls were sent`)),
+    }),
+  );
 
 describe("a burst of TOTP attempts compares at most the threshold's worth of codes", () => {
   for (const scope of ["step_up", "recovery"] as const) {
@@ -125,9 +137,9 @@ describe("a burst of TOTP attempts compares at most the threshold's worth of cod
         for (let i = 0; i < wrongCount; i++) {
           wrongs.push(yield* Effect.forkChild(Effect.result(attempt(wrong))));
         }
-        yield* reached(gate.sent, wrongCount);
+        yield* reached(gate, wrongCount);
         const last = yield* Effect.forkChild(Effect.result(attempt(right)));
-        yield* reached(gate.sent, wrongCount + 1);
+        yield* reached(gate, wrongCount + 1);
         gate.release();
 
         const outcomes = [];

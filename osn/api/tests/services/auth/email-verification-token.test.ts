@@ -183,34 +183,44 @@ describe("refusals", () => {
     expect(issuer.requested).not.toContain(`https://${issuer.host}/jwks`);
   });
 
-  it("gives up on an issuer that sends its headers and then stalls, when the time runs out", async () => {
+  it("gives up on an issuer that sends its headers and then stalls, when the request is aborted", async () => {
+    const caller = new AbortController();
     issuer.routes.set(
       `https://${issuer.host}/.well-known/email-verification`,
       () =>
         new Response(
-          // One byte, then nothing: the stream neither ends nor errors.
+          // One byte, then nothing: the stream neither ends nor errors. The
+          // caller aborts once the reader asks for more than that byte.
           new ReadableStream({
             start(controller) {
               controller.enqueue(new TextEncoder().encode("{"));
+            },
+            pull() {
+              queueMicrotask(() => caller.abort());
             },
           }),
           { headers: { "content-type": "application/json" } },
         ),
     );
     const started = Date.now();
-    const result = await check({}, { signal: AbortSignal.timeout(200) });
+    const result = await check({}, { signal: caller.signal });
     expect(result.outcome).toBe("unavailable");
+    // Well inside the request's own time limit: the caller's abort ended it.
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 
-  it("gives up on a network that never answers and ignores the abort, when the time runs out", async () => {
-    const silent = (url: string, init: RequestInit) =>
-      new URL(url).hostname === issuer.host
-        ? new Promise<Response>(() => undefined)
-        : issuer.fetch(url, init);
+  it("gives up on a network that never answers and ignores the abort, when the request is aborted", async () => {
+    const caller = new AbortController();
+    const silent = (url: string, init: RequestInit) => {
+      if (new URL(url).hostname !== issuer.host) return issuer.fetch(url, init);
+      // In flight, the caller aborts; the network answers neither way.
+      queueMicrotask(() => caller.abort());
+      return new Promise<Response>(() => undefined);
+    };
     const started = Date.now();
-    const result = await check({}, { signal: AbortSignal.timeout(200) }, silent);
+    const result = await check({}, { signal: caller.signal }, silent);
     expect(result.outcome).toBe("unavailable");
+    // Well inside the request's own time limit: the caller's abort ended it.
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 

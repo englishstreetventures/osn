@@ -8,6 +8,7 @@ import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
 import { NO_LIVE_SESSION, stepUpThroughService } from "../helpers/step-up-link";
@@ -234,16 +235,14 @@ describe("renamePasskey", () => {
 });
 
 describe("deletePasskey", () => {
-  it.effect("T-M3: sends passkey-removed notification email on successful delete", () => {
+  it.effect("sends the passkey-removed notice on a successful delete", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-del-notify@example.com", "pkdelnotify");
       yield* seedPasskey(alice.accountId);
       const toDelete = yield* seedPasskey(alice.accountId);
-      yield* auth.deletePasskey(alice.accountId, toDelete, NO_LIVE_SESSION);
-
-      // The notification is forkDaemon'd — wait for the fiber to complete.
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 50)));
+      // The notice is sent in the background; `settle` waits for it.
+      yield* settle(auth.deletePasskey(alice.accountId, toDelete, NO_LIVE_SESSION));
 
       const emails = cap
         .all()

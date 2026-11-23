@@ -15,7 +15,11 @@ import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
-import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
 import { latestLinkTo, registerThroughService } from "../helpers/registration";
 
 /**
@@ -1042,8 +1046,9 @@ describe("passkey login", () => {
   // The challengeId variant of completePasskeyLoginDirect must apply the
   // same challenge guard as the identified flow — an unknown id fails
   // fast, before any DB / credential lookup.
-  it.effect("completePasskeyLoginDirect rejects an unknown challengeId before DB work", () =>
-    Effect.gen(function* () {
+  it.effect("completePasskeyLoginDirect rejects an unknown challengeId before DB work", () => {
+    const database = createCapturingTestLayer();
+    return Effect.gen(function* () {
       const bogusAssertion = {
         id: "x",
         rawId: "x",
@@ -1059,8 +1064,9 @@ describe("passkey login", () => {
       );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Challenge");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      expect(database.captured).toEqual([]);
+    }).pipe(Effect.provide(database.layer));
+  });
 });
 
 describe("token refresh", () => {
@@ -1124,7 +1130,25 @@ describe("verifyAccessToken", () => {
 
   it.effect("fails on a tampered token", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.verifyAccessToken("not.a.token"));
+      const profile = yield* auth.registerProfile("tamper@example.com", "tamper");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      // The same header and signature over a payload with one character of
+      // the handle changed: every claim still passes, so only the signature
+      // check refuses it.
+      const [header, payload, signature] = tokens.accessToken.split(".");
+      const claims = Buffer.from(payload!, "base64url").toString("utf8");
+      const changed = claims.replace('"handle":"tamper"', '"handle":"tampex"');
+      expect(changed).not.toBe(claims);
+      const tampered = [header, Buffer.from(changed, "utf8").toString("base64url"), signature].join(
+        ".",
+      );
+      const error = yield* Effect.flip(auth.verifyAccessToken(tampered));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -1546,8 +1570,15 @@ describe("server-side sessions (C1)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("expired session is cleaned up and rejected on verify", () =>
-    Effect.gen(function* () {
+  it.effect("expired session is cleaned up and rejected on verify", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    const rowsOf = (accountId: string) =>
+      (
+        sqlite.query("SELECT count(*) AS n FROM sessions WHERE account_id = ?").get(accountId) as {
+          n: number;
+        }
+      ).n;
+    return Effect.gen(function* () {
       // Use a 0-second TTL to create an instantly-expired session
       const svc = createAuthService({ ...config, refreshTokenTtl: 0 });
       const profile = yield* svc.registerProfile("expired@example.com", "expired");
@@ -1558,13 +1589,15 @@ describe("server-side sessions (C1)", () => {
         profile.handle,
         profile.displayName,
       );
+      expect(rowsOf(profile.accountId)).toBe(1);
 
       // Should be expired immediately
       const error = yield* Effect.flip(svc.verifyRefreshToken(tokens.refreshToken));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Invalid or expired session");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      expect(rowsOf(profile.accountId)).toBe(0);
+    }).pipe(Effect.provide(layer));
+  });
 });
 
 // ---------------------------------------------------------------------------

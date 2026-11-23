@@ -34,6 +34,7 @@ vi.mock("@simplewebauthn/server", async (importOriginal) => {
 // Imported AFTER the mock is registered.
 const { createAuthService } = await import("../../src/services/auth");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
+const { settle } = await import("../helpers/background");
 const { createTestLayer } = await import("../helpers/db");
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -172,10 +173,8 @@ describe("O4 completePasskeyRegistration session invalidation", () => {
     return Effect.gen(function* () {
       const carol = yield* auth.registerProfile("pkreg-notify@example.com", "pkregnotify");
       yield* auth.beginPasskeyRegistration(carol.accountId);
-      yield* auth.completePasskeyRegistration(carol.accountId, fakeAttestation(), null);
-
-      // The notification is forkDaemon'd — wait for the fiber to complete.
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 50)));
+      // The notice is sent in the background; `settle` waits for it.
+      yield* settle(auth.completePasskeyRegistration(carol.accountId, fakeAttestation(), null));
 
       const sent = email
         .recorded()

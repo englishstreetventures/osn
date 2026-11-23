@@ -6,9 +6,10 @@
  * passkey's counter does not move. The ceremonies read and remove the
  * challenge in one call (`take`).
  *
- * Run on the Durable Object bundle over a stand-in namespace, with every call
- * that reads an entry answering a few milliseconds late, as a round trip does,
- * so the two requests' reads overlap however the rest is scheduled.
+ * Run on the Durable Object bundle over a stand-in namespace. In a race case
+ * every call that reads an entry runs as it arrives, and its answer is held
+ * until both requests have made theirs, so the two requests' reads overlap on
+ * every run, as two round trips in flight at once do.
  */
 
 import { it, expect, describe } from "@effect/vitest";
@@ -54,10 +55,7 @@ const { makeTestAuthConfig } = await import("../helpers/auth-config");
 const { createFakeNamespace } = await import("../helpers/coordination-namespace");
 const { createTestLayer } = await import("../helpers/db");
 
-import type { CeremonyStore } from "../../src/lib/ceremony-store";
-import type { CeremonyStores } from "../../src/services/auth/stores";
-
-const READ_DELAY_MS = 10;
+import type { CoordinationNamespace, CoordinationOp, CoordinationStub } from "@shared/coordination";
 
 let base: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -65,24 +63,56 @@ beforeAll(async () => {
   base = await makeTestAuthConfig();
 });
 
-const late = <A>(run: Promise<A>): Promise<A> =>
-  run.then((value) => new Promise((resolve) => setTimeout(() => resolve(value), READ_DELAY_MS)));
+const OPS: readonly CoordinationOp[] = [
+  "increment",
+  "count",
+  "read",
+  "write",
+  "remove",
+  "claim",
+  "guess",
+  "take",
+  "swap",
+];
 
-/** `stores` with every call that reads an entry answering `READ_DELAY_MS` late. */
-function slowReads(stores: CeremonyStores): CeremonyStores {
-  const out = {} as Record<keyof CeremonyStores, unknown>;
-  for (const [name, store] of Object.entries(stores) as [
-    keyof CeremonyStores,
-    CeremonyStore<unknown>,
-  ][]) {
-    out[name] = {
-      ...store,
-      get: (key: string) => late(store.get(key)),
-      guess: (key: string) => late(store.guess(key)),
-      take: (key: string) => late(store.take(key)),
-    };
-  }
-  return out as CeremonyStores;
+/** The calls that read an entry, the single-use claim included. */
+const READS = new Set<CoordinationOp>(["read", "guess", "take", "claim"]);
+
+/**
+ * `ns`, and `together(n)`: the next `n` calls that read an entry each run as
+ * they arrive, and none answers until all `n` have arrived; then they answer
+ * in the order they were sent. Every other call goes straight through.
+ */
+function heldTogether(ns: CoordinationNamespace) {
+  let batch: { readonly size: number; readonly waiting: (() => void)[] } | null = null;
+  const wrapped: CoordinationNamespace = {
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
+      return Object.fromEntries(
+        OPS.map((op) => [
+          op,
+          async (...args: unknown[]) => {
+            const value = await (stub[op] as (...a: unknown[]) => Promise<unknown>)(...args);
+            const current = batch;
+            if (!current || !READS.has(op)) return value;
+            await new Promise<void>((resolve) => {
+              current.waiting.push(resolve);
+              if (current.waiting.length < current.size) return;
+              batch = null;
+              for (const answer of current.waiting) answer();
+            });
+            return value;
+          },
+        ]),
+      ) as unknown as CoordinationStub;
+    },
+  };
+  return {
+    ns: wrapped,
+    together: (size: number) => {
+      batch = { size, waiting: [] };
+    },
+  };
 }
 
 /** The server secret the discoverable challenges are minted under, here. */
@@ -90,14 +120,21 @@ const PEPPER = "p".repeat(32);
 
 function harness() {
   const fake = createFakeNamespace();
-  const bundle = createDurableCoordination(fake.ns, () => {});
+  const gate = heldTogether(fake.ns);
+  const bundle = createDurableCoordination(gate.ns, () => {});
   const auth = createAuthService({
     ...base,
     sessionIpPepper: PEPPER,
-    ceremonyStores: slowReads(bundle.ceremonyStores),
+    ceremonyStores: bundle.ceremonyStores,
     passkeyChallengeClaims: bundle.passkeyChallengeClaims,
   });
-  return { auth, fake, claims: bundle.passkeyChallengeClaims };
+  return {
+    auth,
+    fake,
+    claims: bundle.passkeyChallengeClaims,
+    /** The next `n` calls that read an entry overlap: none answers before all have run. */
+    together: gate.together,
+  };
 }
 
 const base64url = (text: string) => Buffer.from(text, "utf8").toString("base64url");
@@ -155,10 +192,11 @@ const successes = (results: readonly { readonly _tag: string }[]): number =>
 
 describe("one WebAuthn challenge, two presentations at once", () => {
   it.live("passkey sign-in: exactly one signs in", () => {
-    const { auth } = harness();
+    const { auth, together } = harness();
     return Effect.gen(function* () {
       const { profile, credentialId } = yield* accountWithPasskey(auth, "suclogin");
       yield* auth.beginPasskeyLogin(profile.handle);
+      together(2);
       const results = yield* Effect.all(
         [0, 1].map(() =>
           Effect.result(
@@ -175,10 +213,11 @@ describe("one WebAuthn challenge, two presentations at once", () => {
   });
 
   it.live("passkey registration: exactly one credential is added", () => {
-    const { auth } = harness();
+    const { auth, together } = harness();
     return Effect.gen(function* () {
       const profile = yield* auth.registerProfile("sucreg@example.com", "sucreg");
       yield* auth.beginPasskeyRegistration(profile.accountId);
+      together(2);
       const results = yield* Effect.all(
         [0, 1].map(() =>
           Effect.result(
@@ -197,10 +236,11 @@ describe("one WebAuthn challenge, two presentations at once", () => {
   });
 
   it.live("step-up passkey: exactly one step-up token is minted", () => {
-    const { auth } = harness();
+    const { auth, together } = harness();
     return Effect.gen(function* () {
       const { profile, credentialId } = yield* accountWithPasskey(auth, "sucstep");
       yield* auth.beginStepUpPasskey(profile.accountId);
+      together(2);
       const results = yield* Effect.all(
         [0, 1].map(() =>
           Effect.result(
@@ -214,11 +254,12 @@ describe("one WebAuthn challenge, two presentations at once", () => {
   });
 
   it.live("discoverable passkey sign-in: exactly one signs in", () => {
-    const { auth } = harness();
+    const { auth, together } = harness();
     return Effect.gen(function* () {
       const { credentialId, userId } = yield* accountWithPasskey(auth, "sucdisc");
       const { challengeId } = yield* auth.beginPasskeyLogin(null);
       const assertion = discoverableAssertion(credentialId, challengeId!, userId);
+      together(2);
       const results = yield* Effect.all(
         [0, 1].map(() =>
           Effect.result(auth.completePasskeyLoginDirect({ challengeId: challengeId!, assertion })),
