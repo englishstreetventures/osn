@@ -70,9 +70,15 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
     setPreview(loaded);
   }
 
+  /** Numbers each opening: a read acts only for the newest one, so a read
+   *  from an opening the organiser has since closed and opened again leaves
+   *  the dialog, and what they ticked in it, alone. */
+  let opening = 0;
+
   /** The preview, read unless the cache holds a fresh one (`starter-store.ts`):
    *  a dialog opened again shows it at once. */
   async function show(retried = false) {
+    const mine = ++opening;
     setOpen(true);
     setPreview(null);
     setPicked(new Set<string>());
@@ -91,17 +97,18 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
         if (!res.ok) throw new Error(`preview ${res.status}`);
         return ((await res.json()) as { preview: Preview }).preview;
       });
+      if (mine !== opening || !open()) return;
       const value = cached();
-      if (loaded && value && open()) choose(value);
+      if (loaded && value) choose(value);
       // A change to the tasks dropped the read while it was out: read the
       // preview again, once, rather than leave the dialog loading.
-      else if (!loaded && open() && !retried) await show(true);
-      else if (!loaded && open()) {
-        setLoadError("Couldn't load the starter checklist. Try again in a moment.");
-      }
+      else if (!loaded && !retried) await show(true);
+      else if (!loaded) setLoadError("Couldn't load the starter checklist. Try again in a moment.");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      setLoadError("Couldn't load the starter checklist. Try again in a moment.");
+      if (mine === opening) {
+        setLoadError("Couldn't load the starter checklist. Try again in a moment.");
+      }
     }
   }
 

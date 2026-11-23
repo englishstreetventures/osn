@@ -214,6 +214,37 @@ describe("the starter's preview", () => {
     expect(previewReads).toBe(2);
   });
 
+  it("keeps a tick from a later opening when an earlier opening's dropped read settles", async () => {
+    setCachedTasks("wed_1", []);
+    let answerFirst!: (res: Response) => void;
+    let previewReads = 0;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url !== PREVIEW_URL) return Promise.resolve(json({ tasks: [] }));
+      previewReads += 1;
+      if (previewReads === 1) return new Promise<Response>((r) => (answerFirst = r));
+      return Promise.resolve(preview(null, [BUDGET]));
+    });
+    renderChecklist();
+    let dialog = await openPreview();
+    await waitFor(() => expect(previewReads).toBe(1));
+    // A task change drops the first opening's read; the dialog is closed and
+    // opened again, and the organiser unticks an item.
+    markTasksStale("wed_1");
+    fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(dialogNamed()).toBeNull());
+    dialog = await openPreview();
+    const box = await dialog.findByRole("checkbox", { name: /agree on an overall budget/i });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+
+    // The first opening's read settles now, dropped: it acts on nothing.
+    answerFirst(preview(null, [BUDGET]));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(dialog.getByRole("checkbox", { name: /agree on an overall budget/i })).not.toBeChecked();
+    expect(previewReads).toBe(2);
+  });
+
   it("says so when everything is already on the checklist, and offers nothing to add", async () => {
     setCachedTasks("wed_1", [task({ title: "Agree on an overall budget" })]);
     authFetchMock.mockResolvedValueOnce(preview(null, [{ ...BUDGET, state: "added" }]));
