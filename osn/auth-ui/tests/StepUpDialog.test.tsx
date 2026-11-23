@@ -997,19 +997,25 @@ describe("StepUpDialog — the sheet", () => {
       expect(screen.queryByRole("alert")).toBeNull();
     });
 
-    it("when sent, keeps the same request and polls it again", async () => {
+    it("when sent, keeps the same request and polls it again two seconds on", async () => {
+      // The poll's own timers too: its first poll fails, so the wait has
+      // grown to ten seconds by the time Resend sends a new link.
+      vi.useFakeTimers({
+        toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"],
+      });
+      stub.emailStatus.mockRejectedValueOnce(new Error("down"));
       stub.emailResend.mockResolvedValueOnce({ status: "sent" });
       await pressResend();
-      await flush();
+      await flushMicrotasks();
       expect(screen.queryByRole("alert")).toBeNull();
       expect(screen.getByText("47")).toBeTruthy();
-      window.dispatchEvent(new Event("focus"));
-      await waitFor(() =>
-        expect(stub.emailStatus).toHaveBeenLastCalledWith({
-          requestId: LINK_REQUEST.requestId,
-          claimSecret: LINK_REQUEST.claimSecret,
-        }),
-      );
+      expect(stub.emailStatus).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.emailStatus).toHaveBeenCalledTimes(2);
+      expect(stub.emailStatus).toHaveBeenLastCalledWith({
+        requestId: LINK_REQUEST.requestId,
+        claimSecret: LINK_REQUEST.claimSecret,
+      });
     });
   });
 

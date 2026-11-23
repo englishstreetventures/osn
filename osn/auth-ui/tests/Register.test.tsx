@@ -1582,6 +1582,11 @@ describe("Register component", () => {
   });
 
   describe("WebAuthn-unsupported environment", () => {
+    // Every case after this one needs the form.
+    afterEach(() => {
+      hoisted.webauthnSupported = true;
+    });
+
     it("blocks the flow at the start with an informational screen", async () => {
       hoisted.webauthnSupported = false;
       render(() => (
@@ -1603,10 +1608,6 @@ describe("Register component", () => {
 
 describe("Register in a dialog", () => {
   withoutAnimations();
-  // A case above may leave WebAuthn switched off; these need the form.
-  beforeEach(() => {
-    hoisted.webauthnSupported = true;
-  });
   afterEach(cleanup);
 
   it("names the dialog by its title, through one element", () => {
