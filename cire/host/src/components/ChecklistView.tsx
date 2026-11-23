@@ -13,6 +13,7 @@ import {
 } from "@shared/sortable";
 import { toast } from "@shared/toast";
 import { Checkbox } from "@shared/ui/ui/checkbox";
+import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -31,6 +32,7 @@ import {
   invalidateHosts,
 } from "../lib/hosts-store";
 import { useMembersChanged } from "../lib/members-changed";
+import { optionalLabel } from "../lib/optional-label";
 import { sameButOrder } from "../lib/sortable-rows";
 import { useTasksChanged } from "../lib/tasks-changed";
 import {
@@ -520,7 +522,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
               </Select>
             )}
           </Field>
-          <Field label="Due (optional)">
+          <Field label={optionalLabel("Due")}>
             {(field) => (
               <Input
                 size="form"
@@ -543,7 +545,24 @@ export default function ChecklistView(props: ChecklistViewProps) {
           `auto-grid` fits as many ≥22rem buckets as the panel allows, and a
           task reorders within its own bucket either way.
           `items-start` so a long bucket doesn't stretch its neighbours. */}
-      <div class="auto-grid items-start [--auto-grid-gap:1.5rem] [--auto-grid-min:22rem]">
+      {/* No task at all: one empty state, rather than every bucket saying
+          so. The buckets stay mounted under it, hidden, because each holds
+          its sortable list (see below). */}
+      <Show when={tasks()?.length === 0}>
+        <EmptyState
+          title="No tasks yet"
+          description={
+            props.canEdit
+              ? "Add one above with the time before the day it is due, or start from the suggested checklist."
+              : "The wedding's owners and editors add its planning tasks here."
+          }
+        />
+      </Show>
+      <div
+        class={`auto-grid items-start [--auto-grid-gap:1.5rem] [--auto-grid-min:22rem]${
+          tasks()?.length === 0 ? " hidden" : ""
+        }`}
+      >
         {/* Over the fixed bucket list, not over a memo of groups: each bucket's
             sortable list holds its grips (focus goes back to one after a move)
             and its live region, so it has to outlive every write to the tasks. */}
@@ -575,7 +594,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
                 </Eyebrow>
                 <Show
                   when={bucketTasks().length > 0}
-                  fallback={<p class="text-text-muted text-ui-sm italic">Nothing here yet.</p>}
+                  fallback={<p class="text-text-muted text-ui-sm">Nothing due in this window.</p>}
                 >
                   <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
                     <DragDropSensors />

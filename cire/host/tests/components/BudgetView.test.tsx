@@ -113,7 +113,7 @@ describe("BudgetView", () => {
   it("says there are no items when the budget is empty", async () => {
     setCachedBudget("wed_1", snap({ items: [] }));
     render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
-    expect(await screen.findByText("No budget items yet.")).toBeInTheDocument();
+    expect(await screen.findByText("No budget items yet")).toBeInTheDocument();
   });
 
   it("hides the add-item form for a viewer (read-only)", async () => {

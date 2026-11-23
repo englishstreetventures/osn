@@ -261,10 +261,11 @@ interface GuestTableProps {
 
 /**
  * The narrowest panel the households' tables fit: the fixed Plus-one (7rem)
- * and Code (11rem) columns, Events at a third, and room for a 12rem Guest column —
- * about 46rem. Without the Plus-one column, 40rem. Narrower, the rows stack.
+ * and Code (12rem, a 16-character code in the code face with the cell's
+ * padding) columns, Events at a third, and room for a 12rem Guest column —
+ * about 47rem. Without the Plus-one column, 41rem. Narrower, the rows stack.
  */
-const TABLE_MIN_REM = { plusOnes: 46, plain: 40 } as const;
+const TABLE_MIN_REM = { plusOnes: 47, plain: 41 } as const;
 
 /** Where a focused control in a household's rows must stay below: the top bar,
  *  the view bar, the head strip when there is one, and the household's bar,
@@ -903,7 +904,7 @@ export default function GuestTable(props: GuestTableProps) {
       <Show when={plusOnesShown()}>
         <col class="w-28" />
       </Show>
-      <col class="w-44" />
+      <col class="w-48" />
     </colgroup>
   );
 

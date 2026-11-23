@@ -141,7 +141,7 @@ export async function addFund(flow: Flow, owner: Page): Promise<AddedFund> {
       // leaves it on the wedding it was showing.
       await owner.goto("about:blank");
       await owner.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/list`);
-      await expect(owner.getByText("No gifts on the list yet.")).toBeVisible();
+      await expect(owner.getByText("No gifts on the list yet", { exact: true })).toBeVisible();
       await owner.getByRole("radio", { name: "A cash fund" }).check();
       await owner.getByLabel("Fund", { exact: true }).fill(FUND.title);
       await owner.getByLabel("Goal (optional)", { exact: true }).fill(FUND.goal);
