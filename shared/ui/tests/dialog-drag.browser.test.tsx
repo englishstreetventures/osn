@@ -339,12 +339,15 @@ describe("a sheet dragged by its title row", () => {
     expect(Number.parseFloat(time)).toBeGreaterThan(300);
     expect(Number.parseFloat(time)).toBeLessThan(460);
     expect(el.style.transitionTimingFunction).toMatch(/^linear\(/);
-    await wait(60);
-    expect(offset(el), "it did not carry on down from where it was let go").toBeGreaterThan(
-      released,
+    await vi.waitFor(
+      () =>
+        expect(offset(el), "it did not carry on down from where it was let go").toBeGreaterThan(
+          released,
+        ),
+      { timeout: 300, interval: 5 },
     );
     // Past the class's 200ms exit, it is still on its way out.
-    await wait(180);
+    await wait(240);
     expect(panel(), "it was unmounted before the spring ended").not.toBeNull();
     await gone();
     await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
@@ -425,6 +428,70 @@ describe("a sheet dragged by its title row", () => {
     expect(worst).toBeLessThanOrEqual(1);
     await gone();
     await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+});
+
+describe("the title row as the handle", () => {
+  it("takes no touch scroll or selection and shows the grab cursor below md, and none of it from md", async () => {
+    await atSize(390);
+    const { el } = await openSheet();
+    const header = el.querySelector<HTMLElement>("[data-dialog-header]")!;
+    const glyph = screen.getByRole("button", { name: "Close" });
+    const below = getComputedStyle(header);
+    expect([below.touchAction, below.userSelect, below.cursor]).toEqual(["none", "none", "grab"]);
+    expect(getComputedStyle(glyph).cursor, "the close glyph lost its pointer").toBe("pointer");
+    // While a mouse drag holds it, the panel the pointer is captured on shows
+    // the grabbing hand too.
+    const from = handle(el);
+    const a = toTop(from);
+    await cdp().send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      ...a,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    });
+    await cdp().send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: a.x,
+      y: a.y + 20,
+      button: "left",
+      buttons: 1,
+    });
+    expect(getComputedStyle(el).cursor).toBe("grabbing");
+    expect(getComputedStyle(header).cursor).toBe("grabbing");
+    await cdp().send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: a.x,
+      y: a.y + 20,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+    });
+    await atRest(el);
+    cleanup();
+    await atSize(1024, 800);
+    const card = (await openSheet()).el;
+    const above = getComputedStyle(card.querySelector<HTMLElement>("[data-dialog-header]")!);
+    expect([above.touchAction, above.userSelect, above.cursor]).toEqual(["auto", "auto", "auto"]);
+  });
+
+  it("pulled up past rest, gives on the band and fills the gap under it with its own surface", async () => {
+    await atSize(390);
+    const { el, height } = await openSheet();
+    const surface = getComputedStyle(el).backgroundColor;
+    const corner = Number.parseFloat(getComputedStyle(el).borderTopLeftRadius);
+    const f = finger();
+    await f.down(handle(el));
+    await f.by(-150, 10);
+    const up = offset(el);
+    expect(up).toBeLessThan(-10);
+    expect(up, "it followed the finger past rest").toBeGreaterThan(-150);
+    expect(el.style.boxShadow).toContain(`${height - corner}px`);
+    expect(el.style.boxShadow).toContain(surface);
+    await page.screenshot({ path: shot("pulled-up-390-light") });
+    await f.up(150);
+    await atRest(el);
   });
 });
 
@@ -578,6 +645,27 @@ describe("a sheet that cannot close", () => {
     expect(panel()).toBe(el);
   });
 
+  it("that turns unable to close in the middle of a drag, goes back however far it was pulled", async () => {
+    await atSize(390);
+    const [dismissible, setDismissible] = createSignal(true);
+    render(() => (
+      <Dialog defaultOpen>
+        <DialogContent presentation="sheet" dismissible={dismissible()}>
+          <SheetParts />
+        </DialogContent>
+      </Dialog>
+    ));
+    const el = await vi.waitFor(sheet);
+    await settled(el);
+    const f = finger();
+    await f.down(handle(el));
+    await f.by(el.offsetHeight * 0.5, 20);
+    setDismissible(false);
+    await f.up(150);
+    await atRest(el);
+    expect(panel()).toBe(el);
+  });
+
   it("when its host refuses in onOpenChange, goes back and drags again", async () => {
     await atSize(390);
     const asked: boolean[] = [];
@@ -713,14 +801,24 @@ describe("under reduced motion", () => {
     await wait(150);
     const released = offset(el);
     await g.up(150);
-    await wait(60);
-    const a = { y: offset(el), o: opacity(el) };
-    await wait(60);
-    const b = { y: offset(el), o: opacity(el) };
-    expect(Math.abs(a.y - released)).toBeLessThan(0.5);
-    expect(Math.abs(b.y - released)).toBeLessThan(0.5);
-    expect(a.o).toBeLessThan(1);
-    expect(b.o).toBeLessThan(a.o);
+    const a = await vi.waitFor(
+      () => {
+        const read = { y: offset(el), o: opacity(el) };
+        expect(read.o, "it never began to fade").toBeLessThan(1);
+        return read;
+      },
+      { timeout: 300, interval: 5 },
+    );
+    const b = await vi.waitFor(
+      () => {
+        const read = { y: offset(el), o: opacity(el) };
+        expect(read.o, "it stopped fading").toBeLessThan(a.o);
+        return read;
+      },
+      { timeout: 300, interval: 5 },
+    );
+    expect(Math.abs(a.y - released), "it moved as it faded").toBeLessThan(0.5);
+    expect(Math.abs(b.y - released), "it moved as it faded").toBeLessThan(0.5);
     await gone();
   });
 });

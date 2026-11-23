@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-24
+last-reviewed: 2026-11-25
 ---
 
 # Testing Patterns
@@ -206,6 +206,10 @@ A new app in the stack goes in `appSpecs()` in `tools/e2e/src/stack.ts`, with it
 Every app is served from `localhost`. Cookies ignore the port, so the suite proves that a cross-origin `fetch` carries `credentials: "include"`: without it the browser drops `Set-Cookie` and the flow's cookie checks fail. The Musubi flow also clears the client's cached account and reloads, so the session can only come back through the cookie on `POST /token`, and then clears the cookie too and checks the reload is signed out. It cannot prove anything about how a cookie is scoped between real hosts. Locally there is no `Secure`, no `__Host-` prefix, and no `OSN_COOKIE_DOMAIN` marker. The browser tier ([[browser-tests]]) and the deploy checks own those.
 
 The Musubi flow reports conditional mediation as unavailable. The virtual authenticator answers an autofill passkey request on its own, which a person never does, so leaving it on would race the "@handle → Continue" path the flow drives.
+
+A flow step that opens a DevTools session of its own on a page with a virtual authenticator, to send `Input.dispatchTouchEvent` for instance, leaves it attached until the page closes. `musubi-surfaces.ts`'s drag of the profile switcher detached its session once, and every passkey ceremony later in `musubi-passkey` then waited on "Waiting for your passkey…" until the step timed out; with the session left attached, the flow passed.
+
+*Measured 2026-11-23 — `bun run --cwd tools/e2e e2e musubi-passkey`, twice with the `detach()` (both failed at "add an authenticator app: the setup key"), once without the drag step and once with the session left attached (both passed).*
 
 ### A gift against Stripe's test mode
 

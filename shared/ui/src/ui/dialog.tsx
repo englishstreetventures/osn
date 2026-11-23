@@ -47,12 +47,18 @@ const DialogTrigger = KobalteDialog.Trigger;
  * on it. `bare` is the default so a dialog whose close control is a real
  * labelled button (`<DialogClose as={Button}>Cancel</DialogClose>`) is unstyled
  * here and styled by that button.
+ *
+ * The glyph fades its colour alone, as a hover does, over `--ui-dur-fast` on
+ * `--ui-ease-out`: never its outline, so a focus mark lands at once. It keeps
+ * the pointer cursor inside a sheet's title row, which shows the grab cursor
+ * below `md`.
  */
 const DIALOG_CLOSE_TREATMENT = {
   bare: "",
   glyph:
     "base:text-ui-ink-secondary base:hover:text-ui-ink base:text-ui-lg base:leading-none " +
-    "base:transition-colors",
+    "base:cursor-pointer base:[transition-property:color] " +
+    "base:[transition-duration:var(--ui-dur-fast)] base:[transition-timing-function:var(--ui-ease-out)]",
 } satisfies Readonly<Record<"bare" | "glyph", string>>;
 
 /**
@@ -384,19 +390,19 @@ function sheetDrag(
    * already moves at once, and its opacity keeps the class's fade, which an
    * Escape in the middle of a drag runs.
    */
-  function hold() {
-    if (!fades()) panel.style.transition = "none";
+  function hold(motion = !fades()) {
+    if (motion) panel.style.transition = "none";
     scrim()?.style.setProperty("transition", "none");
   }
 
   /** Stops a sheet that is moving where it is on screen, and returns its offset. */
-  function freeze(): number {
+  function freeze(motion: boolean): number {
     const y = offsetNow();
     const shown = scrim() ? getComputedStyle(scrim()!).opacity : undefined;
     cancelLanding();
     panel.style.removeProperty("opacity");
     panel.style.removeProperty("transition");
-    hold();
+    hold(motion);
     panel.style.transform = translate(y);
     if (shown !== undefined) scrim()?.style.setProperty("opacity", shown);
     return y;
@@ -406,21 +412,28 @@ function sheetDrag(
   const moving = () => phase === "settling" || transitionOf(panel, "transform") !== undefined;
 
   function startDrag(p: Press, event: PointerEvent, fromPress: boolean) {
+    // Every read before the first write, so the drag's first frame resolves
+    // style and layout once.
     const caught = moving();
-    p.base = caught ? freeze() : 0;
-    if (!caught) hold();
-    p.originY = caught || !fromPress ? event.clientY : p.y0;
+    const motion = !fades();
+    const computed = style();
+    const surface = computed.backgroundColor;
+    const corner = Number.parseFloat(computed.borderTopLeftRadius) || 0;
     p.height = panel.offsetHeight;
+    p.base = caught ? freeze(motion) : 0;
+    if (!caught) hold(motion);
+    p.originY = caught || !fromPress ? event.clientY : p.y0;
     p.refused = !options.dismissible();
     p.dragging = true;
     phase = "dragging";
     panel.setAttribute("data-dragging", "");
     options.setDragging(true);
     // A copy of the panel, nearly its own height lower, in its own colour, so a
-    // pull above rest shows no gap under its bottom edge. 24px short of the
-    // height, so the copy's round top corners sit behind the panel; first in
-    // the list, so the elevation's blur never paints over it.
-    panel.style.boxShadow = `0 ${p.height - 24}px 0 0 ${style().backgroundColor}, var(--ui-elev-2)`;
+    // pull above rest shows no gap under its bottom edge. Short of the height
+    // by the panel's top corner, so the copy's round top corners sit behind
+    // the panel; first in the list, so the elevation's blur never paints over
+    // it.
+    panel.style.boxShadow = `0 ${p.height - corner}px 0 0 ${surface}, var(--ui-elev-2)`;
     if (p.type !== "touch") window.getSelection()?.removeAllRanges();
   }
 
@@ -460,7 +473,8 @@ function sheetDrag(
       base: 0,
       raw: 0,
       offset: 0,
-      height: panel.offsetHeight,
+      // Measured when a drag takes the sheet, never for a tap.
+      height: 0,
       refused: false,
       samples: [{ y: event.clientY, t: event.timeStamp }],
     };
@@ -798,7 +812,7 @@ const DialogContent: ParentComponent<DialogContentProps> = (props) => {
         class={clsx(
           "base:bg-ui-surface base:border-ui-hairline base:fixed base:top-1/2 base:left-1/2 base:z-50 base:w-full base:max-w-lg base:-translate-x-1/2 base:-translate-y-1/2 base:rounded-ui-lg base:border base:shadow-[var(--ui-elev-2)] base:focus:outline-none",
           "base:max-h-[85dvh] base:overflow-y-auto base:scroll-edge-timeline",
-          "base:data-[dragging]:select-none",
+          "base:data-[dragging]:select-none max-md:base:data-[dragging]:cursor-grabbing",
           DIALOG_SCROLL_PADDING,
           DIALOG_FOCUS_TRAP,
           DIALOG_PRESENTATION[presentation()],

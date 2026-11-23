@@ -140,14 +140,24 @@ const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a
 const EXIT_FALLBACK_MS = 300;
 /** How far past the exit's own length the fallback waits, so the exit's end comes first. */
 const EXIT_MARGIN_MS = 100;
+/**
+ * The longest exit the fallback waits out: the longest settle a drag's spring
+ * can run (`settleCurve`, `@shared/ui/lib/spring`). A stylesheet that gives the
+ * panel a longer run cannot hold the outcome back past it, so a token is never
+ * handed over long after the person confirmed.
+ */
+const EXIT_RUN_CAP_MS = 2000;
 
-/** The exit `panel` runs now it has closed, in ms, as its computed style gives it; 0 when none. */
+/**
+ * The exit `panel` runs now it has closed, in ms, as its computed style gives
+ * it, at most {@link EXIT_RUN_CAP_MS}; 0 when none.
+ */
 function exitRunMs(panel: Element | undefined): number {
   if (!panel?.isConnected) return 0;
   const run = getComputedStyle(panel).animationDuration.split(",")[0]!.trim();
   const n = Number.parseFloat(run);
   if (!Number.isFinite(n)) return 0;
-  return run.endsWith("ms") ? n : n * 1000;
+  return Math.min(EXIT_RUN_CAP_MS, run.endsWith("ms") ? n : n * 1000);
 }
 
 /**

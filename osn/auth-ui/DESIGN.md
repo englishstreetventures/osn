@@ -891,8 +891,10 @@ host a short-lived token through `onToken`.
   card fades, and dragged down and let go it leaves on the release's spring,
   about 300 to 460ms. If the exit has not ended after the longer of 300ms and
   the exit's own run plus 100ms (the panel's `animation-duration`, read as it
-  closes; a drag's release writes the spring's length there), because a tab
-  the browser has hidden runs no animation, the outcome goes then; 300ms
+  closes and taken as 2s at most, the longest a drag's spring runs; a drag's
+  release writes the spring's length there), because a tab the browser has
+  hidden runs no animation, the outcome goes then, so no stylesheet can hold
+  a token back past 2.1s; 300ms
   stays above the other exits only while the host keeps `--ui-dur-base` and
   `--ui-dur-exit` under it. While it closes, its body is `inert` and every
   action returns early. A host that removes the sheet itself gets neither

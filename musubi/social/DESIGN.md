@@ -501,7 +501,9 @@ Escape and the scrim keep the 200ms close on `--ui-ease-sheet` above. A sheet
 that cannot close — the step-up, the profile switcher and the
 delete-organisation confirmation while their call runs — gives on the band
 both ways and comes back; a press on it while it springs back stops it under
-the finger once the finger moves, and a tap goes through. Under reduced
+the finger once the finger moves, and a tap goes through. A sheet already on
+its way out is not caught: a close is final once let go, the owner's default
+on #2288. Under reduced
 motion the drag still follows the finger; let go, a close fades where the
 sheet was, and a return fades out where it is, moves to rest unseen and fades
 back in, over `--ui-dur-base` in all, so nothing moves by itself. From `md`
@@ -512,9 +514,12 @@ top; no grabber", and for the thresholds "Yes, those numbers". The spring has
 no token, since it differs with every release; `@shared/ui` samples it into
 a `linear()` easing as it lets go (`wiki/shared/design-tokens.md` §Motion). A
 close from rest at a quarter of the sheet's height runs 340ms on a 200px
-sheet and 414ms on an 800px one; a return of 30px runs 269ms.
+sheet, 360ms on a 293px one and 414ms on an 800px one; a return of 30px from
+rest runs 250ms. So on a sheet taller than 293px the spring runs past the
+owner's 360ms, but with under 3px of travel left by then: what reads is the
+same spring the owner tried in the prototype, whose own lengths it shares.
 
-*Measured 2026-11-23 — `settleCurve(0.25 × height, height, 0).duration` and `settleCurve(30, 0, 0.3).duration` from `shared/ui/src/lib/spring.ts`, run with `bun` for heights 200 to 800px.*
+*Measured 2026-11-23 — `settleCurve(0.25 × height, height, 0).duration` and `settleCurve(30, 0, 0).duration` from `shared/ui/src/lib/spring.ts`, run with `bun` for heights 200 to 800px; the travel left at 360ms from the spring's displacement `(d0 + b·t)·e^(−ωt)` for an 800px sheet, 2.7px.*
 
 `shared/ui/tests/dialog-drag.browser.test.tsx` holds the drag,
 `tests/components/SecurityStepUp.browser.test.tsx` the step-up refusing it

@@ -664,7 +664,9 @@ async function dragsClosed(
     0,
     await switcher.count(),
   );
-  await session.detach();
+  // The session stays attached until the page closes: detached here, it left
+  // the passkey ceremonies later in `musubi-passkey` unanswered by the page's
+  // virtual authenticator.
 }
 
 /**

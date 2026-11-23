@@ -524,6 +524,33 @@ describe("a drag down the step-up sheet at 390px", () => {
     expect(goneAtHandOver, "the outcome arrived while the sheet was on screen").toBe(true);
   });
 
+  // However long a stylesheet makes the sheet's exit run, the outcome goes
+  // within the longest a drag's spring runs, 2s, and 100ms more.
+  it("hands over within 2.1s however long the exit runs", async () => {
+    await page.viewport(390, 844);
+    const slow = document.createElement("style");
+    slow.textContent = '[role="dialog"] { animation-duration: 60s !important; }';
+    document.head.append(slow);
+    try {
+      const onCancel = vi.fn();
+      render(() => (
+        <StepUpDialog
+          client={{} as StepUpClient}
+          onToken={() => {}}
+          onCancel={onCancel}
+          purpose="passkey_delete"
+        />
+      ));
+      const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Confirm it's you" }));
+      await userEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
+      const closed = performance.now();
+      await waitFor(() => expect(onCancel).toHaveBeenCalledOnce(), { timeout: 3000 });
+      expect(performance.now() - closed).toBeLessThan(2600);
+    } finally {
+      slow.remove();
+    }
+  });
+
   it.each(["light", "dark"])(
     "draws the sheet half way down, its scrim half gone (%s)",
     async (theme) => {
