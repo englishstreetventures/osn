@@ -130,6 +130,14 @@ describe("claimGiftRegistryItem", () => {
     expect(await claimGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "error" });
   });
 
+  it("tells a removed item apart from a closed registry on the same status", async () => {
+    fetchMock.mockResolvedValueOnce(json({ error: "registry_item_not_found" }, 404));
+    expect(await claimGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "item-gone" });
+
+    fetchMock.mockResolvedValueOnce(json({ error: "registry_not_found" }, 404));
+    expect(await claimGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "hidden" });
+  });
+
   it("reports the rate limit with the server's retry-after in seconds", async () => {
     fetchMock.mockResolvedValueOnce(json({ error: "rate_limited" }, 429, { "retry-after": "60" }));
     expect(await claimGiftRegistryItem(API, SLUG, "gi-1")).toEqual({

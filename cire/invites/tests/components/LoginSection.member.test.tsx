@@ -277,3 +277,20 @@ it("keeps the email box when the deadline passes while it is open", async () => 
   expect(box.querySelector("output")?.textContent).toMatch(/RSVPs have closed/);
   expect(document.activeElement).toBe(view.getByRole("heading", { name: "Wedding emails" }));
 });
+
+it("keeps the email box mounted, with its removal note, after the member removes the address once closed", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(Response.json({ email: null }))),
+  );
+  const email = { address: "ada@example.test", source: "guest" } as const;
+  const initial = household([member("Chidi"), member("Ada")], "g-Ada");
+  const { view, result } = renderClosed({ ...initial, member: { guestId: "g-Ada", email } });
+  fireEvent.click(await view.findByRole("button", { name: "Remove email" }));
+  await waitFor(() => expect(result().member).toEqual({ guestId: "g-Ada" }));
+  const box = view.getByRole("region", { name: "Wedding emails" });
+  expect(box.querySelector("output")?.textContent).toMatch(/Removed/);
+  await waitFor(() =>
+    expect(document.activeElement).toBe(view.getByRole("heading", { name: "Wedding emails" })),
+  );
+});

@@ -112,6 +112,40 @@ describe("GuestEmailBox", () => {
       await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading")));
     });
 
+    // After the deadline the one address the box takes is the one this seat
+    // just removed: the field holds it and cannot be edited, and putting it
+    // back saves it as the API allows.
+    it("offers the removed address back, and no other", async () => {
+      const [email, setEmail] = createSignal<MemberEmail | null>(hostsAdded);
+      render(() => (
+        <GuestEmailBox
+          apiUrl="https://api.test"
+          member={ada}
+          email={email()}
+          closed
+          onChange={setEmail}
+          onMemberRequired={() => {}}
+        />
+      ));
+      fetchMock.mockResolvedValueOnce(Response.json({ email: null }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove email" }));
+      const field = await screen.findByLabelText<HTMLInputElement>("Your email, Ada");
+      expect(field.value).toBe("ada@example.test");
+      expect(field.readOnly).toBe(true);
+
+      fireEvent.click(screen.getByRole("checkbox", { name: /emails about this wedding/ }));
+      fetchMock.mockResolvedValueOnce(
+        Response.json({ email: { address: "ada@example.test", source: "guest" } }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Put it back" }));
+      await waitFor(() =>
+        expect(email()).toEqual({ address: "ada@example.test", source: "guest" }),
+      );
+      expect(screen.queryByLabelText("Your email, Ada")).toBeNull();
+      expect(screen.getByText("ada@example.test")).toBeTruthy();
+      expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ method: "PUT" });
+    });
+
     // The clock passes the deadline under a guest who is typing: the form goes,
     // the closed line is announced, and focus lands on the heading, not the page.
     it("closes the form under a guest who is typing and moves focus to the heading", async () => {
