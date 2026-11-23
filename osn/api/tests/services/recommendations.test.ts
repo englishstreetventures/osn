@@ -26,9 +26,9 @@ beforeAll(async () => {
 
 /**
  * Deletes an `organisations` row while leaving its `organisation_members`
- * rows in place — a state the service layer cannot produce, and one the
- * database now refuses: `deleteOrganisation` removes the memberships and the
- * organisation in one batch, and foreign keys are enforced.
+ * rows in place — a state the service layer cannot produce and the database
+ * refuses: `deleteOrganisation` removes the memberships and the organisation
+ * in one batch, and foreign keys are enforced.
  *
  * The tests below need it anyway, because the branch it exercises is real: the
  * fan-out and the label hydration are two statements, so an organisation
@@ -58,6 +58,13 @@ describe("suggestConnections", () => {
   it.effect("returns [] when caller has no connections", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("alice@example.com", "alice");
+      // A connected pair and an organisation with members, none of them
+      // alice's: a fan-out that ignored her seeds would surface someone.
+      const bob = yield* auth.registerProfile("bob@example.com", "bob");
+      const carol = yield* auth.registerProfile("carol@example.com", "carol");
+      yield* connect(bob.id, carol.id);
+      const org = yield* orgs.createOrganisation(bob.id, "acme", "Acme Inc");
+      yield* orgs.addMember(org.id, bob.id, carol.id, "member");
       const result = yield* recs.suggestConnections(alice.id);
       expect(result).toEqual([]);
     }).pipe(Effect.provide(createTestLayer())),
@@ -93,16 +100,24 @@ describe("suggestConnections", () => {
 
   it.effect("excludes blocked profiles (either direction)", () =>
     Effect.gen(function* () {
-      // alice <-> bob; bob <-> dana; alice blocks dana -> dana should not appear
+      // alice <-> bob; bob <-> dana, eve, frank. alice blocks dana and eve
+      // blocks alice, so only frank is suggested.
       const alice = yield* auth.registerProfile("a@e.com", "alice");
       const bob = yield* auth.registerProfile("b@e.com", "bob");
       const dana = yield* auth.registerProfile("d@e.com", "dana");
+      const eve = yield* auth.registerProfile("e@e.com", "eve");
+      const frank = yield* auth.registerProfile("f@e.com", "frank");
       yield* connect(alice.id, bob.id);
       yield* connect(bob.id, dana.id);
+      yield* connect(bob.id, eve.id);
+      yield* connect(bob.id, frank.id);
       yield* graph.blockProfile(alice.id, dana.id);
+      yield* graph.blockProfile(eve.id, alice.id);
 
       const result = yield* recs.suggestConnections(alice.id);
       expect(result.map((s) => s.handle)).not.toContain("dana");
+      expect(result.map((s) => s.handle)).not.toContain("eve");
+      expect(result.map((s) => s.handle)).toEqual(["frank"]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -154,8 +169,11 @@ describe("suggestConnections", () => {
       const alice = yield* auth.registerProfile("a@e.com", "alice");
       const bob = yield* auth.registerProfile("b@e.com", "bob");
       const dana = yield* auth.registerProfile("d@e.com", "dana");
+      // Two candidates, so a clamp to anything above 1 returns both.
+      const eve = yield* auth.registerProfile("e@e.com", "eve");
       yield* connect(alice.id, bob.id);
       yield* connect(bob.id, dana.id);
+      yield* connect(bob.id, eve.id);
 
       const zero = yield* recs.suggestConnections(alice.id, 0);
       const neg = yield* recs.suggestConnections(alice.id, -5);
@@ -269,10 +287,9 @@ describe("suggestConnections", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // The hydration is a keyed lookup into a map built after ranking, which the
-  // old inner join could not get wrong. Two candidates in two different live
-  // organisations is the smallest case that tells a keyed lookup from an
-  // unkeyed one: with only one organisation in the map, returning "whatever is
+  // The hydration is a keyed lookup into a map built after ranking. Two
+  // candidates in two live organisations is the smallest case that tells a
+  // keyed lookup from an unkeyed one: with only one organisation in the map, returning "whatever is
   // in there" and returning "the right one" are the same answer, and a card
   // wearing another organisation's name would ship green.
   it.effect("labels each candidate with the organisation it actually shares", () =>
@@ -357,10 +374,9 @@ describe("suggestConnections", () => {
   //
   // The state is reached by deleting the row directly. It cannot persist —
   // `deleteOrganisation` removes the membership rows and the organisation in
-  // one batch, and D1 enforces the foreign key besides (this harness does not;
-  // see the pragma finding). What it can be is a read race: the fan-out and
-  // the hydration are two statements now rather than one join, so an
-  // organisation deleted between them lands exactly here.
+  // one batch, and D1 enforces the foreign key — but it can be a read race:
+  // the fan-out and the hydration are two statements, so an organisation
+  // deleted between them lands here.
   it.effect("drops the label, not the suggestion, when the organisation is gone", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("a@e.com", "alice");
@@ -386,8 +402,7 @@ describe("suggestConnections", () => {
   // The other side of the same branch: with no mutual connection, a shared
   // organisation that no longer exists leaves the candidate with no basis at
   // all. Asserting `shared_organisation` while naming nothing is worse than
-  // not suggesting them, and this is exactly what the fan-out's old inner
-  // join to `organisations` used to do.
+  // not suggesting them.
   it.effect("drops an organisation-only candidate whose organisation is gone", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("a@e.com", "alice");
@@ -437,13 +452,9 @@ describe("suggestConnections", () => {
         // The three organisations and alice's (+ the two real members')
         // memberships are inserted directly, bypassing the org service, so
         // their ids are controlled rather than random. `org_0_big` sorts
-        // before the other two — the exact shape that used to matter: under
-        // the old single global `ORDER BY organisation_id LIMIT
-        // MAX_ORG_COMEMBER_ROWS`, whichever organisation sorted first
-        // absorbed the budget before the query ever reached the others. With
-        // 2 001 members, `org_0_big` alone exceeds the entire 2 000-row
-        // budget, so the old query would return zero rows for `org_1_small`
-        // and `org_2_small` regardless of how few members they have.
+        // before the other two and, with 2 001 members, alone exceeds the
+        // 2 000-row budget, so one global `ORDER BY organisation_id LIMIT`
+        // would return no rows for `org_1_small` or `org_2_small`.
         yield* Effect.promise(async () => {
           await db.insert(organisations).values([
             {
@@ -511,7 +522,7 @@ describe("suggestConnections", () => {
         });
 
         // Bulk-inserted directly too: 2 001 rows is MAX_ORG_COMEMBER_ROWS
-        // (2 000) + 1, more than the entire old global budget on its own.
+        // (2 000) + 1, more than the whole budget on its own.
         // Ids are chosen to sort AFTER any handle the auth service generates
         // (`usr_` + lowercase hex) so they never crowd the two real members
         // above out of the final ranking's id tiebreak — this test is about
@@ -662,10 +673,12 @@ describe("searchProfiles", () => {
     Effect.gen(function* () {
       // Covers all four proximity constants and the tie-break in one ordering.
       const alice = yield* auth.registerProfile("a@e.com", "alice");
-      const connected = yield* auth.registerProfile("c@e.com", "zeta_a");
-      const pending = yield* auth.registerProfile("p@e.com", "zeta_b");
-      const colleague = yield* auth.registerProfile("o@e.com", "zeta_c");
-      yield* auth.registerProfile("s@e.com", "zeta_d");
+      // Handle order is the reverse of the proximity order, so the handle
+      // tie-break alone cannot give the expected list.
+      const connected = yield* auth.registerProfile("c@e.com", "zeta_d");
+      const pending = yield* auth.registerProfile("p@e.com", "zeta_c");
+      const colleague = yield* auth.registerProfile("o@e.com", "zeta_b");
+      yield* auth.registerProfile("s@e.com", "zeta_a");
 
       yield* connect(alice.id, connected.id);
       yield* graph.sendConnectionRequest(pending.id, alice.id);
@@ -673,7 +686,7 @@ describe("searchProfiles", () => {
       yield* orgs.addMember(org.id, alice.id, colleague.id, "member");
 
       const result = yield* recs.searchProfiles(alice.id, "zeta");
-      expect(result.map((r) => r.handle)).toEqual(["zeta_a", "zeta_b", "zeta_c", "zeta_d"]);
+      expect(result.map((r) => r.handle)).toEqual(["zeta_d", "zeta_c", "zeta_b", "zeta_a"]);
       expect(result[1]!.connectionStatus).toBe("pending_received");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -789,7 +802,7 @@ describe("searchProfiles", () => {
         // Both name-token matches, tied at 50 and split by handle. "Rob
         // *Bob*son" ranking above "car*bob*" is the point of the tier: a
         // surname starting with what was typed beats a handle that merely
-        // contains it. Under the old flat name-infix tier it ranked last.
+        // contains it.
         "zed",
         "zeta",
         "carbob",
@@ -897,9 +910,9 @@ describe("searchProfiles", () => {
 
   it.effect("resolves a multi-word query to the handle it spells", () =>
     Effect.gen(function* () {
-      // "john smith" carries a space, which can't prefix a handle at all — so
-      // before the tokens were rejoined this skipped the index seek entirely
-      // and found @johnsmith only if the infix scan happened to run.
+      // "john smith" carries a space, which cannot prefix a handle; the tokens
+      // are rejoined to `johnsmith`, so the index seek finds it without the
+      // infix scan.
       const alice = yield* auth.registerProfile("a@e.com", "alice");
       yield* auth.registerProfile("j@e.com", "johnsmith");
 
@@ -959,9 +972,12 @@ describe("searchProfiles", () => {
   it.effect("ranks an exact handle match first", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("a@e.com", "alice");
-      yield* auth.registerProfile("b@e.com", "bobby");
+      // bobby is a connection, so without the exact-handle tier its prefix
+      // match plus proximity would rank it above bob.
+      const bobby = yield* auth.registerProfile("b@e.com", "bobby");
       yield* auth.registerProfile("c@e.com", "bobbie");
       yield* auth.registerProfile("d@e.com", "bob");
+      yield* connect(alice.id, bobby.id);
 
       const result = yield* recs.searchProfiles(alice.id, "bob");
       expect(result[0]!.handle).toBe("bob");
@@ -1100,8 +1116,8 @@ describe("searchProfiles", () => {
 
   it.effect("surfaces a failing probe as DatabaseError, not a partial result", () =>
     Effect.gen(function* () {
-      // The three post-retrieval probes run as one `Effect.all`, which changed
-      // the failure semantics: a failing probe now interrupts its siblings.
+      // The three post-retrieval probes run as one `Effect.all`, so a failing
+      // probe interrupts its siblings.
       // Assert the failure lands in the error channel as the tagged error the
       // route's `catch` expects, rather than escaping as a defect or — worse —
       // yielding a page built from probes that never answered, which would drop
@@ -1198,9 +1214,12 @@ describe("searchOrganisations", () => {
 
   it.effect("ranks an exact handle match first", () =>
     Effect.gen(function* () {
+      // alice belongs to acmecorp and not to acme, so without the exact-handle
+      // tier her membership would rank acmecorp first.
       const alice = yield* auth.registerProfile("a@e.com", "alice");
+      const bob = yield* auth.registerProfile("b@e.com", "bob");
       yield* orgs.createOrganisation(alice.id, "acmecorp", "Acme Corp");
-      yield* orgs.createOrganisation(alice.id, "acme", "Acme Inc");
+      yield* orgs.createOrganisation(bob.id, "acme", "Acme Inc");
 
       const result = yield* recs.searchOrganisations(alice.id, "acme");
       expect(result[0]!.handle).toBe("acme");
@@ -1234,9 +1253,8 @@ describe("searchOrganisations", () => {
 
   it.effect("ranks an organisation the caller belongs to above a stranger's", () =>
     Effect.gen(function* () {
-      // Membership was only ever a badge on rows text ranking had already
-      // chosen; it is now part of the score, so it can change which rows those
-      // are. @acorn would otherwise win the handle tie-break.
+      // Membership is part of the score, so it can change which rows make the
+      // page; @acorn would otherwise win the handle tie-break.
       const alice = yield* auth.registerProfile("a@e.com", "alice");
       const bob = yield* auth.registerProfile("b@e.com", "bob");
       yield* orgs.createOrganisation(bob.id, "acorn", "Acorn Ltd");

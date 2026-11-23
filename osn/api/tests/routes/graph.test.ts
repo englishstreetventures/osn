@@ -335,12 +335,23 @@ describe("graph routes", () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     await registerAndGetToken("bob@example.com", "bob");
 
+    const isBlocked = async () => {
+      const check = await graphApp.handle(
+        new Request("http://localhost/graph/is-blocked/bob", {
+          headers: { Authorization: `Bearer ${alice.token}` },
+        }),
+      );
+      expect(check.status).toBe(200);
+      return ((await check.json()) as { blocked: boolean }).blocked;
+    };
+
     await graphApp.handle(
       new Request("http://localhost/graph/blocks/bob", {
         method: "POST",
         headers: { Authorization: `Bearer ${alice.token}` },
       }),
     );
+    expect(await isBlocked()).toBe(true);
     const res = await graphApp.handle(
       new Request("http://localhost/graph/blocks/bob", {
         method: "DELETE",
@@ -348,6 +359,7 @@ describe("graph routes", () => {
       }),
     );
     expect(res.status).toBe(200);
+    expect(await isBlocked()).toBe(false);
   });
 
   it("GET /graph/blocks lists blocked users", async () => {
@@ -477,7 +489,7 @@ describe("graph routes", () => {
     expect(json.blocked).toBe(true);
   });
 
-  it("GET /graph/is-blocked/:handle returns false when only target has blocked caller (M1: one-directional)", async () => {
+  it("GET /graph/is-blocked/:handle returns false when only the target has blocked the caller", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     const bob = await registerAndGetToken("bob@example.com", "bob");
 
@@ -577,7 +589,7 @@ describe("graph routes", () => {
       expect(res.status).toBe(429);
     });
 
-    it("fails closed when the backend rejects (S-M1)", async () => {
+    it("fails closed when the backend rejects", async () => {
       const failing: RateLimiterBackend = {
         check: () => Promise.reject(new Error("store unreachable")),
       };

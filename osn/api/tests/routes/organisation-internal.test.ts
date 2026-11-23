@@ -191,6 +191,10 @@ describe("internal organisation routes (ARC-protected)", () => {
     it("returns empty list for user with no orgs", async () => {
       const { token } = await setupArcService();
       const profileId = await registerProfile("alice@example.com", "alice");
+      // An organisation alice is not in: a list that ignored the profile would
+      // return it.
+      const bob = await registerProfile("bob@example.com", "bob");
+      await runWithLayer(org.createOrganisation(bob, "acme", "Acme Corp"));
 
       const res = await app.handle(
         new Request(`http://localhost/organisations/internal/profile-orgs?profileId=${profileId}`, {
@@ -241,6 +245,26 @@ describe("internal organisation routes (ARC-protected)", () => {
       expect(res.status).toBe(200);
       const json = (await res.json()) as { role: string | null };
       expect(json.role).toBeNull();
+    });
+
+    it("refuses a call with no ARC token with 401 and no role", async () => {
+      const { token } = await setupArcService();
+      const profileId = await registerProfile("alice@example.com", "alice");
+      const organisation = await runWithLayer(
+        org.createOrganisation(profileId, "acme", "Acme Corp"),
+      );
+      const url = `http://localhost/organisations/internal/membership?orgId=${organisation.id}&profileId=${profileId}`;
+
+      const refused = await app.handle(new Request(url));
+      expect(refused.status).toBe(401);
+      expect(await refused.json()).toEqual({ error: "Unauthorized" });
+
+      // Control: the same call with a valid token answers the role.
+      const allowed = await app.handle(
+        new Request(url, { headers: { Authorization: `ARC ${token}` } }),
+      );
+      expect(allowed.status).toBe(200);
+      expect(await allowed.json()).toEqual({ role: "admin" });
     });
   });
 });

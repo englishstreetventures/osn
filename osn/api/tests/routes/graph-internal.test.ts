@@ -92,6 +92,21 @@ describe("internal graph routes (ARC-protected)", () => {
     return user.id;
   }
 
+  /** The account that owns a profile, read from `users`. */
+  async function accountIdOf(profileId: string): Promise<string> {
+    const rows = await runWithLayer(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        return yield* Effect.tryPromise({
+          try: () =>
+            db.select({ accountId: users.accountId }).from(users).where(eq(users.id, profileId)),
+          catch: (e) => e,
+        });
+      }),
+    );
+    return rows[0]!.accountId;
+  }
+
   beforeEach(() => {
     clearPublicKeyCache();
     layer = createTestLayer();
@@ -192,15 +207,19 @@ describe("internal graph routes (ARC-protected)", () => {
         1,
       );
 
-      // Wait for expiry
-      await new Promise((r) => setTimeout(r, 1100));
-
-      const res = await app.handle(
-        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
-          headers: { Authorization: `ARC ${expiredToken}` },
-        }),
-      );
-      expect(res.status).toBe(401);
+      // The verifier reads `Date`, so moving it 2 s on expires the token.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(Date.now() + 2_000);
+        const res = await app.handle(
+          new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
+            headers: { Authorization: `ARC ${expiredToken}` },
+          }),
+        );
+        expect(res.status).toBe(401);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("rejects missing ARC token on all endpoints", async () => {
@@ -213,6 +232,10 @@ describe("internal graph routes (ARC-protected)", () => {
           method: "POST",
           body: JSON.stringify({ profileIds: ["a"] }),
         },
+        { url: "/graph/internal/profile-account?profileId=a", method: "GET" },
+        { url: "/graph/internal/profile-by-handle?handle=alice", method: "GET" },
+        { url: "/graph/internal/profile-search?prefix=al", method: "GET" },
+        { url: "/graph/internal/connection-search?profileId=a", method: "GET" },
       ];
 
       for (const ep of endpoints) {
@@ -245,13 +268,11 @@ describe("internal graph routes (ARC-protected)", () => {
   // Fallback runtime with an observability layer
   // -------------------------------------------------------------------------
 
-  // The fix threads a logger layer into the FALLBACK runtime — the path
-  // production never takes, since it always passes the shared `appRuntime`.
-  // That is exactly why the gap sat unnoticed, and why leaving the branch
-  // untested would reproduce it. A layer graph that fails to build, or a merge
-  // that shadows the DB layer, shows up as a request failure rather than as a
-  // subtle difference in log output — so a plain status assertion is enough
-  // and avoids coupling the test to log formatting.
+  // The logger layer is merged into the fallback runtime, the path production
+  // never takes because it passes the shared `appRuntime`. A layer graph that
+  // fails to build, or a merge that shadows the DB layer, shows as a failed
+  // request, so a status check is enough and does not tie the test to log
+  // format.
   describe("fallback runtime with a logger layer", () => {
     it("serves an ARC-authed request under the merged db + logger layer", async () => {
       const { token } = await setupArcService();
@@ -382,6 +403,27 @@ describe("internal graph routes (ARC-protected)", () => {
       const body = (await res.json()) as { status: string };
       expect(body.status).toBe("connected");
     });
+
+    it("returns 'pending_sent' to the requester and 'pending_received' to the addressee", async () => {
+      const { token } = await setupArcService();
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
+
+      await runWithLayer(graph.sendConnectionRequest(alice, bob));
+
+      const statusOf = async (viewerId: string, targetId: string) => {
+        const res = await app.handle(
+          new Request(
+            `http://localhost/graph/internal/connection-status?viewerId=${viewerId}&targetId=${targetId}`,
+            { headers: { Authorization: `ARC ${token}` } },
+          ),
+        );
+        expect(res.status).toBe(200);
+        return ((await res.json()) as { status: string }).status;
+      };
+      expect(await statusOf(alice, bob)).toBe("pending_sent");
+      expect(await statusOf(bob, alice)).toBe("pending_received");
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -392,6 +434,13 @@ describe("internal graph routes (ARC-protected)", () => {
     it("returns empty list for user with no connections", async () => {
       const { token } = await setupArcService();
       const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
+      const carol = await registerProfile("carol@example.com", "carol");
+      // A pending request from alice and an accepted pair she is not in: a list
+      // that ignored the status or the profile would return one of them.
+      await runWithLayer(graph.sendConnectionRequest(alice, bob));
+      await runWithLayer(graph.sendConnectionRequest(bob, carol));
+      await runWithLayer(graph.acceptConnection(carol, bob));
 
       const res = await app.handle(
         new Request(`http://localhost/graph/internal/connections?profileId=${alice}`, {
@@ -535,6 +584,9 @@ describe("internal graph routes (ARC-protected)", () => {
 
     it("returns the accountId that owns the profile", async () => {
       const { token } = await setupArcService("pulse-api", RESOLVE_SCOPES);
+      // Another account's profile first, so a read that ignored the profile id
+      // would answer bob's account.
+      await registerProfile("bob@example.com", "bob");
       const alice = await registerProfile("alice@example.com", "alice");
 
       const res = await app.handle(
@@ -546,6 +598,34 @@ describe("internal graph routes (ARC-protected)", () => {
       const body = (await res.json()) as { accountId: string };
       expect(typeof body.accountId).toBe("string");
       expect(body.accountId).toMatch(/^acc_/);
+      expect(body.accountId).toBe(await accountIdOf(alice));
+    });
+
+    it("does not resolve a soft-deleted account's profile (tombstone rule)", async () => {
+      const { token } = await setupArcService("pulse-api", RESOLVE_SCOPES);
+      const alice = await registerProfile("alice@example.com", "alice");
+      const accountId = await accountIdOf(alice);
+      await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          yield* Effect.tryPromise({
+            try: () =>
+              db
+                .update(accounts)
+                .set({ deletedAt: Math.floor(Date.now() / 1000) })
+                .where(eq(accounts.id, accountId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/profile-account?profileId=${alice}`, {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "Profile not found" });
     });
 
     it("returns 404 when profile does not exist", async () => {
@@ -568,7 +648,7 @@ describe("internal graph routes (ARC-protected)", () => {
       expect(res.status).toBe(401);
     });
 
-    it("rejects a token carrying only graph:read with 401 (S-M1 least privilege)", async () => {
+    it("rejects a token carrying only graph:read with 401", async () => {
       const { token } = await setupArcService("pulse-api", "graph:read");
       const alice = await registerProfile("alice@example.com", "alice");
 
@@ -727,10 +807,13 @@ describe("internal graph routes (ARC-protected)", () => {
   // -------------------------------------------------------------------------
 
   describe("GET /graph/internal/profile-search", () => {
-    it("returns profiles whose handle starts with the prefix, ordered by handle", async () => {
+    it("returns profiles whose handle starts with the prefix, in the handle index's order", async () => {
       const { token } = await setupArcService();
-      const alice = await registerProfile("alice@example.com", "alice");
+      // alina first, so insertion order is not handle order. The range seek on
+      // the handle index returns rows in handle order with or without the
+      // query's ORDER BY, so this checks the order, not the ORDER BY.
       const alina = await registerProfile("alina@example.com", "alina");
+      const alice = await registerProfile("alice@example.com", "alice");
       await registerProfile("bob@example.com", "bob");
 
       const res = await app.handle(
@@ -764,9 +847,8 @@ describe("internal graph routes (ARC-protected)", () => {
       const { token } = await setupArcService();
       const alice = await registerProfile("alice@example.com", "alice");
 
-      // Regression: the old local normaliser tested `startsWith("@")` BEFORE
-      // trimming, so a leading space (what a paste or a mobile keyboard's
-      // auto-space produces) left the sigil in place and matched nothing.
+      // A leading space, as a paste or a phone keyboard's auto-space adds,
+      // must not keep the `@` in place.
       const res = await app.handle(
         new Request("http://localhost/graph/internal/profile-search?prefix=%20%40al%20", {
           headers: { Authorization: `ARC ${token}` },
@@ -1119,8 +1201,10 @@ describe("internal graph routes (ARC-protected)", () => {
       const alice = await registerProfile("alice@example.com", "alice");
       const bob = await registerProfile("bob@example.com", "bob");
       const zoe = await registerProfile("zoe@example.com", "zoe");
-      await connect(alice, bob);
+      // zoe first, so connection order is not handle order; bob asks alice, so
+      // she is the addressee of one pair and the requester of the other.
       await connect(alice, zoe);
+      await connect(bob, alice);
 
       const res = await search(token, `profileId=${alice}&q=`);
       expect(res.status).toBe(200);
@@ -1248,7 +1332,12 @@ describe("internal graph routes (ARC-protected)", () => {
     it("returns an empty list for a profile with no connections", async () => {
       const { token } = await setupArcService();
       const alice = await registerProfile("alice@example.com", "alice");
-      await registerProfile("bob@example.com", "bob");
+      const bob = await registerProfile("bob@example.com", "bob");
+      const carol = await registerProfile("carol@example.com", "carol");
+      // A pending request from alice and an accepted pair she is not in: a
+      // search that ignored the status or the viewer would return one of them.
+      await runWithLayer(graph.sendConnectionRequest(alice, bob));
+      await connect(bob, carol);
 
       const res = await search(token, `profileId=${alice}`);
       expect(res.status).toBe(200);
@@ -1397,8 +1486,8 @@ describe("internal graph routes (ARC-protected)", () => {
     };
 
     beforeEach(async () => {
-      // The secret is now threaded into the factory (not read from process.env
-      // inside the handler), so rebuild the app with it set for this block.
+      // The secret is a factory argument, so this block rebuilds the app with
+      // it set.
       app = createInternalGraphRoutes(layer, undefined, SECRET);
       // The registration endpoint requires a genuinely importable JWK — generate a real key pair.
       const kp = await generateArcKeyPair();
@@ -1409,6 +1498,39 @@ describe("internal graph routes (ARC-protected)", () => {
         allowedScopes: "graph:read",
       };
     });
+
+    const register = (body: Record<string, unknown>) =>
+      app.handle(
+        new Request("http://localhost/graph/internal/register-service", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SECRET}` },
+          body: JSON.stringify(body),
+        }),
+      );
+
+    const serviceAccountRows = (serviceId: string) =>
+      runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db.select().from(serviceAccounts).where(eq(serviceAccounts.serviceId, serviceId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+
+    const keyRows = (keyId: string) =>
+      runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db.select().from(serviceAccountKeys).where(eq(serviceAccountKeys.keyId, keyId)),
+            catch: (e) => e,
+          });
+        }),
+      );
 
     it("returns 501 when INTERNAL_SERVICE_SECRET is unset", async () => {
       // Build with the secret undefined — the endpoint must answer 501.
@@ -1524,6 +1646,10 @@ describe("internal graph routes (ARC-protected)", () => {
       );
       expect(rows).toHaveLength(1);
       expect(rows[0]?.serviceId).toBe(validBody.serviceId);
+
+      const accountRows = await serviceAccountRows(validBody.serviceId);
+      expect(accountRows).toHaveLength(1);
+      expect(accountRows[0]?.allowedScopes).toBe("graph:read");
     });
 
     it("upserts on re-registration — allowedScopes updated", async () => {
@@ -1540,19 +1666,48 @@ describe("internal graph routes (ARC-protected)", () => {
         );
 
       await makeRequest("graph:read");
-      const res2 = await makeRequest("graph:read");
+      const res2 = await makeRequest("graph:read,org:read");
       expect(res2.status).toBe(200);
+      const accountRows = await serviceAccountRows(validBody.serviceId);
+      expect(accountRows).toHaveLength(1);
+      expect(accountRows[0]?.allowedScopes).toBe("graph:read,org:read");
+    });
+
+    it("refuses a key id registered to another service with 409 and leaves the key with its owner", async () => {
+      expect((await register(validBody)).status).toBe(200);
+
+      const kp = await generateArcKeyPair();
+      const res = await register({
+        ...validBody,
+        serviceId: "cire-api",
+        publicKeyJwk: await exportKeyToJwk(kp.publicKey),
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: "kid_serviceid_mismatch" });
+
+      const rows = await keyRows(validBody.keyId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.serviceId).toBe(validBody.serviceId);
+      expect(rows[0]?.publicKeyJwk).toBe(validBody.publicKeyJwk);
+      expect(await serviceAccountRows("cire-api")).toEqual([]);
+    });
+
+    it("refuses a public key that is not an importable JWK with 400 and stores nothing", async () => {
+      const res = await register({ ...validBody, publicKeyJwk: '{"kty":"EC"}' });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "Invalid public key JWK" });
+
+      expect(await keyRows(validBody.keyId)).toEqual([]);
+      expect(await serviceAccountRows(validBody.serviceId)).toEqual([]);
     });
   });
 
   // -------------------------------------------------------------------------
-  // Bug A: workerd has no `crypto.timingSafeEqual` on the GLOBAL (Web Crypto)
-  // object. The secret-bearer compare must use a workerd-safe constant-time
-  // equality (node:crypto) so `/register-service` + `/service-keys/:keyId`
-  // never 500 on the live Worker. These tests simulate workerd by removing
-  // `timingSafeEqual` from the global `crypto` for their duration.
+  // workerd has no `crypto.timingSafeEqual` on the global Web Crypto object,
+  // so the secret compare uses a constant-time equality that runs there.
+  // These tests hide it on the global `crypto` for their duration.
   // -------------------------------------------------------------------------
-  describe("Bug A: workerd-safe secret compare (no global crypto.timingSafeEqual)", () => {
+  describe("secret compare without a global crypto.timingSafeEqual", () => {
     const SECRET = "test-internal-secret";
     beforeEach(() => {
       app = createInternalGraphRoutes(layer, undefined, SECRET);
@@ -1580,7 +1735,7 @@ describe("internal graph routes (ARC-protected)", () => {
           headers: { "Content-Type": "application/json", Authorization: "Bearer wrong-secret" },
           body: JSON.stringify({
             serviceId: "cire-api",
-            keyId: "key-bug-a-1",
+            keyId: "key-no-tse-1",
             publicKeyJwk: "{}",
             allowedScopes: "graph:read",
           }),
@@ -1597,7 +1752,7 @@ describe("internal graph routes (ARC-protected)", () => {
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${SECRET}` },
           body: JSON.stringify({
             serviceId: "cire-api",
-            keyId: "key-bug-a-2",
+            keyId: "key-no-tse-2",
             publicKeyJwk: await exportKeyToJwk(kp.publicKey),
             allowedScopes: "graph:read",
           }),
@@ -1609,7 +1764,7 @@ describe("internal graph routes (ARC-protected)", () => {
     });
 
     it("service-keys delete: valid secret returns 200 without global timingSafeEqual", async () => {
-      const { keyId } = await setupArcService("bug-a-del-svc", "graph:read");
+      const { keyId } = await setupArcService("no-tse-del-svc", "graph:read");
       const res = await app.handle(
         new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
           method: "DELETE",
@@ -1625,9 +1780,9 @@ describe("internal graph routes (ARC-protected)", () => {
     ] as const)(
       "service-scopes put: %s without global timingSafeEqual",
       async (_, authorization, status) => {
-        await setupArcService("bug-a-scopes-svc", "graph:read");
+        await setupArcService("no-tse-scopes-svc", "graph:read");
         const res = await app.handle(
-          new Request("http://localhost/graph/internal/service-scopes/bug-a-scopes-svc", {
+          new Request("http://localhost/graph/internal/service-scopes/no-tse-scopes-svc", {
             method: "PUT",
             headers: { "Content-Type": "application/json", Authorization: authorization },
             body: JSON.stringify({ scopes: ["graph:read", "org:read"] }),
