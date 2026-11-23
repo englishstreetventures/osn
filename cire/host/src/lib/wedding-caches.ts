@@ -8,14 +8,20 @@
 // wedding's caches when it mounts and drops them when it unmounts, so a wedding
 // holds data only while it is on screen.
 import { dropBudget } from "./budget-store";
+import { dropBasis } from "./change-basis";
+import { dropDirectoryPage } from "./directory-store";
 import { dropEnquiries } from "./enquiries-store";
 import { dropEvents } from "./events-store";
 import { dropGuests } from "./guests-store";
 import { dropHosts } from "./hosts-store";
 import { dropHouseholds } from "./households-store";
+import { dropInvite } from "./invite-store";
 import { dropModuleRows } from "./module-rows-store";
 import { dropRegistry } from "./registry-store";
+import { dropRsvps } from "./rsvps-store";
 import { dropRunSheet } from "./run-sheet-store";
+import { dropSettings } from "./settings-store";
+import { dropStarterPreview } from "./starter-store";
 import { dropTasks } from "./tasks-store";
 import { dropCatalogue } from "./upgrade-store";
 import { dropVendors } from "./vendors-store";
@@ -34,14 +40,20 @@ export function openWeddingCaches(weddingId: string): void {
 export function dropWeddingCaches(weddingId: string): void {
   closeWeddingScope(weddingId);
   dropBudget(weddingId);
+  dropBasis(weddingId);
+  dropDirectoryPage(weddingId);
   dropEnquiries(weddingId);
   dropEvents(weddingId);
   dropGuests(weddingId);
   dropHosts(weddingId);
   dropHouseholds(weddingId);
+  dropInvite(weddingId);
   dropModuleRows(weddingId);
   dropRegistry(weddingId);
+  dropRsvps(weddingId);
   dropRunSheet(weddingId);
+  dropSettings(weddingId);
+  dropStarterPreview(weddingId);
   dropTasks(weddingId);
   dropCatalogue(weddingId);
   dropVendors(weddingId);

@@ -1,13 +1,19 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import * as budget from "../../src/lib/budget-store";
+import * as basis from "../../src/lib/change-basis";
+import * as directory from "../../src/lib/directory-store";
 import * as enquiries from "../../src/lib/enquiries-store";
 import * as events from "../../src/lib/events-store";
 import * as guests from "../../src/lib/guests-store";
 import * as hosts from "../../src/lib/hosts-store";
 import * as households from "../../src/lib/households-store";
+import * as invite from "../../src/lib/invite-store";
 import * as moduleRows from "../../src/lib/module-rows-store";
 import * as registry from "../../src/lib/registry-store";
+import * as rsvps from "../../src/lib/rsvps-store";
+import * as settings from "../../src/lib/settings-store";
+import * as starter from "../../src/lib/starter-store";
 import * as tasks from "../../src/lib/tasks-store";
 import * as upgrade from "../../src/lib/upgrade-store";
 import * as vendors from "../../src/lib/vendors-store";
@@ -32,6 +38,52 @@ const ROW = [{ id: "row_1" }] as never;
 const SNAPSHOT = { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" } as never;
 
 const stores: StoreSpec[] = [
+  {
+    name: "settings",
+    accessor: settings.settingsAccessor,
+    set: (id) => settings.setFreshSettings(id, SNAPSHOT),
+    ensure: settings.ensureSettingsLoaded,
+    reset: settings.__resetSettingsCache,
+  },
+  {
+    name: "RSVP replies",
+    accessor: rsvps.rsvpsAccessor,
+    ensure: (id, fetcher) =>
+      rsvps.ensureRsvpsLoaded(id, async () => ({ events: await fetcher(), withBadges: true })),
+    reset: rsvps.__resetRsvpsCache,
+  },
+  {
+    name: "RSVP changes card",
+    accessor: rsvps.rsvpChangesAccessor,
+    set: (id) => rsvps.setCachedRsvpChanges(id, SNAPSHOT),
+    ensure: rsvps.ensureRsvpChangesLoaded,
+    reset: rsvps.__resetRsvpsCache,
+  },
+  {
+    name: "invite",
+    accessor: invite.inviteAccessor,
+    set: (id) => invite.setFreshInvite(id, SNAPSHOT),
+    ensure: invite.ensureInviteLoaded,
+    reset: invite.__resetInviteCache,
+  },
+  {
+    name: "starter preview",
+    accessor: starter.starterPreviewAccessor,
+    ensure: starter.ensureStarterPreviewLoaded,
+    reset: starter.__resetStarterPreview,
+  },
+  {
+    name: "directory first page",
+    accessor: (id) => () => directory.freshDirectoryPage(id),
+    set: (id) => directory.setFreshDirectoryPage(id, SNAPSHOT),
+    reset: directory.__resetDirectoryCache,
+  },
+  {
+    name: "co-hosts panel",
+    accessor: (id) => () => hosts.freshHostsPanel(id),
+    set: (id) => hosts.setFreshHostsPanel(id, SNAPSHOT),
+    reset: hosts.__resetHostsPanelCache,
+  },
   {
     name: "budget",
     accessor: budget.budgetAccessor,
@@ -228,5 +280,18 @@ describe("dropWeddingCaches — enquiries' next page", () => {
     expect(heldRows()).toBeNull();
     expect(enquiries.enquiriesAccessor("wed_a")()).toBeNull();
     expect(enquiries.enquiriesNextCursor("wed_a")()).toBeNull();
+  });
+});
+
+describe("dropWeddingCaches — the change editors' basis", () => {
+  it("forgets the head the dropped wedding's rows were read after", () => {
+    const rows = [{ id: "evt_1" }];
+    basis.recordBasis("wed_a", "7", { events: rows });
+    basis.recordBasis("wed_b", "3", { events: rows });
+
+    dropWeddingCaches("wed_a");
+
+    expect(basis.basisFor("wed_a", { events: { rows, fresh: true } })).toBeNull();
+    expect(basis.basisFor("wed_b", { events: { rows, fresh: true } })).toBe("3");
   });
 });

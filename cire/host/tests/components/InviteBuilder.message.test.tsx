@@ -36,6 +36,7 @@ vi.mock("@cire/invite-designs", () => ({
 
 import InviteBuilder from "../../src/components/InviteBuilder";
 import type { InviteView } from "../../src/lib/dashboard-route";
+import { __resetHouseholdsCache } from "../../src/lib/households-store";
 import { authFetchMock, resetOrganiserMocks, toastSuccess } from "../test-support/mocks";
 
 const CUSTOMISATION = {
@@ -119,6 +120,7 @@ describe("InviteBuilder message, in Codes", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
+    __resetHouseholdsCache();
     writeText.mockReset();
   });
 
@@ -234,6 +236,7 @@ describe("InviteBuilder message, in Codes", () => {
       await waitFor(() => expect(marks()).toBe(expected));
       cleanup();
       resetOrganiserMocks();
+      __resetHouseholdsCache();
     }
   });
 

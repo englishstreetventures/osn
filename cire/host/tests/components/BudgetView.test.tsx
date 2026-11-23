@@ -10,6 +10,11 @@ import {
   type BudgetSnapshot,
   setCachedBudget,
 } from "../../src/lib/budget-store";
+import {
+  __resetSettingsCache,
+  ensureSettingsLoaded,
+  settingsAccessor,
+} from "../../src/lib/settings-store";
 
 const authFetch = vi.fn();
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
@@ -37,6 +42,7 @@ afterEach(() => {
 
 beforeEach(() => {
   __resetBudgetCache();
+  __resetSettingsCache();
   authFetch.mockReset();
   redirectToLoginMock.mockReset();
 });
@@ -755,6 +761,27 @@ describe("BudgetView — amounts in the wedding's currency", () => {
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
       await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
       expect(sentBody(0)).toEqual({ budgetTotalMinor: null });
+    });
+
+    it("writes a saved total onto the cached wedding profile the Overview reads", async () => {
+      await ensureSettingsLoaded("wed_1", async () => ({
+        id: "wed_1",
+        slug: "wed-1",
+        displayName: "Wed 1",
+        weddingDate: null,
+        guestCountEstimate: null,
+        currency: "AUD",
+        budgetTotalMinor: 500_000,
+        rsvpDeadline: null,
+        rsvpDeadlineTimezone: null,
+      }));
+      setCachedBudget("wed_1", snap({ budgetTotalMinor: 500_000 }));
+      authFetch.mockResolvedValueOnce(json({}));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Edit budget" }));
+      fireEvent.input(screen.getByLabelText("Total budget (AUD)"), { target: { value: "7000" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(settingsAccessor("wed_1")()?.budgetTotalMinor).toBe(700_000));
     });
 
     it("closes the budget total on Cancel, keeping the saved one and sending nothing", async () => {

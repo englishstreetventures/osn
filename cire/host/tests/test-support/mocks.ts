@@ -21,6 +21,8 @@
  */
 import { type Mock, vi } from "vitest";
 
+import { resetViewCaches } from "./view-caches";
+
 /** `authFetch` from the mocked `useAuth()`. Set per test with `mockResolvedValue`. */
 export const authFetchMock: Mock = vi.fn();
 /** Called when the mocked `redirectToLogin()` fires. */
@@ -94,4 +96,5 @@ export function resetOrganiserMocks(): void {
   activeProfileIdMock.mockImplementation(() => null);
   toastSuccess.mockReset();
   toastError.mockReset();
+  resetViewCaches();
 }

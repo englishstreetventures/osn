@@ -12,6 +12,15 @@ import { apiUrl, redirectToLogin, weddingPath } from "./api";
 
 type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
+/** The API refused the change head: the caller may no longer edit this
+ *  wedding (403), or it is gone (404). */
+export class HeadRefusedError extends Error {
+  constructor(readonly status: number) {
+    super(`change head refused (${status})`);
+    this.name = "HeadRefusedError";
+  }
+}
+
 /**
  * Fetch the wedding's current change head. Rejects on any failure: an editor
  * without a revision cannot save, so it must show a load error rather than
@@ -23,6 +32,7 @@ export async function loadHeadRevision(authFetch: AuthFetch, weddingId: string):
     redirectToLogin();
     throw new Error("unauthenticated");
   }
+  if (res.status === 403 || res.status === 404) throw new HeadRefusedError(res.status);
   if (!res.ok) throw new Error("Failed to load the change head");
   const body = (await res.json().catch(() => null)) as { revision?: unknown } | null;
   const revision = body?.revision;

@@ -42,6 +42,7 @@ import {
   ensureHouseholdsLoaded,
   hasCachedHouseholds,
 } from "../../src/lib/households-store";
+import { ensureRsvpsLoaded, hasTableRsvps } from "../../src/lib/rsvps-store";
 import {
   authFetchMock,
   redirectSpy,
@@ -479,14 +480,17 @@ describe("GuestTable — plus-one permission", () => {
     ).toBe("true");
   });
 
-  it("marks the household list stale after a removal, since its guest count changed", async () => {
+  it("marks the household list and the RSVP replies stale after a removal, since both changed", async () => {
     await ensureHouseholdsLoaded("wed_a", () => Promise.resolve([]));
     expect(hasCachedHouseholds("wed_a")).toBe(true);
+    await ensureRsvpsLoaded("wed_a", async () => ({ events: [], withBadges: true }));
     await mount();
     fireEvent.click(switchFor("Ada Sharma"));
     fireEvent.click(await screen.findByRole("button", { name: "Remove Sam Lee" }));
     await waitFor(() => expect(screen.queryByText(/Plus-one of Ada Sharma/)).toBeNull());
     expect(hasCachedHouseholds("wed_a")).toBe(false);
+    // The replies lose the plus-one removed.
+    expect(hasTableRsvps("wed_a")).toBe(false);
   });
 
   it("names every plus-one a household turn-off removes, even ones a search hides", async () => {

@@ -37,6 +37,7 @@ import {
 import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
+import { patchBudgetTotal } from "../lib/settings-store";
 import { sameButOrder } from "../lib/sortable-rows";
 import { haptic } from "../lib/touch-feedback";
 import { deleteWithUndo, isPendingDelete, isReturning, returned } from "../lib/undo-delete";
@@ -540,6 +541,8 @@ export default function BudgetView(props: BudgetViewProps) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`cap ${res.status}`);
+      // The wedding's profile holds the same total.
+      patchBudgetTotal(props.weddingId, minor);
       haptic("commit");
     } catch {
       haptic("reject");

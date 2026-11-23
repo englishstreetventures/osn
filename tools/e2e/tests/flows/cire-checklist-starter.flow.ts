@@ -34,6 +34,23 @@
  * is held by the three lists' browser tests: on this local stack a request
  * already sent as the page goes lands with or without it.
  *
+ * Then, on the same signed-in page, the owner moves between the views of a
+ * second Gold wedding (`CIRE_ORGANISER.cache`) and the flow logs, per view,
+ * what the portal asked cire-api before the view first drew
+ * (`tests/support/request-log.ts`): the checklist, the starter checklist and
+ * the budget; the Overview; the guest list, its editor and the RSVPs, each
+ * twice; Settings › Profile and Co-hosts and the invite builder, twice; the
+ * events editor. The page's time holds still meanwhile, so no cached value
+ * ages. A second visit inside a minute asks for nothing before it draws,
+ * except Settings › Profile and the invite builder, which read on every visit;
+ * an editor checks its change head only after drawing. The
+ * RSVP table reads its replies again with their badges after the Overview read
+ * them without, marks Ada's reply New and seen, and the Overview's changes
+ * card reads again. A rename in the events editor shows on the Overview's next
+ * visit, which reads the replies again; a reply recorded on the RSVP table
+ * shows there with no read. Each visit's log is a check in `results.json`, and
+ * the whole log, after-draw reads too, is `request-logs/cire-checklist-starter.json`.
+ *
  * Last of all, on the same signed-in page, the owner opens a Gold checkout for an
  * Ivory wedding that is then deleted while the checkout is open, so its
  * payment is refunded and its owner mailed, and buys Gold for another Ivory
@@ -41,12 +58,13 @@
  * (`tests/support/cire-upgrade.ts`).
  */
 
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { Page, Request } from "@playwright/test";
 
 import {
+  ARTIFACT_DIR,
   CIRE_ORGANISER,
   DB_FILES,
   LOG_DIR,
@@ -55,7 +73,22 @@ import {
   SCREENSHOT_DIR,
 } from "../../src/config";
 import { buyGold, refundGold } from "../support/cire-upgrade";
-import { expect, onSuiteClock, queryOne, signInToCireHost, test } from "../support/fixtures";
+import {
+  expect,
+  onSuiteClock,
+  queryOne,
+  signInToCireHost,
+  suiteNow,
+  test,
+} from "../support/fixtures";
+import {
+  logApiCalls,
+  readsAfterDraw,
+  readsBeforeDraw,
+  type ViewContent,
+  visit,
+  type VisitLog,
+} from "../support/request-log";
 
 const { weddingId, firstItem } = CIRE_ORGANISER.checklist;
 
@@ -237,6 +270,8 @@ const returnTraffic = (page: Page): Promise<ReturnTraffic> =>
   page.evaluate(() => Reflect.get(globalThis, "__e2eReturnTraffic") as ReturnTraffic);
 
 test("cire-checklist-starter", async ({ page, flow }) => {
+  // First, so every document the page loads logs its reads.
+  await logApiCalls(page, ORIGINS.cireApi);
   await countPushPongs(page);
   await countReturnTraffic(page, `${ORIGINS.cireApi}/api/organiser/weddings`);
   // From before the sign-in, so a form that sent itself on arrival is seen.
@@ -691,6 +726,238 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     path: resolve(SCREENSHOT_DIR, "cire-checklist-starter", "rail-expanded.png"),
     animations: "disabled",
   });
+  // The portal's view caches, on a wedding of their own. The page is the one
+  // the step above loaded, so it logs its reads; each goto below only changes
+  // the hash. Every visit is checked for the reads it sent before it drew.
+  const cached = CIRE_ORGANISER.cache;
+  const weddingApi = `/api/organiser/weddings/${cached.weddingId}/`;
+  // The page's time holds still for the section, timers still running: a
+  // value the caches read stays inside its minute however slow the run, so
+  // each check depends on what the portal did, not on how long it took.
+  await page.clock.setFixedTime(await page.evaluate(() => Date.now()));
+  const visits: VisitLog[] = [];
+  const logged = async (
+    name: string,
+    expected: string,
+    content: ViewContent,
+    act: () => Promise<unknown>,
+    after?: { read: string; answered: () => Promise<unknown> },
+  ): Promise<VisitLog> => {
+    const log = await flow.step(`visit ${name}`, () =>
+      visit(page, name, content, act, after?.answered),
+    );
+    visits.push(log);
+    flow.check(
+      `request log: ${name}, read before it drew`,
+      expected,
+      readsBeforeDraw(log, weddingApi),
+    );
+    flow.check(
+      `request log: ${name}, read after it drew`,
+      after?.read ?? "",
+      readsAfterDraw(log, weddingApi),
+    );
+    return log;
+  };
+  const toModule = (name: string) => () => nav.getByRole("button", { name, exact: true }).click();
+  const toTab = (name: string) => () => page.getByRole("tab", { name, exact: true }).click();
+  const responseTo = (method: string, path: string) => () =>
+    page.waitForResponse(
+      (r) =>
+        r.request().method() === method && r.url() === `${ORIGINS.cireApi}${weddingApi}${path}`,
+    );
+  const STARTER_BUTTON: ViewContent = { selector: "button", text: "Preview the starter checklist" };
+  const STARTER_ITEM: ViewContent = {
+    selector: '[aria-labelledby="checklist-starter-title"] input[type="checkbox"]',
+  };
+  const OVERVIEW: ViewContent = { selector: "span", text: "attending across" };
+  const HOUSEHOLDS: ViewContent = { selector: "td", text: cached.code };
+  const GUEST_EDITOR: ViewContent = { selector: `[aria-label="Remove ${cached.ada}"]` };
+  const RSVPS: ViewContent = { selector: `[aria-label="Edit reply for ${cached.ada} Alpha"]` };
+  const EVENTS_EDITOR: ViewContent = { selector: '[data-testid="event-list"]' };
+  const starterDialog = page.getByRole("dialog", { name: "Starter checklist" });
+  const cancelStarter = () =>
+    flow.step("close the starter checklist", async () => {
+      await starterDialog.getByRole("button", { name: "Cancel" }).click();
+      await expect(starterDialog).toBeHidden();
+    });
+
+  // The checklist, the starter checklist, another module, and back.
+  await logged("checklist, first visit", "tasks", STARTER_BUTTON, () =>
+    page.goto(`${ORIGINS.cireHost}/#/w/${cached.weddingId}/checklist`),
+  );
+  await logged("starter checklist, first opening", "tasks/templates/starter", STARTER_ITEM, () =>
+    page.getByRole("button", { name: "Preview the starter checklist" }).click(),
+  );
+  await cancelStarter();
+  await logged(
+    "budget, first visit",
+    "budget",
+    { selector: "p", text: "No budget items yet." },
+    toModule("Budget"),
+  );
+  await logged("checklist, second visit", "", STARTER_BUTTON, toModule("Checklist"));
+  await logged("starter checklist, second opening", "", STARTER_ITEM, () =>
+    page.getByRole("button", { name: "Preview the starter checklist" }).click(),
+  );
+  await cancelStarter();
+
+  // The Overview, then the guest list, its editor and the RSVPs, twice over.
+  await logged(
+    "overview, first visit",
+    "events · guests · rsvp-changes · rsvps · settings",
+    OVERVIEW,
+    toModule("Overview"),
+  );
+  flow.check(
+    "overview: the changes card counts the household that replied",
+    true,
+    await page.getByText("1 household changed their RSVP").isVisible(),
+  );
+  await logged("households, first visit", "invite", HOUSEHOLDS, toModule("Guests"));
+  await logged(
+    "guest editor, first visit",
+    "changes/head · events · guests · households",
+    GUEST_EDITOR,
+    toTab("Edit"),
+  );
+  await logged("RSVPs, first visit", "rsvp-changes/rows · rsvps", RSVPS, toTab("RSVPs"), {
+    read: "",
+    answered: responseTo("POST", "rsvp-changes/seen"),
+  });
+  const adaRow = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("button", { name: `Edit reply for ${cached.ada} Alpha` }) });
+  flow.check("RSVPs: Ada's reply is marked New", true, await adaRow.getByText("New").isVisible());
+  await logged("guest editor, second visit", "", GUEST_EDITOR, toTab("Edit"), {
+    read: "changes/head",
+    answered: responseTo("GET", "changes/head"),
+  });
+  // Only the badge rows behind the cached draw: nothing new since, so the
+  // replies themselves are not read again.
+  await logged("RSVPs, second visit", "", RSVPS, toTab("RSVPs"), {
+    read: "rsvp-changes/rows",
+    answered: responseTo("GET", "rsvp-changes/rows"),
+  });
+  await logged("households, second visit", "", HOUSEHOLDS, toTab("Households"));
+  await logged(
+    "overview, after the RSVPs were seen",
+    "rsvp-changes",
+    OVERVIEW,
+    toModule("Overview"),
+  );
+  flow.check(
+    "overview: the changes card has nothing unseen",
+    true,
+    await page.getByText("Nothing new since your last visit.", { exact: true }).isVisible(),
+  );
+
+  // Settings › Profile and Co-hosts, and the invite builder, each twice. The
+  // profile and the builder save whole objects with no version, so each reads
+  // on every visit; their answers still keep the Overview's caches fresh.
+  const PROFILE: ViewContent = { selector: "label", text: "Wedding name" };
+  const COHOSTS: ViewContent = { selector: "div", text: CIRE_ORGANISER.profileId };
+  const INVITE: ViewContent = { selector: '[aria-label="Invite design"]' };
+  await logged("settings profile, first visit", "settings", PROFILE, toModule("Settings"));
+  await logged("co-hosts, first visit", "hosts", COHOSTS, toTab("Co-hosts"));
+  await logged("settings profile, second visit", "settings", PROFILE, toTab("Profile"));
+  await logged("co-hosts, second visit", "", COHOSTS, toTab("Co-hosts"));
+  await logged("invite builder, first visit", "invite", INVITE, toModule("Invite"));
+  await logged("overview, between invite builder visits", "", OVERVIEW, toModule("Overview"));
+  await logged("invite builder, second visit", "invite", INVITE, toModule("Invite"));
+
+  // The events editor, drawn from the rows the guest editor read after its
+  // head, then a rename the Overview shows on its next visit.
+  await flow.step("open the events list", async () => {
+    await toModule("Events")();
+    await expect(page.getByRole("tab", { name: "List", exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+  await logged("events editor, first visit", "", EVENTS_EDITOR, toTab("Edit"), {
+    read: "changes/head",
+    answered: responseTo("GET", "changes/head"),
+  });
+  const renamed = await flow.step(
+    `rename the ${cached.reception} to ${cached.renamed}`,
+    async () => {
+      const drawer = page.getByRole("dialog", { name: "Edit event" });
+      await page
+        .getByTestId("event-list")
+        .getByRole("listitem")
+        .filter({ has: page.getByText(cached.reception, { exact: true }) })
+        .getByRole("button", { name: "Edit", exact: true })
+        .click();
+      await drawer.getByLabel("Event name").fill(cached.renamed);
+      await drawer.getByRole("button", { name: "Done" }).click();
+      await expect(drawer).toBeHidden();
+      const preview = responseTo("POST", "changes/preview")();
+      await page.getByRole("button", { name: "Save changes" }).click();
+      expect((await preview).status(), "preview").toBe(200);
+      const apply = responseTo("POST", "changes/apply")();
+      const reload = responseTo("GET", "events")();
+      await page
+        .getByRole("dialog", { name: "Review changes before applying" })
+        .getByRole("button", { name: "Confirm & save" })
+        .click();
+      const status = (await apply).status();
+      await reload;
+      await expect(page.getByRole("button", { name: "Save changes" })).toBeHidden();
+      return status;
+    },
+  );
+  flow.check("events editor: the rename is saved", 200, renamed);
+  await logged(
+    "overview, after the rename",
+    "guests · rsvps · tasks",
+    OVERVIEW,
+    toModule("Overview"),
+  );
+  flow.check(
+    "overview: the replies name the renamed event",
+    true,
+    await page.locator("li").filter({ hasText: cached.renamed }).first().isVisible(),
+  );
+
+  // A reply recorded on the RSVP table, which the Overview shows unread.
+  await logged("households, after the rename", "", HOUSEHOLDS, toModule("Guests"));
+  await logged(
+    "RSVPs, after the Overview read them",
+    "rsvp-changes/rows · rsvps",
+    RSVPS,
+    toTab("RSVPs"),
+  );
+  const recorded = await flow.step(
+    `record ${cached.bo} attending the ${cached.ceremony}`,
+    async () => {
+      await page.getByRole("button", { name: `Record reply for ${cached.bo} Alpha` }).click();
+      await page.getByLabel("Status").selectOption("attending");
+      const saved = responseTo("PUT", `guests/gst_e2e_cache_bo/rsvps/evt_e2e_cache_ceremony`)();
+      await page.getByRole("button", { name: "Save reply" }).click();
+      return (await saved).status();
+    },
+  );
+  flow.check("RSVPs: the reply is recorded", 200, recorded);
+  await logged("overview, after a reply was recorded", "", OVERVIEW, toModule("Overview"));
+  flow.check(
+    "overview: the Ceremony counts the recorded reply",
+    true,
+    await page
+      .locator("li")
+      .filter({ hasText: cached.ceremony })
+      .filter({ hasText: "2 attending" })
+      .first()
+      .isVisible(),
+  );
+  // Time moves again, from the suite's clock, for the steps that follow.
+  await page.clock.setSystemTime(suiteNow());
+  mkdirSync(resolve(ARTIFACT_DIR, "request-logs"), { recursive: true });
+  writeFileSync(
+    resolve(ARTIFACT_DIR, "request-logs", "cire-checklist-starter.json"),
+    `${JSON.stringify(visits, null, 2)}\n`,
+  );
+
   await refundGold(flow, page);
   await buyGold(flow, page);
 });

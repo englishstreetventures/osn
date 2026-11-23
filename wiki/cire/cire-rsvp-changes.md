@@ -11,7 +11,7 @@ related:
   - "[[free-tier-limits]]"
   - "[[cire-plus-ones]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-23
 ---
 # RSVP changes
 
@@ -100,7 +100,7 @@ An organiser's **status-only save** — `PUT …/guests/:guestId/rsvps/:eventId`
 
 ## The portal
 
-The Overview card (`cire/host/src/components/RsvpChangesCard.tsx`) fetches the summary on its own and renders nothing when it cannot, so a failed read never holds up the Overview. Reading the card does not mark anything seen; **opening the RSVP table does**. `RsvpView` reads `…/rsvp-changes/rows` beside `/rsvps`, badges the rows, and once both have loaded posts `seen` with the `markSeq` that read returned. The badges stay for that visit. A change with no event (the plus-one kinds) badges every row of that guest.
+The Overview card (`cire/host/src/components/RsvpChangesCard.tsx`) reads the summary on its own and renders nothing when it cannot, so a failed read never holds up the Overview. The summary is cached for a minute ([[cire-host-portal-layout#View caches: one factory, one minute]]). After the table's `seen` post, the cached summary is marked stale, so the Overview's next visit reads it again. When the API saved the post and the badge rows the table read numbered under the 500-pair cap below, the summary says nothing is unseen meanwhile; otherwise it keeps its old count until that read. Reading the card does not mark anything seen; **opening the RSVP table does**. `RsvpView` reads `…/rsvp-changes/rows` beside `/rsvps`, badges the rows, and once both have loaded posts `seen` with the `markSeq` that read returned. The badges stay for that visit. The two are always read together. A visit that finds the replies the table itself read less than a minute ago draws them at once with no badges, since that read marked what it showed, then reads the badge rows behind them, and the replies as well only when those rows hold a change, which it badges; replies only the Overview read come with no badge rows, so the table reads both again as it mounts. A change with no event (the plus-one kinds) badges every row of that guest.
 
 The table shows one event at a time ([[cire-rsvp-table]]), but the `seen` post covers every event. So each event's tab says **New** while it holds a badged row, whatever the search, and its accessible name adds "changed since you last looked". That is how a change on an event not on screen still gets shown before it counts as seen.
 

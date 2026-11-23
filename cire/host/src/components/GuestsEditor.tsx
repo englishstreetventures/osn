@@ -24,13 +24,17 @@ import {
   onMount,
   Show,
   splitProps,
+  untrack,
 } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { afterPaint } from "../lib/after-paint";
 import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { basisFor, recordBasis } from "../lib/change-basis";
 import {
   isChangeInProgress,
   isHeadMoved,
+  HeadRefusedError,
   isPreviewExpired,
   loadHeadRevision,
   revisionOf,
@@ -39,6 +43,7 @@ import {
   ensureEventsLoaded,
   type EventRow,
   eventsAccessor,
+  hasCachedEvents,
   invalidateEvents,
 } from "../lib/events-store";
 import {
@@ -47,14 +52,17 @@ import {
   type DraftGuest,
   EMAIL_ERROR,
 } from "../lib/guest-event-draft";
+import { guestListChanged } from "../lib/guest-list-changed";
 import {
   ensureGuestsLoaded,
   guestsAccessor,
+  hasCachedGuests,
   invalidateGuests,
   type OrganiserGuestRow,
 } from "../lib/guests-store";
 import {
   ensureHouseholdsLoaded,
+  hasCachedHouseholds,
   householdsAccessor,
   invalidateHouseholds,
   type OrganiserHouseholdRow,
@@ -285,7 +293,25 @@ export default function GuestsEditor(props: {
         return rows;
       }),
     ]);
+    recordBasis(props.weddingId, revision, { events, guests, households });
     return { revision, events, guests, households };
+  }
+
+  /** The rows the shared caches hold, when they were read after a head this
+   *  editor read and have not changed since (`change-basis.ts`): a draft built
+   *  from them may carry that head, so a visit draws at once. */
+  function cachedRows() {
+    const events = eventsAccessor(props.weddingId)();
+    const guests = guestsAccessor(props.weddingId)();
+    const households = householdsAccessor(props.weddingId)();
+    const revision = basisFor(props.weddingId, {
+      events: { rows: events, fresh: hasCachedEvents(props.weddingId) },
+      guests: { rows: guests, fresh: hasCachedGuests(props.weddingId) },
+      households: { rows: households, fresh: hasCachedHouseholds(props.weddingId) },
+    });
+    return revision && events && guests && households
+      ? { revision, events, guests, households }
+      : null;
   }
 
   async function loadInto(knownRevision?: string) {
@@ -312,6 +338,56 @@ export default function GuestsEditor(props: {
     }
   }
 
+  // Drawn at once from the caches when they hold rows read after a head, then
+  // checked against the head once drawn. The check acts only on the draft it
+  // started from: a save or a reload that moved the draft's head meanwhile, or
+  // one still running, owns the draft. Moved by someone else's change, an
+  // edited draft says it is stale. An untouched one reloads with Save held
+  // until the rows land, and edits made meanwhile go back on top of the new
+  // rows as "Reload and keep my edits" puts them; the rows are drawn again, so
+  // a field being typed in loses focus.
+  const cached = untrack(cachedRows);
+  if (cached) store.load(cached.events, cached.guests, cached.households, cached.revision);
+  let gone = false;
+  onCleanup(() => {
+    gone = true;
+  });
+  async function checkHead() {
+    const from = store.baseRevision();
+    try {
+      const head = await loadHeadRevision(authFetch, props.weddingId);
+      if (gone || busy() || from === null || store.baseRevision() !== from || head === from) {
+        return;
+      }
+      if (store.dirty()) {
+        setStale(true);
+        setSaveError("Someone else changed the guest list since you opened the editor.");
+        return;
+      }
+      setBusy(true);
+      try {
+        const rows = await fetchRows(head);
+        if (gone) return;
+        if (store.dirty()) {
+          setReplayNotes(store.rebase(rows.events, rows.guests, rows.households, rows.revision));
+        } else store.load(rows.events, rows.guests, rows.households, rows.revision);
+      } finally {
+        setBusy(false);
+      }
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      // Refused: this seat may no longer edit, so the rows drawn from the
+      // cache stop being shown. Any other failure leaves the draft as drawn:
+      // a save still carries its head.
+      if (err instanceof HeadRefusedError && !gone) {
+        store.reset();
+        setLoadError(
+          "You can no longer edit the guest list. Reload the page to see your current access.",
+        );
+      }
+    }
+  }
+
   onMount(async () => {
     // A dirty draft is guarded twice: the dashboard's SPA navigation asks before
     // switching module/tab (unsaved-guard), and the browser asks on tab close /
@@ -319,6 +395,10 @@ export default function GuestsEditor(props: {
     // dropped silently by a stray sidebar click, which reads exactly like "the
     // guest I deleted came back".
     onCleanup(registerUnsavedGuard(() => store.dirty()));
+    if (cached) {
+      afterPaint(() => void checkHead());
+      return;
+    }
     try {
       await loadInto();
     } catch (err) {
@@ -451,6 +531,7 @@ export default function GuestsEditor(props: {
             setStale(true);
             invalidateGuests(props.weddingId);
             invalidateHouseholds(props.weddingId);
+            guestListChanged(props.weddingId);
           }
           throw new Error(capacityMessage(body, "editor"));
         }
@@ -463,6 +544,7 @@ export default function GuestsEditor(props: {
       invalidateGuests(props.weddingId);
       invalidateEvents(props.weddingId);
       invalidateHouseholds(props.weddingId);
+      guestListChanged(props.weddingId);
       setPreview(null);
       try {
         await loadInto(revisionOf(applied));

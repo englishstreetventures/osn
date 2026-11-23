@@ -24,7 +24,10 @@ vi.mock("../../src/lib/api", async () => {
 import { buttonClass } from "@cire/ui/button";
 
 import GettingStarted from "../../src/components/GettingStarted";
-import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
+import { __resetEventsCache } from "../../src/lib/events-store";
+import { __resetGuestsCache } from "../../src/lib/guests-store";
+import { inviteAccessor } from "../../src/lib/invite-store";
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -58,6 +61,8 @@ describe("GettingStarted", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
+    __resetEventsCache();
+    __resetGuestsCache();
     // Dismissal persists to localStorage per wedding — reset between tests so
     // one test's dismiss doesn't hide the checklist in the next.
     localStorage.clear();
@@ -105,14 +110,46 @@ describe("GettingStarted", () => {
     expect(screen.getByText(/Everything's ready/i)).toBeTruthy();
   });
 
-  it("renders nothing when the snapshot fetch fails", async () => {
-    // Fail soft: the resource resolves to null and the panel hides itself, so a
-    // dead fetch never leaves a half-derived "0 / 4 done" on the dashboard.
+  /** What stands in for the guide when its reads fail. */
+  const FAILED = "Couldn't load your getting-started steps. Refresh to try again.";
+
+  it("says it could not load the steps, and draws no checklist, when the snapshot read fails", async () => {
+    // A dead fetch never leaves a half-derived "0 / 4 done" on the dashboard,
+    // and never an empty home either: the guide is all a new wedding's home holds.
     authFetchMock.mockImplementation(() => Promise.reject(new Error("network down")));
+    render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(FAILED);
+    expect(screen.queryByText(/\/ 4 done/)).toBeNull();
+  });
+
+  /** The snapshot's reads, with the invite answered by `status`. */
+  function refuseInvite(status: number) {
+    mockSnapshot({ events: [{ id: "e1" }], guests: [], invite: EMPTY_INVITE });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string) =>
+      url.endsWith("/invite") ? Promise.resolve(json({ error: "refused" }, status)) : routed(url),
+    );
+  }
+
+  it("sends a signed-out organiser to sign in, and caches no invite", async () => {
+    refuseInvite(401);
     const { container } = render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inviteAccessor("wed_1")()).toBeNull();
     expect(container.textContent).toBe("");
+  });
+
+  it("caches no invite from a read the API refused, and says the steps could not load", async () => {
+    refuseInvite(403);
+    render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(FAILED);
+    expect(inviteAccessor("wed_1")()).toBeNull();
+    expect(screen.queryByText(/\/ 4 done/)).toBeNull();
+    expect(redirectSpy).not.toHaveBeenCalled();
   });
 
   it("jumps to the matching tab when a step is clicked", async () => {

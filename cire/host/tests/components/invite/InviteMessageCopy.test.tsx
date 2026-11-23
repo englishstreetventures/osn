@@ -33,6 +33,12 @@ vi.mock("../../../src/lib/osn", () => ({ CIRE_WEB_URL: "https://guests.test" }))
 import InviteMessageCopy from "../../../src/components/invite/InviteMessageCopy";
 import type { OrganiserHouseholdRow } from "../../../src/lib/households-store";
 import {
+  __resetHouseholdsCache,
+  ensureHouseholdsLoaded,
+  householdsAccessor,
+  invalidateHouseholds,
+} from "../../../src/lib/households-store";
+import {
   authFetchMock,
   redirectSpy,
   resetOrganiserMocks,
@@ -126,6 +132,7 @@ describe("InviteMessageCopy", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
+    __resetHouseholdsCache();
     writeText.mockReset();
   });
 
@@ -140,6 +147,19 @@ describe("InviteMessageCopy", () => {
       "Jones · JONES-BELL-12AB · sent",
     ]);
     expect(picker().value).toBe("");
+  });
+
+  it("draws a fresh cached list without reading the households again", async () => {
+    await ensureHouseholdsLoaded("wed_1", async () => HOUSEHOLDS);
+    mount();
+    await loaded();
+
+    expect(optionLabels()).toEqual([
+      "No household (placeholder code)",
+      "Sharma · SHARMA-KITE-77Q2",
+      "Jones · JONES-BELL-12AB · sent",
+    ]);
+    expect(authFetchMock).not.toHaveBeenCalled();
   });
 
   it("with no household chosen, copies the message with a placeholder and marks nothing", async () => {
@@ -208,6 +228,7 @@ describe("InviteMessageCopy", () => {
       expect(toastError).not.toHaveBeenCalled();
       cleanup();
       resetOrganiserMocks();
+      __resetHouseholdsCache();
     }
   });
 
@@ -258,6 +279,8 @@ describe("InviteMessageCopy", () => {
     );
     expect(picker().getAttribute("aria-describedby")).toBe(note.id);
     expect(optionLabels()).toEqual(["No household (placeholder code)"]);
+    // The refusal is not cached as the list the guest table and editor read.
+    expect(householdsAccessor("wed_1")()).toBeNull();
     fireEvent.click(copyButton());
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
   });
@@ -268,6 +291,55 @@ describe("InviteMessageCopy", () => {
     await waitFor(() =>
       expect(screen.getByText("Could not load the households. Refresh to try again.")).toBeTruthy(),
     );
+  });
+
+  /** Mount with the codes revision in a signal the test moves. */
+  function mountAtRevision(revision: number) {
+    const [codesRevision, setCodesRevision] = createSignal(revision);
+    render(() => (
+      <InviteMessageCopy
+        weddingId="wed_1"
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam"
+        canEdit
+        savedLine={null}
+        draftLine=""
+        codesRevision={codesRevision()}
+      />
+    ));
+    return setCodesRevision;
+  }
+
+  it("reads the households once more when a read is replaced while out, and lists them", async () => {
+    let answerFirst!: (res: Response) => void;
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answerFirst = resolve)));
+    authFetchMock.mockResolvedValueOnce(json(HOUSEHOLDS));
+    mountAtRevision(1);
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    // Another view's write marks the list stale: the read out was replaced,
+    // not refused.
+    invalidateHouseholds("wed_1");
+    answerFirst(json(HOUSEHOLDS));
+
+    await loaded();
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Could not load the households. Refresh to try again.")).toBeNull();
+  });
+
+  it("keeps a newer read's list when an older read fails after it", async () => {
+    let answerFirst!: (res: Response) => void;
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answerFirst = resolve)));
+    authFetchMock.mockResolvedValueOnce(json(HOUSEHOLDS));
+    const setCodesRevision = mountAtRevision(1);
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    // A re-mint: the codes are read again, and that read lands first.
+    setCodesRevision(2);
+    await loaded();
+    answerFirst(json({ error: "boom" }, 500));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(optionLabels()).toContain("Sharma · SHARMA-KITE-77Q2");
+    expect(screen.queryByText("Could not load the households. Refresh to try again.")).toBeNull();
   });
 
   it("sends a signed-out organiser to sign in", async () => {

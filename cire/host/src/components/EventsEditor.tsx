@@ -32,12 +32,16 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { afterPaint } from "../lib/after-paint";
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { basisFor, recordBasis } from "../lib/change-basis";
 import {
   isHeadMoved,
+  HeadRefusedError,
   isPreviewExpired,
   loadHeadRevision,
   revisionOf,
@@ -57,6 +61,7 @@ import {
   ensureEventsLoaded,
   type EventRow,
   eventsAccessor,
+  hasCachedEvents,
   invalidateEvents,
 } from "../lib/events-store";
 import {
@@ -66,6 +71,7 @@ import {
   type FieldError,
   runOfShowItem,
 } from "../lib/guest-event-draft";
+import { guestListChanged } from "../lib/guest-list-changed";
 import { invalidateGuests } from "../lib/guests-store";
 import { CLEAR_OF_SAVE_BAR, trackSaveBarHeight } from "../lib/save-bar";
 import { scheduleChanged } from "../lib/schedule-changed";
@@ -207,7 +213,19 @@ export default function EventsEditor(props: { weddingId: string }) {
       if (!fresh || rows == null) throw new Error("event slice unavailable");
       return rows;
     });
+    recordBasis(props.weddingId, revision, { events });
     return { revision, events };
+  }
+
+  /** The events the cache holds, when they were read after a head an editor
+   *  read and have not changed since (`change-basis.ts`): a draft built from
+   *  them may carry that head, so a visit draws at once. */
+  function cachedRows() {
+    const events = eventsAccessor(props.weddingId)();
+    const revision = basisFor(props.weddingId, {
+      events: { rows: events, fresh: hasCachedEvents(props.weddingId) },
+    });
+    return revision && events ? { revision, events } : null;
   }
 
   async function loadInto(knownRevision?: string) {
@@ -235,10 +253,75 @@ export default function EventsEditor(props: { weddingId: string }) {
     }
   }
 
+  // Drawn at once from the cache when it holds events read after a head, then
+  // checked against the head once drawn. The check acts only on the draft it
+  // started from: a save or a reload that moved the draft's head meanwhile, or
+  // one still running, owns the draft. Moved by someone else's change, an
+  // edited draft says it is stale. An untouched one reloads with Save held
+  // until the events land, and edits made meanwhile go back on top of the new
+  // events as "Reload and keep my edits" puts them; an open drawer stays on its
+  // event, which the new events give a new key.
+  const cached = untrack(cachedRows);
+  if (cached) store.load(cached.events, [], [], cached.revision);
+  let gone = false;
+  onCleanup(() => {
+    gone = true;
+  });
+  async function checkHead() {
+    const from = store.baseRevision();
+    try {
+      const head = await loadHeadRevision(authFetch, props.weddingId);
+      if (gone || busy() || from === null || store.baseRevision() !== from || head === from) {
+        return;
+      }
+      if (store.dirty()) {
+        setStale(true);
+        setSaveError("Someone else changed the schedule since you opened the editor.");
+        return;
+      }
+      setBusy(true);
+      try {
+        const rows = await fetchRows(head);
+        if (gone) return;
+        if (!store.dirty()) {
+          store.load(rows.events, [], [], rows.revision);
+          return;
+        }
+        const openKey = editingKey();
+        const openId = editingEvent()?.id ?? null;
+        setReplayNotes(store.rebase(rows.events, [], [], rows.revision));
+        if (openKey !== null) {
+          // A saved event takes a new key; one added in this draft keeps its own.
+          const now = store.draft.events.find((e) =>
+            openId ? e.id === openId : e.key === openKey,
+          );
+          setEditingKey(now?.key ?? null);
+        }
+      } finally {
+        setBusy(false);
+      }
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      // Refused: this seat may no longer edit, so the rows drawn from the
+      // cache stop being shown. Any other failure leaves the draft as drawn:
+      // a save still carries its head.
+      if (err instanceof HeadRefusedError && !gone) {
+        store.reset();
+        setLoadError(
+          "You can no longer edit the schedule. Reload the page to see your current access.",
+        );
+      }
+    }
+  }
+
   onMount(async () => {
     // Same two-layer guard as the guests editor + invite builder: SPA navigation
     // asks before switching away, the browser asks on close/reload.
     onCleanup(registerUnsavedGuard(() => store.dirty()));
+    if (cached) {
+      afterPaint(() => void checkHead());
+      return;
+    }
     try {
       await loadInto();
     } catch (err) {
@@ -396,6 +479,8 @@ export default function EventsEditor(props: { weddingId: string }) {
       // through this editor can touch a household, so invalidating that cache
       // only costs every open consumer a refetch of rows it already has.
       invalidateGuests(props.weddingId);
+      // The RSVP replies name the events and who is invited to each.
+      guestListChanged(props.weddingId);
       setPreview(null);
       setEditingKey(null);
       try {
@@ -630,27 +715,32 @@ export default function EventsEditor(props: { weddingId: string }) {
               </div>
             </div>
             <Show when={store.warnings().length > 0 && !hasErrors()}>
-              <p class="border-gold/20 bg-gold/5 text-gold-ink page-frame text-ui-sm border-t py-2">
-                {store.warnings().join(" ")}
-              </p>
-            </Show>
-            <Show when={saveError()}>
-              <div class="border-error/20 bg-error/5 text-error page-frame text-ui-sm flex flex-wrap items-center gap-3 border-t py-2">
-                {/* Announced: a refused apply closes the preview, and focus
-                    returning to Save says nothing about why. */}
-                <Notice size="inline" tone="danger" alert>
-                  {saveError()}
+              <div class="page-frame pb-3">
+                <Notice tone="warn" size="inline">
+                  {store.warnings().join(" ")}
                 </Notice>
-                <Show when={stale()}>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleKeepEdits()}
-                    disabled={busy()}
-                  >
-                    Reload and keep my edits
-                  </Button>
-                </Show>
+              </div>
+            </Show>
+            {/* The bar's own error, boxed as the guest editor's is, rather than
+                a full-bleed strip that reads as part of the chrome. Announced:
+                a refused apply closes the preview, and focus returning to Save
+                says nothing about why. */}
+            <Show when={saveError()}>
+              <div class="page-frame pb-3">
+                <Notice tone="danger" alert>
+                  <p>{saveError()}</p>
+                  <Show when={stale()}>
+                    <Button
+                      class="mt-3"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleKeepEdits()}
+                      disabled={busy()}
+                    >
+                      Reload and keep my edits
+                    </Button>
+                  </Show>
+                </Notice>
               </div>
             </Show>
           </div>

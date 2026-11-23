@@ -7,12 +7,12 @@ import { Stat } from "@shared/ui/ui/stat";
 import {
   createEffect,
   createMemo,
-  createResource,
   createSignal,
   For,
   on,
   onCleanup,
   Show,
+  untrack,
 } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
@@ -24,12 +24,35 @@ import {
   upcomingPayments,
 } from "../lib/budget-store";
 import type { Module } from "../lib/dashboard-route";
-import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
+import {
+  ensureEventsLoaded,
+  type EventRow,
+  eventsAccessor,
+  hasCachedEvents,
+} from "../lib/events-store";
+import {
+  ensureGuestsLoaded,
+  guestsAccessor,
+  hasCachedGuests,
+  type OrganiserGuestRow,
+} from "../lib/guests-store";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { formatMinor } from "../lib/money";
 import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
-import { createRsvpChangesResource } from "../lib/rsvp-changes";
+import { fetchRsvpChanges, type RsvpChanges } from "../lib/rsvp-changes";
+import {
+  ensureRsvpChangesLoaded,
+  ensureRsvpsLoaded,
+  type RsvpEvent,
+  rsvpChangesAccessor,
+  rsvpsAccessor,
+  setCachedRsvpChanges,
+} from "../lib/rsvps-store";
+import {
+  ensureSettingsLoaded,
+  settingsAccessor,
+  type WeddingSettings,
+} from "../lib/settings-store";
 import { useTasksChanged } from "../lib/tasks-changed";
 import {
   ensureTasksLoaded,
@@ -56,28 +79,18 @@ import RsvpChangesCard from "./RsvpChangesCard";
  *  those reads, and a refused tasks read would otherwise take the whole
  *  snapshot down with it.
  *
- *  Data is read from the SHARED weddingId-keyed caches (events + guests stores)
- *  so opening Overview costs nothing extra once another module has loaded, and a
- *  light settings/rsvps read for the date + reply tallies. Everything degrades
- *  softly: a failed sub-read hides its card, never blocks the page. */
+ *  Everything is read through the shared weddingId-keyed caches — settings,
+ *  RSVP replies and the changes card, events, guests, tasks, budget, vendors —
+ *  so a visit after another module, or an earlier visit, draws at once from
+ *  them and reads only what is missing or stale, behind what it shows. The
+ *  placeholders show only on a visit that finds a value it waits on missing.
+ *  Everything degrades softly: a failed sub-read hides its card, never blocks
+ *  the page. */
 
-interface WeddingProfile {
-  weddingDate: string | null;
-  guestCountEstimate: number | null;
-  currency: string;
-  budgetTotalMinor: number | null;
-}
-
-interface RsvpEventTally {
-  id: string;
-  name: string;
-  invited: number;
-  attending: number;
-  declined: number;
-  maybe: number;
-  responded: number;
-  noResponse: number;
-}
+type WeddingProfile = Pick<
+  WeddingSettings,
+  "weddingDate" | "guestCountEstimate" | "currency" | "budgetTotalMinor"
+>;
 
 interface RsvpEventBreakdown {
   id: string;
@@ -231,13 +244,11 @@ export default function Overview(props: {
   const budgetLocked = () => isModuleLocked("budget", props.tier);
   const vendorsLocked = () => isModuleLocked("vendors", props.tier);
 
-  // Started now, beside the reads below rather than after them: the card that
-  // shows it mounts only once `data` has settled, and the feed needs none of
-  // that data. It is not part of `data`, so the page never waits on it.
-  const [rsvpChanges, { mutate: setRsvpChanges }] = createRsvpChangesResource(
-    authFetch,
-    () => props.weddingId,
-  );
+  // The changes card's summary, read beside the reads below rather than after
+  // them. It is not part of `data`, so the page never waits on it, and a read
+  // that fails leaves the card out.
+  const rsvpChanges = rsvpChangesAccessor(props.weddingId);
+  const setRsvpChanges = (next: RsvpChanges) => setCachedRsvpChanges(props.weddingId, next);
 
   const loadTasks = async () => {
     const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks")));
@@ -266,88 +277,105 @@ export default function Overview(props: {
     ),
   );
 
-  const [data] = createResource<OverviewData>(async () => {
-    try {
-      // Events + guests ride the shared caches (deduped with the other modules).
-      // Settings + rsvps are light reads for the date + reply tallies.
-      const [settingsRes, rsvpsRes] = await Promise.all([
-        authFetch(apiUrl(weddingPath(props.weddingId, "/settings"))),
-        authFetch(apiUrl(weddingPath(props.weddingId, "/rsvps"))),
-        ensureEventsLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
-          if (res.status === 401) {
-            redirectToLogin();
-            throw new Error("unauthenticated");
-          }
-          if (!res.ok) throw new Error("events");
-          return (await res.json()) as EventRow[];
-        }),
-        ensureGuestsLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/guests")));
-          if (res.status === 401) {
-            redirectToLogin();
-            throw new Error("unauthenticated");
-          }
-          if (!res.ok) throw new Error("guests");
-          return (await res.json()) as OrganiserGuestRow[];
-        }),
-        // Tasks and budget — not fetched at all while their module is locked:
-        // the API refuses both reads below Gold, and nothing on this page that
-        // reads them is shown. A refused tasks read would otherwise reject
-        // this whole batch and blank the guest and event counts with it.
-        checklistLocked() ? Promise.resolve() : ensureTasksLoaded(props.weddingId, loadTasks),
-        budgetLocked()
-          ? Promise.resolve()
-          : ensureBudgetLoaded(props.weddingId, async () => {
-              const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget")));
-              if (res.status === 401) {
-                redirectToLogin();
-                return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
-              }
-              // Soft-fail: a missing budget endpoint never blocks the rest of Overview.
-              if (!res.ok) {
-                return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
-              }
-              return (await res.json()) as BudgetSnapshot;
-            }),
-        // Vendors — not fetched at all while the module is locked: the only
-        // thing that reads the count is a card this wedding does not get.
-        //
-        // Soft-fail otherwise: unavailable vendors never block Overview and
-        // never cache an empty array on error (which would show "0 vendors" on
-        // a backend error). A non-ok / 401 response throws so
-        // ensureVendorsLoaded rejects without populating the cache, leaving
-        // vendorCount() as null (loading/unknown). The .catch() swallows the
-        // rejection so it never bubbles out of the outer Promise.all.
-        vendorsLocked()
-          ? Promise.resolve()
-          : ensureVendorsLoaded(props.weddingId, async () => {
-              const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/vendors")));
-              if (res.status === 401) {
-                redirectToLogin();
-                throw new Error("unauthenticated");
-              }
-              if (!res.ok) throw new Error(`vendors ${res.status}`);
-              return ((await res.json()) as { vendors: VendorRow[] }).vendors;
-            }).catch(() => {
-              // Swallow the rejection — the cache stays unpopulated (vendorCount null).
-            }),
-      ]);
+  const settings = settingsAccessor(props.weddingId);
+  const replies = rsvpsAccessor(props.weddingId);
+  const eventRows = eventsAccessor(props.weddingId);
+  const guestRows = guestsAccessor(props.weddingId);
 
-      if (settingsRes.status === 401 || rsvpsRes.status === 401) {
-        redirectToLogin();
+  /** A read's 401 sends the organiser to sign in; anything else it reports. */
+  const read = async <T,>(path: string): Promise<T> => {
+    const res = await authFetch(apiUrl(weddingPath(props.weddingId, path)));
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("unauthenticated");
+    }
+    if (!res.ok) throw new Error(`${path} ${res.status}`);
+    return (await res.json()) as T;
+  };
+
+  // Every read, each through its cache, so one that is fresh sends nothing and
+  // one that is stale reads again behind what is shown. Settled together, each
+  // failure kept to its own card.
+  const loads = (async () => {
+    const results = await Promise.allSettled([
+      // The card's read first: it waits on none of the others.
+      ensureRsvpChangesLoaded(props.weddingId, async () => {
+        const changes = await fetchRsvpChanges(authFetch, props.weddingId);
+        if (!changes) throw new Error("rsvp-changes unavailable");
+        return changes;
+      }),
+      ensureSettingsLoaded(props.weddingId, async () => {
+        return (await read<{ wedding: WeddingSettings }>("/settings")).wedding;
+      }),
+      ensureRsvpsLoaded(props.weddingId, async () => ({
+        events: (await read<{ events: RsvpEvent[] }>("/rsvps")).events,
+        withBadges: false,
+      })),
+      ensureEventsLoaded(props.weddingId, () => read<EventRow[]>("/events")),
+      ensureGuestsLoaded(props.weddingId, () => read<OrganiserGuestRow[]>("/guests")),
+      // Tasks and budget — not fetched at all while their module is locked:
+      // the API refuses both reads below Gold, and nothing on this page that
+      // reads them is shown.
+      checklistLocked() ? Promise.resolve() : ensureTasksLoaded(props.weddingId, loadTasks),
+      budgetLocked()
+        ? Promise.resolve()
+        : ensureBudgetLoaded(props.weddingId, async () => {
+            const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget")));
+            if (res.status === 401) {
+              redirectToLogin();
+              return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+            }
+            // Soft-fail: a missing budget endpoint never blocks the rest of Overview.
+            if (!res.ok) {
+              return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+            }
+            return (await res.json()) as BudgetSnapshot;
+          }),
+      // Vendors — not fetched at all while the module is locked: the only
+      // thing that reads the count is a card this wedding does not get. A
+      // failed read leaves the count unknown rather than caching an empty
+      // list, which would read as "0 vendors".
+      vendorsLocked()
+        ? Promise.resolve()
+        : ensureVendorsLoaded(props.weddingId, async () => {
+            return (await read<{ vendors: VendorRow[] }>("/vendors")).vendors;
+          }),
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected" && isAuthExpired(result.reason)) redirectToLogin();
+    }
+  })();
+
+  // The placeholders wait for the reads when a value the page is built from is
+  // not cached at all; a stale one is shown while it is read again. The one
+  // exception: events and guests decide whether the home is Getting started or
+  // the briefing, so empty rows known out of date wait too. An import may have
+  // just filled them, and drawing the guide from them would show a step the
+  // organiser has just done as still to do.
+  const [settled, setSettled] = createSignal(
+    untrack(() => {
+      const events = eventRows();
+      const guests = guestRows();
+      if (settings() === null || replies() === null || events === null || guests === null) {
+        return false;
       }
+      const stale = !hasCachedEvents(props.weddingId) || !hasCachedGuests(props.weddingId);
+      return !(stale && events.length === 0 && guests.length === 0);
+    }),
+  );
+  void loads.finally(() => setSettled(true));
 
-      const profile = settingsRes.ok
-        ? ((await settingsRes.json()) as { wedding: WeddingProfile }).wedding
-        : null;
-
-      let rsvps: RsvpTotals | null = null;
-      let rsvpEvents: RsvpEventBreakdown[] = [];
-      if (rsvpsRes.ok) {
-        const body = (await rsvpsRes.json()) as { events: RsvpEventTally[] };
-        rsvpEvents = body.events.map((e) => ({ id: e.id, name: e.name, attending: e.attending }));
-        rsvps = body.events.reduce<RsvpTotals>(
+  // The replies' tallies, worked out only when the replies change; the other
+  // reads each feed only what they draw.
+  const replySummary = createMemo<Pick<OverviewData, "rsvps" | "rsvpEvents">>(() => {
+    const body = replies();
+    const rsvpEvents = (body?.events ?? []).map((e) => ({
+      id: e.id,
+      name: e.name,
+      attending: e.attending,
+    }));
+    const rsvps = body
+      ? body.events.reduce<RsvpTotals>(
           (acc, e) => ({
             invited: acc.invited + e.invited,
             attending: acc.attending + e.attending,
@@ -366,30 +394,24 @@ export default function Overview(props: {
             noResponse: 0,
             eventCount: 0,
           },
-        );
-      }
-
-      return {
-        profile,
-        rsvps,
-        rsvpEvents,
-        events: eventsAccessor(props.weddingId)() ?? [],
-        guests: guestsAccessor(props.weddingId)() ?? [],
-      };
-    } catch (err) {
-      if (isAuthExpired(err)) redirectToLogin();
-      // Soft-fail: an unavailable snapshot shouldn't blank the whole home.
-      return { profile: null, rsvps: null, rsvpEvents: [], events: [], guests: [] };
-    }
+        )
+      : null;
+    return { rsvps, rsvpEvents };
+  });
+  const data = (): OverviewData => ({
+    profile: settings(),
+    ...replySummary(),
+    events: eventRows() ?? [],
+    guests: guestRows() ?? [],
   });
 
   // Households, deduped from the (repeated-per-member) guest rows.
   const householdCount = createMemo(() => {
     const ids = new Set<string>();
-    for (const g of data()?.guests ?? []) ids.add(g.familyId);
+    for (const g of guestRows() ?? []) ids.add(g.familyId);
     return ids.size;
   });
-  const eventCount = createMemo(() => data()?.events.length ?? 0);
+  const eventCount = createMemo(() => eventRows()?.length ?? 0);
 
   // The wedding is "just started" — no schedule and no guests yet — so the home
   // leads with the Getting-started checklist rather than empty stat blocks.
@@ -443,7 +465,7 @@ export default function Overview(props: {
   // the shell would send a locked one straight back here.
   const agenda = createMemo(() =>
     buildAgenda({
-      events: (data()?.events ?? []).map((e) => ({ id: e.id, name: e.name, startAt: e.startAt })),
+      events: (eventRows() ?? []).map((e) => ({ id: e.id, name: e.name, startAt: e.startAt })),
       payments: budgetLocked() ? [] : (peekCachedBudget(props.weddingId)?.payments ?? []),
       tasks: checklistLocked() ? [] : (peekCachedTasks(props.weddingId) ?? []),
       now: nowMs(),
@@ -499,7 +521,7 @@ export default function Overview(props: {
                   <ModuleIcon icon={moduleDef(AGENDA_MODULE[item.kind]).icon} />
                   <span class="text-text text-ui-base grow truncate">{item.label}</span>
                   <Show when={item.overdue}>
-                    <span class="font-body text-error text-ui-xs tracking-ui-wide shrink-0 uppercase">
+                    <span class="font-body text-error text-ui-xs tracking-ui-wider shrink-0 uppercase">
                       overdue
                     </span>
                   </Show>
@@ -678,8 +700,8 @@ export default function Overview(props: {
   // the module's label and its one-line hint — directly above this.
   return (
     // Busy while the first read is out: the placeholders are all it holds then.
-    <div class="flex flex-col gap-8" aria-busy={data.loading ? "true" : undefined}>
-      <Show when={data.loading}>
+    <div class="flex flex-col gap-8" aria-busy={settled() ? undefined : "true"}>
+      <Show when={!settled()}>
         {/* The agenda band and the first three cards drawn hollow from the
             samples, in the loaded stack and grid, so they take the loaded
             heights at every width (DESIGN.md §4, Hollow rows). */}
@@ -702,7 +724,7 @@ export default function Overview(props: {
         </SkeletonOutline>
       </Show>
 
-      <Show when={!data.loading}>
+      <Show when={settled()}>
         {/* Brand-new wedding ⇒ the checklist is the home. It links straight into
             the modules via the shell's navigation. */}
         <Show when={isFresh()}>
@@ -735,7 +757,7 @@ export default function Overview(props: {
               {countdownCard(weddingDate, countdown)}
 
               {/* ── RSVP totals ───────────────────────────────────────────── */}
-              {rsvpCard(data)}
+              {rsvpCard(replySummary)}
 
               {/* ── RSVP changes since this organiser last looked ─────────── */}
               {/* Renders nothing when its read failed, so it never blanks the

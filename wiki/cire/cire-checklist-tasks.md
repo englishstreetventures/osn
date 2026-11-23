@@ -529,9 +529,12 @@ and ticks every one whose date is still ahead (or that has none yet). An item
 whose date has passed starts unticked and says so, so a late start does not
 fill the Overview with overdue tasks; the removed items start unticked under
 "You removed these earlier". Without a wedding date an owner is asked to add it
-in Settings, and an editor is told an owner can. Each opening starts with
-nothing ticked until its preview arrives, so a pick from an earlier opening is
-never sent. After an apply the answer's list goes into the cache through
+in Settings, and an editor is told an owner can. Each opening starts from the
+preview's own ticks, never from an earlier opening's picks, and with nothing
+ticked while a preview is still being read. The preview is cached per wedding
+(`starter-store.ts`, [[cire-host-portal-layout#View caches: one factory, one minute]]),
+so a dialog opened again draws at once with no request; every change to the
+tasks the tasks cache learns of, and a minute's age, make it read again. After an apply the answer's list goes into the cache through
 `setFreshTasks`, so a list read already in flight is discarded. Every close —
 Escape and the backdrop included, even mid-apply — clears the dialog's open
 state; an apply that fails after the dialog closed says so in a toast.

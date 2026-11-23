@@ -71,6 +71,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import { createStore } from "solid-js/store";
 
@@ -78,6 +79,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/a
 import { INVITE_VIEWS, type InviteView } from "../../lib/dashboard-route";
 import type { ImageCrop } from "../../lib/image-crop";
 import { faqState, footerState, heroState, storyState } from "../../lib/invite-emptiness";
+import { patchInviteFaqs, refuseInvite, setFreshInvite } from "../../lib/invite-store";
 import { CIRE_WEB_URL } from "../../lib/osn";
 import { CLEAR_OF_SAVE_BAR, trackSaveBarHeight } from "../../lib/save-bar";
 import { haptic } from "../../lib/touch-feedback";
@@ -248,6 +250,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // read's failure is drawn in place of the builder; a later one keeps what is
   // on screen and says so beside the save button.
   const [loadFailed, setLoadFailed] = createSignal(false);
+  // Read on every visit, never drawn from the invite cache: each slice saves
+  // whole with no version, so the builder starts from a read taken as it
+  // opens, or a co-host's save within the minute would go back. Every body it
+  // holds still goes into the cache (`invite-store.ts`) for the guest list and
+  // Getting started.
   const [data, { mutate, refetch }] = createResource<InviteCustomisation | undefined>(
     async (_source, info) => {
       const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
@@ -256,6 +263,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         throw new Error("unauthorised");
       }
       if (!res.ok) {
+        // Nobody draws the cached invite after a refused read.
+        refuseInvite(props.weddingId);
         if (info.value) {
           setError("Could not reload the invite. Try again.");
           return info.value;
@@ -264,11 +273,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         return undefined;
       }
       setLoadFailed(false);
-      return read(res);
+      const body = adopt((await res.json()) as InviteCustomisation);
+      keep(body);
+      return body;
     },
   );
-  async function read(res: Response): Promise<InviteCustomisation> {
-    const body = (await res.json()) as InviteCustomisation;
+  function adopt(body: InviteCustomisation): InviteCustomisation {
     if (!faqsLoaded) {
       faqsLoaded = true;
       setFaqs(body.faqs);
@@ -276,6 +286,16 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setEnvelopesOffered("envelopeId" in body);
     setEnvelopeEntitled(body.envelopeEntitled === true);
     return body;
+  }
+  /** A body the API answered with, into the invite cache with the FAQs this
+   *  builder holds: the write routes' answers carry none. */
+  function keep(body: InviteCustomisation) {
+    setFreshInvite(props.weddingId, structuredClone({ ...body, faqs: untrack(faqs) }));
+  }
+  /** Show a write's answer and keep it for the views that read the cache. */
+  function commit(body: InviteCustomisation) {
+    mutate(body);
+    keep(body);
   }
 
   // The whole editable state as one draft store (see model.ts), seeded once
@@ -579,7 +599,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           throw new Error(body.error ?? `Save failed (${textRes.status})`);
         }
         setSavedText(textBody);
-        mutate((await textRes.json()) as InviteCustomisation);
+        commit((await textRes.json()) as InviteCustomisation);
       }
 
       if (themeIsDirty) {
@@ -593,7 +613,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           throw new Error(body.error ?? `Save failed (${themeRes.status})`);
         }
         setSavedTheme(themeBody);
-        mutate((await themeRes.json()) as InviteCustomisation);
+        commit((await themeRes.json()) as InviteCustomisation);
       }
 
       if (visibilityIsDirty) {
@@ -607,7 +627,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           throw new Error(body.error ?? `Save failed (${visibilityRes.status})`);
         }
         setSavedVisibility(visibilityBody);
-        mutate((await visibilityRes.json()) as InviteCustomisation);
+        commit((await visibilityRes.json()) as InviteCustomisation);
       }
       haptic("commit");
       toast.success("Invite saved");
@@ -639,7 +659,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         body: JSON.stringify({ designId }),
       });
       if (!res.ok) throw new Error(`Design save failed (${res.status})`);
-      mutate((await res.json()) as InviteCustomisation);
+      commit((await res.json()) as InviteCustomisation);
       haptic("commit");
       toast.success("Design updated");
     } catch (err) {
@@ -676,7 +696,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         if (body.error === "premium_envelope") setEnvelopeEntitled(false);
         throw new Error(`Envelope save failed (${res.status})`);
       }
-      mutate((await res.json()) as InviteCustomisation);
+      commit((await res.json()) as InviteCustomisation);
       haptic("commit");
       toast.success("Envelope updated");
     } catch (err) {
@@ -740,7 +760,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? `Remove failed (${res.status})`);
       }
-      mutate((await res.json()) as InviteCustomisation);
+      commit((await res.json()) as InviteCustomisation);
       toast.success("Image removed");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
@@ -768,7 +788,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(body.error ?? `Save failed (${res.status})`);
     }
-    mutate((await res.json()) as InviteCustomisation);
+    commit((await res.json()) as InviteCustomisation);
     const noun = screen === "mobile" ? "Phone crop" : "Crop";
     toast.success(crop ? `${noun} saved` : `${noun} reset`);
   }
@@ -1403,7 +1423,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 <FaqEditor
                   weddingId={props.weddingId}
                   entries={faqs()}
-                  onEntriesChange={setFaqs}
+                  onEntriesChange={(next) => {
+                    setFaqs(next);
+                    patchInviteFaqs(props.weddingId, next);
+                  }}
                   onPendingChange={setFaqPending}
                 />
                 {/* No colour picker of its own — the FAQ sits on the events

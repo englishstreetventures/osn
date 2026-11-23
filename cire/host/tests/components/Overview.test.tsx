@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -30,11 +30,13 @@ vi.mock("../../src/components/GettingStarted", () => ({
 
 import Overview from "../../src/components/Overview";
 import { __resetBudgetCache } from "../../src/lib/budget-store";
-import { __resetEventsCache } from "../../src/lib/events-store";
-import { __resetGuestsCache, setCachedGuests } from "../../src/lib/guests-store";
+import { __resetEventsCache, invalidateEvents } from "../../src/lib/events-store";
+import { __resetGuestsCache, invalidateGuests, setCachedGuests } from "../../src/lib/guests-store";
+import { peekCachedRsvps, rsvpChangesAccessor } from "../../src/lib/rsvps-store";
+import { settingsAccessor } from "../../src/lib/settings-store";
 import { __resetTasksCache } from "../../src/lib/tasks-store";
 import { __resetVendorsCache } from "../../src/lib/vendors-store";
-import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -194,6 +196,91 @@ describe("Overview", () => {
     expect(guestsCard.textContent).toContain("2");
   });
 
+  it("draws a revisit at once from the caches, sending nothing", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string) =>
+      url.endsWith("/rsvp-changes")
+        ? Promise.resolve(
+            json({
+              households: 0,
+              truncated: false,
+              items: [],
+              digest: { available: false, enabled: true },
+            }),
+          )
+        : routed(url),
+    );
+    const first = render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    first.unmount();
+    const reads = authFetchMock.mock.calls.length;
+
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    // Drawn in the mount itself: no placeholder, no request.
+    expect(document.querySelector("[data-skeleton-outline]")).toBeNull();
+    expect(screen.getByText(/attending across 2 events/i)).toBeTruthy();
+    expect(authFetchMock.mock.calls.length).toBe(reads);
+  });
+
+  it("holds the outline, not Getting started, while empty rows known stale are read again", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: [],
+      guests: [],
+    });
+    const first = render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("getting-started")).toBeTruthy());
+    first.unmount();
+    // A spreadsheet import filled the events and guests since; the caches
+    // still hold the empty rows, marked stale.
+    invalidateEvents("wed_1");
+    invalidateGuests("wed_1");
+    let releaseEvents!: () => void;
+    const eventsHeld = new Promise<void>((resolve) => (releaseEvents = resolve));
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/events")) {
+        await eventsHeld;
+        return json(EVENTS);
+      }
+      if (url.endsWith("/guests")) return json(GUESTS);
+      return routed(url);
+    });
+
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    expect(screen.queryByTestId("getting-started")).toBeNull();
+    expect(document.querySelector("[data-skeleton-outline]")).not.toBeNull();
+
+    releaseEvents();
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    expect(screen.queryByTestId("getting-started")).toBeNull();
+  });
+
+  it("draws the briefing at once from stale rows that are not empty", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const first = render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    first.unmount();
+    // A schedule save leaves the guests stale; it cannot empty the list.
+    invalidateGuests("wed_1");
+
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    expect(document.querySelector("[data-skeleton-outline]")).toBeNull();
+    expect(screen.getByText(/attending across 2 events/i)).toBeTruthy();
+  });
+
   it("starts the RSVP-changes read with its own and shows the card once the page loads", async () => {
     let feedStartedBeforePageLoaded = false;
     let settingsRequested = false;
@@ -248,6 +335,75 @@ describe("Overview", () => {
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     await waitFor(() => expect(screen.getByText(/No date yet/i)).toBeTruthy());
     expect(screen.queryByText("RSVP changes since your last visit")).toBeNull();
+  });
+
+  /** The page's reads as `routeFetch` answers them, except `refused` paths. */
+  function routeWithRefusals(refused: Record<string, number>) {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string) => {
+      const path = Object.keys(refused).find((p) => url.endsWith(p));
+      return path ? Promise.resolve(json({ error: "refused" }, refused[path])) : routed(url);
+    });
+  }
+
+  it("sends a signed-out organiser to sign in from a page read, and caches nothing", async () => {
+    routeWithRefusals({ "/settings": 401 });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(settingsAccessor("wed_1")()).toBeNull();
+  });
+
+  it("caches nothing from a page read the API refused", async () => {
+    routeWithRefusals({ "/settings": 403, "/rsvps": 500 });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.map(([url]) => String(url).split("/").pop())).toEqual(
+        expect.arrayContaining(["settings", "rsvps"]),
+      ),
+    );
+    // Let both answers settle before looking at what they left.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settingsAccessor("wed_1")()).toBeNull();
+    expect(peekCachedRsvps("wed_1")).toBeNull();
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the digest switch's new state in the card's cache", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/rsvp-changes/digest")) {
+        return Promise.resolve(json({ enabled: JSON.parse(String(init?.body)).enabled }));
+      }
+      if (url.endsWith("/rsvp-changes")) {
+        return Promise.resolve(
+          json({
+            households: 0,
+            truncated: false,
+            items: [],
+            digest: { available: true, enabled: true },
+          }),
+        );
+      }
+      return routed(url);
+    });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    const box = await screen.findByRole("checkbox", { name: "Email me a daily summary" });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(box).not.toBeChecked());
+    expect(rsvpChangesAccessor("wed_1")()?.digest.enabled).toBe(false);
   });
 
   it("prompts to set a date when none is set (no fabricated countdown)", async () => {

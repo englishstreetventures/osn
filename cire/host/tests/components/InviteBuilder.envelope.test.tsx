@@ -9,7 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * from the save's 403. A save the server refuses leaves the choice unmoved, and
  * one that finds the session expired sends the organiser to sign in. Picking,
  * keeping and clearing an envelope are the `cire-checklist-holders` E2E flow's,
- * against the real API.
+ * against the real API; the one saved case here checks only that the save's
+ * answer reaches the invite cache, which that flow never reopens from.
  */
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -33,6 +34,7 @@ vi.mock("@cire/invite-designs", () => ({
 }));
 
 import InviteBuilder from "../../src/components/InviteBuilder";
+import { inviteAccessor } from "../../src/lib/invite-store";
 import { authFetchMock, redirectSpy, resetOrganiserMocks, toastError } from "../test-support/mocks";
 
 const CUSTOMISATION = {
@@ -90,6 +92,23 @@ async function findCard(name: RegExp): Promise<HTMLElement> {
   const group = await screen.findByRole("radiogroup", { name: "Invite envelope" });
   return within(group).getByRole("radio", { name });
 }
+
+describe("InviteBuilder envelope picker, saved", () => {
+  afterEach(() => {
+    cleanup();
+    resetOrganiserMocks();
+  });
+
+  it("keeps the save's answer for the next visit to open on", async () => {
+    answer({ envelopeId: null, envelopeEntitled: true }, () =>
+      json({ ...CUSTOMISATION, envelopeId: "wax-seal", envelopeEntitled: true }),
+    );
+    renderBuilder();
+    fireEvent.click(await findCard(/Wax seal/));
+
+    await waitFor(() => expect(inviteAccessor("wed_1")()?.envelopeId).toBe("wax-seal"));
+  });
+});
 
 describe("InviteBuilder envelope picker, refusals", () => {
   afterEach(() => {

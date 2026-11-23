@@ -11,6 +11,13 @@ import Globe from "lucide-solid/icons/globe";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import {
+  type BrowseListing,
+  freshDirectoryPage,
+  markDirectoryListingAdded,
+  refuseDirectoryPage,
+  setFreshDirectoryPage,
+} from "../lib/directory-store";
 import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { haptic } from "../lib/touch-feedback";
@@ -20,22 +27,6 @@ import { FilterSearch, FilterSelect } from "./FilterField";
 import { InstagramMark, LINK_PILL_ROW, LinkPill } from "./LinkPill";
 
 const LISTING_CLASS = cardClass({ padding: "sm" });
-
-interface BrowseListing {
-  id: string;
-  name: string;
-  description: string | null;
-  categories: string[];
-  locationText: string | null;
-  priceBand: string | null;
-  priceMinMinor: number | null;
-  priceMaxMinor: number | null;
-  website: string | null;
-  instagram: string | null;
-  email: string | null;
-  phone: string | null;
-  inWedding: boolean;
-}
 
 interface DirectoryBrowseViewProps {
   weddingId: string;
@@ -113,29 +104,49 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     return apiUrl(weddingPath(props.weddingId, `/directory?${params.toString()}`));
   };
 
+  /** Numbers each page read: only the newest one's answer is drawn. */
+  let pageSeq = 0;
+  /** Listings added from this view. A page read sent before an add can come
+   *  back without it, so every answer is marked with these first. */
+  const addedHere = new Set<string>();
+  const withAdded = (rows: BrowseListing[]) =>
+    rows.map((l) => (addedHere.has(l.id) && !l.inWedding ? { ...l, inWedding: true } : l));
+
   const fetchPage = async (currentOffset: number, append: boolean) => {
+    // Decided from the request, not from the filters when it answers: the
+    // organiser can change them while it is out.
+    const seq = ++pageSeq;
+    const firstUnfiltered = currentOffset === 0 && !category() && !q() && !location();
+    const url = buildUrl(currentOffset);
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(buildUrl(currentOffset));
+      const res = await authFetch(url);
       if (res.status === 401) {
         redirectToLogin();
         return;
       }
       if (!res.ok) throw new Error(`browse ${res.status}`);
-      const data = (await res.json()) as { listings: BrowseListing[]; total: number };
+      const body = (await res.json()) as { listings: BrowseListing[]; total: number };
+      if (seq !== pageSeq) return;
+      const data = { listings: withAdded(body.listings), total: body.total };
       if (append) {
         setListings((prev) => [...prev, ...data.listings]);
       } else {
         setListings(data.listings);
+        // The unfiltered first page is what the tab opens on next time.
+        if (firstUnfiltered) setFreshDirectoryPage(props.weddingId, data);
       }
       setTotal(data.total);
       setOffset(currentOffset);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      setError("Couldn't load the vendor directory. Refresh to try again.");
+      // A refused read stops the cached page being drawn, whichever read it
+      // was; only the newest one's failure is shown.
+      refuseDirectoryPage(props.weddingId);
+      if (seq === pageSeq) setError("Couldn't load the vendor directory. Refresh to try again.");
     } finally {
-      setLoading(false);
+      if (seq === pageSeq) setLoading(false);
     }
   };
 
@@ -149,7 +160,15 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     debounceTimer = setTimeout(resetAndFetch, 300);
   };
 
+  // The tab opens unfiltered, so a fresh cached first page draws at once.
   onMount(() => {
+    const page = freshDirectoryPage(props.weddingId);
+    if (page) {
+      setListings(page.listings);
+      setTotal(page.total);
+      setOffset(0);
+      return;
+    }
     void fetchPage(0, false);
   });
 
@@ -168,6 +187,8 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
   // Patch a listing's inWedding flag locally
   const markInWedding = (id: string) => {
+    addedHere.add(id);
+    markDirectoryListingAdded(props.weddingId, id);
     setListings((prev) => prev.map((l) => (l.id === id ? { ...l, inWedding: true } : l)));
     // also update modal if open
     setModalListing((ml) => (ml?.id === id ? { ...ml, inWedding: true } : ml));

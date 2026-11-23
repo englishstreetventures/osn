@@ -7,6 +7,7 @@ import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { invalidateEvents } from "../lib/events-store";
+import { guestListChanged } from "../lib/guest-list-changed";
 import { invalidateGuests } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
 import { scheduleChanged } from "../lib/schedule-changed";
@@ -243,6 +244,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
       // resurrect or remove households, so the household cache is as stale as
       // the other two.
       invalidateHouseholds(props.weddingId);
+      guestListChanged(props.weddingId);
       await loadList();
       window.location.reload();
     } catch (err) {
