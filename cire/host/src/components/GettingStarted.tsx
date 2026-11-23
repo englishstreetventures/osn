@@ -2,6 +2,7 @@ import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
+import { Notice } from "@shared/ui/ui/notice";
 import { createMemo, createSignal, For, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
@@ -99,12 +100,13 @@ export default function GettingStarted(props: {
   }
 
   // Each read through its cache: the Overview has usually read the events and
-  // the guests already, and a fresh value sends nothing. A failed read leaves
-  // its value null; nothing shows until all three have settled, and then a
-  // missing one counts as empty.
+  // the guests already, and a fresh value sends nothing. Nothing shows until
+  // all three have settled.
+  let signedOut = false;
   const read = async <T,>(path: string): Promise<T> => {
     const res = await authFetch(apiUrl(weddingPath(props.weddingId, path)));
     if (res.status === 401) {
+      signedOut = true;
       redirectToLogin();
       throw new Error("unauthenticated");
     }
@@ -118,8 +120,11 @@ export default function GettingStarted(props: {
     untrack(() => events() !== null && guests() !== null && invite() !== null),
   );
   // A read that failed hides the guide, rather than counting what it never got
-  // as empty and showing a half-done checklist.
+  // as empty and showing a half-done checklist. The guide is all a new
+  // wedding's home holds, so a notice says so in its place, unless the
+  // organiser is being sent to sign in.
   const [failed, setFailed] = createSignal(false);
+  const [failureShown, setFailureShown] = createSignal(false);
   void (async () => {
     const results = await Promise.allSettled([
       ensureEventsLoaded(props.weddingId, () => read<EventRow[]>("/events")),
@@ -127,9 +132,14 @@ export default function GettingStarted(props: {
       ensureInviteLoaded(props.weddingId, () => read<InviteCustomisation>("/invite")),
     ]);
     for (const result of results) {
-      if (result.status === "rejected" && isAuthExpired(result.reason)) redirectToLogin();
+      if (result.status === "rejected" && isAuthExpired(result.reason)) {
+        signedOut = true;
+        redirectToLogin();
+      }
     }
-    setFailed(results.some((result) => result.status === "rejected"));
+    const anyFailed = results.some((result) => result.status === "rejected");
+    setFailed(anyFailed);
+    setFailureShown(anyFailed && !signedOut);
     setSettled(true);
   })();
 
@@ -203,96 +213,103 @@ export default function GettingStarted(props: {
   const nextStep = createMemo(() => steps().find((s) => !s.complete));
 
   return (
-    <Show when={snapshot()}>
-      {/* Dismissed ⇒ collapse to a quiet "Show getting started" affordance the
-          organiser can use to bring the checklist back. */}
-      <Show when={dismissed()}>
-        <div class="flex justify-end">
-          <Button variant="subtle" size="sm" type="button" onClick={restore}>
-            Show getting started
-          </Button>
-        </div>
+    <>
+      <Show when={failureShown()}>
+        <Notice tone="danger" size="sm" alert>
+          Couldn't load your getting-started steps. Refresh to try again.
+        </Notice>
       </Show>
+      <Show when={snapshot()}>
+        {/* Dismissed ⇒ collapse to a quiet "Show getting started" affordance the
+          organiser can use to bring the checklist back. */}
+        <Show when={dismissed()}>
+          <div class="flex justify-end">
+            <Button variant="subtle" size="sm" type="button" onClick={restore}>
+              Show getting started
+            </Button>
+          </div>
+        </Show>
 
-      <Show when={!dismissed()}>
-        <section aria-label="Getting started" class={GUIDE_CLASS}>
-          {/* Dismiss (X) — top-right, so an organiser who doesn't want the guide
+        <Show when={!dismissed()}>
+          <section aria-label="Getting started" class={GUIDE_CLASS}>
+            {/* Dismiss (X) — top-right, so an organiser who doesn't want the guide
             can hide it; the choice persists per wedding in localStorage. */}
-          <Button
-            variant="bar"
-            size="icon"
-            type="button"
-            onClick={dismiss}
-            aria-label="Dismiss getting started"
-            title="Dismiss getting started"
-            class="absolute top-3 right-3"
-          >
-            <span aria-hidden>✕</span>
-          </Button>
+            <Button
+              variant="bar"
+              size="icon"
+              type="button"
+              onClick={dismiss}
+              aria-label="Dismiss getting started"
+              title="Dismiss getting started"
+              class="absolute top-3 right-3"
+            >
+              <span aria-hidden>✕</span>
+            </Button>
 
-          <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 pr-8">
-            <div class="flex flex-col gap-1">
-              <h2 class="font-display text-text text-ui-lg font-light">
-                {allDone() ? "Everything's ready for your guests" : "Four steps to your invite"}
-              </h2>
-              <Show when={!allDone() && nextStep()}>
-                {(step) => (
-                  <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
-                    Next: <span class="text-text">{step().todo}</span>
-                  </p>
-                )}
-              </Show>
-            </div>
-            {/* Read out, not hidden. The rail beneath used to carry the count in
+            <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 pr-8">
+              <div class="flex flex-col gap-1">
+                <h2 class="font-display text-text text-ui-lg font-light">
+                  {allDone() ? "Everything's ready for your guests" : "Four steps to your invite"}
+                </h2>
+                <Show when={!allDone() && nextStep()}>
+                  {(step) => (
+                    <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
+                      Next: <span class="text-text">{step().todo}</span>
+                    </p>
+                  )}
+                </Show>
+              </div>
+              {/* Read out, not hidden. The rail beneath used to carry the count in
               its own `aria-valuenow`; the shared Meter reports a percentage
               instead, so "two of four" now lives here or nowhere. */}
-            <span class="font-body text-gold-ink text-ui-sm tracking-ui-wider shrink-0 uppercase tabular-nums">
-              {completed()} / {total()} done
-            </span>
-          </div>
+              <span class="font-body text-gold-ink text-ui-sm tracking-ui-wider shrink-0 uppercase tabular-nums">
+                {completed()} / {total()} done
+              </span>
+            </div>
 
-          {/* A thin progress rail — a single calm indicator of how far along the
+            {/* A thin progress rail — a single calm indicator of how far along the
             couple are. The shared Meter, so this bar and the Overview's read the
             same and animate on a transform rather than a width. */}
-          <Meter value={completed()} max={total()} label="Setup progress" />
+            <Meter value={completed()} max={total()} label="Setup progress" />
 
-          <ol class="auto-grid [--auto-grid-gap:0.625rem]">
-            <For each={steps()}>
-              {(step, i) => (
-                <li>
-                  <Button
-                    variant="tile"
-                    size="sm"
-                    type="button"
-                    onClick={() => props.onJump(step.tab)}
-                    data-complete={step.complete ? "true" : "false"}
-                    // Each step wraps inside its tile and starts at the left
-                    // edge: `Button` holds a label to one centred line.
-                    class="group flex w-full items-start justify-start text-left whitespace-normal"
-                  >
-                    <StepMarker n={i() + 1} complete={step.complete} />
-                    <span class="flex flex-col gap-0.5">
-                      <span
-                        class="font-body text-ui-base"
-                        classList={{
-                          "text-text": !step.complete,
-                          "text-text-muted": step.complete,
-                        }}
-                      >
-                        {step.label}
+            <ol class="auto-grid [--auto-grid-gap:0.625rem]">
+              <For each={steps()}>
+                {(step, i) => (
+                  <li>
+                    <Button
+                      variant="tile"
+                      size="sm"
+                      type="button"
+                      onClick={() => props.onJump(step.tab)}
+                      data-complete={step.complete ? "true" : "false"}
+                      // Each step wraps inside its tile and starts at the left
+                      // edge: `Button` holds a label to one centred line.
+                      class="group flex w-full items-start justify-start text-left whitespace-normal"
+                    >
+                      <StepMarker n={i() + 1} complete={step.complete} />
+                      <span class="flex flex-col gap-0.5">
+                        <span
+                          class="font-body text-ui-base"
+                          classList={{
+                            "text-text": !step.complete,
+                            "text-text-muted": step.complete,
+                          }}
+                        >
+                          {step.label}
+                        </span>
+                        <span class="font-body text-text-muted text-ui-sm leading-ui-snug font-normal">
+                          {step.complete ? step.done : step.todo}
+                        </span>
                       </span>
-                      <span class="font-body text-text-muted text-ui-sm leading-ui-snug font-normal">
-                        {step.complete ? step.done : step.todo}
-                      </span>
-                    </span>
-                  </Button>
-                </li>
-              )}
-            </For>
-          </ol>
-        </section>
+                    </Button>
+                  </li>
+                )}
+              </For>
+            </ol>
+          </section>
+        </Show>
       </Show>
-    </Show>
+    </>
   );
 }
 

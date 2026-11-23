@@ -110,16 +110,17 @@ describe("GettingStarted", () => {
     expect(screen.getByText(/Everything's ready/i)).toBeTruthy();
   });
 
-  it("renders nothing when the snapshot fetch fails", async () => {
-    // Fail soft: the panel hides itself, so a dead fetch never leaves a
-    // half-derived "0 / 4 done" on the dashboard.
-    authFetchMock.mockImplementation(() => Promise.reject(new Error("network down")));
-    const { container } = render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
+  /** What stands in for the guide when its reads fail. */
+  const FAILED = "Couldn't load your getting-started steps. Refresh to try again.";
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
-    // Every read has settled, failed, before the panel decides.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(container.textContent).toBe("");
+  it("says it could not load the steps, and draws no checklist, when the snapshot read fails", async () => {
+    // A dead fetch never leaves a half-derived "0 / 4 done" on the dashboard,
+    // and never an empty home either: the guide is all a new wedding's home holds.
+    authFetchMock.mockImplementation(() => Promise.reject(new Error("network down")));
+    render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(FAILED);
+    expect(screen.queryByText(/\/ 4 done/)).toBeNull();
   });
 
   /** The snapshot's reads, with the invite answered by `status`. */
@@ -141,14 +142,13 @@ describe("GettingStarted", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("caches no invite from a read the API refused, and hides the guide", async () => {
+  it("caches no invite from a read the API refused, and says the steps could not load", async () => {
     refuseInvite(403);
-    const { container } = render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
+    render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await screen.findByRole("alert")).textContent).toContain(FAILED);
     expect(inviteAccessor("wed_1")()).toBeNull();
-    expect(container.textContent).toBe("");
+    expect(screen.queryByText(/\/ 4 done/)).toBeNull();
     expect(redirectSpy).not.toHaveBeenCalled();
   });
 
