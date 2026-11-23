@@ -6,7 +6,8 @@
  * `database is locked` unless it waits. Each test holds a write transaction
  * open here, has a second process call a helper, and commits once that
  * process is about to: the helper has to wait out the lock and then see the
- * committed row.
+ * committed row. The tests show that the helpers wait, not for how long:
+ * holding the lock for a set time would mean sleeping on the real clock.
  */
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
