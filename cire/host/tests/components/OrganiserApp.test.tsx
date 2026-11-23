@@ -480,7 +480,8 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.getByTestId("run-sheet-seat")).toBeTruthy();
     // Under the header the shell gives the module, so it reads as the same page.
     expect(screen.getByRole("heading", { level: 2, name: "Run sheet" })).toBeTruthy();
-    expect(screen.getByText("The day, hour by hour, and who does what")).toBeTruthy();
+    // Like every module's header, it draws no hint under the name.
+    expect(screen.queryByText("The day, hour by hour, and who does what")).toBeNull();
     // The preview button mints a code through a member-gated route, so it is
     // not offered either.
     expect(screen.queryByTestId("preview-button")).toBeNull();

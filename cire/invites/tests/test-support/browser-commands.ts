@@ -87,3 +87,25 @@ export const renderGuestFooter = defineBrowserCommand<[{ closing: string | null 
     }
   },
 );
+
+/**
+ * Answer `https://images.test/**` from here, as the invite's image routes
+ * would: a path under `/missing/` gets the 404 a key with no stored object
+ * gets, and any other path a small SVG picture. Deterministic and offline, so
+ * an image test never waits on a lookup that fails at its own speed. Routes
+ * last for the rest of the browser context; call it once per test that wants
+ * images.
+ */
+export const serveImages = defineBrowserCommand<[]>(async (ctx) => {
+  await ctx.page.route("https://images.test/**", async (route) => {
+    if (new URL(route.request().url()).pathname.startsWith("/missing/")) {
+      await route.fulfill({ status: 404, contentType: "text/plain", body: "Not found" });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="1200" height="800" fill="#8a9a7b"/></svg>',
+    });
+  });
+});

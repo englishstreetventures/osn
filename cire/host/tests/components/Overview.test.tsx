@@ -611,14 +611,16 @@ describe("Overview", () => {
     routeFetch({ rsvps: six, events: EVENTS, guests: GUESTS });
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
-    const card = (await screen.findByText("Attending by event")).parentElement!;
-    const rows = within(card).getAllByRole("listitem");
+    // The card's label says "Attending" once; a row is the event and its
+    // figure alone, and the list carries the label as its name.
+    const list = await screen.findByRole("list", { name: "Attending by event" });
+    const rows = within(list).getAllByRole("listitem");
     expect(rows.map((r) => r.textContent)).toEqual([
-      "Event 10 attending",
-      "Event 21 attending",
-      "Event 32 attending",
-      "Event 43 attending",
-      "Event 54 attending",
+      "Event 10",
+      "Event 21",
+      "Event 32",
+      "Event 43",
+      "Event 54",
       "+1 more",
     ]);
   });

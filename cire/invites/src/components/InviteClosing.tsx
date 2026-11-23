@@ -1,5 +1,6 @@
-import { Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 
+import { BackgroundProbe } from "./BackgroundProbe";
 import {
   cropAspectRatio,
   cropBackgroundImageSetDeclaration,
@@ -209,17 +210,29 @@ interface InviteClosingProps {
  * applied to the width.
  */
 export function InviteClosing(props: InviteClosingProps) {
+  // An image that fails to load counts as no image: the band goes rather than
+  // standing empty above the note. Remembered by path, so a new image is tried
+  // afresh. The organiser builder's badge cannot know about a failed load, so
+  // this sits here and not in `footerState`.
+  const [failedPath, setFailedPath] = createSignal<string | null>(null);
+  const imagePath = () =>
+    props.imageUrl && props.imageUrl !== failedPath() ? props.imageUrl : null;
+  const fail = () => setFailedPath(props.imageUrl ?? null);
+
   // The whole section is a conditional segment: switched off, or nothing set ⇒
   // render nothing. `footerState` is the function the organiser builder mirrors
   // for its badge, so the two cannot disagree.
   const show = () =>
-    footerState(props.visible, { message: props.message, imageUrl: props.imageUrl }) === "shown";
+    footerState(props.visible, { message: props.message, imageUrl: imagePath() }) === "shown";
 
   // Trimmed so a note of "  text  " doesn't render its padding. The API already
   // normalises on save; this also covers a legacy row.
   const note = () => props.message?.trim() ?? "";
 
-  const imageSrc = () => (props.imageUrl ? `${props.apiUrl}${props.imageUrl}` : null);
+  const imageSrc = () => {
+    const path = imagePath();
+    return path ? `${props.apiUrl}${path}` : null;
+  };
 
   // A saved crop paints a background layer instead of the `<img>`, rendering the
   // framed region EXACTLY: uniform scale, and the box below takes the crop's own
@@ -333,6 +346,7 @@ export function InviteClosing(props: InviteClosingProps) {
                     loading="lazy"
                     decoding="async"
                     class={BAND_IMG_CLASS}
+                    onError={fail}
                     // `aspect-ratio: auto <ratio>` — the FALLBACK form: the
                     // browser reserves a 16∶9 box until the bytes arrive, then
                     // the image's own ratio wins, so "nothing was cropped ⇒
@@ -350,9 +364,15 @@ export function InviteClosing(props: InviteClosingProps) {
                       doesn't fetch the same 1600w desktop needs. */}
                     <div
                       aria-hidden="true"
-                      class="mx-auto block w-full md:hidden"
+                      class="relative mx-auto block w-full md:hidden"
                       style={narrowCropStyle() ?? undefined}
-                    />
+                    >
+                      <BackgroundProbe
+                        src={variantSrc(url(), "card")}
+                        srcset={`${variantSrc(url(), "card")} 1x, ${variantSrc(url(), "hero")} 2x`}
+                        onError={fail}
+                      />
+                    </div>
                     {/* md: and up — exactly today's behaviour: plain `hero` url,
                       the box owns its size (an empty div has no intrinsic
                       dimensions): the CROP's aspect, at the full width the
@@ -361,13 +381,15 @@ export function InviteClosing(props: InviteClosingProps) {
                       honour. */}
                     <div
                       aria-hidden="true"
-                      class="mx-auto hidden w-full md:block"
+                      class="relative mx-auto hidden w-full md:block"
                       style={{
                         ...style(),
                         "aspect-ratio": String(bandAspect()),
                         "max-width": bandMaxWidth(bandAspect()),
                       }}
-                    />
+                    >
+                      <BackgroundProbe src={variantSrc(url(), "hero")} onError={fail} />
+                    </div>
                   </>
                 )}
               </Show>

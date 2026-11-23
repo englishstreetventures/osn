@@ -1,5 +1,6 @@
 import { batch, createEffect, createSignal, onCleanup, on, Show } from "solid-js";
 
+import { BackgroundProbe } from "./BackgroundProbe";
 import { cropAspectRatio, cropBackgroundStyle } from "./image-crop";
 import { buildSrcSet, variantSrc } from "./invite-images";
 
@@ -112,12 +113,16 @@ interface EventCardProps {
 }
 
 export function EventCard(props: EventCardProps) {
-  // Resolve the absolute image URL once. Null (no image, or no API origin) ⇒ the
-  // card collapses to a single text-only column with no empty image half.
+  // Resolve the absolute image URL once. Null (no image, no API origin, or an
+  // image that failed to load) ⇒ the card collapses to a single text-only
+  // column with no empty image half. A failure is remembered by URL, so a new
+  // image is tried afresh.
+  const [failedUrl, setFailedUrl] = createSignal<string | null>(null);
   const imageUrl = (): string | null => {
     const path = props.event.imageUrl;
     if (!path || !props.apiUrl) return null;
-    return `${props.apiUrl}${path}`;
+    const url = `${props.apiUrl}${path}`;
+    return url === failedUrl() ? null : url;
   };
   const isAlt = () => props.orientation === "alt";
 
@@ -416,6 +421,7 @@ export function EventCard(props: EventCardProps) {
                     loading="lazy"
                     class="border-border rounded-ui-field max-h-80 w-full border object-cover"
                     classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
+                    onError={() => setFailedUrl(url())}
                   />
                 }
               >
@@ -427,7 +433,7 @@ export function EventCard(props: EventCardProps) {
                     // source dims), so the uniformly-scaled region fills it with no
                     // distortion and no empty bars. A legacy crop (no dims) falls
                     // back to the card's default 4∶3 shape.
-                    class="border-border rounded-ui-field max-h-80 w-full overflow-hidden border"
+                    class="border-border rounded-ui-field relative max-h-80 w-full overflow-hidden border"
                     classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
                     style={{
                       ...style(),
@@ -435,7 +441,12 @@ export function EventCard(props: EventCardProps) {
                         cropAspectRatio(props.event.imageCrop, EVENT_DEFAULT_ASPECT),
                       ),
                     }}
-                  />
+                  >
+                    <BackgroundProbe
+                      src={variantSrc(url(), "card")}
+                      onError={() => setFailedUrl(url())}
+                    />
+                  </div>
                 )}
               </Show>
             );
