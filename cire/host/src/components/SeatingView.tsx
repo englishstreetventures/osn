@@ -477,7 +477,8 @@ export default function SeatingView(props: SeatingViewProps) {
           {(current) => (
             <>
               <Show when={props.canEdit}>
-                {/* On a card bar, as every module's add form is. */}
+                {/* On a card bar (`FIELD_BAR_CLASS`), as the Budget, Registry,
+                    Vendors and Checklist add forms are. */}
                 <form class={FIELD_BAR_CLASS} onSubmit={addTable}>
                   <Field label="Table name">
                     {(field) => (
