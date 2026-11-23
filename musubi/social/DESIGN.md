@@ -408,7 +408,7 @@ holds at 3:1. A focus mark appears at once, never animated.
 The app adds colour and opacity transitions only, and no spatial motion of its
 own, with four exceptions: three are `@shared/ui`'s, the orb a busy button
 draws (§The orb), the press (below), and a dialog below `md`, which slides up
-and down as a sheet (below); one is `@osn/auth-ui`'s, the fill that empties
+and down as a sheet and follows a finger dragged down it (below); one is `@osn/auth-ui`'s, the fill that empties
 behind an emailed link's Resend as it waits (below). The app draws no
 `Switch`, whose thumb slides on a timing of its own, off the contract's
 `--ui-dur-*` and `--ui-ease-*`: an on/off is a `Checkbox` (§Choices). Rows, tabs and controls fade their colours with `transition-ui-colors`
@@ -482,6 +482,45 @@ the half-way frame of the menu and the switcher closing: the menu and the
 card show no transform, and the switcher, a sheet at 390px, sits its own
 height below the edge as it opens and part-way down half-way out, at full
 opacity and unscaled.
+
+**A sheet drags down to close.** Below `md` a finger or a pointer pressed on
+a dialog's title row moves the sheet with it, one to one from the first
+pixel, and its scrim fades by the share of the sheet's height it has moved.
+Pressed in the body, it moves the sheet only when the body is scrolled to its
+top and the first move is down, after 8px (4px for a mouse), from where the
+sheet is then: a list that is scrolled scrolls, and a press in a text field
+is the field's. No grabber bar is drawn; the title row is the handle, and
+below `md` it shows the grab cursor and selects no text. Up past rest the
+sheet gives on iOS's rubber band (`c·x·d / (d + c·x)`, `c` = 0.55). Let go
+past a quarter of its height, unless the finger's last move was a flick back
+up, or after a flick down of 0.4px/ms over at least 24px, it closes through
+the same path as Cancel; otherwise it goes back. Either way it leaves the
+finger on a critically damped spring with a 0.3s response, started at the
+sheet's speed, with no bounce. The spring is the release's alone: Cancel,
+Escape and the scrim keep the 200ms close on `--ui-ease-sheet` above. A sheet
+that cannot close — the step-up, the profile switcher and the
+delete-organisation confirmation while their call runs — gives on the band
+both ways and comes back; a press on it while it springs back stops it under
+the finger once the finger moves, and a tap goes through. Under reduced
+motion the drag still follows the finger; let go, a close fades where the
+sheet was, and a return fades out where it is, moves to rest unseen and fades
+back in, over `--ui-dur-base` in all, so nothing moves by itself. From `md`
+the card never drags. Cancel, Escape and the scrim stay the ways out that
+need no drag. The owner chose it on #2288 (2026-11-23): "Soft spring,
+300-360ms", "Follows finger, fades on release", "Title row, plus body at its
+top; no grabber", and for the thresholds "Yes, those numbers". The spring has
+no token, since it differs with every release; `@shared/ui` samples it into
+a `linear()` easing as it lets go (`wiki/shared/design-tokens.md` §Motion). A
+close from rest at a quarter of the sheet's height runs 340ms on a 200px
+sheet and 414ms on an 800px one; a return of 30px runs 269ms.
+
+*Measured 2026-11-23 — `settleCurve(0.25 × height, height, 0).duration` and `settleCurve(30, 0, 0.3).duration` from `shared/ui/src/lib/spring.ts`, run with `bun` for heights 200 to 800px.*
+
+`shared/ui/tests/dialog-drag.browser.test.tsx` holds the drag,
+`tests/components/SecurityStepUp.browser.test.tsx` the step-up refusing it
+while the passkey call runs and handing over only once the sheet has left,
+and `tools/e2e/tests/support/musubi-surfaces.ts` drags the profile switcher
+closed at 390px.
 
 **A dialog's scroll edge follows the scroll.** Under the header of a dialog
 taller than its 85% cap, the 16px fade (§Responsive layout, Dialogs) comes in

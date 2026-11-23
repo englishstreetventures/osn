@@ -447,7 +447,8 @@ async function shell(flow: Flow, page: Page): Promise<void> {
  * the profile switcher it opens: the shared radio rows, the house outline on
  * two controls drawn by hand, the account menu's separator as a hairline, the
  * switcher's title on Musubi's title step, the fade with no scale each menu
- * opens and closes on, and the switcher's slide, a sheet at the phone width.
+ * opens and closes on, and the switcher's slide, a sheet at the phone width,
+ * and a finger dragging it closed (`dragsClosed`).
  */
 async function menus(flow: Flow, page: Page): Promise<void> {
   await at(page, DESKTOP, "light");
@@ -591,6 +592,79 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     await expect(switcher).toHaveCount(0);
   });
   slides(flow, "profile switcher (sheet)", "close", await switcherClosed());
+  await dragsClosed(flow, page, avatar, switchProfile, switcher);
+}
+
+/**
+ * The profile switcher, a sheet at the phone width, dragged down by its title
+ * row with a finger and let go past a quarter of its height: it follows the
+ * finger to the pixel, and closes. The finger goes through Chromium's own
+ * input pipeline (CDP `Input.dispatchTouchEvent`), each event stamped with its
+ * own time and sent no earlier than it, so `touch-action` and the drag's speed
+ * are as on a phone. Shoots the sheet half way down.
+ */
+async function dragsClosed(
+  flow: Flow,
+  page: Page,
+  avatar: Locator,
+  switchProfile: Locator,
+  switcher: Locator,
+): Promise<void> {
+  await at(page, PHONE, "light");
+  await flow.step("surfaces: reopen the profile switcher", async () => {
+    await avatar.click();
+    await switchProfile.click();
+    await expect(switcher).toBeVisible();
+    await animationsSettled(page);
+  });
+  const title = switcher.getByRole("heading", { name: "Switch profile" });
+  const box = (await title.boundingBox())!;
+  const height = await switcher.evaluate((el) => (el as HTMLElement).offsetHeight);
+  const offset = () =>
+    switcher.evaluate((el) => {
+      const t = getComputedStyle(el).transform;
+      return t === "none" ? 0 : new DOMMatrixReadOnly(t).m42;
+    });
+  const session = await page.context().newCDPSession(page);
+  const x = box.x + box.width / 2;
+  const y0 = box.y + box.height / 2;
+  let t = Date.now() / 1000 + 0.02;
+  const touch = async (kind: "touchStart" | "touchMove" | "touchEnd", y?: number) => {
+    const ahead = t * 1000 - Date.now();
+    if (ahead > 0) await new Promise((r) => setTimeout(r, ahead));
+    await session.send("Input.dispatchTouchEvent", {
+      type: kind,
+      timestamp: t,
+      touchPoints: y === undefined ? [] : [{ x, y, id: 1 }],
+    });
+  };
+  const travel = Math.round(height * 0.5);
+  let worst = 0;
+  await flow.step("surfaces: drag the profile switcher down by its title row", async () => {
+    await touch("touchStart", y0);
+    for (let i = 1; i <= 12; i++) {
+      t += 0.016;
+      const moved = (travel * i) / 12;
+      await touch("touchMove", y0 + moved);
+      worst = Math.max(worst, Math.abs((await offset()) - moved));
+    }
+    mkdirSync(SHOTS, { recursive: true });
+    await page.screenshot({ path: resolve(SHOTS, "profile-switcher-drag-390-light.png") });
+    t += 0.15;
+    await touch("touchEnd");
+    await expect(switcher).toHaveCount(0);
+  });
+  flow.check(
+    "profile switcher: a drag down its title row follows the finger to the pixel",
+    true,
+    worst <= 1,
+  );
+  flow.check(
+    "profile switcher: let go past a quarter of its height, it closes",
+    0,
+    await switcher.count(),
+  );
+  await session.detach();
 }
 
 /**

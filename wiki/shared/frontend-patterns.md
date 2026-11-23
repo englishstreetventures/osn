@@ -26,7 +26,7 @@ packages:
   - "@shared/ui"
   - "@musubi/social"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-25
 ---
 
 # Frontend Patterns
@@ -708,10 +708,12 @@ A CSS transition takes no velocity, but its easing can carry one: at release,
 sample the spring from the release speed into a `linear()` easing and set it,
 with the spring's settle time, as the transition. Put a stop a millisecond in
 on the spring's tangent, so the first frame moves at the finger's speed
-exactly, and end the curve where a fast release would pass its target. The
-cire guest site's event sheet does this (`settleCurve` in
-[`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts),
-[[cire-invite-designs#The event sheet]]). Because it is a transition, the
+exactly, and end the curve where a fast release would pass its target.
+`settleCurve` in [`spring.ts`](../../shared/ui/src/lib/spring.ts) does this, with `rubberBand`
+and `bandSlope` beside it; the cire guest site's event sheet settles its swipe
+on it ([[cire-invite-designs#The event sheet]]), and `@shared/ui`'s `Dialog`
+sheet its drag down ([[component-library#Kobalte components (Dialog, Popover, Tooltip, Tabs)]]).
+Because it is a transition, the
 stylesheet's reduced-motion clamp reaches it with no `matchMedia` check, and a
 catch reads the moving thing's place off its computed `transform`. `linear()`
 needs Chrome 113, Firefox 112 or Safari 17.2; below that, a `cubic-bezier()`

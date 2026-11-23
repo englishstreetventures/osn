@@ -398,6 +398,21 @@ These rules govern `pulse/web`. The landing site's motion is in
   Firefox 129 or Safari 17.5 it appears at once and still slides out, or fades
   out under reduced motion.
 
+- **The share sheet drags down to close.** Below `md` a finger pressed on its
+  title row moves it one to one, its scrim fading with it; pressed in its
+  grid it moves it only from the top, after 8px. Let go past a quarter of its
+  height, or after a flick down of 0.4px/ms over at least 24px, it closes as
+  the × does; otherwise it goes back. Either way it leaves the finger on a
+  critically damped spring with a 0.3s response, started at the finger's
+  speed, with no bounce: the release's alone, so the ×, Escape and the scrim
+  keep the 200ms close on `--ui-ease-sheet`. Up past rest it gives on a
+  rubber band. A tap on the × with a few pixels of jitter still presses it.
+  Under reduced motion it still follows the finger and fades, rather than
+  slides, once let go. No grabber bar: the title row is the handle. The
+  owner's choices for every sheet on #2288 (2026-11-23), drawn by
+  `@shared/ui` with no class of pulse's (`musubi/social/DESIGN.md` §Motion
+  has the whole rule).
+
 - **A dialog's title stays as its body scrolls.** `@shared/ui`'s `Dialog`,
   sheet or card, is at most 85% of the window tall and scrolls past that,
   its header stuck to the top on `--card` with no line under it. Once the

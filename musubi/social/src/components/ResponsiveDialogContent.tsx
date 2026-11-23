@@ -20,6 +20,12 @@ type ResponsiveDialogContentProps = Omit<ComponentProps<"div">, "class" | "class
    * `preventDefault()` after focusing an element yourself.
    */
   onCloseAutoFocus?: (event: Event) => void;
+  /**
+   * False while the dialog refuses to close, as a busy one does: a drag down
+   * the sheet then gives and goes back, and Escape and a press outside do
+   * nothing. Disable Cancel too.
+   */
+  dismissible?: boolean;
 };
 
 /**

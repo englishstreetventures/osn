@@ -43,14 +43,18 @@ export function ProfileSwitcherDialog(props: {
   return (
     <Dialog
       open={props.open}
-      // Escape and a press outside close it, as Cancel does — but never while
-      // a switch runs, since Cancel is disabled then too.
+      // Escape, a press outside and a drag down close it, as Cancel does —
+      // but never while a switch runs, since Cancel is disabled then too.
       onOpenChange={(open) => {
         if (!open && switching()) return;
         props.onOpenChange(open);
       }}
     >
-      <ResponsiveDialogContent width="xs" onCloseAutoFocus={props.onCloseAutoFocus}>
+      <ResponsiveDialogContent
+        width="xs"
+        dismissible={!switching()}
+        onCloseAutoFocus={props.onCloseAutoFocus}
+      >
         <AuthHeader host="dialog" title="Switch profile" />
         <div class="flex flex-col gap-1 py-2">
           <For each={profiles() ?? []}>

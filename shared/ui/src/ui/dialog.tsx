@@ -1,16 +1,39 @@
-import { Dialog as KobalteDialog } from "@kobalte/core/dialog";
+import {
+  Dialog as KobalteDialog,
+  useDialogContext,
+  type DialogContentOptions,
+  type DialogContextValue,
+} from "@kobalte/core/dialog";
 import type { PolymorphicProps } from "@kobalte/core/polymorphic";
 import { clsx } from "clsx";
 import {
+  createContext,
+  createEffect,
+  createSignal,
+  on,
   onCleanup,
   onMount,
+  Show,
   splitProps,
+  useContext,
+  type Accessor,
   type Component,
   type ComponentProps,
   type JSX,
   type ParentComponent,
   type ValidComponent,
 } from "solid-js";
+
+import { readsLinearEasing, settleCurve } from "../lib/spring";
+import {
+  closesOnRelease,
+  dragOffset,
+  releaseSpeed,
+  SAMPLE_KEEP_MS,
+  sheetSpeed,
+  slopFor,
+  type DragSample,
+} from "./sheet-drag";
 
 const Dialog = KobalteDialog;
 const DialogTrigger = KobalteDialog.Trigger;
@@ -115,7 +138,11 @@ const DialogOverlay: Component<
  * A caller that spells this out in classes gets it right on the axis it
  * remembers and wrong on the other two; that is what this replaces.
  *
- * The sheet also moves differently: `DIALOG_MOTION` below.
+ * The sheet also moves differently: `DIALOG_MOTION` below. Below `md` it can
+ * be dragged down (`SheetDrag`), which `--ui-sheet-drag` marks, so the script
+ * reads the breakpoint the classes use rather than a second copy of it; and a
+ * scroll that reaches either end of the sheet stops there rather than moving
+ * the page behind it.
  */
 const DIALOG_PRESENTATION = {
   centred: "",
@@ -124,7 +151,8 @@ const DIALOG_PRESENTATION = {
     "max-md:base:max-w-none max-md:base:translate-x-0 max-md:base:translate-y-0 " +
     "max-md:base:rounded-t-ui-sheet max-md:base:rounded-b-none " +
     "max-md:base:border-x-0 max-md:base:border-b-0 " +
-    "max-md:base:pb-[max(0px,env(safe-area-inset-bottom))]",
+    "max-md:base:pb-[max(0px,env(safe-area-inset-bottom))] " +
+    "max-md:base:[--ui-sheet-drag:1] max-md:base:overscroll-y-contain",
 } satisfies Readonly<Record<"centred" | "sheet", string>>;
 
 /**
@@ -197,6 +225,529 @@ function keepWrappedFocusInView(event: FocusEvent) {
   else if (rect.top < clear) panel.scrollTop -= clear - rect.top;
 }
 
+/** What `DialogHeader` needs from the sheet around it: whether it is the drag's handle, and whether a drag is under way. */
+interface SheetHandle {
+  dragging: Accessor<boolean>;
+}
+const SheetHandleContext = createContext<SheetHandle>();
+
+/** A press in a field belongs to the field: its caret, its selection, its keyboard. */
+const TEXT_ENTRY = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+
+/**
+ * The inline properties a drag writes, and the only ones it ever removes.
+ * Kobalte writes `pointer-events` on both elements and `DialogHeader` writes
+ * `--ui-dialog-header-height` on the panel, so the drag never clears a whole
+ * `style`.
+ */
+const PANEL_OWNS = [
+  "transform",
+  "transition",
+  "animation-duration",
+  "opacity",
+  "box-shadow",
+] as const;
+const SCRIM_OWNS = ["opacity", "transition", "animation-duration"] as const;
+
+/** A press on the panel, from `pointerdown` until it lifts or is cancelled. */
+interface Press {
+  id: number;
+  type: string;
+  /** Where it went down. */
+  x0: number;
+  y0: number;
+  /** Down on the title row, or in the body. */
+  handle: boolean;
+  /** A press in the body is the sheet's only when its first move is down at the top. */
+  owned: boolean | undefined;
+  /** Past the slop: no longer a tap, so the click it would make is swallowed. */
+  moved: boolean;
+  /** The drag has taken the sheet. */
+  dragging: boolean;
+  /** Where the finger was, and the sheet's offset, when the drag took it. */
+  originY: number;
+  base: number;
+  raw: number;
+  offset: number;
+  height: number;
+  refused: boolean;
+  samples: DragSample[];
+}
+
+/**
+ * What the sheet is doing on its own: at rest (`idle`), following a finger,
+ * springing back after a short drag, inside `close()` after a long one
+ * (`closing`), or leaving after it (`dismissing`).
+ */
+type SheetPhase = "idle" | "dragging" | "settling" | "closing" | "dismissing";
+
+/**
+ * A 3D translation, which puts the panel on a layer of its own while a drag
+ * moves it. Not `will-change`: on a panel scrolled to its top Chromium then
+ * shifts its scroll by a pixel as the drag begins.
+ */
+const translate = (y: number) => `translate3d(0, ${y}px, 0)`;
+
+/** A computed time (`0.1s`, `100ms`) in ms; 0 when there is none. */
+function millis(value: string): number {
+  const first = value.split(",")[0]!.trim();
+  const n = Number.parseFloat(first);
+  if (!Number.isFinite(n)) return 0;
+  return first.endsWith("ms") ? n : n * 1000;
+}
+
+/** The running transition of `property` on `el`, if one is running. */
+function transitionOf(el: Element, property: string): Animation | undefined {
+  if (typeof CSSTransition === "undefined" || typeof el.getAnimations !== "function") return;
+  return el
+    .getAnimations()
+    .find((a) => a instanceof CSSTransition && a.transitionProperty === property);
+}
+
+/**
+ * The drag that dismisses a sheet below `md` (the owner's design on #2288).
+ *
+ * A finger or a pointer pressed on the title row moves the sheet from its
+ * first pixel, one to one; pressed in the body it does so only when its first
+ * move is down and the body, and every box between the press and the panel,
+ * is scrolled to its top, after the slop (8px for a finger, 4px for a mouse),
+ * from where the sheet is then. A press in a text field is the field's. Up
+ * past rest the sheet gives on the rubber band, and a sheet that cannot close
+ * (`dismissible={false}`) gives on it both ways. The scrim fades with the
+ * share of the sheet's height it has moved.
+ *
+ * Let go past a quarter of its height, unless the finger's last move was a
+ * flick back up, or after a flick down of 0.4px/ms over at least 24px, the
+ * sheet closes through Kobalte's `close()`, the path Cancel takes, so the host's
+ * `onOpenChange(false)` decides. Otherwise, or when the host keeps it open
+ * (it is still open once `close()` returns), it goes back to rest. Both ride
+ * a critically damped spring with a 0.3s response started at the sheet's
+ * speed (`settleCurve`), as transitions: the panel's and the scrim's
+ * `animation-duration` take the spring's length too, so Kobalte keeps them
+ * mounted until the panel has left. A sheet closed by Cancel, Escape or the
+ * scrim keeps the class's 200ms exit.
+ *
+ * Under reduced motion (the sheet's transitions are `opacity` alone) the drag
+ * still follows the finger; a close fades where the sheet was let go, and a
+ * return fades out where it is, moves to rest unseen and fades back in, over
+ * `--ui-dur-base` in all.
+ *
+ * A press while the sheet springs back, or rises as it opens, stops it where it
+ * is once it moves as a drag would, and drags it from there; a press that does
+ * not move lets it go on, and its click through. A sheet already closing is
+ * not caught. Cancel, Escape and the scrim stay the ways out that need no
+ * drag.
+ */
+function sheetDrag(
+  panel: HTMLElement,
+  context: DialogContextValue,
+  options: { dismissible: () => boolean; setDragging: (dragging: boolean) => void },
+) {
+  let phase: SheetPhase = "idle";
+  let press: Press | undefined;
+  let landing = 0;
+  let landingTimer: ReturnType<typeof setTimeout> | undefined;
+  let swallowUntil = 0;
+
+  const scrim = () => context.overlayRef();
+  const style = () => getComputedStyle(panel);
+  const draggable = () => style().getPropertyValue("--ui-sheet-drag").trim() === "1";
+  /** Under reduced motion the sheet's transitions are `opacity` alone (`tokens.css`). */
+  const fades = () => style().getPropertyValue("--ui-sheet-transition").trim() === "opacity";
+  const offsetNow = () => {
+    const transform = style().transform;
+    return transform && transform !== "none" ? new DOMMatrixReadOnly(transform).m42 : 0;
+  };
+
+  function release(el: HTMLElement | undefined, owns: readonly string[]) {
+    for (const property of owns) el?.style.removeProperty(property);
+  }
+  function releaseAll() {
+    release(panel, PANEL_OWNS);
+    release(scrim(), SCRIM_OWNS);
+  }
+  function cancelLanding() {
+    landing++;
+    clearTimeout(landingTimer);
+  }
+
+  /** Puts the sheet at `offset` px below its rest, and its scrim at the share left. */
+  function place(offset: number, height: number) {
+    panel.style.transform = translate(offset);
+    const shown = 1 - Math.min(1, Math.max(0, offset / height));
+    scrim()?.style.setProperty("opacity", String(shown));
+  }
+
+  /**
+   * Holds the panel and the scrim to what the drag writes. Under reduced
+   * motion the panel's transitions are `opacity` alone, so its `transform`
+   * already moves at once, and its opacity keeps the class's fade, which an
+   * Escape in the middle of a drag runs.
+   */
+  function hold() {
+    if (!fades()) panel.style.transition = "none";
+    scrim()?.style.setProperty("transition", "none");
+  }
+
+  /** Stops a sheet that is moving where it is on screen, and returns its offset. */
+  function freeze(): number {
+    const y = offsetNow();
+    const shown = scrim() ? getComputedStyle(scrim()!).opacity : undefined;
+    cancelLanding();
+    panel.style.removeProperty("opacity");
+    panel.style.removeProperty("transition");
+    hold();
+    panel.style.transform = translate(y);
+    if (shown !== undefined) scrim()?.style.setProperty("opacity", shown);
+    return y;
+  }
+
+  /** Whether the sheet is moving by itself: springing back, or rising as it opens. */
+  const moving = () => phase === "settling" || transitionOf(panel, "transform") !== undefined;
+
+  function startDrag(p: Press, event: PointerEvent, fromPress: boolean) {
+    const caught = moving();
+    p.base = caught ? freeze() : 0;
+    if (!caught) hold();
+    p.originY = caught || !fromPress ? event.clientY : p.y0;
+    p.height = panel.offsetHeight;
+    p.refused = !options.dismissible();
+    p.dragging = true;
+    phase = "dragging";
+    panel.setAttribute("data-dragging", "");
+    options.setDragging(true);
+    // A copy of the panel, nearly its own height lower, in its own colour, so a
+    // pull above rest shows no gap under its bottom edge. 24px short of the
+    // height, so the copy's round top corners sit behind the panel; first in
+    // the list, so the elevation's blur never paints over it.
+    panel.style.boxShadow = `0 ${p.height - 24}px 0 0 ${style().backgroundColor}, var(--ui-elev-2)`;
+    if (p.type !== "touch") window.getSelection()?.removeAllRanges();
+  }
+
+  /** Whether `target` and every box between it and the panel are scrolled to their top. */
+  function atTop(target: Element): boolean {
+    for (let el: Element | null = target; el; el = el.parentElement) {
+      if (el.scrollTop > 0) return false;
+      if (el === panel) return true;
+    }
+    return true;
+  }
+
+  function onPointerDown(event: PointerEvent) {
+    swallowUntil = 0;
+    if (press || !event.isPrimary) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (!context.isOpen() || phase === "closing" || phase === "dismissing") return;
+    const target = event.target;
+    if (!(target instanceof Element) || target.closest(TEXT_ENTRY)) return;
+    if (!draggable()) return;
+    // A press on the panel's own scrollbar scrolls it.
+    if (target === panel) {
+      const box = panel.getBoundingClientRect();
+      if (event.clientX >= box.left + panel.clientLeft + panel.clientWidth) return;
+    }
+    const handle = target.closest("[data-dialog-header]");
+    press = {
+      id: event.pointerId,
+      type: event.pointerType,
+      x0: event.clientX,
+      y0: event.clientY,
+      handle: handle !== null && panel.contains(handle),
+      owned: undefined,
+      moved: false,
+      dragging: false,
+      originY: event.clientY,
+      base: 0,
+      raw: 0,
+      offset: 0,
+      height: panel.offsetHeight,
+      refused: false,
+      samples: [{ y: event.clientY, t: event.timeStamp }],
+    };
+    window.addEventListener("pointermove", onPointerMove, true);
+    window.addEventListener("pointerup", onPointerUp, true);
+    window.addEventListener("pointercancel", onPointerCancel, true);
+  }
+
+  function onPointerMove(event: PointerEvent) {
+    const p = press;
+    if (!p || event.pointerId !== p.id) return;
+    const coalesced = event.getCoalescedEvents?.() ?? [];
+    for (const e of coalesced.length > 0 ? coalesced : [event]) {
+      p.samples.push({ y: e.clientY, t: e.timeStamp || event.timeStamp });
+    }
+    while (p.samples.length > 2 && p.samples[0]!.t < event.timeStamp - SAMPLE_KEEP_MS) {
+      p.samples.shift();
+    }
+    const dx = event.clientX - p.x0;
+    const dy = event.clientY - p.y0;
+    const pastSlop = Math.max(Math.abs(dx), Math.abs(dy)) > slopFor(p.type);
+    if (!p.dragging) {
+      if (!p.handle) {
+        // The first move decides, as the browser's own scroll lock does: down,
+        // mostly vertical, with everything under the press at its top.
+        p.owned ??= dy > 0 && Math.abs(dy) >= Math.abs(dx) && atTop(event.target as Element);
+        if (!p.owned) return end(true);
+        if (!pastSlop) return;
+      }
+      startDrag(p, event, p.handle);
+    }
+    if (pastSlop && !p.moved) {
+      p.moved = true;
+      try {
+        panel.setPointerCapture(p.id);
+      } catch {
+        // A pointer the browser has already let go of has nothing to capture.
+      }
+    }
+    p.raw = p.base + (event.clientY - p.originY);
+    p.offset = dragOffset(p.raw, p.height, p.refused);
+    place(p.offset, p.height);
+  }
+
+  function onPointerUp(event: PointerEvent) {
+    if (!press || event.pointerId !== press.id) return;
+    press.samples.push({ y: event.clientY, t: event.timeStamp });
+    end(false);
+  }
+  function onPointerCancel(event: PointerEvent) {
+    if (press && event.pointerId === press.id) end(true);
+  }
+  /**
+   * The panel lost a drag's pointer it had captured: the browser took it. A
+   * child losing the implicit capture a touch starts with, as the panel takes
+   * it over, bubbles here too, and is no loss.
+   */
+  function onLostCapture(event: PointerEvent) {
+    if (event.target !== panel) return;
+    if (press?.dragging && event.pointerId === press.id) end(true);
+  }
+
+  /** The touch's own scroll would take it from the drag (and send `pointercancel`). */
+  function onTouchMove(event: TouchEvent) {
+    if (!event.cancelable || !press) return;
+    if (press.dragging || press.owned === true) event.preventDefault();
+  }
+
+  /** The one click a drag that left its slop would make on what it went down on. */
+  function onClick(event: MouseEvent) {
+    if (performance.now() > swallowUntil) return;
+    swallowUntil = 0;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function end(cancelled: boolean) {
+    const p = press;
+    press = undefined;
+    window.removeEventListener("pointermove", onPointerMove, true);
+    window.removeEventListener("pointerup", onPointerUp, true);
+    window.removeEventListener("pointercancel", onPointerCancel, true);
+    if (!p) return;
+    if (panel.hasPointerCapture?.(p.id)) panel.releasePointerCapture(p.id);
+    if (!p.dragging) return;
+    panel.removeAttribute("data-dragging");
+    options.setDragging(false);
+    // Disarmed by the next press, so a tap after a drag that made no click
+    // still reaches its button.
+    if (p.moved) swallowUntil = performance.now() + 350;
+    const speed = cancelled ? 0 : releaseSpeed(p.samples);
+    const refused = p.refused || !options.dismissible();
+    const closes = closesOnRelease({
+      offset: p.offset,
+      travel: (p.samples[p.samples.length - 1]?.y ?? p.y0) - p.y0,
+      speed,
+      height: p.height,
+      refused,
+      cancelled,
+    });
+    const leaving = sheetSpeed(speed, p.raw, p.height, refused);
+    if (closes && dismiss(p, leaving)) return;
+    springBack(p, leaving);
+  }
+
+  /** Closes through Kobalte; false when the host kept the sheet open. */
+  function dismiss(p: Press, speed: number): boolean {
+    const motion = !fades();
+    const curve = motion ? settleCurve(p.offset, p.height, speed) : null;
+    const timed = [panel, scrim()].filter((el) => el !== undefined);
+    phase = "closing";
+    for (const el of timed) {
+      el.style.removeProperty("transition");
+      if (!curve) continue;
+      const time = `${curve.duration}ms`;
+      el.style.transitionDuration = time;
+      el.style.transitionTimingFunction = readsLinearEasing() ? curve.easing : curve.fallback;
+      el.style.animationDuration = time;
+    }
+    context.close();
+    if (context.isOpen()) {
+      for (const el of timed) {
+        el.style.removeProperty("transition");
+        el.style.removeProperty("animation-duration");
+      }
+      hold();
+      phase = "dragging";
+      return false;
+    }
+    phase = "dismissing";
+    // From where it was let go: the class's place for a closed sheet, its own
+    // height below the edge, or under reduced motion in place and clear.
+    if (motion) panel.style.removeProperty("transform");
+    scrim()?.style.removeProperty("opacity");
+    return true;
+  }
+
+  /** Back to rest from a drag that did not close the sheet. */
+  function springBack(p: Press, speed: number) {
+    phase = "settling";
+    const token = ++landing;
+    const land = () => {
+      if (token !== landing) return;
+      clearTimeout(landingTimer);
+      releaseAll();
+      phase = "idle";
+    };
+    // `next` runs once `property`'s transition on `el` ends, or, should it
+    // never end (a hidden tab draws no frames), 100ms after it would have.
+    const after = (el: HTMLElement, property: string, next: () => void) => {
+      if (token !== landing) return;
+      const run = transitionOf(el, property);
+      const wait = millis(getComputedStyle(el).transitionDuration) + 100;
+      clearTimeout(landingTimer);
+      landingTimer = setTimeout(next, wait);
+      run?.addEventListener(
+        "finish",
+        () => {
+          if (token === landing) next();
+        },
+        { once: true },
+      );
+    };
+    if (fades()) {
+      if (Math.abs(p.offset) < 1) return land();
+      // Out where it is, to rest unseen, back in: nothing moves by itself.
+      const half = (el: HTMLElement) => {
+        el.style.removeProperty("transition");
+        el.style.transitionProperty = "opacity";
+        el.style.transitionDuration = "calc(var(--ui-dur-base) / 2)";
+        el.style.transitionTimingFunction = "var(--ui-ease-sheet)";
+      };
+      half(panel);
+      void style().opacity;
+      panel.style.opacity = "0";
+      after(panel, "opacity", () => {
+        if (token !== landing) return;
+        panel.style.removeProperty("transform");
+        const veil = scrim();
+        if (veil) {
+          half(veil);
+          veil.style.removeProperty("opacity");
+        }
+        panel.style.opacity = "1";
+        after(panel, "opacity", land);
+      });
+      return;
+    }
+    const curve = settleCurve(p.offset, 0, speed);
+    if (!curve) return land();
+    // Resolve the place just painted, so the transition starts from it.
+    void style().transform;
+    const time = `${curve.duration}ms`;
+    const ease = readsLinearEasing() ? curve.easing : curve.fallback;
+    for (const el of [panel, scrim()]) {
+      if (!el) continue;
+      el.style.removeProperty("transition");
+      el.style.transitionDuration = time;
+      el.style.transitionTimingFunction = ease;
+    }
+    panel.style.removeProperty("transform");
+    scrim()?.style.removeProperty("opacity");
+    after(panel, "transform", land);
+  }
+
+  /** Kobalte opened or closed the sheet by some other way than the drag. */
+  function openChanged(open: boolean) {
+    if (open) {
+      // Reopened while it left after a drag: the class's entry turns it round.
+      if (phase !== "dismissing") return;
+      cancelLanding();
+      releaseAll();
+      phase = "idle";
+      return;
+    }
+    if (phase === "closing" || phase === "dismissing") return;
+    // Cancel, Escape or the scrim in the middle of a drag or a return: the
+    // class's exit runs from where the sheet is.
+    if (press) {
+      const p = press;
+      press = undefined;
+      window.removeEventListener("pointermove", onPointerMove, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      window.removeEventListener("pointercancel", onPointerCancel, true);
+      if (panel.hasPointerCapture?.(p.id)) panel.releasePointerCapture(p.id);
+      panel.removeAttribute("data-dragging");
+      options.setDragging(false);
+    }
+    if (phase === "idle") return;
+    cancelLanding();
+    releaseAll();
+    phase = "idle";
+  }
+
+  panel.addEventListener("pointerdown", onPointerDown);
+  panel.addEventListener("lostpointercapture", onLostCapture);
+  panel.addEventListener("touchmove", onTouchMove, { passive: false });
+  panel.addEventListener("click", onClick, true);
+  return {
+    openChanged,
+    detach() {
+      cancelLanding();
+      end(true);
+      panel.removeEventListener("pointerdown", onPointerDown);
+      panel.removeEventListener("lostpointercapture", onLostCapture);
+      panel.removeEventListener("touchmove", onTouchMove);
+      panel.removeEventListener("click", onClick, true);
+    },
+  };
+}
+
+/**
+ * Wires `sheetDrag` to the panel while it is mounted. Renders nothing; it sits
+ * inside the panel so it comes and goes with it.
+ */
+function SheetDrag(props: {
+  dismissible: () => boolean;
+  setDragging: (dragging: boolean) => void;
+}) {
+  const context = useDialogContext();
+  let drag: ReturnType<typeof sheetDrag> | undefined;
+  createEffect(() => {
+    const panel = context.contentRef();
+    if (!panel) return;
+    const wired = sheetDrag(panel, context, props);
+    drag = wired;
+    onCleanup(() => {
+      wired.detach();
+      if (drag === wired) drag = undefined;
+    });
+  });
+  createEffect(on(context.isOpen, (open) => drag?.openChanged(open), { defer: true }));
+  return null;
+}
+
+type DialogContentProps = ComponentProps<"div"> &
+  Pick<DialogContentOptions, "onEscapeKeyDown" | "onInteractOutside"> & {
+    presentation?: keyof typeof DIALOG_PRESENTATION;
+    /**
+     * False while the host refuses to close: a drag then gives with resistance
+     * and goes back, and Escape and a press outside do nothing. A close button
+     * inside the dialog is the host's to disable, as `StepUpDialog` disables
+     * Cancel. Defaults to true.
+     */
+    dismissible?: boolean;
+  };
+
 /**
  * The panel. Its plane is `--ui-surface`, its shadow the contract's raised
  * elevation, `--ui-elev-2` — the one `Modal`, the raised `Card` and the accent
@@ -208,15 +759,37 @@ function keepWrappedFocusInView(event: FocusEvent) {
  * keeps focus clear of that header as it scrolls (`DIALOG_SCROLL_PADDING`),
  * and keeps a control the focus trap wraps onto in view
  * (`keepWrappedFocusInView`).
+ *
+ * As a sheet below `md` it can be dragged down to close (`sheetDrag`); while a
+ * drag holds it, no text in it is selected. `dismissible={false}` refuses the
+ * drag, Escape and a press outside. A host closes or refuses in
+ * `onOpenChange` at once: one that closes later is read as a refusal, and
+ * its sheet springs back before it leaves.
  */
-const DialogContent: ParentComponent<
-  ComponentProps<"div"> & { presentation?: keyof typeof DIALOG_PRESENTATION }
-> = (props) => {
-  const [local, others] = splitProps(props, ["class", "children", "presentation", "onFocusIn"]);
+const DialogContent: ParentComponent<DialogContentProps> = (props) => {
+  const [local, others] = splitProps(props, [
+    "class",
+    "children",
+    "presentation",
+    "onFocusIn",
+    "dismissible",
+    "onEscapeKeyDown",
+    "onInteractOutside",
+  ]);
   const presentation = () => local.presentation ?? "centred";
+  const dismissible = () => local.dismissible !== false;
+  const [dragging, setDragging] = createSignal(false);
   const onFocusIn = (event: FocusEvent & { currentTarget: HTMLDivElement; target: Element }) => {
     keepWrappedFocusInView(event);
     if (typeof local.onFocusIn === "function") local.onFocusIn(event);
+  };
+  const onEscapeKeyDown: DialogContentOptions["onEscapeKeyDown"] = (event) => {
+    local.onEscapeKeyDown?.(event);
+    if (!dismissible()) event.preventDefault();
+  };
+  const onInteractOutside: DialogContentOptions["onInteractOutside"] = (event) => {
+    local.onInteractOutside?.(event);
+    if (!dismissible()) event.preventDefault();
   };
   return (
     <DialogPortal>
@@ -225,6 +798,7 @@ const DialogContent: ParentComponent<
         class={clsx(
           "base:bg-ui-surface base:border-ui-hairline base:fixed base:top-1/2 base:left-1/2 base:z-50 base:w-full base:max-w-lg base:-translate-x-1/2 base:-translate-y-1/2 base:rounded-ui-lg base:border base:shadow-[var(--ui-elev-2)] base:focus:outline-none",
           "base:max-h-[85dvh] base:overflow-y-auto base:scroll-edge-timeline",
+          "base:data-[dragging]:select-none",
           DIALOG_SCROLL_PADDING,
           DIALOG_FOCUS_TRAP,
           DIALOG_PRESENTATION[presentation()],
@@ -232,9 +806,16 @@ const DialogContent: ParentComponent<
           local.class,
         )}
         onFocusIn={onFocusIn}
+        onEscapeKeyDown={onEscapeKeyDown}
+        onInteractOutside={onInteractOutside}
         {...others}
       >
-        {local.children}
+        <Show when={presentation() === "sheet"}>
+          <SheetDrag dismissible={dismissible} setDragging={setDragging} />
+        </Show>
+        <SheetHandleContext.Provider value={presentation() === "sheet" ? { dragging } : undefined}>
+          {local.children}
+        </SheetHandleContext.Provider>
       </KobalteDialog.Content>
     </DialogPortal>
   );
@@ -263,9 +844,17 @@ const SCROLL_EDGE =
  * title can wrap, so the height is measured, not assumed, by a
  * `ResizeObserver` on the header and the panel. Past a third of the panel's
  * height the row is no longer stuck.
+ *
+ * In a sheet below `md` it is the handle a drag closes the sheet by
+ * (`sheetDrag`): it takes no touch scroll or text selection, and shows the
+ * grab cursor, grabbing while a drag holds the sheet. It draws no grabber bar:
+ * the title row is the handle (the owner's choice on #2288).
  */
+const SHEET_HANDLE = "max-md:base:touch-none max-md:base:select-none";
+
 const DialogHeader: Component<ComponentProps<"div">> = (props) => {
   const [local, others] = splitProps(props, ["class", "ref"]);
+  const sheet = useContext(SheetHandleContext);
   let header: HTMLDivElement | undefined;
   onMount(() => {
     const row = header;
@@ -293,10 +882,13 @@ const DialogHeader: Component<ComponentProps<"div">> = (props) => {
         header = el;
         if (typeof local.ref === "function") local.ref(el);
       }}
+      data-dialog-header=""
       class={clsx(
         "base:sticky base:top-0 base:z-1 base:bg-ui-surface",
         "base:flex base:items-center base:justify-between base:border-b base:border-ui-hairline base:p-4",
         SCROLL_EDGE,
+        sheet && SHEET_HANDLE,
+        sheet && (sheet.dragging() ? "max-md:base:cursor-grabbing" : "max-md:base:cursor-grab"),
         local.class,
       )}
       {...others}
