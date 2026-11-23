@@ -13,7 +13,7 @@
  *    nail down that the recovery session is minted on the far side of one. Their
  *    red is minting the session with the ordinary audience.
  *  - **Guards.** The no-slide rule, the rotation carry-forward and the
- *    restriction lift are new behaviour, and each goes red on its own edit.
+ *    restriction lift are guards; each goes red on its own edit.
  *
  * See `[[wiki/osn/sessions]]` and `wiki/osn/account-recovery-factors.md` §B.
  */
@@ -106,6 +106,9 @@ beforeAll(async () => {
 
 afterEach(() => {
   vi.useRealTimers();
+  // A `Date.now` spy a failed case left in place would pin the clock for the
+  // cases after it.
+  vi.restoreAllMocks();
 });
 
 /** A fresh in-memory database plus the Drizzle handle, so tests can read the row. */
@@ -683,12 +686,10 @@ describe("restricted recovery session — the session cookie", () => {
   it.effect("round-trips through the cookie the recovery route sets", () => {
     const { layer } = makeHarness();
     return Effect.gen(function* () {
-      // Not a guard — every function below is unchanged by this work. It is the
-      // assertion the issue asked for here rather than in the branch that adds
-      // the endpoint: `completePasskeyRegistration`'s sweep derives the caller
-      // from this cookie and answers `session_stale` (409) when it cannot, so a
-      // recovery route that forgets `buildSessionCookies` produces a session
-      // that cannot finish the one thing it exists to do.
+      // `completePasskeyRegistration`'s sweep derives the caller from this
+      // cookie and answers `session_stale` (409) when it cannot, so a recovery
+      // route that forgets `buildSessionCookies` leaves a session that cannot
+      // enrol a passkey.
       const user = yield* auth.registerProfile("rs-cookie@example.com", "rscookie");
       const restricted = yield* auth.issueRecoverySession(
         user.id,
@@ -926,6 +927,22 @@ describe("restricted recovery session — enrolling a passkey lifts the restrict
       // No step-up token, account already holds a passkey.
       const refused = yield* Effect.flip(auth.beginPasskeyRegistration(user.accountId));
       expect(refused._tag).toBe("AuthError");
+
+      // An ordinary live session of the same account, named the same way, is
+      // refused too: the bypass belongs to the restricted session alone.
+      const ordinary = yield* auth.issueTokens(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+      );
+      const refusedOrdinary = yield* Effect.flip(
+        auth.beginPasskeyRegistration(user.accountId, undefined, {
+          recoverySessionHash: auth.hashSessionToken(ordinary.refreshToken),
+        }),
+      );
+      expect(refusedOrdinary._tag).toBe("AuthError");
 
       const allowed = yield* auth.beginPasskeyRegistration(user.accountId, undefined, {
         recoverySessionHash: auth.hashSessionToken(restricted.refreshToken),
@@ -1403,8 +1420,8 @@ describe("restricted recovery session — the passkey ceiling", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {
       // The boundary that matters, and the one a real second recovery always
-      // meets. `englishstreetventures/osn#970`'s fix put the account at the ceiling with one
-      // `recovery` row on it; `accounts.last_recovered_at` is stamped when that
+      // meets. An account that recovers at the cap ends on the ceiling with one
+      // `recovery` row; `accounts.last_recovered_at` is stamped when that
       // session is minted, so the cooldown makes the EARLIEST permitted second
       // recovery the moment that credential matures. The sole candidate is
       // therefore matured, every time — and `provenance_amr` is never updated
@@ -1416,7 +1433,7 @@ describe("restricted recovery session — the passkey ceiling", () => {
       // step-up presented anywhere. The episode bound is what refuses that: the
       // credential predates this recovery, so this recovery may not have it.
       //
-      // The red for this test is restoring the unfiltered candidate selection —
+      // Goes red on selecting candidates by provenance alone —
       // `.filter((pk) => pk.provenanceAmr === "recovery")` with no bound on
       // `created_at`.
       const user = yield* auth.registerProfile("rs-matured@example.com", "rsmatured");
@@ -1437,10 +1454,11 @@ describe("restricted recovery session — the passkey ceiling", () => {
       yield* enrol(user.accountId, sessionHash);
 
       const rows = yield* passkeyRows(db, user.accountId);
-      // Kept. This is the assertion the finding is about.
+      // Kept: a credential older than this recovery is out of its reach.
       expect(rows.map((r) => r.id)).toContain("pk_matured");
       // And the enrolment still happened — the threshold gave way, not the
-      // credential. A refusal here would be the original lockout returning.
+      // credential. A refusal here would leave an account at the cap with no
+      // way back in.
       expect(rows).toHaveLength(RECOVERY_ENROLMENT_PASSKEY_CEILING + 1);
       expect(lastOutcome()).toBe("ceiling_yielded");
     }).pipe(Effect.provide(layer));
