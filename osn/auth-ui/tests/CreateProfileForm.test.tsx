@@ -83,7 +83,7 @@ describe("CreateProfileForm", () => {
       expect(mockCheckHandle).toHaveBeenCalledWith("alice", expect.any(AbortSignal));
     });
 
-    it("aborts the previous in-flight check before issuing a new one (P-W10)", async () => {
+    it("aborts the previous in-flight check before issuing a new one", async () => {
       mockCheckHandle.mockImplementation(() => new Promise(() => {}));
       render(() => <CreateProfileForm checkHandle={mockCheckHandle} />);
 
