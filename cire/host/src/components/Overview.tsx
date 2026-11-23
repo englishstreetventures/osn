@@ -521,7 +521,7 @@ export default function Overview(props: {
                   <ModuleIcon icon={moduleDef(AGENDA_MODULE[item.kind]).icon} />
                   <span class="text-text text-ui-base grow truncate">{item.label}</span>
                   <Show when={item.overdue}>
-                    <span class="font-body text-error text-ui-xs tracking-ui-wide shrink-0 uppercase">
+                    <span class="font-body text-error text-ui-xs tracking-ui-wider shrink-0 uppercase">
                       overdue
                     </span>
                   </Show>
