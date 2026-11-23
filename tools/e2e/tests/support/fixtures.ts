@@ -572,13 +572,34 @@ export async function addVirtualAuthenticator(page: Page): Promise<{
   };
 }
 
-/** One row from a stack database, opened read-only for this query alone. */
+/**
+ * How long `queryOne` and `writeRow` wait for a stack server's lock before
+ * SQLite refuses them with `database is locked`. The stack's databases use the
+ * rollback journal, so a server's commit locks out readers as well as writers.
+ */
+const STACK_DB_BUSY_TIMEOUT_MS = 5000;
+
+/**
+ * Opens a stack database that waits out a server's lock. The wait is SQLite's
+ * own `busy_timeout`, set before any statement, so `tests/fixtures.test.ts`
+ * checks under Bun the same wait Playwright's Node runner gets.
+ */
+function openStackDb(dbPath: string, readOnly: boolean): DatabaseSync {
+  const db = new DatabaseSync(dbPath, { readOnly });
+  db.exec(`PRAGMA busy_timeout = ${STACK_DB_BUSY_TIMEOUT_MS}`);
+  return db;
+}
+
+/**
+ * One row from a stack database, opened read-only for this query alone.
+ * Waits out a server's write lock.
+ */
 export function queryOne<T>(
   dbPath: string,
   sql: string,
   ...params: Array<string | number>
 ): T | undefined {
-  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const db = openStackDb(dbPath, true);
   try {
     return db.prepare(sql).get(...params) as T | undefined;
   } finally {
@@ -593,9 +614,8 @@ export function queryOne<T>(
  * Waits out the server's own write lock, and throws unless one row changed.
  */
 export function writeRow(dbPath: string, sql: string, ...params: Array<string | number>): void {
-  const db = new DatabaseSync(dbPath);
+  const db = openStackDb(dbPath, false);
   try {
-    db.exec("PRAGMA busy_timeout = 5000");
     const changed = db.prepare(sql).run(...params).changes;
     if (changed !== 1) throw new Error(`writeRow: ${changed} rows changed by ${sql}`);
   } finally {
