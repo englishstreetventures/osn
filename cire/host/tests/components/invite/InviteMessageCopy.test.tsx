@@ -36,6 +36,7 @@ import {
   __resetHouseholdsCache,
   ensureHouseholdsLoaded,
   householdsAccessor,
+  invalidateHouseholds,
 } from "../../../src/lib/households-store";
 import {
   authFetchMock,
@@ -290,6 +291,55 @@ describe("InviteMessageCopy", () => {
     await waitFor(() =>
       expect(screen.getByText("Could not load the households. Refresh to try again.")).toBeTruthy(),
     );
+  });
+
+  /** Mount with the codes revision in a signal the test moves. */
+  function mountAtRevision(revision: number) {
+    const [codesRevision, setCodesRevision] = createSignal(revision);
+    render(() => (
+      <InviteMessageCopy
+        weddingId="wed_1"
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam"
+        canEdit
+        savedLine={null}
+        draftLine=""
+        codesRevision={codesRevision()}
+      />
+    ));
+    return setCodesRevision;
+  }
+
+  it("reads the households once more when a read is replaced while out, and lists them", async () => {
+    let answerFirst!: (res: Response) => void;
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answerFirst = resolve)));
+    authFetchMock.mockResolvedValueOnce(json(HOUSEHOLDS));
+    mountAtRevision(1);
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    // Another view's write marks the list stale: the read out was replaced,
+    // not refused.
+    invalidateHouseholds("wed_1");
+    answerFirst(json(HOUSEHOLDS));
+
+    await loaded();
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Could not load the households. Refresh to try again.")).toBeNull();
+  });
+
+  it("keeps a newer read's list when an older read fails after it", async () => {
+    let answerFirst!: (res: Response) => void;
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answerFirst = resolve)));
+    authFetchMock.mockResolvedValueOnce(json(HOUSEHOLDS));
+    const setCodesRevision = mountAtRevision(1);
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    // A re-mint: the codes are read again, and that read lands first.
+    setCodesRevision(2);
+    await loaded();
+    answerFirst(json({ error: "boom" }, 500));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(optionLabels()).toContain("Sharma · SHARMA-KITE-77Q2");
+    expect(screen.queryByText("Could not load the households. Refresh to try again.")).toBeNull();
   });
 
   it("sends a signed-out organiser to sign in", async () => {

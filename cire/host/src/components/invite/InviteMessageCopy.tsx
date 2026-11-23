@@ -78,9 +78,16 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
   const pickerNoteId = createUniqueId();
   const copyNoteId = createUniqueId();
 
+  /** Numbers each read of the households: only the newest one's answer, or
+   *  failure, is shown. */
+  let readSeq = 0;
+
   /** The households, through the shared cache: a fresh list sends nothing,
-   *  and a re-mint marks it stale, so the read after one fetches the codes. */
-  async function loadHouseholds() {
+   *  and a re-mint marks it stale, so the read after one fetches the codes. A
+   *  read replaced while out (a write elsewhere marked the list stale) is not
+   *  a failure: the list is read once more, as the starter checklist does. */
+  async function loadHouseholds(retried = false): Promise<void> {
+    const mine = ++readSeq;
     try {
       const loaded = await ensureHouseholdsLoaded(props.weddingId, async () => {
         const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/households")));
@@ -91,6 +98,8 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
         if (!res.ok) throw new Error(`Could not load households (${res.status})`);
         return (await res.json()) as OrganiserHouseholdRow[];
       });
+      if (mine !== readSeq) return;
+      if (!loaded && !retried) return await loadHouseholds(true);
       const rows = householdsAccessor(props.weddingId)();
       if (!loaded || !rows) throw new Error("households unavailable");
       // A copy: the store changes the objects it is given.
@@ -98,7 +107,7 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
       setStatus("ready");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      setStatus("failed");
+      if (mine === readSeq) setStatus("failed");
     }
   }
   // A new codes revision means the codes were re-minted: read them again.
