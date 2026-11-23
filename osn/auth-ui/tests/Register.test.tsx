@@ -1700,7 +1700,9 @@ describe("Register in a dialog", () => {
   // The footer's Cancel is the dialog's way out, so it holds while the send runs.
   it("holds the footer's Cancel while the send runs", async () => {
     vi.useFakeTimers();
-    onTestFinished(() => vi.useRealTimers());
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const client = makeClientStub();
     client.checkHandle.mockResolvedValue({ available: true });
     client.beginRegistration.mockReturnValue(new Promise(() => {}));

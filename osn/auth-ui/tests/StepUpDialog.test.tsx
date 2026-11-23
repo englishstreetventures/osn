@@ -1201,7 +1201,9 @@ describe("StepUpDialog — the sheet", () => {
   // F12
   it("leaves focus where the host put it after the token", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    onTestFinished(() => vi.useRealTimers());
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
     stub.passkeyComplete.mockResolvedValue({ token: "eyJpk", expiresIn: 300 });
     function NextStep() {
