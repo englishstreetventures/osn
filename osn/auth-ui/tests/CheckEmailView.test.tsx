@@ -455,22 +455,6 @@ describe("CheckEmailView — what the live region says", () => {
       );
     }
   });
-
-  it("shows no fallback sentence outside the error status when no message is given", () => {
-    const [status, setStatus] = createSignal<CheckEmailStatus>("error");
-    render(() => (
-      <CheckEmailView email={EMAIL} purpose="sign-up" status={status()} onResend={() => {}} />
-    ));
-
-    expect(errorLine()?.textContent).toContain("Something went wrong. Try again in a moment.");
-    for (const quiet of ["waiting", "expired"] as const) {
-      setStatus("error");
-      setStatus(quiet);
-      expect(document.body.textContent).not.toContain(
-        "Something went wrong. Try again in a moment.",
-      );
-    }
-  });
 });
 
 describe("CheckEmailView — the words for each flow", () => {

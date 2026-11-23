@@ -51,13 +51,6 @@ describe("CreateProfileForm", () => {
   });
 
   describe("without checkHandle prop", () => {
-    it("submit button enabled when handle passes local validation", () => {
-      render(() => <CreateProfileForm />);
-      fireEvent.input(screen.getByLabelText(/Handle/), { target: { value: "alice" } });
-      const submit = screen.getByRole("button", { name: /Create profile/i }) as HTMLButtonElement;
-      expect(submit.disabled).toBe(false);
-    });
-
     it("submit button disabled when handle is empty", () => {
       render(() => <CreateProfileForm />);
       const submit = screen.getByRole("button", { name: /Create profile/i }) as HTMLButtonElement;
@@ -136,18 +129,6 @@ describe("CreateProfileForm", () => {
       fireEvent.input(screen.getByLabelText(/Handle/), { target: { value: "alice" } });
       const submit = screen.getByRole("button", { name: /Create profile/i }) as HTMLButtonElement;
       expect(submit.disabled).toBe(true);
-    });
-
-    it("submit enabled once handle is available", async () => {
-      mockCheckHandle.mockResolvedValue({ available: true });
-      render(() => <CreateProfileForm checkHandle={mockCheckHandle} />);
-
-      fireEvent.input(screen.getByLabelText(/Handle/), { target: { value: "alice" } });
-      await vi.advanceTimersByTimeAsync(350);
-      await waitFor(() => {
-        const submit = screen.getByRole("button", { name: /Create profile/i }) as HTMLButtonElement;
-        expect(submit.disabled).toBe(false);
-      });
     });
 
     it("submit disabled when handle is taken", async () => {

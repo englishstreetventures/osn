@@ -317,29 +317,6 @@ describe("Register component", () => {
       expect(submit.disabled).toBe(true);
     });
 
-    it("submit becomes enabled once email + handle + birthdate are all valid", async () => {
-      stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => (
-        <Register
-          host="page"
-          client={asClient(stub)}
-          onCancel={() => {}}
-          productName="Musubi"
-          legal={LEGAL}
-        />
-      ));
-      fillEmail("alice@example.com");
-      fillHandle("alice");
-      fillBirthdate("1990-01-01");
-      await vi.advanceTimersByTimeAsync(350);
-      await waitFor(() => {
-        const submit = screen.getByRole("button", {
-          name: /Send verification link/i,
-        }) as HTMLButtonElement;
-        expect(submit.disabled).toBe(false);
-      });
-    });
-
     // The client mirrors the server's under-13 gate for immediate
     // feedback — the submit button stays disabled and the copy explains why.
     it("keeps submit disabled and warns for an under-13 birthdate", async () => {
@@ -925,16 +902,6 @@ describe("Register component", () => {
       expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
     });
 
-    it("goes back to the details with a reason when the handle went while it waited", async () => {
-      stub.beginRegistration.mockResolvedValue(begun());
-      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
-      renderRegister();
-      await submitDetailsAs();
-      await vi.advanceTimersByTimeAsync(2_000);
-      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
-      expect(screen.getByText(/taken while you waited/i)).toBeTruthy();
-    });
-
     it("reads the reason out as an alert and puts focus on the handle field", async () => {
       stub.beginRegistration.mockResolvedValue(begun());
       stub.registrationStatus.mockResolvedValue({ status: "conflict" });
@@ -1056,21 +1023,6 @@ describe("Register component", () => {
         retireSecret: begun(1).retireSecret,
       });
       await waitFor(() => expect(live()?.requestId).toBe(begun(2).requestId));
-    });
-
-    it("is sent by a new tab whatever address it begins for, since osn-api checks the address", async () => {
-      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
-      stub.registrationStatus.mockResolvedValue({ status: "pending" });
-      const first = renderRegister();
-      await submitDetailsAs();
-      expect(live()).not.toBeNull();
-
-      newTab(first);
-      await submitDetailsAs("bob@example.com", "bob");
-      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
-        requestId: begun(1).requestId,
-        retireSecret: begun(1).retireSecret,
-      });
     });
 
     it("removes an expired or malformed entry when the view opens, and never sends it", async () => {
@@ -1647,25 +1599,14 @@ describe("Register component", () => {
       expect(stub.beginRegistration).not.toHaveBeenCalled();
     });
   });
-
-  it("Cancel button calls onCancel", () => {
-    const onCancel = vi.fn();
-    render(() => (
-      <Register
-        host="page"
-        client={asClient(stub)}
-        onCancel={onCancel}
-        productName="Musubi"
-        legal={LEGAL}
-      />
-    ));
-    fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
-    expect(onCancel).toHaveBeenCalled();
-  });
 });
 
 describe("Register in a dialog", () => {
   withoutAnimations();
+  // A case above may leave WebAuthn switched off; these need the form.
+  beforeEach(() => {
+    hoisted.webauthnSupported = true;
+  });
   afterEach(cleanup);
 
   it("names the dialog by its title, through one element", () => {

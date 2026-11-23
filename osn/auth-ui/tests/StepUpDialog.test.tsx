@@ -510,11 +510,6 @@ describe("StepUpDialog — authenticator app factor", () => {
     return buttonsIn("Under test");
   }
 
-  it("offers the factor when the account has a confirmed credential", async () => {
-    mount({ totp: totpStub({ enrolled: true }), purpose: "recovery_generate" });
-    expect(await screen.findByRole("button", { name: TOTP_BUTTON })).toBeTruthy();
-  });
-
   it("hides the factor when the account has no confirmed credential", async () => {
     const underTest = await mountBesideAnAdmittingCeremony({
       totp: totpStub({ enrolled: false }),

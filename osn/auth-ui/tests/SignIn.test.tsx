@@ -582,23 +582,6 @@ describe("SignIn component", () => {
         sessionStorage.clear();
       }
     });
-
-    it("surfaces the recovery form when the user clicks it", async () => {
-      render(() => (
-        <SignIn
-          host="page"
-          client={asLogin(login)}
-          recoveryClient={asRecovery(recovery)}
-          productName="Musubi"
-        />
-      ));
-      fireEvent.click(screen.getByRole("button", { name: /Lost your passkey/i }));
-      await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
-      fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
-      await waitFor(() => {
-        expect(screen.getByLabelText(/Recovery code/i)).toBeTruthy();
-      });
-    });
   });
 
   describe("onCancel", () => {

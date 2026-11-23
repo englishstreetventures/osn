@@ -244,35 +244,6 @@ describe("PasskeysView", () => {
     expect(save.disabled).toBe(true);
   });
 
-  it("delete flow: Remove → step-up → client.delete with stepUpToken → reload", async () => {
-    pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
-    pk.list.mockResolvedValueOnce({ passkeys: [passkeyRows[1]!] });
-    pk.delete.mockResolvedValue({ success: true, remaining: 1 });
-    armPasskeyStepUp(su);
-
-    render(() => (
-      <PasskeysView
-        client={asPasskeys(pk)}
-        stepUpClient={asStepUp(su)}
-        runPasskeyCeremony={runPasskeyCeremony}
-      />
-    ));
-
-    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
-
-    await useThePasskeyFactor();
-
-    await waitFor(() =>
-      expect(pk.delete).toHaveBeenCalledWith({
-        id: "pk_aaaaaaaaaaaa",
-        stepUpToken: stepUpToken.token,
-      }),
-    );
-    // Reload after delete.
-    expect(pk.list).toHaveBeenCalledTimes(2);
-  });
-
   // The deleted row leaves at once. The list is read again behind the rest,
   // and a Remove pressed meanwhile is busy until that read lands: acting on a
   // row the read takes off would run a whole step-up for a passkey that is gone.

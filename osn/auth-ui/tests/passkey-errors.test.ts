@@ -107,18 +107,6 @@ describe("describePasskeyError", () => {
   );
 
   // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
-  it.each(CEREMONIES)(
-    "W3 (%s): a NotAllowedError gets the ceremony's own sentence",
-    async (ceremony) => {
-      const thrown = await failedCeremony(
-        ceremony,
-        new DOMException("browser text", "NotAllowedError"),
-      );
-      expect(describePasskeyError(thrown, ceremony)).toBe(NOT_ALLOWED[ceremony]);
-    },
-  );
-
-  // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
   it("W3: an InvalidStateError says the passkey exists only when adding one", async () => {
     const adding = await failedCeremony(
       "registration",

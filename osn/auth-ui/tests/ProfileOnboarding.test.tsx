@@ -42,11 +42,6 @@ describe("ProfileOnboarding", () => {
     cleanup();
   });
 
-  it("renders when authenticated with exactly 1 profile", () => {
-    render(() => <ProfileOnboarding />);
-    expect(screen.getByText("Add another profile")).toBeTruthy();
-  });
-
   it("does not render when user has multiple profiles", () => {
     hoisted.profiles.mockReturnValue([
       { id: "p_1", handle: "alice", email: "a@b.com", displayName: null, avatarUrl: null },

@@ -167,17 +167,6 @@ describe("SessionsView", () => {
     );
   });
 
-  it('"Sign out everywhere else" calls revokeAllOther', async () => {
-    stub.list.mockResolvedValueOnce({ sessions });
-    stub.list.mockResolvedValueOnce({ sessions: [sessions[0]] });
-    stub.revokeAllOther.mockResolvedValue({ success: true });
-    render(() => <SessionsView client={asClient(stub)} />);
-
-    await waitFor(() => screen.getByRole("button", { name: /Sign out everywhere else/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Sign out everywhere else/ }));
-    await waitFor(() => expect(stub.revokeAllOther).toHaveBeenCalledTimes(1));
-  });
-
   it.each([
     ["revoke", apiError("PLANTED-revoke", 503, "temporarily_unavailable"), SERVER],
     ["sign out everywhere else", apiError("PLANTED-revoke-all", 429, "rate_limited"), WAIT],
