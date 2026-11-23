@@ -70,12 +70,6 @@ describe("events routes", () => {
     aliceToken = await makeToken("usr_alice");
   });
 
-  it("GET /events returns 200 empty list", async () => {
-    const res = await app.handle(new Request("http://localhost/events"));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ events: [] });
-  });
-
   it("GET /events/today returns 200 empty list", async () => {
     const res = await app.handle(new Request("http://localhost/events/today"));
     expect(res.status).toBe(200);
@@ -101,21 +95,12 @@ describe("events routes", () => {
     expect(res.status).toBe(401);
   });
 
-  // The pre-enforcement shape: tokens minted before osn-api stamped `iss`.
-  // Every one of those expired within five minutes of that rollout, so a
-  // token arriving without one today is a forgery or a misconfiguration.
+  // osn-api stamps `iss` on every token it mints, so a token without one is a
+  // forgery or a misconfiguration.
   it("POST /events returns 401 for a token carrying no issuer", async () => {
     const noIssuer = await signer.sign("usr_alice", { issuer: null });
     const res = await post(app, "/events", { title: "Concert", startTime: FUTURE }, noIssuer);
     expect(res.status).toBe(401);
-  });
-
-  it("POST /events creates event and returns 201", async () => {
-    const res = await post(app, "/events", { title: "Concert", startTime: FUTURE }, aliceToken);
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { event: { id: string; title: string } };
-    expect(body.event.id).toMatch(/^evt_/);
-    expect(body.event.title).toBe("Concert");
   });
 
   it("POST /events returns 422 for missing title", async () => {

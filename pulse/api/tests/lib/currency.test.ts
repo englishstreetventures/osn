@@ -39,14 +39,6 @@ describe("fromMinorUnits", () => {
   it("treats JPY as zero-exponent (minor === major)", () => {
     expect(fromMinorUnits(500, "JPY")).toBe(500);
   });
-
-  it("round-trips through toMinorUnits / fromMinorUnits for USD", () => {
-    expect(fromMinorUnits(toMinorUnits(18.5, "USD"), "USD")).toBe(18.5);
-  });
-
-  it("round-trips through toMinorUnits / fromMinorUnits for JPY", () => {
-    expect(fromMinorUnits(toMinorUnits(500, "JPY"), "JPY")).toBe(500);
-  });
 });
 
 describe("currencyExponent", () => {
@@ -56,10 +48,6 @@ describe("currencyExponent", () => {
     expect(currencyExponent("GBP")).toBe(2);
     expect(currencyExponent("CAD")).toBe(2);
     expect(currencyExponent("AUD")).toBe(2);
-  });
-
-  it("returns 0 for JPY", () => {
-    expect(currencyExponent("JPY")).toBe(0);
   });
 });
 

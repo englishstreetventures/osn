@@ -70,7 +70,7 @@ describe("getConnectionIds", () => {
     expect(headers["authorization"]).toMatch(/^ARC /);
   });
 
-  it("mints its token with the minimal graph:read scope (T-U2 — arcAuthHeader default)", async () => {
+  it("mints its token with the minimal graph:read scope (the arcAuthHeader default)", async () => {
     vi.mocked(getOrCreateArcToken).mockClear();
     mockFetch({ connectionIds: [] });
     await Effect.runPromise(getConnectionIds("usr_alice"));
@@ -141,7 +141,7 @@ describe("getAccountIdForProfile", () => {
     expect(url).toContain("profileId=usr%2Fwith%26special%3Fchars");
   });
 
-  it("mints its token with the dedicated graph:resolve-account scope (T-U2)", async () => {
+  it("mints its token with the dedicated graph:resolve-account scope", async () => {
     // osn-api's /profile-account rejects plain graph:read — a silent
     // regression to the default scope would only surface as production 401s.
     vi.mocked(getOrCreateArcToken).mockClear();
@@ -292,7 +292,7 @@ describe("startKeyRotation", () => {
     expect(fetchSpy).toHaveBeenCalledOnce();
   });
 
-  it("does NOT schedule a retry for errors with a non-network code (S-L1)", async () => {
+  it("does NOT schedule a retry for errors with a non-network code", async () => {
     // An Error with a `code` field that isn't in the network-error allowlist
     // (e.g. a schema/parse error) must surface as a throw, not silently retry.
     const otherErr = Object.assign(new Error("bad parse"), { code: "ERR_INVALID_JSON" });
@@ -303,11 +303,11 @@ describe("startKeyRotation", () => {
     expect(fetchSpy).toHaveBeenCalledOnce();
   });
 
-  it("uses exponential backoff across successive retry failures (P-I1)", async () => {
-    // Pin jitter to 0 so retry firing times are deterministic. The previous
-    // bounds-based assertion was flaky: with jitter ∈ [-1s, +1s] attempt 1
-    // fires in [4s, 6s] and attempt 2 schedules 10s±1s later, so attempt 2's
-    // absolute firing window is [13s, 17s] — overlapping the t=15.5s probe.
+  it("uses exponential backoff across successive retry failures", async () => {
+    // Pin jitter to 0 so retry firing times are exact. With jitter ∈ [-1s, +1s]
+    // attempt 1 fires in [4s, 6s] and attempt 2 schedules 10s±1s later, so
+    // attempt 2's firing window would be [13s, 17s] — overlapping the t=15.5s
+    // probe.
     vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     const netErr = Object.assign(new Error("Unable to connect"), { code: "ConnectionRefused" });

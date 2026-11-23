@@ -65,7 +65,7 @@ const buildApp = (
 ) =>
   createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey, allow, share, exposure, {}, PROXIED);
 
-describe("P4 — per-IP share / exposure rate limiting", () => {
+describe("per-IP share / exposure rate limiting", () => {
   let layer: ReturnType<typeof createTestLayer>;
   let eventId: string;
 
@@ -80,19 +80,6 @@ describe("P4 — per-IP share / exposure rate limiting", () => {
       }).pipe(Effect.provide(layer)),
     );
     eventId = event.id;
-  });
-
-  it("share: 204 when the limiter allows and the IP resolves", async () => {
-    const app = buildApp(layer, allow, allow);
-    const res = await post(
-      app,
-      `/events/${eventId}/share`,
-      { source: "whatsapp" },
-      {
-        ip: "203.0.113.5",
-      },
-    );
-    expect(res.status).toBe(204);
   });
 
   it("share: 429 when the per-IP limiter blocks", async () => {

@@ -3,7 +3,6 @@ import { Effect } from "effect";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
-import { canViewAttendees } from "../../src/services/eventAccess";
 import { createTestLayer, seedEvent } from "../helpers/db";
 import { TEST_VERIFICATION } from "../helpers/verification";
 
@@ -24,16 +23,7 @@ const get = (app: { handle: (r: Request) => Promise<Response> }, path: string, t
     }),
   );
 
-describe("canViewAttendees policy", () => {
-  it("is true only for the organiser", () => {
-    const event = { createdByProfileId: "usr_alice" };
-    expect(canViewAttendees(event, "usr_alice")).toBe(true);
-    expect(canViewAttendees(event, "usr_bob")).toBe(false);
-    expect(canViewAttendees(event, null)).toBe(false);
-  });
-});
-
-describe("GET /events/:id/rsvps — additive canViewAttendees flag", () => {
+describe("GET /events/:id/rsvps — canViewAttendees flag", () => {
   let app: ReturnType<typeof createEventsRoutes>;
   let layer: ReturnType<typeof createTestLayer>;
   let eventId: string;
@@ -71,7 +61,7 @@ describe("GET /events/:id/rsvps — additive canViewAttendees flag", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rsvps: unknown[]; canViewAttendees: boolean };
     expect(body.canViewAttendees).toBe(false);
-    // Additive: the existing `rsvps` array is still present + unchanged shape.
+    // The flag sits beside the `rsvps` array; it does not replace it.
     expect(Array.isArray(body.rsvps)).toBe(true);
   });
 

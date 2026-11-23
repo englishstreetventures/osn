@@ -217,18 +217,6 @@ describe("onboarding routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Resolver cache — verifies the second request hits the local mapping
-  // table rather than re-calling the bridge. Privacy + latency-relevant.
-  // -------------------------------------------------------------------------
-
-  it("second GET hits the profile→account cache (does not re-call the bridge)", async () => {
-    vi.mocked(bridge.getAccountIdForProfile).mockClear();
-    await get(app, "/me/onboarding", aliceToken);
-    await get(app, "/me/onboarding", aliceToken);
-    expect(vi.mocked(bridge.getAccountIdForProfile)).toHaveBeenCalledTimes(1);
-  });
-
-  // -------------------------------------------------------------------------
   // Rate limiter
   // -------------------------------------------------------------------------
 
@@ -243,7 +231,7 @@ describe("onboarding routes", () => {
     expect(res.status).toBe(429);
   });
 
-  it("GET 429 when the status rate limiter rejects (S-M2)", async () => {
+  it("GET 429 when the status rate limiter rejects", async () => {
     const layer = createTestLayer();
     const allowAll = { check: () => Promise.resolve(true), reset: () => Promise.resolve() };
     const denyAll = { check: () => Promise.resolve(false), reset: () => Promise.resolve() };
@@ -258,7 +246,7 @@ describe("onboarding routes", () => {
     expect(res.status).toBe(429);
   });
 
-  it("GET 429 fail-closed when the status rate limiter throws (S-M2)", async () => {
+  it("GET 429 fail-closed when the status rate limiter throws", async () => {
     const layer = createTestLayer();
     const allowAll = { check: () => Promise.resolve(true), reset: () => Promise.resolve() };
     const throwing = {

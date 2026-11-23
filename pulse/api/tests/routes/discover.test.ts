@@ -1,3 +1,5 @@
+import { eventRsvps } from "@pulse/db/schema";
+import { Db } from "@pulse/db/service";
 import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect } from "effect";
@@ -40,6 +42,21 @@ beforeAll(async () => {
 
 const makeToken = (profileId: string) => signer.sign(profileId);
 
+/** An RSVP row, written straight to the table. */
+const seedRsvp = (eventId: string, profileId: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(() =>
+      db.insert(eventRsvps).values({
+        id: `rsvp_${eventId}_${profileId}`,
+        eventId,
+        profileId,
+        status: "going",
+        createdAt: new Date(),
+      }),
+    );
+  });
+
 describe("GET /events/discover", () => {
   let app: ReturnType<typeof createEventsRoutes>;
   let layer: ReturnType<typeof createTestLayer>;
@@ -56,12 +73,6 @@ describe("GET /events/discover", () => {
       undefined,
       TEST_IP_CONFIG,
     );
-  });
-
-  it("returns 200 with an empty page when there are no events", async () => {
-    const res = await app.handle(new Request("http://localhost/events/discover", withIp()));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ events: [], nextCursor: null, series: {} });
   });
 
   it("returns public events to anonymous viewers", async () => {
@@ -85,6 +96,49 @@ describe("GET /events/discover", () => {
     const res = await app.handle(new Request("http://localhost/events/discover", withIp()));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ events: [], nextCursor: null, series: {} });
+  });
+
+  it("hides a private event from a signed-in viewer when only another guest holds an RSVP row", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const secret = yield* seedEvent({
+          title: "Secret",
+          startTime: FUTURE(60_000),
+          visibility: "private",
+        });
+        yield* seedRsvp(secret.id, "usr_carol");
+      }).pipe(Effect.provide(layer)),
+    );
+    const token = await makeToken("usr_bob");
+    const res = await app.handle(
+      new Request(
+        "http://localhost/events/discover",
+        withIp({ headers: { Authorization: `Bearer ${token}` } }),
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: { title: string }[] };
+    expect(body.events).toEqual([]);
+  });
+
+  it("hides a private event from a viewer whose RSVP row is on another event", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* seedEvent({ title: "Secret", startTime: FUTURE(60_000), visibility: "private" });
+        const open = yield* seedEvent({ title: "Public", startTime: FUTURE(120_000) });
+        yield* seedRsvp(open.id, "usr_bob");
+      }).pipe(Effect.provide(layer)),
+    );
+    const token = await makeToken("usr_bob");
+    const res = await app.handle(
+      new Request(
+        "http://localhost/events/discover",
+        withIp({ headers: { Authorization: `Bearer ${token}` } }),
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: { title: string }[] };
+    expect(body.events.map((e) => e.title)).toEqual(["Public"]);
   });
 
   it("returns 401 for friendsOnly without a token", async () => {

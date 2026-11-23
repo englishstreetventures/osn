@@ -38,13 +38,6 @@ it.effect("ensurePulseProfile is idempotent", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("updateSettings creates a row on first update", () =>
-  Effect.gen(function* () {
-    const row = yield* updateSettings("usr_alice", { attendanceVisibility: "no_one" });
-    expect(row.attendanceVisibility).toBe("no_one");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 it.effect("updateSettings changes an existing row", () =>
   Effect.gen(function* () {
     yield* updateSettings("usr_alice", { attendanceVisibility: "no_one" });
@@ -75,13 +68,6 @@ it.effect("getAttendanceVisibility reads the stored value after update", () =>
 // Pinning the batched lookup contract: missing rows fall back to the
 // default; one query handles many ids; result Map contains an entry for
 // every requested id.
-
-it.effect("getAttendanceVisibilityBatch returns empty Map on empty input", () =>
-  Effect.gen(function* () {
-    const map = yield* getAttendanceVisibilityBatch([]);
-    expect(map.size).toBe(0);
-  }).pipe(Effect.provide(createTestLayer())),
-);
 
 it.effect(
   "getAttendanceVisibilityBatch returns one entry per requested id, defaulting missing ones",

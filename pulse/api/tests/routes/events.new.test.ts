@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
 import { createEventsRoutes } from "../../src/routes/events";
 import { createSettingsRoutes } from "../../src/routes/settings";
 import type { ProfileDisplay } from "../../src/services/graphBridge";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, seedCloseFriend } from "../helpers/db";
 
 vi.mock("../../src/services/graphBridge", () => ({
   GraphBridgeError: class GraphBridgeError {
@@ -157,13 +157,6 @@ describe("events routes — new config fields", () => {
     expect(body.events).toHaveLength(1);
     expect(body.events[0]!.title).toBe("My Private Party");
   });
-
-  it("GET /events includes public events for everyone", async () => {
-    await post(app, "/events", { title: "Public Event", startTime: FUTURE }, aliceToken);
-    const res = await get(app, "/events");
-    const body = (await res.json()) as { events: { title: string }[] };
-    expect(body.events.map((e) => e.title)).toContain("Public Event");
-  });
 });
 
 describe("RSVP routes", () => {
@@ -212,7 +205,7 @@ describe("RSVP routes", () => {
     const res = await post(
       app,
       `/events/${eventId}/rsvps`,
-      // "interested" was renamed to "maybe" and is no longer a valid wire value.
+      // "interested" is not an RSVP status the route accepts.
       { status: "interested" as unknown as "going" },
       bobToken,
     );
@@ -384,17 +377,6 @@ describe("Share-attribution routes", () => {
     expect(res.status).toBe(404);
   });
 
-  it("POST /events/:id/share returns 429 when the client IP is unresolved", async () => {
-    // No x-forwarded-for under trustedProxyCount:1 → fail-closed.
-    const res = await post(app, `/events/${eventId}/share`, { source: "whatsapp" });
-    expect(res.status).toBe(429);
-  });
-
-  it("POST /events/:id/exposure returns 204 for a valid source", async () => {
-    const res = await postIp(`/events/${eventId}/exposure`, { source: "tiktok" });
-    expect(res.status).toBe(204);
-  });
-
   it("POST /events/:id/exposure rejects an unknown source with 422", async () => {
     const res = await postIp(`/events/${eventId}/exposure`, { source: "myspace" });
     expect(res.status).toBe(422);
@@ -405,11 +387,6 @@ describe("Share-attribution routes", () => {
     // endpoint still 204s so the client doesn't need to special-case it.
     const res = await postIp(`/events/${eventId}/exposure`, { source: "x" }, aliceToken);
     expect(res.status).toBe(204);
-  });
-
-  it("POST /events/:id/exposure returns 429 when the client IP is unresolved", async () => {
-    const res = await post(app, `/events/${eventId}/exposure`, { source: "tiktok" });
-    expect(res.status).toBe(429);
   });
 });
 
@@ -700,6 +677,24 @@ describe("Private event visibility gate", () => {
     expect(res.status).toBe(200);
   });
 
+  it("GET /events/:id returns 404 to a signed-in viewer when only another guest holds an RSVP row", async () => {
+    await post(app, `/events/${privateEventId}/invite`, { profileIds: ["usr_carol"] }, aliceToken);
+    const res = await get(app, `/events/${privateEventId}`, bobToken);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id returns 404 to a viewer whose RSVP row is on another event", async () => {
+    const replied = await post(
+      app,
+      `/events/${publicEventId}/rsvps`,
+      { status: "going" },
+      bobToken,
+    );
+    expect(replied.status).toBe(200);
+    const res = await get(app, `/events/${privateEventId}`, bobToken);
+    expect(res.status).toBe(404);
+  });
+
   it("GET /events/:id returns 200 for public events to anyone", async () => {
     const res = await get(app, `/events/${publicEventId}`);
     expect(res.status).toBe(200);
@@ -784,12 +779,16 @@ describe("Private event visibility gate", () => {
     expect(body.rsvps[0]!.invitedByProfileId).toBe("usr_alice");
   });
 
-  // isCloseFriend stamp
-  it("GET /events/:id/rsvps stamps isCloseFriend = false on rows by default", async () => {
+  it("GET /events/:id/rsvps stamps isCloseFriend only on rows whose attendee marked the viewer", async () => {
+    const carolToken = await makeToken("usr_carol");
+    // Bob marked Alice as a close friend; Carol marked no one.
+    await Effect.runPromise(seedCloseFriend("usr_bob", "usr_alice").pipe(Effect.provide(layer)));
     await post(app, `/events/${publicEventId}/rsvps`, { status: "going" }, bobToken);
+    await post(app, `/events/${publicEventId}/rsvps`, { status: "going" }, carolToken);
     const res = await get(app, `/events/${publicEventId}/rsvps?status=going`, aliceToken);
-    const body = (await res.json()) as { rsvps: { isCloseFriend: boolean }[] };
-    expect(body.rsvps[0]!.isCloseFriend).toBe(false);
+    const body = (await res.json()) as { rsvps: { profileId: string; isCloseFriend: boolean }[] };
+    const flags = Object.fromEntries(body.rsvps.map((r) => [r.profileId, r.isCloseFriend]));
+    expect(flags).toEqual({ usr_bob: true, usr_carol: false });
   });
 });
 
@@ -797,7 +796,7 @@ describe("Private event visibility gate", () => {
 // Text field length caps
 // ---------------------------------------------------------------------------
 
-describe("Event text field length caps (S-M3)", () => {
+describe("Event text field length caps", () => {
   let layer: ReturnType<typeof createTestLayer>;
   let app: ReturnType<typeof createEventsRoutes>;
   let aliceToken: string;

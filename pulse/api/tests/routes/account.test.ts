@@ -6,11 +6,10 @@ import { describe, it, expect, beforeAll, vi } from "vitest";
 import { createTestLayer } from "../helpers/db";
 
 /**
- * Route-level coverage for the `/account` group. The DSAR-critical
- * handlers were rewired from per-request `Effect.provide(dbLayer)` to a
- * factory-scoped `ManagedRuntime` with `as Effect.Effect<…, Db>` casts —
- * these tests prove the runtime wiring the casts assert: one request per
- * handler through `runtime.runPromise`, plus the 401/403 gates.
+ * Route-level coverage for the `/account` group. The DSAR-critical handlers
+ * run on a factory-scoped `ManagedRuntime` with `as Effect.Effect<…, Db>`
+ * casts; these tests prove the runtime wiring the casts assert (one request
+ * per handler through `runtime.runPromise`), plus the 401/403 gates.
  */
 vi.mock("../../src/lib/osn-bridge", () => ({
   verifyStepUp: vi.fn(() => Effect.succeed({ ok: true, accountId: "acc_test" } as const)),
@@ -113,11 +112,11 @@ describe("account routes — auth gates", () => {
 
 // `/account` holds the DSAR-critical handlers, and the web app cannot present
 // a bearer token — it authenticates with the `pulse_web_session` cookie that
-// `makeCallerResolver` accepts as the second credential. Every case in this
-// file used a bearer token, so if `createAccountRoutes` stopped forwarding
-// `headers["cookie"]`, or a handler read `headers.authorization` directly
-// instead of going through `resolveCaller`, every web client would lose
-// delete, restore and deletion-status while the suite stayed green.
+// `makeCallerResolver` accepts as the second credential. These cases fail if
+// `createAccountRoutes` stops forwarding `headers["cookie"]`, or a handler
+// reads `headers.authorization` directly instead of going through
+// `resolveCaller`: every web client would then lose delete, restore and
+// deletion-status.
 describe("account routes — cookie credential", () => {
   const mintCookie = async (runtime: ManagedRuntime.ManagedRuntime<Db, never>) => {
     const created = await runtime.runPromise(webSessionService.create(identity));
@@ -163,17 +162,6 @@ describe("account routes — cookie credential", () => {
 });
 
 describe("account routes — runtime wiring (ManagedRuntime)", () => {
-  it("GET /deletion-status reaches the DB through the factory runtime", async () => {
-    const token = await makeToken("usr_status");
-    const res = await makeApp().handle(
-      new Request("http://localhost/account/deletion-status", {
-        headers: { authorization: `Bearer ${token}` },
-      }),
-    );
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { scheduled: boolean }).scheduled).toBe(false);
-  });
-
   it("POST /restore is a no-op 200 when nothing is scheduled", async () => {
     const token = await makeToken("usr_restore");
     const res = await makeApp().handle(

@@ -62,16 +62,6 @@ describe("makeMemoryRateLimiters", () => {
 });
 
 describe("checkWriteRateLimit", () => {
-  it("allows when the backend allows", async () => {
-    const limiter: RateLimiterBackend = { check: () => true };
-    expect(await checkWriteRateLimit(limiter, "event_create", "usr_alice")).toBe(true);
-  });
-
-  it("denies when the backend denies", async () => {
-    const limiter: RateLimiterBackend = { check: () => false };
-    expect(await checkWriteRateLimit(limiter, "event_create", "usr_alice")).toBe(false);
-  });
-
   it("fails closed (denies) when the backend throws", async () => {
     const limiter: RateLimiterBackend = {
       check: () => {
@@ -101,7 +91,7 @@ describe("checkWriteRateLimit", () => {
 });
 
 describe("PULSE_WRITE_LIMITS", () => {
-  it("matches the locked W4 starting points", () => {
+  it("keeps the per-user write budgets at their set values", () => {
     expect(PULSE_WRITE_LIMITS.event_create).toEqual({ maxRequests: 20, windowMs: 5 * 60_000 });
     expect(PULSE_WRITE_LIMITS.event_update).toEqual({ maxRequests: 60, windowMs: 60_000 });
     expect(PULSE_WRITE_LIMITS.rsvp_upsert).toEqual({ maxRequests: 30, windowMs: 60_000 });

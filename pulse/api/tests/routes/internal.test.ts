@@ -122,7 +122,7 @@ describe("internal routes — refusals", () => {
     expect(res.status).toBe(200);
   });
 
-  it("no longer takes key registrations: osn-api publishes its keys instead", async () => {
+  it("/internal/register-service is not a route: osn-api publishes its keys", async () => {
     const res = await post(routes(), "/internal/register-service", {}, "Bearer x");
     expect(res.status).toBe(404);
   });

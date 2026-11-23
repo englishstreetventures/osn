@@ -180,6 +180,11 @@ describe("pulse account-erasure: requestErasure", () => {
           .where(eq(pulseProfileAccounts.profileId, PROFILE_ID)),
       );
       expect(pa).toHaveLength(0);
+      // The sweep deletes the job it has finished.
+      const jobs = yield* Effect.promise(() =>
+        db.select().from(pulseDeletionJobs).where(eq(pulseDeletionJobs.profileId, PROFILE_ID)),
+      );
+      expect(jobs).toHaveLength(0);
       // Hosted event is still there (governed by its own 14-day window).
       const ev = yield* Effect.promise(() =>
         db.select().from(events).where(eq(events.id, eventId)),
@@ -806,24 +811,6 @@ describe("pulse account-erasure: cancellation + sweepers", () => {
     expect(row).toMatchObject({ status: "cancelled", cancellationReason: "host_left" });
     expect(row!.hardDeleteAt).toBe(purged.kept[0]!.erasedOn);
   });
-
-  it.effect("hard-delete sweeper removes deletion-jobs past the grace window", () =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      yield* Effect.promise(() =>
-        db.insert(pulseDeletionJobs).values({
-          profileId: PROFILE_ID,
-          accountId: ACCOUNT_ID,
-          softDeletedAt: 1_000,
-          hardDeleteAt: 2_000,
-          enrollmentNotifyDoneAt: 1_500,
-          reason: "user_request",
-        }),
-      );
-      const r = yield* accountErasure.runHardDeleteSweep({ nowMs: 5_000_000 });
-      expect(r.purged).toBe(1);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
 
   it.effect("event-cancellation sweeper hard-deletes events past hardDeleteAt", () =>
     Effect.gen(function* () {

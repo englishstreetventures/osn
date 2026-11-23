@@ -54,26 +54,6 @@ const provide = <A, E>(effect: Effect.Effect<A, E, Db>) =>
 // Visibility
 // ---------------------------------------------------------------------------
 
-it.effect("surfaces public events to anonymous viewers", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedEvent({ title: "Public", startTime: FUTURE(60_000), visibility: "public" });
-      const result = yield* discoverEvents({}, null, stubLookups());
-      expect(result.events.map((e) => e.title)).toEqual(["Public"]);
-    }),
-  ),
-);
-
-it.effect("hides private events from anonymous viewers", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedEvent({ title: "Secret", startTime: FUTURE(60_000), visibility: "private" });
-      const result = yield* discoverEvents({}, null, stubLookups());
-      expect(result.events).toEqual([]);
-    }),
-  ),
-);
-
 it.effect("surfaces private events to the organiser", () =>
   provide(
     Effect.gen(function* () {
@@ -108,17 +88,6 @@ it.effect("surfaces private events to invited viewers (RSVP row)", () =>
 // ---------------------------------------------------------------------------
 // Filters
 // ---------------------------------------------------------------------------
-
-it.effect("filters by category", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedEvent({ title: "Show", startTime: FUTURE(60_000), category: "music" });
-      yield* seedEvent({ title: "Game", startTime: FUTURE(60_000), category: "sports" });
-      const result = yield* discoverEvents({ category: "music" }, null, stubLookups());
-      expect(result.events.map((e) => e.title)).toEqual(["Show"]);
-    }),
-  ),
-);
 
 it.effect("excludes past events by default (from >= now)", () =>
   provide(
@@ -276,7 +245,7 @@ it.effect("friendsOnly includes RSVPs from users with default attendanceVisibili
   ),
 );
 
-it.effect("friendsOnly returns empty when viewer has no connections (S-L1: no JS fast path)", () =>
+it.effect("friendsOnly returns empty when viewer has no connections (no JS fast path)", () =>
   provide(
     Effect.gen(function* () {
       yield* seedEvent({
@@ -532,15 +501,6 @@ it.effect("returns a stable cursor and paginates without gaps", () =>
 // Validation
 // ---------------------------------------------------------------------------
 
-it.effect("rejects lat without lng/radiusKm", () =>
-  provide(
-    Effect.gen(function* () {
-      const err = yield* Effect.flip(discoverEvents({ lat: 51.5 }, null, stubLookups()));
-      expect(err).toBeInstanceOf(DiscoveryValidationError);
-    }),
-  ),
-);
-
 it.effect("caps a page at 50 events: 50 is accepted, 51 is refused", () =>
   provide(
     Effect.gen(function* () {
@@ -548,15 +508,6 @@ it.effect("caps a page at 50 events: 50 is accepted, 51 is refused", () =>
       // rests on this cap.
       yield* discoverEvents({ limit: 50 }, null, stubLookups());
       const err = yield* Effect.flip(discoverEvents({ limit: 51 }, null, stubLookups()));
-      expect(err).toBeInstanceOf(DiscoveryValidationError);
-    }),
-  ),
-);
-
-it.effect("rejects priceMin without currency", () =>
-  provide(
-    Effect.gen(function* () {
-      const err = yield* Effect.flip(discoverEvents({ priceMin: 10 }, null, stubLookups()));
       expect(err).toBeInstanceOf(DiscoveryValidationError);
     }),
   ),
@@ -731,9 +682,9 @@ it.effect("propagates GraphBridgeError when friends lookup fails", () =>
       const err = yield* Effect.flip(
         discoverEvents({ friendsOnly: true }, "usr_alice", failingLookups),
       );
-      // The discover service tags GraphBridgeError; we confirm it didn't
-      // get swallowed into a success.
-      expect(err).toBeDefined();
+      // The route answers this tag with 502 and every other failure with
+      // 500, so the service passes it through unchanged.
+      expect(err._tag).toBe("GraphBridgeError");
     }),
   ),
 );

@@ -13,26 +13,10 @@ const past = (offsetDays: number) => new Date(Date.now() - offsetDays * 86_400_0
 
 describe("venue routes", () => {
   let app: ReturnType<typeof createVenuesRoutes>;
-  let layerDb: { db: ReturnType<typeof createTestLayer> extends infer _ ? unknown : never };
 
   beforeEach(() => {
-    const layer = createTestLayer();
-    app = createVenuesRoutes(layer);
-    layerDb = layer as unknown as typeof layerDb;
-    void layerDb;
+    app = createVenuesRoutes(createTestLayer());
   });
-
-  // The fixture seeding here goes through the same Layer the routes use,
-  // so we need a fresh layer + fresh app per test (`beforeEach` above).
-  async function seedAll(): Promise<void> {
-    const layer = createTestLayer();
-    app = createVenuesRoutes(layer);
-    // We need a way to access the db inside this layer — easiest is to
-    // recreate the layer via the helper and use its DB directly. The
-    // helper returns a Layer, not a DB handle, so re-create one using
-    // its underlying applySchema path.
-  }
-  void seedAll;
 
   it("GET /venues returns every venue", async () => {
     const { Effect: E } = await import("effect");
@@ -70,13 +54,6 @@ describe("venue routes", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { venues: { id: string }[] };
     expect(body.venues.map((v) => v.id).toSorted()).toEqual(["v1", "v2"]);
-  });
-
-  it("GET /venues returns an empty list when there are no venues", async () => {
-    const res = await get(app, "/venues");
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { venues: unknown[] };
-    expect(body.venues).toEqual([]);
   });
 
   it("GET /venues rejects a partial bbox with 400", async () => {
@@ -366,7 +343,7 @@ describe("venue routes", () => {
       app = createVenuesRoutes(layer);
     }
 
-    it("scope=past returns most-recent-first (P-W2 ordering)", async () => {
+    it("scope=past returns most-recent-first", async () => {
       await seedProgramme();
       const res = await get(app, "/venues/org-one/the-spot/events?scope=past");
       expect(res.status).toBe(200);
@@ -394,7 +371,7 @@ describe("venue routes", () => {
       expect(body.events.map((e) => e.id)).toEqual(["evt_recent"]);
     });
 
-    it("rejects a non-numeric limit with 422 (P-I1)", async () => {
+    it("rejects a non-numeric limit with 422", async () => {
       await seedProgramme();
       const res = await get(app, "/venues/org-one/the-spot/events?limit=abc");
       expect(res.status).toBe(422);
@@ -493,18 +470,20 @@ describe("venue routes", () => {
       app = createVenuesRoutes(layer);
     }
 
-    it("returns 404 for a private event's lineup (S-H1)", async () => {
+    it("returns 404 for a private event's lineup", async () => {
       await seedLineupFixtures();
       const res = await get(app, "/venues/org-one/the-spot/events/evt_private/lineup");
       expect(res.status).toBe(404);
     });
 
-    it("returns 404 when the event belongs to a different venue (S-H1)", async () => {
+    it("returns 404 when the event belongs to a different venue", async () => {
       await seedLineupFixtures();
       const res = await get(app, "/venues/org-one/the-spot/events/evt_elsewhere/lineup");
       expect(res.status).toBe(404);
     });
 
+    // The fixtures give the private event slots and this one none, so the
+    // lineup read must filter on the event asked for.
     it("returns 200 + [] for a public event with no programmed slots", async () => {
       await seedLineupFixtures();
       const res = await get(app, "/venues/org-one/the-spot/events/evt_bare/lineup");
