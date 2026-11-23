@@ -209,6 +209,14 @@ describe("DetailsPanel", () => {
     expect(queryByText("Inspiration")).toBeNull();
   });
 
+  it("renders the inspiration section for a real pinterest URL", () => {
+    const { getByText } = renderPanel({
+      ...baseEvent,
+      pinterestUrl: "https://pinterest.com/board",
+    });
+    expect(getByText("Inspiration")).toBeTruthy();
+  });
+
   it("omits the dress code section for a whitespace-only description and empty palette", () => {
     const { queryByText } = renderPanel({
       ...baseEvent,
