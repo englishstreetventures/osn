@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
-import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach, onTestFinished } from "vitest";
 
 /**
  * Register.tsx is the consumer of the entire registration flow. It
@@ -1563,7 +1563,7 @@ describe("Register component", () => {
       });
 
       // A sign-up that sends runs one challenge: the spent token goes with the
-      // details step's widget, and the waiting view's Resend needs none.
+      // details step's widget, and the waiting view runs none of its own.
       it("runs no second challenge once the link is sent", async () => {
         const challenges = (
           globalThis as unknown as { turnstile: { render: ReturnType<typeof vi.fn> } }
@@ -1699,6 +1699,8 @@ describe("Register in a dialog", () => {
 
   // The footer's Cancel is the dialog's way out, so it holds while the send runs.
   it("holds the footer's Cancel while the send runs", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => vi.useRealTimers());
     const client = makeClientStub();
     client.checkHandle.mockResolvedValue({ available: true });
     client.beginRegistration.mockReturnValue(new Promise(() => {}));
@@ -1719,6 +1721,7 @@ describe("Register in a dialog", () => {
     fillEmail("alice@example.com");
     fillHandle("alice");
     fillBirthdate("1990-01-01");
+    await vi.advanceTimersByTimeAsync(350);
     const send = () =>
       screen.getByRole("button", { name: /Send verification link|Sending…/ }) as HTMLButtonElement;
     await waitFor(() => expect(send().disabled).toBe(false));
