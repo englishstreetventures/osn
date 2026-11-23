@@ -4,8 +4,8 @@
     "number": 2485,
     "branch": "chore/cire-look-study-settled-fixes",
     "base_sha": "e7deaf903f32c1e58adeaf395880ebc98254881e",
-    "head_sha": "5616961e906b92d1e16864a7e5edf25dfafcc331",
-    "generated_at": "2026-11-23T08:01:59.982Z",
+    "head_sha": "71542feab7070fe1c932aae8a2ed1bb0da0d701c",
+    "generated_at": "2026-11-23T08:26:09.768Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -25,33 +25,33 @@
   "window": {
     "sessions": 1,
     "first_ts": "2026-11-23T04:11:21.798Z",
-    "last_ts": "2026-11-23T08:01:50.022Z",
-    "span_seconds": 13828,
-    "active_seconds": 2985,
+    "last_ts": "2026-11-23T08:25:58.046Z",
+    "span_seconds": 15276,
+    "active_seconds": 3792,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 38.02003440000001,
+    "usd_equivalent": 50.62177040000001,
     "tokens": {
-      "input": 618,
-      "output": 199993,
-      "thinking": 77520,
-      "cache_write_5m": 1168256,
+      "input": 722,
+      "output": 229281,
+      "thinking": 84307,
+      "cache_write_5m": 1665014,
       "cache_write_1h": 0,
-      "cache_read": 70441056
+      "cache_read": 94270481
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 618,
-          "output": 199993,
-          "thinking": 77520,
-          "cache_write_5m": 1168256,
+          "input": 722,
+          "output": 229281,
+          "thinking": 84307,
+          "cache_write_5m": 1665014,
           "cache_write_1h": 0,
-          "cache_read": 70441056
+          "cache_read": 94270481
         },
-        "usd_equivalent": 38.02003440000001,
-        "messages": 301
+        "usd_equivalent": 50.62177040000001,
+        "messages": 352
       },
       "<synthetic>": {
         "tokens": {
@@ -81,30 +81,30 @@
       },
       "subagent": {
         "tokens": {
-          "input": 618,
-          "output": 199993,
-          "thinking": 77520,
-          "cache_write_5m": 1168256,
+          "input": 722,
+          "output": 229281,
+          "thinking": 84307,
+          "cache_write_5m": 1665014,
           "cache_write_1h": 0,
-          "cache_read": 70441056
+          "cache_read": 94270481
         },
-        "usd_equivalent": 38.02003440000001,
-        "messages": 302
+        "usd_equivalent": 50.62177040000001,
+        "messages": 353
       }
     },
     "effort": {
       "high": 63,
-      "xhigh": 238
+      "xhigh": 289
     },
     "unpriced_models": []
   },
   "diff": {
     "files": {
       "generated": 1,
-      "test": 8,
+      "test": 9,
       "docs": 3,
-      "config": 0,
-      "source": 7
+      "config": 1,
+      "source": 9
     },
     "loc": {
       "generated": {
@@ -112,20 +112,20 @@
         "deleted": 0
       },
       "test": {
-        "added": 584,
-        "deleted": 14
+        "added": 572,
+        "deleted": 31
       },
       "docs": {
-        "added": 41,
-        "deleted": 12
+        "added": 43,
+        "deleted": 13
       },
       "config": {
-        "added": 0,
+        "added": 189,
         "deleted": 0
       },
       "source": {
-        "added": 134,
-        "deleted": 34
+        "added": 132,
+        "deleted": 38
       }
     },
     "packages": [
@@ -133,7 +133,7 @@
       "cire/invites"
     ],
     "touches_migration": false,
-    "commits": 6
+    "commits": 8
   },
   "interaction": {
     "user_turns": 0,
@@ -141,14 +141,14 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 267,
-      "Read": 39,
+      "Bash": 313,
+      "Read": 47,
       "Edit": 15,
       "Skill": 7,
       "Write": 4,
+      "SubagentHandback": 2,
       "Agent": 1,
-      "ToolSearch": 1,
-      "SubagentHandback": 1
+      "ToolSearch": 1
     },
     "edit_churn": {
       "files_edited_3plus": 1,
@@ -168,11 +168,11 @@
     },
     "requests": {
       "main": 0,
-      "subagent": 301,
-      "with_tools": 300,
-      "with_one_tool": 274,
-      "context_median": 210444,
-      "context_p90": 414844
+      "subagent": 352,
+      "with_tools": 351,
+      "with_one_tool": 323,
+      "context_median": 250859,
+      "context_p90": 467485
     }
   },
   "review": {
