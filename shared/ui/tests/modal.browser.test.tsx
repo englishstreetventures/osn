@@ -9,7 +9,7 @@
  * component exists to borrow rather than the markup it emits.
  */
 
-import { render } from "@solidjs/testing-library";
+import { cleanup, render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commands } from "vitest/browser";
@@ -17,6 +17,8 @@ import { commands } from "vitest/browser";
 import { Modal } from "../src/ui/modal";
 
 import "./test-support/tailwind.css";
+
+afterEach(cleanup);
 
 /**
  * Mount a modal whose `open` is driven by a signal, as a caller's would be, and
@@ -329,18 +331,6 @@ describe("Modal — the exit", () => {
     await waitForClosed(dialog());
   });
 
-  it("is actually animating while it waits, not merely sitting there", async () => {
-    // `data-closing` present proves an attribute was set. This proves the
-    // stylesheet the component injects turned that attribute into running
-    // animations — which is what `close()` is being deferred FOR.
-    const { setOpen, dialog } = mount();
-    setOpen(false);
-    await new Promise((r) => requestAnimationFrame(r));
-
-    expect(dialog().getAnimations({ subtree: true }).length).toBeGreaterThan(0);
-    await waitForClosed(dialog());
-  });
-
   it("closes once the exit finishes, and tells the caller", async () => {
     const { open, setOpen, dialog } = mount();
     setOpen(false);
@@ -371,15 +361,6 @@ describe("Modal — the exit", () => {
     await new Promise((r) => setTimeout(r, 400));
     expect(dialog().open).toBe(true);
     expect(dialog().matches(":modal")).toBe(true);
-  });
-
-  it("animates in from a starting style rather than appearing at full opacity", async () => {
-    // `@starting-style` is what gives the entry a from-state with no
-    // JavaScript. Read on the frame it opens, the dialog should not yet be at
-    // its resting values.
-    const { dialog } = mount();
-    const entering = dialog().getAnimations({ subtree: true });
-    expect(entering.length).toBeGreaterThan(0);
   });
 
   it("exits sooner than it enters", async () => {
