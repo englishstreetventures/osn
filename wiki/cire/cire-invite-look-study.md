@@ -9,12 +9,12 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-landing]]"
   - "[[frontend-patterns]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-23
 ---
 
 # Cire invite look: competitor study and open questions
 
-An investigation page, not a system page. No work has started. It records what
+An investigation page, not a system page. It records what
 we found studying [The Digital Yes](https://www.thedigitalyes.com) and lists
 the questions that the exploration issues under epic #2308 have to answer.
 Each issue writes its findings back here. When a question is settled, the
@@ -94,23 +94,24 @@ as tall as its content.
 
 **Where ours loses space or reads busier.** "Settled" means the host
 `DESIGN.md` already gives the answer; "Decision" means it needs the owner,
-because the `DESIGN.md` holds a different choice or none.
+because the `DESIGN.md` holds a different choice or none; "Done" names the
+pull request that built it and where the answer now lives.
 
 | # | Where | What we see | Proposed fix | Kind |
 |---|---|---|---|---|
-| 1 | Overview, desktop | `auto-grid` stretches each row to its tallest card. Under What's next, Countdown, RSVP changes and Guests & events are 326px tall beside RSVPs, with 173–192px empty under their content. In the next row Vendors holds one line and the fourth slot is empty | Size each card to its content (`align-items: start`), or lift the small cards into one compact strip of figures above the grid | Decision |
-| 2 | Overview, page head | "Overview", then "Your wedding at a glance", then the gilt rule: 120px from the top bar to the first card. The line under the heading tells the reader nothing new | Drop the line (§3, "A line earns its place") | Settled |
+| 1 | Overview, desktop | `auto-grid` stretches each row to its tallest card. Under What's next, Countdown, RSVP changes and Guests & events are 326px tall beside RSVPs, with 173–192px empty under their content. In the next row Vendors holds one line and the fourth slot is empty | Size each card to its content (`align-items: start`), or lift the small cards into one compact strip of figures above the grid | Done, #2461: each card keeps its own height |
+| 2 | Overview, page head | "Overview", then "Your wedding at a glance", then the gilt rule: 120px from the top bar to the first card. The line under the heading tells the reader nothing new | Drop the line (§3, "A line earns its place") | Done, #2485: [`cire/host/DESIGN.md`](../../cire/host/DESIGN.md) §3, "A line earns its place" |
 | 3 | Rail | The collapse toggle and its divider sit at the top, so the first link (y = 156) sits below the page title (y = 105). Upper-case tracked labels widen the rail to 224px; content starts at x = 308 of 1456 | Move the toggle to the rail's foot; set links in sentence case at `text-ui-sm` for a narrower rail | Decision |
 | 4 | Overview, phone | The module switcher reads "Overview" and the heading under it says "Overview" again: about 120px before content | Keep one of the two | Decision |
 | 5 | Every card | Eight gold small-caps labels on one screen, each card's only title | A serif title in sentence case at `text-ui-lg` for a card that stands alone, keeping `Eyebrow` for groups inside a card | Decision (§7 makes every card's label an `Eyebrow`) |
 | 6 | Overview and Guests figures | Dates and counts in the platform monospace ("10 Nov", "24 attending") read as a terminal beside a serif brand | Body face with `tabular-nums`, which keeps the columns aligned | Decision (§3 chooses `font-ui-mono` for these) |
-| 7 | Overview, RSVPs card | "200 attending" repeats on five rows and wraps under a long event name (`Overview.tsx:626`: the count has no `shrink-0` or `whitespace-nowrap`) | Say "Attending" once as the column's head and keep each count on one line | Settled |
+| 7 | Overview, RSVPs card | "200 attending" repeats on five rows and wraps under a long event name (`Overview.tsx:626`: the count has no `shrink-0` or `whitespace-nowrap`) | Say "Attending" once as the column's head and keep each count on one line | Done, #2485: [`cire/host/DESIGN.md`](../../cire/host/DESIGN.md) §3, "A word that repeats on every row heads the column once" |
 | 8 | Every card | A card is the page ground under a 30% wash of a colour about 0.04 lighter, so card and page differ by about 0.01 in lightness and eight hairline boxes carry the layout | Widen the step between `--surface` and the page ground, as §2 already says a card is told apart "by its surface, not by its edge" | Decision (colour values) |
 | 9 | Overview, What's next | "OVERDUE" six times in red capitals across twelve rows, beside a red-free date column | Group the overdue rows under one "Overdue" head, or mark the date itself in `text-error` and drop the word | Decision |
-| 10 | Overview, phone | "Sangeet night and welcome dinner" runs into the card's right padding in the 2026-11-05 shot. The label has `truncate`, which sets `overflow: hidden` and so should clip; today's dev seed has no event that long, so it was not reproduced | Re-check at 390px with a long event name; give the row's grid column `min-w-0` if it still overflows | Settled (a bug, unconfirmed) |
+| 10 | Overview, phone | "Sangeet night and welcome dinner" runs into the card's right padding in the 2026-11-05 shot. The label has `truncate`, which sets `overflow: hidden` and so should clip; today's dev seed has no event that long, so it was not reproduced | Re-check at 390px with a long event name; give the row's grid column `min-w-0` if it still overflows | Done, #2485: not reproduced at 390px with a 60-character name, which the row cuts short; `cire/host/tests/components/Overview.look.browser.test.tsx` holds it at 390px and 1280px |
 | 11 | Guests, RSVPs | Two rows of pill groups, then a summary line that repeats the chips' counts ("Attending 24" in a chip and again below it) | Drop the summary line or the counts in the chips | Decision |
 | 12 | Guests, RSVPs table | An "Edit" button on every row | Open the row on a click and show one Edit on hover or focus | Decision |
-| 13 | Overview, Budget card | "Next: Balance · due 2026-10-25" prints the raw ISO date (`Overview.tsx:884`), while What's next says "25 Oct" and Countdown "Wednesday 25 November 2026" | Format it as the agenda does (`fmtAgendaDate`) | Settled (a bug) |
+| 13 | Overview, Budget card | "Next: Balance · due 2026-10-25" prints the raw ISO date (`Overview.tsx:884`), while What's next says "25 Oct" and Countdown "Wednesday 25 November 2026" | Format it as the agenda does (`fmtAgendaDate`) | Done, #2485: [`cire/host/DESIGN.md`](../../cire/host/DESIGN.md) §3, "A date on the Overview reads as What's next prints it" |
 
 **What already works.** The palette, the large RSVP figure with its bar, the
 table's row rhythm (about 53px) and the top bar's actions hold up next to
@@ -143,8 +144,8 @@ taller than 60px carry a border.
 
 | # | Where | What we see | Proposed fix | Kind |
 |---|---|---|---|---|
-| 1 | Event cards | Each of the five cards ends in an empty bordered box 320px tall. The event image it frames returns 404 (`/api/invite/cire-wedding/event/<id>/image`), and the frame stays. Five of these make the events section 3,323px | Drop the frame when the image fails to load. Separately, make the dev seed's image keys point at objects that exist | Settled (a bug) |
-| 2 | Closing band, above "No boxed gifts…" | The same fault: an empty 321px band, because `/api/invite/cire-wedding/image/footer` returns 404 | As item 1 (`InviteClosing.tsx`, the narrow-crop `div`) | Settled (a bug) |
+| 1 | Event cards | Each of the five cards ends in an empty bordered box 320px tall. The event image it frames returns 404 (`/api/invite/cire-wedding/event/<id>/image`), and the frame stays. Five of these make the events section 3,323px | Drop the frame when the image fails to load. Separately, make the dev seed's image keys point at objects that exist | Done, #2485: [`cire/invites/DESIGN.md`](../../cire/invites/DESIGN.md) §4, "A frame holds a picture or nothing". The seed's keys are the objects `cire/db/seed/assets.ts` uploads; the dev bucket is filled with `bun run --cwd cire/db assets:seed:dev` ([[dev-environment#Placeholder images (one-off, not CI)]]) |
+| 2 | Closing band, above "No boxed gifts…" | The same fault: an empty 321px band, because `/api/invite/cire-wedding/image/footer` returns 404 | As item 1 (`InviteClosing.tsx`, the narrow-crop `div`) | Done, #2485: as item 1 |
 | 3 | Hero | With no couple photo, the hero is the names in a faint box on a pale gradient, a whole screen with nothing else in it. Theirs is never without art | Give each design pack its own hero art for a couple with no photo | Decision (needs art; see #2310) |
 | 4 | Every section | Three flat tones in turn, one hue, no texture: the page reads as an app's settings screen, not paper | One paper ground for the whole invite with texture, and sections set apart by space and ornament, not by a change of tone | Decision (§2 says a section sits on a tone) |
 | 5 | Welcome panel and events | "RSVPs closed" three ways: a bordered notice in the welcome panel, a second notice at the head of the events, and a chip on each of the five cards | Say it once, in the welcome panel; drop the chips when every event is closed | Decision |
