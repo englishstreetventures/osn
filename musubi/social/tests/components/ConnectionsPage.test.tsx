@@ -116,8 +116,18 @@ describe("<ConnectionsPage /> — remove friend confirmation", () => {
     await screen.findByText(/Remove Bob Jones as a friend\?/);
 
     fireEvent.click(screen.getByText("Cancel"));
+    await waitFor(() => expect(screen.queryByText(/Remove Bob Jones as a friend\?/)).toBeNull());
 
-    expect(mocks.removeConnection).not.toHaveBeenCalled();
+    // A removal wired to Cancel would reach the client a few promise turns
+    // after the click, so the check waits on a call that does reach it: the
+    // row's own Remove (first in document order), confirmed. One call in all
+    // means Cancel sent none.
+    fireEvent.click(screen.getAllByText("Remove")[0]!);
+    await screen.findByText(/Remove Bob Jones as a friend\?/);
+    const removeButtons = screen.getAllByText("Remove");
+    fireEvent.click(removeButtons[removeButtons.length - 1]);
+    await waitFor(() => expect(mocks.removeConnection).toHaveBeenCalled());
+    expect(mocks.removeConnection).toHaveBeenCalledTimes(1);
   });
 
   it("confirming the dialog invokes graphClient.removeConnection exactly once with the correct handle", async () => {

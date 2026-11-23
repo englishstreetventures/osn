@@ -173,8 +173,7 @@ describe("Turnstile sitekey and product name reach every ceremony call site", ()
   });
 
   // AuthorizeSignIn.tsx's register-mode <Register> is its own call site, and
-  // this is the only test that renders the consent screen with
-  // `initialMode="register"`.
+  // this is the one test that checks the sitekey and product name reach it.
   it("passes both to <Register /> on the consent screen (register mode)", () => {
     render(() => <AuthorizeSignIn initialMode="register" onSuccess={() => {}} />);
     expect(captured.register).toEqual([{ turnstileSiteKey: SITEKEY, productName: PRODUCT_NAME }]);
