@@ -573,7 +573,7 @@ export async function addVirtualAuthenticator(page: Page): Promise<{
 }
 
 /** How long a stack-database read or write waits out the server's write lock. */
-const DB_BUSY_TIMEOUT_MS = 2000;
+const DB_BUSY_TIMEOUT_MS = 5000;
 
 /**
  * One row from a stack database, opened read-only for this query alone. Waits
