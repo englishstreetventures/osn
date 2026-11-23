@@ -8,7 +8,7 @@ import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 /**
- * T-U1: in production, route factories run handlers against ONE shared
+ * In production, route factories run handlers against ONE shared
  * `ManagedRuntime` (built once in `index.ts`) passed as the trailing factory
  * arg — not the per-request fallback the rest of the route tests exercise.
  * This test drives a real, DB- and EmailService-backed flow (handle check →

@@ -24,8 +24,7 @@ import { mintingSession, mintStepUpToken } from "../helpers/step-up-session";
  * Step-up tokens must:
  *   • Be scoped to a specific account (`sub` match).
  *   • Carry an `amr` claim the verifier checks against a caller-supplied
- *     allow-list (so /recovery/generate can accept webauthn+otp, while
- *     a future /account/delete path could narrow to webauthn-only).
+ *     allow-list (so /recovery/generate can accept webauthn+otp).
  *   • Be single-use (jti replay guard) so a log leak doesn't grant two
  *     bites at a sensitive action.
  */
@@ -136,7 +135,6 @@ describe("step-up by emailed link", () => {
     }).pipe(Effect.provide(cap.layer));
   });
 
-  // F-SV5
   it.effect(
     "a token guard that cannot answer refuses the token, and is not counted as a replay",
     () => {
@@ -196,13 +194,9 @@ describe("step-up by emailed link", () => {
     }).pipe(Effect.provide(cap.layer));
   });
 
-  // 5-min TTL is the containment window. A regression that drops the
-  // `exp` claim or mis-sets the TTL would silently weaken the threat model.
-  // With a 30s verifier clockTolerance, a 1.1s real-clock wait no longer
-  // proves expiry rejection — the token would still be inside tolerance. We
-  // forge a step-up token whose `exp` is well past the 30s window (but
-  // otherwise valid: correct iss/aud/sub/amr/jti) so the assertion is
-  // deterministic without a 31s sleep.
+  // A token is refused once `exp` is past the verifier's 30 s clock tolerance.
+  // The forged token is 120 s past `exp` and otherwise valid (correct
+  // iss/aud/sub/amr/jti), so expiry is the only check that refuses it.
   it.effect("expired token is rejected (beyond clockTolerance)", () => {
     const verified = vi.spyOn(metrics, "metricStepUpVerified");
     return Effect.gen(function* () {
@@ -286,12 +280,9 @@ describe("a used step-up token stays used for as long as it verifies", () => {
   }
 });
 
-// Account deletion is the highest-stakes step-up consumer (Flow A —
-// full account erasure) and had no direct coverage. It shares the recovery
-// AMR allow-list, so pin both directions of the confused-deputy guard.
-// Generating burns the account's whole existing set, so the gate
-// requires a token minted for exactly that ceremony. Pin both directions.
-describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
+// Generating codes burns the account's whole set, so the gate takes only a
+// token minted for that ceremony.
+describe("verifyStepUpForRecoveryGenerate: purpose binding", () => {
   it.effect("rejects a purposeless token", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -324,7 +315,10 @@ describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
   });
 });
 
-describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
+// Account deletion is the highest-stakes step-up consumer (full account
+// erasure). It shares the recovery AMR allow-list, so pin both directions of
+// the confused-deputy guard.
+describe("verifyStepUpForAccountDelete: purpose binding", () => {
   it.effect("accepts a token minted with purpose account_delete", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {

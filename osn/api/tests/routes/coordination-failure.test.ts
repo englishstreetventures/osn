@@ -10,7 +10,7 @@ import { createTestLayer } from "../helpers/db";
 import { createAuthRoutes } from "../helpers/routes";
 
 /**
- * F-SV3: a ceremony `begin` whose entry cannot be stored answers 503 and sends
+ * A ceremony `begin` whose entry cannot be stored answers 503 and sends
  * no mail. A code mailed for an entry that was never stored could not be
  * checked, so the user would be sent a code that can only fail.
  */

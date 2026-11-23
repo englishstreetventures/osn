@@ -14,8 +14,6 @@ import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 /**
- * S-M2 at the HTTP boundary.
- *
  * `POST /token` is the only endpoint that retracts `osn_has_session`, and a
  * browser with no local account state consults nothing else — retract it
  * wrongly and that browser is signed out until the user signs in by hand, even
@@ -54,7 +52,7 @@ function grant(app: ReturnType<typeof createTokenRoutes>) {
   );
 }
 
-describe("POST /token marker retraction (S-M2)", () => {
+describe("POST /token marker retraction", () => {
   it("keeps the marker when the database failed", async () => {
     // The grant failed, but nothing here says the cookie is dead. Retracting
     // would turn one bad minute of storage into a permanent logout for every
@@ -66,7 +64,7 @@ describe("POST /token marker retraction (S-M2)", () => {
   });
 
   it("keeps the marker on the benign concurrent-rotation race", async () => {
-    // PR #289: two tabs grant the same token; the loser's CAS matches 0 rows.
+    // Two tabs grant the same token; the loser's CAS matches 0 rows.
     // The winner already set a fresh session cookie — this browser is signed
     // in, and the loser must not tell it otherwise.
     const res = await grant(appFailingWith(new AuthError({ message: ROTATION_RACE_MESSAGE })));
@@ -98,9 +96,9 @@ describe("POST /token marker retraction (S-M2)", () => {
     expect(res.headers.getSetCookie().some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
   });
 
-  // F-SV1, end to end: the rotation record is written in the same batch as the
-  // new session, so failing to write it fails the grant — as a storage
-  // failure, which says nothing about the cookie.
+  // The rotation record is written in the same batch as the new session, so
+  // failing to write it fails the grant — as a storage failure, which says
+  // nothing about the cookie.
   it("keeps the marker when the real service fails to record the rotation", async () => {
     const { layer, sqlite, email } = createTestLayerWithSqlite();
     const app = createAuthRoutes(await makeTestAuthConfig(), layer);
@@ -135,10 +133,7 @@ describe("POST /token marker retraction (S-M2)", () => {
 });
 
 /**
- * T-R1. `/logout` had no HTTP test at all — its cookie behaviour was covered
- * only by the unit tests on `buildClearSessionCookies`, which say nothing about
- * whether the route calls it. Logout is the one place that MUST clear both
- * cookies: leave the marker behind and every later page load fires a grant
+ * Logout is the one place that MUST clear both cookies: leave the marker behind and every later page load fires a grant
  * against a session the server has already destroyed.
  */
 describe("POST /logout", () => {

@@ -143,9 +143,8 @@ function addProfile(h: Harness, accountId: string, handle: string, isDefault: bo
 }
 
 /**
- * An account whose email holds capitals, as a row stored before the database
- * refused them: the insert trigger is dropped on this test database only, so
- * the row can be planted. Returns its passkey's credential id.
+ * An account whose email holds capitals, planted with the lower-case trigger
+ * dropped on this test database only. Returns its passkey's credential id.
  */
 async function withStoredCapitals(h: Harness, id: string, email: string): Promise<string> {
   h.sqlite.run("DROP TRIGGER IF EXISTS accounts_email_lower_case");
@@ -324,8 +323,8 @@ describe("authenticator-code recovery", () => {
   });
 });
 
-describe("an account stored with capitals before the database refused them", () => {
-  // Such a row signs in as it did before: by the address exactly as stored.
+describe("an account whose stored address holds capitals", () => {
+  // Such a row signs in by the address exactly as stored.
   // The lookup matches the address as typed as well as lower-cased, and
   // prefers the row stored exactly as typed. Each test goes red on matching
   // the lower-cased form alone.

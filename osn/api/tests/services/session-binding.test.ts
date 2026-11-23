@@ -10,16 +10,13 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
 /**
- * `osn_sid` — the access token's one-way binding to the session it was minted
- * from. It exists so a Bearer-only caller (cross-origin, cookie-stripping
- * proxy, native client) can still name its OWN session; before it existed
- * those callers looked sessionless and the passkey add/remove paths revoked
- * every session on the account.
+ * `osn_sid` binds an access token one way to the session it was minted from,
+ * so a Bearer-only caller (cross-origin, a proxy that strips cookies, a native
+ * client) can name its own session.
  *
  * The binding is `sha256(sessionHash + ":" + profileId)` truncated to 128
  * bits, so it is per-profile: two profiles of one account never share a
- * value, which preserves P6 (an access token must not let an observer
- * correlate two profiles of the same account).
+ * value, and an access token cannot link them.
  */
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -73,7 +70,7 @@ describe("session binding (osn_sid)", () => {
         profile.displayName,
       );
       // Second profile on the SAME account — the session is account-scoped
-      // and shared, but its binding must differ per profile (P6).
+      // and shared, but its binding must differ per profile.
       const { db } = yield* Db;
       const secondId = "usr_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
       const ts = new Date();
@@ -134,7 +131,7 @@ describe("session binding (osn_sid)", () => {
       );
       const switchedClaims = yield* auth.verifyAccessToken(switched.accessToken);
 
-      // Same underlying session, different value on the wire (P6)...
+      // Same underlying session, different value on the wire...
       expect(switchedClaims.sessionBinding).not.toBe(claims.sessionBinding);
       // ...and it resolves to that session under the NEW profile.
       const resolved = yield* auth.resolveSessionByBinding(
@@ -239,8 +236,8 @@ describe("classifyCallerSession (destructive-path resolution)", () => {
         profile.displayName,
       );
       const r = yield* auth.classifyCallerSession(profile.accountId, profile.id, {});
-      // Genuinely credential-less: the H1 account-wide wipe is the intended
-      // outcome (there is no "self" to preserve).
+      // No credential was presented, so there is no own session to spare; the
+      // caller's account-wide wipe is the intended outcome.
       expect(r._tag).toBe("none");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -266,7 +263,7 @@ describe("classifyCallerSession (destructive-path resolution)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("returns `stale` when a binding is presented but its session is gone (S-M2)", () =>
+  it.effect("returns `stale` when a binding is presented but its session is gone", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("cls-stale@example.com", "clsstale");
       const tokens = yield* auth.issueTokens(

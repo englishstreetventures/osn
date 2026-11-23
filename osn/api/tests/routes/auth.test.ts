@@ -85,13 +85,12 @@ describe("auth routes", () => {
   // -------------------------------------------------------------------------
   // Registration
   //
-  // There is no unverified `POST /register` endpoint: sign-up proves the
-  // address with an emailed link (begin, confirm, status). The service-layer
-  // `registerProfile` helper survives as a test seeder; direct HTTP access
-  // to it must stay 404 so unverified account creation can't sneak back in.
+  // No route makes an account without a confirmed address: sign-up proves the
+  // address with an emailed link (begin, confirm, status), and
+  // `registerProfile` is a test seeder only.
   // -------------------------------------------------------------------------
-  describe("POST /register (removed)", () => {
-    it("returns 404 — the unverified endpoint was deleted", async () => {
+  describe("POST /register", () => {
+    it("answers 404: no route makes an account without a confirmed address", async () => {
       const res = await app.handle(
         new Request("http://localhost/register", {
           method: "POST",
@@ -278,11 +277,11 @@ describe("auth routes", () => {
       expect(res.headers.get("cache-control")).toBe("no-store");
     });
 
-    it("C2: replaying a rotated-out refresh cookie within grace is rejected but keeps the family alive", async () => {
+    it("replaying a rotated-out refresh cookie within grace is rejected but keeps the family alive", async () => {
       // Route-layer integration test for reuse detection. Service-level
       // coverage already exercises the detector in isolation; this one
-      // locks in the Elysia derive + cookie-reader glue so a regression in
-      // cookie handling or rate-limit ordering can't silently downgrade C2.
+      // locks in the Elysia derive + cookie-reader glue so a change in cookie
+      // handling or rate-limit ordering cannot silently weaken reuse detection.
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
 
@@ -345,9 +344,8 @@ describe("auth routes", () => {
     });
 
     it("rejects refresh_token supplied in the body (cookie-only contract)", async () => {
-      // The body fallback was removed: any refresh_token submitted outside
-      // the HttpOnly cookie must fail with invalid_request, independent of
-      // whether the token itself would be valid.
+      // A refresh_token outside the HttpOnly cookie fails with invalid_request,
+      // whether or not it is valid.
       const capture = buildEmailCapture(layer);
       const cookieOnlyApp = createAuthRoutes(config, capture.layer);
 
@@ -830,11 +828,11 @@ describe("auth routes", () => {
     });
 
     // Authorization is bound to the access token's own `sub`, not to a
-    // client-echoed `body.profileId` (Bug B). A mismatching profileId is
-    // therefore IGNORED rather than rejected: the begin still proceeds for
-    // the token's own account (bootstrap path here). The companion "Bug B
-    // guard" test below proves a *foreign* profileId can't redirect the
-    // enrolment onto another account.
+    // client-echoed `body.profileId`. A mismatching profileId is therefore
+    // IGNORED rather than rejected: the begin still proceeds for the token's
+    // own account (bootstrap path here). The companion "foreign
+    // body.profileId" test below proves a profileId on another account cannot
+    // redirect the enrolment there.
     it("ignores a body.profileId that mismatches the token sub (proceeds for the token's account)", async () => {
       const { accessToken } = await setupProfileAndAccessToken();
       const res = await app.handle(
@@ -922,13 +920,9 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    // Regression pin: the enrollmentToken JWT machinery was deleted, but
-    // the test config still signs with a real ES256 key. If a future change
-    // relaxes `verifyAccessToken`'s claim check, a legacy `type:"passkey-
-    // enroll"` token would silently regain access. This test forges one and
-    // asserts the route rejects it — independent of the implementation
-    // accident that currently does the rejecting.
-    it("rejects a legacy passkey-enrollment JWT (type: 'passkey-enroll')", async () => {
+    // A token of type `passkey-enroll` with no `osn-access` audience is
+    // refused; `verifyAccessToken`'s claim check must not admit it.
+    it("rejects a JWT of type passkey-enroll", async () => {
       const svc = createAuthService(config);
       const profile = await Effect.runPromise(
         svc.registerProfile("tess@example.com", "tess").pipe(Effect.provide(layer)),
@@ -1017,18 +1011,16 @@ describe("auth routes", () => {
     });
 
     // -----------------------------------------------------------------------
-    // Bug B (production): the organiser "Add passkey" 401.
-    //
-    // The enrol principal must be resolved from the ACCESS TOKEN'S OWN `sub`
-    // (the verified caller), not gated on the client echoing a matching
-    // `body.profileId`. A signed-in caller can present a valid token whose
-    // `sub` is one profile while the client-supplied `profileId` names a
-    // *different profile on the SAME account* (e.g. a stale `activeProfileId`
+    // The enrol principal is the access token's own `sub`; a `body.profileId`
+    // naming another profile on the same account is ignored, and one on
+    // another account cannot move the enrolment there. A signed-in caller can
+    // present a token whose `sub` is one profile while `profileId` names
+    // another profile on the same account (e.g. a stale `activeProfileId`
     // after a silent token refresh re-issues for the account's default
-    // profile). The enrolment belongs to the caller's own account either way,
-    // so it MUST proceed — gating on the echo produced a spurious 401.
+    // profile); the enrolment belongs to the caller's own account either way,
+    // so it proceeds.
     // -----------------------------------------------------------------------
-    it("Bug B: proceeds when body.profileId names another profile on the caller's own account", async () => {
+    it("proceeds when body.profileId names another profile on the caller's own account", async () => {
       const svc = createAuthService(config);
       const profile = await Effect.runPromise(
         svc.registerProfile("wendy@example.com", "wendy").pipe(Effect.provide(layer)),
@@ -1082,12 +1074,11 @@ describe("auth routes", () => {
       expect(json.challenge).toBeTruthy();
     });
 
-    // Security guard for the Bug B fix: a caller MUST NOT be able to drive
-    // enrolment onto a DIFFERENT account by supplying a foreign
-    // `body.profileId`. The principal is the token's own account; the foreign
+    // A caller MUST NOT be able to drive enrolment onto a DIFFERENT account by
+    // supplying a foreign `body.profileId`. The principal is the token's own account; the foreign
     // profileId must be ignored, and the begin options must carry the
     // CALLER'S passkey user handle (their account), never the victim's.
-    it("Bug B guard: a foreign body.profileId never enrols on another account", async () => {
+    it("a foreign body.profileId never enrols on another account", async () => {
       const svc = createAuthService(config);
       const caller = await Effect.runPromise(
         svc.registerProfile("carol@example.com", "carol").pipe(Effect.provide(layer)),
@@ -1416,7 +1407,7 @@ describe("auth routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Profile switching (P2)
+  // Profile switching
   // -------------------------------------------------------------------------
 
   describe("GET /profiles/list", () => {
@@ -1582,7 +1573,7 @@ describe("auth routes", () => {
     });
   });
 
-  describe("recovery codes (Copenhagen Book M2)", () => {
+  describe("recovery codes", () => {
     async function registerForRecovery(): Promise<{
       accessToken: string;
       email: string;
@@ -1603,8 +1594,8 @@ describe("auth routes", () => {
       };
       const accessToken = json.session.access_token;
 
-      // M-PK1: /recovery/generate requires a step-up token. Drive the emailed
-      // link now so the caller can attach `step_up_token` to its body.
+      // `/recovery/generate` requires a step-up token; drive the emailed link
+      // so the caller can attach it.
       const stepUpToken = await stepUpThroughRoutes(
         verifiedApp,
         accessToken,
@@ -1668,8 +1659,8 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    // M-PK1 gate: authenticated access token alone is no longer enough; a
-    // fresh step-up ceremony must have been completed.
+    // An access token alone is not enough; a step-up ceremony must have
+    // completed.
     it("POST /recovery/generate without a step-up token returns 403", async () => {
       const { accessToken } = await registerForRecovery();
       const res = await app.handle(
@@ -1743,9 +1734,8 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    // the assignment used to run after the DB read, inside the
-    // `try`, so the 401/429/500 paths never got it. Moved to the first
-    // statement — this is the rejection path a 200-only test cannot see.
+    // The header is the first statement, so the 401 carries it too — the
+    // rejection path a 200-only test cannot see.
     it("GET /recovery/status sets cache-control: no-store even on the 401 rejection", async () => {
       const res = await app.handle(new Request("http://localhost/recovery/status"));
       expect(res.status).toBe(401);
@@ -2337,7 +2327,7 @@ describe("auth routes", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Security events (M-PK1b)
+  // Security events
   // ---------------------------------------------------------------------------
   describe("security events routes", () => {
     async function setupWithRecovery(): Promise<{

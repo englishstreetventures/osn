@@ -319,7 +319,7 @@ describe("TOTP single use (RFC 6238 §5.2)", () => {
 });
 
 /**
- * Key rotation, which is the whole of `englishstreetventures/osn#968`.
+ * Key rotation.
  *
  * What is under test is not "two keys can coexist" — it is that an operator can
  * move every credential from one key to another **with no downtime and no
@@ -346,9 +346,9 @@ describe("TOTP encryption-key rotation", () => {
   it.effect("a row written under the old key still verifies once that key is demoted", () => {
     const rekeySpy = vi.spyOn(metrics, "metricTotpRekeyed");
     return Effect.gen(function* () {
-      // Issue #968's first two "done when" clauses, in the order an operator
-      // meets them: enrol under one key; come back with that key demoted to
-      // OSN_TOTP_ENCRYPTION_KEY_PREVIOUS and a new one installed; verify.
+      // In the order an operator meets them: enrol under one key; come back
+      // with that key demoted to OSN_TOTP_ENCRYPTION_KEY_PREVIOUS and a new one
+      // installed; verify.
       const k1 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
       const k2 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
 
@@ -564,11 +564,10 @@ describe("TOTP encryption-key rotation", () => {
 
   it.effect("answers the GENERIC failure when no configured key opens the row", () =>
     Effect.gen(function* () {
-      // This was a DatabaseError, and so a 500 while every other TOTP failure
-      // answers 400 — which told an unauthenticated caller at
-      // POST /login/recovery/totp/complete that the account HAS a credential. A
-      // mis-staged rotation makes that branch common, so it has to look like
-      // every other rejection.
+      // Every TOTP failure answers the same 400, so an unreadable row must not
+      // tell an unauthenticated caller at POST /login/recovery/totp/complete
+      // that the account has a credential. A mis-staged rotation makes that
+      // branch common, so it has to look like every other rejection.
       const k1 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
       const k2 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
 
@@ -861,7 +860,7 @@ describe("TOTP disable", () => {
 describe("TOTP enrolment and disable are audible", () => {
   // The `security_events` row is the only IN-APP channel telling a user their
   // account grew or lost a second factor, and the threat model leans on it. It
-  // shares a `commitBatch` with the credential write, so a regression could
+  // shares a `commitBatch` with the credential write, so a change could
   // drop the audit row while the ceremony itself keeps working — nothing else
   // in this file would notice.
 

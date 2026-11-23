@@ -152,8 +152,8 @@ describe("registerProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Copenhagen Book M3: emails longer than 255 chars are rejected even when
-  // they match the format regex.
+  // Emails longer than 255 characters are refused even when they match the
+  // format.
   it.effect("fails with an email longer than 255 characters", () =>
     Effect.gen(function* () {
       const tooLong = `${"a".repeat(244)}@example.com`; // 256 chars total
@@ -945,7 +945,7 @@ describe("passkey registration", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Pins the WebAuthn-option posture (M-PK):
+  // Pins the WebAuthn options:
   //   • `residentKey: "preferred"` — FIDO2 security keys without a resident-
   //     key slot still register (as non-discoverable), so identified login
   //     works for them.
@@ -1153,9 +1153,9 @@ describe("verifyAccessToken", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Regression pin: a JWT signed with the same key but lacking the
-  // `aud: "osn-access"` claim (e.g. a step-up token or any future token
-  // type) must not authenticate access-token routes.
+  // A JWT signed with the same key but lacking the `aud: "osn-access"` claim
+  // (e.g. a step-up token or any future token type) must not authenticate
+  // access-token routes.
   it.effect("rejects a token without aud: 'osn-access'", () =>
     Effect.gen(function* () {
       const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
@@ -1198,7 +1198,7 @@ describe("verifyAccessToken", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Local-mode LogEmailLive behaviour (replaces the old in-auth.ts debug log)
+// Local-mode LogEmailLive behaviour
 // ---------------------------------------------------------------------------
 // The EmailService layer decides whether to actually dispatch or just log.
 // In local dev + tests we provide `LogEmailLive`, which:
@@ -1208,8 +1208,8 @@ describe("verifyAccessToken", () => {
 //   2. Records the full rendered payload (including the code) into an
 //      in-memory ring buffer readable via `recorded()` — that's how test
 //      helpers extract the code without relying on log parsing.
-//   3. Never emits "[REDACTED]" — defence against a future PR that
-//      accidentally annotates `Effect.annotateLogs({ code })`.
+//   3. The log line carries no `[REDACTED]` marker, so no code is annotated
+//      onto it.
 // ---------------------------------------------------------------------------
 
 describe("LogEmailLive local-mode behaviour", () => {
@@ -1313,7 +1313,7 @@ describe("two-tier token model", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("C2: refreshTokens rotates the session token (returns a new one)", () =>
+  it.effect("refreshTokens rotates the session token and refuses the old one", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("sametoken@example.com", "sametoken");
       const tokens = yield* auth.issueTokens(
@@ -1474,10 +1474,10 @@ describe("listAccountProfiles", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Server-side sessions (Copenhagen Book C1)
+// Server-side sessions
 // ---------------------------------------------------------------------------
 
-describe("server-side sessions (C1)", () => {
+describe("server-side sessions", () => {
   it.effect("invalidateSession makes the session token unusable", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("revoke@example.com", "revoke");
@@ -1604,7 +1604,7 @@ describe("server-side sessions (C1)", () => {
 // Refresh token rotation + reuse detection
 // ---------------------------------------------------------------------------
 
-describe("refresh token rotation (C2)", () => {
+describe("refresh token rotation", () => {
   it.effect("refreshed token can be used for a second refresh (chain)", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("chain@example.com", "chain");
@@ -1652,37 +1652,34 @@ describe("refresh token rotation (C2)", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect(
-    "replaying a rotated-out token OUTSIDE the grace window revokes the family (C2)",
-    () => {
-      const { layer, sqlite } = createTestLayerWithSqlite();
-      return Effect.gen(function* () {
-        // A genuine reuse: a stolen rotated token replayed long after rotation
-        // (outside ROTATION_GRACE_MS). Force "outside grace" deterministically
-        // by moving the rotation record's timestamp back to epoch 0.
-        const profile = yield* auth.registerProfile("reuse-old@example.com", "reuseold");
-        const tokens = yield* auth.issueTokens(
-          profile.id,
-          profile.accountId,
-          profile.email,
-          profile.handle,
-          profile.displayName,
-        );
+  it.effect("replaying a rotated-out token OUTSIDE the grace window revokes the family", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      // A genuine reuse: a stolen rotated token replayed long after rotation
+      // (outside ROTATION_GRACE_MS). Force "outside grace" deterministically
+      // by moving the rotation record's timestamp back to epoch 0.
+      const profile = yield* auth.registerProfile("reuse-old@example.com", "reuseold");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
 
-        // Rotate once — old token is now rotated out (recorded in rotated_sessions).
-        const r1 = yield* auth.refreshTokens(tokens.refreshToken);
-        sqlite.run("UPDATE rotated_sessions SET rotated_at = 0");
+      // Rotate once — old token is now rotated out (recorded in rotated_sessions).
+      const r1 = yield* auth.refreshTokens(tokens.refreshToken);
+      sqlite.run("UPDATE rotated_sessions SET rotated_at = 0");
 
-        // Replay the old token — outside grace ⇒ genuine reuse ⇒ family revocation.
-        const err1 = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
-        expect(err1._tag).toBe("AuthError");
+      // Replay the old token — outside grace ⇒ genuine reuse ⇒ family revocation.
+      const err1 = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
+      expect(err1._tag).toBe("AuthError");
 
-        // The new token (r1) is also revoked (whole family gone).
-        const err2 = yield* Effect.flip(auth.verifyRefreshToken(r1.refreshToken));
-        expect(err2._tag).toBe("AuthError");
-      }).pipe(Effect.provide(layer));
-    },
-  );
+      // The new token (r1) is also revoked (whole family gone).
+      const err2 = yield* Effect.flip(auth.verifyRefreshToken(r1.refreshToken));
+      expect(err2._tag).toBe("AuthError");
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("verifyRefreshToken returns familyId and sessionId", () =>
     Effect.gen(function* () {

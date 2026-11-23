@@ -187,7 +187,7 @@ describe("passkey management routes", () => {
       expect(res.status).toBe(401);
     });
 
-    it("returns 403 without step-up token (S-M2)", async () => {
+    it("returns 403 without step-up token", async () => {
       const { tokens, profile } = await seedAccount();
       const pk = await seedPasskey(profile.accountId);
       const res = await app.handle(
@@ -274,7 +274,7 @@ describe("passkey management routes", () => {
 
     // End-to-end happy path. The route layer is the only place that
     // wires the X-Step-Up-Token header into the service call — exercise it
-    // with a real minted token so a regression in that wiring fails here.
+    // with a real minted token so a break in that wiring fails here.
     it("succeeds with a valid step-up token and returns { remaining }", async () => {
       const { app: verifiedApp, accessToken, profile, mintOtpStepUp } = await setupStepUp();
       const pk = await seedPasskey(profile.accountId);
@@ -351,7 +351,7 @@ describe("passkey management routes", () => {
       await Effect.runPromise(
         svc.verifyRefreshToken(tokens.refreshToken).pipe(Effect.provide(layer)),
       );
-      // Every other session on the account is gone (H1).
+      // Every other session on the account is gone.
       const err = await Effect.runPromise(
         Effect.flip(svc.verifyRefreshToken(other.refreshToken)).pipe(Effect.provide(layer)),
       );

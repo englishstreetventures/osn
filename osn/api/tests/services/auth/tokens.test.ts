@@ -88,7 +88,7 @@ const payloadOf = (jwt: string): Record<string, unknown> =>
   >;
 
 describe("refreshTokens: the profile a grant names", () => {
-  it.effect("F20: mints for a profile the account owns, bound to the rotated session", () =>
+  it.effect("mints for a profile the account owns, bound to the rotated session", () =>
     Effect.gen(function* () {
       const { profile, refreshToken } = yield* signIn("named@example.com", "named");
       const second = yield* addProfile(profile.accountId, "named2");
@@ -106,7 +106,7 @@ describe("refreshTokens: the profile a grant names", () => {
     }).pipe(Effect.provide(createTestLayerWithSqlite().layer)),
   );
 
-  it.effect("F21: a grant naming no profile mints for the default profile", () =>
+  it.effect("a grant naming no profile mints for the default profile", () =>
     Effect.gen(function* () {
       const { profile, refreshToken } = yield* signIn("own@example.com", "own");
       yield* addProfile(profile.accountId, "own2");
@@ -271,7 +271,7 @@ describe("refreshTokens: the profile a grant names", () => {
     });
   }
 
-  it.effect("F22: a restricted recovery session ignores the profile it names", () =>
+  it.effect("a restricted recovery session ignores the profile it names", () =>
     Effect.gen(function* () {
       const user = yield* auth.registerProfile("named-rs@example.com", "namedrs");
       const second = yield* addProfile(user.accountId, "namedrs2");

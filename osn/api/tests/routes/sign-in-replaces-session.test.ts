@@ -770,7 +770,7 @@ describe("a sign-up held at its passkey step, and the page of the account before
 
     expect(renewal.status).toBe(400);
     // The body @osn/client reads as a refused grant, which ends the page's
-    // session (osn/client/tests/runtime.test.ts, F9).
+    // session (osn/client/tests/runtime.test.ts).
     expect(await renewal.json()).toEqual({
       error: "invalid_grant",
       message: "AuthError: Invalid or expired session",

@@ -325,8 +325,8 @@ describe("the cooldown is asymmetric — the owner acts, the recovery waits", ()
   it("an otp step-up cannot change the email inside the window, and can outside it", async () => {
     // The reason `emailChangeAllowedAmr` admits `otp` at all is that an emailed
     // code proves control of the CURRENT mailbox — which a recovery is exactly
-    // the event that calls into question. Goes red on dropping the W2 arm from
-    // `provenanceRefusal`.
+    // the event that calls into question. Goes red if `provenanceRefusal` stops
+    // refusing an `otp` email change inside the recovery window.
     const h = makeApp();
     const profile = await h.svc(h.auth.registerProfile("cd-ec@example.com", "cdec"));
 
@@ -669,8 +669,8 @@ describe("POST /recovery/disown", () => {
     // the one-per-72-hours cap and re-stamps `last_recovered_at` every time.
     // So a second, legitimate recovery can land while an older token is still
     // live, and an unscoped run would revoke the credentials that second
-    // recovery produced and clear a window belonging to it — ending W2 early
-    // for a recovery nobody disowned, which re-opens both the second-recovery
+    // recovery produced and clear a window belonging to it — ending the window
+    // early for a recovery nobody disowned, which re-opens both the second-recovery
     // cap and the email-change gate for whoever holds the mailbox.
     //
     // Goes red on dropping either bound: the `laterRecovery` upper bound on
@@ -1016,11 +1016,9 @@ describe("the provenance gate through the routes", () => {
 /**
  * What the disown does when the database says no.
  *
- * This is the branch that shipped wrong once and could not be seen from
- * anywhere: both database calls behind `POST /recovery/disown` swallowed their
- * errors, the return value was computed from an in-memory read taken before the
- * write, and so a transient outage spent the token, revoked nothing, answered
- * "accepted", and recorded a successful revocation on the one counter whose
+ * Both database calls behind `POST /recovery/disown` must surface their
+ * errors: a swallowed error spends the token, revokes nothing, answers
+ * "accepted" and records a successful revocation on the one counter whose
  * whole purpose is to tell a real revocation from a no-op.
  *
  * The rule these tests hold is that the two are distinguishable — a caller can
@@ -1132,9 +1130,9 @@ describe("POST /recovery/disown — when the write fails", () => {
     );
 
   it("a failed READ answers 500, records revoke_failed, and changes nothing", async () => {
-    // Goes red on restoring the `Effect.catch(() => Effect.succeed([]))` on the
-    // credential read, which turns an outage into "this account has no
-    // credentials to revoke" and then reports that as an accepted disown.
+    // Goes red if the credential read's error is replaced with an empty list,
+    // which turns an outage into "this account has no credentials to revoke"
+    // and then reports that as an accepted disown.
     const fault: Brittle = { mode: "none", remaining: 0 };
     const h = makeApp({}, brittle(fault));
     const { profile, token } = await recoverAndEnrol(h, "fail-read@example.com", "failread");
@@ -1162,9 +1160,9 @@ describe("POST /recovery/disown — when the write fails", () => {
   });
 
   it("a failed WRITE answers 500, records revoke_failed, and leaves the window open", async () => {
-    // Goes red on restoring the `Effect.catch(logWarning)` around the
-    // `commitBatch`: the batch fails, the metric says `accepted`, and the route
-    // tells the account owner their recovery has been disowned.
+    // Goes red if the `commitBatch` error is logged and swallowed: the batch
+    // fails, the metric says `accepted`, and the route tells the account owner
+    // their recovery has been disowned.
     const fault: Brittle = { mode: "none", remaining: 0 };
     const h = makeApp({}, brittle(fault));
     const { profile, token } = await recoverAndEnrol(h, "fail-write@example.com", "failwrite");
@@ -1188,11 +1186,10 @@ describe("POST /recovery/disown — when the write fails", () => {
 });
 
 describe("the passkey ceiling, over the real recovery routes", () => {
-  // `englishstreetventures/osn#970`. The service tests in `tests/services/recovery-session.test.ts`
-  // pin the rule; this one proves the whole path a locked-out user actually
-  // walks — `/login/recovery/email/begin`, `/complete`, then the two enrolment
-  // routes — reaches it. Its red is a 400 from `/passkey/register/begin`, which
-  // is exactly what this issue was.
+  // The service tests in `tests/services/recovery-session.test.ts` pin the
+  // ceiling rule; this proves the routes a locked-out user walks —
+  // `/login/recovery/email/begin`, `/complete`, then the two enrolment routes —
+  // reach it. A refusal shows as a 400 from `/passkey/register/begin`.
 
   /** Fills the account up to `MAX_PASSKEYS_PER_ACCOUNT` credentials. */
   const seedToCap = async (h: ReturnType<typeof makeApp>, accountId: string, from: number) => {
@@ -1224,8 +1221,7 @@ describe("the passkey ceiling, over the real recovery routes", () => {
     const h = makeApp();
     const email = "ceil-route@example.com";
     const profile = await h.svc(h.auth.registerProfile(email, "ceilroute"));
-    // Bootstrap one real credential, then fill to the cap. This is the account
-    // that could not be recovered at all before this change.
+    // Bootstrap one real credential, then fill to the cap.
     await h.svc(h.auth.beginPasskeyRegistration(profile.accountId));
     await h.svc(h.auth.completePasskeyRegistration(profile.accountId, fakeAttestation(), null));
     await seedToCap(h, profile.accountId, 1);
@@ -1241,7 +1237,7 @@ describe("the passkey ceiling, over the real recovery routes", () => {
         body: JSON.stringify({ profileId: profile.id }),
       }),
     );
-    // The whole issue in one assertion: this was a 400 "Passkey limit reached".
+    // An account at the cap may still begin enrolment under a recovery session.
     expect(begun.status).toBe(200);
 
     const completed = await h.app.handle(
@@ -1266,9 +1262,9 @@ describe("the passkey ceiling, over the real recovery routes", () => {
   });
 
   it("a second recovery leaves the credential the first one lent standing", async () => {
-    // The account the finding is about, over the real routes: at the ceiling,
-    // recovered once, never pruned, and the lent credential has since matured
-    // into the device the owner actually uses. `provenance_amr` still says
+    // An account at the ceiling, recovered once, over the real routes: never
+    // pruned, and the lent credential has since matured into the device the
+    // owner actually uses. `provenance_amr` still says
     // `recovery` — it is never updated after insert — so a filter on provenance
     // alone deletes it here, silently, with no step-up presented anywhere.
     //
@@ -1319,7 +1315,7 @@ describe("the passkey ceiling, over the real recovery routes", () => {
           }),
         }),
       );
-      // Not refused. A refusal here is the original lockout, one recovery out.
+      // Not refused: a refusal here locks the owner out one recovery later.
       expect(res.status).toBe(200);
     }
 

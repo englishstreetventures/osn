@@ -1,5 +1,5 @@
 import { it, expect, describe } from "@effect/vitest";
-import { passkeys, recoveryCodes, securityEvents, sessions } from "@osn/db/schema";
+import { passkeys, securityEvents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
@@ -13,7 +13,7 @@ import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
 import { NO_LIVE_SESSION, stepUpThroughService } from "../helpers/step-up-link";
 
-/** Fresh email recorder + merged test layer. Replaces the old sendEmail callback. */
+/** Fresh email recorder and merged test layer. */
 function makeEmailCapture() {
   const email = makeLogEmailLive();
   return {
@@ -87,7 +87,7 @@ function makeD1ShapedUpdateLayer() {
 }
 
 /**
- * Passkey management service tests (M-PK):
+ * Passkey management service tests:
  *   • list returns a public-safe shape (no publicKey / counter).
  *   • rename enforces label validation + scoping.
  *   • delete emits a security event, revokes other sessions, and refuses
@@ -207,10 +207,8 @@ describe("renamePasskey", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Regression: the rows-updated gate must read D1's shape. Tests run on
-  // bun:sqlite (`{ changes }`), production runs on D1 (`{ meta: { changes } }`),
-  // so a reader that only knows the top-level field answered "Passkey not
-  // found" for every successful production rename.
+  // The rows-updated gate reads D1's shape (`{ meta: { changes } }`) as well as
+  // bun:sqlite's (`{ changes }`).
   it.effect("succeeds when the driver reports its count D1-style, under `meta.changes`", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-rn-d1@example.com", "pkrnd1");
@@ -280,7 +278,7 @@ describe("deletePasskey", () => {
       const { passkeys: remaining } = yield* auth.listPasskeys(alice.accountId);
       expect(remaining).toHaveLength(1);
 
-      // Current session intact; other session revoked (H1).
+      // Current session intact; other session revoked.
       yield* auth.verifyRefreshToken(current.refreshToken);
       const err = yield* Effect.flip(auth.verifyRefreshToken(other.refreshToken));
       expect(err._tag).toBe("AuthError");
@@ -308,11 +306,8 @@ describe("deletePasskey", () => {
 
   it.effect("still refuses the last-passkey delete even when recovery codes exist", () =>
     Effect.gen(function* () {
-      // Regression guard: the prior version of this method allowed dropping
-      // the last passkey IF active recovery codes existed. That escape hatch
-      // was removed — recovery codes are for "lost device", not a substitute
-      // credential. This test pins the stricter contract so a future refactor
-      // can't quietly reintroduce the old branch.
+      // Recovery codes are no substitute credential: the last passkey cannot be
+      // deleted while they exist.
       const alice = yield* auth.registerProfile("pk-last-rc@example.com", "pklastrc");
       const only = yield* seedPasskey(alice.accountId);
 
@@ -414,7 +409,7 @@ describe("listPasskeys public shape", () => {
 // ≥1 passkey. First-passkey bootstrap is exempt (no ceremony reachable
 // before the account has credentials). Prevents silent passkey enrollment
 // via a stolen access token.
-describe("passkey register step-up gate (S-H1)", () => {
+describe("passkey register step-up gate", () => {
   it.effect("first-passkey enrollment does not require step-up", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-first@example.com", "pkfirst");
@@ -503,11 +498,6 @@ describe("deletePasskey does not touch recovery codes", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
-
-// Keep the TS compiler happy about the schema imports we pulled in for
-// surface-verification checks.
-void recoveryCodes;
-void sessions;
 
 describe("two deletes of an account's two passkeys at once", () => {
   it.live("the one that finds its passkey the last is refused, and records nothing", () => {
