@@ -70,12 +70,13 @@ Record CI red (the job and its decisive line), CI never started (the last comman
 
 ## Step 3 — In Progress: hands off
 
-Another session holds each of these. Never dispatch onto one and never move one. Report each card's **Held by** and **Last touched** (`jq '.[] | select(.status=="In Progress") | "\(.repo)#\(.n) \(.heldBy // "no holder") \(.lastTouched)"' /tmp/board.json`), and mark it live or stale:
+Another session holds each of these. Never dispatch onto one and never move one. Report each card's **Held by** and **Last touched** (`jq -r '.[] | select(.status=="In Progress") | "\(.repo)#\(.n) \(.heldBy // "holder unknown") \(.lastTouched)"' /tmp/board.json`), and mark it with the first of these that fits:
 
-- **Live**: an open PR refers to it, or a worktree (`git -C /Users/ac/.work/osn.git worktree list`) or an open task in `ORCHESTRATE.md` names it, or its Last touched is within three days.
-- **Stale**: the issue is closed, or its PR merged and the card did not move; or it has no Held by; or its Last touched is more than three days old and no PR is open for it.
+1. **Stale**: the issue is closed, or its PR merged and the card did not move.
+2. **Live**: an open PR refers to it, or a worktree (`git -C /Users/ac/.work/osn.git worktree list`) or an open task in `ORCHESTRATE.md` names it, or its Last touched is within three days.
+3. **Stale**: anything else — no PR, no worktree, no open task, and Last touched more than three days old or never set.
 
-The owner runs sessions under several Claude accounts, and no account can see another's sessions, so Held by is often the only sign of who has a card: name it in the question. A stale card is a question: release it to Up Next? Only the owner releases another session's claim.
+No Held by means only that the holder is unknown, as on every card claimed before the field existed; it makes a card neither live nor stale. The owner runs sessions under three Claude accounts, and no account can see another's sessions, so Held by is often the only sign of who has a card: name it in the question. A stale card is a question: release it to Up Next? Only the owner releases another session's claim.
 
 ## Step 4 — Up Next: read every item
 
@@ -128,16 +129,15 @@ An open blocker sends the task back to the Queue. The issue is held when it, its
 **2. Write it**, with the item's REST id from `/tmp/board.json`. One write sets the Status, **Held by** (field `449016881`, text) and **Last touched** (field `449016914`, date):
 
 ```bash
-held="${CLAUDE_ACCOUNT:-unknown} · $(hostname -s) · $(basename "$PWD") · $(date +%F)"   # REMOTE: cloud for the worktree
+held="${CLAUDE_ACCOUNT:-unknown} · $(hostname -s) · <worktree dir> · $(date +%F)"
 jq -n --arg h "$held" --arg d "$(date +%F)" \
   '{fields: [{id: <Status field id>, value: "<In Progress option id>"}, {id: 449016881, value: $h}, {id: 449016914, value: $d}]}' \
-  > /tmp/claim.json
-gh api -X PATCH orgs/englishstreetventures/projectsV2/1/items/<item> --input /tmp/claim.json
+  | gh api -X PATCH orgs/englishstreetventures/projectsV2/1/items/<item> --input -
 ```
 
-- `CLAUDE_ACCOUNT` names the Claude account: `admin`, `aniket` or `personal`, set in that account's `settings.json` `env` block. A session reads it when it starts, so one without it writes `unknown`; never leave the field empty, which reads as no claim.
-- `$(basename "$PWD")` is the worktree's directory, so run this from inside the worktree; `orchestrate` claims before it cuts one, so it writes the directory it is about to add.
-- The body goes through `--input` because `gh api` mangles repeated `-F 'fields[][id]=…'` pairs into a 422 ("object is missing required key: id") as soon as there are two fields.
+- `CLAUDE_ACCOUNT` names the Claude account: `admin`, `aniket` or `personal`, set in that account's `settings.json` `env` block. A session reads it when it starts, so one without it writes `unknown`; never leave the field empty, which reads as holder unknown.
+- `<worktree dir>` is the directory of the worktree the work will run in, written by name, never `$PWD`: both callers claim before that worktree exists. It is the `<dir>` the next `git worktree add` creates (the branch name without its prefix), or `cloud` on a remote session.
+- The body goes to `gh api` on standard input, so no file sits between two sessions' claims. It is JSON because `gh api` turns repeated `-F 'fields[][id]=…'` pairs into a 422 ("object is missing required key: id") as soon as there are two fields.
 
 An item outside the snapshot, such as a child of an epic, needs its id from GraphQL (one point):
 
@@ -155,7 +155,14 @@ Taking an epic claims every child it will build.
 
 **3. Record it**, with the card's Status from before the write: `claimed: <repo>#<n> item <item> from <Status name> <option id>` in the task's block in `ORCHESTRATE.md`, or, for a session `orchestrate` did not dispatch (its brief has no `CLAIMED:`), `Claimed: <repo>#<n> item <item> from <Status name> <option id>` under the `Issue:` line of `NEW-FEAT.md`, each followed by `held "<the Held by value>"`. Held by tells the owner and other accounts who has the card; the line is how this run knows its own claims after a compaction, and what step 5 puts back.
 
-**4. Move it on.** PR opened → In Review, with the same `PATCH`, its body the Status and a fresh Last touched. A session still building more than a day after its claim sets Last touched again at each push, so step 3 does not read it as stale. Task dropped → step 5, with the reason in `ORCHESTRATE.md`. Parked until a limit resets → it stays In Progress, and `next:` says why. Never set Done: merging closes the issue, and the board moves a closed issue's card.
+**4. Move it on.** PR opened → In Review, Held by kept and Last touched set to today:
+
+```bash
+jq -n --arg d "$(date +%F)" '{fields: [{id: <Status field id>, value: "<In Review option id>"}, {id: 449016914, value: $d}]}' \
+  | gh api -X PATCH orgs/englishstreetventures/projectsV2/1/items/<item> --input -
+```
+
+Task dropped → step 5, with the reason in `ORCHESTRATE.md`. Parked until a limit resets → it stays In Progress, and `next:` says why. Never set Done: merging closes the issue, and the board moves a closed issue's card.
 
 **5. Release it.** A claim ends in one of two ways: the merge closes the issue, or the session puts the card back. A merge closes only the issues its `Closes` lines name, so an issue the pull request only touched (`Part of`), an epic, a tracker close the classifier refused and a dropped task all stay In Progress with no session working on them, and step 1 then refuses them to the next session. When a pull request merges, is dropped or is parked, read each issue **this task or session** claimed (its `claimed:` or `Claimed:` lines, no one else's):
 
@@ -167,7 +174,12 @@ Then read the card's current Status with step 2's query. Touch the card only whi
 
 - `closed`: nothing to do.
 - Open, and a pull request is open for it, this session's draft included: In Review.
-- Open and no pull request is open: put it back, with step 2's `PATCH` and the option id on the claim line (`from <Status name> <option id>`), and not the In Progress option id. The same body sets Held by to `null`, which clears it (an empty string is refused with HTTP 400), and Last touched to today. A card that had no Status goes to Up Next. Write no comment.
+- Open and no pull request is open: put it back, with the option id on the claim line (`from <Status name> <option id>`), not the In Progress option id; a card that had no Status goes to Up Next. The same body clears Held by with `null` (an empty string is refused with HTTP 400) and sets Last touched to today. Write no comment.
+
+```bash
+jq -n --arg d "$(date +%F)" '{fields: [{id: <Status field id>, value: "<option id from the claim line>"}, {id: 449016881, value: null}, {id: 449016914, value: $d}]}' \
+  | gh api -X PATCH orgs/englishstreetventures/projectsV2/1/items/<item> --input -
+```
 - Parked until a limit resets: it stays In Progress, and `next:` says why.
 
 Then print the reminder to the owner, one line per issue taken and what became of it. `orchestrate` prints it after each merge, not only at the end; a session without `orchestrate` prints it when the owner says the pull request has merged:
@@ -178,7 +190,7 @@ osn#2364 — Musubi sign-up: turn on the browser email verification path in prod
 osn#2089 — OSN docs: record the browser Email Verification API's status — open, put back in Backlog (the pull request only touched it)
 ```
 
-The claim is the Status, and Held by says whose it is, not an assignee: every session runs as the same GitHub user, under any of the owner's Claude accounts, and `new-feat` and the owner already read the board by Status.
+The claim is the Status, never an assignee: every session runs as the same GitHub user, under any of the owner's three Claude accounts, and `new-feat` and the owner read the board by Status. Held by only says whose claim it is.
 
 ## Common mistakes
 
@@ -188,7 +200,8 @@ The claim is the Status, and Held by says whose it is, not an assignee: every se
 | Two items that edit one file run in parallel, "the second one rebases" | One PR, or one after the other |
 | `gh issue edit --add-assignee @me` as the claim | The Status; an assignee cannot tell sessions apart |
 | A claim that sets the Status and leaves Held by empty | One `--input` body with all three fields (§Claim step 2); `unknown` when `CLAUDE_ACCOUNT` is unset |
-| Repeated `-F 'fields[][id]=…'` pairs, or `""` to clear Held by | A JSON body through `--input`; `null` clears a field |
+| Repeated `-F 'fields[][id]=…'` pairs, or `""` to clear Held by | A JSON body on standard input (`--input -`); `null` clears a field |
+| `$(basename "$PWD")` as the worktree in Held by | The worktree's directory by name: the claim runs before it exists, from `main/` |
 | Moving another session's In Progress card | A question to the owner |
 | A claimed issue left In Progress after its pull request merged | Step 5 |
 | An issue number without its repository | `osn#N` or `osn-tracker#N`; the numbers repeat |

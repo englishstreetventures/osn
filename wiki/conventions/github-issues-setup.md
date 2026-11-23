@@ -8,7 +8,7 @@ related:
 last-reviewed: 2026-11-24
 ---
 
-# GitHub Issues setup
+# GitHub Issues setup (repos, labels, Project)
 
 One-off setup for the move off `wiki/TODO.md`. Written down so it can be redone
 — on a fork, after an org rename, or when a label set drifts.
@@ -190,21 +190,26 @@ In Progress sets both:
 
 | Field | Id | Type | Value |
 |---|---|---|---|
-| Held by | `449016881` | text | `<account> · <machine> · <worktree> · <YYYY-MM-DD>`, for example `personal · MacBook-Pro · board-claim-holder · 2026-11-24` |
-| Last touched | `449016914` | date | the day of the claim, of the move to In Review, and of each push by a session still building a day after its claim |
+| Held by | `449016881` | text | `<account> · <machine> · <worktree> · <YYYY-MM-DD>`, for example `aniket · laptop · cire-retire-api · 2026-11-24` |
+| Last touched | `449016914` | date | the day of the claim, and of the move to In Review |
 
 The account is `CLAUDE_ACCOUNT` from the `env` block of that account's
 `settings.json` (`admin`, `aniket` or `personal`), `unknown` when it is unset;
-the machine is `hostname -s`; the worktree is its directory name, or `cloud` for
-a remote session. Putting a card back clears Held by. `next-batch` Step 3 reads
-both: a card with no Held by, or one untouched for three days with no open pull
-request, is stale. A board view grouped by Held by is made in the UI, like the
-other views (§7).
+the machine is `hostname -s`; the worktree is the directory the work will run
+in, or `cloud` for a remote session. Putting a card back clears Held by and sets
+Last touched. `next-batch` Step 3 reads both: an In Progress card with no open
+pull request, no worktree and no open task, untouched for three days, is stale.
+A card with no Held by has an unknown holder, which on its own makes it neither
+live nor stale. The Claims view in §7 lists the held cards by holder.
 
-Write all three fields in one PATCH with a JSON body through `--input`.
-Repeated `-F 'fields[][id]=…'` pairs are refused with HTTP 422 once there are
-two of them, and a text field is cleared with `null`; an empty string is
-refused with HTTP 400.
+Each write is one PATCH with a JSON body on standard input (`--input -`); the
+commands are in `.claude/skills/next-batch/SKILL.md` §Claim. Repeated
+`-F 'fields[][id]=…'` pairs are refused with HTTP 422 once there are two of
+them. A text field is cleared with `null`; an empty string is refused with
+HTTP 400.
+
+*Measured 2026-11-24 — PATCH on the osn#2491 card, each form tried and the card
+read back with `gh api "orgs/englishstreetventures/projectsV2/1/items/<item>?fields=449016881"`*
 
 The other fields are ordinary creates:
 
@@ -281,6 +286,7 @@ search bar itself — there is no filter dropdown, you type the query.
 | By type | Table | Group by **Type** | — |
 | Review findings | Table | **Slice by** → **Labels** | `repo:englishstreetventures/osn-tracker is:open` |
 | Up Next | Board | Group by **Status** | `status:"Up Next","In Progress"` |
+| Claims | Table | Sort by **Held by**; show **Held by** and **Last touched** | `status:"In Progress","In Review"` |
 
 Three things about that table are not obvious, and each one cost a search:
 
