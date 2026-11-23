@@ -527,8 +527,8 @@ table draws those at once and reads both again as it mounts; replies the table
 itself read, still fresh, draw with nothing read, and once drawn
 (`after-paint.ts`) only the badge rows are read: that read confirms the seat may
 still see the replies, and a change since sends the table to read the replies
-too, badged. A refused read (403 or 404) empties the table and says the seat
-can no longer see the replies. The replies hold dietary answers: like every cache here they
+too, badged. A refused read (403 or 404) empties the table and tells the seat
+to reload to see its current access. The replies hold dietary answers: like every cache here they
 stay only while the dashboard is on screen ([[retention]]).
 
 **What a minute allows.** A seat removed or narrowed loses its cached rows at
