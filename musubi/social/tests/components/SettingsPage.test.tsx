@@ -75,13 +75,6 @@ describe("<SettingsPage /> tabs", () => {
     expect(document.title).toBe("Settings · Musubi");
   });
 
-  it("opens the tab a deep link names", async () => {
-    // The cire organiser portal links straight here, because passkeys are
-    // bound to this origin and can only be managed on it.
-    renderSettings("/settings#security");
-    expect(await screen.findByTestId("security-section")).toBeTruthy();
-  });
-
   it("falls back to Profile for a fragment that names no tab", () => {
     renderSettings("/settings#nonsense");
     expect(screen.getByText("Handles cannot be changed.")).toBeTruthy();

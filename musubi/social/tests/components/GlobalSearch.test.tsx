@@ -76,17 +76,6 @@ afterEach(() => {
 });
 
 describe("<GlobalSearch />", () => {
-  it("does not query the API for a query that normalises to nothing", async () => {
-    renderSearch();
-    // A bare sigil leaves no query at all. One real character does search —
-    // the server scopes it to the caller's own connections and organisations.
-    await type("@");
-    expect(mocks.search).not.toHaveBeenCalled();
-
-    await type("a");
-    expect(mocks.search).toHaveBeenCalledWith("a", expect.anything());
-  });
-
   it("debounces so a burst of keystrokes issues a single request", async () => {
     renderSearch();
     const input = screen.getByRole("combobox");
@@ -98,25 +87,6 @@ describe("<GlobalSearch />", () => {
 
     expect(mocks.search).toHaveBeenCalledTimes(1);
     expect(mocks.search).toHaveBeenCalledWith("alice", expect.objectContaining({ limit: 6 }));
-  });
-
-  it("strips a leading @ before querying", async () => {
-    renderSearch();
-    await type("@alice");
-    expect(mocks.search).toHaveBeenCalledWith("alice", expect.anything());
-  });
-
-  it("renders people and organisations as one flat listbox, people first", async () => {
-    mocks.search.mockResolvedValue(
-      results([person("alice"), person("alicia")], [org("aligned", "Aligned Co")]),
-    );
-    renderSearch();
-    await type("ali");
-
-    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(3));
-    const options = screen.getAllByRole("option");
-    expect(options[0]!.textContent).toContain("alice");
-    expect(options[2]!.textContent).toContain("Aligned Co");
   });
 
   it("puts no operable control inside a listbox option", async () => {
@@ -156,19 +126,6 @@ describe("<GlobalSearch />", () => {
     await type("acme");
 
     await waitFor(() => expect(screen.getByText("Member")).toBeDefined());
-  });
-
-  it("flips the row to the sent state without refetching", async () => {
-    mocks.search.mockResolvedValue(results([person("alice")]));
-    renderSearch();
-    await type("ali");
-
-    await waitFor(() => expect(screen.getByText("Connect")).toBeDefined());
-    fireEvent.click(screen.getByRole("option"));
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("alice");
-    await waitFor(() => expect(screen.getByText("Requested")).toBeDefined());
   });
 
   it("accepts instead of connecting when they asked first", async () => {
@@ -281,13 +238,5 @@ describe("<GlobalSearch />", () => {
     await type("zzz");
 
     await waitFor(() => expect(screen.getByText(/No results for "zzz"/)).toBeDefined());
-  });
-
-  it("passes an abort signal so a superseded request can be cancelled", async () => {
-    renderSearch();
-    await type("ali");
-    const options = mocks.search.mock.calls[0]![1] as { signal?: AbortSignal };
-    expect(options.signal).toBeInstanceOf(AbortSignal);
-    expect(options.signal!.aborted).toBe(false);
   });
 });

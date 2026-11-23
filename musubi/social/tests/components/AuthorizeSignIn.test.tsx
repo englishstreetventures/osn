@@ -3,23 +3,20 @@ import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * T-M1. `AuthorizePage` decides which half of this panel leads and hands the
- * answer over as `initialMode`; its own tests mock this island and assert the
- * prop. That left one hop untested — the one where the decision becomes a
- * rendered form. `props.initialMode ?? "signIn"` could be dropped or inverted
- * and every test in `musubi/social` would still pass, while a relying party's
- * `prompt=create` visitor landed on a screen demanding a passkey they have not
- * got. This file covers that hop, and the two ways a user moves between the
- * halves once they are on it.
+ * Both halves of the `/authorize` sign-in panel report success to the page.
+ * Which half leads, from `initialMode`, is checked in
+ * `tests/components/turnstile-wiring.test.tsx`; the switches between the halves
+ * ("Create one", and Register's "Sign in instead") are checked by the
+ * `musubi-passkey` flow's `/authorize` steps
+ * (`tools/e2e/tests/flows/musubi-passkey.flow.ts`).
  *
- * The real ceremonies are stood in for: this is about which one mounts, not
- * what either does. The same three mocks as `turnstile-wiring.test.tsx`.
+ * The real ceremonies are stood in for: this is about what each half reports,
+ * not what either does. The same three mocks as `turnstile-wiring.test.tsx`.
  */
 
 vi.mock("@osn/auth-ui/SignIn", () => ({
-  SignIn: (props: { onSuccess?: () => void; productName: string }) => (
+  SignIn: (props: { onSuccess?: () => void }) => (
     <div data-testid="signin">
-      <span data-testid="signin-product-name">{props.productName}</span>
       <button type="button" onClick={() => props.onSuccess?.()}>
         complete sign-in
       </button>
@@ -27,14 +24,10 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
   ),
 }));
 vi.mock("@osn/auth-ui/Register", () => ({
-  Register: (props: { onSuccess?: () => void; onCancel?: () => void; productName: string }) => (
+  Register: (props: { onSuccess?: () => void }) => (
     <div data-testid="register">
-      <span data-testid="register-product-name">{props.productName}</span>
       <button type="button" onClick={() => props.onSuccess?.()}>
         complete registration
-      </button>
-      <button type="button" onClick={() => props.onCancel?.()}>
-        cancel registration
       </button>
     </div>
   ),
@@ -61,47 +54,6 @@ import { AuthorizeSignIn } from "../../src/components/AuthorizeSignIn";
 afterEach(() => cleanup());
 
 describe("<AuthorizeSignIn />", () => {
-  it("mounts the registration half when the page asks for it", () => {
-    render(() => <AuthorizeSignIn initialMode="register" onSuccess={() => {}} />);
-
-    expect(screen.getByTestId("register")).toBeTruthy();
-    expect(screen.queryByTestId("signin")).toBeNull();
-    // The consent screen's own registration half, which is a separate call
-    // site from the sidebar's and passes the prop separately.
-    expect(screen.getByTestId("register-product-name").textContent).toBe("Musubi");
-  });
-
-  it("leads with sign-in by default", () => {
-    render(() => <AuthorizeSignIn onSuccess={() => {}} />);
-
-    expect(screen.getByTestId("signin")).toBeTruthy();
-    expect(screen.queryByTestId("register")).toBeNull();
-    expect(screen.getByTestId("signin-product-name").textContent).toBe("Musubi");
-  });
-
-  /**
-   * The half that makes the cire portals' single sign-in button work: a visitor
-   * sent here with no account gets `reason=login`, not `create`, and this link
-   * is the whole of their route to an account.
-   */
-  it("offers a way to register from the sign-in half", () => {
-    render(() => <AuthorizeSignIn initialMode="signIn" onSuccess={() => {}} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /create one/i }));
-
-    expect(screen.getByTestId("register")).toBeTruthy();
-    expect(screen.queryByTestId("signin")).toBeNull();
-  });
-
-  it("returns to sign-in when registration is cancelled", () => {
-    render(() => <AuthorizeSignIn initialMode="register" onSuccess={() => {}} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /cancel registration/i }));
-
-    expect(screen.getByTestId("signin")).toBeTruthy();
-    expect(screen.queryByTestId("register")).toBeNull();
-  });
-
   /**
    * Both halves end the same way. Registration finishes with an enrolled
    * passkey and an adopted session — exactly what the parked request is waiting

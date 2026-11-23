@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Settings → Security is the only place a user can reach the authenticator-app
- * surface, so an unmounted `<TotpView>` is a feature nobody can find — the
- * exact half of this work most likely to be skipped, and the half no unit test
- * of the component itself would notice.
+ * Settings → Security hands the authenticator-app client to the passkey and
+ * recovery-code views, so either can step up with a TOTP code. This file checks
+ * that wiring. That all three views mount is checked in
+ * `tests/components/SecurityCache.test.tsx`.
  *
  * The three views are stubbed: what is under test is the wiring, not their
  * internals, which have their own tests in `@osn/auth-ui`.
@@ -60,14 +60,6 @@ import SecuritySection from "../../src/components/SecuritySection";
 afterEach(() => cleanup());
 
 describe("SecuritySection", () => {
-  it("mounts all three ways in and back into an account", () => {
-    render(() => <SecuritySection profileId="prof_1" />);
-    expect(screen.getByTestId("passkeys")).toBeTruthy();
-    // Without this the authenticator-app work ships unreachable.
-    expect(screen.getByTestId("totp")).toBeTruthy();
-    expect(screen.getByTestId("recovery-codes")).toBeTruthy();
-  });
-
   it("offers the authenticator as a step-up factor on the surfaces that admit it", () => {
     render(() => <SecuritySection profileId="prof_1" />);
     // `passkey_register` and `recovery_generate` both admit a `totp` AMR, so

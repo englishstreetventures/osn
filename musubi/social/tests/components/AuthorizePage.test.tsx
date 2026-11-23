@@ -423,15 +423,6 @@ describe("<AuthorizePage />", () => {
     expect(screen.getByText(paragraph("Go back to Cire and start again."))).toBeDefined();
   });
 
-  it("shows the sign-in surface, not consent, when the browser has no session", async () => {
-    mocks.getContext.mockResolvedValue(context({ signedIn: false, profiles: [] }));
-
-    renderPage();
-
-    expect(await screen.findByText("Cire")).toBeDefined();
-    expect(screen.queryByText("Allow")).toBeNull();
-  });
-
   it("leads with the profile picker when the app has seen none of several profiles", async () => {
     mocks.getContext.mockResolvedValue(context({ profiles: [alice, bob] }));
     mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb" });

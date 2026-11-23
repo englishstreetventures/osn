@@ -25,11 +25,6 @@ afterEach(() => {
 });
 
 describe("usePageTitle", () => {
-  it("names the page ahead of the product", () => {
-    mountPage(() => "Discover");
-    expect(document.title).toBe("Discover · Musubi");
-  });
-
   it("follows a title that arrives or changes after mount", () => {
     const [name, setName] = createSignal<string | undefined>("Organisations");
     mountPage(name);

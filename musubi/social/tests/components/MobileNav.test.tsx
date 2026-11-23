@@ -20,17 +20,10 @@ function renderNav() {
 
 describe("<MobileNav />", () => {
   it("sizes the grid to the number of tabs so none is clipped", () => {
+    // The only check that a new nav item gets its column class in MobileNav.
     const result = renderNav();
     const row = result.getByLabelText("Primary").firstElementChild;
     expect(row?.className).toContain(`grid-cols-${NAV_ITEMS.length}`);
-  });
-});
-
-describe("nav item split", () => {
-  it("has a grid-cols class for the current tab count", () => {
-    // Guards the Tailwind static-class allow-list in MobileNav: adding a nav
-    // item without adding its column class would silently clip the tab bar.
-    expect([4, 5]).toContain(NAV_ITEMS.length);
   });
 });
 
