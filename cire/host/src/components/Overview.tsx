@@ -24,8 +24,18 @@ import {
   upcomingPayments,
 } from "../lib/budget-store";
 import type { Module } from "../lib/dashboard-route";
-import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
+import {
+  ensureEventsLoaded,
+  type EventRow,
+  eventsAccessor,
+  hasCachedEvents,
+} from "../lib/events-store";
+import {
+  ensureGuestsLoaded,
+  guestsAccessor,
+  hasCachedGuests,
+  type OrganiserGuestRow,
+} from "../lib/guests-store";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { formatMinor } from "../lib/money";
 import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
@@ -336,13 +346,22 @@ export default function Overview(props: {
     }
   })();
 
-  // The placeholders wait for the reads only when a value the page is built
-  // from is not cached at all; a stale one is shown while it is read again.
+  // The placeholders wait for the reads when a value the page is built from is
+  // not cached at all; a stale one is shown while it is read again. The one
+  // exception: events and guests decide whether the home is Getting started or
+  // the briefing, so empty rows known out of date wait too. An import may have
+  // just filled them, and drawing the guide from them would show a step the
+  // organiser has just done as still to do.
   const [settled, setSettled] = createSignal(
-    untrack(
-      () =>
-        settings() !== null && replies() !== null && eventRows() !== null && guestRows() !== null,
-    ),
+    untrack(() => {
+      const events = eventRows();
+      const guests = guestRows();
+      if (settings() === null || replies() === null || events === null || guests === null) {
+        return false;
+      }
+      const stale = !hasCachedEvents(props.weddingId) || !hasCachedGuests(props.weddingId);
+      return !(stale && events.length === 0 && guests.length === 0);
+    }),
   );
   void loads.finally(() => setSettled(true));
 

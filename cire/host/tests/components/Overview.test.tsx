@@ -30,8 +30,8 @@ vi.mock("../../src/components/GettingStarted", () => ({
 
 import Overview from "../../src/components/Overview";
 import { __resetBudgetCache } from "../../src/lib/budget-store";
-import { __resetEventsCache } from "../../src/lib/events-store";
-import { __resetGuestsCache, setCachedGuests } from "../../src/lib/guests-store";
+import { __resetEventsCache, invalidateEvents } from "../../src/lib/events-store";
+import { __resetGuestsCache, invalidateGuests, setCachedGuests } from "../../src/lib/guests-store";
 import { peekCachedRsvps, rsvpChangesAccessor } from "../../src/lib/rsvps-store";
 import { settingsAccessor } from "../../src/lib/settings-store";
 import { __resetTasksCache } from "../../src/lib/tasks-store";
@@ -226,6 +226,59 @@ describe("Overview", () => {
     expect(document.querySelector("[data-skeleton-outline]")).toBeNull();
     expect(screen.getByText(/attending across 2 events/i)).toBeTruthy();
     expect(authFetchMock.mock.calls.length).toBe(reads);
+  });
+
+  it("holds the outline, not Getting started, while empty rows known stale are read again", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: [],
+      guests: [],
+    });
+    const first = render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("getting-started")).toBeTruthy());
+    first.unmount();
+    // A spreadsheet import filled the events and guests since; the caches
+    // still hold the empty rows, marked stale.
+    invalidateEvents("wed_1");
+    invalidateGuests("wed_1");
+    let releaseEvents!: () => void;
+    const eventsHeld = new Promise<void>((resolve) => (releaseEvents = resolve));
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/events")) {
+        await eventsHeld;
+        return json(EVENTS);
+      }
+      if (url.endsWith("/guests")) return json(GUESTS);
+      return routed(url);
+    });
+
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    expect(screen.queryByTestId("getting-started")).toBeNull();
+    expect(document.querySelector("[data-skeleton-outline]")).not.toBeNull();
+
+    releaseEvents();
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    expect(screen.queryByTestId("getting-started")).toBeNull();
+  });
+
+  it("draws the briefing at once from stale rows that are not empty", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const first = render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    first.unmount();
+    // A schedule save leaves the guests stale; it cannot empty the list.
+    invalidateGuests("wed_1");
+
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    expect(document.querySelector("[data-skeleton-outline]")).toBeNull();
+    expect(screen.getByText(/attending across 2 events/i)).toBeTruthy();
   });
 
   it("starts the RSVP-changes read with its own and shows the card once the page loads", async () => {
