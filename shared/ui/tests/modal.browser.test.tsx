@@ -9,7 +9,7 @@
  * component exists to borrow rather than the markup it emits.
  */
 
-import { render } from "@solidjs/testing-library";
+import { cleanup, render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commands } from "vitest/browser";
@@ -17,6 +17,8 @@ import { commands } from "vitest/browser";
 import { Modal } from "../src/ui/modal";
 
 import "./test-support/tailwind.css";
+
+afterEach(cleanup);
 
 /**
  * Mount a modal whose `open` is driven by a signal, as a caller's would be, and

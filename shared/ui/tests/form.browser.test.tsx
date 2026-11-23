@@ -9,9 +9,9 @@
  * and tell you nothing about any of that.
  */
 
-import { render } from "@solidjs/testing-library";
+import { cleanup, render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Button } from "../src/ui/button";
 import { Field, Fieldset } from "../src/ui/field";
@@ -20,6 +20,8 @@ import { Select } from "../src/ui/select";
 import { Textarea } from "../src/ui/textarea";
 
 import "./test-support/tailwind.css";
+
+afterEach(cleanup);
 
 const px = (el: Element, prop: "fontSize" | "paddingLeft") =>
   Number.parseFloat(getComputedStyle(el)[prop]);
