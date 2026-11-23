@@ -199,5 +199,9 @@ describe("Overview budget widget", () => {
     const agendaDate = agendaRow.querySelector("span")!.textContent!;
     const next = await screen.findByText(/Next: Balance/);
     expect(next.textContent).toBe(`Next: Balance · due ${agendaDate}`);
+    // And the form both share is a day and a short month ("Sept" in en-AU),
+    // never the raw date.
+    expect(next.textContent).toMatch(/· due \d{1,2} [A-Z][a-z]{2,3}$/);
+    expect(next.textContent).not.toMatch(/\d{4}-\d{2}/);
   });
 });

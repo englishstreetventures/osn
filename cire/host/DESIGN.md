@@ -257,8 +257,9 @@ still draws its own (`tests/components/Overview.header.test.tsx`).
 RSVPs card lists each event's attending count under one "Attending", right
 over the figures, in a table head's small caps (`text-ui-xs`,
 `tracking-ui-wider`) in the secondary ink, since a quiet label is muted
-(§7, `Eyebrow`). The head names the list for a screen reader
-(`aria-labelledby`). A figure keeps its line (`shrink-0`,
+(§7, `Eyebrow`). The list carries the same word as its name (`aria-label`),
+and the head is hidden from a screen reader: a name read from small caps can
+come out in capitals. A figure keeps its line (`shrink-0`,
 `whitespace-nowrap`) and a long event name is cut short instead (`min-w-0`,
 `truncate`); `tests/components/Overview.look.browser.test.tsx` holds both at
 390px and 1280px. It is a list of rows like the card's tally above it, not a

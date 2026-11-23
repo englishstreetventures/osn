@@ -247,6 +247,24 @@ describe("EventCard", () => {
     expect(grid.dataset.hasImage).toBe("false");
   });
 
+  // A failure is remembered for that image only: a new one is tried afresh.
+  it("tries a new image after the last one failed to load", () => {
+    const [event, setEvent] = createSignal<EventSummary>({
+      ...withImage,
+      imageCrop: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+    });
+    const { container } = render(() => (
+      <EventCard event={event()} apiUrl="https://api.test" onRespond={noop} onDetails={noop} />
+    ));
+    fireEvent.error(container.querySelector("img[data-image-probe]") as HTMLImageElement);
+    expect(container.querySelector('[role="img"]')).toBeNull();
+
+    setEvent({ ...event(), imageUrl: `${withImage.imageUrl}-2` });
+    expect(container.querySelector('[role="img"]')).not.toBeNull();
+    const probe = container.querySelector("img[data-image-probe]") as HTMLImageElement;
+    expect(probe.getAttribute("src")).toBe(`https://api.test${withImage.imageUrl}-2&variant=card`);
+  });
+
   it("flips to image-left / text-right for the `alt` orientation (DOM order unchanged)", () => {
     const { container } = render(() => (
       <EventCard

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { cleanup, fireEvent, render } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -158,6 +159,20 @@ describe("InviteClosing", () => {
       expect(wideCropLayer(section)).toBeNull();
       expect(section.children).toHaveLength(1);
       expect(section.querySelector("p")?.textContent).toBe("See you there");
+    });
+
+    // A failure is remembered for that image only: a new one is tried afresh.
+    it("tries a new closing image after the last one failed to load", () => {
+      const [imageUrl, setImageUrl] = createSignal(IMG);
+      const { container } = render(() => (
+        <InviteClosing apiUrl={API} imageUrl={imageUrl()} message="See you there" />
+      ));
+      fireEvent.error((closing(container) as HTMLElement).querySelector("img") as HTMLImageElement);
+      expect((closing(container) as HTMLElement).querySelector("img")).toBeNull();
+
+      setImageUrl(`${IMG}2`);
+      const img = (closing(container) as HTMLElement).querySelector("img") as HTMLImageElement;
+      expect(img.getAttribute("src")).toBe(`${API}${IMG}2&variant=card`);
     });
 
     it("renders nothing when the image fails to load and there is no note", () => {
