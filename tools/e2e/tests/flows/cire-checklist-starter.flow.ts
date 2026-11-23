@@ -1001,10 +1001,10 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     "overview: the Ceremony counts the recorded reply",
     true,
     await page
-      .locator("li")
-      .filter({ hasText: cached.ceremony })
-      .filter({ hasText: "2 attending" })
-      .first()
+      .getByRole("list", { name: "Attending by event", exact: true })
+      .getByRole("listitem")
+      .filter({ has: page.getByText(cached.ceremony, { exact: true }) })
+      .getByText("2", { exact: true })
       .isVisible(),
   );
   // Time moves again, from the suite's clock, for the steps that follow.
