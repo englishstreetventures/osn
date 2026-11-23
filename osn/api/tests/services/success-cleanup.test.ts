@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
+import { CurrentBackgroundSink } from "../../src/lib/background";
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { createAuthService } from "../../src/services/auth";
 import { TOTP_MAX_ENROLL_ATTEMPTS } from "../../src/services/auth/constants";
@@ -50,14 +51,21 @@ const ANSWER_WITHIN = "2 seconds";
 
 /**
  * `ns` with every call `held` accepts waiting until `release()`. Calls reach
- * the stand-in, and are recorded there, only once let go.
+ * the stand-in, and are recorded there, only once let go. `reached(n)`
+ * resolves once `n` held calls have been sent.
  */
 function holding(ns: CoordinationNamespace, held: (store: string, op: CoordinationOp) => boolean) {
   let release!: () => void;
   let waiting = 0;
+  let watchers: { readonly n: number; readonly resolve: () => void }[] = [];
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
+  const reached = (n: number) =>
+    new Promise<void>((resolve) => {
+      if (waiting >= n) resolve();
+      else watchers.push({ n, resolve });
+    });
   const wrapped: CoordinationNamespace = {
     getByName(name, options) {
       const stub = ns.getByName(name, options);
@@ -65,6 +73,8 @@ function holding(ns: CoordinationNamespace, held: (store: string, op: Coordinati
       const call = <A>(op: CoordinationOp, run: () => Promise<A>): Promise<A> => {
         if (!held(store, op)) return run();
         waiting += 1;
+        for (const watcher of watchers) if (waiting >= watcher.n) watcher.resolve();
+        watchers = watchers.filter((watcher) => waiting < watcher.n);
         return gate.then(run);
       };
       return {
@@ -80,7 +90,7 @@ function holding(ns: CoordinationNamespace, held: (store: string, op: Coordinati
       };
     },
   };
-  return { ns: wrapped, release, waiting: () => waiting };
+  return { ns: wrapped, release, reached };
 }
 
 /**
@@ -103,34 +113,35 @@ function harness(
     totpLockoutStore: bundle.totpLockoutStore,
   });
   const email = makeLogEmailLive();
-  const layer = Layer.merge(createTestLayer(), mail ?? email.layer);
+  // The work each call forks after its answer, collected so a check waits for
+  // it rather than for the clock. Never closed: a held cleanup cannot finish
+  // before `release()`.
+  const pending: Promise<unknown>[] = [];
+  const sink = Layer.succeed(CurrentBackgroundSink, {
+    add: (work: Promise<unknown>) => {
+      pending.push(work);
+    },
+  });
+  const layer = Layer.mergeAll(createTestLayer(), mail ?? email.layer, sink);
   const ops = (from = 0) => fake.calls.slice(from).map((call) => `${call.store}.${call.op}`);
   const recorded = () => email.recorded();
-  /** Waits until `op`, or one of several, has reached the store since call `from`. */
+  /**
+   * Waits for the background work started so far, then checks that `op`, or
+   * one of several, reached the store since call `from`.
+   */
   const landed = (op: string | readonly string[], from = 0) =>
     Effect.gen(function* () {
-      const wanted = typeof op === "string" ? [op] : op;
-      for (let i = 0; i < 200; i++) {
-        if (ops(from).some((seen) => wanted.includes(seen))) return;
-        yield* Effect.sleep("5 millis");
+      for (let seen = -1; seen !== pending.length;) {
+        seen = pending.length;
+        yield* Effect.promise(() => Promise.all(pending));
       }
-      throw new Error(`${wanted.join(" or ")} never reached the store`);
+      const wanted = typeof op === "string" ? [op] : op;
+      if (!ops(from).some((seen) => wanted.includes(seen))) {
+        throw new Error(`${wanted.join(" or ")} never reached the store`);
+      }
     });
   /** Waits until `n` held calls have been sent and are waiting on the gate. */
-  const holdingAtLeast = (n: number) =>
-    Effect.gen(function* () {
-      for (let i = 0; i < 200; i++) {
-        if (gate.waiting() >= n) return;
-        yield* Effect.sleep("5 millis");
-      }
-      throw new Error(`only ${gate.waiting()} of ${n} held calls were sent`);
-    });
-  /** Lets background work run, then answers whether `op` reached the store after `from`. */
-  const settledWithout = (op: string, from: number) =>
-    Effect.gen(function* () {
-      yield* Effect.sleep("50 millis");
-      return !ops(from).includes(op);
-    });
+  const holdingAtLeast = (n: number) => Effect.promise(() => gate.reached(n));
   return {
     auth,
     bundle,
@@ -139,7 +150,6 @@ function harness(
     recorded,
     landed,
     holdingAtLeast,
-    settledWithout,
     release: gate.release,
   };
 }
@@ -249,9 +259,10 @@ describe("a lockout with no failures on record", () => {
       const profile = yield* h.auth.registerProfile("clean-rc0@example.com", "cleanrc0");
       const { recoveryCodes } = yield* h.auth.generateRecoveryCodesForAccount(profile.accountId);
       const from = h.ops().length;
-      yield* h.auth.consumeRecoveryCode("cleanrc0", recoveryCodes[0]!);
+      // Every call the sign-in forks has finished before the check.
+      yield* settle(h.auth.consumeRecoveryCode("cleanrc0", recoveryCodes[0]!));
       expect(h.ops(from)).toContain("recovery_lockout.count");
-      expect(yield* h.settledWithout("recovery_lockout.remove", from)).toBe(true);
+      expect(h.ops(from)).not.toContain("recovery_lockout.remove");
     }).pipe(Effect.provide(h.layer));
   });
 });

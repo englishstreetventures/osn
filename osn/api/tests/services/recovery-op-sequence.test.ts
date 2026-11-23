@@ -6,6 +6,7 @@ import { makeLogEmailLive } from "@shared/email";
 import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
+import { CurrentBackgroundSink } from "../../src/lib/background";
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { RECOVERY_LOCKOUT_THRESHOLD } from "../../src/lib/recovery-lockout-store";
 import { createAuthService } from "../../src/services/auth";
@@ -16,8 +17,8 @@ import { createCapturingTestLayer, createTestLayerWithSqlite } from "../helpers/
 import { latestLinkTo } from "../helpers/registration";
 
 /**
- * F-CL13. The recovery routes answer the same whether or not the identifier
- * names an account, and they must cost the same too: each store call is a
+ * The recovery routes answer the same whether or not the identifier names an
+ * account, and they must cost the same too: each store call is a
  * Durable Object round trip, so a branch that makes different calls — or
  * calls on objects named differently — can be told apart with a stopwatch.
  * A recording namespace logs every call as `<store>.<op>` and the name of the
@@ -88,7 +89,16 @@ function harness(options: { holdSendLimits?: boolean } = {}) {
     totpLockoutStore: bundle.totpLockoutStore,
   });
   const database = createCapturingTestLayer();
-  const layer = Layer.merge(Layer.succeed(Db, { db: database.db }), email.layer);
+  // The work each call forks after its answer, collected so a count waits for
+  // it rather than for the clock. Never closed: a send held at the send-limit
+  // stores cannot finish before `release()`.
+  const pending: Promise<unknown>[] = [];
+  const sink = Layer.succeed(CurrentBackgroundSink, {
+    add: (work: Promise<unknown>) => {
+      pending.push(work);
+    },
+  });
+  const layer = Layer.mergeAll(Layer.succeed(Db, { db: database.db }), email.layer, sink);
   /**
    * The calls `run` makes, the lengths of the object names they reach, and
    * the SQL of every D1 statement it sends (the bound values left out).
@@ -104,15 +114,18 @@ function harness(options: { holdSendLimits?: boolean } = {}) {
         statements: database.captured.slice(fromStatement).map((statement) => statement.sql),
       };
     });
-  /** Lets the held send-limit calls go, and waits for `count` of them to land. */
-  const sendLimitCalls = (count: number) =>
+  /**
+   * Lets the held send-limit calls go, waits for every forked send to finish,
+   * and answers how many send-limit calls were made.
+   */
+  const sendLimitCalls = () =>
     Effect.gen(function* () {
       limits.release();
-      const landed = () =>
-        fake.calls.filter((call) => SEND_LIMIT_STORES.includes(call.store)).length;
-      for (let i = 0; i < 200 && landed() < count; i++) yield* Effect.sleep("5 millis");
-      yield* Effect.sleep("20 millis");
-      return landed();
+      for (let seen = -1; seen !== pending.length;) {
+        seen = pending.length;
+        yield* Effect.promise(() => Promise.all(pending));
+      }
+      return fake.calls.filter((call) => SEND_LIMIT_STORES.includes(call.store)).length;
     });
   return { fake, auth, layer, record, sendLimitCalls, recorded: () => email.recorded() };
 }
@@ -138,7 +151,7 @@ describe("POST /login/recovery/email/begin", () => {
         // After the answer, only the account's send reads its limits: the
         // lockout, the address cap and the ceiling. A first link spends no
         // Resend.
-        expect(yield* h.sendLimitCalls(3)).toBe(3);
+        expect(yield* h.sendLimitCalls()).toBe(3);
       }).pipe(Effect.provide(h.layer));
     },
   );
@@ -299,12 +312,11 @@ describe("POST /login/recovery/complete", () => {
 
         // A locked account: the threshold's worth of wrong codes first.
         yield* h.auth.registerProfile("seq-rc-lock@example.com", "seqrclock");
+        // Each refusal's background work, the threshold's audit row among it,
+        // has finished before the next request is recorded.
         for (let i = 0; i < RECOVERY_LOCKOUT_THRESHOLD; i++) {
-          yield* Effect.result(h.auth.consumeRecoveryCode("seqrclock", "wrong-code"));
+          yield* Effect.result(settle(h.auth.consumeRecoveryCode("seqrclock", "wrong-code")));
         }
-        // The threshold's audit row is written in the background; let it land
-        // before the next request is recorded.
-        yield* Effect.sleep("20 millis");
         const locked = yield* h.record(h.auth.consumeRecoveryCode("seqrclock", "wrong-code"));
 
         // An identifier that names no account.
@@ -355,7 +367,7 @@ describe("an address typed in capitals", () => {
       expect(unsent).toEqual(sent);
       // The account's send reads its three limits after the answer; let it
       // land before the next routes are recorded.
-      expect(yield* h.sendLimitCalls(3)).toBe(3);
+      expect(yield* h.sendLimitCalls()).toBe(3);
 
       const totp = yield* h.record(h.auth.completeTotpRecovery("SEQ-Caps@Example.com", "000000"));
       const totpNobody = yield* h.record(
@@ -435,9 +447,27 @@ describe("POST /login/recovery/complete, a refusal's last two calls", () => {
     });
   }
 
-  function harness() {
+  function heldReadHarness() {
     const fake = createFakeNamespace();
-    const bundle = createDurableCoordination(fake.ns, () => {});
+    // Resolves when the failure record reaches the store.
+    let incremented!: () => void;
+    const failureRecorded = new Promise<void>((resolve) => {
+      incremented = resolve;
+    });
+    const signalling: CoordinationNamespace = {
+      getByName(name, options) {
+        const stub = fake.ns.getByName(name, options);
+        if (!name.startsWith("recovery_lockout:")) return stub;
+        return {
+          ...stub,
+          increment: (windowMs) => {
+            incremented();
+            return stub.increment(windowMs);
+          },
+        };
+      },
+    };
+    const bundle = createDurableCoordination(signalling, () => {});
     const auth = createAuthService({ ...base, recoveryLockoutStore: bundle.recoveryLockoutStore });
     let release!: () => void;
     const gate = {
@@ -459,22 +489,18 @@ describe("POST /login/recovery/complete, a refusal's last two calls", () => {
       },
     }) as typeof db;
     const layer = Layer.merge(Layer.succeed(Db, { db: holding }), makeLogEmailLive().layer);
-    /** Whether the failure record reaches the store within a second. */
-    const recorded = Effect.gen(function* () {
-      for (let i = 0; i < 100; i++) {
-        if (fake.calls.some((c) => `${c.store}.${c.op}` === "recovery_lockout.increment")) {
-          return true;
-        }
-        yield* Effect.sleep("10 millis");
-      }
-      return false;
-    });
+    /**
+     * Waits for the failure record to reach the store. A refusal that records
+     * only after the read never gets there while the read is held, and the
+     * case times out.
+     */
+    const recorded = Effect.promise(() => failureRecorded).pipe(Effect.as(true));
     return { auth, layer, recorded, release };
   }
 
   /** Refuses a wrong code for `handle`, answering whether the failure was recorded while the read waited. */
   const refuse = (handle: string, real: boolean) => {
-    const h = harness();
+    const h = heldReadHarness();
     return Effect.gen(function* () {
       if (real) yield* h.auth.registerProfile(`${handle}@example.com`, handle);
       const refusal = yield* Effect.forkChild(

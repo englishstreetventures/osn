@@ -35,6 +35,19 @@ function setupAccount(email: string, handle: string, displayName?: string) {
   });
 }
 
+/** Each of the account's profiles and whether it is the default. */
+const defaultRows = (accountId: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const rows = yield* Effect.promise(() =>
+      db
+        .select({ id: users.id, isDefault: users.isDefault })
+        .from(users)
+        .where(eq(users.accountId, accountId)),
+    );
+    return Object.fromEntries(rows.map((r) => [r.id, r.isDefault]));
+  });
+
 // ---------------------------------------------------------------------------
 // createProfile
 // ---------------------------------------------------------------------------
@@ -42,12 +55,13 @@ function setupAccount(email: string, handle: string, displayName?: string) {
 describe("createProfile", () => {
   it.effect("creates a new profile with usr_ prefix and isDefault false", () =>
     Effect.gen(function* () {
-      const { accountId } = yield* setupAccount("alice@test.com", "alice");
+      const { profile: main, accountId } = yield* setupAccount("alice@test.com", "alice");
       const newProfile = yield* profile.createProfile(accountId, "alice_alt", "Alt");
       expect(newProfile.id).toMatch(/^usr_/);
       expect(newProfile.handle).toBe("alice_alt");
       expect(newProfile.displayName).toBe("Alt");
       expect(newProfile.email).toBe("alice@test.com");
+      expect(yield* defaultRows(accountId)).toEqual({ [main.id]: true, [newProfile.id]: false });
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -60,6 +74,7 @@ describe("createProfile", () => {
       for (const handle of ["admin", "dev_bootstrap", "dev_bootstrap_org"]) {
         const error = yield* Effect.flip(profile.createProfile(accountId, handle));
         expect(error._tag).toBe("AuthError");
+        expect(error.message).toBe("Handle is reserved");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -216,6 +231,7 @@ describe("createProfile", () => {
     Effect.gen(function* () {
       const error = yield* Effect.flip(profile.createProfile("acc_nonexistent", "newhandle"));
       expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Account not found");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -276,6 +292,13 @@ describe("deleteProfile", () => {
       // Org membership should be gone
       const members = yield* org.listMembers(myOrg.id);
       expect(members.filter((m) => m.profile.id === alt.id)).toHaveLength(0);
+
+      // And the block on it
+      const { db } = yield* Db;
+      const blocked = yield* Effect.promise(() =>
+        db.select().from(blocks).where(eq(blocks.blockedId, alt.id)),
+      );
+      expect(blocked).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -311,19 +334,6 @@ describe("deleteProfile", () => {
 
   // The answer names the account's default profile once the deleted one is
   // gone: the profile a client that deleted its active profile names next.
-
-  /** Each of the account's profiles and whether it is the default. */
-  const defaultRows = (accountId: string) =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const rows = yield* Effect.promise(() =>
-        db
-          .select({ id: users.id, isDefault: users.isDefault })
-          .from(users)
-          .where(eq(users.accountId, accountId)),
-      );
-      return Object.fromEntries(rows.map((r) => [r.id, r.isDefault]));
-    });
 
   /**
    * Sets a profile's `created_at`. It holds whole seconds, so profiles made in
@@ -504,6 +514,7 @@ describe("deleteProfile", () => {
       const { accountId } = yield* setupAccount("delnone@test.com", "delnone");
       const error = yield* Effect.flip(profile.deleteProfile(accountId, "usr_000000000000"));
       expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Profile not found");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
@@ -515,12 +526,13 @@ describe("deleteProfile", () => {
 describe("setDefaultProfile", () => {
   it.effect("sets a new default profile and clears the old one", () =>
     Effect.gen(function* () {
-      const { accountId } = yield* setupAccount("def@test.com", "defuser");
+      const { profile: main, accountId } = yield* setupAccount("def@test.com", "defuser");
       const alt = yield* profile.createProfile(accountId, "def_alt");
 
       const result = yield* profile.setDefaultProfile(accountId, alt.id);
       expect(result.id).toBe(alt.id);
       expect(result.handle).toBe("def_alt");
+      expect(yield* defaultRows(accountId)).toEqual({ [main.id]: false, [alt.id]: true });
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -547,6 +559,7 @@ describe("setDefaultProfile", () => {
       const { accountId } = yield* setupAccount("sdefnone@test.com", "sdefnone");
       const error = yield* Effect.flip(profile.setDefaultProfile(accountId, "usr_000000000000"));
       expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Profile not found");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

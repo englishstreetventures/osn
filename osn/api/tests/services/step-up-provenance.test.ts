@@ -95,15 +95,19 @@ const fakeAssertion = (credentialId: string) =>
   }) as never;
 
 /**
+ * The provenance refusal's own message. The verifier refuses with an
+ * `AuthError` for a dozen other reasons, so a refusal here is checked by this.
+ */
+const TOO_NEW = /too new to make that change/;
+
+/**
  * Read one credential by id.
  *
  * By ID, and never "the newest row": `passkeys.created_at` is unix SECONDS, so
- * two credentials enrolled back to back tie, and a sort on that column returns
- * an arbitrary one of them. An earlier version of this helper did exactly that
- * and made the inheritance test unable to fail — it read the parent's `otp`
- * provenance and asserted it against the child, so an implementation that
- * stamped the child `webauthn` passed. `completePasskeyRegistration` returns
- * the id it wrote; that is the only reliable handle.
+ * two credentials enrolled back to back tie and a sort on that column returns
+ * either. Reading the parent's row would compare its provenance with itself and
+ * let a child wrongly stamped `webauthn` pass. `completePasskeyRegistration`
+ * returns the id it wrote; that is the only reliable handle.
  */
 const passkeyById = (passkeyId: string) =>
   Effect.gen(function* () {
@@ -230,11 +234,12 @@ describe("the register-then-assert pivot is refused at step 4", () => {
         "passkey_delete",
       );
 
-      // Step 4: refused. Before this rule, the delete went through.
+      // Step 4: refused.
       const err = yield* Effect.flip(
         auth.verifyStepUpForPasskeyDelete(profile.accountId, deleteToken, original.id),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(TOO_NEW);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -259,6 +264,7 @@ describe("the register-then-assert pivot is refused at step 4", () => {
         auth.verifyStepUpForPasskeyDelete(profile.accountId, deleteToken, original.id),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(TOO_NEW);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -285,6 +291,7 @@ describe("the register-then-assert pivot is refused at step 4", () => {
       // to the caller-chosen NEW address, so a token accepted here would end in
       // a permanent, mailbox-independent takeover. Complete calls this verifier.
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(TOO_NEW);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -308,7 +315,6 @@ describe("the register-then-assert pivot is refused at step 4", () => {
       );
       const a = yield* enrol(profile.accountId, registerToken);
 
-      const secondRegister = yield* assertFor(profile.accountId, a.credentialId, "passkey_delete");
       // Same allow-list, different purpose: mint a register token by asserting A.
       yield* auth.beginStepUpPasskey(profile.accountId);
       const { stepUpToken: registerViaA } = yield* completePasskeyStepUp(
@@ -317,7 +323,6 @@ describe("the register-then-assert pivot is refused at step 4", () => {
         fakeAssertion(a.credentialId),
         "passkey_register",
       );
-      void secondRegister;
 
       const b = yield* enrol(profile.accountId, registerViaA);
       expect(b.provenanceAmr).toBe("otp");
@@ -327,6 +332,7 @@ describe("the register-then-assert pivot is refused at step 4", () => {
         auth.verifyStepUpForPasskeyDelete(profile.accountId, deleteToken, original.id),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(TOO_NEW);
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
@@ -472,12 +478,14 @@ describe("fail-closed shapes", () => {
         auth.verifyStepUpForPasskeyDelete(profile.accountId, bare, original.id),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(TOO_NEW);
 
       const bareChange = yield* mintStepUpToken(auth, profile.accountId, "passkey", "email_change");
       const changeErr = yield* Effect.flip(
         auth.verifyStepUpForEmailChange(profile.accountId, bareChange),
       );
       expect(changeErr._tag).toBe("AuthError");
+      expect(changeErr.message).toMatch(TOO_NEW);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -556,6 +564,7 @@ describe("fail-closed shapes", () => {
         auth.verifyStepUpForPasskeyDelete(profile.accountId, deleteToken, a.id),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(TOO_NEW);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -572,8 +581,7 @@ describe("fail-closed shapes", () => {
       // post-recovery credential carrying `webauthn`, which by the inheritance
       // rule is one the owner derived from a passkey they still hold. That is
       // the credential the whole asymmetry exists to keep working, so this test
-      // is what makes the choice deliberate rather than a third seconds-
-      // resolution accident.
+      // fixes the choice.
       const { profile, original } = yield* seedWithOldPasskey("prov-w2@example.com", "provw2");
       const recoveredAt = Math.floor(Date.now() / 1000);
       yield* stampRecoveredAt(profile.accountId, recoveredAt);
@@ -619,11 +627,11 @@ describe("fail-closed shapes", () => {
         auth.verifyStepUpForPasskeyDelete(profile.accountId, secondBefore, target.id),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(TOO_NEW);
 
-      // And the case `<=` was proposed for is already covered by the
-      // registration-provenance rule — a WEAK post-recovery credential is
-      // refused against the same-second target whatever the recovery window
-      // says, which is why the strict comparison above gives nothing away.
+      // A weak post-recovery credential is refused against the same-second
+      // target by the provenance rule, whatever the recovery window says, so
+      // the strict comparison above gives nothing away.
       yield* stampCreatedAt(target.id, recoveredAt);
       const weakRegister = yield* mintStepUpToken(
         auth,
@@ -638,14 +646,18 @@ describe("fail-closed shapes", () => {
         auth.verifyStepUpForPasskeyDelete(profile.accountId, weakDelete, target.id),
       );
       expect(weakErr._tag).toBe("AuthError");
+      expect(weakErr.message).toMatch(TOO_NEW);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("rename is gated on the same comparison as delete", () =>
+  it.effect("a token refused against an older row is accepted against its own row", () =>
     Effect.gen(function* () {
-      // Rename shares the `passkey_delete` purpose claim. A credential the rule
-      // stops from deleting an older one could otherwise relabel it, which is
-      // how a user is talked into confirming a delete on the wrong row.
+      // Rename shares the `passkey_delete` purpose claim and this verifier. A
+      // credential the rule stops from deleting an older one could otherwise
+      // relabel it, which is how a user is talked into confirming a delete on
+      // the wrong row. That the rename route calls this verifier is checked by
+      // tests/routes/recovery-cooldown.test.ts, "PATCH /passkeys/:id carries
+      // the same gate".
       const { profile, original } = yield* seedWithOldPasskey("prov-ren@example.com", "provren");
       const registerToken = yield* mintStepUpToken(
         auth,
@@ -664,6 +676,7 @@ describe("fail-closed shapes", () => {
         auth.verifyStepUpForPasskeyDelete(profile.accountId, renameToken, original.id),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(TOO_NEW);
 
       // Renaming its OWN row is never blocked.
       const selfToken = yield* assertFor(
@@ -683,6 +696,7 @@ describe("fail-closed shapes", () => {
         auth.deletePasskey(profile.accountId, only.id, NO_LIVE_SESSION),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toBe("Enroll another passkey before removing this one");
       const { db } = yield* Db;
       const remaining = yield* Effect.promise(() =>
         db

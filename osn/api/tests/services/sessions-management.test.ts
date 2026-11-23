@@ -12,6 +12,7 @@ import * as metrics from "../../src/metrics";
 import * as accountErasure from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
 import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
+import { sessionHandleFromHash } from "../../src/services/auth/helpers";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import {
   createCapturingTestLayer,
@@ -67,13 +68,18 @@ describe("listAccountSessions", () => {
       const { sessions } = yield* auth.listAccountSessions(profile.accountId, currentHash);
       expect(sessions).toHaveLength(2);
       expect(sessions.some((s) => s.isCurrent)).toBe(true);
+      // The caller's row is flagged, and no other.
+      expect(sessions.filter((s) => s.isCurrent).map((s) => s.id)).toEqual([
+        sessionHandleFromHash(currentHash),
+      ]);
       expect(sessions.every((s) => /^[0-9a-f]{16}$/.test(s.id))).toBe(true);
       // Metadata surfaced.
       expect(sessions.map((s) => s.uaLabel).toSorted()).toEqual([
         "Firefox on macOS",
         "Safari on iOS",
       ]);
-      void t2;
+      const other = sessionHandleFromHash(auth.hashSessionToken(t2.refreshToken));
+      expect(sessions.find((s) => s.id === other)?.uaLabel).toBe("Safari on iOS");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -254,10 +260,8 @@ describe("revokeAccountSession", () => {
   );
 });
 
-// Session rotation (C2) must preserve the uaLabel it was
-// issued with. Otherwise the Settings "Firefox on macOS" device flips to
-// "Unknown device" on every refresh — a subtle UX regression that doesn't
-// fail any existing assertion.
+// A rotation keeps the uaLabel the session was issued with, so the Settings
+// list names the same device after every refresh.
 describe("session metadata carry-through on rotation", () => {
   it.effect("refreshTokens copies uaLabel to the rotated session row", () =>
     Effect.gen(function* () {

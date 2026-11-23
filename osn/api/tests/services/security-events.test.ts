@@ -7,7 +7,11 @@ import { beforeAll, vi } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
 import { stepUpThroughService } from "../helpers/step-up-link";
 import { mintStepUpToken } from "../helpers/step-up-session";
@@ -35,7 +39,7 @@ beforeAll(async () => {
   baseConfig = await makeTestAuthConfig();
 });
 
-/** Fresh email recorder + merged test layer (replaces the old sendEmail callback). */
+/** Fresh email recorder and the test layer merged with it. */
 function makeEmailCapture() {
   const email = makeLogEmailLive();
   return {
@@ -44,11 +48,7 @@ function makeEmailCapture() {
   };
 }
 
-/**
- * Layer that makes every email send fail with `dispatch_failed` — replaces
- * the old `sendEmail: async () => { throw ... }` test knob so we still
- * exercise the "mailer broken, audit row must survive" branch.
- */
+/** Every email send fails with dispatch_failed: the mailer is broken and the audit row must still commit. */
 const failingEmailLayer = Layer.succeed(EmailService, {
   send: () =>
     Effect.fail(new EmailError({ reason: "dispatch_failed", cause: "simulated SMTP failure" })),
@@ -206,9 +206,8 @@ describe("listUnacknowledgedSecurityEvents", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // The service caps results at .limit(50). A regression that drops
-  // the cap (or the isNull filter) would silently leak unbounded data into
-  // the Settings banner.
+  // The list returns at most 50 rows, so the Settings banner reads a bounded
+  // set whatever the account holds.
   it.effect("caps results at 50 even when more unacked rows exist", () =>
     Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
@@ -266,7 +265,7 @@ describe("notifyRecovery (defensive branches)", () => {
     },
   );
 
-  it.effect("notifyRecovery resolves without error when the transport swallows the send", () => {
+  it.effect("notifyRecovery mails the consumed notice to the address it is given", () => {
     const email = makeLogEmailLive();
     const layer = Layer.merge(createTestLayer(), email.layer);
     return Effect.gen(function* () {
@@ -423,25 +422,51 @@ describe("acknowledgeSecurityEvent (step-up gated)", () => {
       );
       expect(err._tag).toBe("AuthError");
 
+      // `other` acks owner's event id as itself: the step-up passes, and the
+      // row, scoped to another account, is not touched.
+      const ownToken = yield* mintStepUp(auth, other.accountId, cap);
+      const result = yield* auth.acknowledgeSecurityEvent(other.accountId, events[0]!.id, ownToken);
+      expect(result.acknowledged).toBe(false);
+
       // Owner's list is untouched.
       const stillThere = yield* auth.listUnacknowledgedSecurityEvents(owner.accountId);
       expect(stillThere.events).toHaveLength(1);
+
+      // The step-up was spent all the same.
+      const replayed = yield* Effect.flip(
+        auth.acknowledgeSecurityEvent(other.accountId, events[0]!.id, ownToken),
+      );
+      expect(replayed._tag).toBe("AuthError");
     }).pipe(Effect.provide(cap.layer));
   });
 
   it.effect("malformed ids are rejected after step-up verify without hitting the DB", () => {
-    const cap = makeEmailCapture();
+    const database = createCapturingTestLayer();
+    const email = makeLogEmailLive();
+    const cap = {
+      layer: Layer.merge(Layer.succeed(Db, { db: database.db }), email.layer),
+      recorded: () => email.recorded(),
+    };
     return Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
       const profile = yield* registered(auth, "sev-malformed@example.com", "sevmalformed");
-      const stepUpToken = yield* mintStepUp(auth, profile.accountId, cap);
 
+      // The step-up is checked first: a malformed id with a bad token is
+      // refused, not answered.
+      const unverified = yield* Effect.flip(
+        auth.acknowledgeSecurityEvent(profile.accountId, "not-a-valid-id", "not.a.jwt"),
+      );
+      expect(unverified._tag).toBe("AuthError");
+
+      const stepUpToken = yield* mintStepUp(auth, profile.accountId, cap);
+      database.captured.length = 0;
       const result = yield* auth.acknowledgeSecurityEvent(
         profile.accountId,
         "not-a-valid-id",
         stepUpToken,
       );
       expect(result.acknowledged).toBe(false);
+      expect(database.captured.filter((s) => s.sql.includes("security_events"))).toEqual([]);
     }).pipe(Effect.provide(cap.layer));
   });
 });
@@ -487,6 +512,8 @@ describe("acknowledgeAllSecurityEvents (bulk path)", () => {
         auth.acknowledgeAllSecurityEvents(profile.accountId, "not.a.jwt"),
       );
       expect(err._tag).toBe("AuthError");
+      const missing = yield* Effect.flip(auth.acknowledgeAllSecurityEvents(profile.accountId, ""));
+      expect(missing._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -751,7 +778,7 @@ describe("the hold on an email_changed row", () => {
       expect(ids).not.toContain(past);
       // Still newest first.
       const times = events.map((e) => e.createdAt);
-      expect(times).toEqual([...times].sort((a, b) => b - a));
+      expect(times).toEqual(times.toSorted((a, b) => b - a));
     }).pipe(Effect.provide(layer));
   });
 

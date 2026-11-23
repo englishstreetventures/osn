@@ -4,7 +4,7 @@ import { Db } from "@osn/db/service";
 import { EmailError, EmailService, type RecordedEmail } from "@shared/email";
 import { eq } from "drizzle-orm";
 import { Effect, Fiber, Layer } from "effect";
-import { beforeAll } from "vitest";
+import { beforeAll, vi } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { createInMemoryAccountCap } from "../../src/services/auth/stores";
@@ -183,6 +183,19 @@ describe("beginEmailChange + completeEmailChange", () => {
       );
       expect(err._tag).toBe("AuthError");
       expect(err.message).toBe("Invalid step-up token");
+
+      const missing = yield* Effect.flip(
+        auth.completeEmailChange(
+          profile.accountId,
+          profile.id,
+          begun.requestId,
+          begun.claimSecret,
+          "",
+          NO_LIVE_SESSION,
+        ),
+      );
+      expect(missing._tag).toBe("AuthError");
+      expect(missing.message).toBe("Invalid step-up token");
     }).pipe(Effect.provide(layer));
   });
 
@@ -238,9 +251,8 @@ describe("beginEmailChange + completeEmailChange", () => {
       const err = yield* Effect.flip(completeSettled(a.auth, a.profile, codeA, a.stepUpToken));
       expect(err._tag).toBe("AuthError");
       expect(err.message).toMatch(/invalid or expired link/i);
-      // Regression pin: the conflict branch tags its metric bucket
-      // explicitly rather than leaving it to `classifyError`'s substring
-      // match (which would also fire here, but for the wrong reason).
+      // The conflict branch sets its metric bucket itself rather than leaving
+      // it to classifyError's substring match, which would also match here.
       expect(err).toMatchObject({ metricResult: "conflict" });
 
       // Invariant pins, not half-applied-batch/rollback detectors: the
@@ -333,10 +345,9 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // #520: begin is capped per-account independently of the per-IP rate
-  // limiter. makeTestAuthConfig() sets no cap/TTL overrides, so exercising
-  // this requires building a service with an injected emailChangeBeginCap
-  // rather than relying on the shared test config.
+  // begin is capped per account, apart from the per-IP rate limiter.
+  // makeTestAuthConfig() sets no cap, so this case builds a service with its
+  // own emailChangeBeginCap.
   it.effect("caps the number of email-change begins per account", () => {
     const { layer } = makeEmailCapture();
     return Effect.gen(function* () {
@@ -355,8 +366,8 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // Regression pin: a non-uniqueness constraint failure at the write
-  // must surface as DatabaseError, never get folded into the same generic
+  // A constraint failure other than uniqueness at the write surfaces as
+  // DatabaseError, never folded into the same generic
   // AuthError the refused-link/UNIQUE-conflict paths return. FK enforcement
   // is on in this tree (`PRAGMA foreign_keys = ON`, see `@osn/db/testing`),
   // but `email_changes.accountId` deliberately carries no FK reference (see
@@ -422,10 +433,8 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // Expiry is wall-clock (`Date.now()` comparisons), so this must
-  // run on the real clock. it.effect's TestClock suspends Effect.sleep until
-  // manually advanced — it would hang here, and advancing it wouldn't help
-  // since the service never reads TestClock. it.live is required.
+  // The link store reads Date.now(), so the case moves Date past otpTtl rather
+  // than TestClock.
   it.live("rejects completing after the pending change has expired", () => {
     const { layer, captured } = makeEmailCapture();
     return Effect.gen(function* () {
@@ -437,6 +446,7 @@ describe("beginEmailChange + completeEmailChange", () => {
         "email_change",
         captured.recorded,
       );
+      vi.useFakeTimers({ toFake: ["Date"] });
       const code = yield* confirmedEmailChange(
         auth,
         profile.accountId,
@@ -444,10 +454,8 @@ describe("beginEmailChange + completeEmailChange", () => {
         captured.recorded,
       );
 
-      // Real wall-clock sleep past the 1s otpTtl, with 500ms of CI slack.
-      // Kept as short as the margin allows: this is the only real sleep in the
-      // package and it is paid on every run.
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 1500)));
+      // One millisecond past the 1 s otpTtl.
+      vi.setSystemTime(Date.now() + 1_001);
 
       const err = yield* Effect.flip(
         auth.completeEmailChange(
@@ -461,7 +469,7 @@ describe("beginEmailChange + completeEmailChange", () => {
       );
       expect(err._tag).toBe("AuthError");
       expect(err.message).toMatch(/invalid or expired link/i);
-    }).pipe(Effect.provide(layer));
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.useRealTimers())), Effect.provide(layer));
   });
 
   // Proves a conflicted change spends its request. Extends the race test's
@@ -632,12 +640,6 @@ describe("beginEmailChange + completeEmailChange", () => {
   });
 });
 
-/**
- * The cap holds at the commit, not only at the preflight: two different
- * requests — one claimed, then a second begun and completed — each pass their own
- * preflight with one change on record, and only one may commit. Each case
- * holds a statement of the first completion's commit while the second runs.
- */
 /**
  * A completed change is recorded as an `email_changed` security event, in the
  * commit, and mailed to the address it replaced, after the commit. A refused
@@ -844,6 +846,12 @@ describe("the change notice", () => {
   );
 });
 
+/**
+ * The cap holds at the commit, not only at the preflight: two different
+ * requests — one claimed, then a second begun and completed — each pass their own
+ * preflight with one change on record, and only one may commit. Each case
+ * holds a statement of the first completion's commit while the second runs.
+ */
 describe("the 2-per-7-days cap under concurrent completions", () => {
   /** The service on a database whose statements a test can hold. */
   function makeHeldEmailCapture() {
