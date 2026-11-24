@@ -184,9 +184,12 @@ the long-lived chain, and the next release applies it as it would have.
    assert of the long-lived chain, if they no longer hold.
 5. Run `bun run --cwd cire/api test`, `bun run --cwd cire/api test:d1`,
    `bun run test:scripts`, and `bun run --cwd shared/infra test:d1`, whose
-   squash cases (S1 to S6 in `tests/d1/ledger-conversion.test.ts`) prove on a
-   local D1 that production and dev take the release with no write and a new
-   database builds the whole schema in one migration.
+   squash cases (S1 to S8 in `tests/d1/ledger-conversion.test.ts`) prove on a
+   local D1 that production and dev take the release with no write, a new
+   database builds the whole schema in one migration, and each release after
+   it applies its own migrations once. They take the squash release's live
+   directory as the baseline alone, so a migration added after it never
+   breaks them.
 6. Read the new cost from the guard. The line in
    `scripts/d1-migration-cost-budgets.txt` is the owner's to set, and only ever
    moves down at a squash; update the figures in `migrations-archive/README.md`,
