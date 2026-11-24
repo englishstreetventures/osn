@@ -202,6 +202,16 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
     true,
     await page.getByRole("link", { name: "add another owner" }).isVisible(),
   );
+  // Read without waiting, so a link that is missing records nothing at once.
+  flow.check(
+    "the link to add another owner opens the wedding's co-hosts",
+    `#/w/${P.alone.id}/settings/hosts`,
+    (
+      await page
+        .getByRole("link", { name: "add another owner" })
+        .evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""))
+    ).join(" "),
+  );
 
   // -------------------------------------------------------------------------
   // Remove my Cire data.
@@ -224,7 +234,10 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
   flow.check(
     "the wedding they share is listed to leave",
     true,
-    await page.getByText(P.shared.name).first().isVisible(),
+    await page
+      .getByRole("list", { name: /^You leave these/ })
+      .getByText(P.shared.name, { exact: true })
+      .isVisible(),
   );
   flow.check(
     "the keeper's own wedding is not listed",

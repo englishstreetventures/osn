@@ -456,8 +456,11 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   // No claim and no sign-in: the page is public, and its demo sends nothing.
   const landing = await flow.newPage(context);
   const main = landing.getByRole("main");
-  const create = main.getByRole("link", { name: "Create your invitation" }).first();
-  const live = main.getByRole("link", { name: "See a live invite" }).first();
+  // The hero's two calls to action. Pricing and the closing band repeat
+  // "Create your invitation", so the hero is named rather than the first match.
+  const hero = main.locator("#hero");
+  const create = hero.getByRole("link", { name: "Create your invitation", exact: true });
+  const live = hero.getByRole("link", { name: "See a live invite", exact: true });
   await flow.step("open the marketing site", async () => {
     await landing.goto(ORIGINS.cireLanding);
     await expect(create).toBeVisible({ timeout: 60_000 });

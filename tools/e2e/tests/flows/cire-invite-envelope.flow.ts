@@ -803,14 +803,31 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
         route.abort(),
       );
       await opened.page.goto(INVITE);
-      await waitForState(opened.page, "ready");
+      // Watched every 50 ms rather than on the usual poll steps, which reach a
+      // second: the fallback starts at "ready", and little of it may pass
+      // before the page clock is paused.
+      await expect
+        .poll(
+          () => opened.page.evaluate(() => document.documentElement.getAttribute("data-envelope")),
+          { timeout: 30_000, intervals: [50] },
+        )
+        .toBe("ready");
       flow.check(
         "no prompt: not armed at first",
         false,
         (await opened.page.locator(`${OVERLAY}[data-armed]`).count()) > 0,
       );
-      await opened.page.clock.runFor(8000);
-      await expect(opened.page.locator(`${OVERLAY}[data-armed]`)).toBeAttached();
+      // The fallback's 8 s run on the page clock alone, read 4 s and 8 s on:
+      // a fallback under 4 s or past 8 s fails, with 4 s of margin for the
+      // real time that passes before the pause.
+      await pauseClock(opened.page);
+      await opened.page.clock.runFor(4000);
+      flow.check(
+        "no prompt: not armed 4 s on",
+        false,
+        (await opened.page.locator(`${OVERLAY}[data-armed]`).count()) > 0,
+      );
+      await opened.page.clock.runFor(4000);
       flow.check(
         "no prompt: armed after 8 s",
         true,

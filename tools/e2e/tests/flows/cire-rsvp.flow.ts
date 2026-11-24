@@ -249,6 +249,9 @@ test("cire-rsvp", async ({ page, context, flow }) => {
       .toBeGreaterThan(0);
   });
   flow.check("a vertical drag leaves the details on screen", true, await details.isVisible());
+  // A drag that began sideways and sprang back would leave the details on
+  // screen too, with the form drawn in beside them.
+  flow.check("a vertical drag draws no form in", 0, await form.count());
 
   // The bar stays at the top of the sheet, frosted, with the details passing
   // under it.

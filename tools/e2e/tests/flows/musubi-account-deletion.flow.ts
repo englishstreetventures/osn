@@ -453,8 +453,17 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   await flow.step("keep the account on /authorize, then allow cire", async () => {
     await page.getByRole("button", { name: "Keep my account" }).click();
     await page.getByRole("button", { name: "Use passkey" }).click();
+    // The portal's list read is the flow's only one, and the deletion below
+    // leaves the page; awaited here, it is in the record on every run.
+    const listRead = page.waitForResponse(
+      (r) =>
+        r.request().method() === "GET" &&
+        r.url().startsWith(ORIGINS.cireApi) &&
+        new URL(r.url()).pathname === "/api/organiser/weddings",
+    );
     await page.getByRole("button", { name: "Allow" }).click();
     await expect(page).toHaveURL(`${ORIGINS.cireHost}/#/weddings`);
+    await listRead;
   });
   await mailFor(P.email, (m) => m.subject === "Your Musubi account will not be deleted");
   flow.check("kept on /authorize, the account is live again", true, deletedAt() === null);

@@ -3,8 +3,9 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 import { DEV_APPS } from "@shared/dev-urls";
+import { PING, PING_INTERVAL_MS, PONG } from "@shared/realtime";
 
-import { PORTS } from "../src/config";
+import { PORTS, REALTIME_KEEPALIVE } from "../src/config";
 import { VENDOR_PORTAL_ORIGIN } from "../src/stack";
 
 // The clock's start is read once, when `config.ts` loads, so each case loads it
@@ -67,5 +68,14 @@ describe("PORTS", () => {
     expect(devPorts).not.toContain(PORTS.issuer);
     expect(devPorts).not.toContain(PORTS.osnApiEvt);
     expect(devPorts).not.toContain(PORTS.cireApiKeyOnly);
+  });
+});
+
+// The hub stand-in's keepalive is written out for Node too; it must stay the
+// one the realtime client and hub speak. A ping word that drifts fails the
+// checklist flow, but a shorter interval would still pass it.
+describe("REALTIME_KEEPALIVE", () => {
+  test("matches @shared/realtime's ping, pong and interval", () => {
+    expect(REALTIME_KEEPALIVE).toEqual({ ping: PING, pong: PONG, intervalMs: PING_INTERVAL_MS });
   });
 });

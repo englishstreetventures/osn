@@ -250,8 +250,11 @@ describe("startListen", () => {
       await expect(start(cli, logPath, procs)).rejects.toThrow(
         `stripe listen exited (code 1) before it was ready; see ${logPath}`,
       );
-      const log = await logWith(logPath, "stripe listen exited");
+      // The exit can come before the CLI's last line is read, so wait for that
+      // line: an absent masked key proves nothing on a log that never held it.
+      const log = await logWith(logPath, "Invalid API Key provided");
       expect(log).toContain("stripe listen exited (code 1)");
+      expect(log).toContain(`Invalid API Key provided: ${key("sk", "test", "[redacted]")}`);
       expect(log).not.toContain(masked);
     } finally {
       await stopAll(procs, 1000);
