@@ -13,6 +13,7 @@ import { CLAIM_TTL_MS } from "../../src/services/changes";
 import {
   MAX_PURGES_PER_RUN,
   maintenanceSweeps,
+  PURGE_HAND_BACKS,
   PURGE_PENDING_HOLD_S,
 } from "../../src/services/maintenance-sweeps";
 import type { PurgeStripe } from "../../src/services/maintenance-sweeps";
@@ -473,6 +474,165 @@ describe("handing a purged wedding's Standard account back", () => {
     const { handedBack, stripe } = recordingStripe();
     await purgeWith(db, stripe);
     expect(handedBack).toEqual([]);
+  });
+
+  /** A row recording that `weddingId` retired `accountId`, still held. */
+  const retiredOn = (
+    db: TestDb,
+    weddingId: string,
+    accountId: string,
+    over: { type?: "express" | "standard"; released?: boolean; at?: number } = {},
+  ) =>
+    db.run(
+      sql`INSERT INTO registry_retired_accounts (id, wedding_id, stripe_account_id, stripe_account_type, retired_at, reason, released_at) VALUES (${`rra_${crypto.randomUUID()}`}, ${weddingId}, ${accountId}, ${over.type ?? "standard"}, ${over.at ?? Math.floor(NOW.getTime() / 1000) - 86_400}, 'replaced', ${over.released ? Math.floor(NOW.getTime() / 1000) : null})`,
+    );
+
+  it("keeps an account another wedding retired and still holds", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    seedWedding(db, "wed_kept", null);
+    nameAccount(db, "wed_gone", "acct_shared", "standard");
+    retiredOn(db, "wed_kept", "acct_shared");
+    const { handedBack, stripe } = recordingStripe();
+    await purgeWith(db, stripe);
+    expect(exists(db, "wed_gone")).toBe(false);
+    expect(handedBack).toEqual([]);
+  });
+
+  it("hands back an account the purged wedding retired, when nothing else holds it", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    seedWedding(db, "wed_kept", null);
+    retiredOn(db, "wed_gone", "acct_retired");
+    // One another wedding still names, one it retired too, one already let go,
+    // and an Express one: none of them is handed back.
+    retiredOn(db, "wed_gone", "acct_named");
+    nameAccount(db, "wed_kept", "acct_named", "standard");
+    retiredOn(db, "wed_gone", "acct_held");
+    retiredOn(db, "wed_kept", "acct_held");
+    retiredOn(db, "wed_gone", "acct_released", { released: true });
+    retiredOn(db, "wed_gone", "acct_express", { type: "express" });
+    const { handedBack, stripe } = recordingStripe();
+    await purgeWith(db, stripe);
+    expect(handedBack).toEqual(["acct_retired"]);
+  });
+
+  it("hands back nothing for a wedding restored before its delete", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_back", daysAgo(9));
+    nameAccount(db, "wed_back", "acct_own", "standard");
+    retiredOn(db, "wed_back", "acct_retired");
+    const raced = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "delete") {
+          return (table: typeof weddings) => {
+            target
+              .update(weddings)
+              .set({ deletedAt: null, deletedByOsnProfileId: null })
+              .where(eq(weddings.id, "wed_back"))
+              .run();
+            return target.delete(table);
+          };
+        }
+        const value: unknown = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const { handedBack, stripe } = recordingStripe();
+    const run = await Effect.runPromise(
+      maintenanceSweeps
+        .purgeDeletedWeddings(NOW, {}, stripe)
+        .pipe(Effect.provideService(DbService, raced)),
+    );
+    expect(run.held).toBe(1);
+    expect(handedBack).toEqual([]);
+  });
+
+  it("hands back two accounts a purge, oldest retire first, and logs the rest for a hand fix", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    const day = Math.floor(NOW.getTime() / 1000) - 86_400;
+    retiredOn(db, "wed_gone", "acct_first", { at: day - 300 });
+    // Retired twice: one account, one candidate.
+    retiredOn(db, "wed_gone", "acct_second", { at: day - 200 });
+    retiredOn(db, "wed_gone", "acct_second", { at: day - 150 });
+    retiredOn(db, "wed_gone", "acct_third", { at: day - 100 });
+    const { handedBack, stripe } = recordingStripe();
+    const logs = await captureLogs(async () => {
+      await purgeWith(db, stripe);
+    });
+    expect(handedBack).toEqual(["acct_first", "acct_second"]);
+    expect(logs).toContain("stripe account not handed back after purge");
+    expect(logs).toContain("acct_third");
+  });
+
+  it("logs every retired Standard account it does not hand back, however many", async () => {
+    // Past the two a purge hands back, each account cire still holds is named
+    // for a hand fix: the cascade then deletes the only rows that knew them.
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    const day = Math.floor(NOW.getTime() / 1000) - 86_400;
+    const ids = Array.from({ length: 12 }, (_, i) => `acct_many_${String(i).padStart(2, "0")}`);
+    ids.forEach((id, i) => retiredOn(db, "wed_gone", id, { at: day - 1_000 + i }));
+    const { handedBack, stripe } = recordingStripe();
+    const logs = await captureLogs(async () => {
+      await purgeWith(db, stripe);
+    });
+    expect(handedBack).toEqual(ids.slice(0, PURGE_HAND_BACKS));
+    for (const id of ids.slice(PURGE_HAND_BACKS)) expect(logs).toContain(id);
+  });
+
+  it("purges a wedding that never opened its registry", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    db.run(sql`DELETE FROM registry_settings WHERE wedding_id = 'wed_gone'`);
+    const { handedBack, stripe } = recordingStripe();
+    const run = await purgeWith(db, stripe);
+    expect(run.purged).toBe(1);
+    expect(handedBack).toEqual([]);
+  });
+
+  it("purges, handing nothing back, where OAuth is not configured", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    nameAccount(db, "wed_gone", "acct_own", "standard");
+    retiredOn(db, "wed_gone", "acct_retired");
+    const run = await purgeWith(db, {});
+    expect(run).toEqual({ purged: 1, held: 0, errors: 0, backlog: 0 });
+  });
+
+  it("hands nothing back when it cannot tell what else holds the accounts", async () => {
+    // Unknown is not "nobody": the read that would say fails.
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    nameAccount(db, "wed_gone", "acct_own", "standard");
+    const failing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "all") {
+          return (query: Parameters<typeof target.all>[0]) => {
+            throw new Error(`refused: ${String(query)}`);
+          };
+        }
+        const value: unknown = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    retiredOn(db, "wed_gone", "acct_retired");
+    const { handedBack, stripe } = recordingStripe();
+    let run: { purged: number } | undefined;
+    const logs = await captureLogs(async () => {
+      run = await Effect.runPromise(
+        maintenanceSweeps
+          .purgeDeletedWeddings(NOW, {}, stripe)
+          .pipe(Effect.provideService(DbService, failing)),
+      );
+    });
+    expect(run?.purged).toBe(1);
+    expect(handedBack).toEqual([]);
+    // Each is named for a hand fix: nothing else records it once the rows go.
+    expect(logs).toContain("stripe account not handed back after purge");
+    expect(logs).toContain("acct_own");
+    expect(logs).toContain("acct_retired");
   });
 
   it("logs the account it could not hand back, and still counts the purge", async () => {

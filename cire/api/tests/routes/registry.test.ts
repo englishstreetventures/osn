@@ -4,7 +4,9 @@ import {
   BOOTSTRAP_WEDDING_ID,
   families,
   linkThumbTransforms,
+  registryClaims,
   registryContributions,
+  registryItems,
   registrySettings,
   weddingHosts,
   weddings,
@@ -1323,6 +1325,7 @@ describe("POST /registry/gifts/:kind/:giftId/note-hidden", () => {
         "kind",
         "note",
         "noteHidden",
+        "paidIntoEarlierAccount",
         "primaryAmountMinor",
         "primaryCurrency",
         "quantity",
@@ -1465,14 +1468,14 @@ describe("GET /registry/gifts", () => {
 
     // The only registry read is the gift log's one statement over its two
     // tables — not the settings row, the item list, the claim counts or the
-    // totals.
+    // totals. It reads the wedding's current account inside that statement,
+    // to mark a gift paid into an earlier one.
     const registryReads = statements
       .map((s) => s.sql)
       .filter((sql) => /"registry_[a-z_]+"/.test(sql));
     expect(registryReads).toHaveLength(1);
     expect(registryReads[0]).toContain('from "registry_claims"');
     expect(registryReads[0]).toContain('from "registry_contributions"');
-    expect(registryReads[0]).not.toContain('"registry_settings"');
   });
 
   it("walks the log page by page and says when it has run out", async () => {
@@ -2400,5 +2403,203 @@ describe("deleting an item reaps its image", () => {
 
     expect((await req(app, "DELETE", `${base}/items/${items[1]!.id}`, EDITOR)).status).toBe(200);
     expect(assets._store.has(imageKey)).toBe(false);
+  });
+});
+
+/**
+ * Whether the account money gifts are paid into is held by someone who holds an
+ * owner seat here. Owners are told, apart from the reason, so the panel can say
+ * so whatever else stops guests giving; editors and viewers are told nothing
+ * about whose account it is.
+ */
+describe("whether the account's holder is an owner (`settings.payoutHolderAbsent`)", () => {
+  type Settings = RegistrySnapshot["settings"];
+  const paying = { stripe: configuredStripe, stripeWebhookSecret: "whsec_test_connect" } as const;
+
+  /** The bootstrap wedding's account, held by `connector`; absent is nobody recorded. */
+  const account = (connector?: string) => (db: ReturnType<typeof createDb>) => {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        stripeAccountId: "acct_live",
+        stripeConnectedByOsnProfileId: connector ?? null,
+        stripeChargesEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  };
+
+  const read = async (app: App, profileId = OWNER): Promise<Settings> =>
+    ((await (await req(app, "GET", base, profileId)).json()) as RegistrySnapshot).settings;
+
+  it("tells an owner the holder is an owner when the holder holds an owner seat", async () => {
+    const app = buildApp({ tier: "gold", ...paying, seed: account(OWNER) });
+    expect((await read(app)).payoutHolderAbsent).toBe(false);
+  });
+
+  it("tells an owner the holder is absent when the holder sits below owner", async () => {
+    const app = buildApp({ tier: "gold", ...paying, seed: account(EDITOR) });
+    expect((await read(app)).payoutHolderAbsent).toBe(true);
+  });
+
+  it("tells an owner the holder is absent when nobody is recorded", async () => {
+    const app = buildApp({ tier: "gold", ...paying, seed: account() });
+    expect((await read(app)).payoutHolderAbsent).toBe(true);
+  });
+
+  it("says no one is absent where there is no account", async () => {
+    const app = buildApp({ tier: "gold", ...paying });
+    expect((await read(app)).payoutHolderAbsent).toBe(false);
+  });
+
+  it("closes nothing: the reason stays what the account and the switch give", async () => {
+    const app = buildApp({ tier: "gold", ...paying, seed: account(EDITOR) });
+    expect((await read(app)).moneyGiftsBlockedBy).toBe("cash_gifts_off");
+    const on = await req(app, "PUT", `${base}/settings`, OWNER, { cashGiftsEnabled: true });
+    expect(on.status).toBe(200);
+    const saved = ((await on.json()) as { settings: Settings }).settings;
+    expect(saved.moneyGiftsBlockedBy).toBeNull();
+    // The save's answer is built from the row it wrote, and says the same.
+    expect(saved.payoutHolderAbsent).toBe(true);
+  });
+
+  it("tells an editor and a viewer nothing about whose account it is", async () => {
+    const app = buildApp({ tier: "gold", ...paying, seed: account(EDITOR) });
+    for (const reader of [EDITOR, VIEWER]) {
+      const settings = await read(app, reader);
+      expect(settings.payoutHolderAbsent).toBeNull();
+      expect(settings.stripeConnectedByOsnProfileId).toBeNull();
+    }
+    const saved = await req(app, "PUT", `${base}/settings`, EDITOR, { headline: "Ours" });
+    expect(((await saved.json()) as { settings: Settings }).settings.payoutHolderAbsent).toBeNull();
+  });
+});
+
+/**
+ * A gift keeps the account it was paid into, and the gift log says when that is
+ * not the account the wedding names now, so the couple know a refund on it
+ * comes from the earlier one.
+ */
+describe("gifts paid into an earlier account (`paidIntoEarlierAccount`)", () => {
+  /** The bootstrap wedding names `current`; one gift per entry of `gifts`, on the account it names. */
+  const seedLog =
+    (current: string | null, gifts: Array<{ id: string; account: string | null }>) =>
+    (db: ReturnType<typeof createDb>) => {
+      const now = new Date();
+      db.insert(registrySettings)
+        .values({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          stripeAccountId: current,
+          stripeConnectedByOsnProfileId: current === null ? null : OWNER,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      const family = db
+        .select({ id: families.id })
+        .from(families)
+        .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+        .get();
+      gifts.forEach((gift, i) => {
+        const at = new Date(now.getTime() - (gifts.length - i) * 1_000);
+        db.insert(registryContributions)
+          .values({
+            id: gift.id,
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            familyId: family!.id,
+            status: "succeeded",
+            amountMinor: 1_000,
+            currency: "AUD",
+            createdAt: at,
+            updatedAt: at,
+          })
+          .run();
+        // Written after the insert: a trigger fills a gift inserted with no
+        // account from the wedding's, and these rows say what each recorded.
+        db.update(registryContributions)
+          .set({ stripeAccountId: gift.account })
+          .where(eq(registryContributions.id, gift.id))
+          .run();
+      });
+    };
+
+  const marks = async (app: App) => {
+    const body = (await (await req(app, "GET", base, OWNER)).json()) as RegistrySnapshot;
+    return Object.fromEntries(body.gifts.map((g) => [g.id, g.paidIntoEarlierAccount]));
+  };
+
+  it("marks a gift on another account, and no gift on the current one or on none", async () => {
+    const app = buildApp({
+      tier: "gold",
+      seed: seedLog("acct_now", [
+        { id: "rct_earlier", account: "acct_before" },
+        { id: "rct_current", account: "acct_now" },
+        { id: "rct_unknown", account: null },
+      ]),
+    });
+    expect(await marks(app)).toEqual({
+      rct_earlier: true,
+      rct_current: false,
+      rct_unknown: false,
+    });
+  });
+
+  it("marks every gift that recorded an account once the wedding names none", async () => {
+    const app = buildApp({
+      tier: "gold",
+      seed: seedLog(null, [
+        { id: "rct_earlier", account: "acct_before" },
+        { id: "rct_unknown", account: null },
+      ]),
+    });
+    expect(await marks(app)).toEqual({ rct_earlier: true, rct_unknown: false });
+  });
+
+  it("never marks a claim, and marks the same on a later page of the log", async () => {
+    const app = buildApp({
+      tier: "gold",
+      seed: (db) => {
+        seedLog("acct_now", [{ id: "rct_earlier", account: "acct_before" }])(db);
+        const now = new Date();
+        const family = db
+          .select({ id: families.id })
+          .from(families)
+          .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+          .get();
+        db.insert(registryItems)
+          .values({
+            id: "reg_pan",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            title: "Copper pan",
+            quantityWanted: 1,
+            sortOrder: 0,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        db.insert(registryClaims)
+          .values({
+            id: "rcl_pan",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            itemId: "reg_pan",
+            familyId: family!.id,
+            quantity: 1,
+            status: "reserved",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+      },
+    });
+    expect(await marks(app)).toEqual({ rct_earlier: true, rcl_pan: false });
+    const page = (await (await req(app, "GET", `${base}/gifts?offset=1`, OWNER)).json()) as {
+      gifts: GiftLogEntryDto[];
+    };
+    expect(page.gifts.map((g) => [g.id, g.paidIntoEarlierAccount])).toEqual([
+      ["rct_earlier", true],
+    ]);
   });
 });

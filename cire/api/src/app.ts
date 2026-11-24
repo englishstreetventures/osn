@@ -86,7 +86,10 @@ import {
   createRegistryGuestListRoutes,
   createRegistryGuestMineRoutes,
 } from "./routes/registry-guest";
-import { createRegistryStripeRoutes } from "./routes/registry-stripe";
+import {
+  createRegistryStripeRetireRoutes,
+  createRegistryStripeRoutes,
+} from "./routes/registry-stripe";
 import {
   createRegistryStripeOAuthRoutes,
   createStripeOAuthCallbackRoutes,
@@ -1414,6 +1417,16 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
               takesPayments,
             })
           : new Elysia(),
+      )
+      // Retiring the wedding's Stripe account: owner-only, behind the same
+      // per-organiser limiter, and mounted on every deployment and tier — it
+      // calls Stripe for nothing and only clears cire's own row.
+      .use(
+        createRegistryStripeRetireRoutes(db, osnAuthOptions, {
+          limiter: registryStripeLimiter,
+          takesPayments,
+          ownerNotices,
+        }),
       )
       // Stripe Connect OAuth: the start, behind the same owner, tier and
       // per-organiser gates as onboarding, and the callback Stripe redirects

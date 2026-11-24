@@ -52,6 +52,12 @@ import {
 } from "./link";
 import { renderR2ReconcileAlert, type R2ReconcileAlertData } from "./r2-reconcile-alert";
 import {
+  type RegistryPayoutRetiredAudience,
+  type RegistryPayoutRetiredData,
+  type RegistryPayoutRetiredReason,
+  renderRegistryPayoutRetired,
+} from "./registry-payout-retired";
+import {
   renderRsvpChangeDigest,
   type RsvpChangeDigestData,
   type RsvpDigestChangeKind,
@@ -110,6 +116,7 @@ export type EmailTemplate =
   | "email-changed"
   | "r2-reconcile-alert"
   | "registry-gift-summary"
+  | "registry-payout-retired"
   | "rsvp-change-digest"
   | "upgrade-refund"
   | "vendor-claim-invite"
@@ -166,6 +173,7 @@ export interface EmailTemplateDataMap {
   "email-changed": EmailChangedData;
   "r2-reconcile-alert": R2ReconcileAlertData;
   "registry-gift-summary": RegistryGiftSummaryData;
+  "registry-payout-retired": RegistryPayoutRetiredData;
   "rsvp-change-digest": RsvpChangeDigestData;
   "upgrade-refund": UpgradeRefundData;
   "vendor-claim-invite": { claimUrl: string; vendorName: string };
@@ -251,6 +259,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderR2ReconcileAlert(data as EmailTemplateData<"r2-reconcile-alert">);
     case "registry-gift-summary":
       return renderRegistryGiftSummary(data as EmailTemplateData<"registry-gift-summary">);
+    case "registry-payout-retired":
+      return renderRegistryPayoutRetired(data as EmailTemplateData<"registry-payout-retired">);
     case "rsvp-change-digest":
       return renderRsvpChangeDigest(data as EmailTemplateData<"rsvp-change-digest">);
     case "upgrade-refund":
@@ -295,6 +305,7 @@ export {
   renderEmailChanged,
   renderR2ReconcileAlert,
   renderRegistryGiftSummary,
+  renderRegistryPayoutRetired,
   renderRsvpChangeDigest,
   renderVendorClaimInvite,
   renderVendorClaimReviewPending,
@@ -326,6 +337,9 @@ export type {
   RegistryGiftSummaryData,
   RegistryGiftSummaryGift,
   RegistryGiftSummaryTotal,
+  RegistryPayoutRetiredAudience,
+  RegistryPayoutRetiredData,
+  RegistryPayoutRetiredReason,
   RsvpChangeDigestData,
   RsvpDigestChangeKind,
   UpgradeRefundData,

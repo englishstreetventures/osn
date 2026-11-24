@@ -17,6 +17,7 @@ import {
   registryClaims,
   registryContributions,
   registryItems,
+  registryRetiredAccounts,
   registrySettings,
   rsvpChanges,
   rsvps,
@@ -2173,6 +2174,83 @@ describe("cire/api over real D1 (Miniflare)", () => {
     },
     MF_TIMEOUT_MS,
   );
+  it(
+    "registry Stripe: a retire records the account and clears the row together or not at all, on D1",
+    async () => {
+      // The retire is one batch of an INSERT … SELECT and an UPDATE, each
+      // guarded alike. bun:sqlite runs them one at a time; on D1 they are one
+      // transaction, so an UPDATE that fails takes the record with it.
+      const now = new Date();
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        cashGiftsEnabled: true,
+        stripeAccountId: "acct_d1_retire",
+        stripeConnectedByOsnProfileId: "usr_test",
+        stripeAccountType: "standard",
+        stripeConnectedAt: new Date(1_700_000_000_000),
+        stripeChargesEnabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const retire = () =>
+        registryService.retireStripeAccount(
+          {
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_test",
+            handTo: null,
+            accountId: "acct_d1_retire",
+            generation: 0,
+          },
+          PAYING_SITE,
+        );
+      const stored = async () =>
+        (
+          await db
+            .select()
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        )[0];
+      const records = () => db.select().from(registryRetiredAccounts);
+
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_retire_clear BEFORE UPDATE OF stripe_account_id ON registry_settings BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await Effect.runPromiseExit(
+          retire().pipe(Effect.provideService(DbService, db)),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect((await stored())?.stripeAccountId).toBe("acct_d1_retire");
+        expect(await records()).toEqual([]);
+      } finally {
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_retire_clear").run();
+      }
+
+      // And with nothing in the way, both land, and the reason is the write's.
+      const done = await run(retire());
+      expect(done.reason).toBe("disconnected");
+      expect(done.settings.cashGiftsEnabled).toBe(true);
+      expect(await stored()).toMatchObject({
+        stripeAccountId: null,
+        stripeConnectedByOsnProfileId: null,
+        stripeAccountGeneration: 1,
+      });
+      expect(await records()).toMatchObject([
+        {
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          stripeAccountId: "acct_d1_retire",
+          stripeAccountType: "standard",
+          stripeConnectedAt: new Date(1_700_000_000_000),
+          reason: "disconnected",
+          releasedAt: null,
+        },
+      ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
   it(
     "registry Stripe: a wedding takes the account its owner connected on another, in one statement on D1",
     async () => {
@@ -5407,12 +5485,29 @@ describe("cire/api over real D1 (Miniflare)", () => {
       }
       const reaped: string[] = [];
       const bucket = { delete: (keys: string | string[]) => void reaped.push(...[keys].flat()) };
+      // The purged wedding retired a Standard account cire still holds: the
+      // batch reads it before the cascade, and one read on D1 finds nothing
+      // else holding it.
+      await db.run(
+        sql`UPDATE registry_retired_accounts SET stripe_account_type = 'standard' WHERE wedding_id = ${gone}`,
+      );
+      const handedBack: string[] = [];
 
       const result = await run(
-        maintenanceSweeps.purgeDeletedWeddings(new Date(), { sheets: bucket, assets: bucket }),
+        maintenanceSweeps.purgeDeletedWeddings(
+          new Date(),
+          { sheets: bucket, assets: bucket },
+          {
+            deauthorize: (accountId) =>
+              Effect.sync(() => {
+                handedBack.push(accountId);
+              }),
+          },
+        ),
       );
       expect(result.purged).toBe(1);
       expect(result.errors).toBe(0);
+      expect(handedBack).toEqual([`acct_retired_${gone}`]);
 
       const keys = fullWeddingKeys(gone);
       expect(reaped.toSorted()).toEqual([...keys.sheets, ...keys.assets].toSorted());

@@ -6,6 +6,7 @@
  *   POST /api/organiser/weddings/:weddingId/registry/stripe/refresh   (weddingOwner)
  *   GET  /api/organiser/weddings/:weddingId/registry/stripe/accounts  (weddingOwner)
  *   POST /api/organiser/weddings/:weddingId/registry/stripe/reuse     (weddingOwner, then the source account's connector)
+ *   POST /api/organiser/weddings/:weddingId/registry/stripe/retire    (weddingOwner; no tier, no Stripe key)
  *
  * **Owner-only, not editor.** Every other registry write is `weddingEditor`,
  * because adding a gift is ordinary help. This is not: it names the bank account
@@ -41,6 +42,17 @@
  * button cannot mint two connected accounts for one couple, which is the
  * failure that needs a human at Stripe to unpick.
  *
+ * **Retiring an account.** The wedding stops naming its account and keeps a
+ * record of it (`registry_retired_accounts`). Its holder may hand money gifts
+ * to another owner or disconnect; any other owner may replace it, whether or
+ * not the holder still holds an owner seat. Nothing at Stripe changes: the
+ * account stays connected, its payouts stay its holder's, and refunds and
+ * disputes on the gifts paid into it keep reaching them. Guests cannot give
+ * money until an owner connects the next account. A retire calls Stripe for
+ * nothing, so it sits in a group of its own, behind the owner gate and the
+ * per-organiser limiter but no tier gate and no Stripe key: a holder on a
+ * wedding below Gold can still hand over. Every owner is mailed.
+ *
  * **Nothing here turns cash gifts ON.** Connecting an account and offering
  * guests a contribute button are two decisions, and the second is the couple's:
  * `PUT /registry/settings` still owns it, still refuses while Stripe cannot take
@@ -61,15 +73,19 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { dispatchNotice } from "../lib/owner-notice-email";
+import type { OwnerNotices } from "../lib/owner-notice-email";
+import { metricRegistryStripeRetire } from "../metrics";
+import type { StripeRetireOutcome } from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
-import { ReuseStripeAccountBody } from "../schemas/registry";
+import { RetireStripeAccountBody, ReuseStripeAccountBody } from "../schemas/registry";
 import { accountTypeOf, registryService, settingsForReader } from "../services/registry";
-import type { RegistrySettingsDto } from "../services/registry";
+import type { RegistrySettingsDto, RetireReason } from "../services/registry";
 import type { StripeClient, StripeError } from "../services/stripe";
 
 /**
@@ -461,6 +477,148 @@ export const createRegistryStripeRoutes = (
                     status: 409,
                     error: "currency_mismatch",
                     current: e.current,
+                  }),
+                ),
+                Effect.tapDefect(logDefect(weddingId)),
+                Effect.catchDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        ),
+    );
+
+export interface RegistryStripeRetireDeps {
+  /**
+   * The onboarding routes' per-organiser limiter. A retire calls Stripe for
+   * nothing, but it is usually followed by a connect that does, so one budget
+   * paces the pair.
+   */
+  readonly limiter: RateLimiterBackend;
+  /** Whether this deployment can take a money gift at all (`createApp`). */
+  readonly takesPayments: boolean;
+  /** Absent where notices are not configured: the retire still happens. */
+  readonly ownerNotices?: OwnerNotices;
+}
+
+/** Who retired the account, as the log line names it. */
+const retiredBy = (reason: RetireReason) =>
+  reason === "replaced" ? "other_owner" : reason === "holder_absent" ? "absent_holder" : "holder";
+
+/** Why a retire was refused, as the log line and the metric name it. */
+type RetireRefusal = Exclude<StripeRetireOutcome, RetireReason>;
+
+/**
+ * A refused retire: logged and counted by wedding and reason — never by person
+ * or account — and answered with the error code, and with the settings as they
+ * stand where the page holding them is what is out of date.
+ */
+const retireRefused = (
+  set: { status?: number | string },
+  weddingId: string,
+  refusal: RetireRefusal,
+  answer: { status: number; error: string; current?: RegistrySettingsDto },
+) =>
+  Effect.logInfo("stripe account retire refused").pipe(
+    Effect.annotateLogs({ weddingId, refusal }),
+    Effect.andThen(
+      Effect.sync(() => {
+        metricRegistryStripeRetire(refusal);
+        set.status = answer.status;
+        return answer.current
+          ? { error: answer.error, settings: settingsForReader(answer.current, OWNER_READER) }
+          : { error: answer.error };
+      }),
+    ),
+  );
+
+/**
+ * `POST …/registry/stripe/retire`, body `{ handTo: string | null }`. Mounted on
+ * every deployment: see the header.
+ */
+export const createRegistryStripeRetireRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  deps: RegistryStripeRetireDeps,
+) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingOwner(db))
+        // Gate order: owner (403) → limiter (429), so a stranger never spends
+        // the couple's budget.
+        .use(rateLimitMiddlewareByUser(deps.limiter))
+        .post(
+          "/registry/stripe/retire",
+          async ({ weddingId, osnProfileId, request, set }) => {
+            if (!weddingId || !osnProfileId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(RetireStripeAccountBody)(raw);
+                // The account and its generation the write must still find.
+                const read = yield* registryService.settingsOnly(weddingId);
+                const done = yield* registryService.retireStripeAccount(
+                  {
+                    weddingId,
+                    osnProfileId,
+                    handTo: body.handTo,
+                    accountId: read.stripeAccountId,
+                    generation: read.stripeAccountGeneration,
+                  },
+                  deps,
+                );
+                yield* Effect.logInfo("stripe account retired").pipe(
+                  Effect.annotateLogs({
+                    weddingId,
+                    by: retiredBy(done.reason),
+                    handed: done.reason === "handed_over" ? "yes" : "no",
+                  }),
+                );
+                metricRegistryStripeRetire(done.reason);
+                if (deps.ownerNotices) {
+                  yield* dispatchNotice(
+                    request,
+                    deps.ownerNotices
+                      .payoutRetired({
+                        weddingId,
+                        actorOsnProfileId: osnProfileId,
+                        reason: done.reason,
+                        // The write takes a hand-over target only from the
+                        // holder, so one that passed is a hand-over.
+                        handToOsnProfileId: body.handTo,
+                        // The write recorded a replace only while the holder it
+                        // read held an owner seat, so the read names them.
+                        holderOsnProfileId:
+                          done.reason === "replaced" ? read.stripeConnectedByOsnProfileId : null,
+                      })
+                      .pipe(Effect.provideService(DbService, db)),
+                  );
+                }
+                return { settings: settingsForReader(done.settings, OWNER_READER) };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  retireRefused(set, weddingId, "invalid", {
+                    status: 400,
+                    error: "Missing or invalid fields",
+                  }),
+                ),
+                Effect.catchTag("StripeRetireForbidden", () =>
+                  retireRefused(set, weddingId, "forbidden", { status: 403, error: "forbidden" }),
+                ),
+                Effect.catchTag("StripeAccountChanged", (e) =>
+                  retireRefused(set, weddingId, "account_changed", {
+                    status: 409,
+                    error: "stripe_account_changed",
+                    current: e.current,
+                  }),
+                ),
+                Effect.catchTag("HandoverNotOwner", () =>
+                  retireRefused(set, weddingId, "handover_not_owner", {
+                    status: 409,
+                    error: "handover_not_owner",
                   }),
                 ),
                 Effect.tapDefect(logDefect(weddingId)),

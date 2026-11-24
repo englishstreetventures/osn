@@ -175,6 +175,9 @@ export const CIRE_METRICS = {
   registryStripeUnmatched: "cire.registry.stripe.unmatched",
   // Stripe Connect OAuth callbacks, by how each ended.
   registryStripeOAuth: "cire.registry.stripe.oauth",
+  // Retires of a wedding's Stripe account, by the standing the write recorded
+  // or the refusal.
+  registryStripeRetire: "cire.registry.stripe.retire",
   // Organiser wedding-profile (Settings) saves.
   weddingSettingsSaved: "cire.wedding.settings.saved",
   // Settings writes refused because a non-owner reached past the RSVP-by date.
@@ -348,7 +351,12 @@ export type WeddingArchiveFileStatus =
   | "unreadable"
   | "unavailable";
 /** Which owner notice was attempted. */
-export type OwnerNoticeKind = "owner_change" | "delete_started" | "upgrade_refund" | "owner_left";
+export type OwnerNoticeKind =
+  | "owner_change"
+  | "delete_started"
+  | "upgrade_refund"
+  | "owner_left"
+  | "payout_retired";
 /** How an owner notice ended: mailed, nobody to mail, held by the per-wedding
  *  throttle, or the lookup or send failed. */
 export type OwnerNoticeResult = "sent" | "no_recipients" | "throttled" | "failed";
@@ -359,6 +367,20 @@ export type StripeUnmatchedEvent = "refund" | "dispute";
  * `standard` account it is the holder's own business, not a gift cire lost.
  */
 export type StripeUnmatchedAccount = "express" | "standard" | "unknown";
+
+/**
+ * How a retire of a wedding's Stripe account ended: the standing its write
+ * recorded (`registry_retired_accounts.reason`), or why it was refused.
+ */
+export type StripeRetireOutcome =
+  | "handed_over"
+  | "disconnected"
+  | "replaced"
+  | "holder_absent"
+  | "forbidden"
+  | "account_changed"
+  | "handover_not_owner"
+  | "invalid";
 
 /** How a Stripe Connect OAuth callback ended — the outcome the portal is told. */
 export type StripeOAuthOutcome =
@@ -856,6 +878,7 @@ type WeddingArchiveFileAttrs = { status: WeddingArchiveFileStatus };
 type OwnerNoticeAttrs = { kind: OwnerNoticeKind; result: OwnerNoticeResult };
 type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent; account: StripeUnmatchedAccount };
 type StripeOAuthAttrs = { outcome: StripeOAuthOutcome };
+type StripeRetireAttrs = { outcome: StripeRetireOutcome };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
@@ -1407,6 +1430,12 @@ const registryStripeOAuth = createCounter<StripeOAuthAttrs>({
   unit: "{callback}",
 });
 
+const registryStripeRetire = createCounter<StripeRetireAttrs>({
+  name: CIRE_METRICS.registryStripeRetire,
+  description: "Retires of a wedding's Stripe account, by recorded standing or refusal",
+  unit: "{request}",
+});
+
 const weddingSettingsSaved = createCounter<WeddingSettingsSavedAttrs>({
   name: CIRE_METRICS.weddingSettingsSaved,
   description: "Wedding-profile (Settings) saves, by outcome",
@@ -1804,6 +1833,9 @@ export const metricRegistryStripeUnmatched = (
 
 export const metricRegistryStripeOAuth = (outcome: StripeOAuthOutcome): void =>
   registryStripeOAuth.inc({ outcome });
+
+export const metricRegistryStripeRetire = (outcome: StripeRetireOutcome): void =>
+  registryStripeRetire.inc({ outcome });
 
 export const metricWeddingSettingsSaved = (result: WeddingSettingsSavedResult): void =>
   weddingSettingsSaved.inc({ result });

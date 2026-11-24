@@ -340,3 +340,13 @@ export const ReuseStripeAccountBody = Schema.Struct({
   fromWeddingId: Schema.NonEmptyString.check(Schema.isMaxLength(64)),
 });
 export type ReuseStripeAccountBody = Schema.Schema.Type<typeof ReuseStripeAccountBody>;
+
+/**
+ * Retire the wedding's Stripe account. `handTo` names the owner its holder
+ * hands money gifts to, or is null; the key is required, so a body that says
+ * nothing about it is refused rather than read as a disconnect.
+ */
+export const RetireStripeAccountBody = Schema.Struct({
+  handTo: Schema.NullOr(Schema.NonEmptyString.check(Schema.isMaxLength(64))),
+});
+export type RetireStripeAccountBody = Schema.Schema.Type<typeof RetireStripeAccountBody>;
