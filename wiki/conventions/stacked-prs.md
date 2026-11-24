@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-25
 ---
 
 # Stacked PRs
@@ -151,7 +151,7 @@ gh api repos/englishstreetventures/osn/pulls/<any PR in the stack> --jq .stack.n
 gh stack merge <stack number> --squash --yes
 ```
 
-The second command adds the whole stack to the queue. Pass the stack's number, not a pull request's: the command reads a bare number as a stack number first. `--yes` skips the wizard it opens in an interactive terminal. The queue builds at most `max_entries_to_build` entries at once, so each round lands that many. The next entry still holds the squashed parents' original commits, so the queue removes it as a conflict. GitHub then rebases the rest onto `main` and their CI runs again; once it is green, the same command queues the next round. Read the live limits from the ruleset:
+The second command adds the whole stack to the queue. Pass the stack's number, not a pull request's: the command reads a bare number as a stack number first. `--yes` skips the wizard it opens in an interactive terminal. The queue builds at most `max_entries_to_build` entries at once, so each round lands that many. The next entry still holds the squashed parents' original commits, so the queue removes it as a conflict. GitHub then rebases the rest onto `main` and their CI runs again, `E2E` included, so about ten minutes ([[contributing#What CI runs for a change]]); once it is green, the same command queues the next round. Read the live limits from the ruleset:
 
 ```bash
 gh api repos/englishstreetventures/osn/rules/branches/main \

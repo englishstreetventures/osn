@@ -625,8 +625,9 @@ chromium`, run by
 [`install-chromium-system-libraries.sh`](../../scripts/install-chromium-system-libraries.sh).
 On `ubuntu-latest` the image already holds Chromium's shared libraries, and
 what `install-deps` still downloads is nine font packages from the runner's apt
-mirror. The script keeps those packages in a cache the E2E job saves and the
-legs restore, so apt downloads only what the cache lacks, and it runs the
+mirror. The script keeps those packages in a cache that the legs restore and
+that the E2E jobs and, on a push to `main`, the first leg save (below), so apt
+downloads only what the cache lacks, and it runs the
 install under [`retry.sh`](../../scripts/retry.sh): three attempts of 150 s,
 so a stalled attempt is cut and run again, resuming the downloads it left.
 
@@ -671,9 +672,13 @@ index. The architecture may be a variant of the record's: on the Ubuntu 26.04
 image apt names a file `_amd64v3.deb` when its record says `amd64`. It drops
 any other file with a warning, and apt downloads that package instead.
 
-The jobs that use
-[`e2e-setup`](../../.github/actions/e2e-setup/action.yml) save the cache:
-CI's E2E job, and the daily E2E determinism job on `main`. The key names the
+Three jobs save the cache. Two of the three jobs that use
+[`e2e-setup`](../../.github/actions/e2e-setup/action.yml) do, the Stripe
+test-mode job (below) being the third: CI's E2E job, which runs on pull
+requests only and so saves into its own pull request's scope, and the daily
+E2E determinism job on `main`. On a push to `main`, where
+no E2E job runs, the first browser leg saves it straight after its install. The
+last two write `main`'s copy, which every branch and queue group can read. The key names the
 runner image (`ImageOS`, `ImageVersion`) and the Playwright version. GitHub
 runs `ubuntu-latest` on several image builds at once, each installing the same
 nine packages, and evicts an entry within hours once no run reads it, since the
@@ -690,7 +695,7 @@ downloads the nine packages on every run.
 [`install-chromium-system-libraries.cli.test.ts`](../../scripts/tests/install-chromium-system-libraries.cli.test.ts)
 holds the check, a tampered package among its cases, and the cases below, and
 [`deploy-workflows.test.ts`](../../scripts/tests/deploy-workflows.test.ts)
-holds the key, its fallback and the Stripe job's opt-out.
+holds the key, its fallback, which jobs save it and the Stripe job's opt-out.
 
 *Measured 2026-11-19 — `gh run view 44516766344 --job 135534769001 --log` and `gh api repos/englishstreetventures/osn/actions/jobs/135533154511/logs`: AWS runners on image `20261111.82.6` found no entry for their key ("Cache not found"), fetched the 21.9 MB from `us-east-2.ec2.archive.ubuntu.com` at about 50 to 100 KB/s, and failed all three attempts; the retry on an Azure runner (image `20261111.196.1`) restored its entry and passed in 11 s. Eviction: `gh api repos/englishstreetventures/osn/actions/jobs/<id>/logs | grep chromium-apt` for E2E jobs on `main`: 134981987787 (2026-11-18 17:09) and 134998336608 (17:34) each logged "Cache saved with key: Linux-chromium-apt-ubuntu26-20261111.82.6-playwright-1.64.1", so the first entry was gone within 25 minutes; 135322974313 (2026-11-19 03:44) restored it; jobs from 11:36 found none. `gh api repos/englishstreetventures/osn/actions/cache/usage`: 10,744,090,862 bytes cached*
 
@@ -787,6 +792,13 @@ The browser download is cached on the lockfile. Both installs run from
 and the build it wants instead of ours ([[#Running it locally]]). Only
 `chromium` is installed: the tier pins a single instance, so pulling Firefox
 and WebKit too would triple the download for nothing.
+
+On a push to `main` the first leg saves both caches, the browser and its
+system packages, each straight after its install: no E2E job runs on that
+push, and `main`'s copy is the one every pull request and queue group
+restores. Only the first leg saves, so three legs do not race for one key, and
+each save has a 5-minute limit and may fail without failing the leg, since it
+only writes a cache.
 
 The E2E and E2E determinism jobs install the same way from `tools/e2e`,
 through the setup they share (`.github/actions/e2e-setup/action.yml`, where

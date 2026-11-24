@@ -365,7 +365,7 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.output.match(/^::error::/gm)?.length, run.output).toBe(1);
     expect(run.output).toMatch(tally(1, 0, 0));
     expect(run.output).not.toContain("kept for the cache");
-    // Neither emptied nor swapped for a partial archive the E2E job would save.
+    // Neither emptied nor swapped for a partial archive a later save would keep.
     expect(cacheContents(w)).toEqual(before);
   });
 
