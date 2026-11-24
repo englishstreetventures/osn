@@ -15,7 +15,6 @@
     "./verify": "./src/verify.ts",
     "./verify-id-token": "./src/verify-id-token.ts",
     "./jwks-cache": "./src/jwks-cache.ts",
-    "./middleware/elysia": "./src/middleware/elysia.ts",
     "./cookie": "./src/cookie.ts",
     "./oidc-rp": "./src/oidc-rp.ts",
     "./testing/oidc-issuer": "./src/testing/oidc-issuer.ts"
@@ -29,12 +28,8 @@
     "@shared/crypto": "workspace:*",
     "jose": "6.2.17"
   },
-  "peerDependencies": {
-    "elysia": "^1.4.30"
-  },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
-    "elysia": "^1.4.30",
     "vitest": "5.0.5"
   }
 }

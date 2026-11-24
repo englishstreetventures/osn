@@ -1,4 +1,8 @@
-/** Shared configuration for the per-framework `osnAuth` middleware adapters. */
+/**
+ * What a service's access-token middleware needs to verify a request: the
+ * JWKS to fetch keys from and the claims to enforce. Each service builds its
+ * own middleware on `extractClaims` and extends this with its own options.
+ */
 export interface OsnAuthOptions {
   /** Full JWKS URL — e.g. `https://osn-api.example.com/.well-known/jwks.json` */
   jwksUrl: string;

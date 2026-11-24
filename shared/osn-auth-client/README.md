@@ -3,22 +3,18 @@
 Verifies OSN-issued access tokens (ES256, `aud: "osn-access"`) via JWKS
 with an LRU cache (5-min TTL, blocking refetch on expiry) and
 rotation-aware refresh on verification miss. Ships framework-agnostic
-primitives plus an Elysia middleware adapter.
+primitives; each service builds its own middleware on them (cire's is
+`cire/api/src/middleware/osn-auth.ts`).
 
-## Usage — Elysia (pulse, osn, cire)
+## Verify a request
 
 ```ts
-import { osnAuth } from "@shared/osn-auth-client/middleware/elysia";
+import { extractClaims, type OsnAuthOptions } from "@shared/osn-auth-client";
 
-new Elysia().use(osnAuth({
-  jwksUrl: process.env.OSN_JWKS_URL!,
+const claims = await extractClaims(req.headers.get("authorization") ?? undefined, jwksUrl, {
   audience: "osn-access",
-}));
+});
 ```
 
-## Direct verification
-
-```ts
-import { extractClaims } from "@shared/osn-auth-client/verify";
-const claims = await extractClaims(req.headers.get("authorization"), jwksUrl);
-```
+`OsnAuthOptions` is the options shape a service's middleware takes: the JWKS
+URL, the audience and, optionally, the issuer.

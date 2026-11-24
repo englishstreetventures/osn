@@ -78,7 +78,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-25
 ---
 
 # Monorepo Structure
@@ -153,7 +153,7 @@ shared/
   legal/               # @shared/legal — the operator identity every published legal page must state
   observability/       # @shared/observability — redacting logger, Workers trace mirror, Bun OTLP layer, metric helpers, Elysia plugin
   openapi-tools/       # @shared/openapi-tools — OpenAPI spec generation and normalisation (specs land in shared/openapi/)
-  osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, Elysia adapter)
+  osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, `extractClaims`)
   rate-limit/          # @shared/rate-limit — per-IP / per-user fixed-window limiter primitives, getClientIp trust policy
   realtime/            # @shared/realtime — invalidation signals over WebSocket: the per-topic Durable Object hub, publish/subscribe helpers, the browser client and useTopic
   rp-auth/             # @shared/rp-auth — browser half of an OSN relying party: the redirect sign-in flow and its cookie contract
