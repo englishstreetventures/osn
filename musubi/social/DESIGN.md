@@ -822,7 +822,7 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   `src/components/ResponsiveSkeleton.tsx`: one block per width, each hidden
   at the other, since `Skeleton` takes one height. Rows: a connection or a
   member with Remove 56px and 60px below `md`, a Discover card 114px and
-  126px, a connected app 70px and 74px, and 114px and 126px with its app's
+  126px, a connected app 70px and 74px, and 110px and 126px with its app's
   removal link (§Links); an organisation card is 74px at both. Settings'
   Security fallback stands for `@osn/auth-ui`'s passkey
   head, 32px and 40px below `md`, and one of its rows, 92px and 144px,
@@ -990,16 +990,18 @@ apart by its underline or by standing alone at 500.
   `buttonVariants({ variant: "secondary", size: "sm" })` with `max-md:h-10`,
   at the start of its card (`self-start`), so its fill, not its words, meets
   the column edge. It opens in a new tab, so the screen it leaves keeps what
-  was answered there, and is described by the words it is about
-  (`aria-describedby`), so a list of them is told apart. Only an address
+  was answered there. Where its words do not name what it is about, it is
+  described by the words that do (`aria-describedby`), so a list of them is
+  told apart; words that name it, as "Remove my data from Cire" does, need no
+  description, which a screen reader would only repeat. Only an address
   `followableLink` (`src/lib/account-deletion.ts`) follows is drawn: `https:`,
   or `http:` to this machine (`localhost`, `127.0.0.1`, `[::1]`), where the
   local and E2E stacks run. Uses: the deletion flow's "Open in Cire" and the
   like (`OpenActionCard.tsx`), and Settings → Connected apps' "Remove my data
-  from Cire" (`ConnectedAppsSection.tsx`), described by the app's name, both
-  of whose addresses osn-api sends. On a Connected apps row it takes a line of
-  its own, 12px under the row's name and Revoke, and only on a row whose app
-  has a name. Its words are cut short with an ellipsis rather than wrapped
+  from Cire" (`ConnectedAppsSection.tsx`), both of whose addresses osn-api
+  sends. On a Connected apps row it takes a line of its own, 12px under the
+  row's name and Revoke, at a row action's height (`h-7 max-md:h-10`, as
+  Revoke, §Responsive layout), and only on a row whose app has a name. Its words are cut short with an ellipsis rather than wrapped
   (`max-w-full`, the label `truncate`), so a long registered name (up to 64
   characters) keeps the row at one height.
   `tests/components/ConnectedAppsRows.browser.test.tsx` holds the rows'

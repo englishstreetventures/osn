@@ -3,7 +3,7 @@ import { clsx } from "@shared/ui/lib/utils";
 import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Notice } from "@shared/ui/ui/notice";
-import { createSignal, createUniqueId, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import { PRODUCT_NAME } from "../lib/auth";
 import { connectionsClient } from "../lib/authClients";
@@ -92,72 +92,67 @@ export function ConnectedAppsSection() {
             >
               <div class="flex flex-col gap-2">
                 <For each={apps()}>
-                  {(conn) => {
-                    const nameId = createUniqueId();
-                    return (
-                      <Card
-                        radius="md"
-                        padding="sm"
-                        class="flex flex-col gap-3"
-                        data-app={conn.clientId}
-                      >
-                        <div class="flex items-center justify-between gap-3">
-                          <div class="flex min-w-0 items-center gap-3">
-                            <Show when={safeAvatarUrl(conn.logoUrl)}>
-                              {(url) => (
-                                <img
-                                  src={url()}
-                                  alt=""
-                                  class="border-border h-8 w-8 shrink-0 rounded-lg border object-cover"
-                                  referrerpolicy="no-referrer"
-                                />
-                              )}
-                            </Show>
-                            <div class="min-w-0">
-                              <p
-                                id={nameId}
-                                class="text-foreground text-title truncate font-medium"
-                              >
-                                {conn.clientName ?? "Unknown app"}
-                              </p>
-                              <p class="text-muted-foreground text-meta truncate">
-                                Access: {scopesOf(conn.scope).join(", ") || "—"}
-                              </p>
-                            </div>
+                  {(conn) => (
+                    <Card
+                      radius="md"
+                      padding="sm"
+                      class="flex flex-col gap-3"
+                      data-app={conn.clientId}
+                    >
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="flex min-w-0 items-center gap-3">
+                          <Show when={safeAvatarUrl(conn.logoUrl)}>
+                            {(url) => (
+                              <img
+                                src={url()}
+                                alt=""
+                                class="border-border h-8 w-8 shrink-0 rounded-lg border object-cover"
+                                referrerpolicy="no-referrer"
+                              />
+                            )}
+                          </Show>
+                          <div class="min-w-0">
+                            <p class="text-foreground text-title truncate font-medium">
+                              {conn.clientName ?? "Unknown app"}
+                            </p>
+                            <p class="text-muted-foreground text-meta truncate">
+                              Access: {scopesOf(conn.scope).join(", ") || "—"}
+                            </p>
                           </div>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            class="h-7 shrink-0 max-md:h-10"
-                            busy={revoking() === conn.clientId}
-                            onClick={() => void revoke(conn.clientId)}
-                          >
-                            {revoking() === conn.clientId ? "Revoking…" : "Revoke"}
-                          </Button>
                         </div>
-                        {/* The app's own screen for removing the person's data,
-                            in a tab of its own so this page stays as it is. Its
-                            words cut short rather than wrap, so the row keeps
-                            the height its placeholder holds (`AppRowsLoading`). */}
-                        <Show when={removalLink(conn)}>
-                          {(href) => (
-                            <a
-                              href={href()}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              aria-describedby={nameId}
-                              class={clsx(
-                                buttonVariants({ variant: "secondary", size: "sm" }),
-                                "max-w-full self-start max-md:h-10",
-                              )}
-                            >
-                              <span class="truncate">Remove my data from {conn.clientName}</span>
-                            </a>
-                          )}
-                        </Show>
-                      </Card>
-                    );
-                  }}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          class="h-7 shrink-0 max-md:h-10"
+                          busy={revoking() === conn.clientId}
+                          onClick={() => void revoke(conn.clientId)}
+                        >
+                          {revoking() === conn.clientId ? "Revoking…" : "Revoke"}
+                        </Button>
+                      </div>
+                      {/* The app's own screen for removing the person's data,
+                          in a tab of its own so this page stays as it is. Its
+                          words cut short rather than wrap, so the row keeps
+                          the height its placeholder holds (`AppRowsLoading`),
+                          and name the app, so it needs no description. A row
+                          action's height: 28px from `md`, 40px below it. */}
+                      <Show when={removalLink(conn)}>
+                        {(href) => (
+                          <a
+                            href={href()}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class={clsx(
+                              buttonVariants({ variant: "secondary", size: "sm" }),
+                              "h-7 max-w-full self-start max-md:h-10",
+                            )}
+                          >
+                            <span class="truncate">Remove my data from {conn.clientName}</span>
+                          </a>
+                        )}
+                      </Show>
+                    </Card>
+                  )}
                 </For>
               </div>
             </Show>

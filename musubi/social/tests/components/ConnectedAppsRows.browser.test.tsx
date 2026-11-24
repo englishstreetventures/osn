@@ -16,10 +16,11 @@ import "../../src/App.css";
  * Revoke button grows to the touch height below `md`, so the row is 74px
  * there and 70px from `md`. A row whose app sent its own screen for removing a
  * person's data draws "Remove my data from <app>" on a line of its own under
- * that, 12px below, at the row's start, 40px tall below `md` and 32px from it:
- * 126px and 114px. `AppRowsLoading` holds the same heights, row by row
- * (`LoadingShapes.browser.test.tsx` and `PlaceholderRows.browser.test.tsx`
- * hold the placeholder against the rows that land).
+ * that, 12px below, at the row's start, at a row action's height, 40px below
+ * `md` and 28px from it: 126px and 110px. `AppRowsLoading` holds the same
+ * heights, row by row (`LoadingShapes.browser.test.tsx` and
+ * `PlaceholderRows.browser.test.tsx` hold the placeholder against the rows
+ * that land).
  *
  * The page draws a link only through `followableLink`: `https:`, or `http:` to
  * this machine. Its refusals stay here whatever else covers the list.
@@ -94,7 +95,7 @@ afterEach(() => {
 describe("Settings → Connected apps rows", () => {
   it.each([
     [390, 74, 126, 40],
-    [1440, 70, 114, 32],
+    [1440, 70, 110, 28],
   ])(
     "at %ipx an app row is %ipx tall, %ipx with its link, the link %ipx tall at the row's start",
     async (width, plain, withLink, linkHeight) => {
@@ -141,9 +142,8 @@ describe("Settings → Connected apps rows", () => {
     expect(link.getAttribute("href")).toBe(CIRE_LINK);
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
-    // Described by the app it is about (`DESIGN.md` §Links).
-    const described = document.getElementById(link.getAttribute("aria-describedby")!);
-    expect(described?.textContent).toBe("Cire");
+    // Its words name the app, so it carries no description to repeat it (`DESIGN.md` §Links).
+    expect(link.hasAttribute("aria-describedby")).toBe(false);
   });
 
   it("draws no link on a row whose app sent none", async () => {
