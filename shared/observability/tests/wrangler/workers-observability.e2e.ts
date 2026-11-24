@@ -22,9 +22,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 const PACKAGE = join(import.meta.dir, "..", "..");
 const ROOT = join(PACKAGE, "..", "..");
@@ -38,6 +38,8 @@ const WRANGLER = join(
 const PII = "ada@example.com";
 const FORGED_TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
 const READY_TIMEOUT_MS = 90_000;
+/** Wrangler's ready line, colour codes removed, naming the port it bound. */
+const READY_LINE = /Ready on http:\/\/127\.0\.0\.1:(\d+)/;
 const ROWS_TIMEOUT_MS = 15_000;
 
 const osnWrangler = Bun.TOML.parse(
@@ -64,18 +66,6 @@ const stops: (() => void)[] = [];
 afterAll(() => {
   for (const stop of stops.toReversed()) stop();
 });
-
-function freePort(): Promise<number> {
-  return new Promise((resolvePort, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
-      server.close(() => resolvePort(port));
-    });
-  });
-}
 
 /** The parent environment minus the variables that put wrangler in agent mode. */
 function childEnv(): Record<string, string> {
@@ -113,9 +103,11 @@ async function startDevServer(): Promise<string> {
     ].join("\n"),
   );
   mkdirSync(join(scratch, "state"));
-  const port = await freePort();
-  const inspectorPort = await freePort();
 
+  // Port 0 for both sockets: workerd binds each on a port the kernel picks at
+  // bind time, and the origin is read from wrangler's ready line. A port picked
+  // here and passed in could be taken before workerd binds it, and wrangler
+  // would exit with `Address already in use`.
   const proc: ChildProcess = spawn(
     "node",
     [
@@ -126,9 +118,9 @@ async function startDevServer(): Promise<string> {
       "--ip",
       "127.0.0.1",
       "--port",
-      String(port),
+      "0",
       "--inspector-port",
-      String(inspectorPort),
+      "0",
       "--persist-to",
       join(scratch, "state"),
     ],
@@ -150,12 +142,13 @@ async function startDevServer(): Promise<string> {
   });
 
   const deadline = Date.now() + READY_TIMEOUT_MS;
-  while (!output.includes("Ready on")) {
+  for (;;) {
+    const ready = READY_LINE.exec(stripVTControlCharacters(output));
+    if (ready !== null) return `http://127.0.0.1:${ready[1]}`;
     if (exited) throw new Error(`wrangler dev exited before it was ready:\n${output}`);
     if (Date.now() > deadline) throw new Error(`wrangler dev not ready:\n${output}`);
     await Bun.sleep(200);
   }
-  return `http://127.0.0.1:${port}`;
 }
 
 async function query<Row>(origin: string, sql: string): Promise<Row[]> {
