@@ -11,7 +11,7 @@ related:
   - "[[cire-landing]]"
   - "[[venues]]"
   - "[[design-tokens]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-25
 ---
 
 # Pulse Landing
@@ -26,7 +26,8 @@ Pure brochure: no Pulse API calls, no account.
 Same stack as [[cire-landing]] and [[osn-landing]]: **static Astro + SolidJS
 islands + Tailwind v4** (`output: "static"`). Signature animation is SVG +
 CSS / `requestAnimationFrame` (Motion One is a declared dep for parity but not
-imported). Builds to plain HTML, deployable to Cloudflare Pages.
+imported). Builds to plain HTML, served as the static assets of a Worker
+(`pulse-landing-dev`, the pulse stack in `pulse/infra`).
 
 Branding follows the Pulse design system — see `pulse/DESIGN.md`:
 
@@ -80,10 +81,9 @@ entrance only) and contain no `console.*`.
 The hero deliberately shows **no account-specific stats** (we don't know the
 visitor yet). Instead `GET /api/geo` reads the visitor's coarse, IP-derived
 location from `request.cf` (city / region / country) and returns it as JSON,
-with `cache-control: private, max-age=300`. One
-handler, `pulse/landing/src/lib/geo.ts`, serves it in two places: the Pages
-Function `pulse/landing/functions/api/geo.ts` on the Pages preview project, and
-the Worker entry `pulse/landing/worker/index.ts` on dev, where pulse landing is a
+with `cache-control: private, max-age=300`. The handler is
+`pulse/landing/src/lib/geo.ts`, and the Worker entry
+`pulse/landing/worker/index.ts` serves it on dev, where pulse landing is a
 static-assets Worker (`pulse-landing-dev`, the pulse stack) that runs the entry
 for `/api/*` and hands every other path to its assets
 ([[infrastructure-as-code#Sites]]).
@@ -94,8 +94,7 @@ for `/api/*` and hands every other path to its assets
 
 Same-origin, so the tight CSP (`connect-src 'self'`) is untouched. Fully
 progressive: no JS / fetch failure / endpoint absent → the generic "near you"
-copy + plain `Find events` CTA remain (the hero is never blank). `wrangler pages
-deploy` bundles the function automatically from the `functions/` directory. **The event count is an illustrative placeholder**
+copy + plain `Find events` CTA remain (the hero is never blank). **The event count is an illustrative placeholder**
 (deterministic per place) until the real Pulse events API is wired; the region
 and city are real.
 
@@ -128,22 +127,23 @@ colour token), and the CTA target:
 | `PUBLIC_APP_URL` | Primary CTA → the Pulse app                                        | `http://localhost:3001` |
 | `SITE`           | Canonical origin for SEO meta (placeholder `https://pulse.events`) | config default          |
 
-`public/_headers` ships the same tight CSP as the other static sites (no external
-image host; Google Fonts allowed; immutable `/_astro/*`). `connect-src 'self'`
+`public/_headers` ships a tight CSP — no external image host, and `font-src 'self'`
+because the faces are self-hosted — and caches `/_astro/*` as immutable. `connect-src 'self'`
 deliberately allows the same-origin `/api/geo` fetch (the only network call).
 
-The site is otherwise pure-static, but the `functions/` directory makes the Pages
-deploy a hybrid (static assets + one Pages Function); `wrangler pages deploy dist`
-bundles it automatically. The dev Worker gets the same split from its entry module,
-and the dev smoke check asks `/api/geo` for a JSON object ([[production-deploy]] §7).
+The site is otherwise pure-static: the Worker's entry module answers `/api/geo`
+and its static assets answer the rest, and the dev smoke check asks `/api/geo`
+for a JSON object ([[production-deploy]] §7).
 
 ## Tests
 
 `PulseHero.test.tsx` renders the hero and asserts the headline + the geo
 _fallback_ CTA (no `/api/geo` in the test env). Run with
-`bun run --cwd pulse/landing test:run`. The `/api/geo` function logic is simple
-and edge-only (`request.cf`), so no unit test covers it; the dev smoke check
-asks it for a JSON object after each dev deploy (above).
+`bun run --cwd pulse/landing test:run`. `tests/worker/geo.test.ts` calls the
+Worker entry with a stubbed `request.cf`: the JSON shape and private cache on
+`GET /api/geo`, every other path handed to the assets, 405 for any method but
+`GET` and `HEAD`, and the count's place (region, then city, then country). The dev smoke check
+asks `/api/geo` for a JSON object after each dev deploy (above).
 
 ## Deferred
 
@@ -159,6 +159,7 @@ asks it for a JSON object after each dev deploy (above).
   the site to production; `deploy.yml` deploys it to dev as `pulse-landing-dev`. The
   `osn-pulse-landing` Pages project still serves an old preview build at
   `osn-pulse-landing.pages.dev`; a new one goes there only by a hand
-  `wrangler pages deploy`.
+  `wrangler pages deploy`. The source holds no Pages Function, so such a build
+  serves no `/api/geo` and its hero shows the generic copy.
 - **Marketing depth** — screenshots/imagery once brand assets exist, deeper
   feature pages, SEO content.

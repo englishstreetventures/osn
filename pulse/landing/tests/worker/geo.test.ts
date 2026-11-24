@@ -104,4 +104,24 @@ describe("pulse landing's Worker", () => {
     expect(head.headers.get("cache-control")).toBe("private, max-age=300");
     expect(assets.served).toEqual([]);
   });
+
+  it("G4: the count's place is the region before the city, then the country, and one place always gets one count", async () => {
+    const assets = stubAssets();
+    const count = async (cf: Record<string, string>) => {
+      const res = await worker.fetch(edgeRequest("/api/geo", undefined, cf), assets.env);
+      return ((await res.json()) as { count: number | null }).count;
+    };
+
+    // A region present: the city is ignored, so the count matches the region-only call.
+    expect(await count({ region: "Texas", city: "Austin" })).toBe(await count({ region: "Texas" }));
+
+    // No region: the city is preferred over the country.
+    expect(await count({ city: "Austin", country: "US" })).toBe(await count({ city: "Austin" }));
+
+    // The city alone, or the country alone, still resolves a count in range.
+    for (const n of [await count({ city: "Austin" }), await count({ country: "US" })]) {
+      expect(n).toBeGreaterThanOrEqual(20);
+      expect(n).toBeLessThanOrEqual(179);
+    }
+  });
 });

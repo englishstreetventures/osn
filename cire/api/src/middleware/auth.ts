@@ -23,8 +23,8 @@ export function sessionAuth(db: Db) {
   return (
     new Elysia()
       // Scoped so the resolve/onBeforeHandle lift into the route instance that
-      // `.use`s this plugin (and no further) — same caveat as the shared
-      // osn-auth-client Elysia adapter.
+      // `.use`s this plugin (and no further) — same caveat as `osnAuth()` in
+      // `./osn-auth.ts`.
       .resolve({ as: "scoped" }, async ({ request }) => {
         const token = parseSessionToken(request.headers.get("cookie"));
         if (!token) {

@@ -280,7 +280,7 @@ The stack uploads each site's build output as it is, so before it writes or decl
 
 So any run that evaluates a stack with sites — `plan`, `deploy` or `destroy`, on `dev` or an investigation stage — needs those sites built with that stage's hosts first.
 
-Pulse landing's `GET /api/geo`, a Pages Function on the Pages preview project, is served on dev by the Worker's own entry ([`pulse/landing/worker/index.ts`](../../pulse/landing/worker/index.ts)), which runs for `/api/*` (`runWorkerFirst`) and hands every path but `/api/geo` to the assets; the Pages Function and the Worker share one handler (`pulse/landing/src/lib/geo.ts`).
+Pulse landing's `GET /api/geo` is served on dev by the Worker's own entry ([`pulse/landing/worker/index.ts`](../../pulse/landing/worker/index.ts)), which runs for `/api/*` (`runWorkerFirst`) and hands every path but `/api/geo` to the assets; its handler is `pulse/landing/src/lib/geo.ts`.
 
 ## The dev deploy
 

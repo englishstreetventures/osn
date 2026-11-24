@@ -25,7 +25,7 @@ related:
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
   - "[[account-deletion]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-25
 ---
 
 # Cire
@@ -46,7 +46,7 @@ Cire is a digital wedding invite: an animated guest-facing site plus an organise
 
 Dev hosts are the portless names, branch-prefixed in a linked worktree — see [[devloop-urls]].
 
-Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compilation builds handlers via `new Function`, which Cloudflare Workers forbids. Organiser auth uses the shared Elysia adapter (`@shared/osn-auth-client/middleware/elysia`), same as the other backends. (Migrated from Hono 2026-06-12.)
+Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compilation builds handlers via `new Function`, which Cloudflare Workers forbids. Organiser auth is cire's own `osnAuth()` resolve (`cire/api/src/middleware/osn-auth.ts`): the organiser session cookie first, then an OSN access token verified by `@shared/osn-auth-client`'s `extractClaims` (see [[cire-auth]]).
 
 ## Auth model (summary)
 
