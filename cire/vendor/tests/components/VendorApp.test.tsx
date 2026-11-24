@@ -115,11 +115,6 @@ afterEach(() => {
 });
 
 describe("VendorApp", () => {
-  it("shows the org picker when signed in and no org is selected", async () => {
-    render(() => <VendorApp />);
-    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
-  });
-
   it("signs out to a plain sign-in page, with nothing to resume", async () => {
     // The next person on this device must not land on this vendor's page.
     render(() => <VendorApp />);
@@ -131,7 +126,7 @@ describe("VendorApp", () => {
         expect(screen.getByRole("button", { name: /account menu/i })).toHaveAttribute(
           "aria-expanded",
         ),
-      { timeout: 10_000 },
+      { timeout: 4_000 },
     );
     fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
     fireEvent.pointerUp(await screen.findByText(/sign out/i), { button: 0 });

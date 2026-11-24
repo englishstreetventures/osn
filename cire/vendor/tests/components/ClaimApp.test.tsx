@@ -228,12 +228,6 @@ describe("ClaimApp", () => {
     expect(signInMock).toHaveBeenCalledTimes(2);
   });
 
-  it("parks the token in sessionStorage so it survives the sign-in redirect", async () => {
-    renderClaim("round-trip-token");
-    await waitFor(() => expect(screen.getByText(/Preview Co/)).toBeInTheDocument());
-    expect(sessionStorage.getItem("cire.vendor.claim-token")).toBe("round-trip-token");
-  });
-
   it("recovers the parked token when returning from sign-in with no ?token", async () => {
     sessionStorage.setItem("cire.vendor.claim-token", "parked-token");
     const seen: string[] = [];

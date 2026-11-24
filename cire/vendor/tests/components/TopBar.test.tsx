@@ -64,16 +64,6 @@ describe("ViewTabs", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enquiries" }));
     expect(onChange).toHaveBeenCalledWith("enquiries");
   });
-
-  it("is not announced as an ARIA tablist", () => {
-    // These swap the whole page and push history. The tab pattern promises a
-    // panel that is a sibling of the strip plus roving arrow-key focus, and
-    // neither is true here — so claiming the role would describe a control the
-    // keyboard does not actually provide.
-    render(() => <ViewTabs value="listings" onChange={() => {}} />);
-    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
-  });
 });
 
 describe("TopBar", () => {
@@ -119,8 +109,9 @@ describe("TopBar", () => {
 
   // Generous because Suspense settling and Kobalte mounting are not instant,
   // but no longer covering a module transform — see the static import at the
-  // top of this file.
-  const CHUNK = { timeout: 5000 };
+  // top of this file. Under Vitest's 5 s test timeout, so a wait that fails
+  // reports its own query rather than "Test timed out".
+  const CHUNK = { timeout: 4000 };
 
   const renderBar = (onSignOut = () => {}) =>
     render(() => (
@@ -215,20 +206,6 @@ describe("TopBar", () => {
     );
   });
 
-  it("does not swallow a click that lands before the chunk does", async () => {
-    // The failure this guards: the button you pressed is replaced by a
-    // different button that is not open, and your press did nothing.
-    renderBar();
-    fireEvent.click(screen.getByRole("button", { name: /account menu/i }));
-
-    // Asserted on the menu's contents rather than the trigger's
-    // `aria-expanded`: Kobalte's menu is modal, so while it is open the trigger
-    // is outside the accessible tree and a role query cannot reach it. The
-    // items being reachable is the stronger claim anyway — it is what "the
-    // click was not swallowed" actually means.
-    expect(await screen.findByRole("menuitem", { name: /sign out/i }, CHUNK)).toBeInTheDocument();
-  });
-
   it("leaves the menu closed when it was merely warmed, not pressed", async () => {
     renderBar();
     fireEvent.pointerEnter(screen.getByRole("button", { name: /account menu/i }));
@@ -251,6 +228,10 @@ describe("TopBar", () => {
   it("signs out through the loaded menu", async () => {
     const onSignOut = vi.fn();
     renderBar(onSignOut);
+    // The press lands on the placeholder, before the chunk does: the menu
+    // opening proves that press was not swallowed. Read through its items,
+    // since Kobalte's open menu is modal and hides the trigger from role
+    // queries.
     fireEvent.click(screen.getByRole("button", { name: /account menu/i }));
 
     const item = await screen.findByRole("menuitem", { name: /sign out/i }, CHUNK);

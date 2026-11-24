@@ -41,13 +41,17 @@ describe("redirectToLogin", () => {
   });
 
   // A run of slashes is read once, not once per slash: the check must not
-  // stall the tab on an address someone crafted.
+  // stall the tab on an address someone crafted. The run follows `/login`,
+  // so it reaches the pattern's trailing `\/*`, where a pattern that read the
+  // run once per slash would take seconds.
   it("reads a long run of slashes at once", () => {
-    const path = `/${"/".repeat(30_000)}x`;
+    const path = `/login${"/".repeat(60_000)}x`;
     window.location.href = `${ORIGIN}${path}`;
     const started = performance.now();
     redirectToLogin();
     expect(performance.now() - started).toBeLessThan(500);
+    // The check ran: a redirect that skipped it would carry nothing.
+    expect(window.location.href).toBe(`${ORIGIN}/login/?returnTo=` + encodeURIComponent(path));
   });
 
   it("carries only a same-origin path, never an absolute URL", () => {
@@ -59,12 +63,6 @@ describe("redirectToLogin", () => {
 });
 
 describe("signOutToLogin", () => {
-  const ORIGIN = "http://localhost:4323";
-  const original = window.location.href;
-  afterEach(() => {
-    window.location.href = original;
-  });
-
   it("goes to the login page with nothing to resume, after the sign-out", async () => {
     // The next person to sign in on this device must not land on this page.
     window.location.href = `${ORIGIN}/#/orgs/org_1/threads/th_2`;
