@@ -184,6 +184,61 @@ export const DialogFadeOnly: Story<{ motion: string; presentation: string } & St
 export const DialogSheetSlide = () => <LeaveDialog presentation="sheet" />;
 
 /**
+ * A `Dialog` sheet dragged down to close, below `md` (#2288). Open the lab with
+ * `?bare` in a phone-sized window, or on a phone: press the title row and pull
+ * the sheet down. It follows the finger, its scrim fading with it; let go past
+ * a quarter of its height, or flick it, and it closes on a spring started at
+ * the finger's speed; let go short, or flick back up, and it springs back. Up
+ * past rest it gives on a rubber band. `body` picks the sheet: `short` (one
+ * line), `tall` (a list taller than the sheet: it scrolls, and drags from the
+ * list only when scrolled to its top), `field` (a press in the field stays the
+ * field's). Untick `dismissible` and the sheet gives a little and comes back,
+ * and Escape and the scrim do nothing, as the step-up does while it waits. At
+ * `md` and up it is the card and nothing drags. Under reduced motion it still
+ * follows the finger, and fades rather than slides once let go.
+ */
+export const DialogSheetDrag: Story<{ body: string; dismissible: boolean } & StoryArgs> = {
+  args: { body: "short", dismissible: true },
+  controls: {
+    body: { kind: "select", options: ["short", "tall", "field"] },
+    dismissible: { kind: "boolean" },
+  },
+  render: (args) => (
+    <Dialog>
+      <DialogTrigger as={Button}>Open a sheet</DialogTrigger>
+      <DialogContent presentation="sheet" dismissible={args.dismissible}>
+        <DialogHeader>
+          <DialogTitle>{args.body === "tall" ? "Switch profile" : "Leave this event?"}</DialogTitle>
+        </DialogHeader>
+        <div class="flex flex-col gap-2 p-4">
+          {args.body === "tall" ? (
+            Array.from({ length: 24 }, (_, i) => (
+              <Button variant="ghost" class="justify-start">
+                Profile {i + 1}
+              </Button>
+            ))
+          ) : args.body === "field" ? (
+            <Field label="Name">{(field) => <Input {...field} />}</Field>
+          ) : (
+            <DialogDescription>
+              Your RSVP is removed and the host is told. You can rejoin while there is room.
+            </DialogDescription>
+          )}
+        </div>
+        <DialogFooter>
+          <DialogClose as={Button} variant="outline">
+            Stay
+          </DialogClose>
+          <DialogClose as={Button} variant="destructive">
+            Leave
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  ),
+};
+
+/**
  * A `Dialog` whose body is taller than the panel's cap, 85% of the window at
  * every width. Scroll it: the title row stays at the top with no line under
  * it, and a 16px fade from the panel's surface comes in under the row over the

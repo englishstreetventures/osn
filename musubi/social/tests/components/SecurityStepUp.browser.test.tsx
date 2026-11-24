@@ -6,7 +6,7 @@ import { Card } from "@shared/ui/ui/card";
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { cdp, page, userEvent } from "vitest/browser";
 
 import "../../src/App.css";
 
@@ -18,8 +18,8 @@ import "../../src/App.css";
  * centred 384px card above. Its authenticator-code step is a row of six
  * `OtpInput` boxes inside the sheet's 16px padding, so at 320px the row is
  * 288px and each box at least 40px (`DESIGN.md` §Responsive layout, Code
- * boxes). Widths, the focus hand-back, Escape and a press outside the sheet
- * take a real browser.
+ * boxes). Widths, the focus hand-back, Escape, a press outside the sheet and
+ * a finger dragging it down take a real browser.
  *
  * The factories are written literally: the shared-factory idiom in
  * `test-support/` does not resolve in the browser project.
@@ -432,6 +432,152 @@ describe("the step-up's hand-over below md", () => {
     expect(runs, "the sheet did not slide out").toContain("ui-sheet-exit");
     expect(goneAtHandOver, "the outcome arrived while the sheet was on screen").toBe(true);
   });
+});
+
+/** How far below its rest the sheet is drawn, px. */
+function offsetOf(sheet: HTMLElement): number {
+  const t = getComputedStyle(sheet).transform;
+  return t && t !== "none" ? new DOMMatrixReadOnly(t).m42 : 0;
+}
+
+/**
+ * A finger on the sheet's title row, through the browser's own input over
+ * the DevTools protocol, each event stamped with its own time and sent no
+ * earlier than it, so its speed is the one written here.
+ */
+async function dragTitle(sheet: HTMLElement, dy: number) {
+  const title = within(sheet).getByRole("heading", { level: 2 }).getBoundingClientRect();
+  const x = title.left + title.width / 2;
+  const y = title.top + title.height / 2;
+  let t = Date.now() / 1000 + 0.02;
+  const send = async (type: "touchStart" | "touchMove" | "touchEnd", at?: number) => {
+    const ahead = t * 1000 - Date.now();
+    if (ahead > 0) await new Promise((r) => setTimeout(r, ahead));
+    await cdp().send("Input.dispatchTouchEvent", {
+      type,
+      timestamp: t,
+      touchPoints: at === undefined ? [] : [{ x, y: at, id: 1, radiusX: 1, radiusY: 1, force: 1 }],
+    });
+  };
+  await send("touchStart", y);
+  for (let i = 1; i <= 10; i++) {
+    t += 0.016;
+    await send("touchMove", y + (dy * i) / 10);
+  }
+  return {
+    /** Lifts after resting 150ms, so with no speed. */
+    lift: async () => {
+      t += 0.15;
+      await send("touchEnd");
+    },
+  };
+}
+
+describe("a drag down the step-up sheet at 390px", () => {
+  afterEach(async () => {
+    await cdp()
+      .send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] })
+      .catch(() => {});
+  });
+
+  // The refusal: while a call the sheet started runs, nothing closes it —
+  // Cancel is disabled, Escape and a press outside do nothing, and a drag
+  // gives on the rubber band and comes back.
+  it("gives and comes back while the passkey call runs, and the sheet stays", async () => {
+    await page.viewport(390, 844);
+    const { sheet } = await openSheet();
+    await settle();
+    await userEvent.click(within(sheet).getByRole("button", { name: "Use passkey" }));
+    await waitFor(() => within(sheet).getByRole("button", { name: "Waiting for your passkey…" }));
+    const finger = await dragTitle(sheet, 150);
+    const pulled = offsetOf(sheet);
+    expect(pulled, "the sheet did not give").toBeGreaterThan(10);
+    expect(pulled, "the sheet followed the finger as if it could close").toBeLessThan(90);
+    await finger.lift();
+    await waitFor(() => expect(offsetOf(sheet)).toBe(0), { timeout: 2000 });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(screen.getByRole("dialog", { name: "Confirm it's you" })).toBe(sheet);
+    expect(sheet.hasAttribute("data-closed")).toBe(false);
+  });
+
+  it("cancels only once the sheet has left on the release's spring", async () => {
+    await page.viewport(390, 844);
+    let goneAtHandOver: boolean | undefined;
+    const onCancel = vi.fn(() => {
+      goneAtHandOver = screen.queryByRole("dialog") === null;
+    });
+    render(() => (
+      <StepUpDialog
+        client={{} as StepUpClient}
+        onToken={() => {}}
+        onCancel={onCancel}
+        purpose="passkey_delete"
+      />
+    ));
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Confirm it's you" }));
+    await settle();
+    const finger = await dragTitle(sheet, sheet.offsetHeight * 0.5);
+    await finger.lift();
+    // The release's spring, not the class's 200ms exit, is what the sheet
+    // leaves on, and the outcome waits for it.
+    expect(Number.parseFloat(sheet.style.animationDuration)).toBeGreaterThan(200);
+    await waitFor(() => expect(onCancel).toHaveBeenCalledOnce(), { timeout: 2000 });
+    expect(goneAtHandOver, "the outcome arrived while the sheet was on screen").toBe(true);
+  });
+
+  // However long a stylesheet makes the sheet's exit run, the outcome goes
+  // within the longest a drag's spring runs, 2s, and 100ms more.
+  it("hands over within 2.1s however long the exit runs", async () => {
+    await page.viewport(390, 844);
+    const slow = document.createElement("style");
+    slow.textContent = '[role="dialog"] { animation-duration: 60s !important; }';
+    document.head.append(slow);
+    try {
+      let handedOver = 0;
+      const onCancel = vi.fn(() => {
+        handedOver = performance.now();
+      });
+      render(() => (
+        <StepUpDialog
+          client={{} as StepUpClient}
+          onToken={() => {}}
+          onCancel={onCancel}
+          purpose="passkey_delete"
+        />
+      ));
+      const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Confirm it's you" }));
+      // The moment the sheet closes, read off its own attribute rather than
+      // after the click's round trip.
+      let closed = 0;
+      const seen = new MutationObserver(() => {
+        if (!closed && sheet.hasAttribute("data-closed")) closed = performance.now();
+      });
+      seen.observe(sheet, { attributes: true, attributeFilter: ["data-closed"] });
+      await userEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(onCancel).toHaveBeenCalledOnce(), { timeout: 3000 });
+      seen.disconnect();
+      // The 2s cap and the 100ms margin, and no more than a few frames' slack:
+      // never as soon as the 300ms floor, never as late as the 60s run.
+      expect(handedOver - closed).toBeGreaterThanOrEqual(2000);
+      expect(handedOver - closed).toBeLessThan(2300);
+    } finally {
+      slow.remove();
+    }
+  });
+
+  it.each(["light", "dark"])(
+    "draws the sheet half way down, its scrim half gone (%s)",
+    async (theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.viewport(390, 844);
+      const { sheet } = await openSheet();
+      await settle();
+      const finger = await dragTitle(sheet, sheet.offsetHeight * 0.4);
+      expect(offsetOf(sheet)).toBeCloseTo(sheet.offsetHeight * 0.4, 0);
+      await page.screenshot({ path: `${SHOTS}/step-up-drag-390-${theme}.png` });
+      await finger.lift();
+    },
+  );
 });
 
 describe("a step-up sheet whose title names a passkey", () => {

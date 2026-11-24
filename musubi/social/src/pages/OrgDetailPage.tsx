@@ -433,15 +433,15 @@ export function OrgDetailPage() {
       </div>
 
       {/* Delete's confirmation: a confirmation dialog in the form dialog's
-          shape, its commit red. Closed only by Cancel, the scrim or Escape
-          while nothing runs. */}
+          shape, its commit red. Closed only by Cancel, the scrim, Escape or
+          a drag down the sheet while nothing runs. */}
       <Dialog
         open={confirmDelete()}
         onOpenChange={(open) => {
           if (!open && !deleting()) setConfirmDelete(false);
         }}
       >
-        <ResponsiveDialogContent>
+        <ResponsiveDialogContent dismissible={!deleting()}>
           <AuthHeader host="dialog" title="Delete this organisation?" />
           <div class="p-4">
             <DialogDescription>This cannot be undone.</DialogDescription>

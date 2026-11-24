@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-23
 ---
 
 # Component Library (Zaidan)
@@ -1274,6 +1274,51 @@ reduced-motion fade on `opacity`. How it is built, and why the
 slide is not on `translate`, is in [[design-tokens#Motion]];
 `shared/ui/tests/overlay-motion.browser.test.tsx` ("a sheet's slide") holds
 it, and the lab's `DialogSheetSlide` story shows it ([[component-lab]]).
+
+**A sheet drags down to close.** Below `md` a finger or a pointer pressed on
+a sheet's `DialogHeader` moves the panel with it, one to one from the first
+pixel, and the scrim fades by the share of the panel's height it has moved.
+Pressed in the body, it moves the panel only when its first move is down and
+the body, with every box between the press and the panel, is scrolled to its
+top, after a slop of 8px for a finger or 4px for a mouse, from where the
+panel is then; a scrolled list scrolls, and a press in a text field, a
+`select` or `contenteditable` is the field's. `DialogHeader` is the handle:
+inside a sheet below `md` it takes no touch scroll or text selection and
+shows the grab cursor, and no grabber bar is drawn. Up past rest the panel
+gives on iOS's rubber band. Let go past a quarter of its height, unless the
+finger's last move was a flick back up, or after a flick down of 0.4px/ms
+over at least 24px of travel, it closes through Kobalte's `close()`, the path
+Cancel takes, so the host's `onOpenChange(false)` decides; otherwise, or when
+the host keeps it open, it goes back. Both ride a spring started at the
+panel's speed ([[design-tokens#Motion]]), a close ending once 3px are left;
+Cancel, Escape and the scrim keep the 200ms exit. A press on a sheet springing back, or rising as it opens,
+stops it under the finger once the finger moves; a tap goes through, and the
+one click a drag past its slop would make is swallowed. A sheet already
+closing is not caught. Under reduced motion the drag still follows the
+finger, a close fades where the sheet was let go, and a return fades out,
+moves to rest unseen and fades back in. From `md` the card never drags. The
+owner chose it on #2288 (2026-11-23: "Soft spring, 300-360ms", "Follows
+finger, fades on release", "Title row, plus body at its top; no grabber",
+"Yes, those numbers"). Kobalte's Dialog has no drag of its own, and a sheet
+library would be a new dependency, so the drag is `DialogContent`'s
+(`sheetDrag` in `dialog.tsx`, its numbers in `sheet-drag.ts`).
+
+`DialogContent` takes `dismissible`: `false` while the host refuses to close,
+as `StepUpDialog` does while a call it started runs, and as Musubi's profile
+switcher and delete-organisation confirmation do while theirs run. The drag
+then gives on the rubber band both ways and comes back, and Escape and a
+press outside do nothing; a close button inside the dialog is the host's to
+disable, as it disables Cancel. A host that refuses only in `onOpenChange` is
+safe too — the drag reads `isOpen()` after `close()` and, still open, springs
+back — but does not resist. A host closes or refuses in `onOpenChange` at
+once: one that closes later is read as a refusal, and its sheet springs back
+before it leaves. The drag owns only the panel's and the scrim's inline
+`transform`, `transition`, `animation-duration`, `opacity` and `box-shadow`
+(a copy of the panel in its own colour under it while it is above rest), and
+never clears a whole `style`, since Kobalte writes `pointer-events` there and
+`DialogHeader` its height. `shared/ui/tests/dialog-drag.browser.test.tsx`
+holds it, with real touches over the DevTools protocol at 390px, and the
+lab's `DialogSheetDrag` story shows it.
 
 **A long dialog keeps its title in view.** The panel, sheet or card, is at
 most 85% of the window tall at every width and scrolls past that as one box,

@@ -10,6 +10,7 @@
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "exports": {
+    "./lib/spring": "./src/lib/spring.ts",
     "./lib/utils": "./src/lib/utils.ts",
     "./ui/avatar": "./src/ui/avatar.tsx",
     "./ui/badge": "./src/ui/badge.tsx",

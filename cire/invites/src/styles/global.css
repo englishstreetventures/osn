@@ -709,7 +709,7 @@
    (`components/EventSheet`). Its curve is a critically damped spring started
    at the finger's speed, which no token can hold, since it differs with every
    release: the sheet samples it into a `linear()` easing at release
-   (`settleCurve`, `sheet-swipe.ts`; a slope-matched `cubic-bezier()` where the
+   (`settleCurve`, `@shared/ui/lib/spring`; a slope-matched `cubic-bezier()` where the
    engine has no `linear()`) and writes it, with its time stretched by
    `--motion-scale`, on the rail and the badge while `data-settling` is on them
    (the owner's choice, `cire/invites/DESIGN.md` §5). The reduced-motion clamp

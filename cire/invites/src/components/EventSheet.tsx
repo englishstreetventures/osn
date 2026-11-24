@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { bandSlope, readsLinearEasing, settleCurve } from "@shared/ui/lib/spring";
 import {
   batch,
   createEffect,
@@ -17,12 +18,10 @@ import { moveFocus, pressedByPointer } from "./quiet-focus";
 import { RsvpPanel, type RsvpPanelProps } from "./RsvpPanel";
 import {
   bandOffset,
-  bandSlope,
   beginsBand,
   beginsDrag,
   clampOffset,
   pastSlop,
-  settleCurve,
   shouldCommit,
   startsInside,
   velocityOf,
@@ -145,15 +144,6 @@ interface Settle {
   /** Set when a catch takes it over: its landing must not run. */
   dropped: boolean;
   paint: Paint;
-}
-
-/** Whether this engine reads a `linear()` easing; Chrome before 113 and Safari before 17.2 do not. */
-function readsLinearEasing(): boolean {
-  return (
-    typeof CSS !== "undefined" &&
-    typeof CSS.supports === "function" &&
-    CSS.supports("transition-timing-function", "linear(0, 1)")
-  );
 }
 
 /**

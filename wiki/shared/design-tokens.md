@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-23
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -318,6 +318,31 @@ reduced-motion fade ([[browser-tests]]); `musubi-surfaces.ts` holds Musubi's
 profile switcher sliding on a real page, and pulse's
 `share-sheet-motion.browser.test.tsx` holds its share sheet's first frame,
 sliding and fading.
+
+**A `Dialog` sheet dragged and let go settles on a spring, not a token.**
+Below `md` a sheet follows a finger dragged down its title row
+([[component-library#Kobalte components (Dialog, Popover, Tooltip, Tabs)]] has the gesture), and once let go it closes
+or goes back on a critically damped spring with a 0.3s response, started at
+the speed the sheet had: the owner's "Soft spring, 300-360ms" on #2288
+(2026-11-23). Its length and curve differ with every release, so no token
+holds them. At release `settleCurve` (`@shared/ui/lib/spring`, the one cire's
+guest-site event sheet settles its swipe on) samples the spring into a
+`linear()` easing, or a `cubic-bezier()` with the same first slope where the
+engine has none, and the drag writes that easing and its length inline as the
+panel's and the scrim's `transition-duration` and `transition-timing-function`.
+A close ends once 3px of travel is left (`endWithinPx`, the owner's answer
+on #2288), since nobody watches a sheet's last pixels leave the screen; a
+return runs on to rest. A close writes the same length as their
+`animation-duration` too, so
+`ui-sheet-exit` runs as long as the slide and Kobalte keeps both mounted until
+the panel has left. Only the release takes the spring: a sheet closed by
+Cancel, Escape or the scrim still leaves over `--ui-dur-base` on
+`--ui-ease-sheet`. Under reduced motion (the sheet's transitions are
+`opacity` alone) a close fades where the sheet was let go on the sheet's own
+exit, and a return fades out and back in over half of `--ui-dur-base` each,
+on `--ui-ease-sheet`. The drag writes `transform` on the panel itself, never a
+custom property a subtree inherits, and uses no `will-change`, which in
+Chromium shifts a panel scrolled to its top by a pixel as the drag begins.
 
 **A dialog's scroll edge follows the scroll.** Under a `DialogHeader` stuck
 to the top of a scrolling panel, a 16px band of `--ui-surface` fading to
