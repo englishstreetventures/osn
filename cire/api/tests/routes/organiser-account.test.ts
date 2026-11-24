@@ -540,6 +540,10 @@ describe("a host's removal of their Cire data: the holder of a payout account", 
     // The shared wedding's tabs re-read its members, and the holder, who
     // keeps a seat there, keeps listening.
     expect(h.signalled.find((sig) => sig.topic === "cire:wedding:w_shared")?.revoked).toEqual([]);
+    // Only the weddings this call took a seat from are signalled.
+    expect(h.signalled.map((sig) => sig.topic).toSorted()).toEqual(
+      ["w_alone", "w_shared", "w_sibling"].map((id) => `cire:wedding:${id}`),
+    );
     // The account's clean-up never ran: the person is still signed in.
     expect(sessionsOf(h.db, P)).toBe(1);
     expect(sessionsOf(h.db, O)).toBe(1);
