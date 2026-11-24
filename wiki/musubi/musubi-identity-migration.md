@@ -13,7 +13,7 @@ related:
   - "[[social]]"
   - "[[recovery-codes]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-24
 ---
 
 # Migrating OSN identity to musubi.social
@@ -198,7 +198,7 @@ ladder did not move.
 | ″ | `OSN_ORIGIN` | four cire origins → **`https://musubi.social`** alone. The cire entries were removed, not kept: a ceremony from a different registrable domain is illegal whatever the list says, and leaving them would hide that. |
 | ″ | `OSN_CORS_ORIGIN` | **kept the cire origins**, added `https://musubi.social`. Different list, different job — CORS governs bearer-token calls, which still work cross-site. |
 | ″ | `OSN_AUTHORIZE_UI_URL` | → **`https://musubi.social/authorize`**. Stays explicit: unset it resolves against the *first* `OSN_ORIGIN` entry, which is right today by accident and breaks silently if that list is ever reordered. |
-| ″ | `OSN_EMAIL_FROM` | **unchanged — `hello@cireweddings.com`.** See the Resend note below; moving it would fail closed and take OTP with it. |
+| ″ | `OSN_EMAIL_FROM` | **`hello@cireweddings.com` → `Musubi <hello@musubi.social>`**, once Resend verified `musubi.social`. See the Resend note below. |
 | ″ `[[env.production.routes]]` | `pattern` | `id.cireweddings.com` → **`id.musubi.social`**, `custom_domain = true` |
 | `cire/api/wrangler.toml` | `OSN_JWKS_URL`, `OSN_ISSUER_URL` | both, in `[env.production]` **and** the then-current `[env.preview]` — the preview tier shared prod identity by design. That env went away with the tier on 2026-07-27 |
 | `zap/api/wrangler.toml` | `OSN_JWKS_URL`, `OSN_API_URL` | both |
@@ -251,12 +251,12 @@ Out-of-band, not in the repo:
   with no sitekey and its `SignIn`/`Register` with no `turnstileSiteKey` prop —
   so every sign-in on the new apex returned `400 turnstile_failed` until
   `VITE_TURNSTILE_SITEKEY` was wired through. See `[[turnstile]]`.
-- **Resend — deliberately not blocking.** The account has only
-  `cireweddings.com` verified, so `OSN_EMAIL_FROM` **stayed** on
-  `hello@cireweddings.com`. Moving it before verifying a musubi.social sender
-  would fail closed and take OTP step-up with it — and OTP is exactly the step
-  that turns a recovery-code login back into a passkey. Verify the sender
-  first, then move the var, in that order.
+- **Resend — sender on `musubi.social`.** The migration left `OSN_EMAIL_FROM`
+  on `hello@cireweddings.com`, because only `cireweddings.com` was verified.
+  `musubi.social` is now verified, and production sends as
+  `Musubi <hello@musubi.social>`. Keep the sender on a verified domain: an
+  unverified one fails closed and takes OTP step-up with it, and OTP is the step
+  that turns a recovery-code login back into a passkey.
 
 ## Cutover order
 

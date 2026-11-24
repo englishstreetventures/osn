@@ -295,11 +295,10 @@ OSN_CORS_ORIGIN = "https://musubi.social"
 # host, so a host-only marker would be invisible to them and every anonymous
 # page load would keep firing a pointless POST /token.
 OSN_COOKIE_DOMAIN = "musubi.social"
-# Sender stays on cireweddings.com: Resend has no verified musubi.social domain, and
-# a sender it cannot authenticate fails closed — which would take OTP with it,
-# and OTP step-up is exactly the route back in after a recovery-code login. Move
-# this only after verifying musubi.social in Resend.
-OSN_EMAIL_FROM = "hello@cireweddings.com"
+# Sender is on musubi.social, a domain Resend has verified. A sender Resend cannot
+# authenticate fails closed, which would take OTP with it, and OTP step-up is the
+# route back in after a recovery-code login: keep this on a verified domain.
+OSN_EMAIL_FROM = "Musubi <hello@musubi.social>"
 # Where a parked OIDC request sends the browser. `@musubi/social` serves the consent
 # screen from the musubi.social apex — same registrable domain as this Worker, so
 # the session cookie and the per-request binding cookie both flow on its
@@ -344,7 +343,8 @@ CIRE_ORGANISER_ORIGIN = "https://host.cireweddings.com"
 # erases (src/index.ts `scheduled`). Unset, as on dev (Workers Free), it is 4.
 OSN_DELETION_FANOUT_MAX_JOBS = "50"
 # Email is sent via Resend (RESEND_API_KEY secret, §1.1) — confirmed delivering
-# from hello@cireweddings.com on 2026-06-18. Email is REQUIRED in prod: if
+# from cireweddings.com on 2026-06-18, and from musubi.social since the sender
+# moved there. Email is REQUIRED in prod: if
 # RESEND_API_KEY is ever absent osn-api fails closed at startup rather than
 # silently dropping OTP/security mail. (The former OSN_EMAIL_OPTIONAL degraded
 # opt-in was removed once Resend delivery was verified.)

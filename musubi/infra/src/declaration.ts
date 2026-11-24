@@ -288,7 +288,7 @@ export function musubiProductionApis(input: {
         OSN_ISSUER_URL: origin(hosts.osnApi),
         OSN_CORS_ORIGIN: app,
         OSN_COOKIE_DOMAIN: hosts.musubiSocial,
-        OSN_EMAIL_FROM: "hello@cireweddings.com", // not a host: the sender
+        OSN_EMAIL_FROM: "Musubi <hello@musubi.social>", // not a host: the sender
         OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
         OSN_EMAIL_VERIFICATION_API: "true",
         OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS: "100",

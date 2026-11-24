@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-24
 ---
 
 # Email Transport
@@ -59,7 +59,7 @@ Email Service transport. The Cloudflare transport
 (`https://api.cloudflare.com/client/v4/accounts/{id}/email-service/send`)
 stays as a legacy fallback. Both render the **same** templates
 in-process and DKIM-sign via the verified sender domain
-(`cireweddings.com` in prod) — no intermediate Worker, no ARC tokens.
+(`musubi.social` for osn-api) — no intermediate Worker, no ARC tokens.
 
 ## Packages
 
@@ -164,7 +164,7 @@ POST https://api.resend.com/emails
 Authorization: Bearer <RESEND_API_KEY>
 Content-Type: application/json
 {
-  "from":    "hello@cireweddings.com",
+  "from":    "Musubi <hello@musubi.social>",
   "to":      ["user@example.com"],
   "subject": "Confirm your Musubi email",
   "html":    "...",
@@ -294,7 +294,8 @@ future degraded deploy. See [[production-deploy]] §1.1 for the Resend
 setup steps.
 
 > **Email is live via Resend** — confirmed delivering from
-> `hello@cireweddings.com` on 2026-06-18. `RESEND_API_KEY` on the
+> `hello@cireweddings.com` on 2026-06-18; osn-api now sends as
+> `Musubi <hello@musubi.social>`. `RESEND_API_KEY` on the
 > deployed osn-api Worker (`id.musubi.social` since the 2026-07-27 identity
 > move — [[musubi-identity-migration]]) carries the full
 > transactional surface: OTP step-up codes, email-change OTPs, and
@@ -317,7 +318,7 @@ Environment variables for `@osn/api`:
 | `RESEND_API_KEY` | non-local (preferred) | Resend API key (bearer). Selects `ResendEmailLive`; wins over the Cloudflare vars. `wrangler secret put RESEND_API_KEY`. |
 | `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
-| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; dev: `Musubi <hello@musubi.social>`; prod: `hello@cireweddings.com`) |
+| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; dev: `Musubi <hello@musubi.social>`; prod: `Musubi <hello@musubi.social>`) |
 | `RESEND_API_URL` | local only | Origin of a local Resend emulator, e.g. `http://localhost:4008`. Unset ⇒ `https://api.resend.com`. Loopback origins only (a `*.localhost` name needs https). **Never set in a deployed tier**: osn-api refuses to boot with it, the production deploy refuses to run while it exists as a secret, and a test fails if `wrangler.toml` sets it. |
 
 cire-api reads `RESEND_API_KEY` and `RESEND_API_URL` under the same names and
@@ -326,30 +327,28 @@ a refused override leaves no Resend transport and logs `email disabled: Resend
 misconfigured` with the reason, and the Worker keeps serving. Its production
 deploy refuses to run while `RESEND_API_URL` exists as a secret.
 
-> **Dev sends from `musubi.social`; production still sends from `cireweddings.com`.**
-> Resend refuses to send from a domain it cannot authenticate, so dev's
-> `Musubi <hello@musubi.social>` works only once `musubi.social` is verified in
-> Resend; until then every dev OTP and security email fails. A failed send takes
-> **OTP step-up** with it, which is the way back into an account after a
-> recovery-code login. Production moves to the same sender only after dev mail
-> from `musubi.social` is seen to arrive. The steps are on
-> englishstreetventures/osn#1548. See [[musubi-identity-migration]].
+> **Dev and production both send from `musubi.social`.**
+> Resend refuses to send from a domain it cannot authenticate, so
+> `Musubi <hello@musubi.social>` works only while `musubi.social` stays verified in
+> Resend. A failed send takes **OTP step-up** with it, which is the way back into
+> an account after a recovery-code login. See [[musubi-identity-migration]].
 >
-> Dev shares the address production will move to, by the owner's choice on
-> that issue. Neither the address nor the display name marks a message as dev,
+> Dev shares production's address, by the owner's choice on
+> englishstreetventures/osn#1548. Neither the address nor the display name marks a message as dev,
 > and spam complaints about dev mail count against that address. A separate
 > `Musubi (dev) <dev@musubi.social>` would keep both apart, with no extra Resend
 > setup, since Resend verifies a whole domain.
 
 Before you deploy (Resend — the live path):
 
-1. Resend dashboard → **Domains → Add Domain** → `cireweddings.com`. Add
+1. Resend dashboard → **Domains → Add Domain** → the sender's domain
+   (`musubi.social` for osn-api). Add
    the SPF/DKIM/return-path DNS records Resend displays into the Cloudflare
    DNS zone (the zone is in-account, so this is quick). Wait for
    verification.
 2. Create a Resend API key (Sending access).
 3. `wrangler secret put RESEND_API_KEY --env production` on osn-api, and set
-   `OSN_EMAIL_FROM=hello@cireweddings.com`.
+   `OSN_EMAIL_FROM=Musubi <hello@musubi.social>`.
 4. Once you have confirmed delivery, remove `OSN_EMAIL_OPTIONAL` so email is
    required/fail-closed again. Done for production in #160. See
    [[production-deploy]] §1.1.
@@ -418,11 +417,10 @@ through Resend itself whenever the key is set.
   a wrong answer from receiving the key. The deny-list in `@shared/observability`
   carries `apiKey` and `apiToken`, so a logged transport config shows neither.
   `cireweddings.com` carries Resend's SPF and DKIM records and a DMARC policy.
-  `musubi.social` carries Resend's DKIM record (`resend._domainkey`) and a
-  `send` record, and no `_dmarc` record; whether Resend counts it verified is
-  for the Resend dashboard to say (englishstreetventures/osn#1548).
+  `musubi.social` carries Resend's DKIM record (`resend._domainkey`), a `send`
+  return path, and a report-only DMARC record (`p=none`).
 
-  *Checked 2026-10-26 — `dig +short TXT resend._domainkey.musubi.social`, `dig +short CNAME send.musubi.social`, `dig +short TXT _dmarc.musubi.social` against `lou.ns.cloudflare.com`*
+  *Checked 2026-11-24 — `dig +short TXT resend._domainkey.musubi.social`, `dig +short MX send.musubi.social`, `dig +short TXT _dmarc.musubi.social`*
 - **Cloudflare token (legacy)**: Cloudflare's own API token (scoped to
   Email Send only). SPF/DKIM/DMARC auto-configured by Cloudflare.
 - **OTP bodies**: the rendered `text` / `html` contains the OTP digit
@@ -485,7 +483,7 @@ exactly as before this transport landed):
 1. **Local / tests**: no key → `LogEmailLive`. Zero behavioural change.
    `bun run test` stays offline (selection ignores a key when local, unless
    `RESEND_API_URL` names a local emulator — [[#Local emulation]]).
-2. **Staging / production**: verify the `cireweddings.com` sender domain in
+2. **Staging / production**: verify the sender domain (`musubi.social` for osn-api) in
    Resend (SPF/DKIM/return-path records into the Cloudflare DNS zone), create
    a Resend API key, `wrangler secret put RESEND_API_KEY`. Send real mail to a
    synthetic inbox. Watch `osn.email.send.attempts{outcome="sent"}` by

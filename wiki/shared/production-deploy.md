@@ -17,7 +17,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
   - "[[arc-token-debugging]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-24
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -91,7 +91,7 @@ marked **TBD** blocks the deploy.
 | `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. A change ships with the next release that ships osn-api, through the musubi stack job (§5.1). |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.musubi.social`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`; moved off `id.cireweddings.com` 2026-07-27) |
 | `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://musubi.social`** alone (`osn/api/wrangler.toml`, `[env.production.vars]`). No cire origin is on it: no cire page calls osn-api from the browser (the code exchange is server-side on cire-api, and the `/authorize` hop is a top-level navigation, not a CORS request), and the list also feeds the CSRF origin guard, so a cire entry would give any XSS on a cireweddings.com site credentialed access. Add an origin only when it fetches osn-api from a browser. |
-| `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Not moved to musubi.social yet**: dev sends from `Musubi <hello@musubi.social>` first, and production moves only once dev mail from it is seen to arrive (englishstreetventures/osn#1548). Resend fails closed on a domain it has not verified — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
+| `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `Musubi <hello@musubi.social>`** (Resend sender domain `musubi.social` verified — §1.1). Resend fails closed on a domain it has not verified, which would take OTP step-up down, the path back in after a recovery-code login. See [[email]]. |
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
 | **The production account's plan: Workers Paid** | osn-api's coordination store (and every Worker, Durable Object and D1 database on the account) | **The owner switches it in the Cloudflare dashboard before the first release that ships the coordination store** — the deploy token has no billing scope. §1.4 |
@@ -129,8 +129,8 @@ misconfigured`. The one exception is the degraded-email opt-in `OSN_EMAIL_OPTION
 the box below).
 
 > **Production is on the live path and the degraded opt-in is gone.** ✅
-> `RESEND_API_KEY` is set on the production Worker and mail has delivered from
-> `hello@cireweddings.com` since 2026-06-18, so `OSN_EMAIL_OPTIONAL` was removed from
+> `RESEND_API_KEY` is set on the production Worker and mail has delivered since
+> 2026-06-18 (from `cireweddings.com`, then from `musubi.social`), so `OSN_EMAIL_OPTIONAL` was removed from
 > `osn/api/wrangler.toml` in #160 — production fails closed again. The steps below are
 > the reference for a new environment, and the box that follows describes the escape
 > valve you would use if a fresh env has to boot before its key lands.
@@ -154,12 +154,12 @@ production.
 
 Setup steps (live path — Resend). Production has finished all seven:
 
-1. `OSN_EMAIL_FROM` is `hello@cireweddings.com` (set in `osn/api/wrangler.toml`
-   `[env.production.vars]`). The sender domain is `cireweddings.com`.
-2. **Verify the `cireweddings.com` sender domain in Resend** (Resend dashboard → Domains →
+1. `OSN_EMAIL_FROM` is `Musubi <hello@musubi.social>` (set in `osn/api/wrangler.toml`
+   `[env.production.vars]`). The sender domain is `musubi.social`.
+2. **Verify the sender domain in Resend** (Resend dashboard → Domains →
    Add Domain). Done for production.
 3. Add the **SPF / DKIM / return-path** DNS records Resend provides into the Cloudflare
-   DNS zone for `cireweddings.com`. The zone is already in-account, so this is quick.
+   DNS zone for the sender domain. The zone is already in-account, so this is quick.
 4. Wait for verification to go green.
 5. Create a Resend API key (Sending access). Set it on osn-api:
    `bunx wrangler secret put RESEND_API_KEY --env production` (repeat per env as needed).
@@ -393,7 +393,7 @@ bunx wrangler secret put OSN_PAIRWISE_SALT          --env <staging|production>
 # which checks the decoded length is exactly 32 bytes and refuses a blind overwrite:
 bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY    --env <staging|production>
 # Email — REQUIRED non-local UNLESS OSN_EMAIL_OPTIONAL is set (§1.1). RESEND_API_KEY
-# is the live transport and is already set on production: verify cireweddings.com in
+# is the live transport and is already set on production: verify the sender domain in
 # Resend, set the key, confirm a send arrives, THEN remove any OSN_EMAIL_OPTIONAL:
 bunx wrangler secret put RESEND_API_KEY             --env <staging|production>
 # Cloudflare email creds — OPTIONAL / LEGACY fallback (needs a paid Workers plan;
@@ -425,7 +425,7 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `CLOUDFLARE_ACCOUNT_ID` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback transport (paid Workers plan). Used only if `RESEND_API_KEY` is absent. §1.1 |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback bearer token. Same role as `CLOUDFLARE_ACCOUNT_ID`. §1.1 |
 | `OSN_EMAIL_OPTIONAL` | `[env.<env>.vars]` | No (default off) | **Explicit degraded-email opt-in.** Truthy (`true`/`1`/`yes`/`on`) → boot with a **no-op email transport** (transactional mail DISCARDED, loud startup warning) when **no real provider** (`RESEND_API_KEY` / `CLOUDFLARE_*`) is set in a non-local env, instead of failing closed. **Set in no env today** — removed from prod `[vars]` in #160 once Resend delivery was confirmed, so production fails closed again. A real provider wins — the opt-in is ignored when `RESEND_API_KEY` (or the Cloudflare creds) is present. §1.1 |
-| `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`hello@cireweddings.com`** (set in `wrangler.toml`). Resend-verified domain from §1.1. |
+| `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`Musubi <hello@musubi.social>`** (set in `wrangler.toml`). Resend-verified domain from §1.1. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
 | `OSN_EMAIL_VERIFICATION_API` | `[env.production.vars]` and `musubiProductionApis` (`musubi/infra/src/declaration.ts`), which PA1 holds equal | No (default off) | Truthy (`true`/`1`/`yes`/`on`) lets sign-up accept a browser Email Verification API token, which proves the address with no emailed link. **`true` on production**, and on dev, set in `musubiDeclaration` ([[email-verification-api#Our code]]). Read once, in `build-deps.ts`. |
 | `OSN_EMAIL_VERIFICATION_EMULATOR_URL` | **Never set** | **Must be absent** | Local E2E only: points the token verifier at a stand-in issuer. osn-api refuses to boot with it unless `OSN_ENV` is exactly `local`, and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |

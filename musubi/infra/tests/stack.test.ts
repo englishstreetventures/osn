@@ -449,6 +449,12 @@ describe("the musubi stack on production", () => {
     );
   });
 
+  test("KP7: osn-api sends account email as Musubi from musubi.social, never from a cire address", () => {
+    expect(resourcesOf(production).OsnApi?.Props.env?.OSN_EMAIL_FROM).toBe(
+      "Musubi <hello@musubi.social>",
+    );
+  });
+
   test("KP3: reads no osn-api secret, cire seed value or DEV_DOMAIN, uploads no secret, and writes only osn-db-prod's migrations", async () => {
     expect(Object.keys(productionEnv()).toSorted()).toEqual([
       "CLOUDFLARE_ACCOUNT_ID",
