@@ -680,9 +680,13 @@ jobs:
       # bounded, so a stall is a red X in ten minutes; and the download half is
       # cached on the lockfile.
       #
-      # Restore only: the E2E job installs the same revision and saves this key.
-      # Only chromium is installed — the tier pins a single instance.
+      # The E2E job installs the same revision under the same key, and saves it
+      # into its own pull request's scope when no saved copy matches. On a push
+      # to main, where no E2E job runs, the first leg saves main's copy after
+      # its install (below), the copy every pull request and queue group
+      # restores. Only chromium is installed — the tier pins a single instance.
       - name: Restore Chromium
+        id: chromium
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ms-playwright
@@ -708,8 +712,9 @@ jobs:
       # index, so a set from another build changes only how much apt
       # downloads. The key and the prefix are each one line of
       # [A-Za-z0-9._-], whatever the command prints, the prefix the key's
-      # start, and no version line fails the step. Restore only, as above: the
-      # jobs that use .github/actions/e2e-setup save this key.
+      # start, and no version line fails the step. Saved as the browser is:
+      # by the jobs that use .github/actions/e2e-setup, and on a push to main
+      # by the first leg.
       - name: Key Chromium's system packages
         id: chromium-apt-key
         working-directory: cire/host
@@ -722,6 +727,7 @@ jobs:
           echo "prefix=$(printf '%s' "$prefix" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
 
       - name: Restore Chromium's system packages
+        id: chromium-apt
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/chromium-apt
@@ -747,10 +753,37 @@ jobs:
         working-directory: cire/host
         run: bash "$GITHUB_WORKSPACE/scripts/install-chromium-system-libraries.sh" "$HOME/.cache/chromium-apt"
 
+      # On a push to main no E2E job runs, so one leg saves main's copy of each
+      # Chromium cache, which every pull request and queue group restores;
+      # without it each pull request's E2E job would save a browser of its own.
+      # Only the first leg saves, so three legs do not race for one key: when
+      # it fails before its install, that push saves nothing and the next one
+      # does, and it saves its own image build's system packages, the prefix
+      # fallback above serving the other builds. Each save follows its install,
+      # so a leg whose tests fail still saves, and is bounded and allowed to
+      # fail, since it only writes a cache.
+      - name: Save Chromium's system packages
+        if: github.event_name == 'push' && strategy.job-index == 0 && steps.chromium-apt.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/chromium-apt
+          key: ${{ steps.chromium-apt.outputs.cache-primary-key }}
+
       - name: Install Chromium for browser tests
         timeout-minutes: 10
         working-directory: cire/host
         run: bunx --no-install playwright install chromium
+
+      - name: Save Chromium
+        if: github.event_name == 'push' && strategy.job-index == 0 && steps.chromium.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.chromium.outputs.cache-primary-key }}
 
       - name: Restore turbo cache
         uses: actions/cache/restore@v4
@@ -1062,19 +1095,25 @@ jobs:
   # artifacts, so a flake shows without costing another push. Whether
   # results.json comes out the same twice is the E2E determinism job's check
   # (.github/workflows/e2e-repro.yml), which runs daily and by hand, never on a
-  # pull request or a push, so no change runs the suite twice.
-  # Not in the `ci` aggregator's `needs` yet, so it reports without gating
-  # merges while it earns trust; promote it once it has a record of staying
-  # green.
+  # pull request or a push.
+  #
+  # It runs on each push to a pull request and on no other event, and the
+  # `ci` gate needs it, so a pull request cannot merge while it is red. The
+  # merge queue and the push to main skip it, and the gate counts the skip as
+  # passed, so no change runs the suite twice. What that leaves untested: the
+  # commit that lands. Two pull requests that each pass alone can break a flow
+  # together in one queue group, and a pull request whose last run was against
+  # an older main can land a break against the newer one. A break that lands
+  # turns every open pull request's E2E red until a fix merges; the fix's own
+  # run passes, since it runs on main with the fix. The determinism run is the
+  # suite's only run on main.
   e2e:
     name: E2E
     concurrency:
       group: ${{ format('ci-{0}-e2e', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    # Not one of `ci`'s needs, so nothing reads its result on a merge-queue
-    # group, and the push to main that follows runs it on the same commit.
     needs: changes
-    if: github.event_name != 'merge_group' && needs.changes.outputs.docs-only != 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     # Room for the setup and two whole runs of the flows at their limit.
     timeout-minutes: 40
@@ -1250,10 +1289,23 @@ jobs:
           path: ${{ runner.temp }}/secret-scan.json
           if-no-files-found: ignore
 
+  # The check the `main` ruleset requires from this workflow. It needs every
+  # job above and fails when any of them failed or was cancelled. A skipped
+  # job counts as passed: the heavy jobs on a prose-only change, and E2E
+  # outside a pull request. `always()` is what runs it after a failed need;
+  # without it the gate would be skipped, and GitHub counts a skipped required
+  # check as passed.
+  #
+  # A newer push to a pull request cancels the superseded run's cancellable
+  # jobs (the comment at the top), so that run's CI fails, on the commit the
+  # push replaced. The head commit's run has its own CI. Concurrency hands the
+  # group to whichever job joins it last, though, so an older run whose jobs
+  # start late, or one re-run by hand, can cancel the head run's job instead
+  # and leave its CI red; re-running the head run, or pushing again, clears it.
   ci:
     name: CI
     if: always()
-    needs: [changes, lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, secrets]
+    needs: [changes, lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, e2e, secrets]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
