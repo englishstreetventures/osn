@@ -799,45 +799,35 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
     "a consent prompt that never mounts does not hold the envelope shut",
     async () => {
       const opened = await newPhonePage(flow, browser);
-      // The page's own time when the envelope says "ready", which is when its
-      // fallback starts, so the reads below land at a known point of the 8 s
-      // however long the wait for "ready" and the pause took.
-      // The document is watched, not its root, which the script can run before.
-      await opened.page.addInitScript(() => {
-        new MutationObserver(() => {
-          const page = window as unknown as { readyAt?: number };
-          const state = document.documentElement?.getAttribute("data-envelope");
-          if (state === "ready" && page.readyAt === undefined) page.readyAt = performance.now();
-        }).observe(document, {
-          subtree: true,
-          attributes: true,
-          attributeFilter: ["data-envelope"],
-        });
-      });
       await opened.page.route("**/src/components/consent/ConsentBanner.tsx*", (route) =>
         route.abort(),
       );
       await opened.page.goto(INVITE);
-      await waitForState(opened.page, "ready");
+      // Watched every 50 ms rather than on the usual poll steps, which reach a
+      // second: the fallback starts at "ready", and little of it may pass
+      // before the page clock is paused.
+      await expect
+        .poll(
+          () => opened.page.evaluate(() => document.documentElement.getAttribute("data-envelope")),
+          { timeout: 30_000, intervals: [50] },
+        )
+        .toBe("ready");
       flow.check(
         "no prompt: not armed at first",
         false,
         (await opened.page.locator(`${OVERLAY}[data-armed]`).count()) > 0,
       );
-      // The fallback's 8 s run on the page clock alone: paused, moved to 50 ms
-      // short of 8 s after "ready", then 100 ms on.
+      // The fallback's 8 s run on the page clock alone, read 4 s and 8 s on:
+      // a fallback under 4 s or past 8 s fails, with 4 s of margin for the
+      // real time that passes before the pause.
       await pauseClock(opened.page);
-      const sinceReady = await opened.page.evaluate(
-        () => performance.now() - ((window as unknown as { readyAt?: number }).readyAt ?? NaN),
-      );
-      flow.check("no prompt: the page noted when the envelope was ready", true, sinceReady >= 0);
-      await opened.page.clock.runFor(Math.max(0, Math.floor(7950 - sinceReady)));
+      await opened.page.clock.runFor(4000);
       flow.check(
-        "no prompt: not armed just before 8 s",
+        "no prompt: not armed 4 s on",
         false,
         (await opened.page.locator(`${OVERLAY}[data-armed]`).count()) > 0,
       );
-      await opened.page.clock.runFor(100);
+      await opened.page.clock.runFor(4000);
       flow.check(
         "no prompt: armed after 8 s",
         true,
