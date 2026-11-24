@@ -207,9 +207,8 @@ describe("createPasskeysClient", () => {
       expect(calls[0]!.init?.credentials).toBe("include");
     });
 
-    // The negative test above hits `!res.ok` before the missing-
-    // passkeyId guard is even reached. Cover the guard directly: a 2xx
-    // with a non-string `passkeyId` must still surface as PasskeysError.
+    // A 2xx with no string `passkeyId` still surfaces as PasskeysError. The
+    // refusal before it (`!res.ok`) is client-errors' "P1 passkeys.registerComplete".
     it("throws PasskeysError on 2xx when passkeyId is absent / wrong type", async () => {
       stubFetch(() => jsonResponse({ ok: true }, { status: 200 }));
       await expect(

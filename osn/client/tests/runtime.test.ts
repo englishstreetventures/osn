@@ -11,8 +11,8 @@ import { fakeSleeps, untilSettled } from "./helpers/fake-sleeps";
 /**
  * The page's one auth runtime: every authenticated client sends through its
  * `authFetch`. One test per way the renewal can fail that the E2E flow cannot
- * reach (NEW-FEAT.md F1–F43; F19's provider half is in `solid/context.test.tsx`,
- * and what the stored account holds is in `token-storage.test.ts`).
+ * reach (F19's provider half is in `solid/context.test.tsx`, and what the
+ * stored account holds is in `token-storage.test.ts`).
  */
 
 const ISSUER = "https://osn.example.com";

@@ -283,7 +283,7 @@ describe("the stored account", () => {
     const loading = run(page(storage), (auth) => auth.loadSession());
     // The first grant has been answered once its retry's pause begins.
     for (let turn = 0; turn < 100 && vi.getTimerCount() === 0; turn++) {
-      await new Promise((resolve) => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(0);
     }
     expect(fetches.to("/token")).toHaveLength(1);
     const paused = Date.now();

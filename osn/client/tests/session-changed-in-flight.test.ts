@@ -12,7 +12,7 @@ import { fakeSleeps, untilSettled } from "./helpers/fake-sleeps";
  * A session set or ended while a request made for the one before it was out
  * is the newest thing the person did. The late answer to that request must not
  * replace it, end it, bring back the one it replaced, or reach the caller.
- * Each guard against that has a test here (NEW-FEAT.md F1–F11, T1–T23).
+ * Each guard against that has a test here.
  */
 
 const ISSUER = "https://osn.example.com";
