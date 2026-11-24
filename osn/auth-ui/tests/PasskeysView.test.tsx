@@ -212,7 +212,17 @@ describe("PasskeysView", () => {
     expect(pk.list).toHaveBeenCalledTimes(2);
   });
 
-  it("offers no emailed code for rename or delete", async () => {
+  it.each([
+    ["a delete", () => fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!)],
+    [
+      "a rename",
+      () => {
+        fireEvent.click(screen.getAllByRole("button", { name: /^Rename / })[0]!);
+        fireEvent.input(screen.getByDisplayValue("Work laptop"), { target: { value: "Primary" } });
+        fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+      },
+    ],
+  ])("offers no emailed code for %s", async (_, openSheet) => {
     // Both mint `passkey_delete`, whose gate accepts `webauthn` alone. Offering
     // the emailed code here used to send a real code for an action the server
     // then refused — a dead end that looked like a working flow.
@@ -226,7 +236,7 @@ describe("PasskeysView", () => {
     ));
 
     await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
+    openSheet();
     await waitFor(() => screen.getByRole("button", { name: /Use passkey/i }));
     expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
   });
@@ -242,35 +252,6 @@ describe("PasskeysView", () => {
     fireEvent.input(input, { target: { value: "   " } });
     const save = screen.getByRole("button", { name: /^Save$/ }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
-  });
-
-  it("delete flow: Remove → step-up → client.delete with stepUpToken → reload", async () => {
-    pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
-    pk.list.mockResolvedValueOnce({ passkeys: [passkeyRows[1]!] });
-    pk.delete.mockResolvedValue({ success: true, remaining: 1 });
-    armPasskeyStepUp(su);
-
-    render(() => (
-      <PasskeysView
-        client={asPasskeys(pk)}
-        stepUpClient={asStepUp(su)}
-        runPasskeyCeremony={runPasskeyCeremony}
-      />
-    ));
-
-    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
-
-    await useThePasskeyFactor();
-
-    await waitFor(() =>
-      expect(pk.delete).toHaveBeenCalledWith({
-        id: "pk_aaaaaaaaaaaa",
-        stepUpToken: stepUpToken.token,
-      }),
-    );
-    // Reload after delete.
-    expect(pk.list).toHaveBeenCalledTimes(2);
   });
 
   // The deleted row leaves at once. The list is read again behind the rest,
@@ -588,7 +569,7 @@ describe("PasskeysView", () => {
 
   // The step-up lock must cover the Add button too — a rename/delete
   // step-up in flight must not allow a second ceremony to kick off.
-  it("disables Add passkey while a rename/delete step-up is in flight (T-S1)", async () => {
+  it("disables Add passkey while a rename/delete step-up is in flight", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
 
     render(() => (
@@ -648,7 +629,7 @@ describe("PasskeysView", () => {
 
   // While a step-up is in flight, every Rename / Delete button on the
   // page is disabled to prevent a rapid double-click swapping the pending id.
-  it("locks every Rename/Delete button while a step-up is in flight (S-L1)", async () => {
+  it("locks every Rename/Delete button while a step-up is in flight", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
 
     render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);

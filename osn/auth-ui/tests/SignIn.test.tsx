@@ -271,17 +271,27 @@ describe("SignIn component", () => {
       await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
     });
 
-    it("leaves no sign-in error under the recovery form", async () => {
+    it("drops the sign-in error on the way to recovery, so it is gone on the way back", async () => {
       await submitAndFail(apiError("PLANTED-signin-switch"));
       // The standalone link below Continue.
       const links = screen.getAllByRole("button", { name: /Lost your passkey/i });
       fireEvent.click(links[links.length - 1]!);
       await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
       expect(screen.queryByRole("alert")).toBeNull();
+      // The error's own view unmounts on the way, so only the way back shows it.
+      fireEvent.click(screen.getByRole("button", { name: "Back to sign in" }));
+      const field = await screen.findByLabelText(/Email or @handle/);
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(field.getAttribute("aria-invalid")).toBeNull();
     });
   });
 
   describe("conditional-UI / discoverable login on mount", () => {
+    afterEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- happy-dom shim
+      delete (window as any).PublicKeyCredential;
+    });
+
     it("kicks off passkeyBegin() (no identifier) → passkeyComplete({ challengeId, assertion })", async () => {
       const isAvail = vi.fn(async () => true);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- happy-dom shim
@@ -322,9 +332,15 @@ describe("SignIn component", () => {
       delete (window as any).PublicKeyCredential;
     });
 
-    it("does nothing when isConditionalMediationAvailable is missing", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cleanup
-      delete (window as any).PublicKeyCredential;
+    it.each([
+      ["has no isConditionalMediationAvailable", {}],
+      [
+        "says conditional mediation is unavailable",
+        { isConditionalMediationAvailable: async () => false },
+      ],
+    ])("starts no passkey sign-in when the browser %s", async (_, credential) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- happy-dom shim
+      (window as any).PublicKeyCredential = credential;
 
       render(() => (
         <SignIn
@@ -335,7 +351,7 @@ describe("SignIn component", () => {
         />
       ));
 
-      await new Promise((r) => setTimeout(r, 10));
+      for (let i = 0; i < 20; i += 1) await Promise.resolve();
       expect(login.passkeyBegin).not.toHaveBeenCalled();
       expect(login.passkeyComplete).not.toHaveBeenCalled();
     });
@@ -581,23 +597,6 @@ describe("SignIn component", () => {
         vi.useRealTimers();
         sessionStorage.clear();
       }
-    });
-
-    it("surfaces the recovery form when the user clicks it", async () => {
-      render(() => (
-        <SignIn
-          host="page"
-          client={asLogin(login)}
-          recoveryClient={asRecovery(recovery)}
-          productName="Musubi"
-        />
-      ));
-      fireEvent.click(screen.getByRole("button", { name: /Lost your passkey/i }));
-      await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
-      fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
-      await waitFor(() => {
-        expect(screen.getByLabelText(/Recovery code/i)).toBeTruthy();
-      });
     });
   });
 

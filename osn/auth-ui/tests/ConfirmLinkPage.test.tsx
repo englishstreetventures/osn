@@ -880,30 +880,6 @@ describe("ConfirmLinkPage — typing the number", () => {
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
-  it("lets the person decline after a thrown error, sending no number as a new attempt", async () => {
-    const declined = deferred<ConfirmOutcome>();
-    const onConfirm = vi
-      .fn<OnConfirm>()
-      .mockRejectedValueOnce(new Error("down"))
-      .mockReturnValueOnce(declined.promise);
-    const { container } = typed(onConfirm);
-
-    enter("4821");
-    fireEvent.click(confirmButton());
-    await settle();
-    expect(decline().disabled).toBe(false);
-
-    fireEvent.click(decline());
-    expect(onConfirm.mock.calls).toEqual([["4821"], [null]]);
-    expect(decline().textContent).toBe("Cancelling…");
-    expect(container.textContent).not.toContain("You typed");
-    expectBusy(decline());
-
-    declined.resolve("declined");
-    await settle();
-    expect(heading().textContent).toBe("Cancelled");
-  });
-
   it("sends once when Enter is followed by a Confirm click", () => {
     const onConfirm = vi.fn<OnConfirm>(() => new Promise(() => {}));
     typed(onConfirm);

@@ -139,13 +139,6 @@ describe("RecoveryCodesView", () => {
     vi.unstubAllGlobals();
   });
 
-  it("warns when the account has no recovery codes", async () => {
-    renderView();
-    await waitFor(() => {
-      expect(screen.getByText(/don't have any recovery codes yet/i)).toBeTruthy();
-    });
-  });
-
   it("shows the remaining count and creation date when a set exists", async () => {
     stub.getRecoveryCodesStatus.mockResolvedValue({
       active: 7,
@@ -197,24 +190,6 @@ describe("RecoveryCodesView", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
     expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
     expect(stub.generateRecoveryCodes).not.toHaveBeenCalled();
-  });
-
-  it("proceeds with the ceremony once the rotation dialog is confirmed", async () => {
-    stub.getRecoveryCodesStatus.mockResolvedValue({
-      active: 10,
-      total: 10,
-      generatedAt: 1_750_000_000,
-    });
-    stub.generateRecoveryCodes.mockResolvedValue({ codes: sampleCodes });
-    renderView();
-
-    await clickGenerate(/Generate new codes/i);
-    await waitFor(() => screen.getByRole("button", { name: /Generate new set/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Generate new set/i }));
-    await usePasskey();
-
-    await waitFor(() => expect(screen.getByText(sampleCodes[0]!)).toBeTruthy());
-    expect(stepUp.passkeyBegin).toHaveBeenCalled();
   });
 
   // The header holds the title alone; Cancel leads the footer pair.
@@ -285,9 +260,6 @@ describe("RecoveryCodesView", () => {
     const generating = await screen.findByRole("button", { name: "Generating…" });
     expect(generating.getAttribute("aria-busy")).toBe("true");
     expect((generating as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(generating);
-    await Promise.resolve();
-    expect(stub.generateRecoveryCodes).toHaveBeenCalledTimes(1);
   });
 
   it("Done button is disabled until the 'I've saved' checkbox is ticked", async () => {

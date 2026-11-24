@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
-import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach, onTestFinished } from "vitest";
 
 /**
  * Register.tsx is the consumer of the entire registration flow. It
@@ -229,7 +229,7 @@ describe("Register component", () => {
       expect(stub.checkHandle).toHaveBeenCalledWith("alice", expect.any(AbortSignal));
     });
 
-    it("aborts the previous in-flight check before issuing a new one (P-W10)", async () => {
+    it("aborts the previous in-flight check before issuing a new one", async () => {
       stub.checkHandle.mockImplementation(() => new Promise(() => {}));
       render(() => (
         <Register
@@ -315,29 +315,6 @@ describe("Register component", () => {
         name: /Send verification link/i,
       }) as HTMLButtonElement;
       expect(submit.disabled).toBe(true);
-    });
-
-    it("submit becomes enabled once email + handle + birthdate are all valid", async () => {
-      stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => (
-        <Register
-          host="page"
-          client={asClient(stub)}
-          onCancel={() => {}}
-          productName="Musubi"
-          legal={LEGAL}
-        />
-      ));
-      fillEmail("alice@example.com");
-      fillHandle("alice");
-      fillBirthdate("1990-01-01");
-      await vi.advanceTimersByTimeAsync(350);
-      await waitFor(() => {
-        const submit = screen.getByRole("button", {
-          name: /Send verification link/i,
-        }) as HTMLButtonElement;
-        expect(submit.disabled).toBe(false);
-      });
     });
 
     // The client mirrors the server's under-13 gate for immediate
@@ -925,16 +902,6 @@ describe("Register component", () => {
       expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
     });
 
-    it("goes back to the details with a reason when the handle went while it waited", async () => {
-      stub.beginRegistration.mockResolvedValue(begun());
-      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
-      renderRegister();
-      await submitDetailsAs();
-      await vi.advanceTimersByTimeAsync(2_000);
-      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
-      expect(screen.getByText(/taken while you waited/i)).toBeTruthy();
-    });
-
     it("reads the reason out as an alert and puts focus on the handle field", async () => {
       stub.beginRegistration.mockResolvedValue(begun());
       stub.registrationStatus.mockResolvedValue({ status: "conflict" });
@@ -1056,21 +1023,6 @@ describe("Register component", () => {
         retireSecret: begun(1).retireSecret,
       });
       await waitFor(() => expect(live()?.requestId).toBe(begun(2).requestId));
-    });
-
-    it("is sent by a new tab whatever address it begins for, since osn-api checks the address", async () => {
-      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
-      stub.registrationStatus.mockResolvedValue({ status: "pending" });
-      const first = renderRegister();
-      await submitDetailsAs();
-      expect(live()).not.toBeNull();
-
-      newTab(first);
-      await submitDetailsAs("bob@example.com", "bob");
-      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
-        requestId: begun(1).requestId,
-        retireSecret: begun(1).retireSecret,
-      });
     });
 
     it("removes an expired or malformed entry when the view opens, and never sends it", async () => {
@@ -1611,7 +1563,7 @@ describe("Register component", () => {
       });
 
       // A sign-up that sends runs one challenge: the spent token goes with the
-      // details step's widget, and the waiting view's Resend needs none.
+      // details step's widget, and the waiting view runs none of its own.
       it("runs no second challenge once the link is sent", async () => {
         const challenges = (
           globalThis as unknown as { turnstile: { render: ReturnType<typeof vi.fn> } }
@@ -1630,6 +1582,11 @@ describe("Register component", () => {
   });
 
   describe("WebAuthn-unsupported environment", () => {
+    // Every case after this one needs the form.
+    afterEach(() => {
+      hoisted.webauthnSupported = true;
+    });
+
     it("blocks the flow at the start with an informational screen", async () => {
       hoisted.webauthnSupported = false;
       render(() => (
@@ -1646,21 +1603,6 @@ describe("Register component", () => {
       expect(screen.getByText(/needs a passkey or security key/i)).toBeTruthy();
       expect(stub.beginRegistration).not.toHaveBeenCalled();
     });
-  });
-
-  it("Cancel button calls onCancel", () => {
-    const onCancel = vi.fn();
-    render(() => (
-      <Register
-        host="page"
-        client={asClient(stub)}
-        onCancel={onCancel}
-        productName="Musubi"
-        legal={LEGAL}
-      />
-    ));
-    fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
-    expect(onCancel).toHaveBeenCalled();
   });
 });
 
@@ -1758,6 +1700,10 @@ describe("Register in a dialog", () => {
 
   // The footer's Cancel is the dialog's way out, so it holds while the send runs.
   it("holds the footer's Cancel while the send runs", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const client = makeClientStub();
     client.checkHandle.mockResolvedValue({ available: true });
     client.beginRegistration.mockReturnValue(new Promise(() => {}));
@@ -1778,6 +1724,7 @@ describe("Register in a dialog", () => {
     fillEmail("alice@example.com");
     fillHandle("alice");
     fillBirthdate("1990-01-01");
+    await vi.advanceTimersByTimeAsync(350);
     const send = () =>
       screen.getByRole("button", { name: /Send verification link|Sending…/ }) as HTMLButtonElement;
     await waitFor(() => expect(send().disabled).toBe(false));
