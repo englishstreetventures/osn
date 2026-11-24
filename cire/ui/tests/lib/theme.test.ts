@@ -302,6 +302,11 @@ describe("themeBootScript", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
+  it("names the key and the media query it was given", () => {
+    expect(THEME_BOOT_SCRIPT).toContain(JSON.stringify(THEME_STORAGE_KEY));
+    expect(THEME_BOOT_SCRIPT).toContain(JSON.stringify(LIGHT_QUERY));
+  });
+
   it("falls through to the media query when nothing is stored", () => {
     stubMatchMedia(true);
     // eslint-disable-next-line no-eval
