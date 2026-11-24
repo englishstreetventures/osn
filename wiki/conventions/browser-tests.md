@@ -13,7 +13,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-23
+last-reviewed: 2026-11-24
 ---
 
 # Browser Tests
@@ -632,6 +632,34 @@ so a stalled attempt is cut and run again, resuming the downloads it left.
 
 *Measured 2026-11-06 — the `Browser tests (cire-invites)` log of merge-queue run 42197392019: every library "already the newest version", nine packages "Need to get 21.9 MB of archives", fetched at about 40 KB/s until the step's 10 minutes ran out*
 
+`retry.sh` stops every process in an attempt's process group, but `apt-get`
+runs dpkg in a session of its own
+([`dpkgpm.cc`](https://github.com/Debian/apt/blob/main/apt-pkg/deb/dpkgpm.cc),
+`SetupSlavePtyMagic` calls `setsid`). So an attempt cut while apt installs
+leaves dpkg running and holding dpkg's lock, and dpkg never waits for that
+lock: a second dpkg fails at once with `dpkg: error: dpkg database lock was
+locked by /usr/bin/dpkg process with pid <n>`. Each attempt therefore starts
+with [`configure-dpkg.sh`](../../scripts/configure-dpkg.sh), which runs `dpkg
+--configure -a` and, while dpkg refuses on its lock, runs it again once a
+second for up to 60 s. Nothing in the attempt reaches apt until it passes.
+Playwright's `apt-get install` waits up to 60 s for the same lock
+(`DPkg::Lock::Timeout "60"` in the script's apt configuration). Neither kills
+a process or removes a lock file. A wait prints
+`configure-dpkg: waiting up to 60 s for dpkg's lock`, then either
+`configure-dpkg: dpkg's lock came free after <n> s` or, when it gives up,
+`configure-dpkg: dpkg's lock was still held after 60 s`.
+
+Both waits sit inside an attempt's 150 s. At its longest the step runs three
+attempts cut at 150 s, each with `retry.sh`'s 10 s grace and its wait of up to
+10 s for the attempt's processes, then the dry run described below (cut at
+60 s, killed 10 s later): 580 s, inside
+the 10-minute limit that the browser legs (`timeout-minutes: 10`) and
+`e2e-setup` (`timeout 10m`) give the step.
+[`deploy-workflows.test.ts`](../../scripts/tests/deploy-workflows.test.ts)
+checks that sum and that each wait is shorter than an attempt.
+
+*Measured 2026-11-24 — `gh run view 45335484667 --job 138246558609 --log`: attempt 1 spent 97 s and 38 s on the two index fetches from a slow mirror, took all nine packages from the cache, and was cut at 150 s with dpkg unpacking; attempts 2 and 3 failed on pid 3014's lock within 10 ms of the cut*
+
 The install runs as root, and a restored cache comes from outside the runner,
 so nothing in it reaches apt unchecked. In each attempt, after `apt-get
 update`,
@@ -724,7 +752,8 @@ Installing from the cache against the index on disk has these limits:
 
 *Measured 2026-11-12 — `gh run view 43054765174 --log-failed`: one `Ign:` line every 20.0 s while the update waited, and each index tried twice on `azure.archive.ubuntu.com`, then once on each other mirror (the image's one retry); SRV: `dig SRV _http._tcp.<host>` and `_https._tcp.<host>` for `azure.archive.ubuntu.com`, `archive.ubuntu.com`, `security.ubuntu.com` and `packages.microsoft.com`, no answer for any*
 
-When every attempt fails, the step passes without apt in one case only: no
+When every attempt fails, the step passes without apt in one case only: the
+last attempt did not give up waiting for dpkg's lock; no
 `apt-get update` finished; apt's output names a network fault (a host it could
 not resolve or connect to, a connection that timed out) and no signature or
 hash failure; and `playwright install-deps --dry-run chromium`, which
@@ -741,6 +770,7 @@ step with the last attempt's status, after a line starting
 
 | The line ends | What it means |
 |---|---|
+| `dpkg's lock was still held when the last attempt stopped waiting for it` | Another dpkg, most likely one an earlier attempt left running, held dpkg's lock for the whole 60 s wait. Checked before every other row |
 | `apt-get update could not fetch every index and kept the copies on disk, and apt could not download a package the cache lacked at the version they name` | The mirror was out of reach, and the cache did not hold every package at the version the index on disk names. A `dropped` warning above names each cached package that index does not |
 | `apt-get update finished, so apt held an index` | An update finished, so the cache was checked or an install began; the failure came after |
 | `apt reported a signature or hash failure` | An index or package failed its check, an index apt held an older copy of included. Never an outage, never skipped |

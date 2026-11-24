@@ -5,7 +5,10 @@
 // GitHub's store, so it is input, not trust. Each test runs the whole script
 // against a fake apt (fake-apt.ts) that installs whatever it finds in the
 // archive, and checks that only bytes the signed index names got there, that
-// apt downloaded the rest, and what the cache holds afterwards.
+// apt downloaded the rest, and what the cache holds afterwards. The last
+// cases hold dpkg's lock against the step, as a dpkg left running by an
+// attempt cut mid-install does, and check that each attempt waits for it, for
+// how long, and what the step says when it gives up.
 
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -124,6 +127,13 @@ function world(mirror: readonly Pkg[], cacheName = "cache"): World {
   for (const tool of ["apt-get", "apt-cache", "dpkg", "bunx"]) {
     stub(tool, `exec "${process.execPath}" "${FAKE_APT}" "${dir}" ${tool} "$@"`);
   }
+  // fake-apt.ts's clock: `sleep 1` is one tick in the log and takes no time,
+  // so a minute's wait for dpkg's lock runs at once. Any other sleep, such as
+  // retry.sh's 0.1 s, is real.
+  stub(
+    "sleep",
+    `if [ "$*" = 1 ]; then echo "sleep 1" >>"${dir}/log"; exit 0; fi\nexec /bin/sleep "$@"`,
+  );
   return w;
 }
 
@@ -287,8 +297,10 @@ describe("install-chromium-system-libraries.sh", () => {
     // nothing. The second spares each connection a DNS query no mirror answers;
     // when names do not resolve, that query is half the wait. The third makes an
     // index that fails its signature check fail the update, where apt would
-    // otherwise keep the old copy and carry on. Retries and timeouts are the
-    // image's own (zz-retries), which apt reads after this file.
+    // otherwise keep the old copy and carry on. The fourth makes Playwright's
+    // `apt-get install` wait up to 60 s for dpkg's lock instead of failing the
+    // attempt at once. Retries and timeouts are the image's own (zz-retries),
+    // which apt reads after this file.
     expect(
       readFileSync(join(w.dir, "root", "etc", "apt", "apt.conf.d", "80-ci-chromium"), "utf8"),
     ).toBe(
@@ -296,9 +308,13 @@ describe("install-chromium-system-libraries.sh", () => {
         'APT::Keep-Downloaded-Packages "true";',
         'Acquire::EnableSrvRecords "false";',
         'APT::Update::Auth-Failure { "false"; };',
+        'DPkg::Lock::Timeout "60";',
         "",
       ].join("\n"),
     );
+    // A free lock costs no wait.
+    expect(run.log).not.toContain("sleep 1");
+    expect(run.output).not.toContain("configure-dpkg:");
   });
 
   test("a tampered package is dropped with a warning naming it, apt downloads it, and the install and the cache saved after it hold the mirror's bytes", () => {
@@ -715,5 +731,154 @@ describe("install-chromium-system-libraries.sh when the mirror's names do not re
     expect(run.output.match(new RegExp(`^${NOT_SKIPPED}`, "gm")), run.output).toHaveLength(1);
     expect(run.output).toContain(`${NOT_SKIPPED}apt-get update finished, so apt held an index`);
     expect(run.output).not.toContain("could not fetch every index");
+  });
+});
+
+/** Seconds waited on fake-apt.ts's clock: one `sleep 1` line each. */
+const ticksIn = (run: Run) => run.log.filter((line) => line === "sleep 1").length;
+
+/** How many times dpkg refused to configure because its lock was held. */
+const refusalsIn = (run: Run, from = 0) =>
+  run.log.slice(from).filter((line) => line === "dpkg --configure -a refused").length;
+
+/** The line fake-apt.ts logs when install-deps is cut at the limit and leaves its dpkg running. */
+const CUT = "install-deps cut at the limit: dpkg left";
+
+/** The indexes of the log lines that read apt's index, fetch it or install: what must wait for the lock. */
+const aptCalls = (run: Run) =>
+  run.log.flatMap((line, at) =>
+    line === "apt-get update" || line.startsWith("apt-cache show") || line === "install-deps"
+      ? [at]
+      : [],
+  );
+
+// dpkg never waits for its lock, and apt-get runs dpkg in a session of its own
+// (apt-pkg/deb/dpkgpm.cc, SetupSlavePtyMagic), out of reach of retry.sh's kill
+// of the attempt's process group. So an attempt cut mid-install can leave a
+// dpkg running that holds the lock against the next attempt. Each attempt
+// waits for the lock, up to 60 s, before it touches dpkg or apt, and
+// Playwright's install waits up to 60 s more.
+describe("install-chromium-system-libraries.sh when another dpkg holds dpkg's lock", () => {
+  test("a lock another process holds when the attempt starts, and again when Playwright's install starts, is waited for in that attempt, which installs and passes", () => {
+    const w = world([ALPHA]);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    writeFileSync(join(w.dir, "dpkg-lock"), "4242 3\n");
+    writeFileSync(join(w.dir, "lock-at-install"), "4");
+    const run = install(w);
+    expect(run.status, run.output).toBe(0);
+    expect(run.output).not.toContain("::warning::retry.sh");
+    // Three seconds before `dpkg --configure -a` ran, then four in apt-get install.
+    expect(ticksIn(run)).toBe(7);
+    expect(refusalsIn(run)).toBe(3);
+    expect(run.log.indexOf("dpkg --configure -a")).toBeGreaterThan(
+      run.log.lastIndexOf("dpkg --configure -a refused"),
+    );
+    expect(run.log.indexOf("dpkg --configure -a")).toBeLessThan(run.log.indexOf("apt-get update"));
+    expect(run.log).toContain("apt-get waits for dpkg's lock");
+    // dpkg's own refusal, each time, then one line saying the step waits and one when it may go on.
+    expect(run.output.match(/^dpkg: error: dpkg database lock was locked by /gm)).toHaveLength(3);
+    expect(run.output.match(/^configure-dpkg: waiting up to 60 s for dpkg's lock$/gm)).toHaveLength(
+      1,
+    );
+    expect(run.output).toMatch(/^configure-dpkg: dpkg's lock came free after 3 s$/m);
+    expectGenuine(run, [[ALPHA, "archive"]]);
+  });
+
+  test("a dpkg left holding the lock past the wait fails the step: attempts 2 and 3 each wait 60 s, the step says the lock was the cause, and the cache is left as it was", () => {
+    const w = world([ALPHA]);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    // Attempt 1 fetches the index and is cut mid-install; its dpkg never lets go.
+    writeFileSync(join(w.dir, "leave-dpkg"), "never");
+    const before = cacheContents(w);
+    const run = install(w);
+    // dpkg's own status for a lock it could not take.
+    expect(run.status, run.output).toBe(2);
+    expect(run.output.match(/^::warning::retry\.sh: /gm)?.length, run.output).toBe(3);
+    // Attempts 2 and 3 each ask dpkg once, then once after each of 60 seconds.
+    expect(ticksIn(run)).toBe(120);
+    expect(refusalsIn(run)).toBe(122);
+    expect(
+      run.output.match(/^configure-dpkg: dpkg's lock was still held after 60 s$/gm),
+    ).toHaveLength(2);
+    // Nothing after the cut read or fetched an index or installed.
+    const cut = run.log.indexOf(CUT);
+    expect(cut, run.log.join("\n")).toBeGreaterThan(-1);
+    expect(aptCalls(run).filter((at) => at > cut)).toEqual([]);
+    // An update had finished, yet the reason given is the lock.
+    expect(run.output.match(new RegExp(`^${NOT_SKIPPED}.*$`, "gm")), run.output).toEqual([
+      `${NOT_SKIPPED}dpkg's lock was still held when the last attempt stopped waiting for it`,
+    ]);
+    expect(run.output).not.toContain(SKIPPED);
+    expect(run.installed.size).toBe(0);
+    expect(run.output).not.toContain("kept for the cache");
+    expect(cacheContents(w)).toEqual(before);
+    // 122 polls, each a fake dpkg in a Bun process of its own: 9.6 s on a
+    // laptop. The limit is the backstop for a wait that never ends.
+  }, 90_000);
+
+  test("only the last attempt's give-up names the lock as the cause: when an earlier attempt gave up and the last failed on the network, the step goes on without apt as before", () => {
+    const w = world([ALPHA]);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    // Attempt 1 gives up after 60 s; the lock comes free 5 s into attempt 2.
+    writeFileSync(join(w.dir, "dpkg-lock"), "4242 65\n");
+    unreachable(w, UNREACHABLE);
+    const before = cacheContents(w);
+    const run = install(w);
+    expect(run.status, run.output).toBe(0);
+    expect(ticksIn(run)).toBe(65);
+    expect(
+      run.output.match(/^configure-dpkg: dpkg's lock was still held after 60 s$/gm),
+    ).toHaveLength(1);
+    expect(run.log.filter((line) => line === "apt-get update")).toHaveLength(2);
+    expect(run.output).toContain(SKIPPED);
+    expect(run.output).not.toContain(NOT_SKIPPED);
+    expect(cacheContents(w)).toEqual(before);
+  });
+
+  test("a dpkg that an attempt cut at its limit leaves running is waited for by the next attempt, which touches apt only once the lock is free, installs and passes", () => {
+    const w = world([ALPHA]);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    writeFileSync(join(w.dir, "leave-dpkg"), "5");
+    const run = install(w);
+    expect(run.status, run.output).toBe(0);
+    expect(run.output.match(/^::warning::retry\.sh: .*$/gm), run.output).toHaveLength(1);
+    expect(run.output).toMatch(
+      /^::warning::retry\.sh: attempt 1 of 3 .* was cut at its 150 s limit$/m,
+    );
+    const cut = run.log.indexOf(CUT);
+    expect(cut, run.log.join("\n")).toBeGreaterThan(-1);
+    expect(ticksIn(run)).toBe(5);
+    expect(refusalsIn(run, cut)).toBe(5);
+    expect(run.output).toContain(
+      "dpkg: error: dpkg database lock was locked by /usr/bin/dpkg process with pid 3014",
+    );
+    expect(run.output).toMatch(/^configure-dpkg: dpkg's lock came free after 5 s$/m);
+    // Attempt 2's update, its check of the cached package and its install, each after the last second waited.
+    const after = aptCalls(run).filter((at) => at > cut);
+    expect(after.map((at) => run.log[at])).toEqual([
+      "apt-get update",
+      `apt-cache show ${ALPHA.name}=${ALPHA.version}`,
+      "install-deps",
+    ]);
+    for (const at of after) expect(at).toBeGreaterThan(run.log.lastIndexOf("sleep 1"));
+    expectGenuine(run, [[ALPHA, "archive"]]);
+    expect(run.output).toMatch(tally(1, 0, 0));
+    expect(cacheContents(w)).toEqual({ [fileOf(ALPHA)]: bytesOf(ALPHA) });
+  });
+
+  test("a fatal dpkg error that is not about the lock fails each attempt at once, without waiting", () => {
+    const w = world([ALPHA]);
+    // Exit 2, as dpkg's refusal of a held lock exits, so only the message tells them apart.
+    writeFileSync(
+      join(w.dir, "dpkg-fails"),
+      "dpkg: error: parsing file '/var/lib/dpkg/status' near line 5 package 'fonts-alpha':\n missing 'Architecture' field\n",
+    );
+    const run = install(w);
+    expect(run.status, run.output).toBe(2);
+    expect(ticksIn(run)).toBe(0);
+    expect(run.log.filter((line) => line === "dpkg --configure -a failed")).toHaveLength(3);
+    expect(aptCalls(run)).toEqual([]);
+    expect(run.output).toContain("parsing file '/var/lib/dpkg/status' near line 5");
+    expect(run.output).not.toContain("configure-dpkg:");
   });
 });
