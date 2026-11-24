@@ -26,11 +26,14 @@ describe("waitUntilReady", () => {
       env,
       logPath: join(logDir, "crasher.log"),
     });
+    // The deadline and the bound both sit under bun's 5 s test timeout, so a
+    // wait that ignores the exit fails here, on the message or on the time,
+    // rather than by timing out.
     const started = Date.now();
-    await expect(waitUntilReady(proc, async () => false, 30_000)).rejects.toThrow(
+    await expect(waitUntilReady(proc, async () => false, 3_000)).rejects.toThrow(
       /crasher exited \(code 3\) before it was ready; see .*crasher\.log/,
     );
-    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(Date.now() - started).toBeLessThan(2_000);
     expect(readFileSync(join(logDir, "crasher.log"), "utf8")).toContain("boom");
   });
 

@@ -48,8 +48,15 @@ const GENERATED_ID_PATTERNS = [
   /^[A-Za-z0-9_-]{20,}$/,
 ];
 
+// Shapes no fixed word takes, so they need no digit: a prefix and twelve or
+// more hex digits (`genId`'s `signup_…`, `pk_…`; Pulse's `evt_…`), and a
+// 43-character base64url token (32 random bytes). Their random part can be
+// drawn with no digit in it, and the line must read the same on every run.
+const RANDOM_ID_PATTERNS = [/^[a-z]{2,12}_[0-9a-f]{12,}$/, /^[A-Za-z0-9_-]{43}$/];
+
 const isGeneratedId = (segment: string): boolean =>
-  GENERATED_ID_PATTERNS.some((pattern) => pattern.test(segment)) && /\d/.test(segment);
+  RANDOM_ID_PATTERNS.some((pattern) => pattern.test(segment)) ||
+  (GENERATED_ID_PATTERNS.some((pattern) => pattern.test(segment)) && /\d/.test(segment));
 
 /** `/events/evt_1a2b3c4d5e6f/rsvps?x=1` → `/events/:id/rsvps`. */
 export function normalisePath(pathname: string): string {

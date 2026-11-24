@@ -11,11 +11,25 @@ describe("normalisePath", () => {
     expect(normalisePath("/challenge/aZ3_kP9qLm2Xc7Vb8Nw1Rt")).toBe("/challenge/:id");
   });
 
+  // The random part of an id can be drawn with no digit in it: twelve hex
+  // digits all a-f about once in 130,000 ids, a 43-character token about once
+  // in 1,500. The line must not change between runs when it is.
+  test("replaces an id whose random part drew no digit", () => {
+    expect(normalisePath("/register/signup_abcdefabcdef/status")).toBe("/register/:id/status");
+    expect(normalisePath("/passkeys/pk_fedcbafedcba")).toBe("/passkeys/:id");
+    expect(normalisePath("/x/emailchange_abcdefabcdef")).toBe("/x/:id");
+    expect(normalisePath("/x/aenr_abcdefabcdefabcd")).toBe("/x/:id");
+    expect(normalisePath("/x/aZbYcXdWeVfUgThSiRjQkPlOmNnMoLpKqJrIsHtGu_-")).toBe("/x/:id");
+  });
+
   test("leaves slugs, handles and words alone", () => {
     expect(normalisePath("/api/invite/cire-wedding/registry")).toBe(
       "/api/invite/cire-wedding/registry",
     );
     expect(normalisePath("/handle/e2e_ada")).toBe("/handle/e2e_ada");
+    expect(normalisePath("/handle/dev_bootstrap")).toBe("/handle/dev_bootstrap");
+    expect(normalisePath("/weddings/wed_bootstrap")).toBe("/weddings/wed_bootstrap");
+    expect(normalisePath("/email-verification-nonce")).toBe("/email-verification-nonce");
     expect(normalisePath("/api/auth/oidc/callback")).toBe("/api/auth/oidc/callback");
   });
 });
