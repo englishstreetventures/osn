@@ -1,5 +1,12 @@
 # @osn/osn
 
+## 3.46.4
+
+### Patch Changes
+
+- Updated dependencies [6223317]
+  - @shared/email@0.22.0
+
 ## 3.46.3
 
 ### Patch Changes
