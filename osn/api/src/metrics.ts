@@ -130,6 +130,8 @@ export const OSN_METRICS = {
   profileCrudDuration: "osn.profile.crud.duration",
   // Account data export (DSAR Art. 15 / 20)
   accountExportRequested: "osn.account.export.requested",
+  // `GET /.well-known/arc-jwks.json` refusals, by lane and the budget that refused
+  arcJwksRefused: "osn.arc.jwks.refused",
   // Account deletion (Flow A)
   accountDeletionRequested: "osn.account.deletion.requested",
   accountDeletionCompleted: "osn.account.deletion.completed",
@@ -1393,6 +1395,16 @@ export type ExportRequestResult =
   | "rate_limited"
   | "error";
 type ExportRequestedAttrs = { result: ExportRequestResult };
+
+/** Whose budget a key-list request spent: a configured app's zone, or the caller's address. */
+export type ArcJwksLane = "app" | "address";
+/**
+ * Why a key-list request was refused: its minute or hour budget, or no
+ * address. A failing limiter refuses as its budget would, so a store failure
+ * reads as `hour`.
+ */
+export type ArcJwksRefusal = "minute" | "hour" | "unresolved";
+type ArcJwksRefusedAttrs = { lane: ArcJwksLane; reason: ArcJwksRefusal };
 type DeletionCompletedAttrs = {
   result: DeletionCompletedResult;
   source: DeletionCompletedSource;
@@ -1477,6 +1489,15 @@ const appEnrollmentLeft = createCounter<AppEnrollmentLeftAttrs>({
   description: "App enrollments closed (Flow B leave-app or Flow A cascade)",
   unit: "{enrollment}",
 });
+
+const arcJwksRefused = createCounter<ArcJwksRefusedAttrs>({
+  name: OSN_METRICS.arcJwksRefused,
+  description: "Refused reads of osn-api's outbound ARC key list, by lane and reason",
+  unit: "{request}",
+});
+
+export const metricArcJwksRefused = (lane: ArcJwksLane, reason: ArcJwksRefusal): void =>
+  arcJwksRefused.inc({ lane, reason });
 
 const accountExportRequested = createCounter<ExportRequestedAttrs>({
   name: OSN_METRICS.accountExportRequested,

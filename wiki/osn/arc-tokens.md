@@ -288,7 +288,16 @@ and each app fetches the one a token names:
    server count per city, and runs a Worker on more than one server in a data
    centre when the first is overloaded
    ([sharding](https://blog.cloudflare.com/eliminating-cold-starts-2-shard-and-conquer/)).
-   On either warning, find why the set grew before raising the bound.
+   On either warning, find why the set grew before raising the bound. Each
+   caller's address (an IPv6 one by its /64) may read the list 30 times a
+   minute and 60 an hour; a configured app's fetch, which Cloudflare sends
+   from the address every Worker's cross-zone subrequest shares, is budgeted
+   under the app's zone (its `CF-Worker` header) instead. A refused app
+   fetches again 30 seconds later, so it recovers when its window ends, at
+   most an hour; meanwhile some of osn-api's calls to it can be refused. Each
+   refusal is counted (`osn.arc.jwks.refused`, by `lane` and `reason`) and the
+   first in each minute per lane is logged (`osn.arc key list refused a caller
+   over its budget`) ([[rate-limiting]]).
 5. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
    Worker-safe): the token must claim `iss: "osn-api"`, ask for a scope the app
    lets osn-api use, and, when the app's secret can key the MAC, carry a `kid`
@@ -342,12 +351,9 @@ scope, so a token for one opens neither other.
 
 **cire-api holds no kid secret.** The value that keys the kid MAC is the
 registration bearer above, and cire-api is not given it, so a compromised
-cire-api cannot register keys or revoke Zap's. Without it the kid's MAC is not
-checked: a token with a made-up kid costs cire-api one fetch of osn-api's public
-key set before it is refused, and the shared key cache then remembers that kid
-as unknown for 30 seconds, one fetch serving concurrent requests. The key set
-is public, so that is the load anyone can put on it directly. A secret held for
-the kid MAC alone would let cire-api check kids too.
+cire-api cannot register keys or revoke Zap's, and cire-api does not check the
+kid's MAC. A secret held for the kid MAC alone would let cire-api check kids
+too.
 
 **Trust.** Whoever can write osn-db's `arc_outbound_keys`, or answer for
 osn-api's origin, can mint tokens an app accepts as osn-api's. The same write

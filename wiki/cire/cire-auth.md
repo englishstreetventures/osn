@@ -14,7 +14,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
   - "[[social-graph]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-25
 ---
 
 # Cire auth model
@@ -391,8 +391,7 @@ and its signature checks against the key osn-api published at
 `<OSN_ISSUER_URL>/.well-known/arc-jwks.json`, the issuer cire already pins for
 organiser tokens; anything else is **401** before the body is read. cire-api
 holds no kid secret, since the value osn-api keys its kid MACs with is also the
-bearer of service-key registration, so a made-up kid costs one fetch of that
-public key set, then the shared key cache remembers it as unknown for 30 s.
+bearer of service-key registration, so it does not check the kid's MAC.
 All three sit before the CSRF origin guard and carry no rate limit, as on
 Pulse's and Zap's receivers, and each asks for its own scope, so a token for
 one opens neither other. What they do is in

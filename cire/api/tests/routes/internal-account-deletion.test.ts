@@ -136,7 +136,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(untouched(db)).toBe(true);
   });
 
-  it("with no kid secret, a made-up kid costs one fetch of the public key set, then the cache", async () => {
+  it("with no kid secret, refuses a made-up kid, and remembers it as unknown", async () => {
     const { app } = setup();
     const madeUp = await arc.token("account:erase", { kid: "made-up-kid" });
     expect((await post(app, ERASE, madeUp, eraseBody)).status).toBe(401);

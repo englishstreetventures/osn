@@ -60,6 +60,10 @@ export function createInMemoryCoordination(): CoordinationStores {
     recommendationRateLimiters: createDefaultRecommendationRateLimiters(),
     accountExportLimiter: memoryLimiter(OSN_RATE_LIMITS.accountExport),
     accountExportIpLimiter: memoryLimiter(OSN_RATE_LIMITS.accountExportIp),
+    arcJwksRateLimiters: {
+      minute: memoryLimiter(OSN_RATE_LIMITS.arcJwksIp),
+      hour: memoryLimiter(OSN_RATE_LIMITS.arcJwksIpHour),
+    },
     accountErasureRateLimiters: createDefaultAccountErasureRateLimiters(),
     stepUpJtiStore: createInMemoryJtiStore(),
     passkeyChallengeClaims: createInMemoryChallengeClaimStore(),

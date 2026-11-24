@@ -22,7 +22,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/coordination"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-25
 ---
 # Rate Limiting
 
@@ -68,7 +68,8 @@ osn-api runs on Cloudflare Workers. Its **one-minute limiters** run on the **Clo
 |---|---|---|
 | One-minute per-IP auth limiters (register, login, passkey, step-up, session, security-event, passkey management, cross-device, recovery status and code entry, TOTP, OIDC) | **Native binding**, `RL_AUTH_IP_*` | Brute-force-facing throttles; the binding is atomic at the edge and costs no store call |
 | Graph and organisation writes, recommendation suggest and search (per user) | **Native binding**, `RL_USER_20_60` / `RL_USER_60_60` | Search fires once per keystroke; a binding costs nothing per call |
-| Profile create, delete and set-default, `GET /health/coordination`, the account export's per-IP guard and `GET /account/deletion-status` (per IP; `GET /account/deletion-preview` spends the same limiter) | **Native binding**, the `RL_AUTH_IP_*` tiers under their own key prefix | One-minute windows |
+| Profile create, delete and set-default, `GET /health/coordination`, the account export's per-IP guard, `GET /account/deletion-status` (per IP; `GET /account/deletion-preview` spends the same limiter) and the minute budget of `GET /.well-known/arc-jwks.json` (`arcJwksIp`) | **Native binding**, the `RL_AUTH_IP_*` tiers under their own key prefix | One-minute windows |
+| The hour budget of `GET /.well-known/arc-jwks.json` (`arcJwksIpHour`, per address or app zone) | **Coordination store** | An hour window; it bounds the reads one key can cost |
 | Hour-window per-IP auth limiters (`recoveryGenerate`, `recoveryComplete`, `recoveryEmailBegin`, `emailChangeBegin`, `oidcClientCreate`) | **Coordination store** | The native binding supports only `period` 10 or 60 s |
 | Per-account caps (`profileSwitchCap`, `emailChangeBeginCap`), the recovery link caps (`recoveryLinkAddressCap`, three a day per account and client network, an IPv6 client counted by its /64 (`clientNetwork` in `@shared/rate-limit`); `recoveryResendCap`, three Resends a day per account; `recoveryLinkCeiling`, twenty links a day per account — [[email-links]] §Recovery), the cap on resent sign-up links per mailbox key (`registrationSendCap`, six an hour; [[email-links]]), the cap on first sign-up links per mailbox key (`registrationFirstLinkCap`, ten an hour, the mailbox's first always admitted; [[email-links#Sign-up]]), the account export limiter (one a day per account) and the account deletion and restore limiters (per IP, an hour) | **Coordination store** | Windows of an hour or a day |
 
@@ -134,6 +135,18 @@ Every auth budget is set in `AUTH_RATE_LIMITS` (`osn/api/src/routes/auth/limiter
 | 10 / hour | `/recovery/generate` | Flood control on a destructive action — each call burns the previous set |
 | 5 / hour | `/login/recovery/complete`, `/login/recovery/email/begin`, OIDC client registration | Brute-force defence on the lost-device escape hatch; mail to the address on file; each registration mints a credential |
 | 3 / hour | `/account/email/begin` | Each call mails a user-chosen address |
+
+**osn-api's outbound key list.** `GET /.well-known/arc-jwks.json` is public, so every request is budgeted under a key before any key is read (`osn/api/src/routes/arc-jwks.ts`; budgets `OSN_RATE_LIMITS.arcJwksIp` and `arcJwksIpHour` in `osn/api/src/routes/auth/limiters.ts`):
+
+| Lane | Key | When |
+|---|---|---|
+| `app` | `zone:<zone>` | Behind Cloudflare, the request's `CF-Worker` header names the zone of a configured app host (the deletion app URLs; never `workers.dev` or `pages.dev`), and it comes from `2a06:98c0:3600::103`, the address Cloudflare gives every Worker's subrequest to another zone, or carries no `CF-Connecting-IP` |
+| `address` | the caller's address, an IPv6 one by its /64 | Every other request; one that cannot be resolved is refused |
+
+Each key may read the list **30 times a minute** (native binding, refused at the edge) and **60 times an hour** (coordination store). A read of a full key set costs about 2,000 D1 rows, so the hour budget holds one address or app zone to about 2,880,000 rows a day ([[free-tier-limits]]). The apps' busiest minute is about 10 reads ([[arc-tokens#osn-api as issuer — published outbound keys]]).
+
+> [!important] A refused app recovers by itself
+> A refused app fetches the list again 30 seconds later, so it recovers when its window ends, at most an hour. Meanwhile some of osn-api's calls to it can be refused: a deletion preview shows the app as "could not check", the fan-out retries the job on the next cron run, an export marks that app's section degraded. **To see it:** the counter `osn.arc.jwks.refused` (`lane`: `app` or `address`; `reason`: `minute`, `hour` or `unresolved`) and the warning `osn.arc key list refused a caller over its budget`, logged on the first refusal in each minute per lane in each isolate. While the coordination store fails, every request is refused and counted with reason `hour`, beside `coordination store call failed` in osn-api's logs; each isolate keeps refusing a key it refused for up to a minute after that, so the apps recover within about 90 seconds of the store. Tests: `osn/api/tests/routes/arc-jwks.test.ts`.
 
 Graph write endpoints allow 60 requests per user per minute. Contact suggestions (`/recommendations/connections`) allow 20 requests per user per minute — tighter because each call runs an FOF fan-out query. People search (`/recommendations/search`) has its own counter, `recs.search`, at 60/user/min: the query is index-backed in the common case but fires once per debounced keystroke, so the suggestion budget would 429 a user mid-word. Both are per-user and fail-closed; the search cap is what bounds handle enumeration.
 

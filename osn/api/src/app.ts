@@ -94,6 +94,8 @@ export interface AppDeps {
   /** Per-account account-export limiter, and the per-IP guard in front of it. */
   accountExportLimiter: CoordinationStores["accountExportLimiter"];
   accountExportIpLimiter: CoordinationStores["accountExportIpLimiter"];
+  /** Per-IP minute and hour budgets on `GET /.well-known/arc-jwks.json`. */
+  arcJwksRateLimiters: CoordinationStores["arcJwksRateLimiters"];
   /** Per-account deletion, restore and status limiters. */
   accountErasureRateLimiters: CoordinationStores["accountErasureRateLimiters"];
   /** Single-use guard for step-up JWTs. */
@@ -201,6 +203,7 @@ export function createApp(deps: AppDeps) {
     recommendationRateLimiters,
     accountExportLimiter,
     accountExportIpLimiter,
+    arcJwksRateLimiters,
     accountErasureRateLimiters,
     stepUpJtiStore,
     passkeyChallengeClaims,
@@ -406,7 +409,16 @@ export function createApp(deps: AppDeps) {
         deletionApps,
       ),
     )
-    .use(createArcJwksRoutes(DbLive, observabilityLayer, appRuntime))
+    .use(
+      createArcJwksRoutes(
+        DbLive,
+        observabilityLayer,
+        appRuntime,
+        arcJwksRateLimiters,
+        clientIpConfig,
+        Object.values(deletionApps.urls).map((url) => new URL(url).hostname),
+      ),
+    )
     .use(createInternalAccountRoutes(sharedAuthConfig, DbLive, appRuntime));
 }
 

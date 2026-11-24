@@ -50,6 +50,8 @@ const OSN_LIMITERS: Record<keyof typeof OSN_RATE_LIMITS, (b: CoordinationStores)
     healthCoordination: (b) => (k) => b.healthProbeLimiter.check(k),
     accountExport: (b) => (k) => b.accountExportLimiter.check(k),
     accountExportIp: (b) => (k) => b.accountExportIpLimiter.check(k),
+    arcJwksIp: (b) => (k) => b.arcJwksRateLimiters.minute.check(k),
+    arcJwksIpHour: (b) => (k) => b.arcJwksRateLimiters.hour.check(k),
     accountDelete: (b) => (k) => b.accountErasureRateLimiters.accountDelete.check(k),
     accountRestore: (b) => (k) => b.accountErasureRateLimiters.accountRestore.check(k),
     accountDeletionStatus: (b) => (k) =>
