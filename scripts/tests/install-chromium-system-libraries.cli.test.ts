@@ -755,10 +755,9 @@ const aptCalls = (run: Run) =>
 // dpkg never waits for its lock, and apt-get runs dpkg in a session of its own
 // (apt-pkg/deb/dpkgpm.cc, SetupSlavePtyMagic), out of reach of retry.sh's kill
 // of the attempt's process group. So an attempt cut mid-install can leave a
-// dpkg running that holds the lock against the next attempt, as on 2026-11-24
-// (ci.yml run 45335484667), when attempts 2 and 3 failed within 10 ms of the
-// cut. Each attempt now waits for the lock, up to 60 s, before it touches dpkg
-// or apt, and Playwright's install waits up to 60 s more.
+// dpkg running that holds the lock against the next attempt. Each attempt
+// waits for the lock, up to 60 s, before it touches dpkg or apt, and
+// Playwright's install waits up to 60 s more.
 describe("install-chromium-system-libraries.sh when another dpkg holds dpkg's lock", () => {
   test("a lock another process holds when the attempt starts, and again when Playwright's install starts, is waited for in that attempt, which installs and passes", () => {
     const w = world([ALPHA]);
@@ -816,6 +815,25 @@ describe("install-chromium-system-libraries.sh when another dpkg holds dpkg's lo
     // 122 polls, each a fake dpkg in a Bun process of its own: 9.6 s on a
     // laptop. The limit is the backstop for a wait that never ends.
   }, 90_000);
+
+  test("only the last attempt's give-up names the lock as the cause: when an earlier attempt gave up and the last failed on the network, the step goes on without apt as before", () => {
+    const w = world([ALPHA]);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    // Attempt 1 gives up after 60 s; the lock comes free 5 s into attempt 2.
+    writeFileSync(join(w.dir, "dpkg-lock"), "4242 65\n");
+    unreachable(w, UNREACHABLE);
+    const before = cacheContents(w);
+    const run = install(w);
+    expect(run.status, run.output).toBe(0);
+    expect(ticksIn(run)).toBe(65);
+    expect(
+      run.output.match(/^configure-dpkg: dpkg's lock was still held after 60 s$/gm),
+    ).toHaveLength(1);
+    expect(run.log.filter((line) => line === "apt-get update")).toHaveLength(2);
+    expect(run.output).toContain(SKIPPED);
+    expect(run.output).not.toContain(NOT_SKIPPED);
+    expect(cacheContents(w)).toEqual(before);
+  });
 
   test("a dpkg that an attempt cut at its limit leaves running is waited for by the next attempt, which touches apt only once the lock is free, installs and passes", () => {
     const w = world([ALPHA]);

@@ -1146,23 +1146,35 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   });
 
   // scripts/install-chromium-system-libraries.sh at its longest: three
-  // attempts each cut at their limit, with retry.sh's 10 s grace and its wait
-  // of up to 10 s for an attempt's processes to go, then the dry run with its
-  // own grace. Each wait for dpkg's lock sits inside an attempt, so it must be
-  // shorter than one; a longer one would always be cut before it gave up.
+  // attempts each cut at their limit, with retry.sh's grace and its wait for
+  // an attempt's processes to go, then the dry run with its own grace. Each
+  // wait for dpkg's lock sits inside an attempt, so it must be shorter than
+  // one; a longer one would always be cut before it gave up.
   test("Chromium's system-library install, its waits for dpkg's lock included, ends inside the limit each job gives its step", () => {
-    const script = readFileSync(join(root, "scripts/install-chromium-system-libraries.sh"), "utf8");
-    const numbers = (pattern: RegExp) => (pattern.exec(script)?.slice(1) ?? []).map(Number);
-    const [attempts = 0, seconds = 0] = numbers(/retry\.sh" (\d+) (\d+) \\$/m);
-    const [lockWait = Number.NaN] = numbers(/^lock_wait=(\d+)$/m);
+    const read = (path: string) => readFileSync(join(root, path), "utf8");
+    const numbers = (text: string, pattern: RegExp) =>
+      (pattern.exec(text)?.slice(1) ?? []).map(Number);
+    const script = read("scripts/install-chromium-system-libraries.sh");
+    // No `-k`: the attempts take retry.sh's default grace.
+    const [attempts = 0, seconds = 0] = numbers(script, /retry\.sh" (\d+) (\d+) \\$/m);
+    const [lockWait = Number.NaN] = numbers(script, /^lock_wait=(\d+)$/m);
     const [dryGrace = 0, dryLimit = 0] = numbers(
+      script,
       /timeout -k (\d+) (\d+) bunx --no-install playwright install-deps --dry-run chromium/,
     );
-    const RETRY_EXTRA = 10 + 10;
+    const retry = read("scripts/retry.sh");
+    const [grace = Number.NaN] = numbers(retry, /^grace=(\d+)$/m);
+    // The wait for an attempt's processes: up to <polls> checks, <pause> s apart.
+    const [polls = Number.NaN, pause = Number.NaN] = numbers(
+      retry,
+      /for _ in \$\(seq 1 (\d+)\); do\n.*\n\s+sleep ([\d.]+)\n/,
+    );
     expect(attempts).toBeGreaterThan(0);
     expect(dryLimit).toBeGreaterThan(0);
     expect(lockWait).toBeLessThan(seconds);
-    const longest = attempts * (seconds + RETRY_EXTRA) + dryLimit + dryGrace;
+    const longest = attempts * (seconds + grace + polls * pause) + dryLimit + dryGrace;
+    // The figure the script's header and wiki/conventions/browser-tests.md state.
+    expect(longest).toBeCloseTo(580);
 
     const limits = Object.entries(ci.jobs).flatMap(([id, job]) =>
       stepsOf(job)

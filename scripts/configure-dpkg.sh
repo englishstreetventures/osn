@@ -12,8 +12,10 @@
 # outlived the attempt that started it: apt-get runs dpkg in a session of its
 # own (SetupSlavePtyMagic in apt's apt-pkg/deb/dpkgpm.cc calls setsid), so when
 # scripts/retry.sh cuts an attempt mid-install and kills its process group,
-# apt-get dies and dpkg runs on, holding the lock. Without apt-get it ends
-# within seconds, having finished or failed to write to apt.
+# apt-get dies and dpkg runs on, holding the lock. Without apt-get it should
+# end within seconds: it finishes its packages, or its next write to apt's
+# status pipe, which nothing reads any more, ends it (statusfd_send in
+# lib/dpkg/log.c). That is read from the source; no run has measured it.
 #
 # Removing the lock file is always wrong (dpkg's own message says so), and
 # killing that dpkg could stop it mid-write, so this script waits instead.

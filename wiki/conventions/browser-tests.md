@@ -752,7 +752,8 @@ Installing from the cache against the index on disk has these limits:
 
 *Measured 2026-11-12 — `gh run view 43054765174 --log-failed`: one `Ign:` line every 20.0 s while the update waited, and each index tried twice on `azure.archive.ubuntu.com`, then once on each other mirror (the image's one retry); SRV: `dig SRV _http._tcp.<host>` and `_https._tcp.<host>` for `azure.archive.ubuntu.com`, `archive.ubuntu.com`, `security.ubuntu.com` and `packages.microsoft.com`, no answer for any*
 
-When every attempt fails, the step passes without apt in one case only: no
+When every attempt fails, the step passes without apt in one case only: the
+last attempt did not give up waiting for dpkg's lock; no
 `apt-get update` finished; apt's output names a network fault (a host it could
 not resolve or connect to, a connection that timed out) and no signature or
 hash failure; and `playwright install-deps --dry-run chromium`, which

@@ -131,8 +131,9 @@ resolver="timeout:2 attempts:1"
 # The longest an attempt waits for dpkg's lock, in seconds, before it runs dpkg
 # and again before Playwright's install; each wait sits inside the attempt's
 # 150 s. The usual holder is a dpkg left running by the attempt before, which
-# ends within seconds of losing its apt-get; 60 s is five times a whole warm
-# step (11 s) and leaves 90 s for both index fetches and the install.
+# by dpkg's source should end within seconds of losing its apt-get (unmeasured;
+# configure-dpkg.sh says why); 60 s is five times a whole warm step (11 s) and
+# leaves 90 s for both index fetches and the install.
 lock_wait=60
 # configure-dpkg.sh's last line when it gave up waiting.
 lock_held="configure-dpkg: dpkg's lock was still held after "
