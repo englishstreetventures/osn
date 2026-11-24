@@ -41,9 +41,11 @@ describe("redirectToLogin", () => {
   });
 
   // A run of slashes is read once, not once per slash: the check must not
-  // stall the tab on an address someone crafted.
+  // stall the tab on an address someone crafted. The run follows `/login`,
+  // so it reaches the pattern's trailing `\/*`, where a pattern that read the
+  // run once per slash would take seconds.
   it("reads a long run of slashes at once", () => {
-    const path = `/${"/".repeat(30_000)}x`;
+    const path = `/login${"/".repeat(60_000)}x`;
     window.location.href = `${ORIGIN}${path}`;
     const started = performance.now();
     redirectToLogin();
