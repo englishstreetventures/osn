@@ -39,7 +39,7 @@ flowchart TD
 | Download their data | Any time, and during the window | Settings → Account → "Download my data" (`GET /account/export`, an `account_export` step-up, one a day) or "Send me a link" by email; during the window, "Download my data" on the window screen, since the limited session cannot ask for the link ([[dsar#Art. 15 — Right of access]]) |
 | Delete the account | Any time | Settings → Account → Danger zone → "Delete account…" ([[#The person's side]]) |
 | Keep the account | Until the window ends, seven days on; the screen and the email offer it before the day it ends on | Sign in to Musubi by passkey or email, or start a sign-in from an app, then "Keep my account" ([[#The person's side]]) |
-| Remove their data from one app and keep the account | Any time | Pulse's leave route; cire's "Remove my Cire data", reached from cire's account menu or from Musubi's Settings → Connected apps ([[#Leaving one app]]) |
+| Remove their data from one app and keep the account | Any time | Pulse's leave route; cire's "Remove my Cire data", reached from cire's account menu or from Musubi's Connected apps settings ([[#Leaving one app]]) |
 
 ## The person's side
 
@@ -51,7 +51,7 @@ Musubi's Settings → Account ([[social]]) is where the person deletes the accou
 
 A person keeps the account by signing in to Musubi before the window ends — with a passkey, or with their email address (sign-in by handle finds nothing during the window) — and choosing "Keep my account".
 
-Musubi's Settings → Connected apps links an app's own leave screen, as "Remove my data from <app>", when the app's registration carries one that passes osn-api's rule ([[oidc-provider#Manage-your-data link]]). cire's is its portal's "Remove my Cire data", on the origin osn-api's deployment already pins to cire's client (`CIRE_ORGANISER_ORIGIN`); that screen sends the person to Musubi's `/confirm/<request id>` page for the step-up and back ([[step-up#App step-up requests]]). Every person with a cire connection sees the link, guests too; the screen is for hosts, and keeps a guest's link to their invitation (englishstreetventures/osn#2448). Revoking an app's connection takes its row, and the link, off the list. Pulse has the leave route and no screen, so no link.
+Musubi's Connected apps settings link an app's own leave screen, as "Remove my data from <app>", when the app's registration carries one that passes osn-api's rule ([[oidc-provider#Manage-your-data link]]). cire's is its portal's "Remove my Cire data", on the origin osn-api's deployment already pins to cire's client (`CIRE_ORGANISER_ORIGIN`); that screen sends the person to Musubi's `/confirm/<request id>` page for the step-up and back ([[step-up#App step-up requests]]). Every person with a cire connection sees the link, guests too; the screen is for hosts, and keeps a guest's link to their invitation (englishstreetventures/osn#2448). Revoking an app's connection takes its row, and the link, off the list. Pulse has the leave route and no screen, so no link.
 
 ### Signing in to an app during the window
 
