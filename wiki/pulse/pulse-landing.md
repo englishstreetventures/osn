@@ -127,8 +127,8 @@ colour token), and the CTA target:
 | `PUBLIC_APP_URL` | Primary CTA → the Pulse app                                        | `http://localhost:3001` |
 | `SITE`           | Canonical origin for SEO meta (placeholder `https://pulse.events`) | config default          |
 
-`public/_headers` ships the same tight CSP as the other static sites (no external
-image host; Google Fonts allowed; immutable `/_astro/*`). `connect-src 'self'`
+`public/_headers` ships a tight CSP — no external image host, and `font-src 'self'`
+because the faces are self-hosted — and caches `/_astro/*` as immutable. `connect-src 'self'`
 deliberately allows the same-origin `/api/geo` fetch (the only network call).
 
 The site is otherwise pure-static: the Worker's entry module answers `/api/geo`

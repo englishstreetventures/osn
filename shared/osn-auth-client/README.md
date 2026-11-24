@@ -11,10 +11,12 @@ primitives; each service builds its own middleware on them (cire's is
 ```ts
 import { extractClaims, type OsnAuthOptions } from "@shared/osn-auth-client";
 
-const claims = await extractClaims(req.headers.get("authorization") ?? undefined, jwksUrl, {
-  audience: "osn-access",
+// The options shape a service's middleware takes: the JWKS URL, the audience
+// and, optionally, the issuer.
+const options: OsnAuthOptions = { jwksUrl, audience: "osn-access" };
+
+const claims = await extractClaims(req.headers.get("authorization") ?? undefined, options.jwksUrl, {
+  audience: options.audience,
+  issuer: options.issuer,
 });
 ```
-
-`OsnAuthOptions` is the options shape a service's middleware takes: the JWKS
-URL, the audience and, optionally, the issuer.

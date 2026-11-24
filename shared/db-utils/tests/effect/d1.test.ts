@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -103,11 +103,13 @@ describe("effect D1 layer", () => {
 
   // Drizzle's EffectLogger layer writes bound params as annotations, so nothing here may use it.
   it("does not use drizzle's EffectLogger layer", () => {
-    const src = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../../src/effect/d1.ts"),
-      "utf8",
+    const dir = join(dirname(fileURLToPath(import.meta.url)), "../../src/effect");
+    const files = readdirSync(dir).filter((file) => file.endsWith(".ts"));
+    expect(files).toContain("d1.ts");
+    const using = files.filter((file) =>
+      readFileSync(join(dir, file), "utf8").includes("EffectLogger.layer"),
     );
-    expect(src).not.toContain("EffectLogger.layer");
+    expect(using).toEqual([]);
   });
 
   // The layer is built once per runtime, so every effect sees one handle.

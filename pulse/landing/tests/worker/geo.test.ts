@@ -115,7 +115,10 @@ describe("pulse landing's Worker", () => {
     // A region present: the city is ignored, so the count matches the region-only call.
     expect(await count({ region: "Texas", city: "Austin" })).toBe(await count({ region: "Texas" }));
 
-    // No region: the city, then the country, each still resolve a count in range.
+    // No region: the city is preferred over the country.
+    expect(await count({ city: "Austin", country: "US" })).toBe(await count({ city: "Austin" }));
+
+    // The city alone, or the country alone, still resolves a count in range.
     for (const n of [await count({ city: "Austin" }), await count({ country: "US" })]) {
       expect(n).toBeGreaterThanOrEqual(20);
       expect(n).toBeLessThanOrEqual(179);
