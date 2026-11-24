@@ -8,13 +8,13 @@ import { describe, it, expect, beforeAll, vi } from "vitest";
 
 import { _resetOutboundKeyForTests } from "../../src/lib/outbound-arc";
 import { createAccountExportRoutes } from "../../src/routes/account-export";
-import { createArcJwksRoutes } from "../../src/routes/arc-jwks";
 import { exportLines, type ExportDownstream } from "../../src/services/account-export";
 import { createAuthService } from "../../src/services/auth";
 import { NO_DELETION_APPS, type DeletionAppsConfig } from "../../src/services/deletion-apps";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
+import { createArcJwksRoutes } from "../helpers/routes";
 import { mintStepUpToken } from "../helpers/step-up-session";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;

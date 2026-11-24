@@ -16,6 +16,7 @@ import type { CoordinationErrorHook } from "@shared/coordination";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 
 import type { AccountErasureRateLimiters } from "../../routes/account-erasure";
+import type { ArcJwksRateLimiters } from "../../routes/arc-jwks";
 import type { AuthRateLimiters } from "../../routes/auth/limiters";
 import type { ProfileRateLimiters } from "../../routes/profile";
 import type { RecommendationRateLimiters } from "../../routes/recommendations";
@@ -47,6 +48,8 @@ export interface CoordinationStores {
   readonly accountExportLimiter: RateLimiterBackend;
   /** Per-IP guard in front of the account export. */
   readonly accountExportIpLimiter: RateLimiterBackend;
+  /** Per-IP budgets on `GET /.well-known/arc-jwks.json`. */
+  readonly arcJwksRateLimiters: ArcJwksRateLimiters;
   /** Per-account deletion, restore and status. */
   readonly accountErasureRateLimiters: AccountErasureRateLimiters;
   /** Single-use guard for step-up token ids. */

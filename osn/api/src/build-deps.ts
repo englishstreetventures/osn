@@ -594,6 +594,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     recommendationRateLimiters: minuteLimiters.recommendationRateLimiters,
     accountExportLimiter: stores.accountExportLimiter,
     accountExportIpLimiter: minuteLimiters.accountExportIpLimiter,
+    arcJwksRateLimiters: minuteLimiters.arcJwksRateLimiters,
     accountErasureRateLimiters: minuteLimiters.accountErasureRateLimiters,
     stepUpJtiStore: stores.stepUpJtiStore,
     passkeyChallengeClaims: stores.passkeyChallengeClaims,

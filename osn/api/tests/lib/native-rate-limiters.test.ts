@@ -200,6 +200,7 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
       healthProbeLimiter: bundle.healthProbeLimiter,
       accountExportIpLimiter: bundle.accountExportIpLimiter,
       accountErasureRateLimiters: bundle.accountErasureRateLimiters,
+      arcJwksRateLimiters: bundle.arcJwksRateLimiters,
     };
   };
 
@@ -218,6 +219,7 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
     await selected.healthProbeLimiter.check("9.9.9.9");
     await selected.accountExportIpLimiter.check("9.9.9.9");
     await selected.accountErasureRateLimiters.accountDeletionStatus.check("9.9.9.9");
+    await selected.arcJwksRateLimiters.minute.check("9.9.9.9");
 
     expect(tiers.RL_USER_60_60!.keys).toEqual([
       "graph.write:usr_1",
@@ -238,6 +240,7 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
     expect(tiers.RL_AUTH_IP_30_60!.keys).toEqual([
       "account.export_ip:9.9.9.9",
       "account.deletion_status:9.9.9.9",
+      "arc.jwks_ip:9.9.9.9",
     ]);
   });
 
@@ -252,6 +255,7 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
     expect(selected.accountErasureRateLimiters.accountRestore).toBe(
       base.accountErasureRateLimiters.accountRestore,
     );
+    expect(selected.arcJwksRateLimiters.hour).toBe(base.arcJwksRateLimiters.hour);
   });
 
   it("runs each limiter on the tier whose limit is its budget", () => {

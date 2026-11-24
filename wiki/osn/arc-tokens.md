@@ -288,7 +288,10 @@ and each app fetches the one a token names:
    server count per city, and runs a Worker on more than one server in a data
    centre when the first is overloaded
    ([sharding](https://blog.cloudflare.com/eliminating-cold-starts-2-shard-and-conquer/)).
-   On either warning, find why the set grew before raising the bound.
+   On either warning, find why the set grew before raising the bound. Each
+   caller's address may read the list 30 times a minute and 60 an hour; a
+   refused app treats the `kid` as unknown for 30 seconds and fetches again
+   ([[rate-limiting]]).
 5. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
    Worker-safe): the token must claim `iss: "osn-api"`, ask for a scope the app
    lets osn-api use, and, when the app's secret can key the MAC, carry a `kid`

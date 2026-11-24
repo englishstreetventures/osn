@@ -27,6 +27,7 @@ import {
 } from "@shared/rate-limit";
 
 import type { AccountErasureRateLimiters } from "../routes/account-erasure";
+import type { ArcJwksRateLimiters } from "../routes/arc-jwks";
 import type { AuthRateLimiters } from "../routes/auth";
 import { AUTH_RATE_LIMITS, MINUTE_MS, OSN_RATE_LIMITS } from "../routes/auth/limiters";
 import type { ProfileRateLimiters } from "../routes/profile";
@@ -194,6 +195,7 @@ interface OsnMinuteLimiters {
   readonly healthProbeLimiter: RateLimiterBackend;
   readonly accountExportIpLimiter: RateLimiterBackend;
   readonly accountErasureRateLimiters: AccountErasureRateLimiters;
+  readonly arcJwksRateLimiters: ArcJwksRateLimiters;
 }
 
 type OsnMinuteBudget =
@@ -206,13 +208,15 @@ type OsnMinuteBudget =
   | "profileSetDefault"
   | "healthCoordination"
   | "accountExportIp"
-  | "accountDeletionStatus";
+  | "accountDeletionStatus"
+  | "arcJwksIp";
 
 /**
  * Which tier each one-minute non-auth limiter runs on. Per-user keys (graph,
  * organisation, recommendations) take an `RL_USER_*` tier; profile create,
  * delete and set-default, `GET /health/coordination`, the account export's
- * IP guard and `GET /account/deletion-status` are keyed per IP, so they share
+ * IP guard, `GET /account/deletion-status` and the minute budget of
+ * `GET /.well-known/arc-jwks.json` are keyed per IP, so they share
  * the `RL_AUTH_IP_*` tiers under their own key prefix. The limit in each
  * tier's name is the budget's `maxRequests`; a test holds the two together.
  */
@@ -227,6 +231,7 @@ export const NATIVE_BINDING_FOR_OSN_LIMITER = {
   healthCoordination: "RL_AUTH_IP_10_60",
   accountExportIp: "RL_AUTH_IP_30_60",
   accountDeletionStatus: "RL_AUTH_IP_30_60",
+  arcJwksIp: "RL_AUTH_IP_30_60",
 } as const satisfies Readonly<Record<OsnMinuteBudget, TierName>>;
 
 /**
@@ -276,6 +281,11 @@ export function selectOsnLimiters(
         "accountDeletionStatus",
         fallback.accountErasureRateLimiters.accountDeletionStatus,
       ),
+    },
+    // The key list's hour budget stays on the store; its minute one moves.
+    arcJwksRateLimiters: {
+      ...fallback.arcJwksRateLimiters,
+      minute: pick("arcJwksIp", fallback.arcJwksRateLimiters.minute),
     },
   };
 }

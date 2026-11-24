@@ -326,6 +326,10 @@ export function createDurableCoordination(
     },
     accountExportLimiter: named(OSN_RATE_LIMITS.accountExport),
     accountExportIpLimiter: named(OSN_RATE_LIMITS.accountExportIp),
+    arcJwksRateLimiters: {
+      minute: named(OSN_RATE_LIMITS.arcJwksIp),
+      hour: named(OSN_RATE_LIMITS.arcJwksIpHour),
+    },
     accountErasureRateLimiters,
     stepUpJtiStore: createDurableJtiStore(ns, onError),
     passkeyChallengeClaims: createDurableChallengeClaimStore(
