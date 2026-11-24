@@ -32,14 +32,30 @@ export type ManageDataRefusal =
   | "not_canonical"
   | "credentials"
   | "scheme"
-  | "origin";
+  | "origin"
+  | "malformed_redirect_uris";
 
 /** A client's link as the connections list reads it. */
 export interface ManageDataRow {
   readonly manageDataUrl: string | null;
-  /** Null when the consent's client row is gone. */
-  readonly redirectUris: readonly string[] | null;
+  /**
+   * `redirect_uris` as stored, unparsed: a hand-written row may hold text
+   * that is no JSON list, and only that row's link may suffer for it. Null
+   * when the consent's client row is gone.
+   */
+  readonly redirectUris: string | null;
   readonly disabledAt: number | null;
+}
+
+/** The redirect URIs a stored `redirect_uris` holds, or null when it is no JSON list of strings. */
+function storedRedirectUris(stored: string): readonly string[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return null;
+  }
+  return Array.isArray(parsed) && parsed.every((uri) => typeof uri === "string") ? parsed : null;
 }
 
 /**
@@ -54,7 +70,9 @@ export interface ManageDataRow {
  * name or password; passes {@link isClientUrlScheme}; and has the origin of
  * one of the client's redirect URIs or `appOrigin`, the origin osn-api's own
  * deployment pins to this client. The scheme is checked before the origin,
- * since a `blob:` URL reports the origin of the URL inside it. The rule bounds
+ * since a `blob:` URL reports the origin of the URL inside it. Redirect URIs
+ * stored as anything but a JSON list of strings refuse the link and nothing
+ * else. The rule bounds
  * the origin and not the path: the operator who writes the link is trusted
  * for the page on that origin.
  */
@@ -70,7 +88,9 @@ export function manageDataLink(
   if (url.href !== raw) return { refused: "not_canonical" };
   if (url.username !== "" || url.password !== "") return { refused: "credentials" };
   if (!isClientUrlScheme(url)) return { refused: "scheme" };
-  const registered = row.redirectUris.some(
+  const redirectUris = storedRedirectUris(row.redirectUris);
+  if (redirectUris === null) return { refused: "malformed_redirect_uris" };
+  const registered = redirectUris.some(
     (uri) => URL.canParse(uri) && new URL(uri).origin === url.origin,
   );
   return registered || url.origin === appOrigin ? { url: raw } : { refused: "origin" };

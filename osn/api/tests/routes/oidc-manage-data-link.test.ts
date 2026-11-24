@@ -35,6 +35,8 @@ interface Case {
   readonly noClientRow?: boolean;
   /** The rule a stored link fails, as the refusal counter names it; none when nothing is refused. */
   readonly reason?: ManageDataRefusal;
+  /** `redirect_uris` as stored, in place of the JSON of `redirectUris`: a hand-written row. */
+  readonly storedRedirectUris?: string;
 }
 
 const RP = "https://rp.example.com/callback";
@@ -172,6 +174,35 @@ const REFUSED: readonly (readonly [string, Case])[] = [
     { clientId: "cid_gone", redirectUris: [RP], link: null, noClientRow: true },
   ],
   ["a client with no link", { clientId: "cid_none", redirectUris: [RP], link: null }],
+  [
+    "a link beside redirect URIs that are not JSON",
+    {
+      clientId: "cid_uris_not_json",
+      reason: "malformed_redirect_uris",
+      redirectUris: [],
+      storedRedirectUris: "https://rp.example.com/callback",
+      link: "https://rp.example.com/leave",
+    },
+  ],
+  [
+    "a link beside redirect URIs that are JSON but no list of strings",
+    {
+      clientId: "cid_uris_not_list",
+      reason: "malformed_redirect_uris",
+      redirectUris: [],
+      storedRedirectUris: '{"uri":"https://rp.example.com/callback"}',
+      link: "https://rp.example.com/leave",
+    },
+  ],
+  [
+    "no link, beside redirect URIs that are not JSON",
+    {
+      clientId: "cid_uris_not_json_no_link",
+      redirectUris: [],
+      storedRedirectUris: "[not json",
+      link: null,
+    },
+  ],
 ];
 
 /** Each answered row: why it is answered, the row, and the link it answers. */
@@ -247,7 +278,7 @@ beforeAll(async () => {
           `oc_${c.clientId}`,
           c.clientId,
           `App ${c.clientId}`,
-          JSON.stringify(c.redirectUris),
+          c.storedRedirectUris ?? JSON.stringify(c.redirectUris),
           c.clientId,
           c.disabled ? 2000 : null,
           c.link,

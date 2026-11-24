@@ -28,7 +28,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { accounts, oauthAuthorizationCodes, oauthClients, oauthConsents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { rowsChanged } from "@shared/db-utils";
-import { and, eq, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { metricOidcManageDataLinkRefused } from "../../metrics";
@@ -1081,7 +1081,9 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
               scope: oauthConsents.scope,
               grantedAt: oauthConsents.grantedAt,
               manageDataUrl: oauthClients.manageDataUrl,
-              redirectUris: oauthClients.redirectUris,
+              // Unparsed: a row whose text is no JSON list refuses its own
+              // link (`manageDataLink`) instead of failing the whole list.
+              redirectUris: sql<string | null>`${oauthClients.redirectUris}`,
               disabledAt: oauthClients.disabledAt,
             })
             .from(oauthConsents)
