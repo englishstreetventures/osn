@@ -46,10 +46,11 @@ export function createAuthContext(config: AuthConfig) {
   const refreshTokenTtl = config.refreshTokenTtl ?? 2592000;
   const otpTtl = config.otpTtl ?? 600;
   const stepUpTokenTtl = config.stepUpTokenTtl ?? 300;
-  // The four step-up AMR allow-lists, in one place. TOTP joins the two sets
-  // that already accept an emailed OTP; it joins neither
-  // `passkeyDeleteAllowedAmr` nor `emailChangeAllowedAmr` — see
-  // `[[wiki/osn/step-up]]` for the whole table and the reasoning.
+  // The five step-up AMR allow-lists, in one place. TOTP joins the two sets
+  // that already accept an emailed OTP; it joins none of
+  // `passkeyDeleteAllowedAmr`, `emailChangeAllowedAmr` and
+  // `appDeleteAllowedAmr` — see `[[wiki/osn/step-up]]` for the whole table and
+  // the reasoning.
   const recoveryGenerateAllowedAmr = new Set<string>(
     config.recoveryGenerateAllowedAmr ?? ["webauthn", "otp", "totp"],
   );
@@ -61,13 +62,22 @@ export function createAuthContext(config: AuthConfig) {
   // its `otp` arm proves control of the CURRENT mailbox, which a TOTP seed does
   // not, and email change is the pivot to permanent takeover — so it is not a
   // deployment's choice to widen. Fixed here rather than inline at the verifier
-  // so all four sets are read in one place.
+  // so all five sets are read in one place.
   //
   // Two things this list cannot express, both handled by the provenance rule in
   // `step-up.ts`: a passkey registered minutes ago under a weaker factor mints
   // the `webauthn` it admits, and after an account recovery the `otp` arm's
   // premise — that the mailbox is the owner's — is the very thing in doubt.
   const emailChangeAllowedAmr = new Set<string>(["webauthn", "otp"]);
+  // Removing an app's data (`pulse_app_delete`, `zap_app_delete` at
+  // `/internal/step-up/verify`; `cire_app_delete` at
+  // `/step-up/requests/:id/confirm`) takes a passkey and nothing else. No
+  // `AuthConfig` field either: which factors may remove a person's app data is
+  // a property of the service, not a deployment's choice, and the step-up sheet
+  // offers the passkey alone for these purposes. A passkey registered under a
+  // weaker factor mints the `webauthn` this admits, so both gates also apply
+  // the provenance hold (`step-up.ts`, the `app_delete` gate).
+  const appDeleteAllowedAmr = new Set<string>(["webauthn"]);
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
   const challengeClaims = config.passkeyChallengeClaims ?? createInMemoryChallengeClaimStore();
   const nonceClaims =
@@ -173,6 +183,7 @@ export function createAuthContext(config: AuthConfig) {
     passkeyDeleteAllowedAmr,
     passkeyRegisterAllowedAmr,
     emailChangeAllowedAmr,
+    appDeleteAllowedAmr,
     jtiStore,
     challengeClaims,
     nonceClaims,

@@ -379,15 +379,24 @@ describe("verifyStepUpForAccountDelete: purpose binding", () => {
 // Zap) accepts any account (`expectedAccountId = null`) but requires a
 // matching purpose, and must return the accountId from the verified sub.
 describe("verifyStepUpForExternalPurpose", () => {
+  /** A passkey the account has held for a month. */
+  const HELD_PASSKEY = {
+    id: "pk_aaaaaaaaaaaa",
+    provenance: "webauthn",
+    createdAt: Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60,
+  } as const;
+
   it.effect("returns the verified accountId for a matching purpose", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-ext@example.com", "suext");
-      const stepUpToken = yield* stepUpThroughService(
+      // Removing an app's data takes a passkey, past its hold.
+      const stepUpToken = yield* mintStepUpToken(
         auth,
         profile.accountId,
+        "passkey",
         "pulse_app_delete",
-        cap.recorded,
+        HELD_PASSKEY,
       );
       const result = yield* auth.verifyStepUpForExternalPurpose(
         stepUpToken,
@@ -402,11 +411,13 @@ describe("verifyStepUpForExternalPurpose", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-ext-x@example.com", "suextx");
-      const stepUpToken = yield* stepUpThroughService(
+      // A passkey's, so the factor passes and the purpose is what refuses it.
+      const stepUpToken = yield* mintStepUpToken(
         auth,
         profile.accountId,
+        "passkey",
         "account_delete",
-        cap.recorded,
+        HELD_PASSKEY,
       );
       const { error: err, outcomes } = yield* refusedWith(
         auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete", profile.id),

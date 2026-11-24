@@ -10,7 +10,9 @@
  *    origin). The request is kept for ten minutes, pending.
  * 2. **Confirm** (`POST /step-up/requests/:id/confirm`, Bearer on Musubi). The
  *    person, signed in to Musubi as the same account, steps up for the
- *    request's purpose; the token is spent here. The request becomes
+ *    request's purpose with a passkey, one an emailed link, an authenticator
+ *    code or recovery added only once it is 72 hours old; the token is spent
+ *    here. The request becomes
  *    confirmed for five minutes, with the hash of a fresh code and the family
  *    of the confirming session, and Musubi sends the browser to `returnTo`
  *    with the code on its fragment.
@@ -35,7 +37,7 @@ import { Effect } from "effect";
 import { metricAppStepUpRequest } from "../../metrics";
 import type { AuthContext } from "./context";
 import { type AuthError, type CoordinationError, DatabaseError, isAuthError } from "./errors";
-import type { StepUpModule } from "./step-up";
+import { APP_DELETE_HOLD, type StepUpModule } from "./step-up";
 import { storeCall } from "./store-call";
 import type { AppStepUpRequest } from "./stores";
 
@@ -231,7 +233,9 @@ export function createAppStepUpModule(ctx: AuthContext, stepUp: StepUpModule) {
    * request confirmed with a new code's hash and the confirming session's
    * family, and answers where to send the person, the code on its fragment.
    * Null when there is no such pending request of the caller's account, or
-   * another confirm took it first.
+   * another confirm took it first. A passkey still inside its hold fails with
+   * `PasskeyHeldError`, which names when the hold ends; the request stays
+   * pending and the token unspent.
    */
   const confirmAppStepUp = (
     requestId: string,
@@ -245,11 +249,14 @@ export function createAppStepUpModule(ctx: AuthContext, stepUp: StepUpModule) {
     Effect.gen(function* () {
       const entry = yield* pendingOf(requestId, confirming.accountId);
       if (!entry) return null;
+      // Every purpose an app asks for removes that app's data: a passkey, past
+      // its hold if an emailed link, an authenticator code or recovery added it.
       yield* stepUp.verifyStepUpToken(
         stepUpToken,
         confirming.accountId,
-        ctx.recoveryGenerateAllowedAmr,
+        ctx.appDeleteAllowedAmr,
         entry.purpose,
+        APP_DELETE_HOLD,
       );
       const code = randomToken(32);
       const next: AppStepUpRequest = {

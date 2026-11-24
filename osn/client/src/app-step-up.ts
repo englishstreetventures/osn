@@ -13,6 +13,7 @@
  */
 
 import { reach, readJson, withDeadline } from "./auth-fetch";
+import { safeJson } from "./response-body";
 import type { AuthFetch } from "./runtime";
 import { STEP_UP_DEADLINE_MS, StepUpError, type StepUpPurpose } from "./step-up";
 
@@ -34,12 +35,19 @@ export interface AppStepUpRequest {
 export type AppStepUpConfirmed =
   | { readonly status: "confirmed"; readonly returnTo: string }
   /** No pending request of this account by that id: gone, used, or never this account's. */
-  | { readonly status: "gone" };
+  | { readonly status: "gone" }
+  /**
+   * The passkey that confirmed was added by emailed link, authenticator code
+   * or recovery less than 72 hours ago. `holdEndsAt` (unix seconds) is when it
+   * can be used. The request stays pending.
+   */
+  | { readonly status: "held"; readonly holdEndsAt: number };
 
 /**
  * A rejection of `authFetch` about the session reaches the caller unchanged;
  * every other failure is a `StepUpError`: a refused step-up token is one at
- * status `403`, a rate limit at `429`, no answer in time at `0`.
+ * status `403` (a passkey inside its hold answers `held` instead), a rate
+ * limit at `429`, no answer in time at `0`.
  */
 export interface AppStepUpClient {
   /** The pending request `requestId` of the signed-in account, or null when there is none. */
@@ -85,6 +93,18 @@ export function createAppStepUpClient(config: AppStepUpClientConfig): AppStepUpC
           authFetch,
         );
         if (res.status === 404) return { status: "gone" };
+        if (res.status === 403) {
+          const refused = await safeJson<{ hold_ends_at?: unknown }>(res);
+          const holdEndsAt = refused?.hold_ends_at;
+          if (
+            refused?.error === "passkey_held" &&
+            typeof holdEndsAt === "number" &&
+            Number.isFinite(holdEndsAt)
+          ) {
+            return { status: "held", holdEndsAt };
+          }
+          throw new StepUpError(`Request failed: ${res.status}`, res.status);
+        }
         if (!res.ok) throw new StepUpError(`Request failed: ${res.status}`, res.status);
         const raw = await readJson<{ return_to?: unknown }>(StepUpError, res);
         if (typeof raw.return_to !== "string") {

@@ -3,13 +3,22 @@ import { Elysia, t } from "elysia";
 
 import { resolveAccountWindowPrincipal } from "../../lib/auth-derive";
 import { EMAIL_LINK_SECRET_PATTERN, emailLinkIdPattern } from "../../services/auth/email-link";
-import { isAuthError } from "../../services/auth/errors";
+import { isAuthError, PasskeyHeldError } from "../../services/auth/errors";
 import type { AuthRouteContext } from "./context";
 import {
   errorResponse,
   publicKeyCredentialRequestOptions,
   stepUpTokenResponse,
 } from "./response-schemas";
+
+/**
+ * An app's step-up request confirmed with a passkey still inside its 72-hour
+ * hold. `hold_ends_at` is unix seconds, when the passkey can confirm it.
+ */
+const passkeyHeldResponse = t.Object({
+  error: t.Literal("passkey_held"),
+  hold_ends_at: t.Number(),
+});
 
 /** Every purpose a step-up token may name. */
 const PURPOSE = t.Union([
@@ -674,8 +683,13 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             }
             return { return_to: confirmed.returnTo };
           } catch (e) {
-            // A step-up token this request cannot take: another purpose, spent,
-            // or not of this account.
+            // A passkey still inside its hold: the page says when it can be used.
+            if (e instanceof PasskeyHeldError) {
+              set.status = 403;
+              return { error: "passkey_held" as const, hold_ends_at: e.holdEndsAt };
+            }
+            // A step-up token this request cannot take: not a passkey's, another
+            // purpose, spent, or not of this account.
             if (isAuthError(e)) {
               set.status = 403;
               return { error: "step_up_required" };
@@ -691,7 +705,10 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
           response: {
             200: t.Object({ return_to: t.String() }),
             401: errorResponse,
-            403: errorResponse,
+            // `passkey_held`: a passkey added by emailed link, authenticator code
+            // or recovery, less than 72 hours old; `hold_ends_at` is unix
+            // seconds. Any other refused token: `step_up_required`.
+            403: t.Union([passkeyHeldResponse, errorResponse]),
             404: errorResponse,
             // `session_stale`: the access token's session has ended.
             409: errorResponse,
