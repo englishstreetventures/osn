@@ -2,4 +2,4 @@
 "@tools/e2e": patch
 ---
 
-`cire-registry-claimed` checks that an owner of the gift-list wedding holds its Stripe account before it checks that the key-only cire-api offers no money, so the money it finds closed is closed by the deployment.
+`cire-registry-claimed` and `cire-registry-money` check that an owner of the wedding holds its Stripe account, beside the switch, the charges flag and the account, before they read what the portal or the guest list says about money gifts: cire-api offers no money while the account's holder holds no owner seat. So the claimed flow's closed money is the key-only deployment's doing, and the money flow's open money is the couple's.
