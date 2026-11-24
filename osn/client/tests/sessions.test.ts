@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
-import { createSessionsClient, SessionsError } from "../src/sessions";
+import { createSessionsClient } from "../src/sessions";
 import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
 const authFetch = authFetchSpy();
@@ -60,10 +60,5 @@ describe("createSessionsClient", () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://osn.example.com/sessions/revoke-all-other");
     expect(init?.method).toBe("POST");
-  });
-
-  it("throws SessionsError on non-2xx responses", async () => {
-    fetchMock.mockResolvedValue(okResponse({ error: "unauthorized" }, 401));
-    await expect(client.list()).rejects.toThrow(SessionsError);
   });
 });

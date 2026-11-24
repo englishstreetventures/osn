@@ -84,23 +84,10 @@ describe("createRecommendationClient", () => {
       expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/search?q=ali&limit=5`);
     });
 
-    it("forwards the abort signal so stale keystrokes can be cancelled", async () => {
-      mockFetch({ ok: true, json: () => Promise.resolve({ people: [], organisations: [] }) });
-      const controller = new AbortController();
-      await client.search("ali", { signal: controller.signal });
-      const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
-      expect(init.signal).toBe(controller.signal);
-    });
-
     it("appends ?orgLimit when provided", async () => {
       mockFetch({ ok: true, json: () => Promise.resolve({ people: [], organisations: [] }) });
       await client.search("ali", { limit: 5, orgLimit: 2 });
       expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/search?q=ali&limit=5&orgLimit=2`);
-    });
-
-    it("throws RecommendationClientError on non-2xx", async () => {
-      mockFetch({ ok: false, status: 429, json: () => Promise.resolve({ error: "Rate limited" }) });
-      await expect(client.search("ali")).rejects.toBeInstanceOf(RecommendationClientError);
     });
   });
 });

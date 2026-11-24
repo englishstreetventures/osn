@@ -15,7 +15,7 @@
  * (`test:repo`), which turbo reruns when those files change.
  */
 
-import { Effect, type Layer } from "effect";
+import { Effect, Option, type Layer } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import openapi from "../../../shared/openapi/osn.json";
@@ -23,6 +23,8 @@ import { ROTATION_RACE_MESSAGE } from "../../api/src/lib/grant-failure";
 import { AuthError, DatabaseError } from "../../api/src/services/auth/errors";
 import { createOsnAuthRuntime } from "../src/runtime";
 import { Storage, createEphemeralStorage } from "../src/storage";
+import { decodeDeleteProfileResponse } from "../src/tokens";
+import { fakeSleeps, untilSettled } from "./helpers/fake-sleeps";
 
 const ISSUER = "https://osn.example.com";
 const KEY = "@osn/client:account_session";
@@ -30,6 +32,7 @@ const SUB = "usr_default00001";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 function jwt(claims: object): string {
@@ -57,6 +60,17 @@ function json(status: number, body: unknown): Response {
   });
 }
 
+/** What `POST /token` answers a grant it makes for `SUB`. */
+function granted(): Response {
+  const now = Math.floor(Date.now() / 1000);
+  return json(200, {
+    access_token: jwt({ sub: SUB, iat: now, exp: now + 300 }),
+    token_type: "Bearer",
+    expires_in: 300,
+    scope: "openid",
+  });
+}
+
 describe("a refused grant osn-api marks as 'status unknown'", () => {
   it.each([
     ["the rotation race", new AuthError({ message: ROTATION_RACE_MESSAGE })],
@@ -70,18 +84,13 @@ describe("a refused grant osn-api marks as 'status unknown'", () => {
         // What `POST /token` answers a failed grant with (routes/auth/tokens.ts).
         return json(400, { error: "invalid_grant", message: String(failure) });
       }
-      const now = Math.floor(Date.now() / 1000);
-      return json(200, {
-        access_token: jwt({ sub: SUB, iat: now, exp: now + 300 }),
-        token_type: "Bearer",
-        expires_in: 300,
-        scope: "openid",
-      });
+      return granted();
     });
     vi.stubGlobal("fetch", fetchMock);
     const runtime = createOsnAuthRuntime({ issuerUrl: ISSUER }, { storage: seeded() });
+    fakeSleeps();
 
-    const res = await runtime.authFetch(`${ISSUER}/thing`);
+    const res = await untilSettled(runtime.authFetch(`${ISSUER}/thing`));
 
     expect(res.status).toBe(200);
     expect(grants).toBe(2);
@@ -89,7 +98,7 @@ describe("a refused grant osn-api marks as 'status unknown'", () => {
 });
 
 describe("the grant's profile_id", () => {
-  it("is a field POST /token accepts, in the form the client sends", () => {
+  it("is a field POST /token accepts, in the form the client sends", async () => {
     const body = (
       openapi as unknown as {
         paths: Record<
@@ -107,6 +116,24 @@ describe("the grant's profile_id", () => {
     ).paths["/token"]!["post"]!.requestBody.content["application/x-www-form-urlencoded"]!;
 
     expect(Object.keys(body.schema.properties)).toContain("profile_id");
+
+    // The client's own renewal: it names the profile, and sends no field the
+    // route does not accept.
+    let sent = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) !== `${ISSUER}/token`) return json(200, { ok: true });
+        sent = String(init?.body);
+        return granted();
+      }),
+    );
+    const runtime = createOsnAuthRuntime({ issuerUrl: ISSUER }, { storage: seeded() });
+    await runtime.authFetch(`${ISSUER}/thing`);
+
+    const fields = [...new URLSearchParams(sent).keys()];
+    expect(fields).toContain("profile_id");
+    for (const field of fields) expect(Object.keys(body.schema.properties)).toContain(field);
   });
 
   it("after the active profile is deleted, comes from a field POST /profiles/delete always answers", () => {
@@ -119,7 +146,17 @@ describe("the grant's profile_id", () => {
             {
               responses: Record<
                 string,
-                { content: Record<string, { schema: { required?: string[] } }> }
+                {
+                  content: Record<
+                    string,
+                    {
+                      schema: {
+                        required?: string[];
+                        properties: Record<string, { type?: string }>;
+                      };
+                    }
+                  >;
+                }
               >;
             }
           >
@@ -128,5 +165,18 @@ describe("the grant's profile_id", () => {
     ).paths["/profiles/delete"]!["post"]!.responses["200"]!.content["application/json"]!;
 
     expect(answer.schema.required).toContain("default_profile_id");
+
+    // An answer holding only the fields the route must send still names the
+    // default profile to the client's decoder.
+    const named = "usr_default00002";
+    const minimal = Object.fromEntries(
+      (answer.schema.required ?? []).map((field) => [
+        field,
+        answer.schema.properties[field]?.type === "boolean" ? true : named,
+      ]),
+    );
+    expect(Option.getOrUndefined(decodeDeleteProfileResponse(minimal))?.default_profile_id).toBe(
+      named,
+    );
   });
 });

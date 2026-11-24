@@ -1,11 +1,15 @@
 import { it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 import { OsnAuth, createOsnAuthLive } from "../src/service";
 import { createEphemeralStorage } from "../src/storage";
 
 const config = { issuerUrl: "https://osn.example.com" };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function createTestLayer() {
   return createOsnAuthLive(config).pipe(Layer.provide(createEphemeralStorage()));
@@ -81,8 +85,6 @@ it.effect("redeems the refresh cookie and returns the new token set", () =>
     expect(grant).toBeDefined();
     expect(grant?.init?.method).toBe("POST");
     expect(String(grant?.init?.body)).toContain("grant_type=refresh_token");
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -111,8 +113,6 @@ it.effect("sends credentials, so the rotated cookie survives the cross-origin ho
 
     const grant = calls.find((c) => c.url.endsWith("/token"));
     expect(grant?.init?.credentials).toBe("include");
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -142,8 +142,6 @@ it.effect("does not adopt the session it returns", () =>
     // Still nothing stored: the caller holds the token, the client does not.
     expect(yield* auth.getSession()).toBeNull();
     expect(yield* auth.getActiveProfile()).toBeNull();
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -154,15 +152,16 @@ it.effect("does not adopt the session it returns", () =>
  */
 it.effect("fails when the issuer refuses the grant", () =>
   Effect.gen(function* () {
-    stubTokenEndpoint(() => mockResponse(400, { error: "invalid_grant" }));
+    const calls = stubTokenEndpoint(() => mockResponse(400, { error: "invalid_grant" }));
 
     const auth = yield* OsnAuth;
     const result = yield* Effect.result(auth.refreshHeldSession());
 
     expect(result._tag).toBe("Failure");
+    // A refusal, not a failure for now: one grant, and nothing to retry.
+    expect(result._tag === "Failure" && result.failure.refused).toBe(true);
+    expect(calls.filter((call) => call.url.endsWith("/token"))).toHaveLength(1);
     // And still nothing written on the way out.
     expect(yield* auth.getSession()).toBeNull();
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );

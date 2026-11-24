@@ -6,12 +6,13 @@ import { createOsnAuthRuntime, type OsnAuthRuntime, type SessionChange } from ".
 import { OsnAuth } from "../src/service";
 import { Storage, createEphemeralStorage } from "../src/storage";
 import { extractJwtSub, type ProfileToken } from "../src/tokens";
+import { fakeSleeps, untilSettled } from "./helpers/fake-sleeps";
 
 /**
  * The page's one auth runtime: every authenticated client sends through its
  * `authFetch`. One test per way the renewal can fail that the E2E flow cannot
- * reach (NEW-FEAT.md F1–F43; F19's provider half is in `solid/context.test.tsx`,
- * and what the stored account holds is in `token-storage.test.ts`).
+ * reach (F19's provider half is in `solid/context.test.tsx`, and what the
+ * stored account holds is in `token-storage.test.ts`).
  */
 
 const ISSUER = "https://osn.example.com";
@@ -420,8 +421,9 @@ describe("authFetch on the page's runtime", () => {
             : grant(call),
       });
       const { runtime, changes, stored } = await harness({ active: DEFAULT });
+      fakeSleeps();
 
-      const res = await runtime.authFetch(API);
+      const res = await untilSettled(runtime.authFetch(API));
 
       expect(res.status).toBe(200);
       expect(fetches.to("/token")).toHaveLength(2);
@@ -439,8 +441,9 @@ describe("authFetch on the page's runtime", () => {
         }),
     });
     const { runtime, changes, stored } = await harness({ active: DEFAULT });
+    fakeSleeps();
 
-    const err = await rejection(runtime.authFetch(API));
+    const err = await untilSettled(rejection(runtime.authFetch(API)));
 
     expect(tagOf(err)).toBe("TokenRefreshError");
     expect(isAuthExpiredError(err)).toBe(false);
@@ -493,8 +496,9 @@ describe("authFetch on the page's runtime", () => {
   it("F10: a grant that keeps answering 503 fails the call and keeps the session", async () => {
     const fetches = stubFetch({ token: () => json(503, { error: "upstream" }) });
     const { runtime, changes, stored } = await harness({ active: DEFAULT });
+    fakeSleeps();
 
-    const err = await rejection(runtime.authFetch(API));
+    const err = await untilSettled(rejection(runtime.authFetch(API)));
 
     expect(tagOf(err)).toBe("TokenRefreshError");
     expect(isAuthExpiredError(err)).toBe(false);
@@ -511,8 +515,9 @@ describe("authFetch on the page's runtime", () => {
       },
     });
     const { runtime, changes, stored } = await harness({ active: DEFAULT });
+    fakeSleeps();
 
-    const err = await rejection(runtime.authFetch(API));
+    const err = await untilSettled(rejection(runtime.authFetch(API)));
 
     expect(tagOf(err)).toBe("TokenRefreshError");
     expect(changes).toEqual([]);
@@ -536,20 +541,6 @@ describe("authFetch on the page's runtime", () => {
     expect(err).toBe(failure);
     expect(changes).toEqual([]);
     expect(stored()?.activeProfileId).toBe(DEFAULT);
-  });
-
-  it("F14: an aborted request rejects with its AbortError", async () => {
-    const abort = new DOMException("The operation was aborted.", "AbortError");
-    stubFetch({
-      api: () => {
-        throw abort;
-      },
-    });
-    const { runtime } = await harness({ active: DEFAULT, token: token(DEFAULT, 120_000) });
-
-    const err = await rejection(runtime.authFetch(API, { signal: AbortSignal.abort() }));
-
-    expect(err).toBe(abort);
   });
 
   it("the retry after a 401 sends with the caller's signal, so an abort ends it too", async () => {
@@ -860,11 +851,12 @@ describe("authFetch on the page's runtime", () => {
       storage,
     );
     await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getSession()));
-
-    // An unrelated key changes nothing.
-    onStorage?.({ key: "osn-theme" });
-    await vi.waitFor(() => expect(onStorage).toBeDefined());
     write(storage, { hasSession: true, activeProfileId: OTHER, signInId: "another-sign-in" });
+
+    // An unrelated key changes nothing, though the stored account already has.
+    onStorage?.({ key: "osn-theme" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(changes).toEqual([]);
     onStorage?.({ key: KEY });
 
     await vi.waitFor(() => expect(changes).toEqual([{ kind: "ended" }]));

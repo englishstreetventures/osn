@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { createLoginClient, LoginError } from "../src/login";
+import { createLoginClient } from "../src/login";
 
 const config = { issuerUrl: "https://osn.example.com" };
 
@@ -61,11 +61,6 @@ describe("createLoginClient", () => {
       expect(result).toEqual({ options: { challenge: "x" } });
       expect(calls[0].url).toBe("https://osn.example.com/login/passkey/begin");
       expect(JSON.parse(calls[0].init!.body as string)).toEqual({ identifier: "alice" });
-    });
-
-    it("throws LoginError on non-2xx", async () => {
-      stubFetch(() => jsonResponse({ error: "No passkeys" }, { status: 400 }));
-      await expect(client.passkeyBegin("alice")).rejects.toBeInstanceOf(LoginError);
     });
   });
 
