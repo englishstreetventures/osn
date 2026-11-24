@@ -1190,6 +1190,44 @@ describe("account-erasure: hard-delete sweeper", () => {
       expect(rows[0]!.ownerAccountId).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  it.effect("keeps the time an owner disabled a client before the erasure", () =>
+    Effect.gen(function* () {
+      const { accountId } = yield* seedAccountAndProfile();
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db.insert(oauthClients).values({
+          id: "oc_disabled_by_owner",
+          clientId: "cid_disabled_by_owner",
+          name: "Retired App",
+          redirectUris: ["https://retired.example/cb"],
+          sectorIdentifier: "retired.example",
+          ownerAccountId: accountId,
+          createdAt: 900,
+          disabledAt: 1_000,
+        }),
+      );
+      yield* Effect.promise(() =>
+        db.insert(deletionJobs).values({
+          accountId,
+          softDeletedAt: 1_000,
+          hardDeleteAt: 2_000,
+          pulseDoneAt: 1_500,
+          zapDoneAt: 1_500,
+          cireDoneAt: 1_500,
+          reason: "user_request",
+          cancelSessionId: null,
+        }),
+      );
+      yield* accountErasure.runHardDeleteSweep({ nowMs: 5_000_000 });
+
+      const rows = yield* Effect.promise(() =>
+        db.select().from(oauthClients).where(eq(oauthClients.clientId, "cid_disabled_by_owner")),
+      );
+      expect(rows[0]!.disabledAt).toBe(1_000);
+      expect(rows[0]!.ownerAccountId).toBeNull();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
 });
 
 /**
