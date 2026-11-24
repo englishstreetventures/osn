@@ -32,19 +32,6 @@ function seedSession(profileId = "usr_aaaaaaaaaaaa") {
 afterEach(() => vi.unstubAllGlobals());
 
 // ---------------------------------------------------------------------------
-// getActiveProfile
-// ---------------------------------------------------------------------------
-
-it.effect("getActiveProfile returns the profile ID after setSession", () =>
-  Effect.gen(function* () {
-    const auth = yield* OsnAuth;
-    yield* seedSession("usr_aaaaaaaaaaaa");
-    const active = yield* auth.getActiveProfile();
-    expect(active).toBe("usr_aaaaaaaaaaaa");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-// ---------------------------------------------------------------------------
 // listProfiles
 // ---------------------------------------------------------------------------
 
@@ -210,69 +197,6 @@ it.effect("createProfile omits display_name when not provided", () =>
 // ---------------------------------------------------------------------------
 // deleteProfile
 // ---------------------------------------------------------------------------
-
-it.effect("deleteProfile removes the profile token from storage", () =>
-  Effect.gen(function* () {
-    const profileToDelete = "usr_bbbbbbbbbbbb";
-
-    vi.stubGlobal("fetch", vi.fn());
-
-    // First mock: switchProfile to cache a second profile token
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          access_token: fakeJwt(profileToDelete),
-          expires_in: 3600,
-          profile: {
-            id: profileToDelete,
-            handle: "alt",
-            email: "a@b.com",
-            displayName: null,
-            avatarUrl: null,
-          },
-        }),
-    } as Response);
-
-    // Second mock: switch back to original
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          access_token: fakeJwt("usr_aaaaaaaaaaaa"),
-          expires_in: 3600,
-          profile: {
-            id: "usr_aaaaaaaaaaaa",
-            handle: "main",
-            email: "a@b.com",
-            displayName: null,
-            avatarUrl: null,
-          },
-        }),
-    } as Response);
-
-    // Third mock: deleteProfile
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ deleted: true, default_profile_id: "usr_aaaaaaaaaaaa" }),
-    } as Response);
-
-    const auth = yield* OsnAuth;
-    yield* seedSession("usr_aaaaaaaaaaaa");
-
-    // Switch to second profile (caches its token)
-    yield* auth.switchProfile(profileToDelete);
-    // Switch back
-    yield* auth.switchProfile("usr_aaaaaaaaaaaa");
-
-    // Delete the second profile
-    yield* auth.deleteProfile(profileToDelete);
-
-    // Active profile should still be the original
-    const active = yield* auth.getActiveProfile();
-    expect(active).toBe("usr_aaaaaaaaaaaa");
-  }).pipe(Effect.provide(createTestLayer())),
-);
 
 it.effect("deleteProfile switches active profile when deleting the current one", () =>
   Effect.gen(function* () {

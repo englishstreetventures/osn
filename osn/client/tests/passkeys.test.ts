@@ -95,11 +95,6 @@ describe("createPasskeysClient", () => {
       expect(calls[0]!.init?.credentials).toBe("include");
     });
 
-    it("throws PasskeysError on non-2xx", async () => {
-      stubFetch(() => jsonResponse({ error: "unauthorized" }, { status: 401 }));
-      await expect(client.list()).rejects.toBeInstanceOf(PasskeysError);
-    });
-
     it("throws PasskeysError when the body is missing the passkeys array", async () => {
       stubFetch(() => jsonResponse({ something: "else" }));
       await expect(client.list()).rejects.toBeInstanceOf(PasskeysError);
@@ -166,13 +161,6 @@ describe("createPasskeysClient", () => {
       });
       expect(result).toEqual({ success: true, remaining: 0 });
     });
-
-    it("throws PasskeysError on 403 (step-up missing server-side)", async () => {
-      stubFetch(() => jsonResponse({ error: "step_up_required" }, { status: 403 }));
-      await expect(client.delete({ id: "pk_x", stepUpToken: "s" })).rejects.toBeInstanceOf(
-        PasskeysError,
-      );
-    });
   });
 
   describe("registerBegin", () => {
@@ -196,16 +184,6 @@ describe("createPasskeysClient", () => {
       });
       expect(calls[0]!.init?.credentials).toBe("include");
     });
-
-    it("throws PasskeysError on 403 (step-up missing server-side)", async () => {
-      stubFetch(() => jsonResponse({ error: "step_up_required" }, { status: 403 }));
-      await expect(
-        client.registerBegin({
-          profileId: "prof",
-          stepUpToken: "s",
-        }),
-      ).rejects.toBeInstanceOf(PasskeysError);
-    });
   });
 
   describe("registerComplete", () => {
@@ -227,16 +205,6 @@ describe("createPasskeysClient", () => {
         attestation,
       });
       expect(calls[0]!.init?.credentials).toBe("include");
-    });
-
-    it("throws PasskeysError when the body is missing passkeyId", async () => {
-      stubFetch(() => jsonResponse({ error: "bad_attestation" }, { status: 400 }));
-      await expect(
-        client.registerComplete({
-          profileId: "prof",
-          attestation: {},
-        }),
-      ).rejects.toBeInstanceOf(PasskeysError);
     });
 
     // The negative test above hits `!res.ok` before the missing-

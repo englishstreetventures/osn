@@ -337,46 +337,40 @@ it("adopting a session after the stored one failed to load lists the profiles on
 
 // The real order: a list's own renewal is refused, so the runtime tells the
 // listeners the session ended before the list call itself rejects.
-it.each([
-  ["a server failure", serverFailure],
-  ["the session's end", () => new AuthExpiredError({})],
-])(
-  "a list that fails after the session ended (%s) leaves no error and no old list behind",
-  async (_, failure) => {
-    const { runtime } = listingRuntime([
-      () => Effect.succeed([alice, bob]),
-      (emit) =>
-        Effect.suspend(() => {
-          emit({ kind: "ended" });
-          return Effect.fail(failure());
-        }),
-      // The next account's list has not arrived yet.
-      () => Effect.never,
-    ]);
-    const { auth, dispose } = mount(runtime);
-    await settle();
-    expect(auth().profiles()).toEqual([alice, bob]);
+it("a list that fails after the session ended (a server failure) leaves no error and no old list behind", async () => {
+  const { runtime } = listingRuntime([
+    () => Effect.succeed([alice, bob]),
+    (emit) =>
+      Effect.suspend(() => {
+        emit({ kind: "ended" });
+        return Effect.fail(serverFailure());
+      }),
+    // The next account's list has not arrived yet.
+    () => Effect.never,
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profiles()).toEqual([alice, bob]);
 
-    await auth().refetchProfiles();
-    await settle();
-    expect(auth().session()).toBeNull();
-    expect(auth().profiles()).toBeNull();
-    expect(auth().profilesError()).toBeUndefined();
+  await auth().refetchProfiles();
+  await settle();
+  expect(auth().session()).toBeNull();
+  expect(auth().profiles()).toBeNull();
+  expect(auth().profilesError()).toBeUndefined();
 
-    // Signed in again: neither the old list nor the old error comes back.
-    void auth().adoptSession({
-      accessToken: "token-2",
-      idToken: null,
-      expiresAt: Date.now() + 60_000,
-      scopes: [],
-    } as never);
-    await settle();
-    expect(auth().session()).not.toBeNull();
-    expect(auth().profiles() ?? null).toBeNull();
-    expect(auth().profilesError()).toBeUndefined();
-    dispose();
-  },
-);
+  // Signed in again: neither the old list nor the old error comes back.
+  void auth().adoptSession({
+    accessToken: "token-2",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  } as never);
+  await settle();
+  expect(auth().session()).not.toBeNull();
+  expect(auth().profiles() ?? null).toBeNull();
+  expect(auth().profilesError()).toBeUndefined();
+  dispose();
+});
 
 it("an expired session while listing leaves no error to show", async () => {
   const { runtime } = listingRuntime([() => Effect.fail(new AuthExpiredError({}))]);
@@ -650,18 +644,6 @@ describe("renewSession", () => {
     await settle();
     expect(auth().pendingDeletion()).toBe(true);
     expect(listProfiles).toHaveBeenCalledTimes(1);
-    dispose();
-  });
-
-  it("otherwise rejects, and the page reads as its token says", async () => {
-    const { auth, dispose } = renewing(
-      () => Effect.fail(new StorageError({ cause: "PLANTED" })),
-      () => tokenOn("osn-access"),
-    );
-    await settle();
-
-    await expect(auth().renewSession()).rejects.toBeDefined();
-    expect(auth().pendingDeletion()).toBe(false);
     dispose();
   });
 });

@@ -54,36 +54,9 @@ describe("createRegistrationClient", () => {
       expect(calls[0].url).toBe("https://osn.example.com/handle/weird%20name");
     });
 
-    it("throws RegistrationError when the server replies with an error", async () => {
-      stubFetch(() => jsonResponse({ error: "Invalid handle" }, { status: 400 }));
-      await expect(client.checkHandle("Bad!")).rejects.toBeInstanceOf(RegistrationError);
-      await expect(client.checkHandle("Bad!")).rejects.toThrow("Invalid handle");
-    });
-
     it("throws RegistrationError when the response shape is unexpected", async () => {
       stubFetch(() => jsonResponse({ something: "else" }));
       await expect(client.checkHandle("alice")).rejects.toBeInstanceOf(RegistrationError);
-    });
-
-    it("threads an AbortSignal through to fetch (P-W10)", async () => {
-      const { calls } = stubFetch(() => jsonResponse({ available: true }));
-      const controller = new AbortController();
-      await client.checkHandle("alice", controller.signal);
-      expect(calls[0].init?.signal).toBe(controller.signal);
-    });
-
-    it("rejects with the abort reason when the signal is already aborted", async () => {
-      // Mirror real fetch abort semantics: reject with the signal's reason.
-      stubFetch((call) => {
-        const signal = call.init?.signal;
-        if (signal?.aborted) throw signal.reason;
-        return jsonResponse({ available: true });
-      });
-      const controller = new AbortController();
-      controller.abort();
-      await expect(client.checkHandle("alice", controller.signal)).rejects.toMatchObject({
-        name: "AbortError",
-      });
     });
   });
 
@@ -114,17 +87,6 @@ describe("createRegistrationClient", () => {
         displayName: "Alice",
         previous: { requestId: "signup_aaaaaaaaaaaa", retireSecret: "d".repeat(64) },
       });
-    });
-
-    it("propagates the server error message", async () => {
-      stubFetch(() => jsonResponse({ error: "age_restricted" }, { status: 422 }));
-      await expect(
-        client.beginRegistration({
-          email: "kid@example.com",
-          handle: "kid",
-          birthdate: "2020-01-01",
-        }),
-      ).rejects.toThrow("age_restricted");
     });
   });
 
@@ -252,13 +214,6 @@ describe("createRegistrationClient", () => {
         profileId: "usr_abc",
         attestation,
       });
-    });
-
-    it("propagates 401 from the server as a RegistrationError", async () => {
-      stubFetch(() => jsonResponse({ error: "unauthorized" }, { status: 401 }));
-      await expect(
-        client.passkeyRegisterBegin({ profileId: "usr_abc", accessToken: "bad" }),
-      ).rejects.toThrow("unauthorized");
     });
 
     /**

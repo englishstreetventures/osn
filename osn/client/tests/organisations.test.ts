@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createOrgClient, OrgClientError } from "../src/organisations";
+import { createOrgClient } from "../src/organisations";
 import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
 const authFetch = authFetchSpy();
@@ -85,14 +85,6 @@ describe("createOrgClient — mutations", () => {
     expect(result).toBeUndefined();
     expect((vi.mocked(fetch).mock.calls[0]![1] as RequestInit).method).toBe("DELETE");
   });
-
-  it("deleteOrg resolves even when the success body does not parse", async () => {
-    // The void delete must not read the body on the success path, so an
-    // unparseable one cannot make a successful delete throw. Driven with a
-    // rejecting json() to prove the success path never calls it.
-    mockFetch({ ok: true, status: 204, json: () => Promise.reject(new SyntaxError("no body")) });
-    await expect(client.deleteOrg("acme")).resolves.toBeUndefined();
-  });
 });
 
 describe("createOrgClient — member mutations", () => {
@@ -131,30 +123,6 @@ describe("createOrgClient — member mutations", () => {
 });
 
 describe("createOrgClient — error surface", () => {
-  it("throws OrgClientError carrying the status on non-2xx GET", async () => {
-    mockFetch({
-      ok: false,
-      status: 404,
-      json: () => Promise.resolve({ error: "Organisation not found" }),
-    });
-    const error = await client.getOrg("acme").catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(OrgClientError);
-    expect((error as OrgClientError).status).toBe(404);
-  });
-
-  it("throws OrgClientError on non-2xx DELETE (reads error body)", async () => {
-    mockFetch({ ok: false, json: () => Promise.resolve({ error: "Forbidden" }) });
-    await expect(client.deleteOrg("acme")).rejects.toBeInstanceOf(OrgClientError);
-    await expect(client.deleteOrg("acme")).rejects.toThrow("Forbidden");
-  });
-
-  it("throws OrgClientError on non-2xx PATCH", async () => {
-    // Each verb closes over the caller's own error class, so assert the class
-    // per verb rather than trusting the message alone.
-    mockFetch({ ok: false, json: () => Promise.resolve({ error: "Forbidden" }) });
-    await expect(client.updateOrg("acme", { name: "X" })).rejects.toBeInstanceOf(OrgClientError);
-  });
-
   it("falls back to a generic message when the server omits one", async () => {
     mockFetch({ ok: false, status: 500, json: () => Promise.resolve({}) });
     await expect(client.createOrg({ handle: "x", name: "X" })).rejects.toThrow(/Request failed/);

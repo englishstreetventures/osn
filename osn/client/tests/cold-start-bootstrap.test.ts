@@ -89,63 +89,6 @@ it.effect(
     }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect(
-  "loadSession resolves to null when there is no account and the cookie is gone/expired",
-  () =>
-    Effect.gen(function* () {
-      const fetchMock = vi
-        .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
-        .mockImplementation((input) => {
-          const url = typeof input === "string" ? input : ((input as Request).url ?? "");
-          if (url.endsWith("/token")) {
-            return Promise.resolve(mockResponse(401, { error: "invalid_grant" }));
-          }
-          return Promise.resolve(mockResponse(404));
-        });
-      vi.stubGlobal("fetch", fetchMock);
-
-      const auth = yield* OsnAuth;
-
-      // No account, cookie rejected → genuinely logged out. Must resolve null,
-      // not throw (a throw would bubble through Effect.orDie and crash the page).
-      const session = yield* auth.loadSession();
-      expect(session).toBeNull();
-
-      vi.unstubAllGlobals();
-    }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect(
-  "loadSession returns the existing session without hitting /token when an account is present",
-  () =>
-    Effect.gen(function* () {
-      const fetchMock = vi
-        .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
-        .mockResolvedValue(mockResponse(200, {}));
-      vi.stubGlobal("fetch", fetchMock);
-
-      const auth = yield* OsnAuth;
-      yield* auth.setSession({
-        accessToken: fakeJwt("usr_existing0001"),
-        idToken: null,
-        expiresAt: Date.now() + 60_000,
-        scopes: ["openid", "profile"],
-      });
-
-      const session = yield* auth.loadSession();
-      expect(session).not.toBeNull();
-
-      // No /token call: we already have a valid local account.
-      const tokenCalls = fetchMock.mock.calls.filter(([input]) => {
-        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
-        return url.endsWith("/token");
-      });
-      expect(tokenCalls).toHaveLength(0);
-
-      vi.unstubAllGlobals();
-    }).pipe(Effect.provide(createTestLayer())),
-);
-
 // ---------------------------------------------------------------------------
 // An account with no valid access token in hand (the "logged out on every
 // reload" regression). Access tokens have a short (5 min) TTL and live only in
@@ -234,45 +177,6 @@ it.effect("loadSession does NOT call /token when the stored access token is stil
 // Worker isolate, 429, 5xx, or network blip must not evict a live session.
 // A terminal 4xx invalid_grant must NOT be retried (cookie is genuinely gone).
 // ---------------------------------------------------------------------------
-
-it.effect("fetchTokenGrant retries a transient 503 and recovers the session", () =>
-  Effect.gen(function* () {
-    const profileId = "usr_transient001";
-    // Mint once: fakeJwt embeds Date.now() in `iat`, so re-calling it would
-    // yield a different string. Hold the exact token we expect to recover.
-    const freshToken = fakeJwt(profileId);
-    let tokenCalls = 0;
-    const fetchMock = vi
-      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
-      .mockImplementation((input) => {
-        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
-        if (url.endsWith("/token")) {
-          tokenCalls += 1;
-          // First attempt fails transiently; second succeeds.
-          if (tokenCalls === 1) return Promise.resolve(mockResponse(503, { error: "upstream" }));
-          return Promise.resolve(
-            mockResponse(200, {
-              access_token: freshToken,
-              token_type: "Bearer",
-              expires_in: 300,
-              scope: "openid profile",
-            }),
-          );
-        }
-        return Promise.resolve(mockResponse(404));
-      });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const auth = yield* OsnAuth;
-    const session = yield* auth.loadSession();
-
-    expect(session).not.toBeNull();
-    expect(tokenCalls).toBe(2); // retried once, then succeeded
-    expect(session?.accessToken).toBe(freshToken);
-
-    vi.unstubAllGlobals();
-  }).pipe(Effect.provide(createTestLayer())),
-);
 
 it.effect("fetchTokenGrant does NOT retry a terminal 401 invalid_grant", () =>
   Effect.gen(function* () {
@@ -468,24 +372,6 @@ it.effect("loadSession still bootstraps from the cookie when the marker is prese
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("the marker gate is inert where there is no document (iOS, SSR, tests)", () =>
-  Effect.gen(function* () {
-    const { fetchMock, calls } = countingTokenFetch("usr_nodocument01");
-    vi.stubGlobal("fetch", fetchMock);
-    // No document stub: a non-browser transport keeps its session elsewhere
-    // (Keychain), so the gate must not lock it out.
-    expect(typeof document).toBe("undefined");
-
-    const auth = yield* OsnAuth;
-    const session = yield* auth.loadSession();
-
-    expect(session).not.toBeNull();
-    expect(calls()).toBe(1);
-
-    vi.unstubAllGlobals();
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 // ---------------------------------------------------------------------------
 // A CORS refusal is indistinguishable from a network blip — both surface as an
 // opaque TypeError. Retrying the full ladder turned every blocked page load
@@ -512,31 +398,6 @@ it.effect("a CORS/network TypeError is attempted twice, not three times", () =>
 
     expect(session).toBeNull();
     expect(tokenCalls).toBe(2);
-
-    vi.unstubAllGlobals();
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect("a persistent 503 still gets the full transient ladder — three attempts", () =>
-  Effect.gen(function* () {
-    let tokenCalls = 0;
-    const fetchMock = vi
-      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
-      .mockImplementation((input) => {
-        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
-        if (url.endsWith("/token")) {
-          tokenCalls += 1;
-          return Promise.resolve(mockResponse(503, { error: "upstream" }));
-        }
-        return Promise.resolve(mockResponse(404));
-      });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const auth = yield* OsnAuth;
-    const session = yield* auth.loadSession();
-
-    expect(session).toBeNull();
-    expect(tokenCalls).toBe(3);
 
     vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),

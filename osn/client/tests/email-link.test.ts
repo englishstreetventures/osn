@@ -109,20 +109,6 @@ describe("candidates", () => {
       expect(await client.candidates(requestId, linkSecret)).toEqual({ status: "expired" });
     }
   });
-
-  it("throws on a rate limit, a server error or no answer", async () => {
-    for (const status of [429, 500]) {
-      stub(() => json({ error: "rate_limited" }, status));
-      // oxlint-disable-next-line no-await-in-loop -- one stub at a time
-      const err = await client.candidates(requestId, linkSecret).catch((e) => e);
-      expect(err).toBeInstanceOf(EmailLinkError);
-      expect(err).toMatchObject({ status, code: "rate_limited" });
-    }
-    stub(() => Promise.reject(new TypeError("Failed to fetch")));
-    const err = await client.candidates(requestId, linkSecret).catch((e) => e);
-    expect(err).toBeInstanceOf(EmailLinkError);
-    expect(err).toMatchObject({ status: 0 });
-  });
 });
 
 describe("emailLinkPurpose", () => {

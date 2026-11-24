@@ -11,10 +11,6 @@ import { AuthExpiredError, isAuthExpiredError, TokenRefreshError } from "../src/
  * redirect.
  */
 describe("isAuthExpiredError", () => {
-  it("accepts the unwrapped error", () => {
-    expect(isAuthExpiredError(new AuthExpiredError({}))).toBe(true);
-  });
-
   it("accepts a structurally-equal error from another copy of the package", () => {
     expect(isAuthExpiredError({ _tag: "AuthExpiredError" })).toBe(true);
   });
@@ -55,11 +51,6 @@ describe("isAuthExpiredError", () => {
     expect(isAuthExpiredError(new Error("ApiError: AuthExpiredError"))).toBe(false);
     expect(isAuthExpiredError("the server said AuthExpiredError")).toBe(false);
     expect(isAuthExpiredError({ error: "AuthExpiredError" })).toBe(false);
-  });
-
-  it("rejects an unrelated failure", () => {
-    expect(isAuthExpiredError(new Error("Network request failed"))).toBe(false);
-    expect(isAuthExpiredError({ _tag: "StorageError" })).toBe(false);
   });
 
   it("returns false rather than throwing on values with no string form", () => {

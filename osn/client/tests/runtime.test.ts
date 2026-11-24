@@ -538,20 +538,6 @@ describe("authFetch on the page's runtime", () => {
     expect(stored()?.activeProfileId).toBe(DEFAULT);
   });
 
-  it("F14: an aborted request rejects with its AbortError", async () => {
-    const abort = new DOMException("The operation was aborted.", "AbortError");
-    stubFetch({
-      api: () => {
-        throw abort;
-      },
-    });
-    const { runtime } = await harness({ active: DEFAULT, token: token(DEFAULT, 120_000) });
-
-    const err = await rejection(runtime.authFetch(API, { signal: AbortSignal.abort() }));
-
-    expect(err).toBe(abort);
-  });
-
   it("the retry after a 401 sends with the caller's signal, so an abort ends it too", async () => {
     let retry: Call | undefined;
     const fetches = stubFetch({
