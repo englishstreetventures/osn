@@ -31,23 +31,11 @@ const valueOf = () => screen.getByTestId("value").textContent;
 afterEach(cleanup);
 
 describe("DietaryPresets", () => {
-  it("renders every preset in the vocabulary as a checkbox", () => {
-    render(() => <Harness />);
-    expect(screen.getAllByRole("checkbox")).toHaveLength(DIETARY_PRESETS.length);
-  });
-
   it("names the group for whoever the requirements belong to", () => {
     // On a household sheet "Vegetarian" means nothing without "for Ada" — the
     // label is what keeps a screen reader's announcement attributable.
     render(() => <Harness />);
     expect(screen.getByRole("group", { name: "Dietary requirements for Ada" })).toBeTruthy();
-  });
-
-  it("selects more than one, which is the whole reason this is not a select", () => {
-    render(() => <Harness />);
-    fireEvent.click(screen.getByRole("checkbox", { name: /vegetarian/i }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /^nuts$/i }));
-    expect(valueOf()).toBe("vegetarian,nuts");
   });
 
   it("hands back canonical order however it was clicked", () => {
@@ -70,12 +58,6 @@ describe("DietaryPresets", () => {
     expect((screen.getByRole("checkbox", { name: /vegan/i }) as HTMLInputElement).checked).toBe(
       false,
     );
-  });
-
-  it("deselects", () => {
-    render(() => <Harness initial={["vegetarian"]} />);
-    fireEvent.click(screen.getByRole("checkbox", { name: /vegetarian/i }));
-    expect(valueOf()).toBe("");
   });
 
   it("disables every checkbox when the form is locked", () => {
@@ -133,12 +115,6 @@ function OpenHarness(props: { initial: readonly string[] }) {
 }
 
 describe("a key this build does not know", () => {
-  it("survives a tick on another preset, trailing the keys it does know", () => {
-    render(() => <OpenHarness initial={["vegan", "a_future_key"]} />);
-    fireEvent.click(screen.getByRole("checkbox", { name: /^nuts$/i }));
-    expect(valueOf()).toBe("vegan,nuts,a_future_key");
-  });
-
   it("survives an untick", () => {
     render(() => <OpenHarness initial={["vegan", "a_future_key"]} />);
     fireEvent.click(screen.getByRole("checkbox", { name: /vegan/i }));

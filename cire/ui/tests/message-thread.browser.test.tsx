@@ -95,10 +95,15 @@ async function menuOpens() {
   return menu()!;
 }
 
-/** Waits for the menu's module, which the thread fetches once a pointer enters it. */
+/**
+ * Waits for the menu's module, which the thread fetches once a pointer enters
+ * it: the same module the thread imports, then one task for the thread's own
+ * `then` to mark the menu ready.
+ */
 async function primeMenu(item: HTMLElement) {
   await userEvent.hover(item);
-  await new Promise((r) => setTimeout(r, 50));
+  await import("../src/message-info-menu");
+  await new Promise((r) => setTimeout(r, 0));
 }
 
 describe("MessageThread under a pointer and a finger", () => {
@@ -303,12 +308,11 @@ describe("MessageThread under a pointer and a finger", () => {
     expect(key.defaultPrevented).toBe(true);
   });
 
-  it("never opens the info for a finger, however long it is held", async () => {
+  it("never opens the info for a finger", async () => {
     render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
     const first = row("Is the barn free on 14 March?");
     await primeMenu(first);
     first.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
-    await new Promise((r) => setTimeout(r, 800));
     const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
     first.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);

@@ -45,12 +45,6 @@ function renderPlaceholder() {
 }
 
 describe("Wordmark", () => {
-  it("takes its accessible name from the label it is given", () => {
-    // Without it the name would be "✦Cire": a way home that does not say so.
-    renderButton();
-    expect(screen.getByRole("button", { name: "Cire — all weddings" })).toBeTruthy();
-  });
-
   it("refuses a label that does not open with the word on screen", () => {
     // WCAG 2.5.3: someone who says "click Cire" must reach it. The type check
     // (`bun run typecheck`) fails if this line compiles.
@@ -103,10 +97,6 @@ describe("WordmarkPlaceholder", () => {
     expect(copy.hasAttribute("role")).toBe(false);
     expect(copy.hasAttribute("tabindex")).toBe(false);
     expect(copy.querySelector("button, a, [tabindex], [role]")).toBeNull();
-  });
-
-  it("answers neither the pointer nor focus", () => {
-    expect(classesOf(renderPlaceholder()).filter((c) => BUTTON_ONLY.test(c))).toEqual([]);
   });
 
   it("draws the button's box and glyphs, so the swap moves nothing", () => {

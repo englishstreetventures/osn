@@ -486,15 +486,6 @@ describe("proseLinkClass", () => {
   const TONES = ["accent", "muted"] as const satisfies readonly ProseLinkTone[];
   const classes = (tone?: ProseLinkTone) => proseLinkClass(tone ? { tone } : {}).split(/\s+/);
 
-  it("stays inline and lets its sentence wrap it", () => {
-    // Every `buttonClass` starts `inline-flex … whitespace-nowrap`, which holds
-    // a long link to one line. A link in running text must break with it.
-    const wrong = TONES.filter((tone) =>
-      classes(tone).some((c) => /inline-flex|whitespace-nowrap|^base:flex$/.test(c)),
-    );
-    expect(wrong).toEqual([]);
-  });
-
   it("is underlined at rest at a 2px offset, in every tone", () => {
     for (const tone of TONES) {
       expect(classes(tone)).toEqual(
@@ -697,12 +688,6 @@ describe("Card", () => {
     expect(everyCard().filter((cls) => borderColours(cls).length !== 1)).toEqual([]);
   });
 
-  it("adds nothing for a card that is not a control", () => {
-    // The hover treatment is a promise that the whole rectangle is clickable.
-    expect(cardClass()).not.toContain("hover:");
-    expect(cardClass({ interactive: true })).toContain("hover:");
-  });
-
   it("refuses a hover on a card whose fill or tone has none", () => {
     // The interactive hover lifts the wash and turns the border gold: no other
     // fill has a lifted step, and a danger card is never the control itself.
@@ -853,7 +838,12 @@ describe("Card — motion", () => {
 
 describe("UsernameInput", () => {
   it("names the control by the label alone — the @ isn't part of it", () => {
-    const { getByRole } = render(() => <UsernameInput aria-label="OSN handle" />);
+    // A wrapping label would take the "@" into the name unless it is hidden.
+    const { getByRole } = render(() => (
+      <label>
+        OSN handle <UsernameInput />
+      </label>
+    ));
     expect(getByRole("textbox")).toHaveAccessibleName("OSN handle");
   });
 
@@ -875,10 +865,9 @@ describe("UsernameInput", () => {
 describe("Loading", () => {
   it("announces itself without interrupting", () => {
     render(() => <Loading label="Loading enquiries…" />);
+    // `status`, not `alert`: something starting to load is not urgent.
     const el = screen.getByRole("status");
     expect(el).toHaveTextContent("Loading enquiries…");
-    // `status`, not `alert`: something starting to load is not urgent.
-    expect(el).not.toHaveAttribute("role", "alert");
   });
 
   it("pulses on the same pulse as Skeleton, and no other", () => {

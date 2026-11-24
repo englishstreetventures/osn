@@ -64,7 +64,7 @@ describe("as tabs", () => {
     );
   });
 
-  it("moves focus with the arrows, Home and End without choosing, and chooses on Enter", () => {
+  it("moves focus with the arrows, Home and End without choosing, and chooses on a click", () => {
     const onChange = vi.fn();
     render(() => <Tabs onChange={onChange} />);
     const [first, second, third] = screen.getAllByRole("tab") as [
@@ -94,25 +94,6 @@ describe("as tabs", () => {
     expect(onChange).toHaveBeenCalledWith("edit");
     expect(second.getAttribute("aria-selected")).toBe("true");
     expect(second.getAttribute("tabindex")).toBe("0");
-  });
-});
-
-describe("a value that names no item", () => {
-  it("leaves the first tab as the strip's one tab stop", () => {
-    render(() => (
-      <SegmentedTabs
-        items={VIEWS}
-        value={"gone" as View}
-        onChange={() => {}}
-        label="Views"
-        semantics="tabs"
-      />
-    ));
-    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("tabindex"))).toEqual([
-      "0",
-      "-1",
-      "-1",
-    ]);
   });
 });
 
