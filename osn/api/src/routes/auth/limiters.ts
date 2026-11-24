@@ -352,11 +352,10 @@ export const OSN_RATE_LIMITS = {
   // unauthenticated flood from spending token-verification time.
   accountExport: { store: "account.export", maxRequests: 1, windowMs: DAY_MS },
   accountExportIp: { store: "account.export_ip", maxRequests: 30, windowMs: MINUTE_MS },
-  // Per IP: `GET /.well-known/arc-jwks.json`, which anyone may call. An app
-  // fetches it only for an outbound key id it has not cached, so its busiest
-  // minute is about 10 and its busiest hour far under 60. The minute budget
-  // turns a flood away at the edge; the hour budget bounds what one address
-  // can cost in reads, about 2,000 rows a call when the key set is full.
+  // Per IP, or per configured app zone: `GET /.well-known/arc-jwks.json`,
+  // which anyone may call. The minute budget turns a flood away at the edge;
+  // the hour budget bounds what one key can cost in reads, about 2,000 rows a
+  // call when the key set is full. The apps' busiest minute is about 10.
   arcJwksIp: { store: "arc.jwks_ip", maxRequests: 30, windowMs: MINUTE_MS },
   arcJwksIpHour: { store: "arc.jwks_ip_hour", maxRequests: 60, windowMs: HOUR_MS },
   // Per IP: `routes/account-erasure.ts` keys each on the caller's address.

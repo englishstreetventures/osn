@@ -1,11 +1,18 @@
 import { arcOutboundKeys } from "@osn/db/schema";
-import { Logger } from "effect";
+import { Layer, Logger } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createApp } from "../../src/app";
+import { buildAppDeps } from "../../src/build-deps";
+import { createInMemoryCoordination } from "../../src/lib/coordination/memory";
 import { _resetOutboundKeyForTests } from "../../src/lib/outbound-arc";
 import { createArcJwksRoutes as createArcJwksRoutesRaw } from "../../src/routes/arc-jwks";
 import { memoryLimiter, MINUTE_MS, OSN_RATE_LIMITS } from "../../src/routes/auth/limiters";
-import { createCapturingTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
 import { createArcJwksRoutes } from "../helpers/routes";
 
 /**
@@ -65,8 +72,7 @@ describe("GET /.well-known/arc-jwks.json", () => {
 /**
  * The route is public, so each caller's address has two budgets: 30 a minute,
  * refused at the edge, and 60 an hour, which bounds the reads one address can
- * cost. An app fetches the list only for a kid it has not cached, so its
- * pattern stays far inside both.
+ * cost. The apps' fetch pattern stays far inside both.
  */
 describe("GET /.well-known/arc-jwks.json — the caller's budgets", () => {
   /** The address every Worker's cross-zone subrequest arrives from. */
@@ -322,6 +328,166 @@ describe("GET /.well-known/arc-jwks.json — counting and seeing refusals", () =
     const app = routes(layer, lines, { minute: failing, hour: failing });
     expect(await status(app, { "cf-connecting-ip": "203.0.113.31" })).toBe(429);
     await vi.waitFor(() => expect(refusals(lines)).toHaveLength(1));
-    expect(JSON.stringify(refusals(lines)[0])).toContain("limiter_error");
+    expect(JSON.stringify(refusals(lines)[0])).toContain("minute");
+  });
+});
+
+/**
+ * Which zone is an app's, which budget is asked first, and what an isolate
+ * remembers: the edges a lane or a budget can get wrong without the tests
+ * above noticing.
+ */
+describe("GET /.well-known/arc-jwks.json — lanes and budgets at their edges", () => {
+  const WORKER_ADDRESS = "2a06:98c0:3600::103";
+
+  /** A limiter on `budget` that counts the checks it is asked. */
+  const counted = (budget: Parameters<typeof memoryLimiter>[0]) => {
+    const inner = memoryLimiter(budget);
+    const counter = { checks: 0 };
+    return { counter, limiter: { check: (key: string) => (counter.checks++, inner.check(key)) } };
+  };
+
+  const build = (
+    layer: Parameters<typeof createArcJwksRoutesRaw>[0],
+    appHosts: string[],
+    limiters = {
+      minute: memoryLimiter(OSN_RATE_LIMITS.arcJwksIp),
+      hour: memoryLimiter(OSN_RATE_LIMITS.arcJwksIpHour),
+    },
+    lines: { message: unknown }[] = [],
+  ) =>
+    createArcJwksRoutesRaw(
+      layer,
+      Logger.layer([
+        Logger.map(
+          Logger.formatStructured,
+          (line) => void lines.push(line as { message: unknown }),
+        ),
+      ]),
+      undefined,
+      limiters,
+      { trustCloudflare: true },
+      appHosts,
+    );
+
+  const status = (
+    app: { handle: (request: Request) => Promise<Response> | Response },
+    headers: Record<string, string>,
+  ) =>
+    Promise.resolve(
+      app.handle(new Request("http://localhost/.well-known/arc-jwks.json", { headers })),
+    ).then((res) => res.status);
+
+  /** Spends the Worker address's minute budget, under a zone that is no app's. */
+  const spendWorkerAddress = async (app: ReturnType<typeof build>) => {
+    for (let i = 0; i < OSN_RATE_LIMITS.arcJwksIp.maxRequests; i++) {
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await status(app, { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "stranger.example" });
+    }
+  };
+
+  it("takes a zone as an app's only on a label boundary, and reads the header loosely", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const app = build(layer, ["api.cire.example", "zap.example"]);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    await spendWorkerAddress(app);
+    const from = (zone: string) =>
+      status(app, { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": zone });
+    expect(await from("ire.example")).toBe(429);
+    expect(await from("example")).toBe(429);
+    expect(await from("pages.dev")).toBe(429);
+    expect(await from(" CIRE.Example ")).toBe(200);
+    // An app on its zone's own apex host.
+    expect(await from("zap.example")).toBe(200);
+  });
+
+  it("asks the minute budget first, so a refused flood never reaches the hour one", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const hour = counted(OSN_RATE_LIMITS.arcJwksIpHour);
+    const app = build(layer, [], {
+      minute: memoryLimiter(OSN_RATE_LIMITS.arcJwksIp),
+      hour: hour.limiter,
+    });
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    for (let i = 0; i < OSN_RATE_LIMITS.arcJwksIp.maxRequests + 10; i++) {
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await status(app, { "cf-connecting-ip": "203.0.113.40" });
+    }
+    expect(hour.counter.checks).toBe(OSN_RATE_LIMITS.arcJwksIp.maxRequests);
+  });
+
+  it("remembers an hour refusal for a minute instead of asking the store again", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const hour = counted(OSN_RATE_LIMITS.arcJwksIpHour);
+    const app = build(layer, [], {
+      minute: memoryLimiter(OSN_RATE_LIMITS.arcJwksIp),
+      hour: hour.limiter,
+    });
+    const start = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    const minute = MINUTE_MS + 1_000;
+    const caller = { "cf-connecting-ip": "203.0.113.41" };
+    for (let m = 0; m < 3; m++) {
+      clock.mockReturnValue(start + m * minute);
+      for (let i = 0; i < 20; i++) {
+        // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+        await status(app, caller);
+      }
+    }
+    clock.mockReturnValue(start + 3 * minute);
+    expect(await status(app, caller)).toBe(429);
+    const asked = hour.counter.checks;
+    expect(await status(app, caller)).toBe(429);
+    expect(hour.counter.checks).toBe(asked);
+    clock.mockReturnValue(start + 4 * minute);
+    expect(await status(app, caller)).toBe(429);
+    expect(hour.counter.checks).toBe(asked + 1);
+  });
+
+  it("logs each lane's first refusal in a minute, and again once the minute has passed", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const lines: { message: unknown }[] = [];
+    const app = build(layer, ["api.cire.example"], undefined, lines);
+    const start = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    const refusals = () =>
+      lines.filter((line) => JSON.stringify(line.message).includes("refused a caller"));
+    const appFetch = { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "cire.example" };
+    const direct = { "cf-connecting-ip": "203.0.113.42" };
+    for (let i = 0; i <= OSN_RATE_LIMITS.arcJwksIp.maxRequests; i++) {
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await status(app, appFetch);
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await status(app, direct);
+    }
+    await vi.waitFor(() => expect(refusals()).toHaveLength(2));
+    clock.mockReturnValue(start + MINUTE_MS + 1_000);
+    for (let i = 0; i <= OSN_RATE_LIMITS.arcJwksIp.maxRequests; i++) {
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await status(app, direct);
+    }
+    await vi.waitFor(() => expect(refusals()).toHaveLength(3));
+  });
+
+  it("gets the app hosts from the deletion app URLs when the app is built", async () => {
+    const built = await buildAppDeps(
+      { OSN_ISSUER_URL: "http://localhost:4000", CIRE_API_URL: "https://api.cire.example" },
+      {
+        coordination: () => createInMemoryCoordination(),
+        dbAndEmailLayer: createTestLayer(),
+        observabilityLayer: Layer.empty,
+        includeObservabilityPlugin: false,
+        trustCloudflare: true,
+      },
+    );
+    const app = createApp(built.deps);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    for (let i = 0; i < OSN_RATE_LIMITS.arcJwksIp.maxRequests; i++) {
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await status(app, { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "stranger.example" });
+    }
+    expect(
+      await status(app, { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "cire.example" }),
+    ).toBe(200);
   });
 });

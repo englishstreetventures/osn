@@ -1390,8 +1390,12 @@ type ExportRequestedAttrs = { result: ExportRequestResult };
 
 /** Whose budget a key-list request spent: a configured app's zone, or the caller's address. */
 export type ArcJwksLane = "app" | "address";
-/** Why a key-list request was refused: its minute or hour budget, no address, or a store failure. */
-export type ArcJwksRefusal = "minute" | "hour" | "unresolved" | "limiter_error";
+/**
+ * Why a key-list request was refused: its minute or hour budget, or no
+ * address. A failing limiter refuses as its budget would, so a store failure
+ * reads as `hour`.
+ */
+export type ArcJwksRefusal = "minute" | "hour" | "unresolved";
 type ArcJwksRefusedAttrs = { lane: ArcJwksLane; reason: ArcJwksRefusal };
 type DeletionCompletedAttrs = {
   result: DeletionCompletedResult;

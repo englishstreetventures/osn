@@ -51,6 +51,21 @@ export interface ArcJwksRateLimiters {
 /** The address Cloudflare gives every Worker's subrequest to another zone. */
 const WORKER_SUBREQUEST_ADDRESS = "2a06:98c0:3600::103";
 
+/** Whether `limiter` admits `key`; one that throws refuses. */
+async function admittedBy(limiter: RateLimiterBackend, key: string): Promise<boolean> {
+  try {
+    return await limiter.check(key);
+  } catch {
+    return false;
+  }
+}
+
+/** How long an isolate remembers that the hour budget refused a key. */
+const HOUR_REFUSAL_MEMO_MS = 60_000;
+
+/** The most keys an isolate remembers as refused for the hour. */
+const HOUR_REFUSAL_MEMO_MAX = 4_096;
+
 /** How often, at most, a refusal is logged, per lane, per isolate. */
 const REFUSAL_LOG_INTERVAL_MS = 60_000;
 
@@ -106,15 +121,35 @@ export function createArcJwksRoutes(
 ) {
   const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
-  /** Null when the key is inside both budgets, else why not; a limiter that throws refuses. */
+  /**
+   * Keys the hour budget refused, until when: this isolate answers them from
+   * here for a minute instead of asking the store on every call. Pruned on
+   * each refusal and capped, so the map never grows past its cap.
+   */
+  const hourRefused = new Map<string, number>();
+
+  const rememberHourRefusal = (key: string, now: number): void => {
+    for (const [held, until] of hourRefused) if (until <= now) hourRefused.delete(held);
+    if (hourRefused.size >= HOUR_REFUSAL_MEMO_MAX) return;
+    hourRefused.set(key, now + HOUR_REFUSAL_MEMO_MS);
+  };
+
+  /**
+   * Null when the key is inside both budgets, else the budget that refused it:
+   * the minute one first, so a refused flood never reaches the store. A
+   * limiter that fails refuses, as the deployed ones do themselves.
+   */
   const refusal = async (key: string): Promise<ArcJwksRefusal | null> => {
-    try {
-      if (!(await limiters.minute.check(key))) return "minute";
-      if (!(await limiters.hour.check(key))) return "hour";
-      return null;
-    } catch {
-      return "limiter_error";
+    const now = Date.now();
+    if ((hourRefused.get(key) ?? 0) > now) {
+      return (await admittedBy(limiters.minute, key)) ? "hour" : "minute";
     }
+    if (!(await admittedBy(limiters.minute, key))) return "minute";
+    if (!(await admittedBy(limiters.hour, key))) {
+      rememberHourRefusal(key, now);
+      return "hour";
+    }
+    return null;
   };
 
   /** When each lane last logged a refusal, in this isolate. */

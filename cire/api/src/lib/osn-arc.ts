@@ -10,12 +10,8 @@
  *
  * cire-api holds no kid secret. The value osn-api keys its kid MACs with,
  * `INTERNAL_SERVICE_SECRET`, is also the bearer of service-key registration on
- * osn-api and zap-api, and cire-api is not trusted with that. Without it the
- * kid's MAC is not checked: a token with a made-up kid costs one fetch of
- * osn-api's public key set before it is refused, and the cache then remembers
- * that kid as unknown for 30 seconds, sharing one fetch between concurrent
- * requests. The key set is public, so that is the load anyone could put on it
- * directly. A token is still authenticated only by its signature.
+ * osn-api and zap-api, and cire-api is not trusted with that, so cire-api does
+ * not check the kid's MAC. A token is authenticated by its signature.
  */
 import { verifyOsnArcToken } from "@shared/osn-auth-client/arc";
 
