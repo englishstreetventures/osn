@@ -669,6 +669,18 @@ describe("StepUpDialog — factors the ceremony would refuse", () => {
     expect(refuses.query(TOTP_BUTTON)).toBeNull();
   });
 
+  it.each(["pulse_app_delete", "zap_app_delete", "cire_app_delete"] as const)(
+    "%s offers the passkey alone — removing an app's data takes one",
+    async (purpose) => {
+      // The app-data gate admits `webauthn` alone; an emailed link or an
+      // authenticator code would mint a token it refuses.
+      const refuses = await mountBesideAnAdmittingCeremony(purpose);
+      expect(refuses.get(/Use passkey/i)).toBeTruthy();
+      expect(refuses.query(/Email me a link/i)).toBeNull();
+      expect(refuses.query(TOTP_BUTTON)).toBeNull();
+    },
+  );
+
   it("email_change keeps the emailed link but not the authenticator", async () => {
     // The emailed code proves control of the CURRENT mailbox; an
     // authenticator seed does not, which is the whole point of that gate.
