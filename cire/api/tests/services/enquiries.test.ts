@@ -573,16 +573,13 @@ describe("enquiryService.quote", () => {
     const ven = db.select().from(vendors).where(eq(vendors.id, enq.vendorId)).get();
     expect(ven!.quotedMinor).toBe(250000);
 
-    // A quote message went to zap, carrying the formatted amount + note.
-    expect(
-      zap.sendCalls.some((c) => c.body.includes("2,500") && c.body.includes("Includes setup")),
-    ).toBe(true);
+    // A quote message went to zap carrying the note. The amount's text, in
+    // the chat and the email, is pinned per currency by the table below.
+    expect(zap.sendCalls.some((c) => c.body.includes("Includes setup"))).toBe(true);
 
     const quoteEmails = email.sent.filter((m) => m.template === "enquiry-quote");
     expect(quoteEmails).toHaveLength(1);
     expect(quoteEmails[0]!.to).toBe("couple@wedding.test");
-    const data = quoteEmails[0]!.data as { amountFormatted: string };
-    expect(data.amountFormatted).toContain("2,500");
   });
 
   it("fails EnquiryAwaitingVendor when the enquiry is unprovisioned", async () => {

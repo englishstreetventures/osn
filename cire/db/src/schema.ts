@@ -54,8 +54,8 @@ export const weddings = sqliteTable(
     // NOT NULL with a DEFAULT so historical rows + inserts that omit it land
     // on AUD.
     currency: text("currency").notNull().default("AUD"),
-    // Total budget in MINOR units (cents) of `currency` — integers only, no
-    // float money.
+    // Total budget in MINOR units of `currency` (not always hundredths: JPY
+    // has none, KWD three) — integers only, no float money.
     budgetTotalMinor: integer("budget_total_minor"),
     // ── RSVP deadline (migration 0055) ─────────────────────────────────────
     // The "kindly respond by" date. Unlike the rest of the profile above this
