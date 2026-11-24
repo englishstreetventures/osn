@@ -10,7 +10,10 @@
 # itself or at the limit, anything it started that is still running is killed
 # before the next attempt starts, so nothing left over holds a lock against it.
 # Each attempt runs in a process group of its own, so the script must not be a
-# command's only way to reach a terminal.
+# command's only way to reach a terminal. A process that starts a session of
+# its own leaves that group and is neither signalled nor waited for: apt-get
+# runs dpkg so, and scripts/install-chromium-system-libraries.sh waits for
+# dpkg's lock instead.
 #
 # Exit: 0 when an attempt passes; otherwise the last attempt's status (124 or
 # 137 when it was cut at the limit); 2 for a usage error, before anything runs.

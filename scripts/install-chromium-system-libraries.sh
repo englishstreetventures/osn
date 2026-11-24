@@ -14,13 +14,25 @@
 #
 # - The install runs under scripts/retry.sh: three attempts of 150 s each,
 #   about four times the slowest normal run (40 s). The whole attempt runs as
-#   root, so retry.sh can stop every process in it, apt-get included. Each
-#   attempt finishes what dpkg left half done, fetches apt's index, and then
+#   root, so retry.sh can stop every process in its process group, apt-get
+#   included. Each attempt finishes what dpkg left half done
+#   (scripts/configure-dpkg.sh), fetches apt's index, and then
 #   scripts/verify-cached-debs.sh moves into apt's archive each cached package
 #   whose SHA-256 that signed index names, and drops the rest. apt downloads
 #   whatever the archive lacks, and resumes the downloads an attempt left.
 #   Playwright's install-deps fetches the index again; that second fetch finds
 #   it unchanged and takes seconds.
+# - apt-get runs dpkg in a session of its own, outside that process group, so
+#   an attempt cut while apt installs leaves dpkg running and holding dpkg's
+#   lock, which dpkg itself never waits for. So the next attempt's first step,
+#   configure-dpkg.sh, waits up to 60 s for the lock before it runs dpkg, and
+#   nothing in the attempt touches apt until it has; Playwright's
+#   `apt-get install` also waits up to 60 s (DPkg::Lock::Timeout). No process
+#   is killed and no lock file removed. Both waits are inside the attempt's
+#   150 s, so at its longest the step runs three attempts of 150 s, each with
+#   retry.sh's 10 s grace and 10 s wait for its processes, and the dry run
+#   below (cut at 60 s, killed 10 s later): 580 s, inside the step's ten
+#   minutes. scripts/tests/deploy-workflows.test.ts checks that sum.
 # - apt keeps what it downloads. How often it retries a fetch and how long it
 #   waits on a silent connection are the image's: its
 #   /etc/apt/apt.conf.d/zz-retries sorts after every NN-* file, and apt keeps
@@ -62,6 +74,9 @@
 # When every attempt fails, the step carries on without apt only if all of
 # these hold, and otherwise fails with the last attempt's status:
 #
+# - the last attempt did not stop waiting for dpkg's lock. A hold that outlasts
+#   apt's wait in one attempt meets configure-dpkg.sh at the start of the next,
+#   so a lock held for good ends the last attempt there;
 # - no `apt-get update` exited 0. A marker written between it and
 #   verify-cached-debs.sh records one that did, so the step never carries on
 #   after a cached package was checked or an install began. apt-get update
@@ -113,6 +128,15 @@ not_fetched="E: Unable to fetch some archives"
 # (resolv/res_init.c). A stub resolver answers in milliseconds.
 resolver="timeout:2 attempts:1"
 
+# The longest an attempt waits for dpkg's lock, in seconds, before it runs dpkg
+# and again before Playwright's install; each wait sits inside the attempt's
+# 150 s. The usual holder is a dpkg left running by the attempt before, which
+# ends within seconds of losing its apt-get; 60 s is five times a whole warm
+# step (11 s) and leaves 90 s for both index fetches and the install.
+lock_wait=60
+# configure-dpkg.sh's last line when it gave up waiting.
+lock_held="configure-dpkg: dpkg's lock was still held after "
+
 state=$(mktemp -d)
 trap 'rm -rf "$state"' EXIT
 
@@ -122,6 +146,11 @@ trap 'rm -rf "$state"' EXIT
 without_apt() {
   local status=$1 checked=0
   awk '!/^::/' "$state/output" >"$state/apt"
+  # The last attempt's own last line; retry.sh's annotations after it start `::`.
+  if tail -n 1 "$state/apt" | grep -qF "$lock_held"; then
+    echo "install-chromium-system-libraries: not skipped: dpkg's lock was still held when the last attempt stopped waiting for it"
+    exit "$status"
+  fi
   if [ -e "$state/updated" ]; then
     if grep -qxF "$kept_index" "$state/apt" && grep -qF "$not_fetched" "$state/apt"; then
       echo "install-chromium-system-libraries: not skipped: apt-get update could not fetch every index and kept the copies on disk, and apt could not download a package the cache lacked at the version they name"
@@ -138,7 +167,7 @@ without_apt() {
     echo "install-chromium-system-libraries: not skipped: apt reported no network failure"
     exit "$status"
   fi
-  timeout 60 bunx --no-install playwright install-deps --dry-run chromium \
+  timeout -k 10 60 bunx --no-install playwright install-deps --dry-run chromium \
     >"$state/dry-run" 2>&1 || checked=$?
   cat "$state/dry-run"
   if [ "$checked" -ne 0 ] || ! grep -qxF "All system dependencies are installed." "$state/dry-run"; then
@@ -152,11 +181,15 @@ without_apt() {
 mkdir -p "$cache"
 # The third line fails an update in which an index failed its signature check
 # (apt-pkg/acquire-item.cc runs the list, apt-pkg/contrib/fileutl.cc fails on
-# a command that does).
+# a command that does). With the fourth, apt-get install tries for dpkg's lock
+# once a second for up to that many seconds before it fails
+# (apt-pkg/deb/debsystem.cc, GetLockMaybeWait); apt-get update takes no dpkg
+# lock, and dpkg does not read apt's configuration.
 printf '%s\n' \
   'APT::Keep-Downloaded-Packages "true";' \
   'Acquire::EnableSrvRecords "false";' \
-  'APT::Update::Auth-Failure { "false"; };' |
+  'APT::Update::Auth-Failure { "false"; };' \
+  "DPkg::Lock::Timeout \"$lock_wait\";" |
   sudo tee "$root/etc/apt/apt.conf.d/80-ci-chromium" >/dev/null
 
 shopt -s nullglob
@@ -169,14 +202,15 @@ echo "install-chromium-system-libraries: ${#cached[@]} packages in the cache"
 # step fails: read in part, it could lose that warning or a line without_apt
 # needs.
 pipe=(0 0)
-# shellcheck disable=SC2016 # $1-$4 are the inner shell's own arguments.
+# shellcheck disable=SC2016 # $1-$6 are the inner shell's own arguments.
 sudo env "PATH=$PATH" "RES_OPTIONS=$resolver" bash "$scripts/retry.sh" 3 150 \
-  sh -c 'dpkg --configure -a &&
+  sh -c 'bash "$5" "$6" &&
     apt-get update &&
     : >"$4" &&
     bash "$1" "$2" "$3" &&
     bunx --no-install playwright install-deps chromium' \
   sh "$scripts/verify-cached-debs.sh" "$cache" "$archives" "$state/updated" \
+  "$scripts/configure-dpkg.sh" "$lock_wait" \
   2>&1 | tee "$state/output" || pipe=("${PIPESTATUS[@]}")
 status=${pipe[0]}
 

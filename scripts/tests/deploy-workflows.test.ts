@@ -1145,6 +1145,37 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
     expect(key.startsWith(prefix)).toBe(true);
   });
 
+  // scripts/install-chromium-system-libraries.sh at its longest: three
+  // attempts each cut at their limit, with retry.sh's 10 s grace and its wait
+  // of up to 10 s for an attempt's processes to go, then the dry run with its
+  // own grace. Each wait for dpkg's lock sits inside an attempt, so it must be
+  // shorter than one; a longer one would always be cut before it gave up.
+  test("Chromium's system-library install, its waits for dpkg's lock included, ends inside the limit each job gives its step", () => {
+    const script = readFileSync(join(root, "scripts/install-chromium-system-libraries.sh"), "utf8");
+    const numbers = (pattern: RegExp) => (pattern.exec(script)?.slice(1) ?? []).map(Number);
+    const [attempts = 0, seconds = 0] = numbers(/retry\.sh" (\d+) (\d+) \\$/m);
+    const [lockWait = Number.NaN] = numbers(/^lock_wait=(\d+)$/m);
+    const [dryGrace = 0, dryLimit = 0] = numbers(
+      /timeout -k (\d+) (\d+) bunx --no-install playwright install-deps --dry-run chromium/,
+    );
+    const RETRY_EXTRA = 10 + 10;
+    expect(attempts).toBeGreaterThan(0);
+    expect(dryLimit).toBeGreaterThan(0);
+    expect(lockWait).toBeLessThan(seconds);
+    const longest = attempts * (seconds + RETRY_EXTRA) + dryLimit + dryGrace;
+
+    const limits = Object.entries(ci.jobs).flatMap(([id, job]) =>
+      stepsOf(job)
+        .filter((step) => step.name === "Install Chromium's system libraries")
+        .map((step) => {
+          const minutes = /^timeout (\d+)m /.exec(step.run ?? "")?.[1];
+          return { id, seconds: 60 * Number(step["timeout-minutes"] ?? minutes ?? 0) };
+        }),
+    );
+    expect(limits.map((limit) => limit.id)).toEqual(["browser", "e2e"]);
+    for (const limit of limits) expect(longest, limit.id).toBeLessThanOrEqual(limit.seconds);
+  });
+
   // The secret scan runs the gitleaks a cached tarball holds.
   // scripts/install-gitleaks.sh checks that tarball's SHA-256 before it unpacks
   // anything, as install-gitleaks.cli.test.ts shows; here, the job hands the
