@@ -1405,6 +1405,35 @@ describe("restricted recovery session — the passkey ceiling", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("a first passkey a recovery code's session enrols is `recovery` too", () => {
+    // Red on keying the stamp on the session's kind alone: a recovery code
+    // signs in with an ordinary session, and the recovery it records on the
+    // account is what the hold answers to.
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      const user = yield* auth.registerProfile("rs-code@example.com", "rscode");
+      yield* stampRecovery(db, user.accountId);
+      // The ordinary session a recovery code signs in with.
+      const signedIn = yield* auth.issueTokens(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+      );
+
+      yield* auth.beginPasskeyRegistration(user.accountId);
+      yield* auth.completePasskeyRegistration(
+        user.accountId,
+        attestation(),
+        auth.hashSessionToken(signedIn.refreshToken),
+      );
+
+      const rows = yield* passkeyRows(db, user.accountId);
+      expect(rows.map((r) => r.provenanceAmr)).toEqual(["recovery"]);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("an account at the cap can recover, and ends up one credential above it", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {

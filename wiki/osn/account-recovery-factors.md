@@ -260,7 +260,8 @@ account.
 **Bootstrap is `webauthn`.** The account's first passkey follows a sign-up
 proved by an emailed link, so a literal reading stamps it `otp` — and through inheritance
 that restricts every credential the account ever derives from it. A first passkey
-enrolled from a restricted recovery session is no bootstrap: it is `recovery`.
+enrolled within 72 hours of any recovery, by any of the three ways back in, is no
+bootstrap: it is `recovery`.
 
 **"One recovery per 72 hours" excludes the recovery-CODE path.** It stamps the
 window and is never refused by it. A recovery code is a 64-bit secret the user
