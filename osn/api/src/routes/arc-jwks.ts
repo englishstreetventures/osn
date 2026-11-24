@@ -33,8 +33,9 @@ const arcJwkSet = t.Object({
  * `GET /.well-known/arc-jwks.json`: the public keys osn-api signs its ARC
  * calls to apps with (`lib/outbound-arc.ts`). Apps resolve an osn-api token's
  * kid here (`@shared/osn-auth-client/arc`). Read fresh on every request, never
- * cached: an isolate writes its key moments before its first call, and the app
- * asks for it on that call.
+ * cached: a key an isolate wrote a moment ago may already sign a call, and the
+ * app asks for it on that call. At most `PUBLISHED_OUTBOUND_KEYS_BOUND` keys,
+ * the newest.
  */
 export function createArcJwksRoutes(
   dbLayer: Layer.Layer<Db> = DbLive,

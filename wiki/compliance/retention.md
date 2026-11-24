@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-25
 ---
 
 # Retention
@@ -25,7 +25,7 @@ already enforces some of them; the rest need a sweeper job.
 | `deletion_jobs` | Created at soft delete; deleted by a cancel, or by the hard delete once `hard_delete_at` has passed and the fan-out has finished with every app. The row holds the restore record (`restore`: each profile's handle, display name and avatar as they stood, and the ids of the enrolments the soft delete closed), the person's answers to the open actions (`choices`) and what each app reported keeping (`app_outcomes`): personal data held through the 7-day window and gone with the row. Effective retention: 7 days, longer while an app has not finished or a hard delete keeps failing. | Sweeper job (`account-erasure.runHardDeleteSweep`; a pass stops after three hard deletes fail in a row, [[account-deletion#Hard-delete sweep isolation]]) | OK | Identity |
 | `handle_holds` (an HMAC-SHA256 of a deleted account's handle under `OSN_SESSION_IP_PEPPER`, never the handle; the account id while the deletion is pending) | While the deletion is pending, then 30 days from the hard delete (`release_at`). A cancel deletes the account's rows at once. Rotating the pepper ends every hold early: no row matches its handle any more. Two CHECKs keep each row pending (account set, no release) or released (release set, no account), so no row holds a handle for ever. | 6-hourly cron sweep (`runHandleHoldSweep`, [`osn/api/src/services/retention.ts`](../../osn/api/src/services/retention.ts)) deletes rows from `release_at` on, in chunks of 500, at most 2 a run; counted under `table: "handle_holds"`. A row past `release_at` refuses nothing even before the sweep reaches it. | OK | Identity |
 | `pulse_deletion_jobs` | Created at soft-delete; removed at `hard_delete_at` (= softDeletedAt + 7d). | Sweeper job (`accountErasure.runHardDeleteSweep` — Pulse) | OK | Pulse |
-| `arc_outbound_keys` (osn-api's outbound ARC public keys; no personal data) | A day past each key's 24-hour expiry. | Deleted by the next key publish of any osn-api isolate (`publishOutboundKey`, [`osn/api/src/lib/outbound-arc.ts`](../../osn/api/src/lib/outbound-arc.ts)), which runs before an isolate's first call to an app | OK | Identity |
+| `arc_outbound_keys` (osn-api's outbound ARC public keys; no personal data) | A day past each key's expiry, four hours after it is minted. | Deleted by the next key write of any osn-api isolate ([`osn/api/src/lib/outbound-arc.ts`](../../osn/api/src/lib/outbound-arc.ts)), which runs after each isolate's first request and whenever it replaces its key | OK | Identity |
 | `zap_account_purges` (an erased account's id, when Zap erased it, and how many end-to-end messages it left with other members; never message content) | Indefinite: the replay ledger a repeat of the erasure answers from. Once osn-api has hard-deleted the account, the id names no one. | None | OK | Zap |
 | Hosted events of a host who left Pulse: `cancellation_reason = "host_left"`, and any the host had already cancelled (`hard_delete_at` set) | 14 days from the leave, then hard-deleted. | Sweeper (`accountErasure.runEventCancellationSweep`) | OK | Pulse |
 | `passkeys` | While account active; deleted on credential revoke and at the account's hard delete. Kept through the 7-day deletion window, so the person can sign in and cancel. `provenance_amr` is a column on this row and dies with it — no separate sweep | App code | OK | Identity |

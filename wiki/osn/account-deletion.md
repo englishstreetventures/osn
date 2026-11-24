@@ -157,7 +157,7 @@ Longest-standing means the earliest `organisation_members.created_at`, then the 
 
 ## The app contract
 
-Every app takes part in an account deletion through two ARC calls, signed with osn-api's published outbound key ([[arc-tokens#osn-api as issuer — published outbound keys]]). Every account goes to every app; nothing checks enrolment. The apps are `DELETION_APPS` in [`osn/api/src/services/deletion-apps.ts`](../../osn/api/src/services/deletion-apps.ts): Pulse, Zap and cire. A further app is one more entry there, its `*_done_at` column, its URL variable, and its host in the stacks.
+Every app takes part in an account deletion through two ARC calls, signed with osn-api's published outbound key ([[arc-tokens#osn-api as issuer — published outbound keys]]). Each osn-api isolate writes that key after its first request, whatever the route. The deletion's calls, like the export's, write it themselves before they sign only when no write of it has started, and replace it when it is due or not served; the steps are in [[arc-tokens#osn-api as issuer — published outbound keys]]. Every account goes to every app; nothing checks enrolment. The apps are `DELETION_APPS` in [`osn/api/src/services/deletion-apps.ts`](../../osn/api/src/services/deletion-apps.ts): Pulse, Zap and cire. A further app is one more entry there, its `*_done_at` column, its URL variable, and its host in the stacks.
 
 | Call | Scope | Request | Answer |
 |---|---|---|---|

@@ -14,7 +14,7 @@ related:
   - "[[subprocessors]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-25
 ---
 
 # Production Access Control Matrix (SOC 2 CC6)
@@ -175,7 +175,7 @@ ARC tokens are S2S only; no human ever holds one. Rotation is automatic
 (see [[arc-tokens]]). Per service account:
 
 - One private key ever in use; rotated every 24 h with overlap window. osn-api
-  holds one per isolate.
+  holds one per isolate, which lives four hours and is replaced after two.
 - Public keys distributed via JWKS, the `service_account_keys` table, or, for
   osn-api's calls to the apps, `arc_outbound_keys`.
 - `allowedScopes` enforced at issuer + verifier sides.

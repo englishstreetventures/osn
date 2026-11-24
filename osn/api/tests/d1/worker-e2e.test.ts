@@ -93,6 +93,8 @@ let mf: Miniflare;
 const steps: Step[] = [];
 /** What the test read off store objects, by object (never the key's IP or id). */
 const store: Record<string, number | string | null> = {};
+/** How many outbound ARC keys D1 and the published set held, by moment (never a kid). */
+const outboundKeys: Record<string, number> = {};
 const mail: Mail[] = [];
 const strayOutbound: string[] = [];
 /** Called once each, and cleared, when the next mail arrives. */
@@ -264,6 +266,25 @@ async function storeObject(objectName: string): Promise<Pick<CoordinationStub, "
   return ns.get(ns.idFromName(objectName)) as unknown as Pick<CoordinationStub, "count" | "read">;
 }
 
+/**
+ * The kids of the outbound ARC keys in D1, once there are `count` of them.
+ * An isolate writes its key after its first answer, through `waitUntil`, so
+ * this waits for it, for 10 s at most.
+ */
+async function outboundKeyIds(count: number): Promise<string[]> {
+  const db = await mf.getD1Database("DB");
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop -- polling for a write that runs after the answer
+    const { results } = await db
+      .prepare("SELECT key_id FROM arc_outbound_keys ORDER BY created_at, key_id")
+      .all<{ key_id: string }>();
+    if (results.length >= count || Date.now() > deadline) return results.map((row) => row.key_id);
+    // eslint-disable-next-line no-await-in-loop -- as above
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 /** The `jti` claim of a JWT, read without verifying it. */
 function jtiOf(token: string): string {
   const payload = JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString("utf8")) as {
@@ -294,7 +315,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mkdir(ARTIFACT_DIR, { recursive: true });
-  const results = { steps, coordinationStore: store, strayOutbound };
+  const results = { steps, coordinationStore: store, outboundKeys, strayOutbound };
   await writeFile(join(ARTIFACT_DIR, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
   await mf?.dispose();
   await Promise.all(
@@ -316,6 +337,21 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     });
     expect(res.status).toBe(200);
     expect(res.json).toEqual({ ok: true });
+  });
+
+  it("publishes the isolate's outbound ARC key after its first request, and serves it", async () => {
+    // The request above called no app; the key is there all the same.
+    const kids = await outboundKeyIds(1);
+    outboundKeys["in D1, after the first request"] = kids.length;
+    expect(kids).toHaveLength(1);
+
+    const res = await call("published outbound keys", "GET", "/.well-known/arc-jwks.json", {
+      ip: MAIN_IP,
+    });
+    expect(res.status).toBe(200);
+    const served = (res.json["keys"] as { kid: string }[]).map((key) => key.kid);
+    outboundKeys["served, after the first request"] = served.length;
+    expect(served).toEqual(kids);
   });
 
   it("signs in as the dev principal", async () => {
@@ -447,6 +483,13 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     expect(store["auth.recovery_generate, after restart"]).toBe(
       AUTH_RATE_LIMITS.recoveryGenerate.maxRequests + 2,
     );
+  });
+
+  it("publishes a key of the new isolate's own after its first request", async () => {
+    // The refused request above was the restarted Worker's first.
+    const kids = await outboundKeyIds(2);
+    outboundKeys["in D1, after the restart's first request"] = kids.length;
+    expect(kids).toHaveLength(2);
   });
 
   it("refuses the right recovery code once wrong ones from other IPs lock the account", async () => {
