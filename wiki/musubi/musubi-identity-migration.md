@@ -198,7 +198,7 @@ ladder did not move.
 | ″ | `OSN_ORIGIN` | four cire origins → **`https://musubi.social`** alone. The cire entries were removed, not kept: a ceremony from a different registrable domain is illegal whatever the list says, and leaving them would hide that. |
 | ″ | `OSN_CORS_ORIGIN` | **kept the cire origins**, added `https://musubi.social`. Different list, different job — CORS governs bearer-token calls, which still work cross-site. |
 | ″ | `OSN_AUTHORIZE_UI_URL` | → **`https://musubi.social/authorize`**. Stays explicit: unset it resolves against the *first* `OSN_ORIGIN` entry, which is right today by accident and breaks silently if that list is ever reordered. |
-| ″ | `OSN_EMAIL_FROM` | **`hello@cireweddings.com` → `Musubi <hello@musubi.social>`**, once Resend verified `musubi.social`. See the Resend note below. |
+| ″ | `OSN_EMAIL_FROM` | **`hello@cireweddings.com` → `Musubi <hello@musubi.social>`**, in the first production release after 2026-11-24, once Resend verified `musubi.social` (2026-11-23). See the Resend note below. |
 | ″ `[[env.production.routes]]` | `pattern` | `id.cireweddings.com` → **`id.musubi.social`**, `custom_domain = true` |
 | `cire/api/wrangler.toml` | `OSN_JWKS_URL`, `OSN_ISSUER_URL` | both, in `[env.production]` **and** the then-current `[env.preview]` — the preview tier shared prod identity by design. That env went away with the tier on 2026-07-27 |
 | `zap/api/wrangler.toml` | `OSN_JWKS_URL`, `OSN_API_URL` | both |

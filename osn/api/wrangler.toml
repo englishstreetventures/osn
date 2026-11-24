@@ -343,8 +343,7 @@ CIRE_ORGANISER_ORIGIN = "https://host.cireweddings.com"
 # erases (src/index.ts `scheduled`). Unset, as on dev (Workers Free), it is 4.
 OSN_DELETION_FANOUT_MAX_JOBS = "50"
 # Email is sent via Resend (RESEND_API_KEY secret, §1.1) — confirmed delivering
-# from cireweddings.com on 2026-06-18, and from musubi.social since the sender
-# moved there. Email is REQUIRED in prod: if
+# from a Resend-verified sender domain. Email is REQUIRED in prod: if
 # RESEND_API_KEY is ever absent osn-api fails closed at startup rather than
 # silently dropping OTP/security mail. (The former OSN_EMAIL_OPTIONAL degraded
 # opt-in was removed once Resend delivery was verified.)

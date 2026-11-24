@@ -294,15 +294,17 @@ future degraded deploy. See [[production-deploy]] §1.1 for the Resend
 setup steps.
 
 > **Email is live via Resend** — confirmed delivering from
-> `hello@cireweddings.com` on 2026-06-18; osn-api now sends as
-> `Musubi <hello@musubi.social>`. `RESEND_API_KEY` on the
+> `hello@cireweddings.com` on 2026-06-18; the production release after
+> 2026-11-24 moves osn-api to `Musubi <hello@musubi.social>`, and a code sent to a
+> test inbox then confirms the From line, SPF and DKIM
+> (englishstreetventures/osn#1548). `RESEND_API_KEY` on the
 > deployed osn-api Worker (`id.musubi.social` since the 2026-07-27 identity
 > move — [[musubi-identity-migration]]) carries the full
-> transactional surface: OTP step-up codes, email-change OTPs, and
-> security-notice emails (every security notice in the template table
+> transactional surface: step-up and email-change links
+> (`link-step-up`, `link-email-change`), and security-notice emails (every security notice in the template table
 > above) are all delivered again. This **supersedes** the
 > earlier degraded-mode note. Direct consequence for **cire**: organiser
-> step-up can use the **OTP factor** again (a code mailed via Resend now
+> step-up can use the **OTP factor** again (the emailed step-up link now
 > arrives), though **passkey step-up remains preferred** — `StepUpDialog`'s
 > `passkeyOnly` flag and the `PasskeysView` Security panel (#155) are the
 > primary UX. Cire **guests** are unaffected — their auth is the opaque
@@ -333,8 +335,7 @@ deploy refuses to run while `RESEND_API_URL` exists as a secret.
 > Resend. A failed send takes **OTP step-up** with it, which is the way back into
 > an account after a recovery-code login. See [[musubi-identity-migration]].
 >
-> Dev shares production's address, by the owner's choice on
-> englishstreetventures/osn#1548. Neither the address nor the display name marks a message as dev,
+> Dev shares production's address. Neither the address nor the display name marks a message as dev,
 > and spam complaints about dev mail count against that address. A separate
 > `Musubi (dev) <dev@musubi.social>` would keep both apart, with no extra Resend
 > setup, since Resend verifies a whole domain.
@@ -348,14 +349,18 @@ Before you deploy (Resend — the live path):
    verification.
 2. Create a Resend API key (Sending access).
 3. `wrangler secret put RESEND_API_KEY --env production` on osn-api, and set
-   `OSN_EMAIL_FROM=Musubi <hello@musubi.social>`.
+   `OSN_EMAIL_FROM: "Musubi <hello@musubi.social>"` in `musubiProductionApis`
+   (`musubi/infra/src/declaration.ts`) and its mirror in `osn/api/wrangler.toml`
+   `[env.production.vars]`, which the `PA1` parity test holds equal.
 4. Once you have confirmed delivery, remove `OSN_EMAIL_OPTIONAL` so email is
    required/fail-closed again. Done for production in #160. See
    [[production-deploy]] §1.1.
 
 The Cloudflare Email Service path remains available as a fallback (onboard
 the sender domain in Cloudflare Email Sending, create an Email-Send token,
-set the `CLOUDFLARE_*` vars) but is no longer the live transport.
+set the `CLOUDFLARE_*` vars) but is no longer the live transport. It takes a
+bare address only (`shared/email/src/cloudflare.ts`): set `OSN_EMAIL_FROM` to
+`hello@musubi.social` before relying on it.
 
 ## Local emulation
 

@@ -130,7 +130,7 @@ the box below).
 
 > **Production is on the live path and the degraded opt-in is gone.** ✅
 > `RESEND_API_KEY` is set on the production Worker and mail has delivered since
-> 2026-06-18 (from `cireweddings.com`, then from `musubi.social`), so `OSN_EMAIL_OPTIONAL` was removed from
+> 2026-06-18, so `OSN_EMAIL_OPTIONAL` was removed from
 > `osn/api/wrangler.toml` in #160 — production fails closed again. The steps below are
 > the reference for a new environment, and the box that follows describes the escape
 > valve you would use if a fresh env has to boot before its key lands.
@@ -152,10 +152,11 @@ arrive. In the **fail-closed default** (opt-in unset, no provider) the Worker 50
 box above. The in-memory `LogEmailLive` recorder is local/test only and never runs in
 production.
 
-Setup steps (live path — Resend). Production has finished all seven:
+Setup steps (live path — Resend). Production has finished all seven for `cireweddings.com`; the send from `musubi.social` is confirmed after the release that carries the sender change (englishstreetventures/osn#1548):
 
-1. `OSN_EMAIL_FROM` is `Musubi <hello@musubi.social>` (set in `osn/api/wrangler.toml`
-   `[env.production.vars]`). The sender domain is `musubi.social`.
+1. `OSN_EMAIL_FROM` is `Musubi <hello@musubi.social>` (set in `musubiProductionApis`,
+   `musubi/infra/src/declaration.ts`, and its mirror in `osn/api/wrangler.toml`
+   `[env.production.vars]`, which `PA1` holds equal). The sender domain is `musubi.social`.
 2. **Verify the sender domain in Resend** (Resend dashboard → Domains →
    Add Domain). Done for production.
 3. Add the **SPF / DKIM / return-path** DNS records Resend provides into the Cloudflare
@@ -425,7 +426,7 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `CLOUDFLARE_ACCOUNT_ID` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback transport (paid Workers plan). Used only if `RESEND_API_KEY` is absent. §1.1 |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback bearer token. Same role as `CLOUDFLARE_ACCOUNT_ID`. §1.1 |
 | `OSN_EMAIL_OPTIONAL` | `[env.<env>.vars]` | No (default off) | **Explicit degraded-email opt-in.** Truthy (`true`/`1`/`yes`/`on`) → boot with a **no-op email transport** (transactional mail DISCARDED, loud startup warning) when **no real provider** (`RESEND_API_KEY` / `CLOUDFLARE_*`) is set in a non-local env, instead of failing closed. **Set in no env today** — removed from prod `[vars]` in #160 once Resend delivery was confirmed, so production fails closed again. A real provider wins — the opt-in is ignored when `RESEND_API_KEY` (or the Cloudflare creds) is present. §1.1 |
-| `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`Musubi <hello@musubi.social>`** (set in `wrangler.toml`). Resend-verified domain from §1.1. |
+| `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`Musubi <hello@musubi.social>`** (set in `musubiProductionApis`, `musubi/infra/src/declaration.ts`, and its mirror in `osn/api/wrangler.toml`, which `PA1` holds equal). Resend-verified domain from §1.1. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
 | `OSN_EMAIL_VERIFICATION_API` | `[env.production.vars]` and `musubiProductionApis` (`musubi/infra/src/declaration.ts`), which PA1 holds equal | No (default off) | Truthy (`true`/`1`/`yes`/`on`) lets sign-up accept a browser Email Verification API token, which proves the address with no emailed link. **`true` on production**, and on dev, set in `musubiDeclaration` ([[email-verification-api#Our code]]). Read once, in `build-deps.ts`. |
 | `OSN_EMAIL_VERIFICATION_EMULATOR_URL` | **Never set** | **Must be absent** | Local E2E only: points the token verifier at a stand-in issuer. osn-api refuses to boot with it unless `OSN_ENV` is exactly `local`, and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
