@@ -1,5 +1,11 @@
 # @shared/observability
 
+## 0.26.5
+
+### Patch Changes
+
+- 9b7ecdc: `test:wrangler` starts `wrangler dev` with `--port 0 --inspector-port 0` and reads the port from its `Ready on` line, in place of ports it picked and closed first, which another bind could take before workerd's.
+
 ## 0.26.4
 
 ### Patch Changes
