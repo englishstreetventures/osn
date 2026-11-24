@@ -416,6 +416,7 @@ export function createApp(deps: AppDeps) {
         appRuntime,
         arcJwksRateLimiters,
         clientIpConfig,
+        Object.values(deletionApps.urls).map((url) => new URL(url).hostname),
       ),
     )
     .use(createInternalAccountRoutes(sharedAuthConfig, DbLive, appRuntime));

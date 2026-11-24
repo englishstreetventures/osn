@@ -155,3 +155,100 @@ describe("GET /.well-known/arc-jwks.json — the caller's budgets", () => {
     expect((await get(app)).status).toBe(429);
   });
 });
+
+/**
+ * In production every Worker's subrequest to another zone arrives from one
+ * address, so the apps' fetches are budgeted under their own zone, which
+ * another tenant's Worker or a direct caller cannot use.
+ */
+describe("GET /.well-known/arc-jwks.json — the apps' own budget", () => {
+  const WORKER_ADDRESS = "2a06:98c0:3600::103";
+  const APP_HOSTS = ["api.cire.example", "zap.cire.example"];
+
+  const app = (layer: Parameters<typeof createArcJwksRoutesRaw>[0], trustCloudflare = true) =>
+    createArcJwksRoutesRaw(
+      layer,
+      undefined,
+      undefined,
+      {
+        minute: memoryLimiter(OSN_RATE_LIMITS.arcJwksIp),
+        hour: memoryLimiter(OSN_RATE_LIMITS.arcJwksIpHour),
+      },
+      { trustCloudflare },
+      APP_HOSTS,
+    );
+
+  const get = (routes: ReturnType<typeof app>, headers: Record<string, string>): Promise<number> =>
+    routes
+      .handle(new Request("http://localhost/.well-known/arc-jwks.json", { headers }))
+      .then((res) => res.status);
+
+  const spend = async (routes: ReturnType<typeof app>, headers: Record<string, string>) => {
+    for (let i = 0; i < OSN_RATE_LIMITS.arcJwksIp.maxRequests; i++) {
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await get(routes, headers);
+    }
+  };
+
+  it("serves an app after another tenant's Worker spent the shared address's budget", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const routes = app(layer);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    const stranger = { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "stranger.example" };
+    await spend(routes, stranger);
+    expect(await get(routes, stranger)).toBe(429);
+    expect(
+      await get(routes, { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "cire.example" }),
+    ).toBe(200);
+  });
+
+  it("refuses the apps past their own minute budget", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const routes = app(layer);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    const apps = { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "cire.example" };
+    await spend(routes, apps);
+    expect(await get(routes, apps)).toBe(429);
+  });
+
+  it("budgets a direct caller naming an app's zone by its own address", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const routes = app(layer);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    const direct = { "cf-connecting-ip": "203.0.113.20", "cf-worker": "cire.example" };
+    await spend(routes, direct);
+    expect(await get(routes, direct)).toBe(429);
+    expect(
+      await get(routes, { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "cire.example" }),
+    ).toBe(200);
+  });
+
+  it("gives no lane to a shared platform zone or a zone no app is under", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const routes = createArcJwksRoutesRaw(
+      layer,
+      undefined,
+      undefined,
+      {
+        minute: memoryLimiter(OSN_RATE_LIMITS.arcJwksIp),
+        hour: memoryLimiter(OSN_RATE_LIMITS.arcJwksIpHour),
+      },
+      { trustCloudflare: true },
+      ["cire-api.tenant.workers.dev"],
+    );
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    const platform = { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "workers.dev" };
+    await spend(routes, platform);
+    // The shared address's budget is spent, whatever zone a Worker names.
+    expect(await get(routes, platform)).toBe(429);
+    expect(
+      await get(routes, { "cf-connecting-ip": WORKER_ADDRESS, "cf-worker": "other.example" }),
+    ).toBe(429);
+  });
+
+  it("serves an app's fetch that carries no client address, and gives no lane off Cloudflare", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    expect(await get(app(layer), { "cf-worker": "cire.example" })).toBe(200);
+    expect(await get(app(layer, false), { "cf-worker": "cire.example" })).toBe(429);
+  });
+});

@@ -46,6 +46,31 @@ export interface ArcJwksRateLimiters {
   readonly hour: RateLimiterBackend;
 }
 
+/** The address Cloudflare gives every Worker's subrequest to another zone. */
+const WORKER_SUBREQUEST_ADDRESS = "2a06:98c0:3600::103";
+
+/** Zones many tenants' Workers run under, never taken as an app's own. */
+const SHARED_PLATFORM_ZONES: ReadonlySet<string> = new Set(["workers.dev", "pages.dev"]);
+
+/**
+ * The app zone a request comes from, or null: behind Cloudflare only, its
+ * `CF-Worker` names the zone of a configured app host, and it comes from the
+ * Worker subrequest address or carries none. A direct caller cannot present
+ * that address, and another tenant's Worker carries its own zone.
+ */
+function appZone(
+  headers: Record<string, string | undefined>,
+  trustCloudflare: boolean,
+  appHosts: readonly string[],
+): string | null {
+  if (!trustCloudflare) return null;
+  const zone = headers["cf-worker"]?.trim().toLowerCase();
+  if (!zone || !zone.includes(".") || SHARED_PLATFORM_ZONES.has(zone)) return null;
+  const from = headers["cf-connecting-ip"];
+  if (from !== undefined && from !== WORKER_SUBREQUEST_ADDRESS) return null;
+  return appHosts.some((host) => host === zone || host.endsWith(`.${zone}`)) ? zone : null;
+}
+
 /**
  * `GET /.well-known/arc-jwks.json`: the public keys osn-api signs its ARC
  * calls to apps with (`lib/outbound-arc.ts`). Apps resolve an osn-api token's
@@ -56,7 +81,8 @@ export interface ArcJwksRateLimiters {
  *
  * Anyone may call it, so each caller's address has a minute and an hour
  * budget, and an address that cannot be resolved is refused, as at every
- * per-IP limiter here. A refusal is 429 before any key is read. An app that is
+ * per-IP limiter here. A configured app's fetch is budgeted under its zone
+ * instead, apart from every other Worker, which share one address. A refusal is 429 before any key is read. An app that is
  * refused remembers the kid it asked for as unknown for 30 seconds and then
  * fetches again, so it recovers once its window ends.
  */
@@ -69,6 +95,7 @@ export function createArcJwksRoutes(
     hour: memoryLimiter(OSN_RATE_LIMITS.arcJwksIpHour),
   },
   clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
+  appHosts: readonly string[] = [],
 ) {
   const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
@@ -85,11 +112,13 @@ export function createArcJwksRoutes(
     "/.well-known/arc-jwks.json",
     async ({ headers, set, server, request }) => {
       set.headers["cache-control"] = "no-store";
+      const zone = appZone(headers, clientIpConfig.trustCloudflare === true, appHosts);
       const ip = getClientIp(headers, {
         ...clientIpConfig,
         socketIp: server?.requestIP?.(request)?.address ?? null,
       });
-      if (isUnresolvedIp(ip) || !(await admitted(ip))) {
+      const key = zone === null ? ip : `zone:${zone}`;
+      if ((zone === null && isUnresolvedIp(ip)) || !(await admitted(key))) {
         set.status = 429;
         return { error: "rate_limited" };
       }

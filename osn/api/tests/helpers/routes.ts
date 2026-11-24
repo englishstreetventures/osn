@@ -84,7 +84,7 @@ export function createProfileRoutes(...args: Parameters<typeof createProfileRout
 
 /** `createArcJwksRoutes` with XFF-trusting client-IP config + default-XFF patch. */
 export function createArcJwksRoutes(...args: Parameters<typeof createArcJwksRoutesRaw>) {
-  const [dbLayer, loggerLayer, runtime, limiters, clientIpConfig] = args;
+  const [dbLayer, loggerLayer, runtime, limiters, clientIpConfig, appHosts] = args;
   return withDefaultXff(
     createArcJwksRoutesRaw(
       dbLayer,
@@ -92,6 +92,7 @@ export function createArcJwksRoutes(...args: Parameters<typeof createArcJwksRout
       runtime,
       limiters,
       clientIpConfig ?? { trustedProxyCount: 1 },
+      appHosts,
     ),
   );
 }
