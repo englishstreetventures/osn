@@ -1388,6 +1388,23 @@ describe("restricted recovery session — the passkey ceiling", () => {
   /** The label the ceremony just emitted. See `reclaimOutcomes`. */
   const lastOutcome = () => reclaimOutcomes.at(-1);
 
+  it.effect("an account with no passkey that recovers enrols its first one as `recovery`", () => {
+    // Red on stamping every first passkey `webauthn`: a passkey enrolled from
+    // a session an emailed link opened would remove an app's data, or change
+    // the email, at once, with no hold.
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      const user = yield* auth.registerProfile("rs-first@example.com", "rsfirst");
+      yield* stampRecovery(db, user.accountId);
+      const sessionHash = yield* recoverySessionFor(user);
+
+      yield* enrol(user.accountId, sessionHash);
+
+      const rows = yield* passkeyRows(db, user.accountId);
+      expect(rows.map((r) => r.provenanceAmr)).toEqual(["recovery"]);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("an account at the cap can recover, and ends up one credential above it", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {

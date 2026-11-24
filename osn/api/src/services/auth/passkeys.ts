@@ -252,7 +252,13 @@ export function createPasskeysModule(
       // the registration OTP would taint every credential the account ever
       // derives from it, because provenance is inherited — ordinary rotation
       // would never become possible.
-      let provenanceAmr: PasskeyProvenance = "webauthn";
+      //
+      // Bootstrap means sign-up's ordinary session. A first passkey enrolled
+      // from a restricted recovery session is `recovery`, as every enrolment
+      // from one is: an emailed link or an authenticator code opened that
+      // session, and the hold on removing an app's data, changing the email
+      // and removing an older passkey must not start from it at full strength.
+      let provenanceAmr: PasskeyProvenance = caller ? "recovery" : "webauthn";
       if (existingPasskeys.length > 0) {
         if (recoveryEnrolment) {
           // The restricted-recovery-session bypass: no step-up ran at all, so

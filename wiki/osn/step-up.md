@@ -333,11 +333,11 @@ token:
 
 | How the row was created | Stamp |
 |---|---|
-| Bootstrap — the account had **zero** passkeys | `webauthn` |
+| Bootstrap — the account had **zero** passkeys, and sign-up's ordinary session enrolled it | `webauthn` |
 | `passkey_register` step-up with `amr: ["otp"]` | `otp` |
 | `passkey_register` step-up with `amr: ["totp"]` | `totp` |
 | `passkey_register` step-up with `amr: ["webauthn"]` | the asserting credential's own provenance |
-| The restricted recovery session's enrolment bypass | `recovery` |
+| Any enrolment from a restricted recovery session, the account's first included | `recovery` |
 | Rows predating the column | `NULL`, read as `webauthn` |
 
 Two rows carry the design and are worth reading twice.
@@ -356,7 +356,9 @@ reason a user adds a device by email is that the first one is hard to reach.
 **Bootstrap is `webauthn`.** The account's first passkey follows a sign-up
 proved by an emailed link, so a literal reading would stamp it `otp` — and through
 inheritance that would restrict every credential the account ever derived from
-it. It is the account's root of trust.
+it. It is the account's root of trust. A first passkey a restricted recovery
+session enrols is not a bootstrap: an emailed link or an authenticator code
+opened that session, so it is `recovery` and waits out its hold like any other.
 
 ### The two windows
 
