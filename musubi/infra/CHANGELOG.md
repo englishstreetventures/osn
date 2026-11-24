@@ -1,5 +1,11 @@
 # @musubi/infra
 
+## 0.6.11
+
+### Patch Changes
+
+- 0bdcb05: Production osn-api sends account email as `Musubi <hello@musubi.social>` instead of `hello@cireweddings.com`, so sign-up, recovery and step-up links and security notices come from Musubi's own verified domain and no longer share cire's sending reputation. `OSN_EMAIL_FROM` in `osn/api/wrangler.toml` matches it.
+
 ## 0.6.10
 
 ### Patch Changes
