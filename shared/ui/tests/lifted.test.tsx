@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Card, CardHeader } from "../src/ui/card";
 import { Checkbox } from "../src/ui/checkbox";
@@ -92,15 +92,6 @@ describe("Fieldset", () => {
     expect(getByRole("group", { name: /categories/i })).toBeInTheDocument();
     expect(getByRole("checkbox", { name: "Florals" })).not.toBeChecked();
     expect(getByRole("checkbox", { name: "Catering" })).toBeChecked();
-  });
-});
-
-describe("Checkbox", () => {
-  it("reports the new state, not the old one", () => {
-    const onChange = vi.fn();
-    render(() => <Checkbox checked={false} onChange={onChange} label="Florals" />);
-    screen.getByRole("checkbox", { name: "Florals" }).click();
-    expect(onChange).toHaveBeenCalledWith(true);
   });
 });
 

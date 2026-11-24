@@ -231,6 +231,7 @@ vi.mock("../../src/components/RunSheetView", () => ({
 
 import OrganiserApp from "../../src/components/OrganiserApp";
 import { __resetHostsCache, hasCachedHosts, setFreshHosts } from "../../src/lib/hosts-store";
+import { ensureInviteLoaded } from "../../src/lib/invite-store";
 import {
   __resetRunSheetCache,
   ensureRunSheetLoaded,
@@ -408,6 +409,30 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("overview");
   });
 
+  it("keeps the cached invite while the tier holds, and drops it once the tier changes", async () => {
+    authFetchMock.mockImplementation(async () =>
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    // The builder's last read, from before the dashboard opened.
+    await ensureInviteLoaded("wed_a", async () => ({ designId: "classic" }) as never);
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("select-first"));
+    // Opening the dashboard on the wedding's tier is not a change of it: the
+    // cached invite still answers without a read.
+    const readAgain = vi.fn(async () => ({ designId: "classic" }) as never);
+    await ensureInviteLoaded("wed_a", readAgain);
+    expect(readAgain).not.toHaveBeenCalled();
+
+    // A redeemed code raises the tier, which changes what the builder offers.
+    fireEvent.click(screen.getByText("redeem-code"));
+    await waitFor(() =>
+      expect(screen.getByTestId("module-shell").getAttribute("data-tier")).toBe("gold"),
+    );
+    await ensureInviteLoaded("wed_a", readAgain);
+    expect(readAgain).toHaveBeenCalledTimes(1);
+  });
+
   it("passes editor edit rights (no owner management) through to the module shell", async () => {
     authFetchMock.mockResolvedValue(
       listResponse([{ id: "wed_c", slug: "c", displayName: "Co-hosted", role: "editor" }]),
@@ -455,7 +480,8 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.getByTestId("run-sheet-seat")).toBeTruthy();
     // Under the header the shell gives the module, so it reads as the same page.
     expect(screen.getByRole("heading", { level: 2, name: "Run sheet" })).toBeTruthy();
-    expect(screen.getByText("The day, hour by hour, and who does what")).toBeTruthy();
+    // Like every module's header, it draws no hint under the name.
+    expect(screen.queryByText("The day, hour by hour, and who does what")).toBeNull();
     // The preview button mints a code through a member-gated route, so it is
     // not offered either.
     expect(screen.queryByTestId("preview-button")).toBeNull();

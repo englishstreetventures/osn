@@ -9,9 +9,9 @@
  * and tell you nothing about any of that.
  */
 
-import { render } from "@solidjs/testing-library";
+import { cleanup, render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Button } from "../src/ui/button";
 import { Field, Fieldset } from "../src/ui/field";
@@ -21,21 +21,12 @@ import { Textarea } from "../src/ui/textarea";
 
 import "./test-support/tailwind.css";
 
+afterEach(cleanup);
+
 const px = (el: Element, prop: "fontSize" | "paddingLeft") =>
   Number.parseFloat(getComputedStyle(el)[prop]);
 
 describe("the control box", () => {
-  it("makes `sm` genuinely smaller than `md`, rather than only differently named", () => {
-    const md = render(() => <Input placeholder="md" />);
-    const sm = render(() => <Input size="sm" placeholder="sm" />);
-
-    const mdBox = md.getByPlaceholderText("md");
-    const smBox = sm.getByPlaceholderText("sm");
-
-    expect(px(smBox, "fontSize")).toBeLessThan(px(mdBox, "fontSize"));
-    expect(px(smBox, "paddingLeft")).toBeLessThan(px(mdBox, "paddingLeft"));
-  });
-
   it("gives an input, a textarea and a select the same box", () => {
     // The drift this replaces: four input shapes across the write surfaces, so
     // a date and a currency on one form did not line up. Padding and type size

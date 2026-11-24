@@ -58,6 +58,7 @@ vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
 
 import { renderOrganiserPage, routeFetch, topBar } from "../test-support/organiser-page";
 import { eventPayload, guestList } from "../test-support/rsvp-guests";
+import { resetViewCaches } from "../test-support/view-caches";
 
 type Payload = { events: ReturnType<typeof eventPayload>[] };
 
@@ -169,6 +170,7 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
+  resetViewCaches();
   cleanup();
   authFetch.mockReset();
   delete document.documentElement.dataset.theme;

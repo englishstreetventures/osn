@@ -1058,12 +1058,12 @@ async function panelTo(target: number) {
 }
 
 describe("each view goes narrow at its own line", () => {
-  it("draws the households' tables down to 46rem, and every action stays reachable", async () => {
+  it("draws the households' tables down to 47rem, and every action stays reachable", async () => {
     await page.viewport(1280, 800);
     render({ module: "guests", sub: "list" });
     await loaded("list");
     const firstBar = () => document.querySelector("[data-household-bar]")!;
-    await panelTo(46 * 16 + 1);
+    await panelTo(47 * 16 + 1);
     expectPass(
       "narrow households: wide just above the line",
       document.querySelector("[data-head-strip]") !== null,
@@ -1086,7 +1086,7 @@ describe("each view goes narrow at its own line", () => {
       Math.abs(rect(firstBar()).height - cssPx("var(--hh-bar-h)")) <= 0.5,
     );
     await userEvent.click(cancel);
-    await panelTo(46 * 16 - 1);
+    await panelTo(47 * 16 - 1);
     expectPass(
       "narrow households: narrow just below the line",
       document.querySelector("[data-head-strip]") === null,
@@ -1094,12 +1094,12 @@ describe("each view goes narrow at its own line", () => {
     const menu = within(firstBar() as HTMLElement).getByRole("button", { name: /^Actions for / });
     expectPass("narrow households: the menu is reachable", reachable(menu));
     // Back across the line by a pixel is not enough: a rem of room first.
-    await panelTo(46 * 16 + 1);
+    await panelTo(47 * 16 + 1);
     expectPass(
       "narrow households: stays narrow a pixel above",
       document.querySelector("[data-head-strip]") === null,
     );
-    await panelTo(47 * 16 + 1);
+    await panelTo(48 * 16 + 1);
     expectPass(
       "narrow households: wide again a rem above",
       document.querySelector("[data-head-strip]") !== null,

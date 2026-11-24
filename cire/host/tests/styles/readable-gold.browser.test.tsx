@@ -309,7 +309,7 @@ for (const theme of THEMES) {
           </div>
         ));
         if (where === "sheet") {
-          screen.getByRole("button", { name: /^Open wedding navigation/ }).click();
+          screen.getByRole("button", { name: /open wedding navigation$/ }).click();
         }
         const vendors = await vi.waitFor(() => {
           const scope =

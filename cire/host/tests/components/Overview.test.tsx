@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -30,11 +30,13 @@ vi.mock("../../src/components/GettingStarted", () => ({
 
 import Overview from "../../src/components/Overview";
 import { __resetBudgetCache } from "../../src/lib/budget-store";
-import { __resetEventsCache } from "../../src/lib/events-store";
-import { __resetGuestsCache, setCachedGuests } from "../../src/lib/guests-store";
+import { __resetEventsCache, invalidateEvents } from "../../src/lib/events-store";
+import { __resetGuestsCache, invalidateGuests, setCachedGuests } from "../../src/lib/guests-store";
+import { peekCachedRsvps, rsvpChangesAccessor } from "../../src/lib/rsvps-store";
+import { settingsAccessor } from "../../src/lib/settings-store";
 import { __resetTasksCache } from "../../src/lib/tasks-store";
 import { __resetVendorsCache } from "../../src/lib/vendors-store";
-import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -175,14 +177,8 @@ describe("Overview", () => {
     // count floats ±1 across the local-midnight boundary, so read whatever the
     // headline renders and assert no OTHER element on the page holds that same
     // bare number (the old markup printed it twice: a big "30" + "30 days to go").
-    const headline = screen
-      .getByText(/days to go/i)
-      .closest("div")!
-      // `[class~=]` rather than `.tabular-nums`: `Stat` is `@shared/ui`'s now, and
-      // every class a library component writes is `base:`-prefixed so a call
-      // site can still override it. The attribute selector matches the
-      // whitespace-separated token without needing the colon escaped.
-      .querySelector('[class~="base:tabular-nums"]')!;
+    // The figure is the label's sibling, in the same headline paragraph.
+    const headline = screen.getByText(/days to go/i).parentElement!.querySelector(".tabular-nums")!;
     const count = headline.textContent!.trim();
     expect(count).toMatch(/^\d+$/);
     // getAllByText(exact) matches only elements whose OWN text is exactly `count`.
@@ -192,6 +188,91 @@ describe("Overview", () => {
     // Households deduped from the repeated-per-member rows: fam_a + fam_b = 2.
     const guestsCard = screen.getByText("Households").closest("div")!;
     expect(guestsCard.textContent).toContain("2");
+  });
+
+  it("draws a revisit at once from the caches, sending nothing", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string) =>
+      url.endsWith("/rsvp-changes")
+        ? Promise.resolve(
+            json({
+              households: 0,
+              truncated: false,
+              items: [],
+              digest: { available: false, enabled: true },
+            }),
+          )
+        : routed(url),
+    );
+    const first = render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    first.unmount();
+    const reads = authFetchMock.mock.calls.length;
+
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    // Drawn in the mount itself: no placeholder, no request.
+    expect(document.querySelector("[data-skeleton-outline]")).toBeNull();
+    expect(screen.getByText(/attending across 2 events/i)).toBeTruthy();
+    expect(authFetchMock.mock.calls.length).toBe(reads);
+  });
+
+  it("holds the outline, not Getting started, while empty rows known stale are read again", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: [],
+      guests: [],
+    });
+    const first = render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("getting-started")).toBeTruthy());
+    first.unmount();
+    // A spreadsheet import filled the events and guests since; the caches
+    // still hold the empty rows, marked stale.
+    invalidateEvents("wed_1");
+    invalidateGuests("wed_1");
+    let releaseEvents!: () => void;
+    const eventsHeld = new Promise<void>((resolve) => (releaseEvents = resolve));
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/events")) {
+        await eventsHeld;
+        return json(EVENTS);
+      }
+      if (url.endsWith("/guests")) return json(GUESTS);
+      return routed(url);
+    });
+
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    expect(screen.queryByTestId("getting-started")).toBeNull();
+    expect(document.querySelector("[data-skeleton-outline]")).not.toBeNull();
+
+    releaseEvents();
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    expect(screen.queryByTestId("getting-started")).toBeNull();
+  });
+
+  it("draws the briefing at once from stale rows that are not empty", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const first = render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    first.unmount();
+    // A schedule save leaves the guests stale; it cannot empty the list.
+    invalidateGuests("wed_1");
+
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    expect(document.querySelector("[data-skeleton-outline]")).toBeNull();
+    expect(screen.getByText(/attending across 2 events/i)).toBeTruthy();
   });
 
   it("starts the RSVP-changes read with its own and shows the card once the page loads", async () => {
@@ -248,6 +329,75 @@ describe("Overview", () => {
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     await waitFor(() => expect(screen.getByText(/No date yet/i)).toBeTruthy());
     expect(screen.queryByText("RSVP changes since your last visit")).toBeNull();
+  });
+
+  /** The page's reads as `routeFetch` answers them, except `refused` paths. */
+  function routeWithRefusals(refused: Record<string, number>) {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string) => {
+      const path = Object.keys(refused).find((p) => url.endsWith(p));
+      return path ? Promise.resolve(json({ error: "refused" }, refused[path])) : routed(url);
+    });
+  }
+
+  it("sends a signed-out organiser to sign in from a page read, and caches nothing", async () => {
+    routeWithRefusals({ "/settings": 401 });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(settingsAccessor("wed_1")()).toBeNull();
+  });
+
+  it("caches nothing from a page read the API refused", async () => {
+    routeWithRefusals({ "/settings": 403, "/rsvps": 500 });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.map(([url]) => String(url).split("/").pop())).toEqual(
+        expect.arrayContaining(["settings", "rsvps"]),
+      ),
+    );
+    // Let both answers settle before looking at what they left.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settingsAccessor("wed_1")()).toBeNull();
+    expect(peekCachedRsvps("wed_1")).toBeNull();
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the digest switch's new state in the card's cache", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/rsvp-changes/digest")) {
+        return Promise.resolve(json({ enabled: JSON.parse(String(init?.body)).enabled }));
+      }
+      if (url.endsWith("/rsvp-changes")) {
+        return Promise.resolve(
+          json({
+            households: 0,
+            truncated: false,
+            items: [],
+            digest: { available: true, enabled: true },
+          }),
+        );
+      }
+      return routed(url);
+    });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    const box = await screen.findByRole("checkbox", { name: "Email me a daily summary" });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(box).not.toBeChecked());
+    expect(rsvpChangesAccessor("wed_1")()?.digest.enabled).toBe(false);
   });
 
   it("prompts to set a date when none is set (no fabricated countdown)", async () => {
@@ -450,5 +600,50 @@ describe("Overview", () => {
     expect(screen.getByText("Reception")).toBeInTheDocument();
     // The RSVP progress bar is present.
     expect(screen.getAllByRole("progressbar").length).toBeGreaterThan(0);
+  });
+  it("lists the first five events' attending counts, then how many more", async () => {
+    const six = Array.from({ length: 6 }, (_, i) => ({
+      ...RSVPS[0]!,
+      id: `e${i + 1}`,
+      name: `Event ${i + 1}`,
+      attending: i,
+    }));
+    routeFetch({ rsvps: six, events: EVENTS, guests: GUESTS });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
+    // The card's label says "Attending" once; a row is the event and its
+    // figure alone, and the list carries the label as its name.
+    const list = await screen.findByRole("list", { name: "Attending by event" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "Event 10",
+      "Event 21",
+      "Event 32",
+      "Event 43",
+      "Event 54",
+      "+1 more",
+    ]);
+  });
+
+  it("lists five events with no line for more", async () => {
+    const five = Array.from({ length: 5 }, (_, i) => ({
+      ...RSVPS[0]!,
+      id: `e${i + 1}`,
+      name: `E${i}`,
+    }));
+    routeFetch({ rsvps: five, events: EVENTS, guests: GUESTS });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
+    const card = (await screen.findByText("Attending by event")).parentElement!;
+    expect(within(card).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(card).queryByText(/more$/)).toBeNull();
+  });
+
+  it("draws no attending-by-event card when no event has a tally", async () => {
+    routeFetch({ rsvps: [], events: EVENTS, guests: GUESTS });
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
+    await screen.findByText("Guests & events");
+    expect(screen.queryByText("Attending by event")).toBeNull();
   });
 });

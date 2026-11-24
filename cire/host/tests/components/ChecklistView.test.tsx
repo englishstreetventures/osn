@@ -59,6 +59,32 @@ describe("ChecklistView", () => {
     expect(screen.queryByRole("button", { name: /add task/i })).not.toBeInTheDocument();
   });
 
+  it("says once that there are no tasks, and hides the empty buckets", async () => {
+    setCachedTasks("wed_1", []);
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    expect(await screen.findByText("No tasks yet")).toBeInTheDocument();
+    expect(screen.getByText(/^Add one above/)).toBeInTheDocument();
+    // Still mounted, each holding its sortable list, but hidden.
+    const bucket = screen.getByRole("heading", { name: "12+ months out", hidden: true });
+    expect(bucket.closest(".auto-grid")!.classList.contains("hidden")).toBe(true);
+  });
+
+  it("tells a viewer of an empty checklist who adds tasks", async () => {
+    setCachedTasks("wed_1", []);
+    render(() => <ChecklistView weddingId="wed_1" canEdit={false} />);
+    expect(await screen.findByText("No tasks yet")).toBeInTheDocument();
+    expect(screen.getByText(/owners and editors add its planning tasks/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Add one above/)).toBeNull();
+  });
+
+  it("marks an empty bucket beside a full one, with no empty state", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", timeframeBucket: "12m" })]);
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    expect(screen.queryByText("No tasks yet")).toBeNull();
+    expect(screen.getAllByText("Nothing due in this window.").length).toBeGreaterThan(0);
+  });
+
   // The buckets are grid siblings rather than a flex column, so a mis-nested
   // </section> or a <For> closed inside the wrong element would put one bucket's
   // rows inside another's. Everything here asserts DOM containment, which holds

@@ -6,7 +6,12 @@ import { createEffect, createSignal, createUniqueId, For, on, Show } from "solid
 import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
-import type { OrganiserHouseholdRow } from "../../lib/households-store";
+import {
+  ensureHouseholdsLoaded,
+  householdsAccessor,
+  invalidateHouseholds,
+  type OrganiserHouseholdRow,
+} from "../../lib/households-store";
 import { buildInviteMessage, copyToClipboard } from "../../lib/invite-message";
 import { markHouseholdShared } from "../../lib/mark-shared";
 
@@ -73,23 +78,46 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
   const pickerNoteId = createUniqueId();
   const copyNoteId = createUniqueId();
 
-  async function loadHouseholds() {
+  /** Numbers each read of the households: only the newest one's answer, or
+   *  failure, is shown. */
+  let readSeq = 0;
+
+  /** The households, through the shared cache: a fresh list sends nothing,
+   *  and a re-mint marks it stale, so the read after one fetches the codes. A
+   *  read replaced while out (a write elsewhere marked the list stale) is not
+   *  a failure: the list is read once more, as the starter checklist does. */
+  async function loadHouseholds(retried = false): Promise<void> {
+    const mine = ++readSeq;
     try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/households")));
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`Could not load households (${res.status})`);
-      const rows = (await res.json()) as OrganiserHouseholdRow[];
-      setHouseholds(reconcile(rows.filter(canReceive), { key: "familyId" }));
+      const loaded = await ensureHouseholdsLoaded(props.weddingId, async () => {
+        const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/households")));
+        if (res.status === 401) {
+          redirectToLogin();
+          throw new Error("unauthenticated");
+        }
+        if (!res.ok) throw new Error(`Could not load households (${res.status})`);
+        return (await res.json()) as OrganiserHouseholdRow[];
+      });
+      if (mine !== readSeq) return;
+      if (!loaded && !retried) return await loadHouseholds(true);
+      const rows = householdsAccessor(props.weddingId)();
+      if (!loaded || !rows) throw new Error("households unavailable");
+      // A copy: the store changes the objects it is given.
+      setHouseholds(reconcile(structuredClone(rows.filter(canReceive)), { key: "familyId" }));
       setStatus("ready");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      setStatus("failed");
+      if (mine === readSeq) setStatus("failed");
     }
   }
+  // A new codes revision means the codes were re-minted: read them again.
   createEffect(
     on(
       () => props.codesRevision,
-      () => void loadHouseholds(),
+      (_revision, before) => {
+        if (before !== undefined) invalidateHouseholds(props.weddingId);
+        void loadHouseholds();
+      },
     ),
   );
 

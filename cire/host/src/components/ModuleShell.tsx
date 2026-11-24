@@ -694,7 +694,10 @@ export default function ModuleShell(props: ModuleShellProps) {
       {/* The gap opens up as the shell widens — at 1600px a rail 32px from a
           1300px panel reads as one crowded block; the extra air is what makes
           the two halves legible as separate things. */}
-      <div class="flex flex-col gap-5 @2xl/shell:flex-row @2xl/shell:gap-8 @5xl/shell:gap-10">
+      {/* Below the rail breakpoint the nav is a bar fixed to the screen's
+          foot, so the shell pads its own foot by the bar and the safe area
+          under it: the last row of a view scrolls clear of the bar. */}
+      <div class="flex flex-col gap-5 pb-(--foot-h) @2xl/shell:flex-row @2xl/shell:gap-8 @2xl/shell:pb-0 @5xl/shell:gap-10">
         <ModuleSidebar
           active={module()}
           weddingId={props.weddingId}
@@ -708,19 +711,18 @@ export default function ModuleShell(props: ModuleShellProps) {
           {/* The panel names itself. With the per-wedding header gone from the
               chrome, this is the only thing that says which module is open —
               and unlike a chrome band it scrolls away with the content it
-              titles. The hint under it is the same sentence the rail and the
-              palette use, so a module reads the same wherever it is met. */}
+              titles. It is the module's name and the gilt rule, with no line
+              under the name: the module's hint stays in the rail, the sheet
+              and the palette, where it tells a reader what is behind a module
+              before they open it (DESIGN.md §3, "A line earns its place"). */}
           <header class="mb-4 flex flex-col gap-4">
-            <div class="flex min-w-0 flex-col gap-1">
-              <h2
-                ref={heading}
-                tabindex="-1"
-                class="font-display text-text text-ui-lg leading-ui-none font-light"
-              >
-                {moduleDef(module()).label}
-              </h2>
-              <p class="font-body text-text-muted text-ui-sm">{moduleDef(module()).hint}</p>
-            </div>
+            <h2
+              ref={heading}
+              tabindex="-1"
+              class="font-display text-text text-ui-lg leading-ui-none font-light"
+            >
+              {moduleDef(module()).label}
+            </h2>
 
             <hr class="gilt-rule opacity-60" />
           </header>

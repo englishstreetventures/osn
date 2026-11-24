@@ -90,6 +90,7 @@ import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { __resetHouseholdsCache } from "../../src/lib/households-store";
 import { EVENTS_300, GUESTS_300, HOUSEHOLDS_300, RSVPS_300 } from "../test-support/guests-300";
 import { renderOrganiserPage } from "../test-support/organiser-page";
+import { resetViewCaches } from "../test-support/view-caches";
 
 /**
  * The page's clock: a week before the fixture's first event, so every event is
@@ -176,6 +177,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetViewCaches();
   vi.useRealTimers();
   cleanup();
   authFetch.mockReset();
@@ -383,9 +385,9 @@ const HOLLOW: Record<string, Hollow> = {
     module: "overview",
     sub: "",
     held: "rsvps",
-    arrived: (scope) => scope.querySelector(".auto-grid") !== null,
-    // A card's frame and ground; an agenda row's rule.
-    grounds: [".auto-grid > *", "ul.grid > li"],
+    arrived: (scope) => scope.querySelector(".overview-body") !== null,
+    // A side card's frame and ground; an agenda row's rule.
+    grounds: [".overview-side > *", "ul.grid > li"],
   },
   households: {
     width: 1280,

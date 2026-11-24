@@ -13,7 +13,16 @@ import { Select } from "@shared/ui/ui/select";
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { type HostSeat, invalidateHosts, setFreshHosts } from "../lib/hosts-store";
+import {
+  freshHostsPanel,
+  type HostPanelRow,
+  type HostSeat,
+  invalidateHosts,
+  invalidateHostsPanel,
+  refuseHostsPanel,
+  setFreshHosts,
+  setFreshHostsPanel,
+} from "../lib/hosts-store";
 import { useMembersChanged } from "../lib/members-changed";
 import {
   atPeopleLimit,
@@ -52,30 +61,7 @@ const HOST_ROW_CLASS = `${cardClass({ padding: "sm" })} flex-row flex-wrap items
 
 /** A seat on the wedding — an owner's or a co-host's. Owners are seats like
  *  everyone else, so one shape serves both. */
-interface HostRow {
-  /** The seat id a checklist task's `assigneeHostIds` name. Absent on the add
-   *  response, which does not echo it. */
-  hostId?: string;
-  osnProfileId: string;
-  /** The person's OSN handle: echoed by the add response, and on the list when
-   *  its lookup resolved one. A row without one shows the profile id. */
-  handle?: string;
-  /** The person's OSN display name, when the list's lookup resolved one. */
-  displayName?: string;
-  /** The person's OSN photo, an https URL, when the list's lookup found one.
-   *  The panel draws none; it hands it to the checklist's holder faces. */
-  avatarUrl?: string;
-  role: WeddingRole;
-  createdAt: number;
-  /** Who created this seat. Absent on the add response (it is by definition the
-   *  caller) and on a mid-deploy payload from an older API. */
-  addedByOsnProfileId?: string;
-  /** The adder's handle when the batch lookup resolved it. */
-  addedByHandle?: string;
-  /** How far into the run sheet a helper sees, as the API sent it: on helper
-   *  rows only. Read through `scopeOf`, which takes anything else as `own`. */
-  runSheetScope?: string;
-}
+type HostRow = HostPanelRow;
 
 /**
  * A role change waiting on an owner to say yes.
@@ -564,6 +550,12 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       const rows = body.hosts.map(withKnownRole);
+      // The panel opens on this read next time, while it is fresh.
+      setFreshHostsPanel(props.weddingId, {
+        rows,
+        total: body.total ?? body.hosts.length,
+        peopleLimit: readPeopleLimit(body.peopleLimit),
+      });
       // A seat the read shows as this panel already does keeps its row object,
       // so `<For>` keeps its row, its controls and the focus of an owner on
       // one of them; only a changed seat is rebuilt.
@@ -588,13 +580,27 @@ export default function HostsPanel(props: HostsPanelProps) {
       setError(null);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      // The read was refused or failed: the next opening does not draw the
+      // cached read either.
+      refuseHostsPanel(props.weddingId);
       if (first && seq === loadSeq) setError("Could not load hosts. Is the API running?");
     } finally {
       if (first) setLoading(false);
     }
   }
 
-  onMount(() => void loadHosts(true));
+  // A fresh read from an earlier opening (`hosts-store.ts`) draws the panel at
+  // once and sends nothing; the socket still prompts a read when seats change.
+  const opened = untrack(() => freshHostsPanel(props.weddingId));
+  if (opened) {
+    setHosts(ownersFirst(opened.rows));
+    setTotal(opened.total);
+    keepPeopleLimit(opened.peopleLimit);
+    setLoading(false);
+  }
+  onMount(() => {
+    if (!opened) void loadHosts(true);
+  });
 
   // The open wedding's socket says its seats may have changed, from someone
   // else's tab or this one's own write: read them again, once no write of this
@@ -813,8 +819,9 @@ export default function HostsPanel(props: HostsPanelProps) {
       }
       haptic("commit");
       // No read lands while the write is out, so `host` is still the row on
-      // screen.
+      // screen. The panel's cached read holds the old scope.
       setScopesSet((set) => new Map(set).set(host, next));
+      invalidateHostsPanel(props.weddingId);
       toast.success(`${nameOf(host)} now sees ${RUN_SHEET_SCOPE_COPY[next].phrase}.`);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();

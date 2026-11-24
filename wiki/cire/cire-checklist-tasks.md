@@ -12,7 +12,7 @@ related:
   - "[[d1-limits]]"
   - "[[toast]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-17
 ---
 # Checklist / Tasks
 
@@ -369,15 +369,20 @@ The button opens a Kobalte popover: a listbox of everyone on the wedding,
 `GET /hosts` lists them. Each row is a toggle circle — an outline when the person
 does not hold the task, filled with a tick when they do — their face, their
 name and their role. Clicking a row puts them on the task or takes them off at
-once, and the popover stays open until a click outside it, Escape or Tab, the
-last two giving the focus back to the button. Above five people a search over
+once, and the popover stays open until a click outside it, Escape, Shift+Tab
+on its panel, or Tab from inside it, each of the last three giving the focus
+back to the button. Above five people a search over
 names and handles heads the list, which shows about four rows and scrolls; five
-or fewer show whole with no search. The focus starts in the search when there
-is one, else on the list; the arrows, Home and End move the highlight, and
-Enter toggles it — Space too on the list, but not in the search, where it types
-the space a name has. The highlighted person is marked by a bar in the focus
-ring's colour and gold ink on their name, since the ring itself stays on the
-search or the list. The rows stay usable while writes are out; the list says
+or fewer show whole with no search. The popover opens with the focus on its
+panel and nobody highlighted, so no stray Enter puts the reader, listed first,
+on the task. The highlight follows the pointer; from the panel, Tab moves into
+the search or the list, an arrow, Home or End moves in and onto a person, and
+a key that types goes into the search. The arrows, Home and End move the
+highlight, and Enter toggles it — Space too on the list, but not in the search,
+where it types the space a name has; typing aims the highlight at the first
+match. The highlighted person is marked by a bar in the focus ring's colour and
+gold ink on their name, since the ring itself stays on the search or the list
+(`cire/host/DESIGN.md` §7, Who holds a task). The rows stay usable while writes are out; the list says
 `aria-busy` instead. One polite status line (`<output>`) under the list, outside
 it, says the popover is finding the people, how many a search matches, or
 that it matches nobody.
@@ -524,9 +529,12 @@ and ticks every one whose date is still ahead (or that has none yet). An item
 whose date has passed starts unticked and says so, so a late start does not
 fill the Overview with overdue tasks; the removed items start unticked under
 "You removed these earlier". Without a wedding date an owner is asked to add it
-in Settings, and an editor is told an owner can. Each opening starts with
-nothing ticked until its preview arrives, so a pick from an earlier opening is
-never sent. After an apply the answer's list goes into the cache through
+in Settings, and an editor is told an owner can. Each opening starts from the
+preview's own ticks, never from an earlier opening's picks, and with nothing
+ticked while a preview is still being read. The preview is cached per wedding
+(`starter-store.ts`, [[cire-host-portal-layout#View caches: one factory, one minute]]),
+so a dialog opened again draws at once with no request; every change to the
+tasks the tasks cache learns of, and a minute's age, make it read again. After an apply the answer's list goes into the cache through
 `setFreshTasks`, so a list read already in flight is discarded. Every close —
 Escape and the backdrop included, even mid-apply — clears the dialog's open
 state; an apply that fails after the dialog closed says so in a toast.

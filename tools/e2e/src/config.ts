@@ -401,6 +401,24 @@ export const CIRE_ORGANISER = {
   /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
    *  Cy Charlie at Table 2, all three having said yes. And an after party,
    *  inviting Ada, with no plan yet. */
+  /**
+   * A Gold wedding dated 2099-06-20, for counting what the portal reads as the
+   * owner moves between views (`seedE2eCache` in cire/api/src/db/setup.ts): the
+   * Ceremony and the Reception; household Alpha, Ada and Bo invited to both;
+   * Ada attending the Ceremony, a change the owner has not seen; no tasks.
+   */
+  cache: {
+    weddingId: "wed_e2e_cache",
+    household: "Alpha",
+    /** Alpha's claim code, which the guest list prints. */
+    code: "TESTCACHE-ALP-0001",
+    ada: "Ada",
+    bo: "Bo",
+    ceremony: "Ceremony",
+    reception: "Reception",
+    /** What the flow renames the Reception to in the events editor. */
+    renamed: "Evening reception",
+  },
   seating: {
     weddingId: "wed_e2e_seating",
     slug: "seating-wedding",

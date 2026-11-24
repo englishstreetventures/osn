@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/te
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { __resetStarterPreview } from "../../src/lib/starter-store";
+
 vi.mock("@shared/rp-auth/solid", async () => {
   const { rpAuthSolidMock } = await import("../test-support/mocks");
   return rpAuthSolidMock();
@@ -20,6 +22,7 @@ import ChecklistView from "../../src/components/ChecklistView";
 import {
   __resetTasksCache,
   hasCachedTasks,
+  markTasksStale,
   setCachedTasks,
   type TaskRow,
 } from "../../src/lib/tasks-store";
@@ -101,6 +104,7 @@ const sentItems = () => (JSON.parse(String(postCall()![1].body)) as { items: str
 
 beforeEach(() => {
   __resetTasksCache();
+  __resetStarterPreview();
 });
 
 afterEach(() => {
@@ -183,6 +187,62 @@ describe("the starter's preview", () => {
     await dialog.findByRole("checkbox", { name: /agree on an overall budget/i });
     expect(dialog.queryByText("Loading…")).not.toBeInTheDocument();
     expect(list).toHaveAttribute("aria-busy", "false");
+  });
+
+  it("reads the preview again when the tasks change while it loads", async () => {
+    setCachedTasks("wed_1", []);
+    let answerFirst!: (res: Response) => void;
+    let previewReads = 0;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url !== PREVIEW_URL) return Promise.resolve(json({ tasks: [] }));
+      previewReads += 1;
+      if (previewReads === 1) return new Promise<Response>((r) => (answerFirst = r));
+      return Promise.resolve(preview(null, [BUDGET]));
+    });
+    renderChecklist();
+    const dialog = await openPreview();
+    await waitFor(() => expect(previewReads).toBe(1));
+
+    // A co-host's task write lands: the read in flight no longer counts.
+    markTasksStale("wed_1");
+    answerFirst(preview(null, [{ ...BUDGET, key: "stale", title: "From before the change" }]));
+
+    expect(
+      await dialog.findByRole("checkbox", { name: /agree on an overall budget/i }),
+    ).toBeInTheDocument();
+    expect(dialog.queryByText("From before the change")).not.toBeInTheDocument();
+    expect(previewReads).toBe(2);
+  });
+
+  it("keeps a tick from a later opening when an earlier opening's dropped read settles", async () => {
+    setCachedTasks("wed_1", []);
+    let answerFirst!: (res: Response) => void;
+    let previewReads = 0;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url !== PREVIEW_URL) return Promise.resolve(json({ tasks: [] }));
+      previewReads += 1;
+      if (previewReads === 1) return new Promise<Response>((r) => (answerFirst = r));
+      return Promise.resolve(preview(null, [BUDGET]));
+    });
+    renderChecklist();
+    let dialog = await openPreview();
+    await waitFor(() => expect(previewReads).toBe(1));
+    // A task change drops the first opening's read; the dialog is closed and
+    // opened again, and the organiser unticks an item.
+    markTasksStale("wed_1");
+    fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(dialogNamed()).toBeNull());
+    dialog = await openPreview();
+    const box = await dialog.findByRole("checkbox", { name: /agree on an overall budget/i });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+
+    // The first opening's read settles now, dropped: it acts on nothing.
+    answerFirst(preview(null, [BUDGET]));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(dialog.getByRole("checkbox", { name: /agree on an overall budget/i })).not.toBeChecked();
+    expect(previewReads).toBe(2);
   });
 
   it("says so when everything is already on the checklist, and offers nothing to add", async () => {
@@ -409,9 +469,28 @@ describe("the starter with a wedding date", () => {
     fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(dialogNamed()).toBeNull());
 
+    // The tasks changed, so the cached preview is stale and is read again.
+    setCachedTasks("wed_1", []);
     authFetchMock.mockReturnValueOnce(new Promise(() => {}));
     dialog = await openPreview();
     expect(dialog.getByRole("button", { name: "Add 0 tasks" })).toBeDisabled();
+  });
+
+  it("reopens a cached preview at once, without the pick from before", async () => {
+    setCachedTasks("wed_1", []);
+    authFetchMock.mockResolvedValueOnce(preview("2027-06-05", ITEMS));
+    renderChecklist();
+    let dialog = await openPreview();
+    const pick = await dialog.findByRole("checkbox", { name: /plan what you will wear/i });
+    fireEvent.click(pick);
+    expect(pick).toBeChecked();
+    fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(dialogNamed()).toBeNull());
+
+    const reads = authFetchMock.mock.calls.length;
+    dialog = await openPreview();
+    expect(dialog.getByRole("checkbox", { name: /plan what you will wear/i })).not.toBeChecked();
+    expect(authFetchMock.mock.calls.length).toBe(reads);
   });
 
   it("closes on Escape mid-apply, reports a failure there as a toast, and opens again", async () => {

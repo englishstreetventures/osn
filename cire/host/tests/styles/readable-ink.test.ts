@@ -59,18 +59,13 @@ const ORNAMENT: readonly { file: string; line: string; why: string }[] = [
   },
   {
     file: "cire/host/src/components/ModuleSidebar.tsx",
-    line: '<ModuleIcon icon={current().icon} class="text-gold" />',
-    why: "the phone menu button's icon beside the module's name",
+    line: 'const menuTileLocked = "border-border bg-transparent text-text-faint cursor-default";',
+    why: "a locked menu tile's icon and lock, graphics at 3:1; its name is set in --text-muted",
   },
   {
     file: "cire/host/src/components/ModuleSidebar.tsx",
-    line: '<ModuleIcon icon={Menu} class="text-gold" />',
-    why: "the phone menu button's icon beside its words",
-  },
-  {
-    file: "cire/host/src/components/ModuleSidebar.tsx",
-    line: 'class={isActive() ? "text-gold" : "text-gold-dim"}',
-    why: "the phone sheet's icons, each beside its module's name",
+    line: 'isActive() ? "text-gold" : locked() ? "" : "text-gold-dim"',
+    why: "the phone menu's icons, each over its module's name",
   },
   {
     file: "cire/host/src/components/SeatingView.tsx",

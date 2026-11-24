@@ -299,6 +299,7 @@ describe("an overlay's scale", () => {
     it(`${overlay.name}: enters from --ui-scale-enter, not a number of its own`, async () => {
       oddScales();
       const { enter } = await cycle(overlay);
+      expect(enter, "no entry animation").toBeDefined();
       expect(enter!.enterScale).toBe("0.5");
     });
   }
@@ -468,14 +469,18 @@ describe("an anchored panel's origin", () => {
 });
 
 describe("reduced motion", () => {
-  for (const overlay of [...Object.values(OVERLAYS), DIALOG_SHEET_WIDE]) {
+  // The controls for the reduced-motion cases below: an empty list there means
+  // something only if the same overlay animates without reduced motion. These
+  // two hold that for the dialogs; for Popover, both DropdownMenus and Tooltip,
+  // the scale case ("enters from --ui-scale-enter") fails unless an entry runs.
+  for (const overlay of [OVERLAYS.dialog, DIALOG_SHEET_WIDE]) {
     it(`${overlay.name}: animates for a reader who has not asked for less`, async () => {
-      // The control for the case below: its empty list means something only if
-      // this one is not empty.
       const { enter } = await cycle(overlay);
       expect(enter).toBeDefined();
     });
+  }
 
+  for (const overlay of [...Object.values(OVERLAYS), DIALOG_SHEET_WIDE]) {
     it(`${overlay.name}: runs no animation, opening or closing, under reduced motion`, async () => {
       if (overlay.width) await atWidth(overlay.width);
       await emulateMedia({ reducedMotion: "reduce" });

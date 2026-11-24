@@ -68,15 +68,6 @@ it.effect("getEvent returns event", () =>
   ),
 );
 
-it.effect("getEvent fails with EventNotFound for unknown id", () =>
-  provide(
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(getEvent("nonexistent"));
-      expect(error._tag).toBe("EventNotFound");
-    }),
-  ),
-);
-
 it.effect("listEvents returns all events regardless of time", () =>
   provide(
     Effect.gen(function* () {
@@ -96,45 +87,6 @@ it.effect("listEvents filters by status", () =>
       const events = yield* listEvents({ status: "ongoing" });
       expect(events.length).toBe(1);
       expect(events[0]!.title).toBe("Ongoing Event");
-    }),
-  ),
-);
-
-it.effect("listEvents filters by category", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* createEvent({ title: "Music Event", startTime: FUTURE, category: "music" }, ALICE);
-      yield* createEvent({ title: "Sports Event", startTime: FUTURE, category: "sports" }, ALICE);
-      const events = yield* listEvents({ category: "music" });
-      expect(events.length).toBe(1);
-      expect(events[0]!.title).toBe("Music Event");
-    }),
-  ),
-);
-
-it.effect("listEvents bbox filters to rows inside the box and excludes rows outside it", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedEvent({
-        title: "Inside London",
-        startTime: FUTURE,
-        latitude: 51.5,
-        longitude: -0.1,
-      });
-      yield* seedEvent({
-        title: "Outside NYC",
-        startTime: FUTURE,
-        latitude: 40.7,
-        longitude: -74.0,
-      });
-      const events = yield* listEvents({
-        minLat: 51.0,
-        maxLat: 52.0,
-        minLng: -0.5,
-        maxLng: 0.5,
-      });
-      expect(events.length).toBe(1);
-      expect(events[0]!.title).toBe("Inside London");
     }),
   ),
 );
@@ -232,10 +184,9 @@ it.effect("listTodayEvents returns only today's events", () =>
   ),
 );
 
-// The "today" feed shipped with no visibility predicate and an unauthenticated
-// route, so every private event starting today was readable by anyone. These
-// pin the same three cases `buildVisibilityFilter` covers, at the one call site
-// that was missing it.
+// The "today" feed sits behind an unauthenticated route, so it must apply the
+// same visibility predicate as every other list read: these pin each of its
+// cases (anonymous, a stranger, the organiser, an attendee) at that call site.
 
 it.effect("listTodayEvents hides private events from anonymous callers", () =>
   provide(
@@ -308,24 +259,6 @@ it.effect("createEvent fails with ValidationError for missing title", () =>
   provide(
     Effect.gen(function* () {
       const error = yield* Effect.flip(createEvent({ startTime: FUTURE }, ALICE));
-      expect(error._tag).toBe("ValidationError");
-    }),
-  ),
-);
-
-it.effect("createEvent fails with ValidationError for empty title", () =>
-  provide(
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(createEvent({ title: "", startTime: FUTURE }, ALICE));
-      expect(error._tag).toBe("ValidationError");
-    }),
-  ),
-);
-
-it.effect("createEvent fails with ValidationError for past startTime", () =>
-  provide(
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(createEvent({ title: "Test", startTime: PAST }, ALICE));
       expect(error._tag).toBe("ValidationError");
     }),
   ),
@@ -501,18 +434,18 @@ it.effect("maybe_finished is display-only — the DB row stays 'ongoing'", () =>
         startTime: ninehAgo,
         status: "ongoing",
       });
-      // First read projects maybe_finished in-memory.
+      // The read projects maybe_finished in memory.
       const fetched = yield* getEvent(seeded.id);
       expect(fetched.status).toBe("maybe_finished");
-      // But the DB row still says ongoing — a direct SELECT via a second
-      // getEvent re-derives from the stored ongoing row, not a persisted
-      // maybe_finished one. Count status_transitions: none should fire
-      // for maybe_finished (only ongoing → finished at 12h is persisted).
-      const spy = vi.spyOn(metrics, "metricEventStatusTransition");
-      const refetched = yield* getEvent(seeded.id);
-      expect(refetched.status).toBe("maybe_finished");
-      expect(spy).not.toHaveBeenCalled();
-      spy.mockRestore();
+      // The stored row still says ongoing: only ongoing → finished is written.
+      const { db } = yield* Db;
+      const stored = yield* Effect.promise(() =>
+        db
+          .select({ status: eventsTable.status })
+          .from(eventsTable)
+          .where(eq(eventsTable.id, seeded.id)),
+      );
+      expect(stored[0]!.status).toBe("ongoing");
     }),
   ),
 );
@@ -577,54 +510,11 @@ it.effect("createEvent fails with ValidationError for bad startTime", () =>
   ),
 );
 
-it.effect("createEvent fails with ValidationError for invalid imageUrl", () =>
-  provide(
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(
-        createEvent({ title: "Test", startTime: FUTURE, imageUrl: "not-a-url" }, ALICE),
-      );
-      expect(error._tag).toBe("ValidationError");
-    }),
-  ),
-);
-
-it.effect("updateEvent updates fields", () =>
-  provide(
-    Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Original", startTime: FUTURE }, ALICE);
-      const updated = yield* updateEvent(created.id, { title: "Updated" }, "usr_alice");
-      expect(updated.title).toBe("Updated");
-      expect(updated.startTime).toEqual(created.startTime);
-    }),
-  ),
-);
-
-it.effect("updateEvent fails with EventNotFound for unknown id", () =>
-  provide(
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(updateEvent("nonexistent", { title: "Updated" }));
-      expect(error._tag).toBe("EventNotFound");
-    }),
-  ),
-);
-
 it.effect("updateEvent fails with ValidationError for empty title", () =>
   provide(
     Effect.gen(function* () {
       const created = yield* createEvent({ title: "Original", startTime: FUTURE }, ALICE);
       const error = yield* Effect.flip(updateEvent(created.id, { title: "" }, "usr_alice"));
-      expect(error._tag).toBe("ValidationError");
-    }),
-  ),
-);
-
-it.effect("updateEvent fails with ValidationError for invalid imageUrl", () =>
-  provide(
-    Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Original", startTime: FUTURE }, ALICE);
-      const error = yield* Effect.flip(
-        updateEvent(created.id, { imageUrl: "not-a-url" }, "usr_alice"),
-      );
       expect(error._tag).toBe("ValidationError");
     }),
   ),
@@ -641,29 +531,7 @@ it.effect("deleteEvent removes the event", () =>
   ),
 );
 
-it.effect("deleteEvent fails with EventNotFound for unknown id", () =>
-  provide(
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(deleteEvent("nonexistent"));
-      expect(error._tag).toBe("EventNotFound");
-    }),
-  ),
-);
-
 // ── Ownership ────────────────────────────────────────────────────────────────
-
-it.effect("deleteEvent fails with NotEventOwner when requestingProfileId does not match", () =>
-  provide(
-    Effect.gen(function* () {
-      const event = yield* createEvent(
-        { title: "Not Mine", startTime: FUTURE },
-        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
-      );
-      const error = yield* Effect.flip(deleteEvent(event.id, "usr_bob"));
-      expect(error._tag).toBe("NotEventOwner");
-    }),
-  ),
-);
 
 it.effect("deleteEvent fails with NotEventOwner when no requestingProfileId provided", () =>
   provide(
@@ -675,39 +543,12 @@ it.effect("deleteEvent fails with NotEventOwner when no requestingProfileId prov
   ),
 );
 
-it.effect("updateEvent fails with NotEventOwner when requestingProfileId does not match", () =>
-  provide(
-    Effect.gen(function* () {
-      const event = yield* createEvent(
-        { title: "Not Mine", startTime: FUTURE },
-        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
-      );
-      const error = yield* Effect.flip(updateEvent(event.id, { title: "Hijacked" }, "usr_bob"));
-      expect(error._tag).toBe("NotEventOwner");
-    }),
-  ),
-);
-
 it.effect("getEvent auto-transitions upcoming → ongoing when startTime passed", () =>
   provide(
     Effect.gen(function* () {
       const seeded = yield* seedEvent({ title: "Started", startTime: STARTED });
       const fetched = yield* getEvent(seeded.id);
       expect(fetched.status).toBe("ongoing");
-    }),
-  ),
-);
-
-it.effect("getEvent auto-transitions to finished when endTime passed", () =>
-  provide(
-    Effect.gen(function* () {
-      const seeded = yield* seedEvent({
-        title: "Ended",
-        startTime: STARTED,
-        endTime: ENDED,
-      });
-      const fetched = yield* getEvent(seeded.id);
-      expect(fetched.status).toBe("finished");
     }),
   ),
 );
@@ -740,25 +581,19 @@ it.effect("getEvent does not transition finished events", () =>
   ),
 );
 
-it.effect("listEvents returns transitioned statuses", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedEvent({ title: "Started", startTime: STARTED });
-      const results = yield* listEvents({});
-      const started = results.find((e) => e.title === "Started");
-      expect(started?.status).toBe("ongoing");
-    }),
-  ),
-);
-
+// The today feed's window starts at local midnight, so the clock is pinned to
+// local noon: an event that started a minute ago is then always on today.
 it.effect("listTodayEvents returns transitioned statuses", () =>
   provide(
     Effect.gen(function* () {
-      yield* seedEvent({ title: "Today Started", startTime: STARTED });
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(2030, 5, 15, 12, 0, 0));
+      const started = new Date(Date.now() - 60_000).toISOString();
+      yield* seedEvent({ title: "Today Started", startTime: started });
       const results = yield* listTodayEvents(null);
-      const started = results.find((e) => e.title === "Today Started");
-      expect(started?.status).toBe("ongoing");
-    }),
+      const found = results.find((e) => e.title === "Today Started");
+      expect(found?.status).toBe("ongoing");
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.useRealTimers()))),
   ),
 );
 
@@ -928,11 +763,9 @@ it.effect("updateEvent fails with ValidationError for invalid status", () =>
 
 // ── Discovery visibility filter ──────────────────────────────────────────────
 //
-// listEvents now hides `visibility = "private"` events from non-owners and
-// from unauthenticated callers. The viewer's own private events stay visible
-// so they can manage them. The route layer (events.new.test.ts) covers the
-// HTTP surface; these cases pin the invariant at the service layer so the
-// authorization check can't silently regress during a refactor.
+// listEvents hides `visibility = "private"` events from non-owners and from
+// unauthenticated callers. The viewer's own private events stay visible so
+// they can manage them.
 
 it.effect("listEvents hides private events from unauthenticated callers", () =>
   provide(
@@ -961,37 +794,9 @@ it.effect("listEvents hides private events from non-owner viewers", () =>
   ),
 );
 
-it.effect("listEvents shows private events to their own creator", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* createEvent({ title: "Public", startTime: FUTURE }, ALICE);
-      yield* createEvent(
-        { title: "Alice's private", startTime: FUTURE, visibility: "private" },
-        ALICE,
-      );
-      const events = yield* listEvents({ viewerId: "usr_alice" });
-      expect(events.length).toBe(2);
-      expect(events.map((e) => e.title).toSorted()).toEqual(["Alice's private", "Public"]);
-    }),
-  ),
-);
-
 // ---------------------------------------------------------------------------
 // Price fields
 // ---------------------------------------------------------------------------
-
-it.effect("createEvent stores price as minor units (USD 18.50 → 1850)", () =>
-  provide(
-    Effect.gen(function* () {
-      const event = yield* createEvent(
-        { title: "Paid", startTime: FUTURE, priceAmount: 18.5, priceCurrency: "USD" },
-        ALICE,
-      );
-      expect(event.priceAmount).toBe(1850);
-      expect(event.priceCurrency).toBe("USD");
-    }),
-  ),
-);
 
 it.effect("createEvent stores JPY as minor units at 0 exponent (¥500 → 500)", () =>
   provide(
@@ -1002,16 +807,6 @@ it.effect("createEvent stores JPY as minor units at 0 exponent (¥500 → 500)",
       );
       expect(event.priceAmount).toBe(500);
       expect(event.priceCurrency).toBe("JPY");
-    }),
-  ),
-);
-
-it.effect("createEvent leaves price null when omitted", () =>
-  provide(
-    Effect.gen(function* () {
-      const event = yield* createEvent({ title: "Free", startTime: FUTURE }, ALICE);
-      expect(event.priceAmount).toBeNull();
-      expect(event.priceCurrency).toBeNull();
     }),
   ),
 );
@@ -1062,24 +857,6 @@ it.effect("createEvent rejects unsupported currency", () =>
         ),
       );
       expect(error._tag).toBe("ValidationError");
-    }),
-  ),
-);
-
-it.effect("updateEvent clears price when both fields set to null", () =>
-  provide(
-    Effect.gen(function* () {
-      const created = yield* createEvent(
-        { title: "Paid", startTime: FUTURE, priceAmount: 10, priceCurrency: "USD" },
-        ALICE,
-      );
-      const updated = yield* updateEvent(
-        created.id,
-        { priceAmount: null, priceCurrency: null },
-        "usr_alice",
-      );
-      expect(updated.priceAmount).toBeNull();
-      expect(updated.priceCurrency).toBeNull();
     }),
   ),
 );

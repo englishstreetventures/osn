@@ -1,21 +1,20 @@
 /**
- * Regression guard for the "bound one SQL parameter per array element / per
- * column per row" defect class. D1 caps a query at 100 bound parameters
+ * Guards against binding one SQL parameter per array element, or per column
+ * per row. D1 caps a query at 100 bound parameters
  * (developers.cloudflare.com/d1/platform/limits/); bun:sqlite enforces no
- * such cap, so these tests can't reproduce the production failure by
- * running past 100 params and watching it throw. What they DO prove,
- * cheaply and on every test run: the real service functions — not a
- * reconstruction of their queries — emit the SQL this fix promises,
- * exercised well past each site's own bind-count cliff.
+ * such cap, so these tests cannot watch a query past 100 params throw. What
+ * they prove, on every test run: the real service functions — not a
+ * reconstruction of their queries — bind a fixed number of parameters
+ * however many ids or rows they get, at sizes well past each site's cap.
  *
  * The capture mechanism is drizzle's own `logger` hook, which fires with
  * the exact SQL text and bound-parameter array the driver is about to
  * run — the same thing `.toSQL()` would give a query-builder chain, but
  * reachable here because these sites build their statements inside a
  * service function rather than handing back a chain a test can call
- * `.toSQL()` on directly. If a future edit reverts any of these sites to
- * a plain `inArray(col, ids)` or `.values(rows)`, the captured parameter
- * count jumps from O(1) to O(n) and the relevant assertion below fails.
+ * `.toSQL()` on directly. If any of these sites binds per element — a plain
+ * `inArray(col, ids)` or `.values(rows)` — the captured parameter count
+ * grows from O(1) to O(n) and the relevant assertion below fails.
  *
  * Six sites:
  *   1. series.ts        materializeInstances  — INSERT, 31 cols/row
@@ -46,8 +45,8 @@ import { type Captured, createCapturingTestLayer, seedEvent } from "../helpers/d
 function findStatement(captured: Captured[], ...needles: string[]): Captured {
   // Case-insensitive: drizzle's own builder emits lowercase keywords, while a
   // statement assembled through `sql` carries whatever case it was written in
-  // — `insertManyViaJsonEach` writes `INSERT INTO`. Matching case-sensitively
-  // silently found nothing and read as "the fix did not apply".
+  // — `insertManyViaJsonEach` writes `INSERT INTO`. A case-sensitive match
+  // finds nothing there and fails for the wrong reason.
   const matches = captured.filter((c) =>
     needles.every((n) => c.sql.toLowerCase().includes(n.toLowerCase())),
   );
@@ -63,7 +62,7 @@ function findStatement(captured: Captured[], ...needles: string[]): Captured {
 // ---------------------------------------------------------------------------
 
 describe("series.ts materializeInstances", () => {
-  it("inserts 200 instances (31 cols/row — 6200 params the old way) with 1 bound param", async () => {
+  it("inserts 200 instances (31 cols/row, 6200 params if bound per column) with 1 bound param", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const now = new Date();
     const dtstart = new Date(now.getTime() + 7 * 86_400_000);
@@ -123,7 +122,7 @@ describe("series.ts materializeInstances", () => {
 // ---------------------------------------------------------------------------
 
 describe("accountErasure.ts purgeAccount", () => {
-  it("purges an account with 150 hosted events (past the old 100-id cliff) via fixed-param deletes", async () => {
+  it("purges an account with 150 hosted events (past the 100-parameter cap) via fixed-param deletes", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const HOST = "usr_host";
 
@@ -228,7 +227,7 @@ describe("accountExport.ts collectExport", () => {
 // ---------------------------------------------------------------------------
 
 describe("closeFriends.ts getCloseFriendsOfBatch", () => {
-  it("looks up 150 attendees (past the old 100-id cliff, and past the old 1000-id truncation risk) with 1 bound param", async () => {
+  it("looks up 150 attendees (past the 100-parameter cap) with 1 bound id-list param", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const attendeeIds = Array.from({ length: 150 }, (_, i) => `usr_${i}`);
 
@@ -262,7 +261,7 @@ describe("pulseUsers.ts getAttendanceVisibilityBatch", () => {
 // ---------------------------------------------------------------------------
 
 describe("rsvps.ts inviteGuests", () => {
-  it("invites 150 guests (past the old ~17-row insert cliff) with 1 bound param each on the SELECT and the INSERT", async () => {
+  it("invites 150 guests (a per-column insert passes the cap at ~17 rows) with 1 bound param each on the SELECT and the INSERT", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const event = await Effect.runPromise(
       seedEvent({
@@ -292,7 +291,7 @@ describe("rsvps.ts inviteGuests", () => {
 // ---------------------------------------------------------------------------
 
 describe("discovery.ts discoverEvents friendsOnly", () => {
-  it("filters by 150 connections (past the old ~50-connection cliff), the set bound twice at 1 param each", async () => {
+  it("filters by 150 connections (per-id binds pass the cap at ~50), the set bound twice at 1 param each", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const connectionIds = Array.from({ length: 150 }, (_, i) => `usr_conn_${i}`);
     const lookups: DiscoveryLookups = {
@@ -310,12 +309,10 @@ describe("discovery.ts discoverEvents friendsOnly", () => {
     const jsonEachOccurrences = (stmt.sql.match(/json_each/g) ?? []).length;
     expect(jsonEachOccurrences).toBe(2);
     // The property is invariance, not a magic ceiling: a threshold has to be
-    // guessed, and guessing it low is how this assertion first failed at 11
-    // against a `toBeLessThan(10)` that proved nothing either way. Run the
-    // same query with ten times the connections and require the bound
-    // parameter count to be identical — that is what "does not bind per
-    // element" actually means, and it fails the moment anyone reverts a
-    // json_each back to a list.
+    // guessed, and a guess proves nothing either way. Run the same query with
+    // ten times the connections and require the bound parameter count to be
+    // identical — that is what "does not bind per element" means, and it
+    // fails as soon as a json_each becomes a list again.
     const wide = createCapturingTestLayer();
     await Effect.runPromise(
       discoverEvents({ friendsOnly: true }, "usr_viewer", {
@@ -331,11 +328,11 @@ describe("discovery.ts discoverEvents friendsOnly", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. events.ts applyTransitions — events.ts:296
+// 6. events.ts applyTransitions
 // ---------------------------------------------------------------------------
 
-describe("events.ts applyTransitions (events.ts:296)", () => {
-  it("transitions 150 events sharing one (upcoming → ongoing) group (past the old 99-event cliff) with 1 bound id-list param", async () => {
+describe("events.ts applyTransitions", () => {
+  it("transitions 150 events sharing one (upcoming → ongoing) group (past the 100-parameter cap) with 1 bound id-list param", async () => {
     const { layer, captured } = createCapturingTestLayer();
     // Started 1 minute ago, no endTime → deriveStatus returns "ongoing"
     // (well under MAYBE_FINISHED_AFTER_HOURS), so every row transitions

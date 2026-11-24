@@ -5,11 +5,18 @@ import { toast } from "@shared/toast";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import type { InAppLink } from "../lib/link-click";
 import { invalidateRegistry, peekCachedRegistry } from "../lib/registry-store";
+import {
+  ensureSettingsLoaded,
+  invalidateSettings,
+  setFreshSettings,
+  settingsAccessor,
+  type WeddingSettings,
+} from "../lib/settings-store";
 import { invalidateTasks } from "../lib/tasks-store";
 import { TIER_LABEL } from "../lib/tiers";
 import type { PaidTier, Tier } from "../lib/tiers";
@@ -27,19 +34,7 @@ const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-6`;
  *  deliberately absent — an event's place is its venue name and free-text
  *  `address`, shown on the invite; the wedding holds one MAIN currency +
  *  budget. */
-interface WeddingProfile {
-  id: string;
-  slug: string;
-  displayName: string;
-  weddingDate: string | null;
-  guestCountEstimate: number | null;
-  currency: string;
-  budgetTotalMinor: number | null;
-  /** The "kindly respond by" date (`YYYY-MM-DD`), or null for no deadline. */
-  rsvpDeadline: string | null;
-  /** IANA zone the deadline day is measured in; null ⇒ UTC. */
-  rsvpDeadlineTimezone: string | null;
-}
+type WeddingProfile = WeddingSettings;
 
 // `browserTimeZone` + `describeTimeZone` used to live here. They moved to
 // `lib/timezones.ts` unchanged when the events drawer needed the same two
@@ -165,19 +160,51 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     setRsvpDeadlineTimezone(value ? browserTimeZone() : null);
   }
 
+  // Read on every visit, never seeded from the cache: the save sends the whole
+  // profile with no version, so the form starts from a read taken as it opens,
+  // or a co-host's save within the minute would go back. The read goes through
+  // the cache (`settings-store.ts`), so the Overview gets its answer, a budget
+  // total patched while it is out is not overwritten, and a refused read stops
+  // the cached profile being drawn.
+  const read = async (): Promise<WeddingProfile> => {
+    const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/settings")));
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("unauthenticated");
+    }
+    if (!res.ok) throw new Error(`Could not load the wedding profile (${res.status}).`);
+    return ((await res.json()) as { wedding: WeddingProfile }).wedding;
+  };
+
+  let gone = false;
+  onCleanup(() => {
+    gone = true;
+  });
+  /** Read the profile and seed the form from that read. A write that lands
+   *  while the read is out drops it; read once more, unless the panel has
+   *  closed meanwhile. */
+  async function load(retried = false): Promise<void> {
+    invalidateSettings(props.weddingId);
+    if (await ensureSettingsLoaded(props.weddingId, read)) {
+      const profile = settingsAccessor(props.weddingId)();
+      if (profile) seed(profile);
+      return;
+    }
+    if (gone) return;
+    if (!retried) return load(true);
+    setLoadError("Could not load the wedding profile. Is the API running?");
+  }
   onMount(async () => {
     try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/settings")));
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) {
-        setLoadError(`Could not load the wedding profile (${res.status}).`);
-        return;
-      }
-      const body = (await res.json()) as { wedding: WeddingProfile };
-      seed(body.wedding);
+      await load();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      setLoadError("Could not load the wedding profile. Is the API running?");
+      // A refused read names its status; anything else is the API out of reach.
+      setLoadError(
+        err instanceof Error && err.message.startsWith("Could not load the wedding profile (")
+          ? err.message
+          : "Could not load the wedding profile. Is the API running?",
+      );
     } finally {
       setLoading(false);
     }
@@ -293,6 +320,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
         return;
       }
       const body = (await res.json()) as { wedding: WeddingProfile };
+      setFreshSettings(props.weddingId, body.wedding);
       if (body.wedding.weddingDate !== seededWeddingDate) invalidateTasks(props.weddingId);
       // The gift list's snapshot holds the wedding's currency and, judged
       // against it, why guests cannot give money. Compared with the snapshot's

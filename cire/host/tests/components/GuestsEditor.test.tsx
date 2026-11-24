@@ -38,6 +38,7 @@ import {
   hasCachedHouseholds,
   invalidateHouseholds,
 } from "../../src/lib/households-store";
+import { ensureRsvpsLoaded, hasTableRsvps } from "../../src/lib/rsvps-store";
 import { confirmNavigation } from "../../src/lib/unsaved-guard";
 import {
   authFetchMock,
@@ -339,6 +340,7 @@ describe("GuestsEditor", () => {
 
   it("runs the save flow: preview → shared modal → apply → toast", async () => {
     primeLoad();
+    await ensureRsvpsLoaded("wed_a", async () => ({ events: [], withBadges: true }));
     render(() => <GuestsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
 
@@ -409,6 +411,8 @@ describe("GuestsEditor", () => {
     // Exactly the id: an ordinary save's `clears` is null, and a `confirmClears:
     // null` would fail the API's decode and refuse every save.
     expect(JSON.parse(String((applyCall[1] as RequestInit).body))).toEqual({ changeId: "chg_1" });
+    // The replies the RSVP table and the Overview show are read again.
+    expect(hasTableRsvps("wed_a")).toBe(false);
   });
 
   it("adds a household and a guest", async () => {
@@ -787,6 +791,8 @@ describe("GuestsEditor", () => {
         return Promise.resolve(fallback(url));
       });
       render(() => <GuestsEditor weddingId="wed_a" />);
+      // Not drawn from the caches first either: nothing vouches for their age.
+      expect(screen.queryByDisplayValue("Stale")).toBeNull();
 
       await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
       expect(screen.queryByDisplayValue("Stale")).toBeNull();
@@ -794,6 +800,247 @@ describe("GuestsEditor", () => {
       // One attendance column per household card, each named from the fresh schedule.
       expect(screen.getAllByText("Ceremony").length).toBeGreaterThan(0);
       expect(screen.queryByText("Stale Ceremony")).toBeNull();
+    });
+
+    it("reopens on the rows it read after the head, sending nothing before they are drawn", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      authFetchMock.mockClear();
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      // Drawn in the mount itself, from the rows read after the recorded head.
+      expect(screen.getByDisplayValue("Ada")).toBeTruthy();
+      expect(authFetchMock).not.toHaveBeenCalled();
+      // Then, once drawn, the head is checked; it has not moved, so no row is read.
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+      expect(String(authFetchMock.mock.calls[0]![0])).toMatch(/\/changes\/head$/);
+    });
+
+    it("reads the rows again when the head moved and the draft is untouched", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) return Promise.resolve(json({ revision: "rev_moved" }));
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) {
+          return Promise.resolve(
+            json([{ ...GUESTS[0]!, firstName: "Adaeze" }, ...GUESTS.slice(1)]),
+          );
+        }
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        return Promise.resolve(fallback(url));
+      });
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      expect(screen.getByDisplayValue("Ada")).toBeTruthy();
+      await waitFor(() => expect(screen.getByDisplayValue("Adaeze")).toBeTruthy());
+    });
+
+    it("stops showing a cached draft when the head is refused once drawn", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      // The seat lost its edit rights: the editor-only head is refused.
+      authFetchMock.mockImplementation(async (url: string) =>
+        String(url).endsWith("/changes/head") ? json({ error: "Forbidden" }, 403) : fallback(url),
+      );
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      expect(screen.getByDisplayValue("Ada")).toBeTruthy();
+      await waitFor(() => expect(screen.queryByDisplayValue("Ada")).toBeNull());
+      expect(screen.getByText(/You can no longer edit the guest list/i)).toBeTruthy();
+    });
+
+    it("keeps the edits and says the list is stale when the head moved under a dirty draft", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      authFetchMock.mockClear();
+      let answerHead!: (res: Response) => void;
+      authFetchMock.mockImplementation((url: string) => {
+        if (String(url).endsWith("/changes/head")) {
+          return new Promise<Response>((resolve) => {
+            answerHead = resolve;
+          });
+        }
+        return Promise.resolve(fallback(url));
+      });
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+      answerHead(json({ revision: "rev_moved" }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("Someone else changed the guest list since you opened the editor."),
+        ).toBeTruthy(),
+      );
+      expect(screen.getByDisplayValue("Adaeze")).toBeTruthy();
+      // The edits stay: no row is read to replace them.
+      expect(authFetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps an edit made while the moved head's rows are read, and holds Save until they land", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      authFetchMock.mockClear();
+      // A co-host added the Okafor household since the rows were cached.
+      const household = { familyId: "fam_o", familyName: "Okafor", publicId: "OKAFOR-CODE-0008" };
+      const okafor = {
+        ...GUESTS[0]!,
+        ...household,
+        guestId: "g_8",
+        firstName: "Obi",
+        lastName: "Okafor",
+      };
+      const okaforHousehold = { ...HOUSEHOLDS[0]!, ...household };
+      let releaseGuests!: () => void;
+      const guestsHeld = new Promise<void>((resolve) => (releaseGuests = resolve));
+      const posted: Record<string, unknown>[] = [];
+      authFetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) return json({ revision: "rev_moved" });
+        if (u.endsWith("/events")) return json(EVENTS);
+        if (u.endsWith("/guests")) {
+          await guestsHeld;
+          return json([...GUESTS, okafor]);
+        }
+        if (u.endsWith("/households")) return json([...HOUSEHOLDS, okaforHousehold]);
+        if (u.endsWith("/changes/preview")) {
+          posted.push(JSON.parse(String(init?.body)));
+          return previewResponse();
+        }
+        return fallback(url);
+      });
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() =>
+        expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/guests"))).toBe(true),
+      );
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      // Save waits for the rows: a save now would start a second reload beside them.
+      const working = await waitFor(
+        () => screen.getByRole("button", { name: "Working…" }) as HTMLButtonElement,
+      );
+      expect(working.disabled).toBe(true);
+
+      releaseGuests();
+      await waitFor(() => expect(screen.getByDisplayValue("Obi")).toBeTruthy());
+      expect(screen.getByDisplayValue("Adaeze")).toBeTruthy();
+      expect(
+        screen.queryByText("Someone else changed the guest list since you opened the editor."),
+      ).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+      await waitFor(() => expect(posted).toHaveLength(1));
+      expect(posted[0]!.baseRevision).toBe("rev_moved");
+      const wire = posted[0]!.desiredState as DesiredStateWire;
+      expect(wire.families.map((f) => f.familyName)).toEqual(["Sharma", "Okafor"]);
+      expect(wire.families[0]!.guests[0]).toMatchObject({ id: "g_1", firstName: "Adaeze" });
+    });
+
+    it("says nothing when the head that answers is the one this tab's own save left", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      let answerHead: ((res: Response) => void) | undefined;
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) {
+          return new Promise<Response>((resolve) => (answerHead = resolve));
+        }
+        if (u.endsWith("/changes/preview")) return Promise.resolve(previewResponse());
+        if (u.endsWith("/changes/apply")) {
+          return Promise.resolve(json({ summary: { changeId: "chg_1" }, revision: "rev_saved" }));
+        }
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        return Promise.resolve(fallback(url));
+      });
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(answerHead).toBeDefined());
+      // Saved before the head check answers, then edited again.
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+      fireEvent.input(await waitFor(() => screen.getByDisplayValue("Ada")), {
+        target: { value: "Ada B" },
+      });
+
+      // The head the check reads is the one this tab's own save left.
+      answerHead!(json({ revision: "rev_saved" }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(
+        screen.queryByText("Someone else changed the guest list since you opened the editor."),
+      ).toBeNull();
+      expect(screen.getByDisplayValue("Ada B")).toBeTruthy();
+    });
+
+    it("reads nothing more when the editor closed before the head answered", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      authFetchMock.mockClear();
+      let answerHead: ((res: Response) => void) | undefined;
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head") && !answerHead) {
+          return new Promise<Response>((resolve) => {
+            answerHead = resolve;
+          });
+        }
+        if (u.endsWith("/changes/head")) return Promise.resolve(json({ revision: "rev_moved" }));
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        return Promise.resolve(fallback(url));
+      });
+
+      const second = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+      second.unmount();
+      answerHead!(json({ revision: "rev_moved" }));
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(authFetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("records no head for the rows when one slice failed to load", async () => {
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json({ error: "boom" }, 500));
+        return Promise.resolve(fallback(url));
+      });
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByText(/Could not load the guest list/i)).toBeTruthy());
+      first.unmount();
+      primeLoad();
+      // The households slice now loads, but the events and guests rows have no
+      // recorded head of their own: the editor reads the head and every slice.
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      const urls = authFetchMock.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => u.endsWith("/households"))).toBe(true);
+      expect(urls.some((u) => u.endsWith("/guests"))).toBe(true);
     });
 
     it("saves again with the head read after the last save", async () => {
@@ -1202,6 +1449,7 @@ describe("GuestsEditor", () => {
 
     it("closes a preview refused while writing, marks the draft stale and drops the cached rows", async () => {
       primeLoad();
+      await ensureRsvpsLoaded("wed_a", async () => ({ events: [], withBadges: true }));
       render(() => <GuestsEditor weddingId="wed_a" />);
       await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
       fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
@@ -1230,6 +1478,7 @@ describe("GuestsEditor", () => {
       // What the change saved is not in the shared caches the other views read.
       expect(hasCachedGuests("wed_a")).toBe(false);
       expect(hasCachedHouseholds("wed_a")).toBe(false);
+      expect(hasTableRsvps("wed_a")).toBe(false);
     });
 
     it("keeps a preview refused before writing open, and names the cap inside it", async () => {

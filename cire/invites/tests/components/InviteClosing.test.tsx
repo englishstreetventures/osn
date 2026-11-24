@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { cleanup, render } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -120,6 +121,66 @@ describe("InviteClosing", () => {
       expect((note.parentElement as HTMLElement).className).toContain("py-16");
     });
 
+    // An image that does not load leaves no empty band above the couple's words.
+    it("drops the band and keeps the note when the image fails to load", () => {
+      const { container } = render(() => (
+        <InviteClosing apiUrl={API} imageUrl={IMG} message="See you there" />
+      ));
+      const section = closing(container) as HTMLElement;
+      fireEvent.error(section.querySelector("img") as HTMLImageElement);
+      expect(section.querySelector("img")).toBeNull();
+      // The note's own block is all the section holds.
+      expect(section.children).toHaveLength(1);
+      expect((section.querySelector("p") as HTMLElement).dataset.hasImage).toBe("false");
+    });
+
+    it("drops a cropped band when its image fails to load", () => {
+      const { container } = render(() => (
+        <InviteClosing
+          apiUrl={API}
+          imageUrl={IMG}
+          imageCrop={{ x: 0.1, y: 0.1, w: 0.5, h: 0.5, natW: 1000, natH: 500 }}
+          message="See you there"
+        />
+      ));
+      const section = closing(container) as HTMLElement;
+      // Each layer carries a hidden copy of its own background's request, so
+      // only the layer on screen fetches, and its copy is the same fetch.
+      const probes = [...section.querySelectorAll<HTMLImageElement>("img[data-image-probe]")];
+      expect(probes.map((p) => p.getAttribute("src"))).toEqual([
+        `${API}${IMG}&variant=card`,
+        `${API}${IMG}&variant=hero`,
+      ]);
+      expect(probes[0]!.getAttribute("srcset")).toBe(
+        `${API}${IMG}&variant=card 1x, ${API}${IMG}&variant=hero 2x`,
+      );
+      fireEvent.error(probes[0]!);
+      expect(section.querySelector("[aria-hidden='true'].md\\:hidden")).toBeNull();
+      expect(wideCropLayer(section)).toBeNull();
+      expect(section.children).toHaveLength(1);
+      expect(section.querySelector("p")?.textContent).toBe("See you there");
+    });
+
+    // A failure is remembered for that image only: a new one is tried afresh.
+    it("tries a new closing image after the last one failed to load", () => {
+      const [imageUrl, setImageUrl] = createSignal(IMG);
+      const { container } = render(() => (
+        <InviteClosing apiUrl={API} imageUrl={imageUrl()} message="See you there" />
+      ));
+      fireEvent.error((closing(container) as HTMLElement).querySelector("img") as HTMLImageElement);
+      expect((closing(container) as HTMLElement).querySelector("img")).toBeNull();
+
+      setImageUrl(`${IMG}2`);
+      const img = (closing(container) as HTMLElement).querySelector("img") as HTMLImageElement;
+      expect(img.getAttribute("src")).toBe(`${API}${IMG}2&variant=card`);
+    });
+
+    it("renders nothing when the image fails to load and there is no note", () => {
+      const { container } = render(() => <InviteClosing apiUrl={API} imageUrl={IMG} />);
+      fireEvent.error((closing(container) as HTMLElement).querySelector("img") as HTMLImageElement);
+      expect(closing(container)).toBeNull();
+    });
+
     it("pads a note that has no image above it just the same", () => {
       const { container } = render(() => <InviteClosing apiUrl={API} message="See you there" />);
       const note = (closing(container) as HTMLElement).querySelector("p") as HTMLElement;
@@ -191,8 +252,9 @@ describe("InviteClosing", () => {
       ));
       const section = closing(container) as HTMLElement;
 
-      // The crop path replaces the <img> entirely — one node, not both.
-      expect(section.querySelector("img")).toBeNull();
+      // The crop path replaces the picture <img> entirely — one node, not both.
+      // What <img> it holds is the hidden probe that reports a failed load.
+      expect(section.querySelector("img:not([data-image-probe])")).toBeNull();
       const layer = wideCropLayer(section) as HTMLElement;
       expect(layer).toBeTruthy();
       expect(layer.style.getPropertyValue("background-image")).toContain(`${API}${IMG}`);

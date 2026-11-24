@@ -132,14 +132,16 @@ describe("markRsvpChangesSeen / setRsvpDigest", () => {
   const authFetch = vi.fn();
   afterEach(() => authFetch.mockReset());
 
-  it("posts the seen marker and never throws", async () => {
+  it("posts the seen marker, says whether it was saved, and never throws", async () => {
     authFetch.mockResolvedValueOnce(json({ seenSeq: 7 }));
-    await markRsvpChangesSeen(authFetch, "wed_a", 7);
+    expect(await markRsvpChangesSeen(authFetch, "wed_a", 7)).toBe(true);
     const [url, init] = authFetch.mock.calls[0]!;
     expect(url).toBe("https://api.test/api/organiser/weddings/wed_a/rsvp-changes/seen");
     expect(init).toMatchObject({ method: "POST", body: JSON.stringify({ seq: 7 }) });
+    authFetch.mockResolvedValueOnce(json({ error: "Forbidden" }, 403));
+    expect(await markRsvpChangesSeen(authFetch, "wed_a", 7)).toBe(false);
     authFetch.mockRejectedValueOnce(new Error("offline"));
-    await expect(markRsvpChangesSeen(authFetch, "wed_a", 7)).resolves.toBeUndefined();
+    await expect(markRsvpChangesSeen(authFetch, "wed_a", 7)).resolves.toBe(false);
   });
 
   it("puts the digest switch and says whether it was saved", async () => {

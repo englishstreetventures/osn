@@ -43,6 +43,7 @@ vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
 }));
 
 import RsvpView from "../../src/components/RsvpView";
+import { resetViewCaches } from "../test-support/view-caches";
 
 const reply = (guestId: string, firstName: string, extra: Record<string, unknown> = {}) => ({
   guestId,
@@ -218,6 +219,7 @@ async function moveAway() {
 }
 
 afterEach(async () => {
+  resetViewCaches();
   if (panel()) await moveAway();
   delete document.documentElement.dataset.theme;
   cleanup();

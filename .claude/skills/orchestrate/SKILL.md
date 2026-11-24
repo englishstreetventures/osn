@@ -75,7 +75,7 @@ worktree. One block per task:
 ```markdown
 ## task 3 — vendor enquiry weddingName
 issue:       englishstreetventures/osn#812
-claimed:     osn#812 item 264995573 from <Status name> <option id>
+claimed:     osn#812 item 264995573 from <Status name> <option id> held "<Held by value>"
 agent:       implementer — new field on a route response plus its test; rating unconfirmed, chosen from the text
 premises:    checked on origin/main 435c28f65
   - the route file is cire/api/src/routes/vendor-enquiries.ts
@@ -478,7 +478,7 @@ holds the procedure; this run changes around it as follows.
   `git worktree list | grep -F "[<branch>]"`.
 - **The claim.** The open pull request already holds its issue in `next-batch`
   §Claim's terms; the owner's request is what lets you take it. Write
-  `claimed: <repo>#<n> item <item> from <Status name> <option id> (adopting PR #N at the owner's request)` and leave the
+  `claimed: <repo>#<n> item <item> from <Status name> <option id> held "<Held by value>" (adopting PR #N at the owner's request)` and leave the
   card in, or move it to, In Review. If the issue is In Progress and you did
   not move it there, another session may be working on it: ask the owner.
 - **Step 2 is skipped.** The branch's own worktree replaces it; `review-pr`

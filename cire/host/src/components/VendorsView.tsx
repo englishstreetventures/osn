@@ -9,8 +9,10 @@ import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { invalidateDirectoryPage } from "../lib/directory-store";
 import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { formatMinor } from "../lib/money";
+import { optionalLabel } from "../lib/optional-label";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { haptic } from "../lib/touch-feedback";
 import {
@@ -201,6 +203,8 @@ export default function VendorsView(props: VendorsViewProps) {
       );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
+      // A directory listing may have said the wedding has this vendor.
+      invalidateDirectoryPage(props.weddingId);
     } catch {
       haptic("reject");
       setError("Couldn't delete that vendor.");
@@ -327,7 +331,7 @@ export default function VendorsView(props: VendorsViewProps) {
               />
             )}
           </Field>
-          <Field label="Quote (optional)" class="w-28">
+          <Field label={optionalLabel("Quote")} class="w-28">
             {(field) => (
               <Input
                 size="form"

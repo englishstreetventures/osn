@@ -38,6 +38,10 @@ const authFetch = vi.fn(async (url: string) => {
 });
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 
+/** A local `YYYY-MM-DD`. */
+const dayKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 const snap = (over: Partial<BudgetSnapshot>): BudgetSnapshot => ({
   items: [],
   payments: [],
@@ -161,5 +165,43 @@ describe("Overview budget widget", () => {
     );
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
     expect(await screen.findByText(/170,000 tracked — set a total/)).toBeInTheDocument();
+  });
+
+  // The API keeps a due date as the string it was given: a day, or a full
+  // timestamp. Either way it reads as What's next prints the same payment.
+  it.each([
+    { form: "a day", raw: (d: Date) => dayKey(d) },
+    { form: "a timestamp", raw: (d: Date) => d.toISOString() },
+  ])("dates the next payment due on $form as What's next dates it", async ({ raw }) => {
+    // Inside the agenda's 90 days, so the same payment is a What's next row too.
+    const now = new Date();
+    const dueAt = raw(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 20, 12));
+    setCachedBudget(
+      "wed_1",
+      snap({
+        budgetTotalMinor: 4_500_000,
+        payments: [
+          {
+            id: "p1",
+            budgetItemId: "b1",
+            label: "Balance",
+            amountMinor: 250_000,
+            dueAt,
+            paidAt: null,
+            createdAt: 1,
+          },
+        ],
+      }),
+    );
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
+
+    const agendaRow = (await screen.findByText("Balance")).closest("button")!;
+    const agendaDate = agendaRow.querySelector("span")!.textContent!;
+    const next = await screen.findByText(/Next: Balance/);
+    expect(next.textContent).toBe(`Next: Balance · due ${agendaDate}`);
+    // And the form both share is a day and a short month ("Sept" in en-AU),
+    // never the raw date.
+    expect(next.textContent).toMatch(/· due \d{1,2} [A-Z][a-z]{2,3}$/);
+    expect(next.textContent).not.toMatch(/\d{4}-\d{2}/);
   });
 });

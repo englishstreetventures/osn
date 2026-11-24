@@ -87,22 +87,22 @@ describe("ModuleSidebar — the selected label, as painted", () => {
       );
     });
 
-    it(`reads at 4.5:1 or more on the sheet's selected row in the ${scheme} theme`, async () => {
+    it(`reads at 4.5:1 or more on the menu's selected tile in the ${scheme} theme`, async () => {
       await commands.emulateMedia({ colorScheme: scheme });
-      const { container } = mountAt(375);
-      container
-        .querySelector<HTMLButtonElement>("button[aria-label^='Open wedding navigation']")!
+      mountAt(375);
+      // The bar is portalled to <body>, out of the mounted container.
+      document
+        .querySelector<HTMLButtonElement>("button[aria-label$='open wedding navigation']")!
         .click();
       await vi.waitFor(() => {
         if (!document.querySelector("[role='dialog'] button[aria-current='page']")) {
-          throw new Error("sheet not open");
+          throw new Error("menu not open");
         }
       });
-      const row = document.querySelector("[role='dialog'] button[aria-current='page']")!;
-      // The module name, not the hint under it, which carries its own ink.
-      const label = row.querySelector("span.truncate")!;
+      const tile = document.querySelector("[role='dialog'] button[aria-current='page']")!;
+      const label = tile.querySelector("span")!;
       const measured = ratio(label);
-      expect(measured, `sheet label measured ${measured.toFixed(2)}:1`).toBeGreaterThanOrEqual(
+      expect(measured, `menu label measured ${measured.toFixed(2)}:1`).toBeGreaterThanOrEqual(
         WCAG_TEXT_MIN,
       );
     });

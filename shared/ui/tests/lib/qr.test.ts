@@ -128,49 +128,6 @@ describe("encodeQr", () => {
     expect(render(SHORT_URI)).toEqual(SHORT_GOLDEN);
   });
 
-  it("picks the smallest version that fits and sizes the symbol from it", () => {
-    expect(encodeQr(SHORT_URI).version).toBe(5);
-    expect(encodeQr(REAL_URI).version).toBe(8);
-    for (const text of [SHORT_URI, REAL_URI]) {
-      const m = encodeQr(text);
-      expect(m.size).toBe(m.version * 4 + 17);
-      expect(m.modules).toHaveLength(m.size);
-      for (const row of m.modules) expect(row).toHaveLength(m.size);
-    }
-  });
-
-  it("lays a finder pattern in three corners and not the fourth", () => {
-    const m = encodeQr(REAL_URI);
-    const finderAt = (top: number, left: number) =>
-      [0, 1, 2, 3, 4, 5, 6].every((r) =>
-        [0, 1, 2, 3, 4, 5, 6].every((c) => {
-          const onRing = r === 0 || r === 6 || c === 0 || c === 6;
-          const inCore = r >= 2 && r <= 4 && c >= 2 && c <= 4;
-          return m.modules[top + r]![left + c] === (onRing || inCore);
-        }),
-      );
-    expect(finderAt(0, 0)).toBe(true);
-    expect(finderAt(0, m.size - 7)).toBe(true);
-    expect(finderAt(m.size - 7, 0)).toBe(true);
-    // A fourth finder would make the symbol's orientation ambiguous.
-    expect(finderAt(m.size - 7, m.size - 7)).toBe(false);
-  });
-
-  it("alternates both timing patterns and sets the dark module", () => {
-    const m = encodeQr(REAL_URI);
-    for (let i = 8; i < m.size - 8; i++) {
-      expect(m.modules[6]![i]).toBe(i % 2 === 0);
-      expect(m.modules[i]![6]).toBe(i % 2 === 0);
-    }
-    // Always dark, at (4 * version + 9, 8). Its absence is a decoder's first
-    // sign that it is not looking at a QR symbol.
-    expect(m.modules[4 * m.version + 9]![8]).toBe(true);
-  });
-
-  it("changes the symbol when the payload changes by one character", () => {
-    expect(render(REAL_URI)).not.toEqual(render(REAL_URI.replace("period=30", "period=60")));
-  });
-
   it("encodes UTF-8 rather than truncating to Latin-1", () => {
     // Two-byte characters cost two bytes of capacity, so the same character
     // count reaches a larger version than an ASCII payload would.

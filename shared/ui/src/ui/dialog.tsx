@@ -2,6 +2,8 @@ import { Dialog as KobalteDialog } from "@kobalte/core/dialog";
 import type { PolymorphicProps } from "@kobalte/core/polymorphic";
 import { clsx } from "clsx";
 import {
+  onCleanup,
+  onMount,
   splitProps,
   type Component,
   type ComponentProps,
@@ -118,9 +120,9 @@ const DialogOverlay: Component<
 const DIALOG_PRESENTATION = {
   centred: "",
   sheet:
-    "max-md:base:top-auto max-md:base:bottom-0 max-md:base:left-0 max-md:base:max-h-[85dvh] " +
+    "max-md:base:top-auto max-md:base:bottom-0 max-md:base:left-0 " +
     "max-md:base:max-w-none max-md:base:translate-x-0 max-md:base:translate-y-0 " +
-    "max-md:base:overflow-y-auto max-md:base:rounded-t-ui-sheet max-md:base:rounded-b-none " +
+    "max-md:base:rounded-t-ui-sheet max-md:base:rounded-b-none " +
     "max-md:base:border-x-0 max-md:base:border-b-0 " +
     "max-md:base:pb-[max(0px,env(safe-area-inset-bottom))]",
 } satisfies Readonly<Record<"centred" | "sheet", string>>;
@@ -151,25 +153,85 @@ const DIALOG_MOTION = {
 } satisfies Readonly<Record<keyof typeof DIALOG_PRESENTATION, string>>;
 
 /**
+ * How far focus scrolling keeps a control below the top of the panel: the
+ * header's height, which `DialogHeader` measures and writes on the panel, the
+ * fade under it (`--ui-scroll-edge-size`, 16px), and 1.5rem more for the
+ * label above a field and the gap to it, which also holds the widest focus
+ * mark (a field's `ring-2 ring-offset-2`, Musubi's 2px outline 2px off). So a
+ * field reached with Shift+Tab arrives with its label clear of the fade. A
+ * fixed length in place of the header's height would match only a one-line
+ * title.
+ */
+const DIALOG_SCROLL_PADDING =
+  "base:scroll-pt-[calc(var(--ui-dialog-header-height,0px)+var(--ui-scroll-edge-size,1rem)+1.5rem)]";
+
+/**
+ * Kobalte's focus trap puts a 1px visually hidden `span` at each end of the
+ * panel, absolutely placed where it falls. The last one hangs 1px under the
+ * footer, so a body that fits would still scroll 1px, and that pixel would
+ * bring in the fade. Pinned to the panel's top, the two take no room.
+ */
+const DIALOG_FOCUS_TRAP = "[&>[data-focus-trap]]:base:top-0";
+
+/**
+ * Keeps a control the focus trap wraps onto in view. Kobalte moves focus from
+ * one end of the panel to the other without scrolling (Shift+Tab off the first
+ * control lands on the footer's action), so in a panel past its cap the
+ * control would hold focus out of sight. Focus that arrives from one of the
+ * trap's `span`s scrolls the panel itself, never the page behind it, until the
+ * control is inside the panel and below the header, the fade and the label
+ * allowance (`DIALOG_SCROLL_PADDING`).
+ */
+function keepWrappedFocusInView(event: FocusEvent) {
+  const panel = event.currentTarget;
+  const control = event.target;
+  const from = event.relatedTarget;
+  if (!(panel instanceof HTMLElement) || !(control instanceof HTMLElement)) return;
+  if (!(from instanceof HTMLElement) || !from.hasAttribute("data-focus-trap")) return;
+  const box = panel.getBoundingClientRect();
+  const top = box.top + panel.clientTop;
+  const clear = top + (Number.parseFloat(getComputedStyle(panel).scrollPaddingTop) || 0);
+  const bottom = top + panel.clientHeight;
+  const rect = control.getBoundingClientRect();
+  if (rect.bottom > bottom) panel.scrollTop += rect.bottom - bottom;
+  else if (rect.top < clear) panel.scrollTop -= clear - rect.top;
+}
+
+/**
  * The panel. Its plane is `--ui-surface`, its shadow the contract's raised
  * elevation, `--ui-elev-2` — the one `Modal`, the raised `Card` and the accent
  * menu cast — so an app that maps it once themes every raised panel.
+ *
+ * At every width, sheet or card, it is at most 85% of the window tall and
+ * scrolls past that, as one box, header and footer included. It names its
+ * scroll position (`scroll-edge-timeline`) for the fade under `DialogHeader`,
+ * keeps focus clear of that header as it scrolls (`DIALOG_SCROLL_PADDING`),
+ * and keeps a control the focus trap wraps onto in view
+ * (`keepWrappedFocusInView`).
  */
 const DialogContent: ParentComponent<
   ComponentProps<"div"> & { presentation?: keyof typeof DIALOG_PRESENTATION }
 > = (props) => {
-  const [local, others] = splitProps(props, ["class", "children", "presentation"]);
+  const [local, others] = splitProps(props, ["class", "children", "presentation", "onFocusIn"]);
   const presentation = () => local.presentation ?? "centred";
+  const onFocusIn = (event: FocusEvent & { currentTarget: HTMLDivElement; target: Element }) => {
+    keepWrappedFocusInView(event);
+    if (typeof local.onFocusIn === "function") local.onFocusIn(event);
+  };
   return (
     <DialogPortal>
       <DialogOverlay presentation={presentation()} />
       <KobalteDialog.Content
         class={clsx(
           "base:bg-ui-surface base:border-ui-hairline base:fixed base:top-1/2 base:left-1/2 base:z-50 base:w-full base:max-w-lg base:-translate-x-1/2 base:-translate-y-1/2 base:rounded-ui-lg base:border base:shadow-[var(--ui-elev-2)] base:focus:outline-none",
+          "base:max-h-[85dvh] base:overflow-y-auto base:scroll-edge-timeline",
+          DIALOG_SCROLL_PADDING,
+          DIALOG_FOCUS_TRAP,
           DIALOG_PRESENTATION[presentation()],
           DIALOG_MOTION[presentation()],
           local.class,
         )}
+        onFocusIn={onFocusIn}
         {...others}
       >
         {local.children}
@@ -178,12 +240,63 @@ const DialogContent: ParentComponent<
   );
 };
 
+/**
+ * Where scroll timelines are read, the header draws no line: its edge keeps
+ * its 1px, transparent, so it is as tall as with the line, and a 16px fade
+ * under it (`scroll-edge-fade`, `tokens.css`) comes in as the body scrolls
+ * under it. Elsewhere it keeps the hairline and draws no fade.
+ */
+const SCROLL_EDGE =
+  "supports-[animation-timeline:scroll()]:base:border-b-transparent " +
+  "supports-[animation-timeline:scroll()]:base:after:scroll-edge-fade";
+
+/**
+ * The dialog's title row. It stays at the top of the panel while a long body
+ * scrolls under it, on the panel's own surface, with the scroll edge
+ * (`SCROLL_EDGE`) under it. `z-1` keeps a positioned box in the body under it as it passes:
+ * by tree order alone the later box would paint over it. Chromium paints a
+ * stuck header on top either way; the class is for the engines that follow
+ * the order.
+ *
+ * It writes its height on the panel as `--ui-dialog-header-height`, which the
+ * panel's scroll padding reads, so focus never parks a control under it. A
+ * title can wrap, so the height is measured, not assumed, by a
+ * `ResizeObserver` on the header and the panel. Past a third of the panel's
+ * height the row is no longer stuck.
+ */
 const DialogHeader: Component<ComponentProps<"div">> = (props) => {
-  const [local, others] = splitProps(props, ["class"]);
+  const [local, others] = splitProps(props, ["class", "ref"]);
+  let header: HTMLDivElement | undefined;
+  onMount(() => {
+    const row = header;
+    const panel = row?.closest<HTMLElement>('[role="dialog"]');
+    if (!row || !panel || typeof ResizeObserver === "undefined") return;
+    // Layout sizes, which the card's entry scale does not shrink. A row taller
+    // than a third of the panel — a title of a thousand characters someone
+    // else chose — stops sticking and scrolls away with the body, so it can
+    // never cover the dialog's own words and buttons.
+    const observer = new ResizeObserver(() => {
+      const tall = row.offsetHeight > panel.clientHeight / 3;
+      row.style.position = tall ? "static" : "";
+      panel.style.setProperty("--ui-dialog-header-height", `${tall ? 0 : row.offsetHeight}px`);
+    });
+    observer.observe(row);
+    observer.observe(panel);
+    onCleanup(() => {
+      observer.disconnect();
+      panel.style.removeProperty("--ui-dialog-header-height");
+    });
+  });
   return (
     <div
+      ref={(el) => {
+        header = el;
+        if (typeof local.ref === "function") local.ref(el);
+      }}
       class={clsx(
+        "base:sticky base:top-0 base:z-1 base:bg-ui-surface",
         "base:flex base:items-center base:justify-between base:border-b base:border-ui-hairline base:p-4",
+        SCROLL_EDGE,
         local.class,
       )}
       {...others}

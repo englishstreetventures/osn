@@ -37,6 +37,7 @@ import {
   hasCachedHouseholds,
   type OrganiserHouseholdRow,
 } from "../../src/lib/households-store";
+import { ensureRsvpsLoaded, hasTableRsvps } from "../../src/lib/rsvps-store";
 import {
   authFetchMock,
   resetOrganiserMocks,
@@ -121,6 +122,7 @@ describe("RemintPanel", () => {
 
   it("sends the cached rosters back to the server once the codes change", async () => {
     await warmRosters();
+    await ensureRsvpsLoaded("wed_a", async () => ({ events: [], withBadges: true }));
 
     await remintWith(json({ codeStyle: "simple", reminted: 2 }));
 
@@ -128,6 +130,8 @@ describe("RemintPanel", () => {
     // Guests → Households would otherwise copy the old, dead codes.
     expect(hasCachedGuests("wed_a")).toBe(false);
     expect(hasCachedHouseholds("wed_a")).toBe(false);
+    // So would the RSVP replies, which carry each household's code.
+    expect(hasTableRsvps("wed_a")).toBe(false);
   });
 
   it("keeps the cached rosters when the re-mint is refused", async () => {

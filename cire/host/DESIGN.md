@@ -195,6 +195,11 @@ Cormorant is **rationed to four things**. A portal is read as data — guest
 tables, budget columns, RSVP counts — so the working face is a grotesque with real
 tabular numerals, not the invite's stationery serif.
 
+**A figure is never Cormorant.** Its numerals are old-style: a 0 sits at
+x-height and reads as the letter O, and a 3 drops below the line. The
+overview's briefing figures — the days to go and the guests attending — are
+the working face at `text-ui-2xl`, light, in tabular numerals.
+
 This is a deliberate divergence from `cire/invites` and `cire/landing`, which are
 Cormorant + Lato throughout. Lato is gone from the portal.
 
@@ -223,7 +228,7 @@ hint or a tight stack of lines `leading-ui-snug` (1.4); `leading-ui-relaxed`
 1.4). Words or figures in Cormorant are never set at a
 line height of 1, because its descenders need the room. A display line that
 keeps to one line — the wordmark, a module's heading, the wedding switcher's
-name, the overview's countdown and counts — takes `leading-ui-none` (1.1); a
+name, the overview's briefing figures — takes `leading-ui-none` (1.1); a
 title that can wrap — a section heading, a popover's title, a wedding's name in
 the list — takes `leading-ui-tight` (1.2). Where a display line is clipped, as
 the switcher's name is by `truncate`, 1.1 is still short of Cormorant's g, j, p
@@ -243,6 +248,25 @@ intro: the chosen sub-tab says "RSVPs" on screen, and a hidden `<h2>` gives a
 reader moving by headings the name the visible intros of Households and Edit
 give theirs. Its download ends the bar's first row, after the event strip,
 and on a phone the search row (§4, One pill language, A page's download).
+A module's panel header is its label and the gilt rule, with no hint under the
+label (the owner's choice, englishstreetventures/osn#2359): a line such as
+"Your wedding at a glance" tells a reader nothing the panel under it does not.
+The hint stays where it tells a reader what is behind a module before they open
+it — the rail's tooltip and collapsed label, the mobile sheet and the command
+palette — and the run sheet's helper seat draws the same header
+(`tests/components/Overview.header.test.tsx`).
+
+**A word a card's label already says is not repeated on its rows** (the
+owner's choice, englishstreetventures/osn#2359). The Overview's "Attending by
+event" card lists each event and its figure alone, not "200 attending". The
+list carries the label as its name (`aria-label`), since a name read from the
+small-caps label can come out in capitals. A figure keeps its line
+(`shrink-0`, `whitespace-nowrap`) and a long event name is cut short instead
+(`min-w-0`, `truncate`); the narrow body's one column is `minmax(0, 1fr)`
+(`overview-body`), so the name cannot widen the column past the screen.
+`tests/components/Overview.look.browser.test.tsx` holds both at 390px and
+1280px. **A date on the Overview reads as What's next prints it** ("25 Oct",
+`fmtAgendaDate`), the Budget card's next payment included.
 
 **An eyebrow over a heading says what the screen does not** (the owner's
 choice, englishstreetventures/osn#1991). Where the module's header, the open
@@ -363,8 +387,8 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   Three views draw them: the RSVP replies (the legend and three replies, as
   the table or the stacked list), the households (the head strip and three
   households; on a phone the count line over them; at 1280px the count line
-  in the view bar too) and the overview (the agenda band and its first three
-  cards). Each renders its own markup from typed samples kept beside the view
+  in the view bar too) and the overview (the briefing, the agenda and the
+  cards beside it). Each renders its own markup from typed samples kept beside the view
   — never shown, since every word in an outline is transparent (the owner's
   call on #1955) — so the outline takes the loaded rows' layout at every
   width, and a count or legend line is drawn as its bars, not held empty.
@@ -379,8 +403,11 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   `GuestsStack.browser.test.tsx` fails "card header holds" with `hidden`.
 - **Fields** take the 14px field corner at one of two heights, below (One
   form-field height).
-- **The event drawer** (`Modal presentation="drawer"`) and the module nav's
-  sheet are square: each runs to the window's edge.
+- **The event drawer** (`Modal presentation="drawer"`) is square: it runs to
+  the window's edge.
+- **The phone's module menu** rises from the foot of the screen with the
+  `sheet` corner on its top edge (`rounded-t-ui-sheet`) and none at its foot,
+  over the house scrim (`bg-ui-scrim`) (§5, The bar at the foot, on a phone).
 - Tailwind's other default steps (`rounded-xs`, `rounded-lg`, `rounded-xl`,
   `rounded-2xl`) still generate and belong to no role. None is written in
   `src/`; a corner that wants one takes a role utility instead.
@@ -389,7 +416,9 @@ The scale is the same in all four cire apps, and so is `--toast-radius`
 (`md`, in the three that load `@shared/toast`). `cire/vendor`'s
 `tests/styles/tokens.test.ts` reads all four stylesheets and fails if a role or
 a step differs. The guest site and the marketing site add one role, `sheet`, at
-1.75rem, for their bottom sheets; the portals draw none. They give the steps the
+1.75rem, for their bottom sheets; this portal's one sheet, the phone's module
+menu, reads the same role, which it leaves at the contract's fallback, the
+`lg` corner. They give the steps the
 same kinds as here, and two more: a small panel the size of a notice at 6px (the
 gift page's "Send gifts to" box) and a legal page's inline placeholder at 2px.
 Their pages list every corner they paint
@@ -657,18 +686,20 @@ arrives on CSS's own `ease-out`, a keyword in its own stylesheet.
 
 Exits keep their own curves. `Popover`'s exit, like every `animate-out`, runs
 the contract's `--ui-ease-exit`, `cubic-bezier(0.22, 1, 0.36, 1)`, which no
-cire stylesheet maps; `Modal`'s and the toast's run `ease-in`, the nav sheet's
-and the droplet's `--ease-in-out`. A `Switch`'s thumb and a `Meter`'s fill move
-between two places, which would take `--ease-in-out`, but they name no easing,
-so they run `--ease-out`; naming one is a change to `@shared/ui`.
+cire stylesheet maps; `Modal`'s and the toast's run `ease-in`, the phone's
+module menu's `--ease-in-out`, and the droplet's `--ease-out`. A `Switch`'s
+thumb and a `Meter`'s fill move between two places, which would take
+`--ease-in-out`, but they name no easing, so they run `--ease-out`; naming one
+is a change to `@shared/ui`.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor
 (Chrome 111, Safari 16.4) has no `linear()`, and an easing it cannot parse voids
 the whole `animation` declaration, so `@theme` declares a one-overshoot
 `cubic-bezier` and an unlayered `@supports` block swaps the spring in. It is for
-small things arriving — a popover, a tick — never for a sheet or a page, which
-should not bounce.
+small things arriving — a tick, a send button — never for a sheet, a page or
+a panel, which should not bounce: the checklist row's popovers grew on it until
+the owner found the overshoot jittery (the droplet, below).
 
 `--ease-glide` is the same spring damped harder (ratio 0.75, the same natural
 frequency per run): it goes 3% past at about half the run and settles, against
@@ -680,8 +711,8 @@ desk. The move is the owner's choice from a rendered comparison (#2164): the
 house spring grew the glass past its own tab and threw it 8% past a far one,
 and a host taps these strips many times a session, so the move is a little
 slower than a pill slide, to be felt, and lands without a bounce. The glide is
-a token of its own rather than a firmer `--ease-spring`, so the droplet, a task
-holder's tick and the thread's send button keep the house spring. A second tap
+a token of its own rather than a firmer `--ease-spring`, so a task holder's
+tick and the thread's send button keep the house spring. A second tap
 mid-move starts from where the glass is on screen, never from where it was
 going; a CSS transition carries the place over but not the speed, so the glass
 starts the new move at the curve's own pace. `@cire/ui`'s
@@ -728,7 +759,7 @@ fallbacks) and every
 `--dur-*` or `--ease-*` a cire story in the component lab sets inline. The two
 springs are the two portals' alone, because only their animations read them —
 the glass strips glide on `--ease-glide` in both, the thread's send button
-grows on `--ease-spring` in both, the droplet in host: the guest site and the
+grows on `--ease-spring` in both, a task holder's tick in host: the guest site and the
 marketing site declare neither token nor the `@supports` block, and the test
 fails if one gains a copy. The vendor portal
 renders no `Modal`, so it alone
@@ -802,8 +833,10 @@ vendor portal:
   non-positioned siblings in the same stacking context, and without it the
   underlay covers its own labels.
 
-The sheet variant of the module nav deliberately gets no pill. A pill measures a
-strip the eye can see all of at once, and a sheet is a list.
+The phone's module menu deliberately gets no pill. A pill measures a strip the
+eye can see all of at once, and the menu is a grid; its open tile is washed
+instead. The bottom bar gets none either: its open tab's icon sits on a fixed
+gold wash, which comes and goes in place rather than travelling.
 
 **A view arrives by fading in** (the owner's choice, 2026-11-10, from a
 rendered comparison, englishstreetventures/osn#2164: "the arriving view fades in
@@ -846,19 +879,62 @@ tested.
 
 **The droplet.** A checklist row's popovers — the assign popover and the
 time editor — grow out of the control that opened them (`droplet-popover`,
-`droplet-popover-body`): a small round drop at the trigger springs out to the
-panel (`droplet-grow`, `--ease-spring`) while its corners settle from round to
-the popover's 10px (`droplet-round`, `--ease-out`), and the contents fade in
-once there is room.
+`droplet-popover-body`): from 40% of the panel's size, with corners at `50%`
+so it starts round, the panel grows to full size while its corners square to
+the popover's 10px, both on `--ease-out` over `--dur-slow` (200ms at a desk,
+320ms on touch), with no overshoot. It is opaque by 30% of the run, and the
+contents fade in from 20% of it, while the panel is still growing, so the
+growth, the corners and the contents arrive as one movement.
 `transform-origin` is Kobalte's `--kb-popover-content-transform-origin`, the
-panel's corner at the trigger whichever side it opened on. The fade is timed by
-keyframe percentage, never by `animation-delay`: the reduced-motion switch zeroes
-durations and leaves delays alone, so a delay would hold the list back from a
-reader who asked for no motion. A true "goo" — an SVG filter melting the panel
-out of the trigger — is not done: the panel portals to `<body>`, away from the
-trigger, and the filter would blur its border and shadow. The exit is a quick
-shrink and fade, as keyframes, because Kobalte keeps a closing popover mounted
-until its animation ends.
+panel's corner at the trigger whichever side it opened on. The exit shrinks
+to 60% and fades, its corners going on to 10px, on `--dur-fast` and
+`--ease-out`. Opened from the keyboard (Enter or Space on the trigger, which
+sets `data-instant`), the popover neither grows nor fades: it is there at
+once and goes at once, as a tooltip the keyboard opens is.
+
+The owner's choice, 2026-11-17, on #2373. From a pressable prototype: "The
+animation is a little jittery, not so smooth. It jumps from scaling up to fully
+grown. Don't like that. I do like the no bounce better in those options but
+yeah could be better I think." Measured frame by frame at a desk, a drop from
+12% on `--ease-spring` grows about 90px a frame for three frames, overshoots by
+7%, and squares its corners only once it is full size, from a pill's 999px that
+changes nothing visible until the last eighth of the run, with its contents
+fading in after that: three movements in a fifth of a second. The owner then
+picked "Bigger drop" from a second prototype (2026-11-17, on #2373), over a
+start at 60% ("Smooth") and one at 85% ("Fuller"): from 40% on `--ease-out`
+the panel grows about 58px in its first frame at a desk and less each frame
+after, so more of its growth out of the trigger shows, and corners at `50%`
+change visibly on every frame.
+
+The panel moves on transitions from `@starting-style`, never keyframes, so it
+can be caught: closed while it is still growing it goes on from the size it
+reached, and opened again while it is closing it grows from there, where
+keyframes would jump to their own first frame. Kobalte keeps a closing popover
+mounted only while a CSS animation runs, and only one named unlike the last to
+start on it, so two keyframes that change nothing, `droplet-open` and
+`droplet-close`, carry that lifecycle. The transitions are declared only under
+`prefers-reduced-motion: no-preference`: the global switch shortens a
+transition rather than removing it, and a starting style would still paint
+the drop for a frame. The starting style sits on `[data-expanded]`, so its
+round corners outrank the call site's `rounded-md`. The contents' fade is
+timed by keyframe percentage, never
+by `animation-delay`: the switch zeroes durations and leaves delays alone, so
+a delay would hold the list back from a reader who asked for no motion. A true
+"goo" — an SVG filter melting the panel out of the trigger — is not done: the
+panel portals to `<body>`, away from the trigger, and the filter would blur its
+border and shadow. `tests/components/ChecklistView.popovers.browser.test.tsx`
+catches the panel mid-growth and mid-close at a twentieth of the speed, reads
+the growth at full speed frame by frame (larger every frame, never past full
+size, at most 62px a frame, the corners as far along as the growth), and
+checks a keyboard opening is whole on its first frame.
+
+**A row's popover opens with the focus on its panel.** The `role="dialog"`
+element takes the focus (`lib/popover-open.ts`, Kobalte's `onOpenAutoFocus`),
+with no ring of its own, so no field wears the focus ring and nobody in a list
+is highlighted until the pointer or a key moves there. Left to its default,
+Kobalte would focus the first field or the list, and Chromium draws the ring
+on that even after a mouse click. A screen reader hears the popover's name;
+Tab moves into the form or the list.
 
 **Every other menu and picker pops.** Every portal menu — the account menu,
 the wedding switcher, the seat menu, the household menu, the invite builder's
@@ -1064,7 +1140,9 @@ portal toast keeps the package's 160ms arrival, as the vendor portal's do. An
 undo toast leaves at once (`.undo-toast.ui-toast--leaving`), because it holds
 Undo. The row Undo puts back fades in where it stood (`row-return`: opacity
 alone, so the box a drag measures does not move, on `--dur-slow` and
-`--ease-out`), and only on that return. Under reduced motion the global switch
+`--ease-out`). A task the organiser adds on the checklist fades in the same
+way where it lands, the owner's choice of 2026-11-17 (#2373); a row read from
+the server, another session's included, arrives at once. Under reduced motion the global switch
 makes all of it immediate. `tests/lib/undo-delete.browser.test.tsx` and the
 three `*.undo.browser.test.tsx` files hold it, and picture the stack at 390
 and 1280px in both ramps in `e2e-artifacts/cire-host/undo-delete/`.
@@ -1181,8 +1259,8 @@ Each choice, and what it was weighed against:
   it narrows (§1). The active row keeps its icon, pill and bar, and locked rows
   stay dimmer than the rest, so the organiser still sees where they are and
   still reaches any module in one click. A rail hidden outright makes every
-  move two clicks and drops the "you are here" mark; an off-canvas drawer at
-  desktop is the phone's sheet, a modal per move.
+  move two clicks and drops the "you are here" mark; an off-canvas menu at
+  desktop is the phone's, a modal per move.
 - **A collapsed icon reads at 3:1.** Collapsed, the icon is the only mark a row
   shows, so it is held to the 3:1 WCAG asks of a graphic that identifies a
   control: it drops the `opacity-80` fade it wears beside a label, and the
@@ -1256,12 +1334,12 @@ Each choice, and what it was weighed against:
   read as the sidebar is created, so a collapsed page paints collapsed and never
   slides on load, and every storage failure reads as expanded. Per browser, not
   per wedding: the choice is about the screen.
-- **The sheet ignores it.** Below `@2xl/shell` the sheet stands in for the rail
-  and shows every label; the toggle lives inside the rail, which is not laid out
-  there.
+- **The phone ignores it.** Below `@2xl/shell` the bottom bar and its menu
+  stand in for the rail and show every label; the toggle lives inside the rail,
+  which is not laid out there.
 - **No keyboard shortcut and no palette entry.** A single key or a chord risks
   clashing with the browser and with screen readers, and the palette does not
-  know whether the rail or the sheet is showing.
+  know whether the rail or the bottom bar is showing.
 - **The rail sticks under the top bar**, at `top-[calc(5.5rem+1px)]`: the bar's
   4rem and hairline at every width that has a rail, plus 1.5rem. A smaller
   offset slides the rail's first rows under the bar once the page scrolls.
@@ -1271,6 +1349,58 @@ tooltip ink, the tooltip, the names and the motion in Chromium; the
 `cire-checklist-starter` end-to-end flow checks the toggle, the stored choice
 across a reload, a locked card opened and closed from the narrow rail and the rail
 sticking below the real top bar.
+
+### The bar at the foot, on a phone
+
+Below `@2xl/shell` the rail gives way to a bar fixed to the foot of the screen,
+where a thumb rests, and a menu that rises from it. Each choice, and what it was
+weighed against:
+
+- **Four modules and More, not all eleven.** Overview, Guests, Events and
+  Invite: none has a tier lock (Settings, the fifth with none, opens less
+  often), so the bar never holds an offer, and the
+  four a host opens week to week. A fifth of a 390px screen is 78px, room for
+  an icon over one short word and nothing more; eleven would be a strip that
+  scrolls, which is the treatment the bar replaced.
+- **More names where the host is.** When the open module is not one of the
+  four, More wears that module's icon and name in `--gold-ink`, so the bar
+  still says where the host is without opening anything. Its accessible name
+  starts with the word it shows: "More, open wedding navigation", or
+  "Budget, open wedding navigation" (WCAG 2.5.3). The open tab's word is
+  semibold as well as `--gold-ink`, so the mark is not colour alone (WCAG
+  1.4.1); the open tile's is too.
+- **The menu is a grid that fits one screen.** Every module, the bar's four
+  included, as a tile: icon over name, three to a row (four once the menu's own
+  container is `@md`), at the field corner, with the menus' 10% gold wash
+behind the open one. The
+  hint each rail row carries is left out: with it, eleven rows ran past a
+  phone's height and the list scrolled. A locked tile is dimmer, carries a lock
+  in its corner, and opens its card above it, as a locked rail row does.
+- **It rises from the bar.** A Kobalte dialog anchored to the foot, with the
+  card corner on its top edge, over a blurred scrim: `sheet-rise` on
+  `--dur-slow` with `--ease-out` in, `--dur-base` with `--ease-in-out` out
+  (§4). Focus trap, Escape, scroll lock and focus back on More come from the
+  library.
+- **The bar is portalled to `<body>`.** A `fixed` element inside a
+  `container-type` box pins to that box, not the screen. A 1px probe that the
+  shell's container query hides tells the sidebar which side of the breakpoint
+  it is on; the bar mounts only below it, and widening the shell past it closes
+  an open menu.
+- **What else stands at the foot stands on the bar.** While the bar shows, the
+  sidebar sets `data-tab-bar` on `<html>`, and `--foot-h` becomes the bar's
+  height plus the safe-area inset under it (0 otherwise). The inset is 0
+  today: `index.astro`'s viewport meta has no `viewport-fit=cover`, so the
+  browser keeps the page clear of the home indicator itself. The Guests and Events
+  editors' save bars, the invite builder's narrow preview and the toasts sit at
+  `bottom: var(--foot-h)`; the shell pads its own foot by the same amount, so a
+  view's last row scrolls clear of it.
+- **Sentence case.** The rail's words are tracked uppercase; at `text-ui-xs` in
+  a 78px cell a tracked uppercase word does not fit, so the bar's are not.
+
+`ModuleSidebar.test.tsx` checks the bar's four and More, and More naming an
+open module the bar lacks; `ModuleSidebar.collapse.browser.test.tsx` and
+`ModuleSidebar.contrast.browser.test.tsx` check the menu's tiles, their words
+and their ink on a phone in Chromium.
 
 ---
 
@@ -1342,7 +1472,7 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | `EmptyState`                                                    | A title, an optional line of prose, and the one thing to do about it, in a dashed box at the 6px step.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `Field`, `Fieldset`, `Input`, `Select`, `Textarea`              | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner. An `Input` and a `Select` are 36px at `md` and 28px at `sm`; the shared control also has `form` and `form-compact` at 34px and `touch` for a guest's field, and a `Select` draws its own chevron, 12px in on a wide box and 10px on a narrow one. A form field is `form` or `form-compact`, 34px; a filter is `sm`, 28px (§4, One form-field height).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `Meter`, `meterPct`                                             | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `Stat`                                                          | A figure, then what it is, then an optional hint.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `Stat`                                                          | A figure, then what it is, then an optional hint. Its figure is the display face, so the portal draws none: a figure is never Cormorant (§3). The overview's briefing writes its two figures in the working face by hand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `Table`, `Th`, `Td`                                             | Every table in the portal as one set of parts, in a hairline frame at the 6px step. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `DropdownMenu` (`variant="accent"`)                             | Every portal menu: the account menu, the wedding switcher, a guest's seat menu, the narrow household list's one menu (`DropdownMenuHandle`) and the invite builder's phone menu. The panel on `--surface-raised` at the 10px corner, `p-1.5`, `--elev-2`, popping open from the trigger's side at `--dur-fast` with no exit; rows `px-3 py-2 text-ui-sm` at the 6px corner in full ink, the highlighted one a 10% gold wash with readable gold; a 2px inset keyboard ring (inset because a scrolling panel clips one drawn outside); a group's label an eyebrow in the secondary ink (gold marks state only); a chosen radio or a checked row a trailing check in readable gold; the haptics row the shared `Switch`'s track and thumb (`indicator="switch"`); a link row a real `<a>` (`as="a"`) that adds `noopener noreferrer` to a new tab; the account menu ends on the build's version ("Version 0123456", or "Version local"), a line, not a row, in the secondary ink at the `xs` step, under a rule. A trigger with a look of its own — the avatar, the wedding's name, a seat's "Seat" or "Move", the phone's place pill — is a plain button the trigger renders as (`as`), since the trigger takes layout classes only. The guest site's `LinkMenu` draws no Kobalte menu and takes its panel and 44px rows from `MENU_TOUCH`. |
 
@@ -1475,7 +1605,20 @@ heads the list and it shows about four and a half rows, the half saying it
 scrolls. The list draws the house focus ring inside its own edge, and the
 search field turns its border and a 1px ring `--focus` while it has the focus:
 the panel clips anything drawn outside it, for the droplet's rounded corners.
-A popover that focuses something as it opens focuses it without scrolling, and
+
+It opens with the focus on the panel (§4) and **nobody highlighted**: the
+reader is listed first, and a highlight there on opening would read as already
+chosen, one stray Enter from putting them on the task. The highlight follows
+the pointer, and the keys bring it in: from the panel, Tab moves into the
+search or the list on nobody; an arrow, Home or End moves in and onto a person
+(ArrowDown and Home the first, ArrowUp and End the last); Enter moves in and
+toggles whoever the pointer left highlighted, else nobody, and Space does the
+same on a list with no search. With a search, a key that types, Space
+included, goes into the search. Typing aims the highlight at the first match,
+so Enter takes it; a search emptied or left blank aims at nobody.
+Shift+Tab on the panel, and Tab or Shift+Tab inside it, close the popover.
+
+A popover focuses as it opens without scrolling, and
 a list in it follows its highlight by setting its own `scrollTop`, never with
 `scrollIntoView`, which scrolls the page as well: Kobalte opens the panel at the
 page's top left and moves it beside its trigger a frame later, and anything that
@@ -1606,8 +1749,8 @@ It is read-only for every role. The decisions it settles:
   or editor. Loading is `PanelLoading`. A loaded sheet offers owners and
   editors "Change times on the checklist" (`quiet`, small) above the days.
 - **A helper's seat** wears the panel header the module shell gives every
-  module — the module's label, its hint, the gilt rule — so it reads as the
-  same page an owner opens.
+  module — the module's label and the gilt rule — so it reads as the same page
+  an owner opens.
 - **The clock never moves the focus.** "Coming up" is re-read on a timer set
   for the next flag change and when the tab becomes visible; nothing else
   changes on screen when it fires.
@@ -1634,7 +1777,13 @@ holders' stack:
 - **The popover is a form**, so unlike the assign popover it is `modal`: Tab
   moves between its fields and stays inside, Escape closes it, and the focus
   goes back to the trigger. It does not lock the page's scroll. It grows as
-  the droplet (§4), `w-80`, on `--surface-raised`.
+  the droplet (§4), `w-80`, on `--surface-raised`, and opens with the focus on
+  its panel, so no field wears the ring until Tab reaches it.
+- **Its heading is "Set task time"**, the eyebrow step, and nothing sits
+  between it and the first field: the task's title is the dialog's
+  description for a screen reader (`sr-only`), never painted, since the row it
+  grew from shows it. Each select in it is `min-w-0`, so a long zone or event
+  name keeps to the panel's padding rather than widening its field.
 - **Its fields**: Event (`No event — a fixed time`, then the events by start,
   each with its day and time); linked, a choice of "Before or after the start"
   (minutes, and before or after, with where that lands on the event's clock
@@ -1856,6 +2005,23 @@ and a save's re-read against an older read. The `cire-event-details`
 end-to-end flow shoots the `warn` banner, for each reason, at 390 and 1280px in
 both ramps and the `danger` one at 1280px, and clears the banner by saving a
 fix.
+
+### An optional field, and an empty list
+
+**An optional field says so in lower case.** A field's label is spaced small
+caps; "(optional)" after it is `optionalLabel` (`src/lib/optional-label.tsx`):
+the same words at the body's tracking, in lower case. Written into the caps,
+"PRICE (OPTIONAL)" doubled a short label and wrapped in an add form's narrow
+column, setting that field's label a line above its neighbours'. The label's
+accessible name is unchanged.
+
+**An empty list is an `EmptyState`, not an italic line.** The budget's items,
+the gift list and a checklist with no task at all draw `@shared/ui`'s
+`EmptyState`: a title, one sentence on how to fill it, a dashed box. A
+checklist with no tasks draws one, not one per lead-time bucket; its buckets
+stay mounted under it, hidden, because each holds its sortable list. A bucket
+empty beside others that are not says "Nothing due in this window." in the
+muted ink, upright.
 
 ### Two rules that apply to all of them
 
@@ -2086,7 +2252,7 @@ message alone.
 ### The stuck stack
 
 A long view keeps what it is about on screen while its rows scroll by. The
-module title and its hint scroll away; under the top bar, layers hold at the
+module title scrolls away; under the top bar, layers hold at the
 top of the window, each one's top at the foot of the one above. On a laptop
 the whole stack, top bar included, is at most 220px; on a phone, 200px (both
 asserted in `GuestsStack.browser.test.tsx`).
@@ -2172,7 +2338,7 @@ Measured with the third phone row, the phone RSVP stack is 185px of its 200.
 
 **One variant, chosen by the panel.** A view names the narrowest panel its wide
 layout fits — the RSVP table's columns and 7rem of Dietary, 45rem for an editor
-and 37rem for a viewer; the households' tables, 46rem (40rem without the
+and 37rem for a viewer; the households' tables, 47rem (41rem without the
 Plus-one column) — and draws its narrow layout below it, coming back only a rem
 above it (`createCompact` in `ViewBar.tsx`). One variant is drawn, never both
 hidden by CSS. Narrow, guest rows stack as blocks and nothing scrolls sideways.

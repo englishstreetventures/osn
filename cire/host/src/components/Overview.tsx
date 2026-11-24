@@ -3,16 +3,15 @@ import Eyebrow from "@cire/ui/eyebrow";
 import SkeletonOutline from "@cire/ui/skeleton-outline";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
-import { Stat } from "@shared/ui/ui/stat";
 import {
   createEffect,
   createMemo,
-  createResource,
   createSignal,
   For,
   on,
   onCleanup,
   Show,
+  untrack,
 } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
@@ -24,12 +23,35 @@ import {
   upcomingPayments,
 } from "../lib/budget-store";
 import type { Module } from "../lib/dashboard-route";
-import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
+import {
+  ensureEventsLoaded,
+  type EventRow,
+  eventsAccessor,
+  hasCachedEvents,
+} from "../lib/events-store";
+import {
+  ensureGuestsLoaded,
+  guestsAccessor,
+  hasCachedGuests,
+  type OrganiserGuestRow,
+} from "../lib/guests-store";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { formatMinor } from "../lib/money";
-import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
-import { createRsvpChangesResource } from "../lib/rsvp-changes";
+import { buildAgenda, type AgendaItem, toLocalDateKey } from "../lib/overview-agenda";
+import { fetchRsvpChanges, type RsvpChanges } from "../lib/rsvp-changes";
+import {
+  ensureRsvpChangesLoaded,
+  ensureRsvpsLoaded,
+  type RsvpEvent,
+  rsvpChangesAccessor,
+  rsvpsAccessor,
+  setCachedRsvpChanges,
+} from "../lib/rsvps-store";
+import {
+  ensureSettingsLoaded,
+  settingsAccessor,
+  type WeddingSettings,
+} from "../lib/settings-store";
 import { useTasksChanged } from "../lib/tasks-changed";
 import {
   ensureTasksLoaded,
@@ -56,28 +78,18 @@ import RsvpChangesCard from "./RsvpChangesCard";
  *  those reads, and a refused tasks read would otherwise take the whole
  *  snapshot down with it.
  *
- *  Data is read from the SHARED weddingId-keyed caches (events + guests stores)
- *  so opening Overview costs nothing extra once another module has loaded, and a
- *  light settings/rsvps read for the date + reply tallies. Everything degrades
- *  softly: a failed sub-read hides its card, never blocks the page. */
+ *  Everything is read through the shared weddingId-keyed caches — settings,
+ *  RSVP replies and the changes card, events, guests, tasks, budget, vendors —
+ *  so a visit after another module, or an earlier visit, draws at once from
+ *  them and reads only what is missing or stale, behind what it shows. The
+ *  placeholders show only on a visit that finds a value it waits on missing.
+ *  Everything degrades softly: a failed sub-read hides its card, never blocks
+ *  the page. */
 
-interface WeddingProfile {
-  weddingDate: string | null;
-  guestCountEstimate: number | null;
-  currency: string;
-  budgetTotalMinor: number | null;
-}
-
-interface RsvpEventTally {
-  id: string;
-  name: string;
-  invited: number;
-  attending: number;
-  declined: number;
-  maybe: number;
-  responded: number;
-  noResponse: number;
-}
+type WeddingProfile = Pick<
+  WeddingSettings,
+  "weddingDate" | "guestCountEstimate" | "currency" | "budgetTotalMinor"
+>;
 
 interface RsvpEventBreakdown {
   id: string;
@@ -211,6 +223,10 @@ const SAMPLE_COUNTS = { households: 48, events: 3, estimate: 150 } as const;
  *  and a `<div role="button">` would be the worse answer. */
 const cardLinkClass = cardClass({ interactive: true });
 
+/** Under the briefing: the agenda, the side column and the module cards
+ *  (`overview-body` in `global.css`, which holds the layout and its reasons). */
+const BODY = "overview-body";
+
 export default function Overview(props: {
   weddingId: string;
   /** The wedding's plan tier. A card for a module it does not include is not
@@ -231,13 +247,11 @@ export default function Overview(props: {
   const budgetLocked = () => isModuleLocked("budget", props.tier);
   const vendorsLocked = () => isModuleLocked("vendors", props.tier);
 
-  // Started now, beside the reads below rather than after them: the card that
-  // shows it mounts only once `data` has settled, and the feed needs none of
-  // that data. It is not part of `data`, so the page never waits on it.
-  const [rsvpChanges, { mutate: setRsvpChanges }] = createRsvpChangesResource(
-    authFetch,
-    () => props.weddingId,
-  );
+  // The changes card's summary, read beside the reads below rather than after
+  // them. It is not part of `data`, so the page never waits on it, and a read
+  // that fails leaves the card out.
+  const rsvpChanges = rsvpChangesAccessor(props.weddingId);
+  const setRsvpChanges = (next: RsvpChanges) => setCachedRsvpChanges(props.weddingId, next);
 
   const loadTasks = async () => {
     const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks")));
@@ -266,88 +280,105 @@ export default function Overview(props: {
     ),
   );
 
-  const [data] = createResource<OverviewData>(async () => {
-    try {
-      // Events + guests ride the shared caches (deduped with the other modules).
-      // Settings + rsvps are light reads for the date + reply tallies.
-      const [settingsRes, rsvpsRes] = await Promise.all([
-        authFetch(apiUrl(weddingPath(props.weddingId, "/settings"))),
-        authFetch(apiUrl(weddingPath(props.weddingId, "/rsvps"))),
-        ensureEventsLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
-          if (res.status === 401) {
-            redirectToLogin();
-            throw new Error("unauthenticated");
-          }
-          if (!res.ok) throw new Error("events");
-          return (await res.json()) as EventRow[];
-        }),
-        ensureGuestsLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/guests")));
-          if (res.status === 401) {
-            redirectToLogin();
-            throw new Error("unauthenticated");
-          }
-          if (!res.ok) throw new Error("guests");
-          return (await res.json()) as OrganiserGuestRow[];
-        }),
-        // Tasks and budget — not fetched at all while their module is locked:
-        // the API refuses both reads below Gold, and nothing on this page that
-        // reads them is shown. A refused tasks read would otherwise reject
-        // this whole batch and blank the guest and event counts with it.
-        checklistLocked() ? Promise.resolve() : ensureTasksLoaded(props.weddingId, loadTasks),
-        budgetLocked()
-          ? Promise.resolve()
-          : ensureBudgetLoaded(props.weddingId, async () => {
-              const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget")));
-              if (res.status === 401) {
-                redirectToLogin();
-                return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
-              }
-              // Soft-fail: a missing budget endpoint never blocks the rest of Overview.
-              if (!res.ok) {
-                return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
-              }
-              return (await res.json()) as BudgetSnapshot;
-            }),
-        // Vendors — not fetched at all while the module is locked: the only
-        // thing that reads the count is a card this wedding does not get.
-        //
-        // Soft-fail otherwise: unavailable vendors never block Overview and
-        // never cache an empty array on error (which would show "0 vendors" on
-        // a backend error). A non-ok / 401 response throws so
-        // ensureVendorsLoaded rejects without populating the cache, leaving
-        // vendorCount() as null (loading/unknown). The .catch() swallows the
-        // rejection so it never bubbles out of the outer Promise.all.
-        vendorsLocked()
-          ? Promise.resolve()
-          : ensureVendorsLoaded(props.weddingId, async () => {
-              const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/vendors")));
-              if (res.status === 401) {
-                redirectToLogin();
-                throw new Error("unauthenticated");
-              }
-              if (!res.ok) throw new Error(`vendors ${res.status}`);
-              return ((await res.json()) as { vendors: VendorRow[] }).vendors;
-            }).catch(() => {
-              // Swallow the rejection — the cache stays unpopulated (vendorCount null).
-            }),
-      ]);
+  const settings = settingsAccessor(props.weddingId);
+  const replies = rsvpsAccessor(props.weddingId);
+  const eventRows = eventsAccessor(props.weddingId);
+  const guestRows = guestsAccessor(props.weddingId);
 
-      if (settingsRes.status === 401 || rsvpsRes.status === 401) {
-        redirectToLogin();
+  /** A read's 401 sends the organiser to sign in; anything else it reports. */
+  const read = async <T,>(path: string): Promise<T> => {
+    const res = await authFetch(apiUrl(weddingPath(props.weddingId, path)));
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("unauthenticated");
+    }
+    if (!res.ok) throw new Error(`${path} ${res.status}`);
+    return (await res.json()) as T;
+  };
+
+  // Every read, each through its cache, so one that is fresh sends nothing and
+  // one that is stale reads again behind what is shown. Settled together, each
+  // failure kept to its own card.
+  const loads = (async () => {
+    const results = await Promise.allSettled([
+      // The card's read first: it waits on none of the others.
+      ensureRsvpChangesLoaded(props.weddingId, async () => {
+        const changes = await fetchRsvpChanges(authFetch, props.weddingId);
+        if (!changes) throw new Error("rsvp-changes unavailable");
+        return changes;
+      }),
+      ensureSettingsLoaded(props.weddingId, async () => {
+        return (await read<{ wedding: WeddingSettings }>("/settings")).wedding;
+      }),
+      ensureRsvpsLoaded(props.weddingId, async () => ({
+        events: (await read<{ events: RsvpEvent[] }>("/rsvps")).events,
+        withBadges: false,
+      })),
+      ensureEventsLoaded(props.weddingId, () => read<EventRow[]>("/events")),
+      ensureGuestsLoaded(props.weddingId, () => read<OrganiserGuestRow[]>("/guests")),
+      // Tasks and budget — not fetched at all while their module is locked:
+      // the API refuses both reads below Gold, and nothing on this page that
+      // reads them is shown.
+      checklistLocked() ? Promise.resolve() : ensureTasksLoaded(props.weddingId, loadTasks),
+      budgetLocked()
+        ? Promise.resolve()
+        : ensureBudgetLoaded(props.weddingId, async () => {
+            const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget")));
+            if (res.status === 401) {
+              redirectToLogin();
+              return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+            }
+            // Soft-fail: a missing budget endpoint never blocks the rest of Overview.
+            if (!res.ok) {
+              return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+            }
+            return (await res.json()) as BudgetSnapshot;
+          }),
+      // Vendors — not fetched at all while the module is locked: the only
+      // thing that reads the count is a card this wedding does not get. A
+      // failed read leaves the count unknown rather than caching an empty
+      // list, which would read as "0 vendors".
+      vendorsLocked()
+        ? Promise.resolve()
+        : ensureVendorsLoaded(props.weddingId, async () => {
+            return (await read<{ vendors: VendorRow[] }>("/vendors")).vendors;
+          }),
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected" && isAuthExpired(result.reason)) redirectToLogin();
+    }
+  })();
+
+  // The placeholders wait for the reads when a value the page is built from is
+  // not cached at all; a stale one is shown while it is read again. The one
+  // exception: events and guests decide whether the home is Getting started or
+  // the briefing, so empty rows known out of date wait too. An import may have
+  // just filled them, and drawing the guide from them would show a step the
+  // organiser has just done as still to do.
+  const [settled, setSettled] = createSignal(
+    untrack(() => {
+      const events = eventRows();
+      const guests = guestRows();
+      if (settings() === null || replies() === null || events === null || guests === null) {
+        return false;
       }
+      const stale = !hasCachedEvents(props.weddingId) || !hasCachedGuests(props.weddingId);
+      return !(stale && events.length === 0 && guests.length === 0);
+    }),
+  );
+  void loads.finally(() => setSettled(true));
 
-      const profile = settingsRes.ok
-        ? ((await settingsRes.json()) as { wedding: WeddingProfile }).wedding
-        : null;
-
-      let rsvps: RsvpTotals | null = null;
-      let rsvpEvents: RsvpEventBreakdown[] = [];
-      if (rsvpsRes.ok) {
-        const body = (await rsvpsRes.json()) as { events: RsvpEventTally[] };
-        rsvpEvents = body.events.map((e) => ({ id: e.id, name: e.name, attending: e.attending }));
-        rsvps = body.events.reduce<RsvpTotals>(
+  // The replies' tallies, worked out only when the replies change; the other
+  // reads each feed only what they draw.
+  const replySummary = createMemo<Pick<OverviewData, "rsvps" | "rsvpEvents">>(() => {
+    const body = replies();
+    const rsvpEvents = (body?.events ?? []).map((e) => ({
+      id: e.id,
+      name: e.name,
+      attending: e.attending,
+    }));
+    const rsvps = body
+      ? body.events.reduce<RsvpTotals>(
           (acc, e) => ({
             invited: acc.invited + e.invited,
             attending: acc.attending + e.attending,
@@ -366,30 +397,24 @@ export default function Overview(props: {
             noResponse: 0,
             eventCount: 0,
           },
-        );
-      }
-
-      return {
-        profile,
-        rsvps,
-        rsvpEvents,
-        events: eventsAccessor(props.weddingId)() ?? [],
-        guests: guestsAccessor(props.weddingId)() ?? [],
-      };
-    } catch (err) {
-      if (isAuthExpired(err)) redirectToLogin();
-      // Soft-fail: an unavailable snapshot shouldn't blank the whole home.
-      return { profile: null, rsvps: null, rsvpEvents: [], events: [], guests: [] };
-    }
+        )
+      : null;
+    return { rsvps, rsvpEvents };
+  });
+  const data = (): OverviewData => ({
+    profile: settings(),
+    ...replySummary(),
+    events: eventRows() ?? [],
+    guests: guestRows() ?? [],
   });
 
   // Households, deduped from the (repeated-per-member) guest rows.
   const householdCount = createMemo(() => {
     const ids = new Set<string>();
-    for (const g of data()?.guests ?? []) ids.add(g.familyId);
+    for (const g of guestRows() ?? []) ids.add(g.familyId);
     return ids.size;
   });
-  const eventCount = createMemo(() => data()?.events.length ?? 0);
+  const eventCount = createMemo(() => eventRows()?.length ?? 0);
 
   // The wedding is "just started" — no schedule and no guests yet — so the home
   // leads with the Getting-started checklist rather than empty stat blocks.
@@ -443,7 +468,7 @@ export default function Overview(props: {
   // the shell would send a locked one straight back here.
   const agenda = createMemo(() =>
     buildAgenda({
-      events: (data()?.events ?? []).map((e) => ({ id: e.id, name: e.name, startAt: e.startAt })),
+      events: (eventRows() ?? []).map((e) => ({ id: e.id, name: e.name, startAt: e.startAt })),
       payments: budgetLocked() ? [] : (peekCachedBudget(props.weddingId)?.payments ?? []),
       tasks: checklistLocked() ? [] : (peekCachedTasks(props.weddingId) ?? []),
       now: nowMs(),
@@ -465,7 +490,7 @@ export default function Overview(props: {
 
   /** The agenda band: what needs attention, dated, in columns. */
   const whatsNext = (items: () => readonly AgendaItem[]) => (
-    <Card>
+    <Card class="overview-agenda @container/agenda">
       <Eyebrow>What&rsquo;s next</Eyebrow>
       <Show
         when={items().length > 0}
@@ -475,12 +500,12 @@ export default function Overview(props: {
           </p>
         }
       >
-        {/* The band runs the full width, so the rows run in columns rather than
-            one 1300px-wide line of six dated entries with a hole in the middle.
-            Order stays chronological, read left-to-right along each row. A rule
-            per row rather than `divide-y`, which follows DOM order and so draws
-            its lines in the wrong places once the list wraps into columns. */}
-        <ul class="grid gap-x-8 @3xl/panel:grid-cols-2 @6xl/panel:grid-cols-3">
+        {/* One column beside the replies; two once the card itself is wide,
+            where it runs the full width of a mid-size panel. Order stays
+            chronological, read left-to-right along each row. A rule per row
+            rather than `divide-y`, which follows DOM order and so draws its
+            lines in the wrong places once the list wraps into columns. */}
+        <ul class="grid gap-x-8 @3xl/agenda:grid-cols-2">
           <For each={items()}>
             {(item) => (
               <li class="border-border/40 border-t">
@@ -499,7 +524,7 @@ export default function Overview(props: {
                   <ModuleIcon icon={moduleDef(AGENDA_MODULE[item.kind]).icon} />
                   <span class="text-text text-ui-base grow truncate">{item.label}</span>
                   <Show when={item.overdue}>
-                    <span class="font-body text-error text-ui-xs tracking-ui-wide shrink-0 uppercase">
+                    <span class="font-body text-error text-ui-xs tracking-ui-wider shrink-0 uppercase">
                       overdue
                     </span>
                   </Show>
@@ -517,15 +542,16 @@ export default function Overview(props: {
     </Card>
   );
 
-  /** The countdown to the date, or the date's absence and the way to set it. */
-  const countdownCard = (date: () => string | null, daysLeft: () => number | null) => (
-    <Card tone="accent">
+  /** The countdown to the date, or the date's absence and the way to set it.
+   *  The briefing's first half: no card of its own, the band is the card. */
+  const countdownBlock = (date: () => string | null, daysLeft: () => number | null) => (
+    <div class="flex flex-col gap-3">
       <Eyebrow>Countdown</Eyebrow>
       <Show
         when={date()}
         fallback={
           <>
-            <p class="font-display text-text text-ui-lg leading-ui-tight font-light">No date yet</p>
+            <p class="font-display text-text text-ui-xl leading-ui-tight font-light">No date yet</p>
             <CardCtaButton onClick={() => props.onNavigate("settings", "wedding")}>
               Set your wedding date
             </CardCtaButton>
@@ -537,46 +563,48 @@ export default function Overview(props: {
             <Show
               when={daysLeft() !== null}
               fallback={
-                <p class="font-display text-text text-ui-lg leading-ui-tight font-light">
+                <p class="font-display text-text text-ui-xl leading-ui-tight font-light">
                   {formatWeddingDate(iso())}
                 </p>
               }
             >
               {(() => {
                 const days = daysLeft()!;
-                // Show the count ONCE: a headline number/word with a single
-                // label beneath it (no separate "N days to go" line that
-                // repeats the same figure). "Tomorrow!"/"Today!" and past
-                // dates read as words with no redundant numeral above them.
-                if (days === 0) {
+                // The count shows ONCE: a headline number or word with one
+                // label under it. "Tomorrow!"/"Today!" read as words with no
+                // numeral above them.
+                if (days === 0 || days === 1) {
                   return (
-                    <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
-                      Today!
-                    </p>
-                  );
-                }
-                if (days === 1) {
-                  return (
-                    <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
-                      Tomorrow!
+                    <p class="font-display text-gold-ink text-ui-2xl leading-ui-none font-light">
+                      {days === 0 ? "Today!" : "Tomorrow!"}
                     </p>
                   );
                 }
                 const abs = Math.abs(days);
                 const unit = abs === 1 ? "day" : "days";
-                return <Stat value={abs} label={days > 0 ? `${unit} to go` : `${unit} ago`} />;
+                return (
+                  <p class="flex flex-col gap-1">
+                    <span class="font-body text-gold-ink text-ui-2xl leading-ui-none font-light tabular-nums">
+                      {abs}
+                    </span>
+                    <span class="font-body text-text text-ui-base">
+                      {days > 0 ? `${unit} to go` : `${unit} ago`}
+                    </span>
+                  </p>
+                );
               })()}
             </Show>
             <p class="font-body text-text-muted text-ui-sm">{formatWeddingDate(iso())}</p>
           </>
         )}
       </Show>
-    </Card>
+    </div>
   );
 
-  /** The replies across every event, and the first five events' counts. */
-  const rsvpCard = (summary: () => Pick<OverviewData, "rsvps" | "rsvpEvents"> | undefined) => (
-    <Card>
+  /** The replies across every event: the briefing's second half. Its own
+   *  container, so its four figures run in a row once it has the room. */
+  const repliesBlock = (summary: () => Pick<OverviewData, "rsvps" | "rsvpEvents"> | undefined) => (
+    <div class="@container/replies flex flex-col gap-3">
       <Eyebrow>RSVPs</Eyebrow>
       <Show
         when={summary()?.rsvps && summary()!.rsvps!.eventCount > 0}
@@ -590,50 +618,35 @@ export default function Overview(props: {
           const r = summary()!.rsvps!;
           return (
             <>
-              <div class="flex items-baseline gap-2">
-                <span class="font-display text-gold-ink text-ui-xl leading-ui-none tabular-nums">
+              <div class="flex items-baseline gap-3">
+                <span class="font-body text-gold-ink text-ui-2xl leading-ui-none font-light tabular-nums">
                   {r.attending}
                 </span>
-                <span class="font-body text-text-muted text-ui-sm">
+                <span class="font-body text-text text-ui-base">
                   attending across {r.eventCount} {r.eventCount === 1 ? "event" : "events"}
                 </span>
               </div>
               <Meter value={r.responded} max={r.invited} label="RSVP responses" />
-              <dl class="font-body text-text-muted text-ui-sm grid grid-cols-2 gap-x-4 gap-y-1">
-                <div class="flex justify-between gap-2">
+              {/* Figure over word, so four of them fit one row of a phone's
+                  band at two columns and a wide band's at four. */}
+              <dl class="font-body text-text-muted text-ui-sm grid grid-cols-2 gap-x-4 gap-y-3 @md/replies:grid-cols-4">
+                <div class="flex flex-col-reverse gap-0.5">
                   <dt>Declined</dt>
-                  <dd class="text-text font-ui-mono">{r.declined}</dd>
+                  <dd class="text-text font-ui-mono text-ui-md">{r.declined}</dd>
                 </div>
-                <div class="flex justify-between gap-2">
+                <div class="flex flex-col-reverse gap-0.5">
                   <dt>Maybe</dt>
-                  <dd class="text-text font-ui-mono">{r.maybe}</dd>
+                  <dd class="text-text font-ui-mono text-ui-md">{r.maybe}</dd>
                 </div>
-                <div class="flex justify-between gap-2">
+                <div class="flex flex-col-reverse gap-0.5">
                   <dt>No reply</dt>
-                  <dd class="text-text font-ui-mono">{r.noResponse}</dd>
+                  <dd class="text-text font-ui-mono text-ui-md">{r.noResponse}</dd>
                 </div>
-                <div class="flex justify-between gap-2">
+                <div class="flex flex-col-reverse gap-0.5">
                   <dt>Invited</dt>
-                  <dd class="text-text font-ui-mono">{r.invited}</dd>
+                  <dd class="text-text font-ui-mono text-ui-md">{r.invited}</dd>
                 </div>
               </dl>
-              <Show when={summary()!.rsvpEvents.length > 0}>
-                <ul class="font-body text-text-muted text-ui-sm flex flex-col gap-0.5">
-                  <For each={summary()!.rsvpEvents.slice(0, 5)}>
-                    {(e) => (
-                      <li class="flex justify-between gap-2">
-                        <span class="truncate">{e.name}</span>
-                        <span class="text-text font-ui-mono tabular-nums">
-                          {e.attending} attending
-                        </span>
-                      </li>
-                    )}
-                  </For>
-                  <Show when={summary()!.rsvpEvents.length > 5}>
-                    <li class="text-text-muted/70">+{summary()!.rsvpEvents.length - 5} more</li>
-                  </Show>
-                </ul>
-              </Show>
               <CardCtaButton onClick={() => props.onNavigate("guests", "rsvps")}>
                 See replies per event
               </CardCtaButton>
@@ -641,7 +654,56 @@ export default function Overview(props: {
           );
         })()}
       </Show>
+    </div>
+  );
+
+  /** The band at the top: how long to go, and how the replies stand. One card
+   *  in two halves, split by a hairline once the panel is wide enough for
+   *  both side by side, so the two figures a host checks first sit together. */
+  const briefing = (
+    date: () => string | null,
+    daysLeft: () => number | null,
+    summary: () => Pick<OverviewData, "rsvps" | "rsvpEvents"> | undefined,
+  ) => (
+    <Card tone="accent" padding="lg">
+      <div class="grid gap-6 @3xl/panel:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @3xl/panel:gap-0">
+        <div class="@3xl/panel:pr-8">{countdownBlock(date, daysLeft)}</div>
+        <div class="border-border border-t pt-6 @3xl/panel:border-t-0 @3xl/panel:border-l @3xl/panel:pt-0 @3xl/panel:pl-8">
+          {repliesBlock(summary)}
+        </div>
+      </div>
     </Card>
+  );
+
+  /** Who is coming to which event: the first five events' attending counts. */
+  const byEvent = (summary: () => Pick<OverviewData, "rsvps" | "rsvpEvents"> | undefined) => (
+    <Show when={(summary()?.rsvpEvents.length ?? 0) > 0}>
+      <Card>
+        <Eyebrow>Attending by event</Eyebrow>
+        {/* The card's label says "Attending" once, so a row is the event and
+            its figure alone. The list carries the label as its name: one read
+            from the small-caps label would come out in capitals. A figure
+            keeps its line; a long event name is cut short instead. */}
+        <ul
+          aria-label="Attending by event"
+          class="font-body text-text-muted text-ui-sm flex flex-col"
+        >
+          <For each={summary()!.rsvpEvents.slice(0, 5)}>
+            {(e) => (
+              <li class="border-border/40 flex items-baseline justify-between gap-3 border-t py-1.5 first:border-t-0 first:pt-0">
+                <span class="min-w-0 truncate">{e.name}</span>
+                <span class="text-text font-ui-mono shrink-0 whitespace-nowrap tabular-nums">
+                  {e.attending}
+                </span>
+              </li>
+            )}
+          </For>
+          <Show when={summary()!.rsvpEvents.length > 5}>
+            <li class="pt-1.5">+{summary()!.rsvpEvents.length - 5} more</li>
+          </Show>
+        </ul>
+      </Card>
+    </Show>
   );
 
   /** How many households and events the wedding has, and the guest estimate. */
@@ -678,31 +740,34 @@ export default function Overview(props: {
   // the module's label and its one-line hint — directly above this.
   return (
     // Busy while the first read is out: the placeholders are all it holds then.
-    <div class="flex flex-col gap-8" aria-busy={data.loading ? "true" : undefined}>
-      <Show when={data.loading}>
+    <div class="flex flex-col gap-8" aria-busy={settled() ? undefined : "true"}>
+      <Show when={!settled()}>
         {/* The agenda band and the first three cards drawn hollow from the
             samples, in the loaded stack and grid, so they take the loaded
             heights at every width (DESIGN.md §4, Hollow rows). */}
         <SkeletonOutline>
           <div class="flex flex-col gap-4">
-            {whatsNext(() => SAMPLE_AGENDA)}
-            <div class="auto-grid [--auto-grid-min:15rem]">
-              {countdownCard(
-                () => SAMPLE_COUNTDOWN.date,
-                () => SAMPLE_COUNTDOWN.days,
-              )}
-              {rsvpCard(() => SAMPLE_RSVPS)}
-              {guestsCard(
-                () => SAMPLE_COUNTS.households,
-                () => SAMPLE_COUNTS.events,
-                () => SAMPLE_COUNTS.estimate,
-              )}
+            {briefing(
+              () => SAMPLE_COUNTDOWN.date,
+              () => SAMPLE_COUNTDOWN.days,
+              () => SAMPLE_RSVPS,
+            )}
+            <div class={BODY}>
+              {whatsNext(() => SAMPLE_AGENDA)}
+              <div class="overview-side flex flex-col gap-4">
+                {byEvent(() => SAMPLE_RSVPS)}
+                {guestsCard(
+                  () => SAMPLE_COUNTS.households,
+                  () => SAMPLE_COUNTS.events,
+                  () => SAMPLE_COUNTS.estimate,
+                )}
+              </div>
             </div>
           </div>
         </SkeletonOutline>
       </Show>
 
-      <Show when={!data.loading}>
+      <Show when={settled()}>
         {/* Brand-new wedding ⇒ the checklist is the home. It links straight into
             the modules via the shell's navigation. */}
         <Show when={isFresh()}>
@@ -726,168 +791,171 @@ export default function Overview(props: {
               The band earns the full width by laying its rows out in columns —
               see the list inside `whatsNext`. */}
           <div class="flex flex-col gap-4">
-            {whatsNext(agenda)}
-            {/* The cards themselves need no breakpoints: as many ≥15rem columns
-                as fit, so the widescreen fills rows instead of leaving three
-                stretched cards on a 1300px row. */}
-            <div class="auto-grid [--auto-grid-min:15rem]">
-              {/* ── Countdown ─────────────────────────────────────────────── */}
-              {countdownCard(weddingDate, countdown)}
+            {/* ── The briefing: the countdown and the replies ──────────── */}
+            {briefing(weddingDate, countdown, replySummary)}
 
-              {/* ── RSVP totals ───────────────────────────────────────────── */}
-              {rsvpCard(data)}
+            {/* ── What's next, beside who answered ─────────────────────── */}
+            <div class={BODY}>
+              {whatsNext(agenda)}
+              <div class="overview-side flex flex-col gap-4">
+                {/* Renders nothing when its read failed, so it never blanks
+                    the column. */}
+                <RsvpChangesCard
+                  weddingId={props.weddingId}
+                  changes={rsvpChanges}
+                  setChanges={setRsvpChanges}
+                  onNavigate={props.onNavigate}
+                />
+                {byEvent(replySummary)}
+                {guestsCard(householdCount, eventCount, () => data()?.profile?.guestCountEstimate)}
+              </div>
 
-              {/* ── RSVP changes since this organiser last looked ─────────── */}
-              {/* Renders nothing when its read failed, so it never blanks the
-                  rest of the grid. */}
-              <RsvpChangesCard
-                weddingId={props.weddingId}
-                changes={rsvpChanges}
-                setChanges={setRsvpChanges}
-                onNavigate={props.onNavigate}
-              />
-
-              {/* ── Guests + events snapshot ─────────────────────────────── */}
-              {guestsCard(householdCount, eventCount, () => data()?.profile?.guestCountEstimate)}
-
-              {/* ── Checklist snapshot (live open-task count) ─────────────── */}
-              {/* Absent while the module is locked, like Vendors below. */}
-              <Show when={!checklistLocked()}>
-                <button
-                  type="button"
-                  onClick={() => props.onNavigate("checklist")}
-                  class={cardLinkClass}
-                >
-                  <Eyebrow>Checklist</Eyebrow>
-                  <Show
-                    when={taskCounts(props.weddingId)}
-                    fallback={<p class="text-text-muted text-ui-sm">Loading your tasks…</p>}
+              {/* ── The planning modules, one card each ──────────────── */}
+              {/* As many ≥15rem columns as fit, each as tall as its own
+                  content: a short card does not stretch to a tall one.
+                  Empty when every one is locked, and then drawn as nothing. */}
+              <div class="auto-grid overview-modules items-start [--auto-grid-min:15rem] empty:hidden">
+                {/* ── Checklist snapshot (live open-task count) ─────────────── */}
+                {/* Absent while the module is locked, like Vendors below. */}
+                <Show when={!checklistLocked()}>
+                  <button
+                    type="button"
+                    onClick={() => props.onNavigate("checklist")}
+                    class={cardLinkClass}
                   >
-                    {(tc) => (
-                      <Show
-                        when={tc().open > 0}
-                        fallback={
-                          <p class="text-text-muted text-ui-sm">No tasks yet — add your first.</p>
-                        }
-                      >
-                        <p class="text-text text-ui-base">
-                          <span class="text-gold-ink text-ui-lg font-semibold">{tc().open}</span>{" "}
-                          open {tc().open === 1 ? "task" : "tasks"}
-                        </p>
-                        <p class="text-text-muted text-ui-sm">
-                          {tc().done} of {tc().total} done
-                        </p>
-                        <Meter value={tc().done} max={tc().total} label="Checklist completion" />
-                      </Show>
-                    )}
-                  </Show>
-                </button>
-              </Show>
+                    <Eyebrow>Checklist</Eyebrow>
+                    <Show
+                      when={taskCounts(props.weddingId)}
+                      fallback={<p class="text-text-muted text-ui-sm">Loading your tasks…</p>}
+                    >
+                      {(tc) => (
+                        <Show
+                          when={tc().open > 0}
+                          fallback={
+                            <p class="text-text-muted text-ui-sm">No tasks yet — add your first.</p>
+                          }
+                        >
+                          <p class="text-text text-ui-base">
+                            <span class="text-gold-ink text-ui-lg font-semibold">{tc().open}</span>{" "}
+                            open {tc().open === 1 ? "task" : "tasks"}
+                          </p>
+                          <p class="text-text-muted text-ui-sm">
+                            {tc().done} of {tc().total} done
+                          </p>
+                          <Meter value={tc().done} max={tc().total} label="Checklist completion" />
+                        </Show>
+                      )}
+                    </Show>
+                  </button>
+                </Show>
 
-              {/* ── Vendors snapshot (live count) ─────────────────────────── */}
-              {/* Absent while the module is locked. The shell sends a locked
+                {/* ── Vendors snapshot (live count) ─────────────────────────── */}
+                {/* Absent while the module is locked. The shell sends a locked
                   module back to Overview, so this card would otherwise be a
                   click that lands on the page it was clicked from. The faded
                   nav row is where the upgrade is offered. */}
-              <Show when={!vendorsLocked()}>
-                <button
-                  type="button"
-                  onClick={() => props.onNavigate("vendors")}
-                  class={cardLinkClass}
-                >
-                  <Eyebrow>Vendors</Eyebrow>
-                  <Show
-                    when={vendorCountValue() !== null}
-                    fallback={<p class="text-text-muted text-ui-sm">Loading your vendors…</p>}
+                <Show when={!vendorsLocked()}>
+                  <button
+                    type="button"
+                    onClick={() => props.onNavigate("vendors")}
+                    class={cardLinkClass}
                   >
+                    <Eyebrow>Vendors</Eyebrow>
                     <Show
-                      when={(vendorCountValue() ?? 0) > 0}
-                      fallback={
-                        <p class="text-text-muted text-ui-sm">No vendors yet — add your first.</p>
-                      }
+                      when={vendorCountValue() !== null}
+                      fallback={<p class="text-text-muted text-ui-sm">Loading your vendors…</p>}
                     >
-                      <p class="text-text text-ui-base">
-                        <span class="text-gold-ink text-ui-lg font-semibold">
-                          {vendorCountValue()}
-                        </span>{" "}
-                        {vendorCountValue() === 1 ? "vendor" : "vendors"} tracked
-                      </p>
-                    </Show>
-                  </Show>
-                </button>
-              </Show>
-
-              {/* ── Budget snapshot (live spend + upcoming payments) ───────── */}
-              {/* Absent while the module is locked, like Vendors above. */}
-              <Show when={!budgetLocked()}>
-                <button
-                  type="button"
-                  onClick={() => props.onNavigate("budget")}
-                  class={cardLinkClass}
-                >
-                  <Eyebrow>Budget</Eyebrow>
-                  <Show
-                    when={spentSoFarMemo() !== null}
-                    fallback={<p class="text-text-muted text-ui-sm">Loading your budget…</p>}
-                  >
-                    <Show
-                      when={
-                        (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
-                          data()?.profile?.budgetTotalMinor) != null
-                      }
-                      fallback={
-                        <p class="text-text-muted text-ui-sm">
-                          {(spentSoFarMemo() ?? 0) > 0
-                            ? `${formatMinor(spentSoFarMemo()!, budgetCurrency())} tracked — set a total →`
-                            : "No budget yet — add your first item."}
+                      <Show
+                        when={(vendorCountValue() ?? 0) > 0}
+                        fallback={
+                          <p class="text-text-muted text-ui-sm">No vendors yet — add your first.</p>
+                        }
+                      >
+                        <p class="text-text text-ui-base">
+                          <span class="text-gold-ink text-ui-lg font-semibold">
+                            {vendorCountValue()}
+                          </span>{" "}
+                          {vendorCountValue() === 1 ? "vendor" : "vendors"} tracked
                         </p>
-                      }
+                      </Show>
+                    </Show>
+                  </button>
+                </Show>
+
+                {/* ── Budget snapshot (live spend + upcoming payments) ───────── */}
+                {/* Absent while the module is locked, like Vendors above. */}
+                <Show when={!budgetLocked()}>
+                  <button
+                    type="button"
+                    onClick={() => props.onNavigate("budget")}
+                    class={cardLinkClass}
+                  >
+                    <Eyebrow>Budget</Eyebrow>
+                    <Show
+                      when={spentSoFarMemo() !== null}
+                      fallback={<p class="text-text-muted text-ui-sm">Loading your budget…</p>}
                     >
-                      <p class="text-text text-ui-base">
-                        <span class="text-gold-ink text-ui-lg font-semibold">
-                          {formatMinor(spentSoFarMemo() ?? 0, budgetCurrency())}
-                        </span>{" "}
-                        <span class="text-text-muted">
-                          of{" "}
-                          {formatMinor(
-                            (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
-                              data()?.profile?.budgetTotalMinor)!,
-                            budgetCurrency(),
-                          )}
-                        </span>
-                      </p>
-                      {(() => {
-                        const cap =
-                          peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
-                          data()?.profile?.budgetTotalMinor;
-                        const spent = spentSoFarMemo() ?? 0;
-                        return (
-                          <Show when={cap != null}>
-                            <Meter
-                              value={spent}
-                              max={cap!}
-                              tone={spent > cap! ? "over" : "accent"}
-                              label="Budget spend"
-                            />
-                            <Show when={spent > cap!}>
-                              <p class="text-error text-ui-xs">Over budget</p>
+                      <Show
+                        when={
+                          (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
+                            data()?.profile?.budgetTotalMinor) != null
+                        }
+                        fallback={
+                          <p class="text-text-muted text-ui-sm">
+                            {(spentSoFarMemo() ?? 0) > 0
+                              ? `${formatMinor(spentSoFarMemo()!, budgetCurrency())} tracked — set a total →`
+                              : "No budget yet — add your first item."}
+                          </p>
+                        }
+                      >
+                        <p class="text-text text-ui-base">
+                          <span class="text-gold-ink text-ui-lg font-semibold">
+                            {formatMinor(spentSoFarMemo() ?? 0, budgetCurrency())}
+                          </span>{" "}
+                          <span class="text-text-muted">
+                            of{" "}
+                            {formatMinor(
+                              (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
+                                data()?.profile?.budgetTotalMinor)!,
+                              budgetCurrency(),
+                            )}
+                          </span>
+                        </p>
+                        {(() => {
+                          const cap =
+                            peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
+                            data()?.profile?.budgetTotalMinor;
+                          const spent = spentSoFarMemo() ?? 0;
+                          return (
+                            <Show when={cap != null}>
+                              <Meter
+                                value={spent}
+                                max={cap!}
+                                tone={spent > cap! ? "over" : "accent"}
+                                label="Budget spend"
+                              />
+                              <Show when={spent > cap!}>
+                                <p class="text-error text-ui-xs">Over budget</p>
+                              </Show>
                             </Show>
+                          );
+                        })()}
+                      </Show>
+                      <Show when={upcomingPaymentsMemo().length > 0}>
+                        <p class="text-text-muted text-ui-sm">
+                          Next: {upcomingPaymentsMemo()[0]!.label}
+                          {/* Dated as What's next dates the same payment. */}
+                          <Show when={upcomingPaymentsMemo()[0]!.dueAt}>
+                            {(dueAt) => (
+                              <> · due {fmtAgendaDate(toLocalDateKey(dueAt()) ?? dueAt())}</>
+                            )}
                           </Show>
-                        );
-                      })()}
+                        </p>
+                      </Show>
                     </Show>
-                    <Show when={upcomingPaymentsMemo().length > 0}>
-                      <p class="text-text-muted text-ui-sm">
-                        Next: {upcomingPaymentsMemo()[0]!.label}
-                        <Show when={upcomingPaymentsMemo()[0]!.dueAt}>
-                          {" "}
-                          · due {upcomingPaymentsMemo()[0]!.dueAt}
-                        </Show>
-                      </p>
-                    </Show>
-                  </Show>
-                </button>
-              </Show>
+                  </button>
+                </Show>
+              </div>
             </div>
           </div>
         </Show>

@@ -8,7 +8,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[cire-entitlements]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-11-17
 ---
 # Run sheet
 
@@ -273,7 +273,8 @@ drops the checklist and the run sheet (`scheduleChanged`). See
 Each checklist row shows its task's time, on the task's own clock, with the
 zone when that is not the reader's. For an owner or editor it is the
 `RunTimeEditor` trigger — an empty dotted slot with a clock when the task has
-no time — and opens a popover:
+no time — and opens a popover headed "Set task time", with the focus on the
+panel so no field shows the ring until Tab reaches it:
 
 - **Event**: "No event — a fixed time", or one of the wedding's events (read
   the first time a popover opens on the page, through `ensureEventsLoaded`).

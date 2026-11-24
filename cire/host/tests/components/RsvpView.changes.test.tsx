@@ -3,6 +3,15 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/te
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  ensureRsvpChangesLoaded,
+  ensureRsvpsLoaded,
+  hasTableRsvps,
+  peekCachedRsvps,
+  type RsvpEvent,
+  rsvpChangesAccessor,
+} from "../../src/lib/rsvps-store";
+
 /**
  * The RSVP table's "New" badges: rows a guest changed since this organiser last
  * opened the table carry one, and opening the table marks those changes seen
@@ -161,6 +170,198 @@ describe("RsvpView — New badges", () => {
     expect(seenCalls()[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ seq: 9 }) });
   });
 
+  /** The Overview card's summary as it stood before the table was opened. */
+  const CARD = {
+    households: 3,
+    truncated: false,
+    items: [
+      { familyId: "f1", familyName: "Test", kinds: ["reply_new"], at: "2026-11-01T00:00:00Z" },
+    ],
+    digest: { available: true, enabled: false },
+  };
+  /** Whether the card's next load reads again. */
+  async function cardReadsAgain() {
+    const read = vi.fn(async () => CARD);
+    await ensureRsvpChangesLoaded("wed_a", read);
+    return read.mock.calls.length > 0;
+  }
+
+  it("writes the Overview's card as nothing unseen once the seen POST is saved", async () => {
+    await ensureRsvpChangesLoaded("wed_a", async () => CARD);
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 9));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+
+    await waitFor(() => expect(rsvpChangesAccessor("wed_a")()?.households).toBe(0));
+    expect(rsvpChangesAccessor("wed_a")()).toEqual({
+      households: 0,
+      truncated: false,
+      items: [],
+      digest: CARD.digest,
+    });
+    expect(await cardReadsAgain()).toBe(true);
+  });
+
+  it.each([
+    ["the seen POST is refused", 1, () => json({ error: "Forbidden" }, 403)],
+    ["the badge rows reached the API's cap of 500", 500, () => json({ seenSeq: 9 })],
+  ])("leaves the card's count, to be read again, when %s", async (_label, count, seen) => {
+    await ensureRsvpChangesLoaded("wed_a", async () => CARD);
+    const rows = Array.from({ length: count }, (_, i) => ({ guestId: `g${i}`, eventId: "evt_1" }));
+    authFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/rsvp-changes/seen")) return Promise.resolve(seen());
+      if (url.endsWith("/rsvp-changes/rows")) return Promise.resolve(json(feed(rows, 9)));
+      if (url.endsWith("/rsvps")) return Promise.resolve(json(VIEW));
+      return Promise.resolve(json({}, 404));
+    });
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(rsvpChangesAccessor("wed_a")()?.households).toBe(3);
+    expect(await cardReadsAgain()).toBe(true);
+  });
+
+  it("draws a reopened table from its own fresh read, and reads again only once drawn", async () => {
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 9));
+    const first = render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+    first.unmount();
+    routeFetch(feed([], 0));
+    const reads = authFetchMock.mock.calls.length;
+    render(() => <RsvpView weddingId="wed_a" />);
+    // Drawn in the mount itself, with nothing sent and no badges.
+    expect(screen.getByRole("tab", { name: /^Reception/ })).toBeVisible();
+    expect(authFetchMock.mock.calls.length).toBe(reads);
+    expect(screen.queryByText("New")).toBeNull();
+    // Then only the badge rows are read behind it: nothing new, nothing more.
+    await waitFor(() => expect(authFetchMock.mock.calls.length).toBe(reads + 1));
+    expect(String(authFetchMock.mock.calls.at(-1)![0])).toMatch(/\/rsvp-changes\/rows$/);
+  });
+
+  it("reads the replies again, badged, when the rows read behind a cached draw hold a change", async () => {
+    routeFetch(feed([], 0));
+    const first = render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/rsvp-changes/rows")),
+      ).toBe(true),
+    );
+    first.unmount();
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 12));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(within(rowOf("Ceremony", "Ada")).getByText("New")).toBeVisible());
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+    expect(authFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/rsvps")).length).toBe(
+      2,
+    );
+  });
+
+  it("stops showing cached rows when the read behind them is refused", async () => {
+    routeFetch(feed([], 0));
+    const first = render(() => <RsvpView weddingId="wed_a" />);
+    await screen.findByRole("tab", { name: /^Reception/ });
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/rsvp-changes/rows")),
+      ).toBe(true),
+    );
+    first.unmount();
+    authFetchMock.mockImplementation(async () => json({ error: "Forbidden" }, 403));
+    render(() => <RsvpView weddingId="wed_a" />);
+    expect(screen.getByRole("tab", { name: /^Reception/ })).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole("tab", { name: /^Reception/ })).toBeNull());
+    // The cause is the seat's access, not the API, and reloading is the fix.
+    expect(
+      screen.getByText(
+        "You can no longer see these replies. Reload the page to see your current access.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Is the API running/i)).toBeNull();
+  });
+
+  it.each([403, 404])(
+    "says the seat can no longer see the replies when the table's own read is refused %i",
+    async (status) => {
+      authFetchMock.mockImplementation(async (url: string) =>
+        url.endsWith("/rsvps") ? json({ error: "refused" }, status) : json(feed([], 0)),
+      );
+      render(() => <RsvpView weddingId="wed_a" />);
+      expect(
+        await screen.findByText(
+          "You can no longer see these replies. Reload the page to see your current access.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText(/Is the API running/i)).toBeNull();
+    },
+  );
+
+  it("reads the badges and marks them seen when the cached replies came without them", async () => {
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_1" }], 9));
+    // The Overview's read: replies with no badge rows beside them.
+    await ensureRsvpsLoaded("wed_a", async () => ({
+      events: VIEW.events as unknown as RsvpEvent[],
+      withBadges: false,
+    }));
+    render(() => <RsvpView weddingId="wed_a" />);
+    // Drawn from the cache at once, then read again with the badges.
+    expect(screen.getByRole("tab", { name: /^Reception/ })).toBeVisible();
+    await waitFor(() => expect(seenCalls()).toHaveLength(1));
+    await waitFor(() => expect(within(rowOf("Ceremony", "Ada")).getByText("New")).toBeVisible());
+  });
+
+  it("keeps a reply recorded while the table's read is out, and reads again once that read lands", async () => {
+    // The Overview's read: Cleo has not replied.
+    await ensureRsvpsLoaded("wed_a", async () => ({
+      events: VIEW.events as unknown as RsvpEvent[],
+      withBadges: false,
+    }));
+    const cleoAttends = {
+      guestId: "g3",
+      eventId: "evt_1",
+      status: "attending",
+      dietary: "",
+      dietaryPresets: [],
+      consentSource: "organiser_attested",
+    };
+    // What the server holds once the reply is in: Cleo attending, and Dee, a
+    // guest a co-host added meanwhile.
+    const after = structuredClone(VIEW);
+    after.events[0]!.guests.push({ ...guest("g3", "Cleo"), ...cleoAttends });
+    after.events[0]!.unresponded = [guest("g4", "Dee")];
+    let rsvpReads = 0;
+    let answerFirst!: (res: Response) => void;
+    authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/rsvp-changes/rows")) return Promise.resolve(json(feed([], 0)));
+      if (url.endsWith("/rsvps")) {
+        rsvpReads += 1;
+        if (rsvpReads === 1) return new Promise<Response>((resolve) => (answerFirst = resolve));
+        return Promise.resolve(json(after));
+      }
+      if (url.endsWith("/guests/g3/rsvps/evt_1") && init?.method === "PUT") {
+        return Promise.resolve(json({ rsvp: cleoAttends }));
+      }
+      return Promise.resolve(json({}, 404));
+    });
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(rsvpReads).toBe(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Test" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Save reply/i }));
+    await screen.findByRole("button", { name: "Edit reply for Cleo Test" });
+
+    // The table's first read was answered before the reply was saved.
+    answerFirst(json(VIEW));
+
+    await waitFor(() =>
+      expect(within(rowOf("Ceremony", "Dee")).getByText("No reply")).toBeVisible(),
+    );
+    expect(rsvpReads).toBe(2);
+    expect(screen.getByRole("button", { name: "Edit reply for Cleo Test" })).toBeTruthy();
+    const cached = peekCachedRsvps("wed_a")!.events.find((event) => event.id === "evt_1")!;
+    expect(cached.guests.map((g) => g.guestId)).toContain("g3");
+  });
+
   it("marks nothing when nothing is new", async () => {
     routeFetch(feed([], 0));
     render(() => <RsvpView weddingId="wed_a" />);
@@ -182,6 +383,9 @@ describe("RsvpView — New badges", () => {
     await screen.findByRole("tab", { name: /^Reception/ });
     expect(screen.queryByText("New")).toBeNull();
     expect(seenCalls()).toEqual([]);
+    // Cached as read without its badges, so the next visit reads both again.
+    expect(peekCachedRsvps("wed_a")?.withBadges).toBe(false);
+    expect(hasTableRsvps("wed_a")).toBe(false);
   });
 
   it("marks nothing seen when the RSVPs themselves fail to load", async () => {

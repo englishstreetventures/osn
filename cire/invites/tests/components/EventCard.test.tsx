@@ -171,8 +171,9 @@ describe("EventCard", () => {
         onDetails={noop}
       />
     ));
-    // No <img> for the cropped path — the region is a background div instead.
-    expect(container.querySelector("img")).toBeNull();
+    // No picture <img> for the cropped path — the region is a background div
+    // instead, holding only the hidden probe that reports a failed load.
+    expect(container.querySelector("img:not([data-image-probe])")).toBeNull();
     const region = container.querySelector('[role="img"]') as HTMLElement;
     expect(region).not.toBeNull();
     // The centred half-frame crop maps to a SINGLE-value 200% size (uniform — the
@@ -217,6 +218,51 @@ describe("EventCard", () => {
     ));
     expect(container.querySelector("img")).not.toBeNull();
     expect(container.querySelector('[role="img"]')).toBeNull();
+  });
+
+  // An image that does not load leaves no empty frame on the card: the card
+  // draws as it does with no image at all.
+  it("drops the image and its frame when the image fails to load", () => {
+    const { container } = render(() => (
+      <EventCard event={withImage} apiUrl="https://api.test" onRespond={noop} onDetails={noop} />
+    ));
+    fireEvent.error(container.querySelector("img") as HTMLImageElement);
+    expect(container.querySelector("img")).toBeNull();
+    const grid = container.querySelector("[data-has-image]") as HTMLElement;
+    expect(grid.dataset.hasImage).toBe("false");
+  });
+
+  it("drops a cropped image's frame when the image fails to load", () => {
+    const cropped: EventSummary = { ...withImage, imageCrop: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 } };
+    const { container } = render(() => (
+      <EventCard event={cropped} apiUrl="https://api.test" onRespond={noop} onDetails={noop} />
+    ));
+    // A background cannot report a failed load, so a hidden copy of its request
+    // does: the same URL, so it is the same fetch.
+    const probe = container.querySelector("img[data-image-probe]") as HTMLImageElement;
+    expect(probe.getAttribute("src")).toBe(`https://api.test${withImage.imageUrl}&variant=card`);
+    fireEvent.error(probe);
+    expect(container.querySelector('[role="img"]')).toBeNull();
+    const grid = container.querySelector("[data-has-image]") as HTMLElement;
+    expect(grid.dataset.hasImage).toBe("false");
+  });
+
+  // A failure is remembered for that image only: a new one is tried afresh.
+  it("tries a new image after the last one failed to load", () => {
+    const [event, setEvent] = createSignal<EventSummary>({
+      ...withImage,
+      imageCrop: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+    });
+    const { container } = render(() => (
+      <EventCard event={event()} apiUrl="https://api.test" onRespond={noop} onDetails={noop} />
+    ));
+    fireEvent.error(container.querySelector("img[data-image-probe]") as HTMLImageElement);
+    expect(container.querySelector('[role="img"]')).toBeNull();
+
+    setEvent({ ...event(), imageUrl: `${withImage.imageUrl}-2` });
+    expect(container.querySelector('[role="img"]')).not.toBeNull();
+    const probe = container.querySelector("img[data-image-probe]") as HTMLImageElement;
+    expect(probe.getAttribute("src")).toBe(`https://api.test${withImage.imageUrl}-2&variant=card`);
   });
 
   it("flips to image-left / text-right for the `alt` orientation (DOM order unchanged)", () => {

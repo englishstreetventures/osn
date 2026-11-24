@@ -38,6 +38,7 @@ import {
 } from "../lib/dashboard-route";
 import { watchForbidden } from "../lib/forbidden-watch";
 import { invalidateHosts } from "../lib/hosts-store";
+import { invalidateInvite } from "../lib/invite-store";
 import { MembersChangedContext } from "../lib/members-changed";
 import { moduleDef } from "../lib/module-nav";
 import { CIRE_API_URL } from "../lib/osn";
@@ -54,7 +55,7 @@ import {
 import { TasksChangedContext } from "../lib/tasks-changed";
 import { markTasksStale } from "../lib/tasks-store";
 import { TIER_LABEL, tierOf } from "../lib/tiers";
-import type { PaidTier } from "../lib/tiers";
+import type { PaidTier, Tier } from "../lib/tiers";
 import { confirmNavigation } from "../lib/unsaved-guard";
 import { fetchPurchase } from "../lib/upgrade-api";
 import {
@@ -233,7 +234,7 @@ function WeddingDashboard(props: {
         callerRole={props.wedding.role}
         onFix={() => props.onModule("events", "edit")}
       />
-      <WeddingCacheScope weddingId={props.weddingId}>
+      <WeddingCacheScope weddingId={props.weddingId} tier={tierOf(props.wedding)}>
         <ModuleShell
           weddingId={props.weddingId}
           weddingName={props.wedding.displayName}
@@ -274,12 +275,21 @@ function WeddingDashboard(props: {
  * and loads for the wedding, so a request a torn-down view started cannot
  * bring its rows back.
  */
-function WeddingCacheScope(props: ParentProps<{ weddingId: string }>) {
+function WeddingCacheScope(props: ParentProps<{ weddingId: string; tier?: Tier }>) {
   // Read once: a scope belongs to one wedding for its whole life. The parent
   // is keyed on the wedding id, so another wedding gets another scope.
   const weddingId = untrack(() => props.weddingId);
   openWeddingCaches(weddingId);
   onCleanup(() => dropWeddingCaches(weddingId));
+  // A tier bought, refunded or lowered changes what the invite builder is
+  // offered, which the cached invite says.
+  createEffect(
+    on(
+      () => props.tier,
+      () => invalidateInvite(weddingId),
+      { defer: true },
+    ),
+  );
   return <>{props.children}</>;
 }
 
@@ -308,12 +318,9 @@ function RunSheetSeat(props: {
         {/* The panel header the module shell gives every module, so the seat
             reads as the same page an owner opens. */}
         <header class="flex flex-col gap-4">
-          <div class="flex min-w-0 flex-col gap-1">
-            <h2 class="font-display text-text text-ui-lg leading-ui-none font-light">
-              {moduleDef("run-sheet").label}
-            </h2>
-            <p class="font-body text-text-muted text-ui-sm">{moduleDef("run-sheet").hint}</p>
-          </div>
+          <h2 class="font-display text-text text-ui-lg leading-ui-none font-light">
+            {moduleDef("run-sheet").label}
+          </h2>
           <hr class="gilt-rule opacity-60" />
         </header>
         <Show when={props.askedForExport}>
