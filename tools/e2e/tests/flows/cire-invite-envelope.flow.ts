@@ -799,6 +799,19 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
     "a consent prompt that never mounts does not hold the envelope shut",
     async () => {
       const opened = await newPhonePage(flow, browser);
+      // The page's own time when the envelope says "ready", which is when its
+      // fallback starts, so the reads below land at a known point of the 8 s
+      // however long the wait for "ready" and the pause took.
+      await opened.page.addInitScript(() => {
+        new MutationObserver(() => {
+          const page = window as unknown as { readyAt?: number };
+          const state = document.documentElement.getAttribute("data-envelope");
+          if (state === "ready" && page.readyAt === undefined) page.readyAt = performance.now();
+        }).observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ["data-envelope"],
+        });
+      });
       await opened.page.route("**/src/components/consent/ConsentBanner.tsx*", (route) =>
         route.abort(),
       );
@@ -809,17 +822,19 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
         false,
         (await opened.page.locator(`${OVERLAY}[data-armed]`).count()) > 0,
       );
-      // The fallback's 8 s run on the page clock alone. Up to a second of it
-      // passes before the pause (the wait for "ready" polls), so the two reads
-      // sit 3 s apart around it: armed neither early nor late.
+      // The fallback's 8 s run on the page clock alone: paused, moved to 50 ms
+      // short of 8 s after "ready", then 100 ms on.
       await pauseClock(opened.page);
-      await opened.page.clock.runFor(5000);
+      const sinceReady = await opened.page.evaluate(
+        () => performance.now() - (window as unknown as { readyAt: number }).readyAt,
+      );
+      await opened.page.clock.runFor(Math.max(0, Math.floor(7950 - sinceReady)));
       flow.check(
-        "no prompt: not armed 5 s on",
+        "no prompt: not armed just before 8 s",
         false,
         (await opened.page.locator(`${OVERLAY}[data-armed]`).count()) > 0,
       );
-      await opened.page.clock.runFor(3000);
+      await opened.page.clock.runFor(100);
       flow.check(
         "no prompt: armed after 8 s",
         true,

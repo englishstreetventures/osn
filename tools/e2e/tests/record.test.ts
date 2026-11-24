@@ -12,13 +12,15 @@ describe("normalisePath", () => {
   });
 
   // The random part of an id can be drawn with no digit in it: twelve hex
-  // digits all a-f about once in 130,000 ids, a 43-character token about once
-  // in 1,500. The line must not change between runs when it is.
+  // digits all a-f about once in 130,000 ids, a 22-character token about once
+  // in 40, a 43-character one about once in 1,500. The line must not change
+  // between runs when it is.
   test("replaces an id whose random part drew no digit", () => {
     expect(normalisePath("/register/signup_abcdefabcdef/status")).toBe("/register/:id/status");
     expect(normalisePath("/passkeys/pk_fedcbafedcba")).toBe("/passkeys/:id");
     expect(normalisePath("/x/emailchange_abcdefabcdef")).toBe("/x/:id");
     expect(normalisePath("/x/aenr_abcdefabcdefabcd")).toBe("/x/:id");
+    expect(normalisePath("/step-up/requests/aZbYcXdWeVfUgThSiRjQkP")).toBe("/step-up/requests/:id");
     expect(normalisePath("/x/aZbYcXdWeVfUgThSiRjQkPlOmNnMoLpKqJrIsHtGu_-")).toBe("/x/:id");
   });
 
@@ -30,6 +32,7 @@ describe("normalisePath", () => {
     expect(normalisePath("/handle/dev_bootstrap")).toBe("/handle/dev_bootstrap");
     expect(normalisePath("/weddings/wed_bootstrap")).toBe("/weddings/wed_bootstrap");
     expect(normalisePath("/email-verification-nonce")).toBe("/email-verification-nonce");
+    expect(normalisePath("/x/household-rsvp-changes")).toBe("/x/household-rsvp-changes");
     expect(normalisePath("/api/auth/oidc/callback")).toBe("/api/auth/oidc/callback");
   });
 });
