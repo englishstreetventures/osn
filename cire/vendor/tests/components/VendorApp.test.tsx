@@ -87,6 +87,24 @@ const claimedListing: Listing = {
   updatedAt: 2,
 };
 
+const enquiry = (id: string, weddingName: string, lastMessageAt: number) =>
+  ({
+    id,
+    weddingId: `w_${id}`,
+    directoryVendorId: "dv1",
+    vendorId: "v1",
+    zapChatId: "chat_1",
+    status: "open",
+    createdBy: "p1",
+    quotedMinor: null,
+    lastMessageAt,
+    createdAt: 0,
+    updatedAt: 0,
+    vendorName: "Vendor",
+    category: "venue",
+    weddingName,
+  }) satisfies VendorEnquiryListItem;
+
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
@@ -166,25 +184,60 @@ describe("VendorApp", () => {
     });
   });
 
-  describe("enquiries", () => {
-    const enquiry = (id: string, weddingName: string, lastMessageAt: number) =>
-      ({
-        id,
-        weddingId: `w_${id}`,
-        directoryVendorId: "dv1",
-        vendorId: "v1",
-        zapChatId: "chat_1",
-        status: "open",
-        createdBy: "p1",
-        quotedMinor: null,
-        lastMessageAt,
-        createdAt: 0,
-        updatedAt: 0,
-        vendorName: "Vendor",
-        category: "venue",
-        weddingName,
-      }) satisfies VendorEnquiryListItem;
+  // The tabs are clicked by their exact names: the wordmark, "Cire — your
+  // listings", also leads to the listings, without going through the tabs.
+  //
+  // Each view is checked as soon as its tab is pressed, before anything awaits.
+  // happy-dom fires `hashchange` after `history.pushState`, which a browser
+  // never does, and the app's own listener would then switch the view by itself.
+  describe("view tabs", () => {
+    const page = { enquiries: [enquiry("e1", "Alex & Sam", 1_000)], nextCursor: null };
 
+    it("opens the inbox from the Enquiries tab, and keeps it in the address bar", async () => {
+      vi.mocked(listEnquiries).mockResolvedValue(page);
+
+      render(() => <VendorApp />);
+      await screen.findByText("Acme");
+      fireEvent.click(screen.getByRole("button", { name: "Enquiries" }));
+      expect(screen.getByRole("heading", { name: "Your inbox" })).toBeInTheDocument();
+
+      expect(await screen.findByRole("button", { name: /Alex & Sam/ })).toBeInTheDocument();
+      expect(screen.queryByText("Acme")).not.toBeInTheDocument();
+      // What a reload reads to open the same view.
+      expect(location.hash).toBe("#/enquiries");
+    });
+
+    it("goes back to the listings from the Listings tab, and clears the inbox from the address bar", async () => {
+      vi.mocked(listEnquiries).mockResolvedValue(page);
+      history.replaceState(null, "", "/#/enquiries");
+
+      render(() => <VendorApp />);
+      await screen.findByRole("button", { name: /Alex & Sam/ });
+      fireEvent.click(screen.getByRole("button", { name: "Listings" }));
+      expect(screen.getByText("Loading your organisations…")).toBeInTheDocument();
+
+      expect(await screen.findByText("Acme")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Alex & Sam/ })).not.toBeInTheDocument();
+      expect(location.hash).toBe("");
+    });
+
+    it("shows the inbox, not the last thread, when the vendor comes back to it", async () => {
+      vi.mocked(listEnquiries).mockResolvedValue(page);
+      history.replaceState(null, "", "/#/enquiries");
+
+      render(() => <VendorApp />);
+      fireEvent.click(await screen.findByRole("button", { name: /Alex & Sam/ }));
+      await screen.findByRole("button", { name: /Back to enquiries/ });
+      fireEvent.click(screen.getByRole("button", { name: "Listings" }));
+      fireEvent.click(screen.getByRole("button", { name: "Enquiries" }));
+      expect(screen.getByRole("heading", { name: "Your inbox" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Back to enquiries/ })).not.toBeInTheDocument();
+
+      expect(await screen.findByRole("button", { name: /Alex & Sam/ })).toBeInTheDocument();
+    });
+  });
+
+  describe("enquiries", () => {
     it("keeps the pages it loaded through a visit to a thread", async () => {
       const pageOne = { enquiries: [enquiry("e2", "Alex & Sam", 2_000)], nextCursor: "2.e2" };
       const pageTwo = { enquiries: [enquiry("e1", "Kim & Lee", 1_000)], nextCursor: null };
