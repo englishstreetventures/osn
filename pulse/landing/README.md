@@ -6,7 +6,8 @@ the Pulse design system (`pulse/DESIGN.md`): Instrument Serif / Geist /
 Geist Mono, the coral/ember accent family, and a vivid category palette
 (`PulseField` backdrop + `PulseHero` + a colourful Categories showcase).
 
-Pure brochure: no Pulse API calls, no account.
+Pure brochure: no Pulse API calls, no account. Its one request of its own is
+the same-origin `GET /api/geo`, answered by the Worker entry in `worker/index.ts`.
 
 ## Run
 
