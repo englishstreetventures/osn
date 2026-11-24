@@ -104,9 +104,11 @@ function appZone(
  * refused, as at every per-IP limiter here. A configured app's fetch is
  * budgeted under its zone instead, apart from every other Worker, which share
  * one address. Each refusal is counted (`osn.arc.jwks.refused`, by lane and
- * reason), and the first in each minute per lane is logged. A refusal is 429 before any key is read. An app that is
- * refused remembers the kid it asked for as unknown for 30 seconds and then
- * fetches again, so it recovers once its window ends.
+ * reason), and the first in each minute per lane is logged. A refusal is 429
+ * before any key is read. A refused app fetches again 30 seconds later, so it
+ * recovers once its window ends. An isolate remembers an hour refusal for a
+ * minute, a failing store's included, so after the store recovers an app can
+ * wait up to about 90 seconds.
  */
 export function createArcJwksRoutes(
   dbLayer: Layer.Layer<Db> = DbLive,

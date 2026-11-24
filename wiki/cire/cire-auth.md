@@ -14,7 +14,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
   - "[[social-graph]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-25
 ---
 
 # Cire auth model
