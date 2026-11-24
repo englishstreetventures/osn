@@ -1197,6 +1197,37 @@ describe("the payout account's holder keeps their owner seat while they hold it"
     expect((await req(app, "DELETE", `${hostsPath}/me`, HOLDER)).status).toBe(200);
     expect(await roleOf(db, HOLDER)).toBeUndefined();
   });
+
+  it("refuses only on the wedding whose account the person holds", async () => {
+    // One account can take gifts for several weddings of the same couple:
+    // holding it on another wedding holds no seat on this one.
+    const { db, app } = buildApp();
+    seedHostSeat(db, HOLDER, "owner");
+    const now = new Date();
+    insertWedding(db, {
+      id: "wed_hosts_party",
+      slug: "hosts-party",
+      displayName: "Party",
+      createdAt: now,
+      updatedAt: now,
+      owners: [HOLDER],
+    });
+    db.insert(registrySettings)
+      .values({
+        weddingId: "wed_hosts_party",
+        stripeAccountId: "acct_hosts",
+        stripeConnectedByOsnProfileId: HOLDER,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    expect((await req(app, "PUT", `${holderPath}/role`, HOLDER, { role: "editor" })).status).toBe(
+      200,
+    );
+    expect((await req(app, "DELETE", holderPath, OWNER)).status).toBe(200);
+    expect(await roleOf(db, HOLDER)).toBeUndefined();
+  });
 });
 
 describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)", () => {
@@ -1237,9 +1268,18 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
     ).toHaveLength(1);
   });
 
-  it("removes on the portal's session cookie, answering the new count", async () => {
+  it("removes on the portal's session cookie, answering the new count, and refuses a dead one", async () => {
     const { db, app } = buildApp();
     seedCohost(db);
+    const dead = await appRequest(app, `${hostsPath}/${COHOST}`, {
+      method: "DELETE",
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(dead.status).toBe(401);
+    expect(
+      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
+    ).toHaveLength(1);
+
     const token = await seedOrganiserSession(db, OWNER);
     const res = await appRequest(app, `${hostsPath}/${COHOST}`, {
       method: "DELETE",
@@ -1541,6 +1581,26 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
     expect(body.host).toMatchObject({ osnProfileId: COHOST, role: "viewer" });
     const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
     expect(row!.role).toBe("viewer");
+  });
+
+  it("changes a role on the portal's session cookie, and refuses a dead one", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "editor");
+    const put = (cookie: string) =>
+      appRequest(app, rolePath, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ role: "viewer" }),
+      });
+    const roleNow = () =>
+      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all()[0]?.role;
+
+    expect((await put("cire_org_session=not-a-live-session-token")).status).toBe(401);
+    expect(roleNow()).toBe("editor");
+
+    const token = await seedOrganiserSession(db, OWNER);
+    expect((await put(`cire_org_session=${token}`)).status).toBe(200);
+    expect(roleNow()).toBe("viewer");
   });
 
   it("moves a seat down to helper for the owner", async () => {
