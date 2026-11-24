@@ -13,7 +13,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-23
 ---
 # Cire invite design selector
 
@@ -765,7 +765,8 @@ items; the policy's plus-one rule), `utils.test.ts` (the claim guard),
 `calendar.test.ts` (the venue in the Google link), `MapPreview.test.tsx` (the
 maps menu's items, the organiser's link in its app's place, the plain link
 when it is alone, the refused `javascript:` link), `AddToCalendar.test.tsx`
-(the menu opened by a key on its first item, by a pointer on the menu), and
+(the menu opened by a pointer on the menu), `LinkMenu.test.tsx` (the menu
+opened by a key on its first item), and
 `DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1, the
 venue's name and its muted address, the policy, the run of show's times and
 names and Getting there included, and each swatch ring at 3:1 on the

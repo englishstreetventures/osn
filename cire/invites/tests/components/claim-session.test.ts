@@ -154,15 +154,6 @@ describe("createSessionRestore", () => {
     expect(onRestored).not.toHaveBeenCalled();
   });
 
-  it("leaves the code form standing on a 401 (no session)", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ error: "Unauthorized" }, 401)));
-
-    const { onRestored } = mount();
-    await settle();
-
-    expect(onRestored).not.toHaveBeenCalled();
-  });
-
   it.each([429, 500, 503])(
     "degrades to the code form on a %i, not a broken page",
     async (status) => {

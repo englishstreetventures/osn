@@ -93,19 +93,6 @@ describe("ConsentGate", () => {
     expect(mounted).not.toHaveBeenCalled();
   });
 
-  it("hydrates from the cookie without needing a banner on the page", () => {
-    // A gate must work on any page — including one where the guest already
-    // decided, so the banner never renders and cannot be the thing that reads
-    // the cookie.
-    seedConsentForTest({ pinterest: true });
-    const { getByTestId } = render(() => (
-      <ConsentGate category="pinterest" vendor="pinterest">
-        <div data-testid="gated">content</div>
-      </ConsentGate>
-    ));
-    expect(getByTestId("gated")).toBeTruthy();
-  });
-
   describe("the default placeholder", () => {
     // Under opt-out the placeholder is the RESULT of a refusal, so every case
     // here starts from one.

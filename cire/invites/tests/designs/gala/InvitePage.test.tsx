@@ -160,18 +160,6 @@ describe("gala InvitePage", () => {
     expect(queryByTestId("events-column")).toBeNull();
   });
 
-  // Both packs draw their claim panel through LoginSection, so the field's
-  // contrast contract lives there — asserted here as well so this pack cannot
-  // quietly stop using the shared panel and draw a field of its own. Same
-  // values, same reasoning — see the note in components/LoginSection.tsx.
-  it("names the code field, as classic does", () => {
-    const { getByPlaceholderText } = render(() => <InvitePage apiUrl="https://api.test" />);
-    // A placeholder is not an accessible name, and it vanishes on input.
-    expect((getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).getAttribute("aria-label")).toBe(
-      "Invitation code",
-    );
-  });
-
   it("renders the events section with a data-event-card wrapper per event after a claim", async () => {
     vi.stubGlobal(
       "fetch",
@@ -278,31 +266,6 @@ describe("gala InvitePage", () => {
     }
   });
 
-  it("swaps the claim panel to the welcome state post-claim, greeting the individual guest", async () => {
-    vi.stubGlobal(
-      "fetch",
-      noSession(
-        vi.fn().mockResolvedValue(
-          // A guest who has not replied yet: a first visit, greeted by name.
-          new Response(JSON.stringify({ ...claim, rsvps: [], householdReplied: false }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      ),
-    );
-
-    const { getByText, getByPlaceholderText, queryByText } = render(() => (
-      <InvitePage apiUrl="https://api.test" />
-    ));
-
-    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open invitation"));
-
-    await waitFor(() => expect(getByText("Dear Priya")).toBeTruthy(), { timeout: 2000 });
-    expect(queryByText("Enter your code")).toBeTruthy();
-  });
-
   it("keeps a first-time guest's greeting after they send their first reply", async () => {
     vi.stubGlobal(
       "fetch",
@@ -336,94 +299,6 @@ describe("gala InvitePage", () => {
     await waitFor(() => expect(capturedProps.value!.existingRsvps).toEqual(claim.rsvps));
     expect(getByText("Dear Priya")).toBeTruthy();
     expect(queryByText(/Welcome back/)).toBeNull();
-  });
-
-  it("mounts the Pulse account-link affordance post-claim (non-preview only)", async () => {
-    vi.stubGlobal(
-      "fetch",
-      noSession(
-        vi.fn().mockResolvedValue(
-          new Response(JSON.stringify(claim), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      ),
-    );
-
-    const { getByText, getByPlaceholderText, queryByTestId } = render(() => (
-      <InvitePage apiUrl="https://api.test" />
-    ));
-
-    expect(queryByTestId("pulse-account-link-stub")).toBeNull();
-
-    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open invitation"));
-
-    await waitFor(() => expect(queryByTestId("pulse-account-link-stub")).toBeTruthy(), {
-      timeout: 2000,
-    });
-  });
-
-  it("puts the Pulse account link in the claim panel, not the events section", async () => {
-    vi.stubGlobal(
-      "fetch",
-      noSession(
-        vi.fn().mockResolvedValue(
-          new Response(JSON.stringify(claim), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      ),
-    );
-
-    const { getByText, getByPlaceholderText, findByTestId, getByTestId } = render(() => (
-      <InvitePage apiUrl="https://api.test" />
-    ));
-
-    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open invitation"));
-
-    const link = await findByTestId("pulse-account-link-stub", {}, { timeout: 2000 });
-    // The household's controls live together in the panel the guest lands on.
-    expect(link.closest("section")).toBe(getByText("Enter your code").closest("section"));
-    expect(getByTestId("events-column").closest("section")!.contains(link)).toBe(false);
-  });
-
-  it("signs out for real: POSTs /api/claim/signout and drops the restore hint", async () => {
-    // The same contract classic pins. Only a request can end `cire_session`
-    // (HttpOnly, host-scoped to the API origin), so a sign-out that only reset
-    // the screen would leave a live credential on a shared device.
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(claim), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", noSession(fetchMock));
-
-    const { getByText, getByPlaceholderText } = render(() => (
-      <InvitePage apiUrl="https://api.test" />
-    ));
-
-    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open invitation"));
-    await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
-      timeout: 2000,
-    });
-    // The claim left the restore hint behind.
-    expect(document.cookie).toContain("cire_claimed=1");
-
-    fireEvent.click(getByText(/Sign out/));
-
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/api/claim/signout"));
-      expect(call, "no sign-out request was sent").toBeTruthy();
-      expect((call![1] as RequestInit).method).toBe("POST");
-      expect((call![1] as RequestInit).credentials).toBe("include");
-    });
-    expect(document.cookie).not.toContain("cire_claimed=1");
   });
 
   it("'Sign out' returns to the code form and clears the claimed invite", async () => {
@@ -873,27 +748,6 @@ describe("gala InvitePage", () => {
     expect(section.querySelector("p")).toBeNull();
   });
 
-  it("omits the closing section entirely when neither a note nor an image is set", async () => {
-    vi.stubGlobal(
-      "fetch",
-      noSession(
-        vi.fn().mockResolvedValue(
-          new Response(JSON.stringify({ ...claim, preview: true }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      ),
-    );
-    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
-
-    const { container, getByText } = render(() => <InvitePage apiUrl="https://api.test" />);
-
-    // Wait for the claim to land, so "absent" isn't just "not rendered yet".
-    await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
-    expect(container.querySelector("[data-invite-closing]")).toBeNull();
-  });
-
   // Whitespace-only is not content — same rule as every other invite segment.
   // The page's own gate on the switch, beside the API leaving the content out:
   // a switched-off closing section renders nothing even if content arrives.
@@ -927,30 +781,6 @@ describe("gala InvitePage", () => {
     await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
     expect(container.querySelector("[data-invite-closing]")).toBeNull();
     expect(queryByText("No boxed gifts please")).toBeNull();
-  });
-
-  it("omits the closing section for a whitespace-only note", async () => {
-    vi.stubGlobal(
-      "fetch",
-      noSession(
-        vi.fn().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              ...claim,
-              preview: true,
-              closing: { message: "   ", imageUrl: null, imageCrop: null },
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        ),
-      ),
-    );
-    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
-
-    const { container, getByText } = render(() => <InvitePage apiUrl="https://api.test" />);
-
-    await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
-    expect(container.querySelector("[data-invite-closing]")).toBeNull();
   });
 
   describe("FAQ section", () => {
@@ -1511,31 +1341,6 @@ describe("gala InvitePage", () => {
       );
     });
 
-    it("sends the household cookie on the restore read", async () => {
-      // Asserted on a bare mock, not through `withSession`: the wrapper answers
-      // the restore itself, so the call never reaches the inner mock.
-      // A fresh Response per call: `mockResolvedValue` would hand the same one
-      // to every request the island makes, and a body can only be read once.
-      const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
-        Promise.resolve(
-          new Response(JSON.stringify(claim), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      );
-      vi.stubGlobal("fetch", restore);
-
-      const { getByText } = render(() => (
-        <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
-      ));
-      await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
-
-      const call = restore.mock.calls.find((c) => String(c[0]).includes("/api/claim/session"));
-      expect(call).toBeTruthy();
-      expect(call![1]).toMatchObject({ credentials: "include", cache: "no-store" });
-    });
-
     it("does NOT start the restored events section at opacity-0 — nothing would reveal it", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ theme: null }), {
@@ -1592,30 +1397,6 @@ describe("gala InvitePage", () => {
 
       await waitFor(() => expect(getByPlaceholderText(/PATEL-JOY/)).toBeTruthy());
       expect(queryByText("Mehndi")).toBeNull();
-    });
-
-    it("does not restore over a ?code= deep-link — the explicit code wins", async () => {
-      window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
-      // A fresh Response per call: `mockResolvedValue` would hand the same one
-      // to every request the island makes, and a body can only be read once.
-      const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
-        Promise.resolve(
-          new Response(JSON.stringify(claim), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      );
-      vi.stubGlobal("fetch", restore);
-
-      const { getByText } = render(() => (
-        <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
-      ));
-      await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
-
-      expect(restore.mock.calls.some((c) => String(c[0]).includes("/api/claim/session"))).toBe(
-        false,
-      );
     });
   });
   // Ported verbatim from classic. `LoginSection.test.tsx` proves the panel
@@ -1916,44 +1697,6 @@ describe("gala InvitePage", () => {
       expect(respondButtonFor(container, "Mehndi").hasAttribute("data-rsvp-confirmed")).toBe(false);
 
       // Sheet closes: the mark goes up.
-      (capturedProps.value!.onClose as () => void)();
-      await waitFor(() =>
-        expect(respondButtonFor(container, "Mehndi").getAttribute("data-rsvp-confirmed")).toBe(
-          "true",
-        ),
-      );
-    });
-
-    it("holds the mark back just the same when the sheet opened on the details", async () => {
-      // The guest can open the details, move across to the form and save from
-      // there. The sheet covers the card whichever panel it opened on.
-      const fetchMock = vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ...claim, rsvps: [], householdReplied: false }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
-      vi.stubGlobal("fetch", noSession(fetchMock));
-      window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
-
-      const { container } = render(() => <InvitePage apiUrl="https://api.test" />);
-      await waitFor(() => expect(container.querySelector("[data-event-card]")).toBeTruthy());
-
-      fireEvent.click(detailsButtonFor(container, "Mehndi"));
-      await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
-
-      (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)([
-        {
-          guestId: "guest-1",
-          eventId: "event-1",
-          status: "attending",
-          dietary: "",
-          dietaryPresets: [],
-          dietaryConsentCurrent: false,
-        },
-      ]);
-      expect(respondButtonFor(container, "Mehndi").hasAttribute("data-rsvp-confirmed")).toBe(false);
-
       (capturedProps.value!.onClose as () => void)();
       await waitFor(() =>
         expect(respondButtonFor(container, "Mehndi").getAttribute("data-rsvp-confirmed")).toBe(

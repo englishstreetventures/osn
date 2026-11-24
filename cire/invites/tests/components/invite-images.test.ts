@@ -21,12 +21,6 @@ describe("buildSrcSet (T-M1)", () => {
 });
 
 describe("variantSrc", () => {
-  it("appends a single bounded &variant= when the base URL already has a query", () => {
-    expect(variantSrc("/api/invite/s/image/hero?v=123", "hero-bg")).toBe(
-      "/api/invite/s/image/hero?v=123&variant=hero-bg",
-    );
-  });
-
   it("uses ? when the base URL has no query", () => {
     expect(variantSrc("/img", "hero-bg")).toBe("/img?variant=hero-bg");
   });

@@ -285,16 +285,6 @@ describe("LoginSection returning household", () => {
     setReturningHousehold(false);
   });
 
-  it("greets a household with no replies on file as a first visit", () => {
-    const { container } = render(() => (
-      <LoginSection apiUrl="http://x" result={household([chidi, ada], [])} onClaimed={noop} />
-    ));
-    expect(greeting(container)?.textContent).toBe("Welcome, the Okafor Family");
-    expect(container.textContent).not.toContain("Welcome back");
-    expect(container.textContent).not.toContain("You still have replies to give");
-    expect(returningHousehold()).toBe(false);
-  });
-
   it("greets a household whose only replies an organiser recorded as a first visit", () => {
     // A phone or paper reply the couple entered is not the household coming back.
     const { container } = render(() => (

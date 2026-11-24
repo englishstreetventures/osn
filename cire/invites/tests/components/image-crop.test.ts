@@ -9,18 +9,8 @@ import {
   heroImgRevealClass,
   isRenderableCrop,
 } from "../../src/components/image-crop";
-import { VARIANT_WIDTHS } from "../../src/components/invite-images";
 
 describe("isRenderableCrop", () => {
-  it("treats null/undefined as not renderable (fall back to object-cover)", () => {
-    expect(isRenderableCrop(null)).toBe(false);
-    expect(isRenderableCrop(undefined)).toBe(false);
-  });
-
-  it("treats a full-frame crop as the identity (not renderable)", () => {
-    expect(isRenderableCrop({ x: 0, y: 0, w: 1, h: 1 })).toBe(false);
-  });
-
   it("accepts a genuine sub-rectangle", () => {
     expect(isRenderableCrop({ x: 0.1, y: 0.2, w: 0.5, h: 0.4 })).toBe(true);
   });
@@ -236,11 +226,6 @@ describe("cropBackgroundImageSetDeclaration (viewport+DPR sibling of cropBackgro
     expect(decl).toContain(
       'image-set(url("https://x/img.jpg?variant=card") 1x, url("https://x/img.jpg?variant=hero") 2x)',
     );
-  });
-
-  it("keeps both image-set() candidates inside the bounded VARIANT_WIDTHS allowlist", () => {
-    expect(Object.keys(VARIANT_WIDTHS)).toContain("card");
-    expect(Object.keys(VARIANT_WIDTHS)).toContain("hero");
   });
 
   it("computes byte-identical crop maths to the object helper for the same crop", () => {

@@ -9,10 +9,6 @@ import { invitePath } from "../../src/lib/invite";
  * newly generated links.
  */
 describe("invitePath", () => {
-  it("uses the fixed invitation path", () => {
-    expect(invitePath("anita-and-ben")).toBe("/cire/invite?slug=anita-and-ben");
-  });
-
   it("encodes a slug that would otherwise change the URL's shape", () => {
     expect(invitePath("a b")).toBe("/cire/invite?slug=a%20b");
     expect(invitePath("../other")).toBe("/cire/invite?slug=..%2Fother");

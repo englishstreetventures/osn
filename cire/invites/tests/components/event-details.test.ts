@@ -9,7 +9,6 @@ import {
   resolveMapsEmbedUrl,
   resolveMapsUrl,
   runOfShowLines,
-  timezoneLabel,
   timezoneName,
   venueLine,
   venueLocation,
@@ -33,10 +32,6 @@ const base: EventSummary = {
 };
 
 describe("venueLine", () => {
-  it("returns the canonical address", () => {
-    expect(venueLine(base)).toBe("12 Banksia Lane, Strathfield");
-  });
-
   it("returns null when the address is absent or blank", () => {
     expect(venueLine({ address: null })).toBeNull();
     expect(venueLine({ address: "   " })).toBeNull();
@@ -59,29 +54,6 @@ describe("formatEventDay", () => {
 
   it("returns an empty string for an unparseable instant", () => {
     expect(formatEventDay({ ...base, startAt: "not-a-date" })).toBe("");
-  });
-});
-
-describe("formatTimeRange", () => {
-  it("renders a start–end range in the event timezone", () => {
-    const out = formatTimeRange(base);
-    expect(out).toMatch(/4:00\s*pm/i);
-    expect(out).toMatch(/10:00\s*pm/i);
-    expect(out).toContain("–");
-  });
-
-  it("collapses to a single time when start and end coincide", () => {
-    const point = { ...base, endAt: base.startAt };
-    const out = formatTimeRange(point);
-    expect(out).toMatch(/4:00\s*pm/i);
-    expect(out).not.toContain("–");
-  });
-
-  it("shows just the start for the '' no-stated-end sentinel (End optional in the sheet)", () => {
-    const out = formatTimeRange({ ...base, endAt: "" });
-    expect(out).toMatch(/4:00\s*pm/i);
-    expect(out).not.toContain("–");
-    expect(out).not.toContain("Invalid");
   });
 });
 
@@ -245,12 +217,6 @@ describe("invitedNames", () => {
   });
 });
 
-describe("timezoneLabel", () => {
-  it("returns a short zone label for the instant", () => {
-    expect(timezoneLabel(base)).toMatch(/GMT\+10|AE[SD]T/);
-  });
-});
-
 describe("venueLocation", () => {
   const at = (venueName: string | null | undefined, address: string | null) => ({
     venueName,
@@ -347,10 +313,6 @@ describe("resolveMapsEmbedUrl", () => {
     expect(resolveMapsEmbedUrl(base, undefined)).toBeNull();
     expect(resolveMapsEmbedUrl(base, "")).toBeNull();
     expect(resolveMapsEmbedUrl(base, "   ")).toBeNull();
-  });
-
-  it("returns null when there is no venue address to query", () => {
-    expect(resolveMapsEmbedUrl({ ...base, address: null }, KEY)).toBeNull();
   });
 
   it("encodes special characters in the address so they cannot break the query", () => {

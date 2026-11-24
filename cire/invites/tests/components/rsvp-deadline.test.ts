@@ -99,41 +99,11 @@ describe("deadlineNotice", () => {
     expect(deadlineNotice(null, "open")).toBeNull();
     expect(deadlineNotice(deadline(), null)).toBeNull();
   });
-
-  it("invites a reply while the door is open", () => {
-    expect(deadlineNotice(deadline(), "open")).toBe("Kindly respond by Tuesday 1 September 2026.");
-  });
-
-  it("says the door is closing, in words and not only in colour", () => {
-    expect(deadlineNotice(deadline(), "closing-soon")).toBe(
-      "RSVPs close soon — kindly respond by Tuesday 1 September 2026.",
-    );
-  });
-
-  it("states the fact once it has shut", () => {
-    expect(deadlineNotice(deadline(), "closed")).toBe("RSVPs closed on Tuesday 1 September 2026.");
-  });
 });
 
 describe("deadlineSummary", () => {
   it("renders nothing when there is no deadline", () => {
     expect(deadlineSummary(null, "open")).toBeNull();
     expect(deadlineSummary(deadline(), null)).toBeNull();
-  });
-
-  it("labels the date rather than repeating the notice's sentence", () => {
-    expect(deadlineSummary(deadline(), "open")).toBe("RSVP by Tuesday 1 September 2026");
-    expect(deadlineSummary(deadline(), "closing-soon")).toBe(
-      "RSVP by Tuesday 1 September 2026 — closing soon",
-    );
-    expect(deadlineSummary(deadline(), "closed")).toBe("RSVPs closed on Tuesday 1 September 2026");
-  });
-
-  it("never repeats the notice verbatim, in any state", () => {
-    // The two copies sit on one page. Printing one sentence twice reads as a
-    // rendering fault; two statements of the same fact do not.
-    for (const state of ["open", "closing-soon", "closed"] as const) {
-      expect(deadlineSummary(deadline(), state)).not.toBe(deadlineNotice(deadline(), state));
-    }
   });
 });

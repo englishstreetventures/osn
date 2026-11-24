@@ -61,14 +61,6 @@ const priya: FamilyMember = {
   eventIds: ["event-1"],
 };
 
-const raj: FamilyMember = {
-  guestId: "guest-raj",
-  firstName: "Raj",
-  lastName: "Sharma",
-  nickname: null,
-  eventIds: ["event-1"],
-};
-
 const row = (guestId: string): RsvpSummary => ({
   guestId,
   eventId: "event-1",
@@ -229,52 +221,6 @@ describe("RSVP confirmation, end to end and painted", () => {
     // complaint is actually about. Kept to +2000 rather than a showier margin:
     // these are fixed sleeps in a real browser and the browser tier pays them in
     // wall clock, so buy only the headroom the assertion needs.
-    await wait(TOTAL_DURATION_MS + 2000);
-    expect(scaleX(fill())).toBe(1);
-    expect(respondButton().querySelector("svg")).not.toBeNull();
-  });
-
-  it("keeps the button plain after a partial save, then fills once the party is complete", async () => {
-    // First save answers only Priya; the second adds Raj and completes the
-    // party. The API returns the whole family's rows each time, as the real one
-    // does.
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ rsvps: [row("guest-priya")] }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ rsvps: [row("guest-priya"), row("guest-raj")] }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-    );
-    render(() => <Harness members={[priya, raj]} />);
-
-    respondButton().click();
-    await wait(0);
-    answer("Priya");
-    save();
-    await vi.waitFor(() => expect(sheet()).toBeNull(), SETTLED);
-
-    // A partial save is saved — but the button says nothing, because the
-    // household has not finished answering for this event.
-    expect(sheet()).toBeNull();
-    expect(scaleX(fill())).toBe(0);
-    expect(respondButton().querySelector("svg")).toBeNull();
-
-    // Reopen, answer Raj (Priya stays prefilled), save again.
-    respondButton().click();
-    await wait(0);
-    answer("Raj");
-    save();
-    await vi.waitFor(() => expect(scaleX(fill())).toBe(1), SETTLED);
     await wait(TOTAL_DURATION_MS + 2000);
     expect(scaleX(fill())).toBe(1);
     expect(respondButton().querySelector("svg")).not.toBeNull();

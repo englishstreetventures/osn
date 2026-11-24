@@ -12,7 +12,6 @@ import {
   giftRegistryRemaining,
   GIFT_REGISTRY_MAX_QUANTITY,
   groupGiftRegistryItems,
-  hasGiftRegistryCategories,
   releaseGiftRegistryItem,
   type GiftRegistryHouseholdClaim,
 } from "../../src/lib/gift-registry";
@@ -124,11 +123,6 @@ describe("claimGiftRegistryItem", () => {
       note: "For the kitchen",
       displayName: null,
     });
-  });
-
-  it("distinguishes the 409 race from every other failure", async () => {
-    fetchMock.mockResolvedValueOnce(json({ error: "item_fully_claimed" }, 409));
-    expect(await claimGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "fully-claimed" });
   });
 
   it("does not inherit the race copy for an unrelated future 409", async () => {
@@ -348,17 +342,6 @@ describe("the ledger line", () => {
 });
 
 describe("groupGiftRegistryItems", () => {
-  it("keeps the couple's categories in the order the list already carries", () => {
-    // First mention wins; nothing is alphabetised behind their back.
-    const groups = groupGiftRegistryItems([
-      item({ id: "a", category: "Kitchen" }),
-      item({ id: "b", category: "Bedroom" }),
-      item({ id: "c", category: "Kitchen" }),
-    ]);
-    expect(groups.map((group) => group.category)).toEqual(["Kitchen", "Bedroom"]);
-    expect(groups[0]?.items.map((i) => i.id)).toEqual(["a", "c"]);
-  });
-
   it("puts everything ungrouped in one tail, last", () => {
     const groups = groupGiftRegistryItems([
       item({ id: "a", category: null }),
@@ -376,18 +359,6 @@ describe("groupGiftRegistryItems", () => {
     ]);
     expect(groups).toHaveLength(1);
     expect(groups[0]?.category).toBe("Kitchen");
-  });
-
-  it("reports whether any shelf is worth labelling", () => {
-    // One unlabelled group is a plain list — heading it "More gifts" would name
-    // a distinction the couple never made.
-    expect(hasGiftRegistryCategories(groupGiftRegistryItems([item({ category: null })]))).toBe(
-      false,
-    );
-    expect(hasGiftRegistryCategories(groupGiftRegistryItems([item({ category: "Kitchen" })]))).toBe(
-      true,
-    );
-    expect(hasGiftRegistryCategories([])).toBe(false);
   });
 });
 

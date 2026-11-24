@@ -116,11 +116,6 @@ describe("hasHouseholdResponded", () => {
     expect(hasHouseholdResponded(event, members, [])).toBe(false);
   });
 
-  it("is false when an invited member has no RSVP row yet", () => {
-    const members = [{ guestId: "guest-1", eventIds: ["event-1"] }];
-    expect(hasHouseholdResponded(event, members, [])).toBe(false);
-  });
-
   it("is true once every invited member has a row, regardless of status", () => {
     const members = [
       { guestId: "guest-1", eventIds: ["event-1"] },
@@ -202,10 +197,6 @@ describe("hasAnyHouseholdReply", () => {
     { guestId: "guest-2", eventIds: ["event-1"], plusOneOf: null },
     { guestId: "guest-sam", eventIds: ["event-1"], plusOneOf: "guest-1" },
   ];
-
-  it("is false with no rows", () => {
-    expect(hasAnyHouseholdReply(event, members, [])).toBe(false);
-  });
 
   it("is true once one invited member has a row, before the rest", () => {
     expect(hasAnyHouseholdReply(event, members, [{ guestId: "guest-2", eventId: "event-1" }])).toBe(

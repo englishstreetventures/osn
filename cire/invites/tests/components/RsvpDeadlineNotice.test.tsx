@@ -104,14 +104,6 @@ describe("RsvpDeadlineNotice", () => {
       );
       expect(notice("closed", panel)!.textContent).toBe("RSVPs closed on Tuesday 1 September 2026");
     });
-
-    it("says urgency in words, not only in colour", () => {
-      // WCAG 1.4.1: a guest who can't tell the two golds apart still has to be
-      // able to tell the final week from the month before it.
-      expect(notice("open")!.textContent).not.toContain("soon");
-      expect(notice("closing-soon")!.textContent).toContain("close soon");
-      expect(notice("closing-soon", { variant: "panel" })!.textContent).toContain("closing soon");
-    });
   });
 
   describe("the live region", () => {

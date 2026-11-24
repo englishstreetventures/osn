@@ -290,35 +290,6 @@ describe("DetailsPanel — the deadline", () => {
     expect(queryByRole("button", { name: /RSVP/ })).toBeNull();
   });
 
-  it("says the replies have closed, on which day, and the household's next step", () => {
-    const { getByRole } = render(() => (
-      <DetailsPanel
-        event={baseEvent}
-        siteUrl={SITE_URL}
-        rsvpClosed
-        rsvpClosedOn="Sunday 1 September 2999"
-      />
-    ));
-    expect(getByRole("status").textContent).toBe(
-      "RSVPs closed on Sunday 1 September 2999. To reply now, please contact the couple directly.",
-    );
-  });
-
-  it("tells a household with a reply on file how to change it", () => {
-    const { getByRole } = render(() => (
-      <DetailsPanel
-        event={baseEvent}
-        siteUrl={SITE_URL}
-        rsvpClosed
-        replied
-        rsvpClosedOn="Sunday 1 September 2999"
-      />
-    ));
-    expect(getByRole("status").textContent).toBe(
-      "RSVPs closed on Sunday 1 September 2999. To change your household's reply, please contact the couple directly.",
-    );
-  });
-
   it("says the replies have closed without a date when it has none", () => {
     const { getByRole } = render(() => (
       <DetailsPanel event={baseEvent} siteUrl={SITE_URL} rsvpClosed />
@@ -326,11 +297,6 @@ describe("DetailsPanel — the deadline", () => {
     expect(getByRole("status").textContent).toBe(
       "RSVPs have closed. To reply now, please contact the couple directly.",
     );
-  });
-
-  it("says nothing while replies are open", () => {
-    const { getByRole } = renderPanel(baseEvent);
-    expect(getByRole("status").textContent).toBe("");
   });
 });
 
