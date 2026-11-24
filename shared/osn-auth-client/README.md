@@ -12,8 +12,8 @@ primitives; each service builds its own middleware on them (cire's is
 import { extractClaims, type OsnAuthOptions } from "@shared/osn-auth-client";
 
 // The options shape a service's middleware takes: the JWKS URL, the audience
-// and, optionally, the issuer.
-const options: OsnAuthOptions = { jwksUrl, audience: "osn-access" };
+// and the issuer. Leave `issuer` out and `iss` goes unchecked.
+const options: OsnAuthOptions = { jwksUrl, audience: "osn-access", issuer: issuerUrl };
 
 const claims = await extractClaims(req.headers.get("authorization") ?? undefined, options.jwksUrl, {
   audience: options.audience,
