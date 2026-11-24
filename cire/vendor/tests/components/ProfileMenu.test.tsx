@@ -144,6 +144,30 @@ describe("ProfileMenu", () => {
     expect(localStorage.getItem("cire.vendor.theme")).toBe("light");
   });
 
+  it("stays open when a theme is chosen, so the next can be compared", async () => {
+    render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
+    openMenu();
+    await screen.findByRole("menuitemradio", { name: /dark/i });
+    // Kobalte closes a menu on select from a timer, so each choice runs the
+    // clock on before the menu's state is read off its trigger (outside the
+    // accessible tree while the modal menu is open).
+    const trigger = () => screen.getByRole("button", { name: /account menu/i, hidden: true });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      for (const name of [/dark/i, /light/i]) {
+        const row = screen.getByRole("menuitemradio", { name });
+        fireEvent.pointerDown(row, { button: 0 });
+        fireEvent.pointerUp(row, { button: 0 });
+        fireEvent.click(row);
+        vi.advanceTimersByTime(100);
+        expect(trigger()).toHaveAttribute("aria-expanded", "true");
+        expect(screen.getByRole("menuitemradio", { name })).toHaveAttribute("aria-checked", "true");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("links account management out to musubi in a new tab, without an opener", async () => {
     // Passkeys and recovery codes are bound to the musubi RP ID, so every
     // ceremony has to run on musubi's own origin — there is no in-portal

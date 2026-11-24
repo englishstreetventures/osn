@@ -50,6 +50,8 @@ describe("redirectToLogin", () => {
     const started = performance.now();
     redirectToLogin();
     expect(performance.now() - started).toBeLessThan(500);
+    // The check ran: a redirect that skipped it would carry nothing.
+    expect(window.location.href).toBe(`${ORIGIN}/login/?returnTo=` + encodeURIComponent(path));
   });
 
   it("carries only a same-origin path, never an absolute URL", () => {
