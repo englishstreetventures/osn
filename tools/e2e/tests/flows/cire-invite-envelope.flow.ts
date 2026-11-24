@@ -809,8 +809,17 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
         false,
         (await opened.page.locator(`${OVERLAY}[data-armed]`).count()) > 0,
       );
-      await opened.page.clock.runFor(8000);
-      await expect(opened.page.locator(`${OVERLAY}[data-armed]`)).toBeAttached();
+      // The fallback's 8 s run on the page clock alone. Up to a second of it
+      // passes before the pause (the wait for "ready" polls), so the two reads
+      // sit 3 s apart around it: armed neither early nor late.
+      await pauseClock(opened.page);
+      await opened.page.clock.runFor(5000);
+      flow.check(
+        "no prompt: not armed 5 s on",
+        false,
+        (await opened.page.locator(`${OVERLAY}[data-armed]`).count()) > 0,
+      );
+      await opened.page.clock.runFor(3000);
       flow.check(
         "no prompt: armed after 8 s",
         true,

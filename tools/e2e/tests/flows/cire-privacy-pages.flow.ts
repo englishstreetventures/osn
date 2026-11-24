@@ -254,11 +254,19 @@ test("cire-privacy-pages", async ({ page, browser, flow }) => {
       ).join(" "),
     );
     flow.check("/privacy marks Overview as the current page", "Overview", await currentLink(page));
-    const text = await mainText(page);
+    // The link in the hosts' line of the list, not the words alone: read
+    // without waiting, so a line with no link records nothing at once.
     flow.check(
       "/privacy links to the hosts' notice",
-      true,
-      text.includes("couples, co-hosts and organisers"),
+      "/privacy/hosts/",
+      (
+        await page
+          .getByRole("main")
+          .getByRole("listitem")
+          .filter({ hasText: "couples, co-hosts and organisers" })
+          .getByRole("link")
+          .evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""))
+      ).join(" "),
     );
   });
 
@@ -312,9 +320,16 @@ test("cire-privacy-pages", async ({ page, browser, flow }) => {
     flow.check(
       "the vendor account section has its four parts, in order",
       "What it holds | Why we keep it | Who sees it | How long we keep it",
-      (await page.getByRole("heading", { level: 3 }).allTextContents())
-        .map((text) => text.trim())
-        .join(" | "),
+      // The third-level headings that follow the section's heading, up to the
+      // next second-level one: the section's parts, not every h3 on the page.
+      await page.locator("#your-vendor-account").evaluate((heading) => {
+        const parts: string[] = [];
+        for (let at = heading.nextElementSibling; at && at.tagName !== "H2";) {
+          if (at.tagName === "H3") parts.push(at.textContent?.trim() ?? "");
+          at = at.nextElementSibling;
+        }
+        return parts.join(" | ");
+      }),
     );
     flow.check(
       "the vendor account section keeps the id the retention paragraph links to",

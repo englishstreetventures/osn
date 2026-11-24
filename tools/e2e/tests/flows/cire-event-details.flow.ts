@@ -651,11 +651,14 @@ test("cire-event-details", async ({ page, context, flow }) => {
     const toFix = (await warning.locator("p").allTextContents()).join(" ");
 
     // A time set on a zone the browser cannot resolve takes its offset from
-    // nowhere it can trust, so Save waits for a zone.
+    // nowhere it can trust, so Save waits for a zone. The zone's message is
+    // read in the blocking notice alone: the warning above it lists the same
+    // words while the zone is only a saved value to fix.
     await drawer.getByLabel("Start time").fill(CIRE_LEGACY_EVENT.fixedStartTime);
     const save = page.getByRole("button", { name: "Save changes" });
     await expect(save).toBeDisabled();
     const waited = await drawer
+      .getByRole("alert")
       .getByText("Choose a timezone from the list.", { exact: true })
       .count();
 
