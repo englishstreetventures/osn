@@ -330,12 +330,14 @@ export type AccountDeletionWeddingOutcome = "deleted" | "seat_removed";
 /**
  * How a host's request to remove their Cire data ended: all removed, part
  * removed (the portal asks again), refused for an unanswered wedding, refused
- * for want of a confirmation from Musubi, osn-api unavailable, or failed.
+ * while they hold a wedding's payout account, refused for want of a
+ * confirmation from Musubi, osn-api unavailable, or failed.
  */
 export type AccountRemovalResult =
   | "done"
   | "not_finished"
   | "open_actions"
+  | "holds_payout_account"
   | "confirmation_required"
   | "unavailable"
   | "error";
