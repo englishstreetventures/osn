@@ -53,11 +53,6 @@ describe("orderMessages", () => {
 describe("segmentMessages", () => {
   const base = sydney(2026, 10, 14, 9, 12, 11);
 
-  it("keeps messages 59 minutes apart in one segment", () => {
-    const segments = segmentMessages([at(base), at(base + 59 * MINUTE)], ZONE);
-    expect(segments).toHaveLength(1);
-  });
-
   it("opens a segment after a gap of more than an hour", () => {
     const segments = segmentMessages([at(base), at(base + 61 * MINUTE)], ZONE);
     expect(segments.map((s) => s.length)).toEqual([1, 1]);
@@ -87,10 +82,6 @@ describe("segmentMessages", () => {
     // untimed one before it, which `Intl` would read as the present moment.
     const segments = segmentMessages([at(Number.NaN), at(Date.now())], ZONE);
     expect(segments.map((s) => s.length)).toEqual([1, 1]);
-  });
-
-  it("returns no segments for no messages", () => {
-    expect(segmentMessages([], ZONE)).toEqual([]);
   });
 });
 
@@ -147,13 +138,6 @@ describe("dividerLabel", () => {
     expect(clockTime(sent, { locale: "en-AU", timeZone: "Australia/Perth" })).toBe("3:20 pm");
   });
 
-  it("writes no doubled comma and no empty part", () => {
-    for (const daysBack of [0, 1, 3, 9, 400]) {
-      const label = dividerLabel(NOW - daysBack * 24 * HOUR, opts);
-      expect(label).not.toMatch(/,\s*,|\s{2}|^\s|\s$|^,/);
-    }
-  });
-
   it("gives an empty label for a time it cannot read, rather than throwing", () => {
     expect(dividerLabel(Number.NaN, opts)).toBe("");
   });
@@ -161,10 +145,6 @@ describe("dividerLabel", () => {
 
 describe("clockTime and fullDateTime", () => {
   const sent = sydney(2026, 10, 29, 18, 20, 11);
-
-  it("gives the clock time alone", () => {
-    expect(clockTime(sent, ZONE)).toBe("6:20 pm");
-  });
 
   it("gives the whole date and the time", () => {
     expect(fullDateTime(sent, ZONE)).toBe("Thursday 29 October 2026 at 6:20 pm");

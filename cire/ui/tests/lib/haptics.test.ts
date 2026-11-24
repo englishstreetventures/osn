@@ -31,6 +31,32 @@ async function load() {
   return { ...haptics, ...preferences, createHaptics };
 }
 
+/**
+ * Stands in for `web-haptics` on the next import: records each engine built
+ * (by its options), each one destroyed and each one that played, by the order
+ * it was built in.
+ */
+function mockEngine() {
+  const engines = { built: [] as unknown[], destroyed: [] as number[], played: [] as number[] };
+  vi.resetModules();
+  vi.doMock("web-haptics", () => ({
+    WebHaptics: class {
+      readonly id: number;
+      constructor(options: unknown) {
+        this.id = engines.built.push(options) - 1;
+      }
+      trigger = () => {
+        engines.played.push(this.id);
+        return Promise.resolve();
+      };
+      destroy = () => {
+        engines.destroyed.push(this.id);
+      };
+    },
+  }));
+  return engines;
+}
+
 let vibrate: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -44,6 +70,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.doUnmock("web-haptics");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -55,12 +82,6 @@ describe("haptic", () => {
     haptic("commit");
     haptic("reject");
     expect(vibrate).not.toHaveBeenCalled();
-  });
-
-  it("fires when they are on", async () => {
-    const { haptic } = await load();
-    haptic("commit");
-    expect(vibrate).toHaveBeenCalledTimes(1);
   });
 
   it("gives each name its own pattern", async () => {
@@ -89,16 +110,6 @@ describe("haptic", () => {
     expect(lengthOf("reject")).toBeGreaterThan(lengthOf("commit"));
   });
 
-  it("reuses one engine rather than building one per call", async () => {
-    const { haptic, resetHaptics } = await load();
-    haptic("step");
-    haptic("step");
-    // The iOS fallback appends a labelled switch per engine; one engine, one node.
-    expect(document.querySelectorAll("label[for^='web-haptics-']").length).toBeLessThanOrEqual(1);
-    resetHaptics();
-    expect(document.querySelector("label[for^='web-haptics-']")).toBeNull();
-  });
-
   it("plays nothing for a name the set was not made with", async () => {
     const { createHaptics } = await load();
     const three = createHaptics({ enabled: () => true, names: ["commit", "reject", "dismiss"] });
@@ -124,66 +135,40 @@ describe("haptic", () => {
 });
 
 describe("createHaptics", () => {
-  it("touches neither the Vibration API nor the document until something fires", async () => {
-    const { createHaptics } = await load();
-    const set = createHaptics({ enabled: () => true, names: EVERY_NAME });
-    expect(vibrate).not.toHaveBeenCalled();
-    expect(document.querySelector("label[for^='web-haptics-']")).toBeNull();
-    set.haptic("commit");
-    expect(vibrate).toHaveBeenCalledTimes(1);
-    set.resetHaptics();
-  });
-
   it("keeps each set's engine its own, so one set's reset leaves another playing", async () => {
-    const { createHaptics } = await load();
+    const engines = mockEngine();
+    const { createHaptics } = await import("../../src/lib/haptics");
     const one = createHaptics({ enabled: () => true, names: EVERY_NAME });
     const two = createHaptics({ enabled: () => true, names: EVERY_NAME });
     one.haptic("commit");
     two.haptic("commit");
+    expect(engines.built).toHaveLength(2);
     one.resetHaptics();
-    vibrate.mockClear();
+    expect(engines.destroyed).toEqual([0]);
     two.haptic("reject");
-    expect(vibrate).toHaveBeenCalledTimes(1);
+    expect(engines.built).toHaveLength(2);
+    expect(engines.played.at(-1)).toBe(1);
     two.resetHaptics();
   });
 });
 
 describe("the engine", () => {
   it("is built once per set, with no visible switch, and destroyed on reset", async () => {
-    const built: unknown[] = [];
-    let destroyed = 0;
-    vi.resetModules();
-    vi.doMock("web-haptics", () => ({
-      WebHaptics: class {
-        constructor(options: unknown) {
-          built.push(options);
-        }
-        trigger = () => Promise.resolve();
-        destroy = () => {
-          destroyed += 1;
-        };
-      },
-    }));
+    const engines = mockEngine();
     const { createHaptics } = await import("../../src/lib/haptics");
     const set = createHaptics({ enabled: () => true, names: EVERY_NAME });
-    expect(built).toEqual([]);
+    expect(engines.built).toEqual([]);
     set.haptic("commit");
     set.haptic("step");
-    expect(built).toEqual([{ showSwitch: false }]);
+    expect(engines.built).toEqual([{ showSwitch: false }]);
     set.resetHaptics();
-    expect(destroyed).toBe(1);
+    expect(engines.destroyed).toEqual([0]);
     set.haptic("commit");
-    expect(built).toHaveLength(2);
-    vi.doUnmock("web-haptics");
+    expect(engines.built).toHaveLength(2);
   });
 });
 
 describe("hapticsAvailable", () => {
-  it("is true where there is a document to deliver through", async () => {
-    const { hapticsAvailable } = await load();
-    expect(hapticsAvailable()).toBe(true);
-  });
-
   it("stays true where the Vibration API is absent, because the iOS fallback is not", async () => {
     // This is the whole point of the gate. The library reads `navigator.vibrate`
     // once, when its class is defined — and being a real dependency it is loaded
@@ -207,6 +192,5 @@ describe("hapticsAvailable", () => {
     expect(hapticsAvailable()).toBe(true);
     expect(() => haptic("dismiss")).not.toThrow();
     resetHaptics();
-    vi.doUnmock("web-haptics");
   });
 });

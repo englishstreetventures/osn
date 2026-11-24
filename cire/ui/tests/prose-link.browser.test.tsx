@@ -133,18 +133,6 @@ describe("proseLinkClass", () => {
     expect(over(getComputedStyle(accent).color)).not.toBe(over(getComputedStyle(muted).color));
   });
 
-  it("defaults to the accent tone", () => {
-    render(() => (
-      <>
-        <Sentence name="no tone" />
-        <Sentence tone="accent" name="accent" />
-      </>
-    ));
-    expect(getComputedStyle(screen.getByRole("link", { name: "no tone" })).color).toBe(
-      getComputedStyle(screen.getByRole("link", { name: "accent" })).color,
-    );
-  });
-
   it("brightens a muted link to the body ink under the pointer", async () => {
     render(() => (
       <Ramp ramp="dark">

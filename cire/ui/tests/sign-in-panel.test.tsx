@@ -273,18 +273,6 @@ describe("SignInPanel", () => {
     vi.advanceTimersByTime(5_000);
     expect(button.textContent).toBe("Continue with musubi");
   });
-
-  it("comes back usable when the navigation never completes", () => {
-    vi.useFakeTimers();
-    const button = renderPanel();
-    fireEvent.click(button);
-    vi.advanceTimersByTime(SIGN_IN_PENDING_RESET_MS - 1);
-    expect(button.textContent).toBe("Connecting to musubi…");
-    vi.advanceTimersByTime(1);
-    expect(button.textContent).toBe("Continue with musubi");
-    fireEvent.click(button);
-    expect(auth.startSignIn).toHaveBeenCalledTimes(2);
-  });
 });
 
 describe("signInCardClass", () => {

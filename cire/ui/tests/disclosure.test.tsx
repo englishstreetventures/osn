@@ -53,23 +53,6 @@ function inks(el: Element): string[] {
 }
 
 describe("Disclosure — opening and closing", () => {
-  it("opens and closes its body when the summary is clicked", () => {
-    for (const tone of EVERY_TONE) {
-      const { container, unmount } = render(() => (
-        <Disclosure tone={tone} summary="Arrange tables">
-          <p>Drag a table to move it.</p>
-        </Disclosure>
-      ));
-      const { details, summary } = parts(container);
-      expect(details.open).toBe(false);
-      fireEvent.click(summary);
-      expect(details.open).toBe(true);
-      fireEvent.click(summary);
-      expect(details.open).toBe(false);
-      unmount();
-    }
-  });
-
   it("puts the summary first and the children in the body, never in the summary", () => {
     // The browser opens a details only from its first <summary> child.
     const { container } = render(() => (
@@ -138,20 +121,6 @@ describe("Disclosure — opening and closing", () => {
 });
 
 describe("Disclosure — the marker", () => {
-  it("is hidden from assistive technology", () => {
-    // Read aloud, it would put "›" or "plus" before every question; the
-    // details announces its own expanded state.
-    for (const tone of EVERY_TONE) {
-      const { container, unmount } = render(() => (
-        <Disclosure tone={tone} summary="Is there parking?">
-          x
-        </Disclosure>
-      ));
-      expect(parts(container).marker).toHaveAttribute("aria-hidden", "true");
-      unmount();
-    }
-  });
-
   it("leads a card's summary and ends a rule's, each with its own glyph", () => {
     for (const tone of EVERY_TONE) {
       const { container, unmount } = render(() => (

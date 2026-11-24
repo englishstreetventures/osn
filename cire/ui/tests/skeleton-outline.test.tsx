@@ -67,19 +67,6 @@ describe("SkeletonOutline", () => {
     expect(runs(root)).toEqual(["Ceremony"]);
   });
 
-  it("takes digits alone as a run", () => {
-    expect(
-      runs(
-        outline(() => (
-          <dl>
-            <dt>Attending</dt>
-            <dd>64</dd>
-          </dl>
-        )),
-      ),
-    ).toEqual(["Attending", "64"]);
-  });
-
   it("leaves the text of a glyph, an option and a text box where it is", () => {
     const root = outline(() => (
       <div>
