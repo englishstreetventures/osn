@@ -522,6 +522,9 @@ describe("a host's removal of their Cire data: the holder of a payout account", 
 
   it("H1d: an account connected after the route's read keeps the holder's seat; the portal's next call is refused", async () => {
     const h = await setup();
+    // The account's other profile has a lower seat on the shared wedding,
+    // which goes in that wedding's batch.
+    seat(h.db, "w_shared", P2, "viewer");
     const cookie = await confirmation(h);
     // The route's read finds nothing held; the person connects the shared
     // wedding's account before its batch runs.
@@ -534,6 +537,9 @@ describe("a host's removal of their Cire data: the holder of a payout account", 
       { profile: P, role: "owner" },
     ]);
     expect(connectorOf(h.db, "w_shared")).toBe(P);
+    // The shared wedding's tabs re-read its members, and the holder, who
+    // keeps a seat there, keeps listening.
+    expect(h.signalled.find((sig) => sig.topic === "cire:wedding:w_shared")?.revoked).toEqual([]);
     // The account's clean-up never ran: the person is still signed in.
     expect(sessionsOf(h.db, P)).toBe(1);
     expect(sessionsOf(h.db, O)).toBe(1);
@@ -752,6 +758,24 @@ describe("a host's removal of their Cire data: what it removes", () => {
     const res = await remove(h, cookie, {});
     expect(res.status).toBe(200);
     expect(h.mail.recorded()).toHaveLength(3);
+    expect(statements.length).toBeLessThanOrEqual(50);
+  });
+
+  it("C13b: three owned weddings each owned by both of the account's profiles, so six notices, stays inside 50 D1 statements", async () => {
+    const h = await setup();
+    h.db.delete(weddingHosts).where(eq(weddingHosts.weddingId, "w_alone")).run();
+    h.db.delete(weddingHosts).where(eq(weddingHosts.weddingId, "w_sibling")).run();
+    h.db.delete(weddingHosts).where(eq(weddingHosts.weddingId, "w_shared")).run();
+    for (const id of ["w_alone", "w_sibling", "w_shared"]) {
+      seat(h.db, id, O, "owner");
+      seat(h.db, id, P, "owner");
+      seat(h.db, id, P2, "owner");
+    }
+    const cookie = await confirmation(h);
+    const statements = recordStatements(h.db);
+    const res = await remove(h, cookie, {});
+    expect(res.status).toBe(200);
+    expect(h.mail.recorded()).toHaveLength(6);
     expect(statements.length).toBeLessThanOrEqual(50);
   });
 });

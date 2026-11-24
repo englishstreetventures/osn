@@ -99,7 +99,7 @@ export const DELETED_PROFILE = "deleted";
  * Counting every statement singly, a call makes at most 1 (the read of owned
  * weddings) + 3 per wedding + 22 (the account's clean-up), inside the 50 D1
  * queries one Worker invocation may make on Workers Free; a host's removal,
- * 1 + 4 per wedding + 19.
+ * 1 + 3 per wedding + 19.
  */
 export const MAX_OWNED_WEDDINGS_PER_CALL = 3;
 
@@ -327,19 +327,15 @@ interface EraseInput {
  *
  * With `keepHeldSeat` (a host's removal), an owner seat whose profile holds
  * the wedding's payout account ({@link payoutHeldSeat}) stays, with its notice
- * row, under a guard in both deletes, and a read of the profiles' owner seats
- * left closes the batch: `held` is true when one stayed.
+ * row, under a guard in both deletes. The caller tells it stayed from the
+ * owner seats the batch returns, against those its first read counted.
  */
 function eraseOwnedWedding(
   weddingId: string,
   profileIds: ReadonlyArray<string>,
   now: Date,
   keepHeldSeat: boolean,
-): Effect.Effect<
-  { readonly outcome: OwnedOutcome | null; readonly held: boolean },
-  AccountErasureError,
-  DbService
-> {
+): Effect.Effect<OwnedOutcome | null, AccountErasureError, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     // An owner seat of `profile` here that the holder rule keeps.
@@ -385,20 +381,6 @@ function eraseOwnedWedding(
               ),
             )
             .returning({ role: weddingHosts.role, osnProfileId: weddingHosts.osnProfileId }),
-          ...(keepHeldSeat
-            ? [
-                db
-                  .select({ left: sql<number>`count(*)` })
-                  .from(weddingHosts)
-                  .where(
-                    and(
-                      eq(weddingHosts.weddingId, weddingId),
-                      inProfiles(weddingHosts.osnProfileId, profileIds),
-                      eq(weddingHosts.role, "owner"),
-                    ),
-                  ),
-              ]
-            : []),
         ]),
       catch: (e) => new AccountErasureError({ reason: String(e) }),
     }).pipe(
@@ -410,18 +392,14 @@ function eraseOwnedWedding(
     );
     const deleted = (results[0] as ReadonlyArray<{ id: string }>).length > 0;
     const seats = results[2] as ReadonlyArray<{ role: string; osnProfileId: string }>;
-    // Read only with `keepHeldSeat`: in one D1 batch, an owner seat of the
-    // profiles still here after the guarded delete is one the holder rule kept.
-    const [left] = keepHeldSeat ? (results[3] as ReadonlyArray<{ left: number }>) : [];
-    const held = Number(left?.left ?? 0) > 0;
-    if (seats.length === 0) return { outcome: null, held };
+    if (seats.length === 0) return null;
     const leavers = seats.filter((seat) => seat.role === "owner").map((seat) => seat.osnProfileId);
     const outcome = deleted ? "deleted" : "seat_removed";
     metricAccountDeletionWedding(outcome);
     yield* Effect.logInfo("account erasure: a wedding the person owned").pipe(
       Effect.annotateLogs({ weddingId, outcome }),
     );
-    return { outcome: { weddingId, outcome, leavers } as const, held };
+    return { weddingId, outcome, leavers } as const;
   }).pipe(Effect.withSpan("cire.account_deletion.wedding", { attributes: { weddingId } }));
 }
 
@@ -705,11 +683,13 @@ function eraseWithOutcomes(input: EraseInput): Effect.Effect<
 > {
   return Effect.gen(function* () {
     const db = yield* DbService;
+    // With how many owner seats the profiles hold on each: the owner seats a
+    // wedding's batch returns are counted against it.
     const owned = yield* Effect.tryPromise({
       try: () =>
         Promise.resolve(
           db
-            .select({ weddingId: weddingHosts.weddingId })
+            .select({ weddingId: weddingHosts.weddingId, ownerSeats: sql<number>`count(*)` })
             .from(weddingHosts)
             .where(
               and(
@@ -729,10 +709,15 @@ function eraseWithOutcomes(input: EraseInput): Effect.Effect<
     const keepHeldSeat = input.scope === "host";
     const outcomes: OwnedOutcome[] = [];
     const payoutHeld: string[] = [];
-    for (const { weddingId } of owned.slice(0, MAX_OWNED_WEDDINGS_PER_CALL)) {
-      const done = yield* eraseOwnedWedding(weddingId, input.profileIds, now, keepHeldSeat);
-      if (done.outcome) outcomes.push(done.outcome);
-      if (done.held) payoutHeld.push(weddingId);
+    for (const { weddingId, ownerSeats } of owned.slice(0, MAX_OWNED_WEDDINGS_PER_CALL)) {
+      const outcome = yield* eraseOwnedWedding(weddingId, input.profileIds, now, keepHeldSeat);
+      if (outcome) outcomes.push(outcome);
+      // Fewer owner seats went than the first read counted: the holder rule
+      // kept one. An owner seat another request took or demoted in between
+      // reads the same, and costs only the portal's next call.
+      if (keepHeldSeat && (outcome?.leavers.length ?? 0) < Number(ownerSeats)) {
+        payoutHeld.push(weddingId);
+      }
     }
     const notFinished = (lowerSeatWeddings: ReadonlyArray<string>) => ({
       result: { status: "not_finished" } as const,

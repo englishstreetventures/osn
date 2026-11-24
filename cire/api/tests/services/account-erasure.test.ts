@@ -373,9 +373,8 @@ describe("accountErasureService.erase — weddings the person owns", () => {
       }),
     );
     expect(result.status).toBe("done");
-    // Each wedding's batch reads, last, whether a payout holder's owner seat
-    // was kept; no guest-link delete, no vendor-claim clear and no held count.
-    expect(statements).toHaveLength(1 + 4 * MAX_OWNED_WEDDINGS_PER_CALL + 19);
+    // No guest-link delete, no vendor-claim clear and no held count.
+    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 19);
   });
 
   // Each case fails a batch's first statement: on bun:sqlite a batch is not

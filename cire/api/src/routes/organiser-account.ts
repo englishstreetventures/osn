@@ -383,7 +383,7 @@ export const createOrganiserAccountRoutes = (
             // A holder's owner seat the erasure's own writes kept (an account
             // connected since the read above) answers `not_finished`: the
             // portal calls again, and that call is refused by the read.
-            const { result, owned, lowerSeatWeddings } =
+            const { result, owned, lowerSeatWeddings, payoutHeld } =
               yield* accountErasureService.eraseWithOutcomes({
                 accountId,
                 profileIds,
@@ -407,11 +407,16 @@ export const createOrganiserAccountRoutes = (
               }
             }
             // Each wedding a seat went from: its open tabs re-read their
-            // members, and the person's own sockets close.
+            // members, and the person's own sockets close, except where the
+            // erasure kept a payout holder's seat: the holder still sits there.
             if (options.signals) {
               const touched = new Set([...owned.map((o) => o.weddingId), ...lowerSeatWeddings]);
               for (const weddingId of touched) {
-                yield* options.signals.membersChanged(weddingId, request, profileIds);
+                yield* options.signals.membersChanged(
+                  weddingId,
+                  request,
+                  payoutHeld.includes(weddingId) ? [] : profileIds,
+                );
               }
             }
 
