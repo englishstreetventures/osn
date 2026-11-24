@@ -61,11 +61,13 @@ invocation_logs = false
 # Deployment tier — local | dev | staging | production. Read two ways: through
 # `process.env` by `@shared/observability`'s `loadConfig` (log format + level),
 # and straight off the request-scoped binding by `isDeployedTier()` in
-# src/index.ts, which fail-closes the guest claim endpoint when the native
-# CLAIM_RATE_LIMITER binding is missing. Set it in EVERY env block — named
-# environments inherit no vars, and an absent value silently means `local`,
-# which switches that fail-closed guard OFF. This top-level block carries the
-# local posture (localhost origins), so `local` is the honest value here.
+# src/index.ts, which applies every deployed-tier check (the CLAIM_RATE_LIMITER
+# binding, https-only WEB_ORIGIN and the rest) unless the value is exactly
+# `local`. An absent or unknown value is deployed, and the Worker logs that it
+# names no tier. Set it in EVERY env block — named environments inherit no vars.
+# This top-level block carries the local posture (localhost origins), so
+# `wrangler dev` needs `local` here, or it refuses its own http://localhost
+# WEB_ORIGIN; an OSN_ENV in a developer's .dev.vars overrides it.
 OSN_ENV = "local"
 WEB_ORIGIN = "http://localhost:4321"
 OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
@@ -381,9 +383,9 @@ binding = "IMAGES"
 # cire stack, not Wrangler, migrates cire-db.
 [env.production.vars]
 # Deployment tier — see the top-level [vars] note. Named envs inherit NO vars,
-# so this must be set here or the production Worker resolves `local`: local log
-# format/level, and `isDeployedTier()` returns false so a missing
-# CLAIM_RATE_LIMITER binding stops fail-closing the guest claim endpoint.
+# so this must be set here: without it the Worker still applies every
+# deployed-tier check, but its logs use the local format and level, it sends no
+# operator alert, and it logs an error saying the tier is unnamed.
 OSN_ENV = "production"
 # Comma-separated allowlist (index.ts splits on "," and trims). Entry 0 is the
 # guest site (`invite.cireweddings.com`); the organiser portal origin
