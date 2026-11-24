@@ -672,10 +672,11 @@ index. The architecture may be a variant of the record's: on the Ubuntu 26.04
 image apt names a file `_amd64v3.deb` when its record says `amd64`. It drops
 any other file with a warning, and apt downloads that package instead.
 
-Three jobs save the cache. The two that use
-[`e2e-setup`](../../.github/actions/e2e-setup/action.yml) do: CI's E2E job,
-which runs on pull requests only and so saves into its own pull request's
-scope, and the daily E2E determinism job on `main`. On a push to `main`, where
+Three jobs save the cache. Two of the three jobs that use
+[`e2e-setup`](../../.github/actions/e2e-setup/action.yml) do, the Stripe
+test-mode job (below) being the third: CI's E2E job, which runs on pull
+requests only and so saves into its own pull request's scope, and the daily
+E2E determinism job on `main`. On a push to `main`, where
 no E2E job runs, the first browser leg saves it straight after its install. The
 last two write `main`'s copy, which every branch and queue group can read. The key names the
 runner image (`ImageOS`, `ImageVersion`) and the Playwright version. GitHub
