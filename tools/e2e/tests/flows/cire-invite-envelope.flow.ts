@@ -802,12 +802,14 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
       // The page's own time when the envelope says "ready", which is when its
       // fallback starts, so the reads below land at a known point of the 8 s
       // however long the wait for "ready" and the pause took.
+      // The document is watched, not its root, which the script can run before.
       await opened.page.addInitScript(() => {
         new MutationObserver(() => {
           const page = window as unknown as { readyAt?: number };
-          const state = document.documentElement.getAttribute("data-envelope");
+          const state = document.documentElement?.getAttribute("data-envelope");
           if (state === "ready" && page.readyAt === undefined) page.readyAt = performance.now();
-        }).observe(document.documentElement, {
+        }).observe(document, {
+          subtree: true,
           attributes: true,
           attributeFilter: ["data-envelope"],
         });
@@ -826,8 +828,9 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
       // short of 8 s after "ready", then 100 ms on.
       await pauseClock(opened.page);
       const sinceReady = await opened.page.evaluate(
-        () => performance.now() - (window as unknown as { readyAt: number }).readyAt,
+        () => performance.now() - ((window as unknown as { readyAt?: number }).readyAt ?? NaN),
       );
+      flow.check("no prompt: the page noted when the envelope was ready", true, sinceReady >= 0);
       await opened.page.clock.runFor(Math.max(0, Math.floor(7950 - sinceReady)));
       flow.check(
         "no prompt: not armed just before 8 s",
