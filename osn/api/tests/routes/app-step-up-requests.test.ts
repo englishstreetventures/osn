@@ -731,6 +731,7 @@ describe("removing an app's data takes a passkey past its hold", () => {
         status: 403,
         body: { error: "step_up_required" },
       });
+      expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
       const passkey = await h.stepUpToken(h.a, "cire_app_delete");
       expect((await h.confirm(id, h.a.accessToken, passkey)).status).toBe(200);
     });
@@ -751,11 +752,29 @@ describe("removing an app's data takes a passkey past its hold", () => {
         status: 403,
         body: { error: "passkey_held", hold_ends_at: made + HOLD_S },
       });
+      expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
       // Still pending: a passkey the account has held confirms it.
       const held = await h.stepUpToken(h.a, "cire_app_delete");
       expect((await h.confirm(id, h.a.accessToken, held)).status).toBe(200);
     });
   }
+
+  it("still holds cire's confirm a minute before a passkey's 72 hours are over", async () => {
+    // Red on a hold shorter than the 72 hours `hold_ends_at` reports.
+    const h = await harness();
+    const { id } = await h.begun();
+    const made = nowSec() - HOLD_S + 60;
+    const token = await h.stepUpToken(h.a, "cire_app_delete", "passkey", {
+      id: "pk_bbbbbbbbbbbb",
+      provenance: "otp",
+      createdAt: made,
+    });
+    const res = await h.confirm(id, h.a.accessToken, token);
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 403,
+      body: { error: "passkey_held", hold_ends_at: made + HOLD_S },
+    });
+  });
 
   it("admits cire's confirm from a passkey added by emailed link once its 72 hours are over", async () => {
     // Red on a hold that counts from anything but the passkey's own creation.

@@ -970,7 +970,9 @@ apart by its underline or by standing alone at 500.
   `buttonVariants({ variant: "link", size: "inline" })`. Uses:
   `/authorize`'s "No account yet? Create one" (a button: it swaps the panel to
   sign-up), Discover's empty note "Search for someone" (an `<A>`), the
-  contact address on `/privacy` ("email …") and `/terms`, and sign-up's "Terms
+  confirm card's "Settings" on `/confirm/:requestId` (an `<A>` to
+  `/settings#security`), the contact address on `/privacy` ("email …") and
+  `/terms`, and sign-up's "Terms
   of Service" and "Privacy Notice" (`@osn/auth-ui`'s `Register`, in the
   create-account dialog and on `/authorize`: two `<a>`s to `/terms` and
   `/privacy`, each opening a tab of its own so the form keeps what was typed).

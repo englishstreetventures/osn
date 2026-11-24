@@ -18,9 +18,9 @@ The most sensitive endpoints require short-lived, high-assurance tokens. A stole
 ## When step-up is required
 
 There are **five** allow-lists, and only three of them are config knobs.
-`recoveryGenerateAllowedAmr` is read by five gates despite its name, so
-widening it widens all five — the table below is by gate rather than by knob
-for exactly that reason.
+`recoveryGenerateAllowedAmr` is read by several gates despite its name, so
+widening it widens every one of them — the table below is by gate rather than
+by knob for exactly that reason.
 
 | Gate | Allow-list | `webauthn` | `otp` | `totp` |
 |---|---|---|---|---|

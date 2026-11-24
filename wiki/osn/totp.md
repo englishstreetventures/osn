@@ -362,8 +362,8 @@ the account email or remove an app's data. None of `passkeyDeleteAllowedAmr`,
 the seed's holder adds with a TOTP step-up reaches all three only after its
 72-hour hold ([[step-up#Credential provenance]]).
 
-> [!warning] Both were reachable in two hops, and the second hop is now closed
-> Those two lists narrow the **direct** path and nothing else. Both admit
+> [!warning] Each was reachable in two hops, and the second hop is now closed
+> The three lists narrow the **direct** path and nothing else. Each admits
 > `webauthn`, and a passkey registered a minute ago mints a `webauthn` AMR
 > exactly like one the user has held for a year — so any factor admitted at
 > `passkeyRegisterAllowedAmr` used to get there by registering a credential and
