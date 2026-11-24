@@ -61,12 +61,6 @@ describe("redirectToLogin", () => {
 });
 
 describe("signOutToLogin", () => {
-  const ORIGIN = "http://localhost:4323";
-  const original = window.location.href;
-  afterEach(() => {
-    window.location.href = original;
-  });
-
   it("goes to the login page with nothing to resume, after the sign-out", async () => {
     // The next person to sign in on this device must not land on this page.
     window.location.href = `${ORIGIN}/#/orgs/org_1/threads/th_2`;

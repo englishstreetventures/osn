@@ -187,16 +187,32 @@ describe("ProfileMenu", () => {
   it("stays open when the switch is used, so it can be tried twice", async () => {
     render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
     openMenu();
-    const row = await screen.findByRole("menuitemcheckbox", { name: /haptics/i });
+    // A setting you feel is one you try, feel, and try again; closing the menu
+    // each time would make that a three-click job. Kobalte closes a menu on
+    // select from a timer, so each press runs the clock on before the menu's
+    // state is read off its trigger (outside the accessible tree while the
+    // modal menu is open).
+    const row = () => screen.getByRole("menuitemcheckbox", { name: /haptics/i });
+    const trigger = () => screen.getByRole("button", { name: /account menu/i, hidden: true });
+    const press = () => {
+      fireEvent.pointerDown(row(), { button: 0 });
+      fireEvent.pointerUp(row(), { button: 0 });
+      fireEvent.click(row());
+      vi.advanceTimersByTime(100);
+    };
+    await screen.findByRole("menuitemcheckbox", { name: /haptics/i });
+    const on = row().getAttribute("aria-checked") === "true";
 
-    fireEvent.pointerDown(row, { button: 0 });
-    fireEvent.pointerUp(row, { button: 0 });
-    fireEvent.click(row);
-
-    // `closeOnSelect={false}` — a setting you feel is one you try, feel, and
-    // try again; closing the menu each time makes that a three-click job.
-    await waitFor(() =>
-      expect(screen.getByRole("menuitemcheckbox", { name: /haptics/i })).toBeInTheDocument(),
-    );
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      press();
+      expect(trigger()).toHaveAttribute("aria-expanded", "true");
+      expect(row()).toHaveAttribute("aria-checked", String(!on));
+      press();
+      expect(trigger()).toHaveAttribute("aria-expanded", "true");
+      expect(row()).toHaveAttribute("aria-checked", String(on));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
