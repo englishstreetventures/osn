@@ -1079,7 +1079,10 @@ describe("the payout account's holder keeps their owner seat while they hold it"
     expect(await roleOf(db, HOLDER)).toBe("owner");
     expect(await noticeRows(db, HOLDER)).toBe(1);
     expect(await counterValue(CIRE_METRICS.hostRemoved, labels)).toBe(before + 1);
+    // Logged by wedding and reason.
     expect(logs).toContain("host change refused: holds payout account");
+    expect(logs).toContain(WEDDING_ID);
+    expect(logs).toContain("holds_payout_account");
   });
 
   it("refuses the holder's own leave, keeping their seat and notice row", async () => {
@@ -1098,12 +1101,17 @@ describe("the payout account's holder keeps their owner seat while they hold it"
     const { db, app } = seatedHolder();
     const labels = { result: "holds_payout_account", role: "editor" };
     const before = await counterValue(CIRE_METRICS.hostRoleChanged, labels);
-    for (const actor of [OWNER, HOLDER]) {
-      const res = await req(app, "PUT", `${holderPath}/role`, actor, { role: "editor" });
-      expect(res.status).toBe(409);
-      expect(await jsonBody(res)).toEqual({ error: "holds_payout_account" });
-    }
+    const logs = await captureLogs(async () => {
+      for (const actor of [OWNER, HOLDER]) {
+        const res = await req(app, "PUT", `${holderPath}/role`, actor, { role: "editor" });
+        expect(res.status).toBe(409);
+        expect(await jsonBody(res)).toEqual({ error: "holds_payout_account" });
+      }
+    });
     expect(await roleOf(db, HOLDER)).toBe("owner");
+    // Logged by wedding and reason.
+    expect(logs).toContain("host change refused: holds payout account");
+    expect(logs).toContain("holds_payout_account");
     expect(await counterValue(CIRE_METRICS.hostRoleChanged, labels)).toBe(before + 2);
   });
 

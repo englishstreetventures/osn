@@ -959,7 +959,10 @@ describe("the payout account's holder, in the hosts writes", () => {
       `${sql.split(" ")[0]} ${/^(?:delete from|update) "(\w+)"/.exec(sql)?.[1] ?? / from "(\w+)"/.exec(sql)?.[1]}`;
 
     const removal = recordStatements(db);
-    expect((await run(db, removeAlice().pipe(Effect.flip)))._tag).toBe("HoldsPayoutAccount");
+    expect(await run(db, removeAlice().pipe(Effect.flip))).toMatchObject({
+      _tag: "HoldsPayoutAccount",
+      weddingId: WEDDING_ID,
+    });
     expect(removal.map((s) => shape(s.sql))).toEqual([
       "delete host_rsvp_notices",
       "delete wedding_hosts",
@@ -970,7 +973,10 @@ describe("the payout account's holder, in the hosts writes", () => {
     expect(removal[1]!.sql).toContain('"registry_settings"');
 
     const change = recordStatements(db);
-    expect((await run(db, aliceStepsDown().pipe(Effect.flip)))._tag).toBe("HoldsPayoutAccount");
+    expect(await run(db, aliceStepsDown().pipe(Effect.flip))).toMatchObject({
+      _tag: "HoldsPayoutAccount",
+      weddingId: WEDDING_ID,
+    });
     expect(change.map((s) => shape(s.sql))).toEqual([
       "select wedding_hosts",
       "update wedding_hosts",
