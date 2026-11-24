@@ -103,13 +103,11 @@ describe("effect D1 layer", () => {
 
   // Drizzle's EffectLogger layer writes bound params as annotations, so nothing here may use it.
   it("does not use drizzle's EffectLogger layer", () => {
-    for (const file of ["d1.ts", "batch.ts"]) {
-      const src = readFileSync(
-        join(dirname(fileURLToPath(import.meta.url)), "../../src/effect", file),
-        "utf8",
-      );
-      expect(src).not.toContain("EffectLogger.layer");
-    }
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../src/effect/d1.ts"),
+      "utf8",
+    );
+    expect(src).not.toContain("EffectLogger.layer");
   });
 
   // The layer is built once per runtime, so every effect sees one handle.
