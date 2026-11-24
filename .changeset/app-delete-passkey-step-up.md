@@ -11,6 +11,8 @@ Removing an app's data takes a passkey. `pulse_app_delete` and `zap_app_delete` 
 
 `StepUpDialog` offers the passkey alone for the three purposes. Musubi's confirm page always tells a person with no such passkey to add one in Settings and start again from the app in 3 days, and names the day and time a held passkey's hold ends.
 
+Every passkey enrolled from a restricted recovery session is stamped `recovery`, the account's first included, so it waits out the same hold; a first passkey from sign-up stays `webauthn`.
+
 `osn.auth.step_up.verified` gains a bounded `purpose` attribute, and `osn.auth.recovery.cooldown` an `app_delete_refused` outcome.
 
 The lab's `osn/auth-ui/StepUpDialog/AppDataRemoval` story shows the sheet for removing an app's data, and the playground offers `cire_app_delete`.
