@@ -109,8 +109,8 @@ function arcPublicKeyColumn(publicJwk: string): string {
  * It takes the hash and the public key, never the secrets they come from:
  * `scripts/derive-cire-seed.ts` derives them in a step of their own.
  *
- * A re-import sets the client's redirect URIs, secret hash, scopes and link
- * to the stack's. It never undoes the rest of what an operator did in the
+ * A re-import sets the client's redirect URIs, secret hash, sector, scopes,
+ * first-party flag and link to the stack's. It never undoes the rest of what an operator did in the
  * database: it leaves a disabled client disabled and a revoked or expired key
  * so, and leaves a key id another service holds to that service. Replacing a
  * revoked key takes a new `CIRE_API_ARC_KEY_ID`.

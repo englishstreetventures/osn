@@ -185,6 +185,7 @@ An app may carry a link to its own screen for removing a person's data from it. 
 - it is exactly its own serialisation (`href`): no upper-case scheme or host, backslash, whitespace, default port or Unicode host, so the string sent is the string checked;
 - it carries no user name or password;
 - its scheme is `https:`, or `http:` to `localhost` or `127.0.0.1` (the redirect-URI rule, `isClientUrlScheme`), checked before the origin, since a `blob:` URL reports the origin inside it;
+- the client's `redirect_uris` is a JSON list of strings. The list reads that column unparsed, so a hand-written row holding anything else refuses its own link and never fails the whole list;
 - its origin is the origin of one of the client's redirect URIs, or the app origin osn-api's deployment pins to that client id. Today that pin is one entry: `CIRE_ORGANISER_ORIGIN` for `CIRE_OIDC_CLIENT_ID` (`clientAppOrigins`), the same origin a confirmed cire step-up request returns to ([[step-up#App step-up requests]]). Ports, a trailing dot and subdomains all make another origin.
 
 The rule bounds the origin, not the path: the operator who writes the link is trusted for the page on that origin. Following it signs no one in. No first-party flag is required: the origin is one the app's registration or osn-api's own config already vouches for. A refused value counts on `osn.oidc.manage_data_link.refused`, by the rule it failed (`reason`), and is never logged.
