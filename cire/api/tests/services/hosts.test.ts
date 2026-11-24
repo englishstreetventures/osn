@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
+import { hostRsvpNotices, registrySettings, weddingHosts, weddings } from "@cire/db";
 import { and, eq } from "drizzle-orm";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { Effect } from "effect";
@@ -23,6 +23,7 @@ import type {
   PeopleLimitReached,
   StoredHostRole,
 } from "../../src/services/hosts";
+import { registryService } from "../../src/services/registry";
 import { TIER_PEOPLE_LIMIT, TIERS } from "../../src/services/tiers";
 import { failLikeD1, recordStatements, setTier } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
@@ -915,6 +916,106 @@ describe("hostsService.setRole", () => {
       .where(and(eq(weddingHosts.weddingId, "wed_b"), eq(weddingHosts.osnProfileId, ALICE)))
       .all();
     expect(row!.role).toBe("editor");
+  });
+});
+
+/**
+ * The payout account's holder cannot give up their owner seat while they hold
+ * it. The rule rides in each write's own statements, beside the last-owner
+ * rule, and the read that names the refusal rides in the same batch: nothing
+ * is read first, so whatever committed before the batch is what decides.
+ */
+describe("the payout account's holder, in the hosts writes", () => {
+  const removeAlice = () => hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE });
+  const aliceStepsDown = () =>
+    hostsService.setRole({
+      weddingId: WEDDING_ID,
+      osnProfileId: ALICE,
+      role: "editor",
+      actorOsnProfileId: ALICE,
+    });
+
+  function holds(db: TestDb, holder: string) {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId: WEDDING_ID,
+        stripeAccountId: "acct_alice",
+        stripeConnectedByOsnProfileId: holder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  it("refuses in the writes' own batch, with nothing read before it", async () => {
+    const db = buildDb();
+    seat(db, ALICE, "owner");
+    holds(db, ALICE);
+
+    // Each statement by its verb and the table drizzle names in it; a
+    // subquery's `FROM` is written in capitals, so it is not the one read.
+    const shape = (sql: string) =>
+      `${sql.split(" ")[0]} ${/^(?:delete from|update) "(\w+)"/.exec(sql)?.[1] ?? / from "(\w+)"/.exec(sql)?.[1]}`;
+
+    const removal = recordStatements(db);
+    expect((await run(db, removeAlice().pipe(Effect.flip)))._tag).toBe("HoldsPayoutAccount");
+    expect(removal.map((s) => shape(s.sql))).toEqual([
+      "delete host_rsvp_notices",
+      "delete wedding_hosts",
+      "select wedding_hosts",
+    ]);
+    // Each write carries the holder's rule itself.
+    expect(removal[0]!.sql).toContain('"registry_settings"');
+    expect(removal[1]!.sql).toContain('"registry_settings"');
+
+    const change = recordStatements(db);
+    expect((await run(db, aliceStepsDown().pipe(Effect.flip)))._tag).toBe("HoldsPayoutAccount");
+    expect(change.map((s) => shape(s.sql))).toEqual([
+      "select wedding_hosts",
+      "update wedding_hosts",
+      "select wedding_hosts",
+    ]);
+    expect(change[1]!.sql).toContain('"registry_settings"');
+    expect(roleOf(db, ALICE)).toBe("owner");
+  });
+
+  it("lets the holder go once a retire has committed", async () => {
+    const db = buildDb();
+    seat(db, ALICE, "owner");
+    holds(db, ALICE);
+    await run(
+      db,
+      registryService.retireStripeAccount(
+        {
+          weddingId: WEDDING_ID,
+          osnProfileId: ALICE,
+          handTo: null,
+          accountId: "acct_alice",
+          generation: 0,
+        },
+        { takesPayments: false },
+      ),
+    );
+    expect((await run(db, removeAlice())).removed?.role).toBe("owner");
+  });
+
+  it("holds the seat once a connect has committed", async () => {
+    const db = buildDb();
+    seat(db, ALICE, "owner");
+    // With no account, Alice may step down; once she connects one, she may not.
+    await run(
+      db,
+      registryService.attachStripeAccount(
+        WEDDING_ID,
+        { id: "acct_new", chargesEnabled: false, payoutsEnabled: false },
+        ALICE,
+        { generation: 0 },
+      ),
+    );
+    expect((await run(db, removeAlice().pipe(Effect.flip)))._tag).toBe("HoldsPayoutAccount");
+    expect((await run(db, aliceStepsDown().pipe(Effect.flip)))._tag).toBe("HoldsPayoutAccount");
+    expect(roleOf(db, ALICE)).toBe("owner");
   });
 });
 

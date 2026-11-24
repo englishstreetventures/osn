@@ -1786,6 +1786,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         published: true,
         cashGiftsEnabled: true,
         stripeAccountId: "acct_d1",
+        stripeConnectedByOsnProfileId: "usr_test",
         stripeChargesEnabled: true,
         stripeDefaultCurrency: "AUD",
         createdAt: now,
@@ -1866,6 +1867,33 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(await tag(registryGuestService.visibleImageKey("w", "registry-d1-fund", false))).toBe(
         "RegistryNotVisible",
       );
+
+      // Whether the account's holder holds an owner seat is read in the same
+      // statement, through the driver's positional mapping: held by nobody on
+      // record, the fund, its picture and the gift all go.
+      await db
+        .update(registrySettings)
+        .set({ stripeConnectedByOsnProfileId: null })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID));
+      expect(
+        (
+          await run(
+            registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID, takesPayments: true }),
+          )
+        ).funds,
+      ).toEqual([]);
+      expect(await tag(registryGuestService.visibleImageKey("w", "registry-d1-fund", true))).toBe(
+        "RegistryNotVisible",
+      );
+      expect(
+        await tag(
+          registryService.contributionContext({
+            slug: "w",
+            familyId: FAMILY_ID,
+            itemId: "ritem_d1_fund",
+          }),
+        ),
+      ).toBe("CashGiftsUnavailable");
     },
     MF_TIMEOUT_MS,
   );
@@ -2783,6 +2811,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         published: true,
         cashGiftsEnabled: true,
         stripeAccountId: "acct_d1_currency",
+        stripeConnectedByOsnProfileId: "usr_test",
         stripeChargesEnabled: true,
         stripeDefaultCurrency: "AUD",
         createdAt: stamp,
@@ -5795,6 +5824,66 @@ describe("cire/api over real D1 (Miniflare)", () => {
   /** Run `effect` against D1 and keep its Exit, so two can race. */
   const exitOf = <E>(effect: Effect.Effect<unknown, E, DbService>) =>
     Effect.runPromiseExit(effect.pipe(Effect.asVoid, Effect.provideService(DbService, db)));
+
+  it(
+    "the payout account's holder keeps their owner seat and RSVP marker, in the batch on D1",
+    async () => {
+      // The holder's rule rides in the notice DELETE, the seat DELETE and the
+      // UPDATE beside the last-owner rule, and the read naming the refusal in
+      // the same batch: D1 runs all of it as one transaction.
+      await seatSecondOwner();
+      const now = new Date();
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        stripeAccountId: "acct_d1_holder",
+        stripeConnectedByOsnProfileId: "usr_second",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await run(rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, "usr_second", false));
+      const refusal = async (effect: Effect.Effect<unknown, unknown, DbService>) => {
+        const exit = await exitOf(effect);
+        return Exit.isFailure(exit) && Cause.squash(exit.cause);
+      };
+
+      expect(
+        await refusal(
+          hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_second" }),
+        ),
+      ).toMatchObject({ _tag: "HoldsPayoutAccount" });
+      expect(
+        await refusal(
+          hostsService.setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_second",
+            role: "editor",
+            actorOsnProfileId: "usr_test",
+          }),
+        ),
+      ).toMatchObject({ _tag: "HoldsPayoutAccount" });
+      expect((await ownerIds()).toSorted()).toEqual(["usr_second", "usr_test"]);
+      expect(
+        await db
+          .select()
+          .from(hostRsvpNotices)
+          .where(eq(hostRsvpNotices.osnProfileId, "usr_second")),
+      ).toHaveLength(1);
+
+      // The other owner, who holds nothing, may go.
+      expect(
+        await refusal(
+          hostsService.setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_test",
+            role: "editor",
+            actorOsnProfileId: "usr_test",
+          }),
+        ),
+      ).toBe(false);
+      expect(await ownerIds()).toEqual(["usr_second"]);
+    },
+    MF_TIMEOUT_MS,
+  );
 
   // The last-owner guard sits inside each writing statement, so it must hold
   // when two owners act at the same moment, not only one after the other.

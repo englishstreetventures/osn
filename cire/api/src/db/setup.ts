@@ -1049,6 +1049,12 @@ export function applyE2eRsvpDeadline(
 }
 
 /**
+ * The gift-list wedding's one owner, who connected its Stripe account. Never
+ * signs in: no flow acts as them.
+ */
+const E2E_GIFT_OWNER = "usr_e2e_gift_owner";
+
+/**
  * A second wedding for the E2E suite's gift-list flows: on Gold, with a
  * published list of three gifts and one cash fund, one household of one
  * invited to one event, and the wedding's host preview household. The values
@@ -1058,11 +1064,12 @@ export function applyE2eRsvpDeadline(
  *
  * The couple are taking money as far as their own settings go: money gifts
  * on, a connected account that can charge and settles in the wedding's
- * currency. The E2E stack also runs a second cire-api with this seed, a
- * placeholder Stripe key and no Connect webhook secret, which could open a
- * payment page but never record the gift, so its guest list must offer
- * neither the money form nor the fund. That is the deployment check the
- * claimed flow holds there.
+ * currency, held by the wedding's one owner ({@link E2E_GIFT_OWNER}), so no
+ * absent holder closes money gifts here. The E2E stack also runs a second
+ * cire-api with this seed, a placeholder Stripe key and no Connect webhook
+ * secret, which could open a payment page but never record the gift, so its
+ * guest list must offer neither the money form nor the fund. That is the
+ * deployment check the claimed flow holds there.
  *
  * Its own wedding rather than the sample one, so the gift band that a
  * published list puts on the invite never appears in the other cire flows.
@@ -1085,6 +1092,17 @@ function seedE2eGiftList(db: TestDb): void {
       tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
+    })
+    .run();
+  // The couple's one owner, who connected the account below.
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_gift_owner",
+      weddingId,
+      osnProfileId: E2E_GIFT_OWNER,
+      addedByOsnProfileId: E2E_GIFT_OWNER,
+      role: "owner",
+      createdAt: now,
     })
     .run();
   db.insert(schema.events)
@@ -1154,6 +1172,7 @@ function seedE2eGiftList(db: TestDb): void {
       message: "Your being there is the gift. This list is here if you would like it.",
       cashGiftsEnabled: true,
       stripeAccountId: "acct_e2e_gift_list",
+      stripeConnectedByOsnProfileId: E2E_GIFT_OWNER,
       stripeChargesEnabled: true,
       stripePayoutsEnabled: true,
       stripeDefaultCurrency: "AUD",

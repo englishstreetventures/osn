@@ -610,6 +610,7 @@ describe("registry routes (Gold)", () => {
           .values({
             weddingId: BOOTSTRAP_WEDDING_ID,
             stripeAccountId: "acct_live",
+            stripeConnectedByOsnProfileId: OWNER,
             stripeChargesEnabled: true,
             stripeDefaultCurrency: "USD",
             createdAt: now,
@@ -639,6 +640,7 @@ describe("registry routes (Gold)", () => {
           .values({
             weddingId: BOOTSTRAP_WEDDING_ID,
             stripeAccountId: "acct_live",
+            stripeConnectedByOsnProfileId: OWNER,
             stripeChargesEnabled: true,
             stripeDefaultCurrency: null,
             createdAt: now,
@@ -671,6 +673,7 @@ describe("registry routes (Gold)", () => {
             weddingId: BOOTSTRAP_WEDDING_ID,
             headline: "Theirs",
             stripeAccountId: "acct_live",
+            stripeConnectedByOsnProfileId: OWNER,
             stripeChargesEnabled: true,
             stripeDefaultCurrency: "AUD",
             createdAt: now,
@@ -700,6 +703,7 @@ describe("registry routes (Gold)", () => {
           .values({
             weddingId: BOOTSTRAP_WEDDING_ID,
             stripeAccountId: "acct_live",
+            stripeConnectedByOsnProfileId: OWNER,
             stripeChargesEnabled: true,
             stripeDefaultCurrency: null,
             createdAt: now,
@@ -808,6 +812,7 @@ describe("registry routes (Gold)", () => {
           .values({
             weddingId: BOOTSTRAP_WEDDING_ID,
             stripeAccountId: "acct_live",
+            stripeConnectedByOsnProfileId: OWNER,
             stripeChargesEnabled: true,
             stripePayoutsEnabled: true,
             createdAt: now,
@@ -938,8 +943,11 @@ describe("why guests cannot give money (`settings.moneyGiftsBlockedBy`)", () => 
       stripeDefaultCurrency?: string | null;
       headline?: string;
       weddingCurrency?: string;
-      /** Who connected the account; absent is nobody recorded. */
-      connector?: string;
+      /**
+       * Who connected the account: the wedding's owner, seated, unless said;
+       * null is nobody recorded.
+       */
+      connector?: string | null;
     }) =>
     (db: ReturnType<typeof createDb>) => {
       const now = new Date();
@@ -949,7 +957,7 @@ describe("why guests cannot give money (`settings.moneyGiftsBlockedBy`)", () => 
           headline: row.headline ?? null,
           cashGiftsEnabled: row.cashGiftsEnabled ?? false,
           stripeAccountId: "acct_live",
-          stripeConnectedByOsnProfileId: row.connector ?? null,
+          stripeConnectedByOsnProfileId: row.connector === undefined ? OWNER : row.connector,
           stripeChargesEnabled: row.stripeChargesEnabled ?? true,
           stripeDefaultCurrency:
             row.stripeDefaultCurrency === undefined ? "AUD" : row.stripeDefaultCurrency,
@@ -2455,15 +2463,62 @@ describe("whether the account's holder is an owner (`settings.payoutHolderAbsent
     expect((await read(app)).payoutHolderAbsent).toBe(false);
   });
 
-  it("closes nothing: the reason stays what the account and the switch give", async () => {
+  it("closes money gifts while the holder is absent, ahead of every reason but the deployment", async () => {
+    // Held by an editor, held by nobody on record, and held by an editor on an
+    // account Stripe cannot charge yet: only a new account fixes any of them,
+    // so the absent holder is named before what the account itself lacks.
+    for (const seed of [
+      account(EDITOR),
+      account(),
+      (db: ReturnType<typeof createDb>) => {
+        account(EDITOR)(db);
+        db.update(registrySettings).set({ stripeChargesEnabled: false }).run();
+      },
+    ]) {
+      const app = buildApp({ tier: "gold", ...paying, seed });
+      expect((await read(app)).moneyGiftsBlockedBy).toBe("payout_holder_absent");
+    }
+    // With no account there is no holder to be absent.
+    const none = buildApp({ tier: "gold", ...paying });
+    expect((await read(none)).moneyGiftsBlockedBy).toBe("stripe_not_ready");
+    // A deployment that takes no money says so first.
+    const unpaid = buildApp({ tier: "gold", seed: account(EDITOR) });
+    expect((await read(unpaid)).moneyGiftsBlockedBy).toBe("payments_unavailable");
+  });
+
+  it("refuses an owner turning money gifts on while the holder is absent, and lets them turn it off", async () => {
     const app = buildApp({ tier: "gold", ...paying, seed: account(EDITOR) });
-    expect((await read(app)).moneyGiftsBlockedBy).toBe("cash_gifts_off");
     const on = await req(app, "PUT", `${base}/settings`, OWNER, { cashGiftsEnabled: true });
-    expect(on.status).toBe(200);
-    const saved = ((await on.json()) as { settings: Settings }).settings;
-    expect(saved.moneyGiftsBlockedBy).toBeNull();
-    // The save's answer is built from the row it wrote, and says the same.
-    expect(saved.payoutHolderAbsent).toBe(true);
+    expect(on.status).toBe(409);
+    const refused = (await on.json()) as { error: string; settings: Settings };
+    expect(refused.error).toBe("payout_holder_absent");
+    expect(refused.settings.moneyGiftsBlockedBy).toBe("payout_holder_absent");
+    expect(refused.settings.cashGiftsEnabled).toBe(false);
+    expect((await read(app)).cashGiftsEnabled).toBe(false);
+
+    // Any other save goes through, and its answer — built from the row it
+    // wrote — says the same.
+    const headline = await req(app, "PUT", `${base}/settings`, OWNER, { headline: "Ours" });
+    expect(headline.status).toBe(200);
+    expect(((await headline.json()) as { settings: Settings }).settings).toMatchObject({
+      payoutHolderAbsent: true,
+      moneyGiftsBlockedBy: "payout_holder_absent",
+    });
+
+    // A switch already on stays the couple's to turn off.
+    const switchedOn = buildApp({
+      tier: "gold",
+      ...paying,
+      seed: (db) => {
+        account(EDITOR)(db);
+        db.update(registrySettings).set({ cashGiftsEnabled: true }).run();
+      },
+    });
+    const off = await req(switchedOn, "PUT", `${base}/settings`, OWNER, {
+      cashGiftsEnabled: false,
+    });
+    expect(off.status).toBe(200);
+    expect(((await off.json()) as { settings: Settings }).settings.cashGiftsEnabled).toBe(false);
   });
 
   it("tells an editor and a viewer nothing about whose account it is", async () => {
@@ -2475,6 +2530,52 @@ describe("whether the account's holder is an owner (`settings.payoutHolderAbsent
     }
     const saved = await req(app, "PUT", `${base}/settings`, EDITOR, { headline: "Ours" });
     expect(((await saved.json()) as { settings: Settings }).settings.payoutHolderAbsent).toBeNull();
+  });
+
+  it("shows an editor and a viewer an absent holder's account as one still being set up", async () => {
+    // What an account Stripe has not finished with reads as: connected, unable
+    // to charge, and `stripe_not_ready` — with money on or off, since that
+    // reason comes before the switch.
+    for (const cashGiftsEnabled of [true, false]) {
+      const app = buildApp({
+        tier: "gold",
+        ...paying,
+        seed: (db) => {
+          account(EDITOR)(db);
+          db.update(registrySettings).set({ cashGiftsEnabled }).run();
+        },
+      });
+      for (const reader of [EDITOR, VIEWER]) {
+        expect(await read(app, reader)).toMatchObject({
+          stripeConnected: true,
+          stripeChargesEnabled: false,
+          stripeConnectedByOsnProfileId: null,
+          payoutHolderAbsent: null,
+          moneyGiftsBlockedBy: "stripe_not_ready",
+        });
+      }
+    }
+  });
+
+  it("refuses an editor turning money gifts on as an account still being set up", async () => {
+    const app = buildApp({ tier: "gold", ...paying, seed: account(EDITOR) });
+    const on = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: true });
+    expect(on.status).toBe(409);
+    const refused = (await on.json()) as { error: string; settings: Settings };
+    expect(refused.error).toBe("stripe_not_ready");
+    expect(refused.settings).toMatchObject({
+      stripeChargesEnabled: false,
+      payoutHolderAbsent: null,
+      moneyGiftsBlockedBy: "stripe_not_ready",
+    });
+  });
+
+  it("passes a reason that comes first through to an editor unchanged", async () => {
+    const app = buildApp({ tier: "gold", seed: account(EDITOR) });
+    expect(await read(app, EDITOR)).toMatchObject({
+      stripeChargesEnabled: false,
+      moneyGiftsBlockedBy: "payments_unavailable",
+    });
   });
 });
 

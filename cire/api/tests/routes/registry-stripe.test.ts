@@ -532,6 +532,41 @@ describe("only the owner who connected the account may open its links", () => {
     };
     expect(reread.payoutHolderAbsent).toBe(true);
   });
+
+  it("closes money gifts on the refresh and the next registry read alike, while the holder is absent", async () => {
+    const live = {
+      id: "acct_first",
+      chargesEnabled: true,
+      payoutsEnabled: true,
+      detailsSubmitted: true,
+      defaultCurrency: "AUD",
+    };
+    // A deployment that takes money, so no earlier reason hides this one.
+    const { app, db } = buildApp({
+      stripe: stripeStub({ account: live }).client,
+      stripeWebhookSecret: "whsec_test_connect",
+    });
+    connectedBy(db, EDITOR);
+
+    const refreshed = await req(app, `${base}/refresh`, OWNER);
+    expect(refreshed.status).toBe(200);
+    expect(await jsonBody(refreshed)).toEqual({
+      connected: true,
+      chargesEnabled: true,
+      payoutsEnabled: true,
+      moneyGiftsBlockedBy: "payout_holder_absent",
+      payoutHolderAbsent: true,
+    });
+
+    const read = await appRequest(app, `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/registry`, {
+      headers: { Authorization: `Bearer ${await auth.sign(OWNER)}` },
+    });
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as { settings: Record<string, unknown> }).settings).toMatchObject({
+      payoutHolderAbsent: true,
+      moneyGiftsBlockedBy: "payout_holder_absent",
+    });
+  });
 });
 
 describe("create-or-resume", () => {

@@ -548,6 +548,7 @@ describe("the wedding's currency while money gifts are on", () => {
         published: true,
         cashGiftsEnabled: true,
         stripeAccountId: "acct_couple",
+        stripeConnectedByOsnProfileId: OWNER,
         stripeChargesEnabled: true,
         stripeDefaultCurrency: settles,
         createdAt: now,

@@ -4,7 +4,7 @@ import { hostRsvpNotices, registrySettings, weddingHosts, weddings } from "@cire
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 
 import { createApp } from "../../src/app";
@@ -1010,6 +1010,192 @@ describe("GET /hosts — the payout account's holder", () => {
 
     const none = buildApp();
     expect(Object.values(await marked(none.app, OWNER))).toEqual(["absent"]);
+  });
+});
+
+/**
+ * The person who connected the Stripe account money gifts are paid into holds
+ * it in their own name. While they do, the three hosts writes refuse to take
+ * their owner seat — removed, left or moved below owner — so the wedding is
+ * never left paying into the account of someone who no longer runs it. They
+ * hand the account over first, or another owner replaces it.
+ */
+describe("the payout account's holder keeps their owner seat while they hold it", () => {
+  const HOLDER = "usr_holder";
+  const holderPath = `${hostsPath}/${HOLDER}`;
+
+  function holds(db: Db, holder: string | null) {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId: WEDDING_ID,
+        stripeAccountId: "acct_hosts",
+        stripeConnectedByOsnProfileId: holder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  function notice(db: Db, osnProfileId: string) {
+    db.insert(hostRsvpNotices)
+      .values({ weddingId: WEDDING_ID, osnProfileId, updatedAt: new Date() })
+      .run();
+  }
+
+  const roleOf = async (db: Db, osnProfileId: string) =>
+    (
+      await db
+        .select({ role: weddingHosts.role })
+        .from(weddingHosts)
+        .where(
+          and(eq(weddingHosts.weddingId, WEDDING_ID), eq(weddingHosts.osnProfileId, osnProfileId)),
+        )
+    )[0]?.role;
+
+  const noticeRows = async (db: Db, osnProfileId: string) =>
+    (await db.select().from(hostRsvpNotices).where(eq(hostRsvpNotices.osnProfileId, osnProfileId)))
+      .length;
+
+  /** The holder seated as an owner beside OWNER, with an RSVP notice row. */
+  function seatedHolder() {
+    const built = buildApp();
+    seedHostSeat(built.db, HOLDER, "owner");
+    notice(built.db, HOLDER);
+    holds(built.db, HOLDER);
+    return built;
+  }
+
+  it("refuses another owner's removal of the holder, keeping their seat and notice row", async () => {
+    const { db, app } = seatedHolder();
+    const labels = { result: "holds_payout_account", actor: "owner" };
+    const before = await counterValue(CIRE_METRICS.hostRemoved, labels);
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await req(app, "DELETE", holderPath, OWNER);
+    });
+    expect(res!.status).toBe(409);
+    expect(await jsonBody(res!)).toEqual({ error: "holds_payout_account" });
+    expect(await roleOf(db, HOLDER)).toBe("owner");
+    expect(await noticeRows(db, HOLDER)).toBe(1);
+    expect(await counterValue(CIRE_METRICS.hostRemoved, labels)).toBe(before + 1);
+    expect(logs).toContain("host change refused: holds payout account");
+  });
+
+  it("refuses the holder's own leave, keeping their seat and notice row", async () => {
+    const { db, app } = seatedHolder();
+    const labels = { result: "holds_payout_account", actor: "self" };
+    const before = await counterValue(CIRE_METRICS.hostRemoved, labels);
+    const res = await req(app, "DELETE", `${hostsPath}/me`, HOLDER);
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "holds_payout_account" });
+    expect(await roleOf(db, HOLDER)).toBe("owner");
+    expect(await noticeRows(db, HOLDER)).toBe(1);
+    expect(await counterValue(CIRE_METRICS.hostRemoved, labels)).toBe(before + 1);
+  });
+
+  it("refuses moving the holder below owner, by another owner or by the holder", async () => {
+    const { db, app } = seatedHolder();
+    const labels = { result: "holds_payout_account", role: "editor" };
+    const before = await counterValue(CIRE_METRICS.hostRoleChanged, labels);
+    for (const actor of [OWNER, HOLDER]) {
+      const res = await req(app, "PUT", `${holderPath}/role`, actor, { role: "editor" });
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "holds_payout_account" });
+    }
+    expect(await roleOf(db, HOLDER)).toBe("owner");
+    expect(await counterValue(CIRE_METRICS.hostRoleChanged, labels)).toBe(before + 2);
+  });
+
+  it("names last_owner first for the wedding's only owner, who also holds the account", async () => {
+    const { db, app } = buildApp();
+    holds(db, OWNER);
+    for (const [method, path, body] of [
+      ["DELETE", `${hostsPath}/me`, undefined],
+      ["DELETE", `${hostsPath}/${OWNER}`, undefined],
+      ["PUT", `${hostsPath}/${OWNER}/role`, { role: "editor" }],
+    ] as const) {
+      const res = await req(app, method, path, OWNER, body);
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "last_owner" });
+    }
+    expect(await roleOf(db, OWNER)).toBe("owner");
+  });
+
+  it("names the holder ahead of the people limit when another owner demotes them", async () => {
+    const { db, app } = seatedHolder();
+    for (let i = 0; i < 6; i += 1) seedHostSeat(db, `usr_v_${i}`, "viewer");
+    const res = await req(app, "PUT", `${holderPath}/role`, OWNER, { role: "editor" });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "holds_payout_account" });
+    expect(await roleOf(db, HOLDER)).toBe("owner");
+  });
+
+  it("lets through every change that does not take the holder's owner seat", async () => {
+    const { db, app } = seatedHolder();
+    seedHostSeat(db, COHOST, "editor");
+    seedHostSeat(db, "usr_third", "owner");
+    // Re-saving the holder's own role.
+    expect((await req(app, "PUT", `${holderPath}/role`, OWNER, { role: "owner" })).status).toBe(
+      200,
+    );
+    // Anyone else's seat: a co-host's, another owner's, and an owner stepping down.
+    expect((await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER)).status).toBe(200);
+    expect((await req(app, "DELETE", `${hostsPath}/usr_third`, OWNER)).status).toBe(200);
+    expect(
+      (await req(app, "PUT", `${hostsPath}/${OWNER}/role`, OWNER, { role: "editor" })).status,
+    ).toBe(200);
+    expect(await roleOf(db, HOLDER)).toBe("owner");
+  });
+
+  it("lets a holder who sits below owner move, be promoted, be removed or leave", async () => {
+    // Below owner the holder is already absent: the account closes money
+    // gifts and any owner may replace it, so their seat is theirs to change.
+    const moved = buildApp();
+    seedHostSeat(moved.db, HOLDER, "editor");
+    holds(moved.db, HOLDER);
+    expect(
+      (await req(moved.app, "PUT", `${holderPath}/role`, OWNER, { role: "viewer" })).status,
+    ).toBe(200);
+    expect(
+      (await req(moved.app, "PUT", `${holderPath}/role`, OWNER, { role: "owner" })).status,
+    ).toBe(200);
+    expect(await roleOf(moved.db, HOLDER)).toBe("owner");
+
+    const removed = buildApp();
+    seedHostSeat(removed.db, HOLDER, "viewer");
+    notice(removed.db, HOLDER);
+    holds(removed.db, HOLDER);
+    expect((await req(removed.app, "DELETE", holderPath, OWNER)).status).toBe(200);
+    expect(await roleOf(removed.db, HOLDER)).toBeUndefined();
+    expect(await noticeRows(removed.db, HOLDER)).toBe(0);
+
+    const left = buildApp();
+    seedHostSeat(left.db, HOLDER, "editor");
+    holds(left.db, HOLDER);
+    expect((await req(left.app, "DELETE", `${hostsPath}/me`, HOLDER)).status).toBe(200);
+    expect(await roleOf(left.db, HOLDER)).toBeUndefined();
+  });
+
+  it("holds below Gold too, where the holder can still retire the account and then leave", async () => {
+    const { db, app } = buildApp({
+      registryStripeLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+    });
+    expect(db.select({ tier: weddings.tier }).from(weddings).all()).toEqual([{ tier: "ivory" }]);
+    seedHostSeat(db, HOLDER, "owner");
+    holds(db, HOLDER);
+    expect((await req(app, "DELETE", `${hostsPath}/me`, HOLDER)).status).toBe(409);
+
+    const retired = await req(
+      app,
+      "POST",
+      `/api/organiser/weddings/${WEDDING_ID}/registry/stripe/retire`,
+      HOLDER,
+      { handTo: null },
+    );
+    expect(retired.status).toBe(200);
+    expect((await req(app, "DELETE", `${hostsPath}/me`, HOLDER)).status).toBe(200);
+    expect(await roleOf(db, HOLDER)).toBeUndefined();
   });
 });
 
