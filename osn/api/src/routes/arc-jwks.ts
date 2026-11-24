@@ -1,16 +1,18 @@
 import { DbLive, type Db } from "@osn/db/service";
 import {
+  clientNetwork,
   getClientIp,
   isUnresolvedIp,
   type ClientIpOptions,
   type RateLimiterBackend,
 } from "@shared/rate-limit";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { publishedOutboundKeys } from "../lib/outbound-arc";
 import { publicError } from "../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
+import { metricArcJwksRefused, type ArcJwksLane, type ArcJwksRefusal } from "../metrics";
 import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import { errorResponse } from "./auth/response-schemas";
 
@@ -49,6 +51,9 @@ export interface ArcJwksRateLimiters {
 /** The address Cloudflare gives every Worker's subrequest to another zone. */
 const WORKER_SUBREQUEST_ADDRESS = "2a06:98c0:3600::103";
 
+/** How often, at most, a refusal is logged, per lane, per isolate. */
+const REFUSAL_LOG_INTERVAL_MS = 60_000;
+
 /** Zones many tenants' Workers run under, never taken as an app's own. */
 const SHARED_PLATFORM_ZONES: ReadonlySet<string> = new Set(["workers.dev", "pages.dev"]);
 
@@ -79,10 +84,12 @@ function appZone(
  * app asks for it on that call. At most `PUBLISHED_OUTBOUND_KEYS_BOUND` keys,
  * the newest.
  *
- * Anyone may call it, so each caller's address has a minute and an hour
- * budget, and an address that cannot be resolved is refused, as at every
- * per-IP limiter here. A configured app's fetch is budgeted under its zone
- * instead, apart from every other Worker, which share one address. A refusal is 429 before any key is read. An app that is
+ * Anyone may call it, so each caller's address (an IPv6 one by its /64) has a
+ * minute and an hour budget, and an address that cannot be resolved is
+ * refused, as at every per-IP limiter here. A configured app's fetch is
+ * budgeted under its zone instead, apart from every other Worker, which share
+ * one address. Each refusal is counted (`osn.arc.jwks.refused`, by lane and
+ * reason), and the first in each minute per lane is logged. A refusal is 429 before any key is read. An app that is
  * refused remembers the kid it asked for as unknown for 30 seconds and then
  * fetches again, so it recovers once its window ends.
  */
@@ -99,13 +106,29 @@ export function createArcJwksRoutes(
 ) {
   const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
-  /** Whether the caller's address is inside both budgets; a limiter that throws refuses. */
-  const admitted = async (ip: string): Promise<boolean> => {
+  /** Null when the key is inside both budgets, else why not; a limiter that throws refuses. */
+  const refusal = async (key: string): Promise<ArcJwksRefusal | null> => {
     try {
-      return (await limiters.minute.check(ip)) && (await limiters.hour.check(ip));
+      if (!(await limiters.minute.check(key))) return "minute";
+      if (!(await limiters.hour.check(key))) return "hour";
+      return null;
     } catch {
-      return false;
+      return "limiter_error";
     }
+  };
+
+  /** When each lane last logged a refusal, in this isolate. */
+  const loggedAt = { app: 0, address: 0 } satisfies Record<ArcJwksLane, number>;
+
+  /** Counts every refusal, and logs the first in each minute per lane. */
+  const refused = (lane: ArcJwksLane, reason: ArcJwksRefusal): void => {
+    metricArcJwksRefused(lane, reason);
+    const now = Date.now();
+    if (now - loggedAt[lane] < REFUSAL_LOG_INTERVAL_MS) return;
+    loggedAt[lane] = now;
+    void run(
+      Effect.logWarning("osn.arc key list refused a caller over its budget", { lane, reason }),
+    ).catch(() => undefined);
   };
 
   return new Elysia().get(
@@ -117,8 +140,13 @@ export function createArcJwksRoutes(
         ...clientIpConfig,
         socketIp: server?.requestIP?.(request)?.address ?? null,
       });
-      const key = zone === null ? ip : `zone:${zone}`;
-      if ((zone === null && isUnresolvedIp(ip)) || !(await admitted(key))) {
+      const lane: ArcJwksLane = zone === null ? "address" : "app";
+      const reason =
+        zone === null && isUnresolvedIp(ip)
+          ? "unresolved"
+          : await refusal(zone === null ? clientNetwork(ip) : `zone:${zone}`);
+      if (reason !== null) {
+        refused(lane, reason);
         set.status = 429;
         return { error: "rate_limited" };
       }

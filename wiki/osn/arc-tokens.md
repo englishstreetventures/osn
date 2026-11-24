@@ -289,9 +289,16 @@ and each app fetches the one a token names:
    centre when the first is overloaded
    ([sharding](https://blog.cloudflare.com/eliminating-cold-starts-2-shard-and-conquer/)).
    On either warning, find why the set grew before raising the bound. Each
-   caller's address may read the list 30 times a minute and 60 an hour; a
-   refused app treats the `kid` as unknown for 30 seconds and fetches again
-   ([[rate-limiting]]).
+   caller's address (an IPv6 one by its /64) may read the list 30 times a
+   minute and 60 an hour; a configured app's fetch, which Cloudflare sends
+   from the address every Worker's cross-zone subrequest shares, is budgeted
+   under the app's zone (its `CF-Worker` header) instead. A refused app treats
+   the `kid` as unknown for 30 seconds and fetches again, so it recovers when
+   the window ends, at most an hour; meanwhile its calls from osn-api with a
+   `kid` it has not cached are refused. Each refusal is counted
+   (`osn.arc.jwks.refused`, by `lane` and `reason`) and the first in each
+   minute per lane is logged (`osn.arc key list refused a caller over its
+   budget`) ([[rate-limiting]]).
 5. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
    Worker-safe): the token must claim `iss: "osn-api"`, ask for a scope the app
    lets osn-api use, and, when the app's secret can key the MAC, carry a `kid`

@@ -1,4 +1,5 @@
 import { arcOutboundKeys } from "@osn/db/schema";
+import { Logger } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { _resetOutboundKeyForTests } from "../../src/lib/outbound-arc";
@@ -250,5 +251,77 @@ describe("GET /.well-known/arc-jwks.json — the apps' own budget", () => {
     const { layer } = createTestLayerWithSqlite();
     expect(await get(app(layer), { "cf-worker": "cire.example" })).toBe(200);
     expect(await get(app(layer, false), { "cf-worker": "cire.example" })).toBe(429);
+  });
+});
+
+/**
+ * What an operator sees, and how an address is counted: an IPv6 caller is
+ * budgeted by its /64; each refusal is logged once a minute per lane, with
+ * the budget that refused it; a limiter that fails refuses.
+ */
+describe("GET /.well-known/arc-jwks.json — counting and seeing refusals", () => {
+  type Line = { message: unknown; annotations?: unknown };
+  const keep = (lines: Line[]) =>
+    Logger.layer([Logger.map(Logger.formatStructured, (line) => void lines.push(line as Line))]);
+
+  const routes = (
+    layer: Parameters<typeof createArcJwksRoutesRaw>[0],
+    lines: Line[] = [],
+    limiters = {
+      minute: memoryLimiter(OSN_RATE_LIMITS.arcJwksIp),
+      hour: memoryLimiter(OSN_RATE_LIMITS.arcJwksIpHour),
+    },
+  ) =>
+    createArcJwksRoutesRaw(layer, keep(lines), undefined, limiters, { trustCloudflare: true }, [
+      "api.cire.example",
+    ]);
+
+  const status = (app: ReturnType<typeof routes>, headers: Record<string, string>) =>
+    app
+      .handle(new Request("http://localhost/.well-known/arc-jwks.json", { headers }))
+      .then((res) => res.status);
+
+  const refusals = (lines: Line[]) =>
+    lines.filter((line) => JSON.stringify(line.message).includes("refused a caller"));
+
+  it("counts every address in one IPv6 /64 against one budget", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const app = routes(layer);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    for (let i = 0; i < OSN_RATE_LIMITS.arcJwksIp.maxRequests; i++) {
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await status(app, { "cf-connecting-ip": `2001:db8:1:2::${(i + 1).toString(16)}` });
+    }
+    expect(await status(app, { "cf-connecting-ip": "2001:db8:1:2::ffff" })).toBe(429);
+    expect(await status(app, { "cf-connecting-ip": "2001:db8:1:3::1" })).toBe(200);
+  });
+
+  it("logs the first refusal in a minute per lane, with the budget that refused it", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const lines: Line[] = [];
+    const app = routes(layer, lines);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    const direct = { "cf-connecting-ip": "203.0.113.30" };
+    for (let i = 0; i < OSN_RATE_LIMITS.arcJwksIp.maxRequests + 2; i++) {
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await status(app, direct);
+    }
+    await vi.waitFor(() => expect(refusals(lines)).toHaveLength(1));
+    expect(JSON.stringify(refusals(lines)[0])).toContain("address");
+    expect(JSON.stringify(refusals(lines)[0])).toContain("minute");
+  });
+
+  it("refuses, and says so, when a limiter fails", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const lines: Line[] = [];
+    const failing = {
+      check: () => {
+        throw new Error("store down");
+      },
+    };
+    const app = routes(layer, lines, { minute: failing, hour: failing });
+    expect(await status(app, { "cf-connecting-ip": "203.0.113.31" })).toBe(429);
+    await vi.waitFor(() => expect(refusals(lines)).toHaveLength(1));
+    expect(JSON.stringify(refusals(lines)[0])).toContain("limiter_error");
   });
 });
