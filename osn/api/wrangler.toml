@@ -172,7 +172,7 @@ head_sampling_rate = 1
 # Replaces the Bun `setInterval` deletion sweeper. Cadence matches the Bun
 # SWEEPER_INTERVAL default (6 h) — runs the account-erasure fan-out-retry +
 # hard-delete sweeps. The outbound ARC key needs no cron: each isolate mints and
-# publishes its own before its first outbound call (see `lib/outbound-arc.ts`).
+# publishes its own after its first request (see `lib/outbound-arc.ts`).
 [triggers]
 crons = ["0 */6 * * *"]
 

@@ -15,9 +15,10 @@ import { userTierBindings } from "./helpers/rate-limit-bindings";
  * they don't depend on a real (or miniflare) D1 binding.
  *
  * The happy-path `fetch` through a live D1 binding is exercised by the
- * Miniflare-backed `tests/d1/d1-integration.test.ts` (run under `bun test`); wiring
- * a full D1 round-trip into this synchronous vitest suite is impractical, so
- * the request-id echo/mint contract is covered directly in `request-id.test.ts`
+ * Miniflare-backed `tests/d1/outbound-key-first-request.test.ts` (run under
+ * `bun test`) and, as deployed, `tests/d1/worker-e2e.test.ts`; wiring a full D1
+ * round-trip into this synchronous vitest suite is impractical, so the
+ * request-id echo/mint contract is covered directly in `request-id.test.ts`
  * via the `resolveRequestId` unit.
  */
 

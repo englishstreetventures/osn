@@ -9,6 +9,7 @@ import { createSchemaSql } from "@osn/db/testing";
 import { Miniflare } from "miniflare";
 
 import { handler, type Env } from "../../src/index";
+import { _resetOutboundKeyForTests } from "../../src/lib/outbound-arc";
 
 /**
  * The 6-hourly cron's deletion sweeps on real D1, through the Worker's own
@@ -25,6 +26,8 @@ let mf: Miniflare | undefined;
 let d1: DrizzleD1;
 
 beforeEach(async () => {
+  // The outbound key is module state; each run starts as a fresh isolate does.
+  _resetOutboundKeyForTests();
   await mf?.dispose();
   mf = new Miniflare({
     modules: true,
@@ -122,6 +125,14 @@ describe("the cron's deletion sweeps on D1", () => {
     expect(marked?.pulse).toBeGreaterThan(0);
     expect(marked?.zap).toBeGreaterThan(0);
     expect(marked?.cire).toBeGreaterThan(0);
+  });
+
+  it("publishes the isolate's outbound ARC key on a run with nothing to sweep", async () => {
+    await runCron({});
+    const keys = await d1
+      .prepare("SELECT count(*) AS n FROM arc_outbound_keys")
+      .first<{ n: number }>();
+    expect(keys?.n).toBe(1);
   });
 });
 

@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-25
 ---
 # ARC Tokens (S2S Auth)
 
@@ -235,23 +235,61 @@ osn-api calls apps as an ARC **issuer**: the account deletion's preview
 Apps do not take a registration from osn-api. osn-api **publishes** its keys
 and each app fetches the one a token names:
 
-1. Each osn-api isolate mints an ES256 key pair the first time it calls an app,
-   good for 24 hours and replaced two hours before its end
-   (`osn/api/src/lib/outbound-arc.ts`).
-2. Before it signs anything with it, it writes the public half to
-   `arc_outbound_keys` (`publishOutboundKey`, which also deletes rows expired
-   more than a day ago), once per key: calls that arrive while the write runs
-   wait on that one write. `publishOutboundKey` answers the key it wrote, and
-   the call signs with that key (`arcAuthHeader`), never with whichever key the
-   isolate holds by then, so a key replaced in between still verifies.
-   `arcAuthHeader` refuses any key `publishOutboundKey` did not answer. A failed
-   write, or a key that failed to mint, is dropped, and the next call tries
-   again.
-3. `GET /.well-known/arc-jwks.json` serves the unexpired rows as a JWK Set, read
+1. Each osn-api isolate mints an ES256 key pair, good for four hours and
+   replaced two hours before its end (`osn/api/src/lib/outbound-arc.ts`).
+2. It writes the public half to `arc_outbound_keys` after its first request,
+   whatever the route, through `ctx.waitUntil`, so the answer never waits for
+   it (`publishOutboundKeyInBackground`, called from the Worker's `fetch` in
+   `osn/api/src/index.ts`). The first request once the key is due for
+   replacement writes the new one the same way, and every cron run whose
+   deletion app settings parse writes the key when one is due, whatever its
+   sweeps find. Which route a request asks
+   for never decides when a key is written. A background write that fails is
+   logged (`osn.arc outbound key publish failed`) and pauses background writes
+   for a minute; the Bun dev server (`local.ts`) has no `waitUntil` and makes
+   no background write.
+3. Every call to an app still publishes the key before it signs
+   (`publishOutboundKey`, which also deletes rows expired more than a day ago),
+   which writes nothing once the key is written: calls that arrive while a write
+   runs wait on that one write. It then checks the key is still among the keys
+   step 4 serves (a count of the live keys that expire with it or after it,
+   reading at most 1,001 index rows, at most once every thirty seconds, shared by
+   concurrent calls), and that its own row is still there. A key that has
+   fallen out, or whose row was deleted, is replaced: one call mints a key,
+   logs `osn.arc outbound key is not in the published set; minting a new one`,
+   and every caller that found it so writes and signs with the new one. If even the new key would not be
+   served, or the check cannot read the set, the call fails and signs nothing.
+   `publishOutboundKey` answers the key it wrote,
+   and the call signs with that key (`arcAuthHeader`), never with whichever key
+   the isolate holds by then, so a key replaced in between still verifies.
+   `arcAuthHeader` refuses any key `publishOutboundKey` did not answer. A key
+   whose first write failed, or that failed to mint, is dropped, and the next
+   call mints and writes another, so a key's expiry always dates its first
+   write. A caller that signs within two hours of taking its key never signs
+   with an expired one; the account export takes its key once and signs each
+   app's section as the reader pulls it, so a reader slower than two hours can
+   get the later sections refused.
+4. `GET /.well-known/arc-jwks.json` serves the unexpired rows as a JWK Set, read
    fresh on every request (`cache-control: no-store`): a key written a moment
    ago must be in the next answer, or the app asking would refuse that `kid` for
    30 seconds. osn-db reads its primary (`readReplication: "disabled"`), so it is.
-4. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
+   It serves at most the newest 1,000 keys by expiry
+   (`PUBLISHED_OUTBOUND_KEYS_BOUND`), so a key just written is always among
+   them. The set holds the keys written in the last four hours: one for each
+   isolate that started in that time, two for one older than two hours. From
+   500 live keys the read
+   logs `osn.arc published outbound keys are nearing the read bound`, and past
+   1,000 `... passed the read bound; the oldest are left out`, each at most
+   once a minute per isolate. A key left out is refused by every app that has
+   not cached it, until its isolate's next call replaces it (step 3); calls
+   signed in the thirty seconds a passing check stands can still be refused. No
+   published figure caps how many isolates load can start: Cloudflare runs
+   348 cities ([network](https://www.cloudflare.com/network/)), publishes no
+   server count per city, and runs a Worker on more than one server in a data
+   centre when the first is overloaded
+   ([sharding](https://blog.cloudflare.com/eliminating-cold-starts-2-shard-and-conquer/)).
+   On either warning, find why the set grew before raising the bound.
+5. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
    Worker-safe): the token must claim `iss: "osn-api"`, ask for a scope the app
    lets osn-api use, and, when the app's secret can key the MAC, carry a `kid`
    whose MAC verifies and whose expiry has not passed; only then is the key
@@ -318,9 +356,12 @@ already vouches for every access token, so neither gains a power it lacks.
 
 **Revoking a key.** Delete its `arc_outbound_keys` row. Apps stop accepting it
 when their cached copy lapses, within five minutes. The isolate holding it
-keeps signing with it, and its calls are refused, until a redeploy starts fresh
-isolates with new keys. osn-api never signs with a key past its expiry, and a
-token lives five minutes.
+replaces it at its next call to an app once its last passing check is thirty
+seconds old (step 3). Until then it still signs with the revoked key, and so
+does an account export already streaming with it; apps accept those calls
+until their cached copy lapses. osn-api signs with a key past its expiry only
+when a caller holds it longer than two hours (the account export, step 3), and
+a token lives five minutes.
 
 ### Key revocation
 

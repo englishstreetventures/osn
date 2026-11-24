@@ -869,11 +869,11 @@ export const deletionJobs = sqliteTable(
 );
 
 /**
- * osn-api's outbound ARC public keys. Each isolate mints its own key pair the
- * first time it calls an app and writes the public half here before it signs
- * anything; `GET /.well-known/arc-jwks.json` serves the unexpired rows, and
- * apps verify osn-api's tokens against that set. Deleting a row revokes the
- * key within the apps' five-minute key cache.
+ * osn-api's outbound ARC public keys. Each isolate mints its own key pair and
+ * writes the public half here after its first request, whatever the route, and
+ * always before it signs anything; `GET /.well-known/arc-jwks.json` serves the
+ * newest unexpired rows, and apps verify osn-api's tokens against that set.
+ * Deleting a row revokes the key within the apps' five-minute key cache.
  */
 export const arcOutboundKeys = sqliteTable(
   "arc_outbound_keys",
@@ -884,7 +884,10 @@ export const arcOutboundKeys = sqliteTable(
     publicKeyJwk: text("public_key_jwk").notNull(),
     /** Unix seconds. */
     createdAt: integer("created_at").notNull(),
-    /** Unix seconds. osn-api signs nothing with the key from this time. */
+    /**
+     * Unix seconds. From this time the key is not served, and apps
+     * refuse it once their cached copy lapses.
+     */
     expiresAt: integer("expires_at").notNull(),
   },
   (t) => [index("arc_outbound_keys_expires_idx").on(t.expiresAt)],
