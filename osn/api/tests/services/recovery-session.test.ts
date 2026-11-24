@@ -1395,7 +1395,8 @@ describe("restricted recovery session — the passkey ceiling", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {
       const user = yield* auth.registerProfile("rs-first@example.com", "rsfirst");
-      yield* stampRecovery(db, user.accountId);
+      // No recovery stamped on the account, as after a disown lands between a
+      // recovery's stamp and its session: the restricted session alone decides.
       const sessionHash = yield* recoverySessionFor(user);
 
       yield* enrol(user.accountId, sessionHash);
@@ -1431,6 +1432,36 @@ describe("restricted recovery session — the passkey ceiling", () => {
 
       const rows = yield* passkeyRows(db, user.accountId);
       expect(rows.map((r) => r.provenanceAmr)).toEqual(["recovery"]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("a first passkey enrolled once a recovery's 72 hours are over is `webauthn`", () => {
+    // Red on stamping every first passkey after any recovery, however old.
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      const user = yield* auth.registerProfile("rs-old@example.com", "rsold");
+      yield* stampRecovery(
+        db,
+        user.accountId,
+        Math.floor((Date.now() - RECOVERY_COOLDOWN_MS) / 1000) - 1,
+      );
+      const signedIn = yield* auth.issueTokens(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+      );
+
+      yield* auth.beginPasskeyRegistration(user.accountId);
+      yield* auth.completePasskeyRegistration(
+        user.accountId,
+        attestation(),
+        auth.hashSessionToken(signedIn.refreshToken),
+      );
+
+      const rows = yield* passkeyRows(db, user.accountId);
+      expect(rows.map((r) => r.provenanceAmr)).toEqual(["webauthn"]);
     }).pipe(Effect.provide(layer));
   });
 
