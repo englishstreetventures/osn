@@ -5,9 +5,8 @@
  * What these tests are really pinning is a set of guards that all fail SILENTLY
  * when they break — a branch that skips a store read returns the same bytes as
  * one that makes it, and a lockout that shares a counter with another surface
- * looks identical until somebody uses it as a weapon. So each one below is
- * written to go red on a specific edit, named in its comment, and each was
- * confirmed red by making that edit.
+ * looks identical until somebody uses it as a weapon. Each one names, in its
+ * comment, the edit that turns it red.
  *
  * The last block in the file counts store round trips rather than asserting on
  * a response, because the remaining oracle after the bodies are uniform is
@@ -19,18 +18,21 @@
 
 import { Database } from "bun:sqlite";
 
+import { totpCredentials } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { applySchema } from "@osn/db/testing";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
 import { EmailService, makeLogEmailLive } from "@shared/email";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   createInMemoryRecoveryLockoutStore,
   type RecoveryLockoutStore,
 } from "../../src/lib/recovery-lockout-store";
+import * as metrics from "../../src/metrics";
 import { createAuthService, type AuthConfig } from "../../src/services/auth";
 import {
   RECOVERY_TOKEN_AUDIENCE,
@@ -38,6 +40,7 @@ import {
   TOTP_LOCKOUT_THRESHOLD,
 } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
 import { createAuthRoutes } from "../helpers/routes";
 import { mintStepUpToken } from "../helpers/step-up-session";
 
@@ -84,19 +87,6 @@ function makeApp(emailLayer?: Layer.Layer<EmailService>, overrides: Partial<Auth
     return profile;
   };
   return { app, auth, db, svc, seed, recorded: recorder.recorded };
-}
-
-/**
- * Wait for a forked send to land, or give up.
- *
- * Every notice in this service is dispatched off the response path, so nothing
- * is in the recorder when the handler returns. Polling rather than a fixed
- * sleep keeps the tests fast and keeps a slow machine from going red.
- */
-async function settle(predicate: () => boolean): Promise<void> {
-  for (let i = 0; i < 200 && !predicate(); i++) {
-    await new Promise((resolve) => setTimeout(resolve, 2));
-  }
 }
 
 /** Enrol a confirmed TOTP credential and hand back its secret. */
@@ -171,9 +161,9 @@ describe("POST /login/recovery/totp/complete", () => {
 
   it("mints a restricted session from a code, by EMAIL ADDRESS", async () => {
     // The client documents that this identifier "may be a handle or an email
-    // address", and every other test here drives it by handle — so the email
-    // arm has been the one an unauthenticated caller can use to ask whether an
-    // address has an OSN account, with nothing pinning it.
+    // address", and every other test here drives it by handle. An
+    // unauthenticated caller can send an email address here; this case pins
+    // that the route accepts one.
     // Goes red on: adding a `looksLikeEmail`-style refusal here (the rule that
     // belongs to `begin`, which sends mail; this route sends nothing).
     const { app, secret } = await seedEnrolled("rt-byemail@example.com", "rtbyemail");
@@ -200,7 +190,9 @@ describe("POST /login/recovery/totp/complete", () => {
     const { app, secret, recorded } = await seedEnrolled("rt-notice@example.com", "rtnotice");
     const step = Math.floor(Date.now() / 1000 / STEP_SECONDS) + 1;
 
-    const res = await app.handle(
+    // The notice is sent after the answer; `settledHandle` waits for it.
+    const res = await settledHandle(
+      app,
       json("/login/recovery/totp/complete", {
         method: "POST",
         body: JSON.stringify({
@@ -211,7 +203,6 @@ describe("POST /login/recovery/totp/complete", () => {
     );
     expect(res.status).toBe(200);
 
-    await settle(() => recorded().some((r) => r.template === "recovery-used"));
     const notices = recorded().filter((r) => r.template === "recovery-used");
     expect(notices).toHaveLength(1);
     expect(notices[0]!.to).toBe("rt-notice@example.com");
@@ -220,39 +211,110 @@ describe("POST /login/recovery/totp/complete", () => {
   it("refuses a replayed code", async () => {
     // RFC 6238 §5.2. `verifyTotpCode` is stateless, so single use is the
     // conditional UPDATE in `consumeStep` — a replay off the wire would
-    // otherwise be an account takeover, not a repeated ceremony.
+    // otherwise be an account takeover, not a repeated ceremony. The code is
+    // spent first at the authenticated step-up, which records no recovery, so
+    // the recovery cooldown is not what refuses it here.
     // Goes red on: bypassing `checkTotpCode`'s `consumeStep`.
-    const { app, secret } = await seedEnrolled("rt-replay@example.com", "rtreplay");
+    const { app, tokens, secret } = await seedEnrolled("rt-replay@example.com", "rtreplay");
     const step = Math.floor(Date.now() / 1000 / STEP_SECONDS) + 1;
     const code = await deriveTotpCode(secret, step);
 
-    const first = await app.handle(
-      json("/login/recovery/totp/complete", {
+    const spent = await app.handle(
+      json("/step-up/totp/complete", {
         method: "POST",
-        body: JSON.stringify({ identifier: "rtreplay", code }),
+        body: JSON.stringify({ code, purpose: "passkey_register" }),
+        headers: { authorization: `Bearer ${tokens.accessToken}` },
       }),
     );
-    expect(first.status).toBe(200);
+    expect(spent.status).toBe(200);
 
-    const second = await app.handle(
+    const replayed = await app.handle(
       json("/login/recovery/totp/complete", {
         method: "POST",
         body: JSON.stringify({ identifier: "rtreplay", code }),
       }),
     );
-    expect(second.status).toBe(400);
+    const unknown = await app.handle(
+      json("/login/recovery/totp/complete", {
+        method: "POST",
+        body: JSON.stringify({ identifier: "rtnobody", code }),
+      }),
+    );
+    expect(replayed.status).toBe(400);
+    expect(await replayed.json()).toEqual(await unknown.json());
+  });
+
+  it("refuses a second TOTP recovery inside the cooldown", async () => {
+    // One recovery per account per 72 hours (`completeRecoveryFactor`), on the
+    // TOTP arm as on the email one. The second request carries a fresh code,
+    // one step later, so the code's single use is not what refuses it.
+    // Every recovery failure answers the same 400, so the cooldown's own
+    // metric names the check that refused: recorded on that refusal and no
+    // other.
+    // Goes red on: dropping the cooldown check from `completeRecoveryFactor`.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const cooldown = vi.spyOn(metrics, "metricRecoveryCooldown");
+    try {
+      const { app, secret } = await seedEnrolled("rt-again@example.com", "rtagain");
+      const step = Math.floor(Date.now() / 1000 / STEP_SECONDS) + 1;
+
+      const first = await app.handle(
+        json("/login/recovery/totp/complete", {
+          method: "POST",
+          body: JSON.stringify({ identifier: "rtagain", code: await deriveTotpCode(secret, step) }),
+        }),
+      );
+      expect(first.status).toBe(200);
+      expect(cooldown).not.toHaveBeenCalled();
+
+      vi.setSystemTime(Date.now() + STEP_SECONDS * 1000);
+      const second = await app.handle(
+        json("/login/recovery/totp/complete", {
+          method: "POST",
+          body: JSON.stringify({
+            identifier: "rtagain",
+            code: await deriveTotpCode(secret, step + 1),
+          }),
+        }),
+      );
+      expect(second.status).toBe(400);
+      expect(cooldown.mock.calls).toEqual([["second_recovery_refused"]]);
+    } finally {
+      cooldown.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("refuses an account with no confirmed credential, and an unknown identifier, alike", async () => {
-    // `confirmedCredential` filters on `confirmedAt`, and the not-enrolled
-    // branch still pays for a full verification so it cannot be timed apart.
-    const { app, seed } = makeApp();
+    // `confirmedCredential` filters on `confirmedAt`, and `consumeStep` again,
+    // so a row that was never confirmed opens nothing even to a right code for
+    // its own secret. The not-enrolled branch still pays for a full
+    // verification so it cannot be timed apart.
+    // Goes red on: dropping the `confirmedAt` term from both queries.
+    const { app, seed, db, profile, secret } = await seedEnrolled(
+      "rt-unconfirmed@example.com",
+      "rtunconfirmed",
+    );
+    await db
+      .update(totpCredentials)
+      .set({ confirmedAt: null })
+      .where(eq(totpCredentials.accountId, profile.accountId));
     await seed("rt-none@example.com", "rtnone");
+    const step = Math.floor(Date.now() / 1000 / STEP_SECONDS) + 1;
 
     const notEnrolled = await app.handle(
       json("/login/recovery/totp/complete", {
         method: "POST",
         body: JSON.stringify({ identifier: "rtnone", code: "000000" }),
+      }),
+    );
+    const unconfirmed = await app.handle(
+      json("/login/recovery/totp/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          identifier: "rtunconfirmed",
+          code: await deriveTotpCode(secret, step),
+        }),
       }),
     );
     const unknown = await app.handle(
@@ -263,14 +325,17 @@ describe("POST /login/recovery/totp/complete", () => {
     );
 
     expect(notEnrolled.status).toBe(400);
+    expect(unconfirmed.status).toBe(400);
     expect(unknown.status).toBe(400);
-    expect(await notEnrolled.json()).toEqual(await unknown.json());
+    const unknownBody: unknown = await unknown.json();
+    expect(await notEnrolled.json()).toEqual(unknownBody);
+    expect(await unconfirmed.json()).toEqual(unknownBody);
   });
 
   it("does not lock the authenticated step-up ceremony", async () => {
-    // The finding this test exists for. `checkTotpCode` is shared with
-    // `POST /step-up/totp/complete`, which is authenticated; this route is not,
-    // and it accepts a PUBLIC handle. On a shared counter, five requests from
+    // `checkTotpCode` is shared with `POST /step-up/totp/complete`, which is
+    // authenticated; this route is not, and it accepts a PUBLIC handle. On a
+    // shared counter, five requests from
     // anyone who knows the handle would lock the owner's step-up for fifteen
     // minutes — taking passkey_register, recovery_generate, totp_enroll,
     // totp_disable, account_delete and account_export with it — repeatedly and
@@ -337,11 +402,17 @@ interface Hops {
   totpLockout: number;
   /** SQL statements naming `totp_credentials` — the credential query is a hop too. */
   totpCredentials: number;
+  /** `recoveryLockoutStore` (recovery codes), which this ceremony never uses. */
+  recoveryLockout: number;
+  /** `recoveryOtpLockoutStore` (email recovery), which this ceremony never uses. */
+  recoveryOtpLockout: number;
 }
 
 const zeroHops = (): Hops => ({
   totpLockout: 0,
   totpCredentials: 0,
+  recoveryLockout: 0,
+  recoveryOtpLockout: 0,
 });
 
 /** Count every operation, whatever it is: a hop is a hop. */
@@ -409,6 +480,12 @@ function makeCountingApp(options: { readonly lockoutsUnreachable?: boolean } = {
         lockoutMs: TOTP_LOCKOUT_MS,
       }),
     ),
+    recoveryLockoutStore: countingLockout(() => {
+      hops.recoveryLockout += 1;
+    }, createInMemoryRecoveryLockoutStore()),
+    recoveryOtpLockoutStore: countingLockout(() => {
+      hops.recoveryOtpLockout += 1;
+    }, createInMemoryRecoveryLockoutStore()),
   };
 
   const app = createAuthRoutes(merged, layer);
@@ -424,6 +501,8 @@ function makeCountingApp(options: { readonly lockoutsUnreachable?: boolean } = {
     return {
       totpLockout: hops.totpLockout - before.totpLockout,
       totpCredentials: hops.totpCredentials - before.totpCredentials,
+      recoveryLockout: hops.recoveryLockout - before.recoveryLockout,
+      recoveryOtpLockout: hops.recoveryOtpLockout - before.recoveryOtpLockout,
     };
   };
 
@@ -442,12 +521,12 @@ describe("recovery routes cost the same however a request ends", () => {
     //
     // A real account counts the attempt and runs the credential query; the
     // padding must do the same, at the probe key, and must not touch the
-    // pending-code store, which this ceremony never otherwise uses. Both halves
-    // are asserted: the counts must match, and the pending-code store must not
-    // be touched at all.
+    // recovery-code or email-recovery counters, which this ceremony never uses.
+    // Both halves are asserted: the counts must match, and those two counters
+    // stay at zero on every branch.
     //
     // Goes red on: dropping the count or the credential query from
-    // `burnTotpCheckCost`, or padding with a read of another store.
+    // `burnTotpCheckCost`, or padding with a read of another counter.
 
     // (a) a real account with no authenticator — the attempt is counted,
     //     `confirmedCredential` misses, the verification still runs.
@@ -498,6 +577,8 @@ describe("recovery routes cost the same however a request ends", () => {
     const shape = (h: Hops) => ({
       lockout: h.totpLockout,
       credentials: h.totpCredentials,
+      recoveryLockout: h.recoveryLockout,
+      recoveryOtpLockout: h.recoveryOtpLockout,
     });
     // (d) a locked account: five wrong codes get it there; the sixth is measured.
     const lockedHarness = makeCountingApp();
@@ -515,7 +596,12 @@ describe("recovery routes cost the same however a request ends", () => {
       }),
     );
 
-    expect(shape(bare)).toEqual({ lockout: 1, credentials: 1 });
+    expect(shape(bare)).toEqual({
+      lockout: 1,
+      credentials: 1,
+      recoveryLockout: 0,
+      recoveryOtpLockout: 0,
+    });
     expect(shape(enrolled)).toEqual(shape(bare));
     expect(shape(unknown)).toEqual(shape(bare));
     // Goes red on: refusing a locked account before the credential query.

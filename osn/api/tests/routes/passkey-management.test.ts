@@ -2,6 +2,7 @@ import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
 import type { StepUpPurpose } from "@shared/observability/metrics";
+import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 
@@ -186,7 +187,7 @@ describe("passkey management routes", () => {
       expect(res.status).toBe(401);
     });
 
-    it("returns 403 without step-up token (S-M2)", async () => {
+    it("returns 403 without step-up token", async () => {
       const { tokens, profile } = await seedAccount();
       const pk = await seedPasskey(profile.accountId);
       const res = await app.handle(
@@ -221,6 +222,14 @@ describe("passkey management routes", () => {
         }),
       );
       expect(res.status).toBe(200);
+
+      const list = await verifiedApp.handle(
+        new Request("http://localhost/passkeys", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      const json = (await list.json()) as { passkeys: { id: string; label: string | null }[] };
+      expect(json.passkeys).toEqual([expect.objectContaining({ id: pk, label: "Renamed" })]);
     });
 
     it("rejects malformed passkey ids at the route layer", async () => {
@@ -265,7 +274,7 @@ describe("passkey management routes", () => {
 
     // End-to-end happy path. The route layer is the only place that
     // wires the X-Step-Up-Token header into the service call — exercise it
-    // with a real minted token so a regression in that wiring fails here.
+    // with a real minted token so a break in that wiring fails here.
     it("succeeds with a valid step-up token and returns { remaining }", async () => {
       const { app: verifiedApp, accessToken, profile, mintOtpStepUp } = await setupStepUp();
       const pk = await seedPasskey(profile.accountId);
@@ -342,7 +351,7 @@ describe("passkey management routes", () => {
       await Effect.runPromise(
         svc.verifyRefreshToken(tokens.refreshToken).pipe(Effect.provide(layer)),
       );
-      // Every other session on the account is gone (H1).
+      // Every other session on the account is gone.
       const err = await Effect.runPromise(
         Effect.flip(svc.verifyRefreshToken(other.refreshToken)).pipe(Effect.provide(layer)),
       );
@@ -412,28 +421,41 @@ describe("passkey management routes", () => {
   // 500 (or surface a useful "is this id real?" oracle).
   describe("PATCH /passkeys/:id (cross-account)", () => {
     it("rejects renaming another account's passkey at the HTTP layer", async () => {
-      const alice = await seedAccount();
+      // Alice holds a valid step-up token, so the step-up gate lets her
+      // through and the ownership check is what refuses her.
+      const alice = await setupStepUp();
       // Spin up a separate account for Bob and seed a passkey he owns.
       const bobProfile = await Effect.runPromise(
         svc.registerProfile("pk-mgmt-bob@example.com", "pkmgmtbob").pipe(Effect.provide(layer)),
       );
-      const bobPk = await seedPasskey(bobProfile.accountId);
+      const bobPk = await seedPasskey(bobProfile.accountId, "Bob's laptop");
+      const stepUp = await alice.mintOtpStepUp();
 
-      const res = await app.handle(
+      const res = await alice.app.handle(
         new Request(`http://localhost/passkeys/${bobPk}`, {
           method: "PATCH",
           headers: {
-            Authorization: `Bearer ${alice.tokens.accessToken}`,
+            Authorization: `Bearer ${alice.accessToken}`,
             "Content-Type": "application/json",
+            "X-Step-Up-Token": stepUp,
           },
           body: JSON.stringify({ label: "stolen" }),
         }),
       );
-      // The exact code is whatever publicError(AuthError) maps to — accept
-      // any 4xx that isn't 401 (since Alice is authenticated).
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
-      expect(res.status).not.toBe(401);
+      // The answer a passkey id that does not exist gets: nothing says
+      // whether another account owns it.
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_request" });
+
+      const [bobRow] = await Effect.runPromise(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.promise(() =>
+            db.select({ label: passkeys.label }).from(passkeys).where(eq(passkeys.id, bobPk)),
+          );
+        }).pipe(Effect.provide(layer)),
+      );
+      expect(bobRow?.label).toBe("Bob's laptop");
     });
   });
 });

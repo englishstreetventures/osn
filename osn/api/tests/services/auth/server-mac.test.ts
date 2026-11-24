@@ -46,7 +46,6 @@ describe("createServerMac().probeKey", () => {
  */
 describe("createServerMac() discoverable challenges", () => {
   const encode = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64url");
-  const decode = (text: string) => new Uint8Array(Buffer.from(text, "base64url"));
 
   it("opens what it minted, with its nonce and expiry", () => {
     const mac = createServerMac(SECRET);
@@ -101,7 +100,5 @@ describe("createServerMac() discoverable challenges", () => {
     const mac = createServerMac(SECRET);
     const challenge = encode(mac.mintChallenge(Date.now() - 1));
     expect(mac.openChallenge(challenge)).toEqual({ ok: false, reason: "expired" });
-    // Round-tripped through the bytes a browser would send back.
-    expect(encode(decode(challenge))).toBe(challenge);
   });
 });

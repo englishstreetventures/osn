@@ -3,23 +3,40 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Miniflare } from "miniflare";
 
 /**
- * The transport half of the background-work fix, on real workerd.
+ * Background work handed to `waitUntil`, on real workerd.
  *
- * This is the only tier that can observe the defect. On the Bun dev server a
+ * This is the only tier that can observe the loss. On the Bun dev server a
  * bare `Effect.forkDetach` is neither interrupted nor awaited and the work
  * completes, so every vitest-tier assertion passes either way; on workerd, a
  * promise not handed to `ExecutionContext.waitUntil` may never run once the
- * response is returned. `?mode=bypass` drives the pre-fix code path, so the
- * red-proof lives in the suite rather than in a commit message.
+ * response is returned. `?mode=bypass` forks with a bare `Effect.forkDetach`,
+ * so the suite shows what is lost without the sink.
  */
 
+// The fixture's work timer. The bypass case waits three times this long, so
+// work that did survive the response would have finished by its read.
 const WORK_MS = 250;
+
+/** How long the sink case waits for the work before it fails. */
+const DEADLINE_MS = 2_000;
 
 let mf: Miniflare;
 
 async function call(path: string): Promise<Record<string, unknown>> {
   const res = await mf.dispatchFetch(`http://example.com${path}`);
   return (await res.json()) as Record<string, unknown>;
+}
+
+/** Reads `/state` until the work has completed; false once the deadline passes. */
+async function sendCompletesWithin(deadlineMs: number): Promise<boolean> {
+  const end = Date.now() + deadlineMs;
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop -- each read follows the last
+    if ((await call("/state"))["sendCompleted"] === true) return true;
+    if (Date.now() > end) return false;
+    // eslint-disable-next-line no-await-in-loop -- the work runs in workerd, beyond any test clock
+    await new Promise((r) => setTimeout(r, 10));
+  }
 }
 
 beforeAll(async () => {
@@ -56,17 +73,18 @@ describe("background work on workerd", () => {
     expect(response["completedAtResponse"]).toBe(false);
     expect(response["handedToWaitUntil"]).toBe(1);
 
-    await new Promise((r) => setTimeout(r, WORK_MS * 3));
-    expect((await call("/state"))["sendCompleted"]).toBe(true);
+    expect(await sendCompletesWithin(DEADLINE_MS)).toBe(true);
   });
 
-  it("drops the work when it bypasses the sink — the defect this fixes", async () => {
+  it("drops the work when it bypasses the sink", async () => {
     const response = await call("/?mode=bypass");
 
     expect(response["completedAtResponse"]).toBe(false);
-    // Nothing reaches waitUntil, so nothing holds the isolate open. This is
-    // the exact assertion that goes red if `forkBackground` is ever reverted
-    // to a bare `Effect.forkDetach` at a real call site.
+    // Nothing reaches waitUntil, so nothing holds the isolate open. This case
+    // is the control for the one above: it shows the work is lost without
+    // `waitUntil`, so the completion there comes from the sink. A
+    // `forkBackground` that skipped the sink fails the case above, at its
+    // `handedToWaitUntil` check.
     expect(response["handedToWaitUntil"]).toBe(0);
 
     await new Promise((r) => setTimeout(r, WORK_MS * 3));

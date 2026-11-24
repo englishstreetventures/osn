@@ -18,7 +18,15 @@ export type AppAnswer = {
   readonly status?: number;
   readonly body?: unknown;
   readonly delayMs?: number;
+  /** The answer waits until this settles. */
+  readonly until?: Promise<unknown>;
 };
+
+/** The claims of the ARC token in a call's `authorization` header. */
+export function arcClaims(authorization: string | null): Record<string, unknown> {
+  const token = authorization?.replace(/^ARC /, "") ?? "";
+  return JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"));
+}
 
 /**
  * One HTTP server standing in for every app the deletion reaches, each under
@@ -46,6 +54,7 @@ export function appStandIns(answer: (call: AppCall) => AppAnswer | undefined = (
       calls.push(call);
       const given = answer(call);
       if (given?.delayMs) await new Promise((resolve) => setTimeout(resolve, given.delayMs));
+      if (given?.until) await given.until;
       if (given?.body !== undefined || given?.status !== undefined) {
         return Response.json(given.body ?? {}, { status: given.status ?? 200 });
       }

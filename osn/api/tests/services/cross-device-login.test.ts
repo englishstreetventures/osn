@@ -1,7 +1,7 @@
 import { it, expect, describe } from "@effect/vitest";
 import { accounts, securityEvents, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import type { CoordinationNamespace } from "@shared/coordination";
+import type { CoordinationNamespace, CoordinationOp, CoordinationStub } from "@shared/coordination";
 import { makeLogEmailLive } from "@shared/email";
 import { and, eq } from "drizzle-orm";
 import { Effect, Fiber, Layer } from "effect";
@@ -12,12 +12,10 @@ import { createAuthService } from "../../src/services/auth";
 import { MAX_SESSIONS_PER_ACCOUNT } from "../../src/services/auth/constants";
 import { deriveSessionBinding } from "../../src/services/auth/helpers";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
-import {
-  createCapturingTestLayer,
-  createTestLayer,
-  createTestLayerWithSqlite,
-} from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 import { registerThroughService } from "../helpers/registration";
 
 function makeAuth() {
@@ -98,12 +96,15 @@ describe("cross-device login", () => {
         uaLabel: "Device B",
       });
 
-      // Device A approves
+      // Device A approves; the notice goes out in the background, and
+      // `settle` waits for it.
       captured.reset();
-      yield* svc.approveCrossDeviceLogin(requestId, secret, profile!.accountId, {
-        uaLabel: "Device A",
-        ip: "203.0.113.5",
-      });
+      yield* settle(
+        svc.approveCrossDeviceLogin(requestId, secret, profile!.accountId, {
+          uaLabel: "Device A",
+          ip: "203.0.113.5",
+        }),
+      );
 
       // Device B polls and gets session
       const result = yield* svc.getCrossDeviceLoginStatus(requestId, secret);
@@ -121,11 +122,8 @@ describe("cross-device login", () => {
       const approval = events.events.find((e) => e.kind === "cross_device_login");
       expect(approval?.ipHash).toMatch(/^[a-f0-9]{64}$/);
 
-      // The notification email is forkDaemon'd — wait for the fiber to
-      // complete (same pattern as the passkey-removed test), then pin
-      // the template so the shared notify helper's per-call-site wiring is
-      // asserted for this flow too.
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 50)));
+      // Pin the notice's template, so the shared notify helper's
+      // per-call-site wiring is asserted for this flow too.
       expect(captured.lastTemplate).toBe("cross-device-login");
     }).pipe(Effect.provide(layer));
   });
@@ -210,56 +208,114 @@ describe("cross-device login", () => {
  * takes the approved entry replaces the reserved row with device B's session,
  * minted from the account and profile as they are then, and refuses when a
  * revocation has removed the row or the account or profile has gone. Run on
- * the Durable Object bundle over a stand-in namespace, with every `read`
- * answering a few milliseconds late, as a round trip does, so two requests'
- * reads overlap however the rest is scheduled.
+ * the Durable Object bundle over a stand-in namespace. A race case holds one
+ * request's store call (`hold`) until the other request has made its own, so
+ * the two overlap the same way on every run.
  */
 describe("cross-device login on the shared store", () => {
-  const READ_DELAY_MS = 10;
+  /** A store call a test holds until it lets it go. */
+  interface Held {
+    readonly ops: readonly CoordinationOp[];
+    /** `before`: held before the call runs. `after`: it ran, and its answer is held. */
+    readonly when: "before" | "after";
+    readonly arrived: () => void;
+    readonly gate: Promise<void>;
+  }
 
-  const slowReads = (ns: CoordinationNamespace): CoordinationNamespace => ({
-    getByName(name, options) {
-      const stub = ns.getByName(name, options);
-      return {
-        ...stub,
-        read: async () => {
-          const value = await stub.read();
-          await new Promise((resolve) => setTimeout(resolve, READ_DELAY_MS));
-          return value;
-        },
-      };
-    },
-  });
+  const OPS: readonly CoordinationOp[] = [
+    "increment",
+    "count",
+    "read",
+    "write",
+    "remove",
+    "claim",
+    "guess",
+    "take",
+    "swap",
+  ];
 
   /**
-   * Every `swap` waits a read's delay before it runs, so two approvals that
-   * read together have both reserved their rows before either decides; a
-   * `swap` that answers false answers a further read's delay late, so the
-   * winner's writes land while the loser's reserved row is still there.
+   * `ns` with calls on a request's `cross_device` object held as `armed`
+   * says: each call is held by the first armed hold that names its op at that
+   * point, which it then uses up. Every other call goes straight through.
    */
-  const heldSwaps = (ns: CoordinationNamespace): CoordinationNamespace => ({
+  const holdingCalls = (ns: CoordinationNamespace, armed: Held[]): CoordinationNamespace => ({
     getByName(name, options) {
       const stub = ns.getByName(name, options);
-      return {
-        ...stub,
-        swap: async (expected, value, ttlMs) => {
-          await new Promise((resolve) => setTimeout(resolve, READ_DELAY_MS));
-          const swapped = await stub.swap(expected, value, ttlMs);
-          if (!swapped) await new Promise((resolve) => setTimeout(resolve, READ_DELAY_MS));
-          return swapped;
-        },
+      if (!name.startsWith("cross_device:")) return stub;
+      const at = async (op: CoordinationOp, when: Held["when"]) => {
+        const index = armed.findIndex((held) => held.when === when && held.ops.includes(op));
+        if (index < 0) return;
+        const [held] = armed.splice(index, 1);
+        held!.arrived();
+        await held!.gate;
       };
+      return Object.fromEntries(
+        OPS.map((op) => [
+          op,
+          async (...args: unknown[]) => {
+            await at(op, "before");
+            const value = await (stub[op] as (...a: unknown[]) => Promise<unknown>)(...args);
+            await at(op, "after");
+            return value;
+          },
+        ]),
+      ) as unknown as CoordinationStub;
     },
   });
 
-  function harness(holdSwaps = false) {
+  function harness() {
     const fake = createFakeNamespace();
-    const ns = slowReads(fake.ns);
-    const bundle = createDurableCoordination(holdSwaps ? heldSwaps(ns) : ns, () => {});
+    const armed: Held[] = [];
+    const bundle = createDurableCoordination(holdingCalls(fake.ns, armed), () => {});
     const svc = createAuthService({ ...config, ceremonyStores: bundle.ceremonyStores });
     const layer = Layer.merge(createTestLayer(), makeLogEmailLive().layer);
-    return { svc, layer, fake, store: bundle.ceremonyStores.crossDeviceRequests };
+    /**
+     * Holds the next call to any of `ops` on a request's entry, before it
+     * runs or after (its answer). `reached` waits until that call is held;
+     * `release` lets it go on.
+     */
+    const hold = (ops: readonly CoordinationOp[], when: Held["when"]) => {
+      let arrived!: () => void;
+      let release!: () => void;
+      const reached = new Promise<void>((resolve) => {
+        arrived = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      armed.push({ ops, when, arrived, gate });
+      return { reached: Effect.promise(() => reached), release };
+    };
+    return { svc, layer, fake, hold, store: bundle.ceremonyStores.crossDeviceRequests };
   }
+
+  /**
+   * `first` and `second`, each deciding the same request with one `swap`:
+   * `first` is held at its swap, `second` reads the pending entry, reserves
+   * what it reserves and is held at its own swap; then `first` swaps and runs
+   * to its end, and only then `second` swaps. Both read the pending entry,
+   * both have reserved before either decides, and the winner's writes land
+   * while the loser's reservation is still there. Answers both outcomes,
+   * `first`'s first.
+   */
+  const twoDecisionsAtOnce = <A, B, E1, E2, R1, R2>(
+    hold: ReturnType<typeof harness>["hold"],
+    first: Effect.Effect<A, E1, R1>,
+    second: Effect.Effect<B, E2, R2>,
+  ) =>
+    Effect.gen(function* () {
+      const firstSwap = hold(["swap"], "before");
+      const one = yield* Effect.forkChild(Effect.result(first));
+      yield* firstSwap.reached;
+      const secondSwap = hold(["swap"], "before");
+      const two = yield* Effect.forkChild(Effect.result(second));
+      yield* secondSwap.reached;
+      firstSwap.release();
+      const oneResult = yield* Fiber.join(one);
+      secondSwap.release();
+      return [oneResult, yield* Fiber.join(two)] as const;
+    });
 
   /** While set, every `swap` on the cross-device store rejects, as an unreachable object does. */
   const failSwaps = (fake: ReturnType<typeof createFakeNamespace>) =>
@@ -566,16 +622,14 @@ describe("cross-device login on the shared store", () => {
   it.live(
     "of two approvals at once at the session cap, only the winner evicts, and only one session",
     () => {
-      const { svc, layer } = harness(true);
+      const { svc, layer, hold } = harness();
       return Effect.gen(function* () {
         const profile = yield* svc.registerProfile("cdl-cap-race@example.com", "cdlcaprace");
         const { seeded, oldest } = yield* fillToCap(svc, profile);
         const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
 
-        const approve = Effect.result(
-          svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
-        );
-        const approvals = yield* Effect.all([approve, approve], { concurrency: "unbounded" });
+        const approve = svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+        const approvals = yield* twoDecisionsAtOnce(hold, approve, approve);
         expect(successes(approvals)).toBe(1);
 
         const ids = yield* sessionIds(profile.accountId);
@@ -606,19 +660,25 @@ describe("cross-device login on the shared store", () => {
   });
 
   it.live("of two polls at once, one gets a session and the other finds nothing", () => {
-    const { svc, layer } = harness();
+    const { svc, layer, hold } = harness();
     return Effect.gen(function* () {
       const profile = yield* svc.registerProfile("cdl-polls@example.com", "cdlpolls");
       const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
       yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
 
-      const polls = yield* Effect.all(
-        [
-          svc.getCrossDeviceLoginStatus(requestId, cdlSecret),
-          svc.getCrossDeviceLoginStatus(requestId, cdlSecret),
-        ],
-        { concurrency: "unbounded" },
-      );
+      // Both polls read the approved entry before either takes it, and each
+      // poll's take (whatever store calls it makes, read first) answers only
+      // once the other's has run too.
+      const poll = svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      const reads = [hold(["read"], "after"), hold(["read"], "after")];
+      const fibers = [yield* Effect.forkChild(poll), yield* Effect.forkChild(poll)];
+      for (const read of reads) yield* read.reached;
+      const takes = [hold(["take", "read"], "after"), hold(["take", "read"], "after")];
+      for (const read of reads) read.release();
+      for (const take of takes) yield* take.reached;
+      for (const take of takes) take.release();
+      const polls = [];
+      for (const fiber of fibers) polls.push(yield* Fiber.join(fiber));
       expect(polls.map((p) => p.status).toSorted()).toEqual(["approved", "expired"]);
       const approved = polls.find((p) => p.status === "approved");
       if (approved?.status !== "approved") throw new Error("no poll was approved");
@@ -629,18 +689,13 @@ describe("cross-device login on the shared store", () => {
   });
 
   it.live("of two approvals at once, one wins: one session and one security event", () => {
-    const { svc, layer } = harness();
+    const { svc, layer, hold } = harness();
     return Effect.gen(function* () {
       const profile = yield* svc.registerProfile("cdl-approve@example.com", "cdlapprove");
       const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
 
-      const approvals = yield* Effect.all(
-        [
-          Effect.result(svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId)),
-          Effect.result(svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId)),
-        ],
-        { concurrency: "unbounded" },
-      );
+      const approve = svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+      const approvals = yield* twoDecisionsAtOnce(hold, approve, approve);
       expect(successes(approvals)).toBe(1);
       const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
       expect(poll.status).toBe("approved");
@@ -668,17 +723,15 @@ describe("cross-device login on the shared store", () => {
   });
 
   it.live("of an approval and a rejection at once, one wins", () => {
-    const { svc, layer } = harness();
+    const { svc, layer, hold } = harness();
     return Effect.gen(function* () {
       const profile = yield* svc.registerProfile("cdl-either@example.com", "cdleither");
       const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
 
-      const decisions = yield* Effect.all(
-        [
-          Effect.result(svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId)),
-          Effect.result(svc.rejectCrossDeviceLogin(requestId, cdlSecret)),
-        ],
-        { concurrency: "unbounded" },
+      const decisions = yield* twoDecisionsAtOnce(
+        hold,
+        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+        svc.rejectCrossDeviceLogin(requestId, cdlSecret),
       );
       expect(successes(decisions)).toBe(1);
       const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
@@ -755,46 +808,31 @@ describe("cross-device login on the shared store", () => {
   });
 
   it.live("an approval reads its request and the approver's default profile side by side", () => {
-    const fake = createFakeNamespace();
-    let holding = false;
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const ns: CoordinationNamespace = {
-      getByName(name, options) {
-        const stub = fake.ns.getByName(name, options);
-        return {
-          ...stub,
-          read: () =>
-            holding && name.startsWith("cross_device:")
-              ? gate.then(() => stub.read())
-              : stub.read(),
-        };
-      },
-    };
-    const bundle = createDurableCoordination(ns, () => {});
-    const svc = createAuthService({ ...config, ceremonyStores: bundle.ceremonyStores });
-    const database = createCapturingTestLayer();
+    const { svc, hold } = harness();
+    const { db, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
     return Effect.gen(function* () {
       const profile = yield* svc.registerProfile("cdl-sbs@example.com", "cdlsbs");
       const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
-      holding = true;
-      const from = database.captured.length;
+      // The request read is held before it runs, and the profile read once it
+      // starts. Were the profile read to wait on the request read, it would
+      // never start; the bound only ends that wait, and a passing run never
+      // reaches it.
+      const requestRead = hold(["read"], "before");
+      const profileRead = queries.hold(/from "users"/);
       const approval = yield* Effect.forkChild(
         svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
       );
-      let profileRead = false;
-      for (let i = 0; i < 100 && !profileRead; i++) {
-        profileRead = database.captured
-          .slice(from)
-          .some((statement) => statement.sql.includes('from "users"'));
-        if (!profileRead) yield* Effect.sleep("10 millis");
-      }
-      release();
+      yield* requestRead.reached;
+      const profileReadStarted = yield* Effect.promise(() => profileRead.reached).pipe(
+        Effect.timeoutOption("1 second"),
+      );
+      requestRead.release();
+      profileRead.release();
       yield* Fiber.join(approval);
-      expect(profileRead).toBe(true);
-    }).pipe(Effect.provide(database.layer));
+      expect(profileReadStarted._tag).toBe("Some");
+    }).pipe(Effect.provide(layer));
   });
 
   describe("an answer that does not wait on tidying the entry away", () => {
@@ -873,16 +911,14 @@ describe("cross-device login on the shared store", () => {
         CREATE TRIGGER refuse_session_eviction BEFORE DELETE ON sessions
         BEGIN SELECT RAISE(ABORT, 'eviction refused'); END;
       `);
+      // `settle` waits for the notice the approval sends in the background,
+      // failed or not.
       const error = yield* Effect.flip(
-        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+        settle(svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId)),
       );
       expect(error._tag).toBe("DatabaseError");
       expect((yield* countRows(profile.accountId)).events).toBe(1);
-      let noticed = false;
-      for (let i = 0; i < 100 && !noticed; i++) {
-        noticed = email.recorded().some((sent) => sent.template === "cross-device-login");
-        if (!noticed) yield* Effect.sleep("10 millis");
-      }
+      const noticed = email.recorded().some((sent) => sent.template === "cross-device-login");
       expect(noticed).toBe(true);
     }).pipe(Effect.provide(dbLayer));
   });

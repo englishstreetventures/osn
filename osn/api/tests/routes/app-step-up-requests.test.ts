@@ -16,6 +16,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { serviceAccountKeys, serviceAccounts } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import type { CoordinationNamespace } from "@shared/coordination";
 import {
   clearPublicKeyCache,
   createArcToken,
@@ -108,14 +109,53 @@ async function arcCaller(
 }
 
 /**
+ * `ns`, with a gate on the `app_step_up` objects' reads. Once armed with `n`,
+ * each read runs and none answers until `n` have arrived, so `n` confirms
+ * have all read the pending request before any of them can write.
+ */
+function gatedReads(ns: CoordinationNamespace) {
+  let armed: { n: number; arrived: (() => void)[] } | null = null;
+  const gated: CoordinationNamespace = {
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
+      if (!name.startsWith("app_step_up:")) return stub;
+      return {
+        ...stub,
+        read: async () => {
+          const value = await stub.read();
+          const gate = armed;
+          if (gate) {
+            await new Promise<void>((resolve) => {
+              gate.arrived.push(resolve);
+              if (gate.arrived.length === gate.n) {
+                armed = null;
+                for (const release of gate.arrived) release();
+              }
+            });
+          }
+          return value;
+        },
+      };
+    },
+  };
+  return {
+    ns: gated,
+    holdReads(n: number) {
+      armed = { n, arrived: [] };
+    },
+  };
+}
+
+/**
  * Two accounts, each signed in once; the first with a second profile. Every
  * route through one `createApp` over the Durable Object stand-in.
  */
 async function harness() {
   const fake = createFakeNamespace();
+  const reads = gatedReads(fake.ns);
   const { layer, sqlite } = createTestLayerWithSqlite();
   const built = await buildAppDeps(env, {
-    coordination: (onError) => createDurableCoordination(fake.ns, onError),
+    coordination: (onError) => createDurableCoordination(reads.ns, onError),
     dbAndEmailLayer: layer,
     observabilityLayer: osnLoggerLayer,
     includeObservabilityPlugin: false,
@@ -233,6 +273,7 @@ async function harness() {
     app,
     auth,
     fake,
+    holdReads: reads.holdReads,
     sqlite,
     run,
     a,
@@ -326,23 +367,31 @@ describe("POST /internal/step-up/requests", () => {
 
   it("refuses a call with no ARC token, and a binding that is not a SHA-256, storing nothing", async () => {
     const h = await harness();
-    const noToken = await h.app.handle(
-      new Request("http://localhost/internal/step-up/requests", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          purpose: "cire_app_delete",
-          profile_id: h.a.id,
-          binding: sha256(secret()),
-          return_to: RETURN_TO,
+    const withoutArc = (headers: Record<string, string>) =>
+      h.app.handle(
+        new Request("http://localhost/internal/step-up/requests", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify({
+            purpose: "cire_app_delete",
+            profile_id: h.a.id,
+            binding: sha256(secret()),
+            return_to: RETURN_TO,
+          }),
         }),
-      }),
-    );
-    // Refused before the route runs: no ARC token, no request.
+      );
+    // Refused before the route runs: no ARC token, no request. Sent from the
+    // allowed origin, so the ARC check is what refuses it; sent from no origin
+    // at all, the origin guard refuses it first.
+    const noToken = await withoutArc({ origin: ORIGIN });
     expect(noToken.ok).toBe(false);
+    expect(noToken.status).toBe(401);
+    expect((await withoutArc({})).status).toBe(403);
+    // Refused by the body schema's SHA-256 pattern.
     for (const binding of ["", "z".repeat(64), sha256(secret()).toUpperCase(), "a".repeat(63)]) {
       const res = await h.begin({ profile_id: h.a.id, binding });
       expect({ binding, ok: res.ok }).toEqual({ binding, ok: false });
+      expect({ binding, status: res.status }).toEqual({ binding, status: 422 });
     }
     expect(callsOn(h.fake, "app_step_up")).toEqual([]);
   });
@@ -425,11 +474,18 @@ describe("GET /step-up/requests/:id and POST …/confirm", () => {
   it("of two confirms at once, one wins and the other finds no pending request", async () => {
     // Red on writing the confirmed state without comparing it to what was
     // read: both would answer a code, and the second would replace the first.
+    // Both confirms read the pending request before either writes: the reads
+    // are held until both have arrived.
     const h = await harness();
     const { id } = await h.begun();
+    const [t1, t2] = await Promise.all([
+      h.stepUpToken(h.a, "cire_app_delete"),
+      h.stepUpToken(h.a, "cire_app_delete"),
+    ]);
+    h.holdReads(2);
     const [first, second] = await Promise.all([
-      h.confirm(id, h.a.accessToken, await h.stepUpToken(h.a, "cire_app_delete")),
-      h.confirm(id, h.a.accessToken, await h.stepUpToken(h.a, "cire_app_delete")),
+      h.confirm(id, h.a.accessToken, t1),
+      h.confirm(id, h.a.accessToken, t2),
     ]);
     expect([first.status, second.status].toSorted()).toEqual([200, 404]);
   });
@@ -446,12 +502,15 @@ describe("GET /step-up/requests/:id and POST …/confirm", () => {
 
   it("send the person back to the request's own address with a code on its fragment", async () => {
     const h = await harness();
-    const { returnTo, code } = await h.confirmed();
+    const { id, returnTo, code } = await h.confirmed();
     const url = new URL(returnTo);
     expect(url.origin).toBe(PORTAL);
     expect(url.hash).toBe(`#/remove-data?code=${code}`);
-    // A confirmed request is no longer pending: Musubi cannot confirm it twice.
     expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    // A confirmed request is no longer pending: Musubi cannot confirm it twice.
+    const again = await h.confirm(id, h.a.accessToken, await h.stepUpToken(h.a, "cire_app_delete"));
+    expect(again.status).toBe(404);
+    expect((await h.read(id, h.a.accessToken)).status).toBe(404);
   });
 });
 

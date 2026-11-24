@@ -69,8 +69,8 @@ describe("logDevLink", () => {
     expect(lines[0]).toContain(`${LINK}123456`);
   });
 
-  // The actual S-L4 assertion. Deliberately shape-based, not parameter-based:
-  // it fails on ANY reintroduced address, however it gets there.
+  // The redaction assertion. Shape-based, not parameter-based: it fails on any
+  // address, however it gets into the line.
   it("never emits the recipient address", async () => {
     const logDevLink = await freshLogDevLink("local");
     const lines = await capture(logDevLink("email-change", `${LINK}654321`));
@@ -141,7 +141,7 @@ describe("logDevLink", () => {
     vi.resetModules();
   });
 
-  async function freshLogDevLink(osnEnv: string) {
+  async function freshDevLinkLogger(osnEnv: string) {
     vi.resetModules();
     process.env.OSN_ENV = osnEnv;
     const mod = await import("../../../src/services/auth/helpers");
@@ -149,7 +149,7 @@ describe("logDevLink", () => {
   }
 
   it("logs the purpose and the whole link locally", async () => {
-    const logDevLink = await freshLogDevLink("local");
+    const logDevLink = await freshDevLinkLogger("local");
     const lines = await capture(logDevLink("registration", URL_WITH_SECRET));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("registration");
@@ -157,7 +157,7 @@ describe("logDevLink", () => {
   });
 
   it.each(["dev", "staging", "production"])("emits nothing when OSN_ENV is %s", async (env) => {
-    const logDevLink = await freshLogDevLink(env);
+    const logDevLink = await freshDevLinkLogger(env);
     const lines = await capture(logDevLink("registration", URL_WITH_SECRET));
     expect(lines).toEqual([]);
   });

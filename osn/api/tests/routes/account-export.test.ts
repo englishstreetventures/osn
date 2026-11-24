@@ -285,7 +285,7 @@ describe("GET /account/export — bundle", () => {
     expect(res.headers.get("content-type")).toContain("application/x-ndjson");
 
     const text = await res.text();
-    // P6 privacy invariant — the internal accountId must never appear.
+    // The internal account id never appears in the export.
     expect(text).not.toContain(profile.accountId);
 
     const lines = text
@@ -366,7 +366,7 @@ describe("GET /account/export — bundle", () => {
     }
   });
 
-  it("includes the account's OIDC consents (C-M1 oidc)", async () => {
+  it("includes the account's OIDC consents, a revoked one too, and the clients it registered without their secret hash", async () => {
     const { layer, sqlite } = createTestLayerWithSqlite();
     const { auth, profile, accessToken } = await seed(layer);
     sqlite.run(

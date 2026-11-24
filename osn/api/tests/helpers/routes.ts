@@ -5,8 +5,8 @@ import {
 import { createProfileRoutes as createProfileRoutesRaw } from "../../src/routes/profile";
 
 /**
- * Test wrappers around the auth / profile route factories for the S-M34
- * client-IP hardening.
+ * Test wrappers around the auth / profile route factories, for the client-IP
+ * rule (a request whose address cannot be resolved is refused).
  *
  * Two things differ from production wiring under `app.handle(...)`:
  *  1. There is no Bun server, so `server.requestIP` is unavailable. In the
@@ -19,10 +19,10 @@ import { createProfileRoutes as createProfileRoutesRaw } from "../../src/routes/
  * So these wrappers run the routes with `{ trustedProxyCount: 1 }` (honour
  * XFF, taking the right-most entry) unless the test supplies its own
  * `clientIpConfig`, and patch `.handle` to inject a stable default
- * `x-forwarded-for` on requests that don't set one — restoring the
- * pre-hardening behaviour where a header-less request still resolved to a
- * deterministic key. Tests that want to exercise the unresolved→deny path or a
- * specific bucket set the header (or proxy count) explicitly.
+ * `x-forwarded-for` on requests that don't set one, so a header-less request
+ * still resolves to a deterministic key. Tests that want to exercise the
+ * unresolved→deny path or a specific bucket set the header (or proxy count)
+ * explicitly.
  */
 
 const DEFAULT_TEST_XFF = "127.0.0.1";

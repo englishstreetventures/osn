@@ -1,3 +1,4 @@
+import { totpCredentials } from "@osn/db/schema";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -31,7 +32,7 @@ describe("importTotpEncryptionKey", () => {
     expect(key.algorithm.name).toBe("AES-GCM");
   });
 
-  it("refuses a key that is not extractable", async () => {
+  it("imports the key as non-extractable", async () => {
     const key = await importTotpEncryptionKey(validKeyB64);
     // Non-extractable so a bug cannot serialise it into a log or a response.
     expect(key.extractable).toBe(false);
@@ -115,7 +116,7 @@ describe("the key ring", () => {
     expect([...ring.keys()]).toEqual([TOTP_KEY_VERSION]);
     // The column's own default, so a row written before any of this existed
     // lands on the key the ring calls current.
-    expect(TOTP_KEY_VERSION).toBe(1);
+    expect(TOTP_KEY_VERSION).toBe(totpCredentials.keyVersion.default);
   });
 
   it("puts the PREVIOUS key at the base version and the current one above it", async () => {
@@ -211,9 +212,9 @@ describe("encrypt / decrypt round trip", () => {
 
 describe("a key demoted to PREVIOUS still opens its rows", () => {
   it("verifies a row written before the rotation, with nothing but the two secrets changed", async () => {
-    // Issue #968's first "done when", walked the way an operator walks it: a
-    // row is written under one key, and the service restarts with that key
-    // moved to OSN_TOTP_ENCRYPTION_KEY_PREVIOUS and a new key installed as
+    // The rotation as an operator runs it: a row is written under one key, and
+    // the service restarts with that key moved to
+    // OSN_TOTP_ENCRYPTION_KEY_PREVIOUS and a new key installed as
     // OSN_TOTP_ENCRYPTION_KEY. Both rings come from `createTotpKeyRing`, the
     // factory `build-deps.ts` calls — hand-building the Maps here would test
     // the ReadonlyMap rather than the path the operator takes.
@@ -272,13 +273,13 @@ describe("a key demoted to PREVIOUS still opens its rows", () => {
     });
 
     expect(opened.keyVersion).toBe(currentTotpKeyVersion(sameTwice));
+    expect(opened.keyVersion).toBe(2);
   });
 
   it("still opens drained rows after the previous key is deleted", async () => {
-    // The end of a rotation. `createTotpKeyRing(k2)` numbers the lone key 1,
-    // while the drained rows are stamped 2 — so this passes only because the
-    // stamp is a hint. It is the exact state that locked every user out under
-    // the scheme this one replaced.
+    // The end of a rotation. `createTotpKeyRing(k2)` numbers the lone key 1
+    // while the drained rows are stamped 2, so this passes only because the
+    // stamp is a hint.
     const k1 = await generateEphemeralTotpEncryptionKey();
     const k2 = await generateEphemeralTotpEncryptionKey();
     const during = createTotpKeyRing(k2, k1);

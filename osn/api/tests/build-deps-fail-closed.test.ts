@@ -24,14 +24,14 @@ import { createTestLayer } from "./helpers/db";
 import { userTierBindings } from "./helpers/rate-limit-bindings";
 
 /**
- * T-S1 — non-local fail-closed guardrails (the deploy-time guards). Each unit
- * below asserts a misconfigured NON-LOCAL deployment throws at construction
- * rather than silently downgrading to a weaker dev posture.
+ * Non-local fail-closed guards: each case below asserts that a misconfigured
+ * non-local deployment refuses to boot rather than falling back to a weaker
+ * dev posture.
  *
- *   S-H2  loadJwtKeyPair        — missing JWT keys in non-local ⇒ throw.
- *   S-M2  buildAppDeps          — short/absent OSN_SESSION_IP_PEPPER ⇒ throw.
- *   handler.fetch               — no COORDINATION binding in any tier ⇒ 503.
- *   S-M34 parseTrustedProxyCount — malformed counts ⇒ throw.
+ *   loadJwtKeyPair         — missing JWT keys in non-local ⇒ throw.
+ *   buildAppDeps           — short/absent OSN_SESSION_IP_PEPPER ⇒ throw.
+ *   handler.fetch          — no COORDINATION binding in any tier ⇒ 503.
+ *   parseTrustedProxyCount — malformed counts ⇒ throw.
  */
 
 // A REAL ES256 JWK pair (base64-encoded JWK JSON, exactly the wrangler-secret
@@ -58,7 +58,7 @@ function nonLocalParts() {
   };
 }
 
-describe("loadJwtKeyPair non-local guard (S-H2)", () => {
+describe("loadJwtKeyPair non-local guard", () => {
   it("throws in non-local when the JWT key pair is absent", async () => {
     await expect(loadJwtKeyPair({ OSN_ENV: "production" })).rejects.toThrow(
       /OSN_JWT_PRIVATE_KEY and OSN_JWT_PUBLIC_KEY must be set/,
@@ -71,7 +71,7 @@ describe("loadJwtKeyPair non-local guard (S-H2)", () => {
   });
 });
 
-describe("loadJwtKeyPair sign-usage guard (S-M4)", () => {
+describe("loadJwtKeyPair sign-usage guard", () => {
   it("throws when the PUBLIC JWK is pasted into the private slot", async () => {
     await expect(
       loadJwtKeyPair({ OSN_JWT_PRIVATE_KEY: pubB64, OSN_JWT_PUBLIC_KEY: pubB64 }),
@@ -88,7 +88,7 @@ describe("loadJwtKeyPair sign-usage guard (S-M4)", () => {
   });
 });
 
-describe("buildAppDeps OSN_ORIGIN non-local guard (S-L5)", () => {
+describe("buildAppDeps OSN_ORIGIN non-local guard", () => {
   it("throws in non-local when OSN_ORIGIN is absent", async () => {
     await expect(
       buildAppDeps(
@@ -146,6 +146,12 @@ describe("buildAppDeps TOTP-encryption-key non-local guard", () => {
         nonLocalParts(),
       ),
     ).rejects.toThrow(/must decode to exactly 32 bytes/);
+    await expect(
+      buildAppDeps(
+        { ...nonLocalEnv(), OSN_TOTP_ENCRYPTION_KEY: Buffer.from("short").toString("base64") },
+        nonLocalParts(),
+      ),
+    ).rejects.toThrow(/must decode to exactly 32 bytes/);
   });
 
   it("boots in non-local with a valid key", async () => {
@@ -156,8 +162,7 @@ describe("buildAppDeps TOTP-encryption-key non-local guard", () => {
       },
       nonLocalParts(),
     );
-    // Exactly as before rotation existed: one key, at the version the column
-    // defaults to. "Behaves exactly as today" is a `done when` clause of #968.
+    // One key, at the version the column defaults to.
     expect(built.deps.authConfig.totpEncryptionKeys?.size).toBe(1);
     expect([...(built.deps.authConfig.totpEncryptionKeys?.keys() ?? [])]).toEqual([
       TOTP_KEY_VERSION,
@@ -234,7 +239,7 @@ describe("buildAppDeps TOTP-encryption-key non-local guard", () => {
   });
 });
 
-describe("buildAppDeps session-IP-pepper non-local guard (S-M2)", () => {
+describe("buildAppDeps session-IP-pepper non-local guard", () => {
   it("throws in non-local when OSN_SESSION_IP_PEPPER is absent", async () => {
     await expect(
       buildAppDeps(
@@ -269,7 +274,7 @@ describe("buildAppDeps session-IP-pepper non-local guard (S-M2)", () => {
   });
 });
 
-// F-SV6: no per-isolate stand-in is safe for the shared stores, in any tier.
+// No per-isolate stand-in is safe for the shared stores, in any tier.
 describe("handler.fetch without the COORDINATION binding", () => {
   const deployedEnv = (tier: string): Env => ({
     OSN_ENV: tier,
@@ -342,7 +347,7 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
     expect(json.error).toContain("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN");
   });
 
-  it("creds absent + OSN_EMAIL_OPTIONAL=true → boots (200), no longer 503", async () => {
+  it("creds absent + OSN_EMAIL_OPTIONAL=true → boots (200)", async () => {
     const res = await handler.fetch(
       new Request("https://api.osn.test/"),
       emailEnv({ OSN_EMAIL_OPTIONAL: "true" }),
@@ -352,14 +357,6 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
     const json = (await res.json()) as { status: string; service: string };
     expect(json.status).toBe("ok");
     expect(json.service).toBe("osn-auth");
-  });
-
-  it("creds PRESENT → boots regardless of the opt-in (creds win)", async () => {
-    const res = await handler.fetch(
-      new Request("https://api.osn.test/"),
-      emailEnv({ CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_EMAIL_API_TOKEN: "tok" }),
-    );
-    expect(res.status).toBe(200);
   });
 });
 
@@ -385,7 +382,7 @@ describe("parseRefreshTokenTtl", () => {
   });
 });
 
-describe("parseTrustedProxyCount (S-M34)", () => {
+describe("parseTrustedProxyCount", () => {
   it("throws on a negative count", () => {
     expect(() => parseTrustedProxyCount("-1")).toThrow(/non-negative integer/);
   });

@@ -1,4 +1,14 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  setDefaultTimeout,
+  spyOn,
+} from "bun:test";
 
 import type { D1Database as DrizzleD1 } from "@cloudflare/workers-types";
 import {
@@ -26,27 +36,68 @@ import {
   exportKeyToJwk,
   generateArcKeyPair,
 } from "@shared/crypto";
-import { commitBatch, createD1Db, rowsChanged } from "@shared/db-utils";
-import { and, count, eq, isNotNull, sql } from "drizzle-orm";
+import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
+import { commitBatch, createD1Db, driverErrorText } from "@shared/db-utils";
+import { makeLogEmailLive, type EmailService } from "@shared/email";
+import * as webauthn from "@simplewebauthn/server";
+import { count, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
 import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
+import {
+  createTotpKeyRing,
+  decryptTotpSecret,
+  generateEphemeralTotpEncryptionKey,
+  TOTP_KEY_VERSION,
+  type TotpKeyRing,
+} from "../../src/lib/totp-secret-crypto";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../src/lib/unique-constraint";
+import * as metrics from "../../src/metrics";
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import {
   cancelErasure,
   getDeletionStatus,
   requestErasure,
 } from "../../src/services/account-erasure";
+import { createAuthService, type AuthConfig } from "../../src/services/auth";
+import {
+  MAX_PASSKEYS_PER_ACCOUNT,
+  RECOVERY_ENROLMENT_PASSKEY_CEILING,
+} from "../../src/services/auth/constants";
 import { createRecommendationService } from "../../src/services/recommendations";
+import { makeTestAuthConfig } from "../helpers/auth-config";
+import { completeTotpStepUp, mintStepUpToken } from "../helpers/step-up-session";
 
-// Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
-// The rest of the OSN suite runs on synchronous bun:sqlite; these exercise the
-// ASYNCHRONOUS D1 driver path — specifically the multi-statement
-// `commitBatch` → `db.batch([...])` branch of the account-erasure flows, which
-// the bun:sqlite unit suite never reaches. This is the only coverage of the D1
-// transaction-equivalent (batch) path for OSN core.
+// Integration tests against a real (workerd-backed) D1 database via Miniflare.
+// The fast tier runs on bun:sqlite, where `commitBatch` runs statements one at
+// a time; these run the D1 driver, where it sends one `db.batch`.
+
+// `completePasskeyRegistration` runs a real WebAuthn attestation through
+// `@simplewebauthn/server`, which no test can produce. While `stubAttestation`
+// is set, the verifier answers a fresh credential; otherwise it is the real one.
+const realVerifyRegistration = webauthn.verifyRegistrationResponse;
+let stubAttestation = false;
+void mock.module("@simplewebauthn/server", () => ({
+  ...webauthn,
+  verifyRegistrationResponse: (async (...args: Parameters<typeof realVerifyRegistration>) =>
+    stubAttestation
+      ? {
+          verified: true,
+          registrationInfo: {
+            credential: {
+              id: `cred-d1-${crypto.randomUUID()}`,
+              publicKey: new Uint8Array([1, 2, 3, 4]),
+              counter: 0,
+              transports: undefined,
+            },
+            aaguid: "00000000-0000-0000-0000-000000000000",
+            credentialBackedUp: false,
+            credentialDeviceType: "singleDevice",
+          },
+        }
+      : realVerifyRegistration(...args)) as typeof realVerifyRegistration,
+}));
 
 /* eslint-disable no-await-in-loop */
 
@@ -203,6 +254,8 @@ function raceInsertBeforeQuery(
   base: DrizzleD1,
   sqlHint: string,
   beforeQuery: () => Promise<void>,
+  /** Told the SQL of the statement the hook fired on. */
+  onFire: (query: string) => void = () => {},
 ): DrizzleD1 {
   let armed = true;
   return new Proxy(base, {
@@ -228,6 +281,7 @@ function raceInsertBeforeQuery(
                   ).bind(boundTarget);
                   return async (...args: unknown[]) => {
                     armed = false; // once only — the seed subquery re-runs inside the same statement, not as a separate prepare
+                    onFire(query);
                     await beforeQuery();
                     return orig(...args);
                   };
@@ -295,7 +349,7 @@ beforeEach(async () => {
 });
 
 describe("osn/api account erasure over real D1 (Miniflare)", () => {
-  it("requestErasure commits the multi-statement batch atomically on D1", async () => {
+  it("requestErasure tombstones the account and schedules its job on D1", async () => {
     const out = await run(
       requestErasure({
         accountId: ACCOUNT_ID,
@@ -335,147 +389,149 @@ describe("TOTP blob columns over real D1 (Miniflare)", () => {
   // bun:sqlite. drizzle normalises the READ side for both drivers
   // (`SQLiteBlobBuffer.mapFromDriverValue` wraps whatever comes back in
   // `Buffer.from`), so the untested half is the WRITE: what D1's `bind()` does
-  // with a Node Buffer. Hence insert-then-select-then-compare rather than
-  // reading a seeded row — a seeded row would prove nothing about the path
-  // production actually takes.
-  it("round-trips a ciphertext and IV through a real D1 write and read", async () => {
-    const ciphertext = new Uint8Array(36);
-    const iv = new Uint8Array(12);
-    crypto.getRandomValues(ciphertext);
-    crypto.getRandomValues(iv);
+  // with what the service hands it. Each case below writes through the
+  // service and reads the row back, so a driver that mangled the bytes leaves
+  // a secret that does not decrypt.
+  const STEP_SECONDS = 30;
+  const currentStep = () => Math.floor(Date.now() / 1000 / STEP_SECONDS);
 
-    const nowSec = Math.floor(Date.now() / 1000);
-    await rawDb.insert(totpCredentials).values({
-      id: "totp_d1round1",
-      accountId: ACCOUNT_ID,
-      secretCiphertext: Buffer.from(ciphertext),
-      iv: Buffer.from(iv),
-      keyVersion: 1,
-      label: "D1 round trip",
-      confirmedAt: nowSec,
-      lastUsedAt: nowSec,
-      lastUsedStep: 12345,
-      createdAt: nowSec,
-    });
+  let config: AuthConfig;
+  beforeAll(async () => {
+    config = await makeTestAuthConfig();
+  });
 
+  const serviceWith = (ring: TotpKeyRing) =>
+    createAuthService({ ...config, totpEncryptionKeys: ring });
+
+  const withEmail = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>): Promise<A> =>
+    Effect.runPromise(eff.pipe(Effect.provide(Layer.merge(layer, makeLogEmailLive().layer))));
+
+  /**
+   * Registers an account and enrols TOTP on it through `service`, on D1.
+   * Answers the secret and the step the enrolment code spent.
+   */
+  const enrolled = async (
+    service: ReturnType<typeof createAuthService>,
+    email: string,
+    handle: string,
+  ) => {
+    const profile = await run(service.registerProfile(email, handle));
+    const stepUpToken = await run(
+      mintStepUpToken(service, profile.accountId, "passkey", "totp_enroll"),
+    );
+    const { totpSecret } = await run(service.beginTotpEnrollment(profile.accountId, stepUpToken));
+    const secret = base32Decode(totpSecret);
+    const step = currentStep();
+    const code = await deriveTotpCode(secret, step);
+    await withEmail(service.completeTotpEnrollment(profile.accountId, code, "D1 phone"));
+    return { accountId: profile.accountId, secret, step };
+  };
+
+  const credentialRow = async (accountId: string) => {
     const rows = await rawDb
       .select()
       .from(totpCredentials)
-      .where(eq(totpCredentials.id, "totp_d1round1"));
-    const row = rows[0]!;
+      .where(eq(totpCredentials.accountId, accountId));
+    expect(rows).toHaveLength(1);
+    return rows[0]!;
+  };
 
+  it("round-trips a ciphertext and IV through a real D1 write and read", async () => {
+    const ring = createTotpKeyRing(await generateEphemeralTotpEncryptionKey());
+    const { accountId, secret, step } = await enrolled(
+      serviceWith(ring),
+      "d1-totp-enrol@example.com",
+      "d1totpenrol",
+    );
+
+    const row = await credentialRow(accountId);
     // Byte-for-byte, not just "truthy": a driver that stringified the buffer
-    // would still return something non-empty here.
-    expect(Buffer.from(row.secretCiphertext).equals(Buffer.from(ciphertext))).toBe(true);
-    expect(Buffer.from(row.iv).equals(Buffer.from(iv))).toBe(true);
-    expect(row.keyVersion).toBe(1);
-    expect(row.lastUsedStep).toBe(12345);
+    // would still return something non-empty here, and it would not decrypt.
+    const opened = await decryptTotpSecret(ring, accountId, row);
+    expect(Buffer.from(opened.secret).equals(Buffer.from(secret))).toBe(true);
+    expect(row.keyVersion).toBe(TOTP_KEY_VERSION);
+    expect(row.lastUsedStep).toBe(step);
   });
 
   it("round-trips a re-encrypted ciphertext through a real D1 conditional UPDATE", async () => {
-    // The key rotation re-encrypts a credential inside the same conditional
-    // UPDATE that consumes the TOTP step, so the blob columns are now written
-    // by an UPDATE and not only by an INSERT. That is a second write path
-    // through `bind()`, and the insert test above says nothing about it: a
-    // driver could take a Buffer in an INSERT and mangle it in an UPDATE's SET
-    // list, and the bun:sqlite unit suite would never see the difference.
-    const nowSec = Math.floor(Date.now() / 1000);
-    await rawDb.insert(totpCredentials).values({
-      id: "totp_d1rekey",
-      accountId: ACCOUNT_ID,
-      secretCiphertext: Buffer.from(new Uint8Array(36).fill(1)),
-      iv: Buffer.from(new Uint8Array(12).fill(2)),
-      keyVersion: 1,
-      confirmedAt: nowSec,
-      lastUsedAt: nowSec,
-      lastUsedStep: 100,
-      createdAt: nowSec,
-    });
+    // The key rotation re-encrypts a credential inside the conditional UPDATE
+    // that consumes the TOTP step, so an UPDATE writes the blob columns as well
+    // as an INSERT. A driver could take a Buffer in an INSERT and mangle it in
+    // an UPDATE's SET list, and the bun:sqlite unit suite would never see it.
+    const k1 = await generateEphemeralTotpEncryptionKey();
+    const k2 = await generateEphemeralTotpEncryptionKey();
+    const { accountId, secret, step } = await enrolled(
+      serviceWith(createTotpKeyRing(k1)),
+      "d1-totp-rekey@example.com",
+      "d1totprekey",
+    );
 
-    const rekeyed = new Uint8Array(36);
-    const rekeyedIv = new Uint8Array(12);
-    crypto.getRandomValues(rekeyed);
-    crypto.getRandomValues(rekeyedIv);
+    // After the rotation: k1 is the previous key, so a right code moves the
+    // row onto k2 in the statement that spends its step.
+    await run(
+      completeTotpStepUp(
+        serviceWith(createTotpKeyRing(k2, k1)),
+        accountId,
+        await deriveTotpCode(secret, step + 1),
+      ),
+    );
 
-    // The real statement's shape, guard included: the step, the timestamp and
-    // all three rotation columns move together or not at all.
-    await rawDb
-      .update(totpCredentials)
-      .set({
-        lastUsedStep: 101,
-        lastUsedAt: nowSec + 30,
-        secretCiphertext: Buffer.from(rekeyed),
-        iv: Buffer.from(rekeyedIv),
-        keyVersion: 2,
-      })
-      .where(
-        and(
-          eq(totpCredentials.id, "totp_d1rekey"),
-          isNotNull(totpCredentials.confirmedAt),
-          sql`(${totpCredentials.lastUsedStep} is null or ${totpCredentials.lastUsedStep} < 101)`,
-        ),
-      );
-
-    const rows = await rawDb
-      .select()
-      .from(totpCredentials)
-      .where(eq(totpCredentials.id, "totp_d1rekey"));
-    const row = rows[0]!;
-
-    // Byte-for-byte: a ciphertext that came back as a stringified buffer would
-    // decrypt to nothing, and the owner would lose their second factor while
-    // the row looked perfectly healthy.
-    expect(Buffer.from(row.secretCiphertext).equals(Buffer.from(rekeyed))).toBe(true);
-    expect(Buffer.from(row.iv).equals(Buffer.from(rekeyedIv))).toBe(true);
-    expect(row.keyVersion).toBe(2);
-    expect(row.lastUsedStep).toBe(101);
+    const row = await credentialRow(accountId);
+    expect(row.keyVersion).toBe(TOTP_KEY_VERSION + 1);
+    expect(row.lastUsedStep).toBe(step + 1);
+    // Opened with k2 alone: the bytes D1 stored are the new key's, intact. A
+    // ciphertext that came back as a stringified buffer would decrypt to
+    // nothing, and the owner would lose their second factor while the row
+    // looked perfectly healthy.
+    const opened = await decryptTotpSecret(createTotpKeyRing(k2), accountId, row);
+    expect(Buffer.from(opened.secret).equals(Buffer.from(secret))).toBe(true);
   });
 
   it("writes no ciphertext when the single-use guard rejects", async () => {
     // One statement carries both the replay guard and the re-encryption. If a
-    // losing racer could still write its ciphertext, a row would end up holding
-    // one key's bytes under another key's version stamp.
-    const nowSec = Math.floor(Date.now() / 1000);
-    const original = new Uint8Array(36).fill(7);
-    await rawDb.insert(totpCredentials).values({
-      id: "totp_d1guard",
-      accountId: ACCOUNT_ID,
-      secretCiphertext: Buffer.from(original),
-      iv: Buffer.from(new Uint8Array(12).fill(8)),
-      keyVersion: 1,
-      confirmedAt: nowSec,
-      lastUsedAt: nowSec,
-      lastUsedStep: 500,
-      createdAt: nowSec,
-    });
+    // refused replay could still write its ciphertext, a row would end up
+    // holding one key's bytes under another key's version stamp.
+    const k1 = await generateEphemeralTotpEncryptionKey();
+    const k2 = await generateEphemeralTotpEncryptionKey();
+    const { accountId, secret, step } = await enrolled(
+      serviceWith(createTotpKeyRing(k1)),
+      "d1-totp-guard@example.com",
+      "d1totpguard",
+    );
+    const before = await credentialRow(accountId);
+    expect(before.lastUsedStep).toBe(step);
 
-    const result = await rawDb
-      .update(totpCredentials)
-      .set({
-        lastUsedStep: 500,
-        lastUsedAt: nowSec + 30,
-        secretCiphertext: Buffer.from(new Uint8Array(36).fill(9)),
-        iv: Buffer.from(new Uint8Array(12).fill(10)),
-        keyVersion: 2,
-      })
-      .where(
-        and(
-          eq(totpCredentials.id, "totp_d1guard"),
-          isNotNull(totpCredentials.confirmedAt),
-          // 500 is not < 500: the step is already spent.
-          sql`(${totpCredentials.lastUsedStep} is null or ${totpCredentials.lastUsedStep} < 500)`,
+    // The enrolment's own code, so its step is already spent, sent under a
+    // ring that would re-encrypt the row if the step were still free.
+    const spent = await deriveTotpCode(secret, step);
+    const verified = spyOn(metrics, "metricTotpVerified");
+    let verdicts: unknown[] = [];
+    const outcome = await Effect.runPromise(
+      Effect.result(
+        completeTotpStepUp(serviceWith(createTotpKeyRing(k2, k1)), accountId, spent).pipe(
+          Effect.provide(layer),
         ),
-      );
+      ),
+    ).finally(() => {
+      verdicts = verified.mock.calls.map(([verdict]) => verdict);
+      verified.mockRestore();
+    });
+    expect(outcome._tag).toBe("Failure");
+    expect(outcome).toMatchObject({
+      failure: { _tag: "AuthError", message: "Invalid or expired code" },
+    });
+    // Every TOTP refusal answers that same error, so the verdict the check
+    // records names which one fired: the conditional UPDATE found the step
+    // spent. A refusal before that statement records another verdict, or none.
+    expect(verdicts).toEqual(["replayed"]);
 
-    expect(rowsChanged(result)).toBe(0);
-
-    const rows = await rawDb
-      .select()
-      .from(totpCredentials)
-      .where(eq(totpCredentials.id, "totp_d1guard"));
-    const row = rows[0]!;
-    expect(Buffer.from(row.secretCiphertext).equals(Buffer.from(original))).toBe(true);
-    expect(row.keyVersion).toBe(1);
+    const row = await credentialRow(accountId);
+    expect(Buffer.from(row.secretCiphertext).equals(Buffer.from(before.secretCiphertext))).toBe(
+      true,
+    );
+    expect(Buffer.from(row.iv).equals(Buffer.from(before.iv))).toBe(true);
+    expect(row.keyVersion).toBe(TOTP_KEY_VERSION);
+    expect(row.lastUsedStep).toBe(step);
   });
 
   it("enforces one CONFIRMED credential per account through the partial unique index", async () => {
@@ -497,8 +553,11 @@ describe("TOTP blob columns over real D1 (Miniflare)", () => {
       await rawDb
         .insert(totpCredentials)
         .values({ ...base, id: "totp_d1uniq2", confirmedAt: nowSec });
-    } catch {
+    } catch (e) {
       threw = true;
+      // The partial unique index refused it, not some other constraint. drizzle
+      // wraps the driver's error, so its text is read as the source reads it.
+      expect(UNIQUE_CONSTRAINT_ERROR.test(driverErrorText(e))).toBe(true);
     }
     expect(threw).toBe(true);
 
@@ -577,10 +636,9 @@ describe("UNIQUE_CONSTRAINT_ERROR over real D1 (Miniflare)", () => {
   });
 });
 
-// The two describes below are the first D1 coverage of
-// `services/recommendations.ts` — everything else exercising it runs on
-// synchronous bun:sqlite, which cannot see either the read-accounting D1
-// reports or the bound-parameter cap D1 enforces.
+// The two describes below run `services/recommendations.ts` on D1. The fast
+// tier runs it on bun:sqlite, which reports no rows read and does not enforce
+// D1's bound-parameter cap.
 describe("osn/api recommendations co-member fan-out over real D1 (Miniflare)", () => {
   it("stays within the MAX_ORG_COMEMBER_ROWS budget even when one organisation has far more members than its share", async () => {
     // Each organisation the caller belongs to gets its own even share of the
@@ -694,6 +752,10 @@ describe("osn/api recommendations co-member fan-out over real D1 (Miniflare)", (
     // the oversized organisation's real membership count and the 2 000
     // global budget.
     expect(rowsRead).toBeLessThanOrEqual(300);
+    // And a floor only a measured fan-out reaches: the oversized
+    // organisation's 200-row share. A fan-out the tracker does not see, or
+    // one that reads short of its share, leaves the total below it.
+    expect(rowsRead).toBeGreaterThanOrEqual(200);
   });
 
   it("does not throw for a caller in 6 organisations, one more than D1's compound SELECT allows", async () => {
@@ -937,6 +999,7 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
       updatedAt: ts,
     });
 
+    let firedOn = "";
     const racedD1 = raceInsertBeforeQuery(
       d1,
       // The FOF fan-out SELECT (services/recommendations.ts) — confirmed
@@ -954,6 +1017,9 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
           updatedAt: new Date(),
         });
       },
+      (query) => {
+        firedOn = query;
+      },
     );
     const racedLayer = Layer.succeed(Db, { db: createD1Db(racedD1) });
 
@@ -961,6 +1027,14 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
     const suggestions = await Effect.runPromise(
       recs.suggestConnections(callerId, 50).pipe(Effect.provide(racedLayer)),
     );
+
+    // The hook fired on the fan-out, whose seed subquery reads `connections`
+    // live, and not on step 1's snapshot: only there does the edge land in
+    // the gap between the two.
+    expect(firedOn.startsWith('select "requester_id", "addressee_id" from "connections"')).toBe(
+      true,
+    );
+    expect(firedOn).toContain("in (select");
 
     // The race landed for real — this is not a no-op fixture.
     const lateEdge = await rawDb
@@ -977,26 +1051,42 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
 });
 
 describe("recovery passkey reclaim over real D1 (Miniflare)", () => {
-  // `englishstreetventures/osn#970`. The reclaim deletes a credential and inserts its
-  // replacement in ONE `commitBatch`, and that is the only thing standing
-  // between a recovering user and an account left a credential down.
+  // A passkey enrolled from a restricted recovery session over the ceiling
+  // deletes a credential this recovery lent and inserts its replacement in ONE
+  // `commitBatch`, and that is the only thing standing between a recovering
+  // user and an account left a credential down.
   //
   // No test on the ordinary tier can see it. `commitBatch` falls back to running
   // statements sequentially on `bun:sqlite` (there is no batch), so the whole
   // vitest suite would stay green on a delete that committed while its insert
-  // failed. Only this tier reaches `db.batch`, so this is where atomicity is
-  // asserted rather than assumed.
+  // failed. Only this tier reaches `db.batch`, so these cases drive the real
+  // registration through it.
+
+  let auth: ReturnType<typeof createAuthService>;
+  beforeAll(async () => {
+    auth = createAuthService(await makeTestAuthConfig());
+    stubAttestation = true;
+  });
+  afterAll(() => {
+    stubAttestation = false;
+  });
+
+  const withEmail = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>) =>
+    eff.pipe(Effect.provide(Layer.merge(layer, makeLogEmailLive().layer)));
+
+  /** This test's recovery episode: `accounts.last_recovered_at`, a minute ago. */
+  const recoveredAtSec = () => Math.floor(Date.now() / 1000) - 60;
 
   const seedPasskey = (
+    accountId: string,
     id: string,
     provenanceAmr: string | null,
     createdAt: Date,
-    credentialId = `d1-${id}`,
   ) =>
     rawDb.insert(passkeys).values({
       id,
-      accountId: ACCOUNT_ID,
-      credentialId,
+      accountId,
+      credentialId: `d1-${id}`,
       publicKey: "AQIDBA==",
       counter: 0,
       transports: null,
@@ -1010,58 +1100,120 @@ describe("recovery passkey reclaim over real D1 (Miniflare)", () => {
       updatedAt: Math.floor(Date.now() / 1000),
     });
 
-  it("commits the delete and its replacement insert as one batch", async () => {
-    await seedPasskey("pk_d1_keep", "webauthn", new Date());
-    await seedPasskey("pk_d1_lent", "recovery", new Date());
+  /**
+   * An account on the recovery ceiling: the ordinary cap of its own
+   * credentials and one this recovery episode lent (`pk_d1_lent`), with a
+   * restricted recovery session. Answers the account and the session's hash.
+   */
+  const onTheCeiling = async (handle: string) => {
+    const user = await run(auth.registerProfile(`${handle}@example.com`, handle));
+    const recoveredAt = recoveredAtSec();
+    for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) {
+      await seedPasskey(
+        user.accountId,
+        `pk_d1_own${i}`,
+        "webauthn",
+        new Date(Date.now() - 3_600_000),
+      );
+    }
+    await seedPasskey(user.accountId, "pk_d1_lent", "recovery", new Date((recoveredAt + 5) * 1000));
+    await rawDb
+      .update(accounts)
+      .set({ lastRecoveredAt: recoveredAt })
+      .where(eq(accounts.id, user.accountId));
+    const restricted = await run(
+      auth.issueRecoverySession(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+        "otp",
+      ),
+    );
+    return {
+      accountId: user.accountId,
+      sessionHash: auth.hashSessionToken(restricted.refreshToken),
+    };
+  };
 
-    await commitBatch(rawDb, [
-      rawDb.delete(passkeys).where(eq(passkeys.id, "pk_d1_lent")),
-      seedPasskey("pk_d1_new", "recovery", new Date()),
-      rawDb.insert(securityEvents).values({
-        id: "sev_d1_reclaim",
-        accountId: ACCOUNT_ID,
-        kind: "passkey_reclaimed",
-        createdAt: Math.floor(Date.now() / 1000),
-        acknowledgedAt: null,
-        ipHash: null,
-        uaLabel: null,
-      }),
-    ]);
+  /** One whole recovery enrolment ceremony, through the service, on D1. */
+  const enrol = (accountId: string, sessionHash: string) =>
+    Effect.runPromise(
+      Effect.result(
+        withEmail(
+          Effect.gen(function* () {
+            yield* auth.beginPasskeyRegistration(accountId, undefined, {
+              recoverySessionHash: sessionHash,
+            });
+            yield* auth.completePasskeyRegistration(
+              accountId,
+              {
+                id: "x",
+                rawId: "x",
+                response: {},
+                type: "public-key",
+                clientExtensionResults: {},
+              } as never,
+              sessionHash,
+            );
+          }),
+        ),
+      ),
+    );
 
-    const rows = await rawDb.select().from(passkeys).where(eq(passkeys.accountId, ACCOUNT_ID));
-    const ids = rows.map((r) => r.id);
+  const passkeyIds = async (accountId: string) =>
+    (await rawDb.select().from(passkeys).where(eq(passkeys.accountId, accountId))).map(
+      (row) => row.id,
+    );
+
+  it("reclaims the credential this recovery lent: one out, one in, and one passkey_reclaimed event", async () => {
+    const { accountId, sessionHash } = await onTheCeiling("d1reclaim");
+
+    expect((await enrol(accountId, sessionHash))._tag).toBe("Success");
+
+    const ids = await passkeyIds(accountId);
     expect(ids).not.toContain("pk_d1_lent");
-    expect(ids).toContain("pk_d1_new");
     // The count is unchanged: one out, one in. That is what keeps the ceiling a
     // ceiling rather than a ratchet.
-    expect(rows).toHaveLength(2);
+    expect(ids).toHaveLength(RECOVERY_ENROLMENT_PASSKEY_CEILING);
+    for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) expect(ids).toContain(`pk_d1_own${i}`);
 
     const events = await rawDb
       .select()
       .from(securityEvents)
-      .where(eq(securityEvents.accountId, ACCOUNT_ID));
+      .where(eq(securityEvents.accountId, accountId));
     expect(events.filter((e) => e.kind === "passkey_reclaimed")).toHaveLength(1);
   });
 
   it("rolls the delete back when a statement beside it fails", async () => {
-    await seedPasskey("pk_d1_solo", "recovery", new Date());
+    const { accountId, sessionHash } = await onTheCeiling("d1rollback");
 
-    // The replacement insert collides on the `credential_id` UNIQUE index, which
-    // is the realistic way this batch fails: an attestation the account already
-    // holds. Both inserts claim the same credential id, so the second one throws.
-    // D1 batches are atomic, so the delete must not survive it.
-    await expect(
-      commitBatch(rawDb, [
-        rawDb.delete(passkeys).where(eq(passkeys.id, "pk_d1_solo")),
-        seedPasskey("pk_d1_dupe", "recovery", new Date(), "d1-collides"),
-        seedPasskey("pk_d1_dupe2", "recovery", new Date(), "d1-collides"),
-      ]),
-    ).rejects.toThrow();
+    // Every security-event insert aborts, so the batch fails on the
+    // `passkey_reclaimed` row written beside the delete. D1 batches are atomic,
+    // so the delete must not survive it.
+    await d1
+      .prepare(
+        "CREATE TRIGGER d1_refuse_security_events BEFORE INSERT ON security_events BEGIN SELECT RAISE(ABORT, 'refused by the test'); END",
+      )
+      .run();
+    const outcome = await enrol(accountId, sessionHash).finally(() =>
+      d1.prepare("DROP TRIGGER IF EXISTS d1_refuse_security_events").run(),
+    );
+    expect(outcome._tag).toBe("Failure");
+    // The batch's own failure: a database error carrying the trigger's abort,
+    // which only the batch's security-event rows can meet. A refusal earlier
+    // in the ceremony stops before the batch runs, and would leave the rows
+    // below as they are for a reason that is not atomicity.
+    const failure = outcome._tag === "Failure" ? outcome.failure : null;
+    expect(failure?._tag).toBe("DatabaseError");
+    expect(driverErrorText(failure)).toContain("refused by the test");
 
-    const rows = await rawDb.select().from(passkeys).where(eq(passkeys.accountId, ACCOUNT_ID));
+    const ids = await passkeyIds(accountId);
     // The credential is still there. Without atomicity the account would be one
     // credential down with nothing to show for it.
-    expect(rows.map((r) => r.id)).toContain("pk_d1_solo");
+    expect(ids).toContain("pk_d1_lent");
+    expect(ids).toHaveLength(RECOVERY_ENROLMENT_PASSKEY_CEILING);
   });
 });
 

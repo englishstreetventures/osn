@@ -55,9 +55,8 @@ describe("classifyError", () => {
   });
 
   describe("metricResult override", () => {
-    // Regression pin: the message clearly matches the "invalid"
-    // substring rule (→ validation_error), but a caller-set metricResult
-    // must win — this is the whole point of the override.
+    // The message matches the "invalid" substring rule (validation_error), but
+    // a metricResult set by the caller wins.
     it("an explicit metricResult beats the message-keyword match", () => {
       const err = new AuthErrorLike({
         message: "Invalid or expired code",
@@ -120,7 +119,7 @@ describe("OSN_METRICS naming", () => {
     }
   });
 
-  it("every key in OSN_METRICS is unique", () => {
+  it("every metric name in OSN_METRICS is unique", () => {
     const values = Object.values(OSN_METRICS);
     expect(new Set(values).size).toBe(values.length);
   });

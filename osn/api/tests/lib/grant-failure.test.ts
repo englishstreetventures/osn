@@ -6,7 +6,7 @@ import { makeAppRunner } from "../../src/lib/route-runtime";
 import { AuthError, DatabaseError } from "../../src/services/auth/errors";
 
 /**
- * S-M2. The marker is a cache of "a session cookie exists in this browser", and
+ * The marker is a cache of "a session cookie exists in this browser", and
  * `POST /token` retracting it is the only thing a fresh tab with no local
  * account state consults. So the predicate below decides whether a browser
  * holding a live 30-day cookie stays signed in or is stranded signed out.
@@ -50,7 +50,7 @@ describe("sessionStatusUnknown", () => {
   });
 
   it("keeps the marker on the benign concurrent-rotation race", async () => {
-    // PR #289: two tabs grant the same token, the loser's CAS finds 0 rows.
+    // Two tabs grant the same token; the loser's compare-and-set finds 0 rows.
     // The winner already set a fresh cookie — this browser is signed in.
     const failure = await asRouteCatches(new AuthError({ message: ROTATION_RACE_MESSAGE }));
 

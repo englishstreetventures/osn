@@ -39,6 +39,17 @@ describe("organisation routes", () => {
     return { profileId: user.id, token: tokens.accessToken };
   }
 
+  /** The members of `acme` as `token`'s owner reads them. */
+  async function acmeMembers(token: string): Promise<{ handle: string; role: string }[]> {
+    const res = await orgApp.handle(
+      new Request("http://localhost/organisations/acme/members", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { members: { handle: string; role: string }[] }).members;
+  }
+
   // -------------------------------------------------------------------------
   // Auth guard
   // -------------------------------------------------------------------------
@@ -368,6 +379,7 @@ describe("organisation routes", () => {
       }),
     );
     expect(res.status).toBe(200);
+    expect((await acmeMembers(alice.token)).map((m) => m.handle)).toEqual(["alice"]);
   });
 
   it("PATCH /organisations/:handle/members/:profileHandle updates role", async () => {
@@ -407,6 +419,8 @@ describe("organisation routes", () => {
       }),
     );
     expect(res.status).toBe(200);
+    const bob = (await acmeMembers(alice.token)).find((m) => m.handle === "bob");
+    expect(bob?.role).toBe("admin");
   });
 
   it("GET /organisations/:handle/members lists members", async () => {

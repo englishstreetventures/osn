@@ -481,13 +481,22 @@ describe("account-erasure: requestErasure", () => {
         cancel: null,
         heldHandleDigest: digest,
       });
+      // The stored date moves an hour back, so a second call that worked the
+      // date out afresh would answer another one than the job holds.
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db
+          .update(deletionJobs)
+          .set({ hardDeleteAt: first.scheduledFor - 3600 })
+          .where(eq(deletionJobs.accountId, accountId)),
+      );
       const second = yield* accountErasure.requestErasure({
         accountId,
         cancel: null,
         heldHandleDigest: digest,
       });
       expect(second.newlyScheduled).toBe(false);
-      expect(second.scheduledFor).toBe(first.scheduledFor);
+      expect(second.scheduledFor).toBe(first.scheduledFor - 3600);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -674,30 +683,32 @@ describe("account-erasure: cancelErasure", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("refuses cancellation once the grace window has expired (S-H1)", () =>
-    Effect.gen(function* () {
-      const { accountId } = yield* seedAccountAndProfile();
-      const { db } = yield* Db;
-      // Job whose grace window is already over — fan-out may be in flight.
-      yield* Effect.promise(() =>
-        db.insert(deletionJobs).values({
-          accountId,
-          softDeletedAt: 1_000,
-          hardDeleteAt: 2_000, // long past
-          pulseDoneAt: null,
-          zapDoneAt: null,
-          reason: "user_request",
-          cancelSessionId: null,
-        }),
-      );
-      const result = yield* accountErasure.cancelErasure(accountId);
-      expect(result.cancelled).toBe(false);
-      // Job row untouched — the sweeper still owns it.
-      const jobs = yield* Effect.promise(() =>
-        db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
-      );
-      expect(jobs).toHaveLength(1);
-    }).pipe(Effect.provide(createTestLayer())),
+  it.effect(
+    "refuses cancellation once the grace window has passed, and leaves the job to the sweep",
+    () =>
+      Effect.gen(function* () {
+        const { accountId } = yield* seedAccountAndProfile();
+        const { db } = yield* Db;
+        // Job whose grace window is already over — fan-out may be in flight.
+        yield* Effect.promise(() =>
+          db.insert(deletionJobs).values({
+            accountId,
+            softDeletedAt: 1_000,
+            hardDeleteAt: 2_000, // long past
+            pulseDoneAt: null,
+            zapDoneAt: null,
+            reason: "user_request",
+            cancelSessionId: null,
+          }),
+        );
+        const result = yield* accountErasure.cancelErasure(accountId);
+        expect(result.cancelled).toBe(false);
+        // Job row untouched — the sweeper still owns it.
+        const jobs = yield* Effect.promise(() =>
+          db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
+        );
+        expect(jobs).toHaveLength(1);
+      }).pipe(Effect.provide(createTestLayer())),
   );
 
   /** The profile's handle, display name and avatar. */
@@ -788,29 +799,34 @@ describe("account-erasure: cancelErasure", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("a job written before the restore record existed cancels as before", () =>
-    Effect.gen(function* () {
-      const { accountId, profileId } = yield* seedAccountAndProfile();
-      yield* appEnroll.joinApp(accountId, "pulse");
-      yield* accountErasure.requestErasure({ accountId, cancel: null, heldHandleDigest: digest });
-      const { db } = yield* Db;
-      yield* Effect.promise(() =>
-        db.update(deletionJobs).set({ restore: null }).where(eq(deletionJobs.accountId, accountId)),
-      );
+  it.effect(
+    "a job with no restore record cancels, and leaves the profiles redacted and the enrolments closed",
+    () =>
+      Effect.gen(function* () {
+        const { accountId, profileId } = yield* seedAccountAndProfile();
+        yield* appEnroll.joinApp(accountId, "pulse");
+        yield* accountErasure.requestErasure({ accountId, cancel: null, heldHandleDigest: digest });
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .update(deletionJobs)
+            .set({ restore: null })
+            .where(eq(deletionJobs.accountId, accountId)),
+        );
 
-      expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+        expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
 
-      const [acct] = yield* Effect.promise(() =>
-        db.select().from(accounts).where(eq(accounts.id, accountId)),
-      );
-      expect(acct!.deletedAt).toBeNull();
-      // Nothing to put back from: the profile keeps its redacted form and the
-      // enrolment stays closed.
-      expect((yield* profileOf(profileId))!.handle).toBe(
-        `deleted_${profileId.replace("usr_", "")}`,
-      );
-      expect((yield* enrolmentsOf(accountId))[0]!.leftAt).not.toBeNull();
-    }).pipe(Effect.provide(createTestLayer())),
+        const [acct] = yield* Effect.promise(() =>
+          db.select().from(accounts).where(eq(accounts.id, accountId)),
+        );
+        expect(acct!.deletedAt).toBeNull();
+        // Nothing to put back from: the profile keeps its redacted form and the
+        // enrolment stays closed.
+        expect((yield* profileOf(profileId))!.handle).toBe(
+          `deleted_${profileId.replace("usr_", "")}`,
+        );
+        expect((yield* enrolmentsOf(accountId))[0]!.leftAt).not.toBeNull();
+      }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect(
@@ -1704,7 +1720,7 @@ describe("account-erasure: hard-delete sweep isolation", () => {
   });
 });
 
-describe("account-erasure: fan-out sweep grace gating (S-H1)", () => {
+describe("account-erasure: the fan-out sweep waits for the grace window", () => {
   it.effect("skips rows whose grace window has not yet elapsed", () =>
     Effect.gen(function* () {
       const { accountId } = yield* seedAccountAndProfile();

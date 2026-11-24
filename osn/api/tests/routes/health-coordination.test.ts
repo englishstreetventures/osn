@@ -97,8 +97,10 @@ describe("GET /health/coordination", () => {
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ ok: false });
     expect(h.onError).toHaveBeenCalledWith("health_probe", "write", expect.any(Object));
-    for (const [store, op, detail] of h.onError.mock.calls) {
-      expect([store, op]).not.toContain("203.0.113.7");
+    // The caller's IP appears nowhere in a report: not as the store, the
+    // operation or any detail value.
+    expect(JSON.stringify(h.onError.mock.calls)).not.toContain("203.0.113.7");
+    for (const [, , detail] of h.onError.mock.calls) {
       expect(Object.keys(detail as object).toSorted()).toEqual(["durationMs", "kind", "retried"]);
     }
   });

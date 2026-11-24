@@ -15,7 +15,11 @@ import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
-import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
 import { latestLinkTo, registerThroughService } from "../helpers/registration";
 
 /**
@@ -148,8 +152,8 @@ describe("registerProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Copenhagen Book M3: emails longer than 255 chars are rejected even when
-  // they match the format regex.
+  // Emails longer than 255 characters are refused even when they match the
+  // format.
   it.effect("fails with an email longer than 255 characters", () =>
     Effect.gen(function* () {
       const tooLong = `${"a".repeat(244)}@example.com`; // 256 chars total
@@ -941,7 +945,7 @@ describe("passkey registration", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Pins the WebAuthn-option posture (M-PK):
+  // Pins the WebAuthn options:
   //   • `residentKey: "preferred"` — FIDO2 security keys without a resident-
   //     key slot still register (as non-discoverable), so identified login
   //     works for them.
@@ -999,20 +1003,6 @@ describe("passkey login", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Discoverable flow — beginPasskeyLogin(null) must return options plus a
-  // server-minted challengeId. The identifier-less path is how
-  // conditional-UI autofill drives sign-in.
-  it.effect("beginPasskeyLogin(null) returns options and the challenge as its id", () =>
-    Effect.gen(function* () {
-      const result = yield* auth.beginPasskeyLogin(null);
-      expect(result.options.challenge).toBeTruthy();
-      // The challenge proves itself (nonce, expiry, MAC: 56 bytes, base64url),
-      // so the id the client round-trips is the challenge.
-      expect(result.challengeId).toBe(result.options.challenge);
-      expect(result.challengeId).toMatch(/^[A-Za-z0-9_-]{75}$/);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   // Pins the asymmetry the service comments rely on: identifier-less login
   // enforces UV (the whole ceremony's correctness depends on it without a
   // claimed identity), identified login accepts UP-only (FIDO2 keys without
@@ -1056,8 +1046,9 @@ describe("passkey login", () => {
   // The challengeId variant of completePasskeyLoginDirect must apply the
   // same challenge guard as the identified flow — an unknown id fails
   // fast, before any DB / credential lookup.
-  it.effect("completePasskeyLoginDirect rejects an unknown challengeId before DB work", () =>
-    Effect.gen(function* () {
+  it.effect("completePasskeyLoginDirect rejects an unknown challengeId before DB work", () => {
+    const database = createCapturingTestLayer();
+    return Effect.gen(function* () {
       const bogusAssertion = {
         id: "x",
         rawId: "x",
@@ -1073,8 +1064,9 @@ describe("passkey login", () => {
       );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Challenge");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      expect(database.captured).toEqual([]);
+    }).pipe(Effect.provide(database.layer));
+  });
 });
 
 describe("token refresh", () => {
@@ -1138,14 +1130,32 @@ describe("verifyAccessToken", () => {
 
   it.effect("fails on a tampered token", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.verifyAccessToken("not.a.token"));
+      const profile = yield* auth.registerProfile("tamper@example.com", "tamper");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      // The same header and signature over a payload with one character of
+      // the handle changed: every claim still passes, so only the signature
+      // check refuses it.
+      const [header, payload, signature] = tokens.accessToken.split(".");
+      const claims = Buffer.from(payload!, "base64url").toString("utf8");
+      const changed = claims.replace('"handle":"tamper"', '"handle":"tampex"');
+      expect(changed).not.toBe(claims);
+      const tampered = [header, Buffer.from(changed, "utf8").toString("base64url"), signature].join(
+        ".",
+      );
+      const error = yield* Effect.flip(auth.verifyAccessToken(tampered));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Regression pin: a JWT signed with the same key but lacking the
-  // `aud: "osn-access"` claim (e.g. a step-up token or any future token
-  // type) must not authenticate access-token routes.
+  // A JWT signed with the same key but lacking the `aud: "osn-access"` claim
+  // (e.g. a step-up token or any future token type) must not authenticate
+  // access-token routes.
   it.effect("rejects a token without aud: 'osn-access'", () =>
     Effect.gen(function* () {
       const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
@@ -1188,7 +1198,7 @@ describe("verifyAccessToken", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Local-mode LogEmailLive behaviour (replaces the old in-auth.ts debug log)
+// Local-mode LogEmailLive behaviour
 // ---------------------------------------------------------------------------
 // The EmailService layer decides whether to actually dispatch or just log.
 // In local dev + tests we provide `LogEmailLive`, which:
@@ -1198,8 +1208,8 @@ describe("verifyAccessToken", () => {
 //   2. Records the full rendered payload (including the code) into an
 //      in-memory ring buffer readable via `recorded()` — that's how test
 //      helpers extract the code without relying on log parsing.
-//   3. Never emits "[REDACTED]" — defence against a future PR that
-//      accidentally annotates `Effect.annotateLogs({ code })`.
+//   3. The log line carries no `[REDACTED]` marker, so no code is annotated
+//      onto it.
 // ---------------------------------------------------------------------------
 
 describe("LogEmailLive local-mode behaviour", () => {
@@ -1303,7 +1313,7 @@ describe("two-tier token model", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("C2: refreshTokens rotates the session token (returns a new one)", () =>
+  it.effect("refreshTokens rotates the session token and refuses the old one", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("sametoken@example.com", "sametoken");
       const tokens = yield* auth.issueTokens(
@@ -1464,10 +1474,10 @@ describe("listAccountProfiles", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Server-side sessions (Copenhagen Book C1)
+// Server-side sessions
 // ---------------------------------------------------------------------------
 
-describe("server-side sessions (C1)", () => {
+describe("server-side sessions", () => {
   it.effect("invalidateSession makes the session token unusable", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("revoke@example.com", "revoke");
@@ -1560,8 +1570,15 @@ describe("server-side sessions (C1)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("expired session is cleaned up and rejected on verify", () =>
-    Effect.gen(function* () {
+  it.effect("expired session is cleaned up and rejected on verify", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    const rowsOf = (accountId: string) =>
+      (
+        sqlite.query("SELECT count(*) AS n FROM sessions WHERE account_id = ?").get(accountId) as {
+          n: number;
+        }
+      ).n;
+    return Effect.gen(function* () {
       // Use a 0-second TTL to create an instantly-expired session
       const svc = createAuthService({ ...config, refreshTokenTtl: 0 });
       const profile = yield* svc.registerProfile("expired@example.com", "expired");
@@ -1572,20 +1589,22 @@ describe("server-side sessions (C1)", () => {
         profile.handle,
         profile.displayName,
       );
+      expect(rowsOf(profile.accountId)).toBe(1);
 
       // Should be expired immediately
       const error = yield* Effect.flip(svc.verifyRefreshToken(tokens.refreshToken));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Invalid or expired session");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      expect(rowsOf(profile.accountId)).toBe(0);
+    }).pipe(Effect.provide(layer));
+  });
 });
 
 // ---------------------------------------------------------------------------
 // Refresh token rotation + reuse detection
 // ---------------------------------------------------------------------------
 
-describe("refresh token rotation (C2)", () => {
+describe("refresh token rotation", () => {
   it.effect("refreshed token can be used for a second refresh (chain)", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("chain@example.com", "chain");
@@ -1633,37 +1652,34 @@ describe("refresh token rotation (C2)", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect(
-    "replaying a rotated-out token OUTSIDE the grace window revokes the family (C2)",
-    () => {
-      const { layer, sqlite } = createTestLayerWithSqlite();
-      return Effect.gen(function* () {
-        // A genuine reuse: a stolen rotated token replayed long after rotation
-        // (outside ROTATION_GRACE_MS). Force "outside grace" deterministically
-        // by moving the rotation record's timestamp back to epoch 0.
-        const profile = yield* auth.registerProfile("reuse-old@example.com", "reuseold");
-        const tokens = yield* auth.issueTokens(
-          profile.id,
-          profile.accountId,
-          profile.email,
-          profile.handle,
-          profile.displayName,
-        );
+  it.effect("replaying a rotated-out token OUTSIDE the grace window revokes the family", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      // A genuine reuse: a stolen rotated token replayed long after rotation
+      // (outside ROTATION_GRACE_MS). Force "outside grace" deterministically
+      // by moving the rotation record's timestamp back to epoch 0.
+      const profile = yield* auth.registerProfile("reuse-old@example.com", "reuseold");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
 
-        // Rotate once — old token is now rotated out (recorded in rotated_sessions).
-        const r1 = yield* auth.refreshTokens(tokens.refreshToken);
-        sqlite.run("UPDATE rotated_sessions SET rotated_at = 0");
+      // Rotate once — old token is now rotated out (recorded in rotated_sessions).
+      const r1 = yield* auth.refreshTokens(tokens.refreshToken);
+      sqlite.run("UPDATE rotated_sessions SET rotated_at = 0");
 
-        // Replay the old token — outside grace ⇒ genuine reuse ⇒ family revocation.
-        const err1 = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
-        expect(err1._tag).toBe("AuthError");
+      // Replay the old token — outside grace ⇒ genuine reuse ⇒ family revocation.
+      const err1 = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
+      expect(err1._tag).toBe("AuthError");
 
-        // The new token (r1) is also revoked (whole family gone).
-        const err2 = yield* Effect.flip(auth.verifyRefreshToken(r1.refreshToken));
-        expect(err2._tag).toBe("AuthError");
-      }).pipe(Effect.provide(layer));
-    },
-  );
+      // The new token (r1) is also revoked (whole family gone).
+      const err2 = yield* Effect.flip(auth.verifyRefreshToken(r1.refreshToken));
+      expect(err2._tag).toBe("AuthError");
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("verifyRefreshToken returns familyId and sessionId", () =>
     Effect.gen(function* () {

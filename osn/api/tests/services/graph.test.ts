@@ -91,6 +91,7 @@ describe("sendConnectionRequest", () => {
       yield* graph.blockProfile(alice.id, bob.id);
       const error = yield* Effect.flip(graph.sendConnectionRequest(alice.id, bob.id));
       expect(error._tag).toBe("GraphError");
+      expect(error.message).toBe("Cannot send connection request");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
@@ -180,7 +181,13 @@ describe("listConnections", () => {
 
   it.effect("returns empty when no connections", () =>
     Effect.gen(function* () {
-      const alice = yield* auth.registerProfile("alice@example.com", "alice");
+      // A pending request to alice and an accepted pair she is not in: a list
+      // that ignored the status or the profile would return one of them.
+      const { alice, bob } = yield* setupTwoUsers;
+      const carol = yield* auth.registerProfile("carol@example.com", "carol");
+      yield* graph.sendConnectionRequest(bob.id, alice.id);
+      yield* graph.sendConnectionRequest(bob.id, carol.id);
+      yield* graph.acceptConnection(carol.id, bob.id);
       const list = yield* graph.listConnections(alice.id);
       expect(list).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
@@ -269,6 +276,12 @@ describe("blockProfile", () => {
       yield* graph.blockProfile(bob.id, alice.id); // bob blocks alice
       const either = yield* graph.eitherBlocked(alice.id, bob.id);
       expect(either).toBe(true);
+
+      // The other direction: the first profile blocks the second.
+      const carol = yield* auth.registerProfile("carol@example.com", "carol");
+      const dave = yield* auth.registerProfile("dave@example.com", "dave");
+      yield* graph.blockProfile(carol.id, dave.id);
+      expect(yield* graph.eitherBlocked(carol.id, dave.id)).toBe(true);
     }).pipe(Effect.provide(createTestLayer())),
   );
 

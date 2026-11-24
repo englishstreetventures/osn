@@ -1,10 +1,9 @@
 /**
- * Regression tests for the organisation routes' error contract — the org half
- * of the `makeSafeError` fix (see `tests/routes/graph-error-messages.test.ts`
- * for the graph half and the full story). Asserts that tagged `OrgError` /
- * `NotFoundError` messages survive the `ManagedRuntime.runPromise`
- * `FiberFailure` wrapping and reach clients instead of the generic
- * "Request failed".
+ * The organisation routes' error contract: a tagged `OrgError` or
+ * `NotFoundError` message survives the `FiberFailure` that
+ * `ManagedRuntime.runPromise` rejects with and reaches the client in place of
+ * "Request failed". The graph routes' contract is in
+ * `tests/routes/graph-error-messages.test.ts`.
  */
 
 import type { Db } from "@osn/db/service";

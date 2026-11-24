@@ -121,14 +121,13 @@ describe("buildSessionMarkerCookie", () => {
   it("never takes a __Host-/__Secure- prefix — a prefix would forbid Domain", () => {
     const cookie = buildSessionMarkerCookie({ secure: true, markerDomain: "musubi.social" });
     expect(cookie.startsWith(`${SESSION_MARKER_COOKIE_NAME}=`)).toBe(true);
+    expect(cookie).not.toMatch(/^__(Host|Secure)-/);
+    expect(cookie.startsWith("osn_has_session=")).toBe(true);
   });
 
-  it("drops a domain that is not a bare hostname (S-L2)", () => {
-    // The value is interpolated straight into a response header. `;` or CR/LF
-    // would splice attributes onto the cookie — HttpOnly, a foreign Domain, a
-    // second cookie entirely. It comes from wrangler.toml today, which is why
-    // this is low and not high, but the check costs one regex and survives the
-    // day the value comes from somewhere else.
+  it("drops a domain that is not a bare hostname", () => {
+    // The domain is written straight into a response header, so ";" or CR/LF
+    // would add attributes or a second cookie. Only a bare hostname is used.
     const spliced = buildSessionMarkerCookie({
       secure: true,
       markerDomain: "musubi.social; HttpOnly",

@@ -8,7 +8,7 @@ import { selectEmailLayer, isEmailOptionalOptIn } from "../../src/lib/email-laye
 import { osnLoggerLayer } from "../../src/observability";
 
 /**
- * T — degraded-email opt-in selection (`OSN_EMAIL_OPTIONAL`).
+ * Email transport selection, and the degraded-email opt-in (`OSN_EMAIL_OPTIONAL`).
  *
  * The transport-selection rules:
  *   - RESEND_API_KEY present + non-local        → ResendEmailLive (preferred;
@@ -166,6 +166,19 @@ describe("selectEmailLayer", () => {
       await sendOnce(layer);
       expect(dispatchedUrl).toBeNull();
     });
+
+    it("creds present → returns CloudflareEmailLive even if opt-in is ALSO set (creds win)", async () => {
+      const layer = selectEmailLayer(
+        nonLocal({
+          CLOUDFLARE_ACCOUNT_ID: "acct",
+          CLOUDFLARE_EMAIL_API_TOKEN: "tok",
+          OSN_EMAIL_OPTIONAL: "true",
+        }),
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toContain("api.cloudflare.com");
+    });
   });
 
   describe("RESEND_API_URL (local emulator override)", () => {
@@ -303,26 +316,6 @@ describe("selectEmailLayer", () => {
       expect(message).toContain("RESEND_API_URL");
       expect(message).not.toContain("localhost:4008");
     });
-  });
-
-  it("creds present → returns CloudflareEmailLive even if opt-in is ALSO set (creds win)", async () => {
-    // We can't easily assert the concrete layer identity, but we CAN assert it
-    // did not throw and is NOT a no-op: the Cloudflare transport will attempt a
-    // network call. We assert selection succeeds with creds present + opt-in.
-    const layer = selectEmailLayer(
-      nonLocal({
-        CLOUDFLARE_ACCOUNT_ID: "acct",
-        CLOUDFLARE_EMAIL_API_TOKEN: "tok",
-        OSN_EMAIL_OPTIONAL: "true",
-      }),
-      osnLoggerLayer,
-    );
-    expect(layer).toBeDefined();
-  });
-
-  it("local + creds absent → LogEmailLive recorder (no throw, no opt-in needed)", () => {
-    const layer = selectEmailLayer({ OSN_ENV: "local" }, osnLoggerLayer);
-    expect(layer).toBeDefined();
   });
 });
 

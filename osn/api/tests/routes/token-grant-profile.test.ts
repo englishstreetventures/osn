@@ -8,7 +8,7 @@ import { DEV_PRINCIPAL } from "../../src/routes/auth/dev-login";
 import { createTokenRoutes } from "../../src/routes/auth/tokens";
 
 /**
- * `POST /token`'s optional `profile_id`, at the HTTP boundary (F23, F38). Which
+ * `POST /token`'s optional `profile_id`, at the HTTP boundary. Which
  * profile the grant mints for is the service's to decide
  * (`tests/services/auth/tokens.test.ts`); the route's job is to hand it the
  * field as sent, and to refuse a value that is not a profile id before any
@@ -61,7 +61,7 @@ describe("POST /token profile_id", () => {
     expect(grants).toEqual([["ses_live", "usr_0123456789ab"]]);
   });
 
-  it("F38: hands the dev principal's profile id to the grant", async () => {
+  it("hands the dev principal's profile id to the grant", async () => {
     // Not in the 12-hex form `genId` mints. Refused here, the client would
     // read the 4xx as a refused grant and sign the page out at its first
     // renewal.

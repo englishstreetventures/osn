@@ -1,12 +1,9 @@
 /**
- * Regression tests for the graph routes' error contract.
- *
- * Route handlers run service effects through `ManagedRuntime.runPromise`,
- * which rejects with a `FiberFailure` — not the tagged error itself. Before
- * `makeSafeError`, that meant every business-rule failure ("Connection
- * already exists", "Cannot connect to yourself", …) reached clients as the
- * generic "Request failed", which is exactly what users saw in the social
- * app when a Connect click hit an already-pending edge.
+ * The graph routes' error contract. Handlers run service effects through
+ * `ManagedRuntime.runPromise`, which rejects with a `FiberFailure`, not the
+ * tagged error. `makeSafeError` unwraps it, so a business-rule refusal
+ * ("Connection already exists", "Cannot connect to yourself") reaches the
+ * client with its own message, and anything else reads "Request failed".
  */
 
 import type { Db } from "@osn/db/service";
@@ -106,7 +103,7 @@ describe("graph route error messages", () => {
     expect(body.error).toBe("Pending request not found");
   });
 
-  it("a DatabaseError still collapses to 'Request failed' — DB internals never leak (S-M17)", async () => {
+  it("a DatabaseError collapses to 'Request failed', and no database text reaches the client", async () => {
     const { layer: brokenLayer, sqlite } = createTestLayerWithSqlite();
     const brokenApp = createGraphRoutes(config, brokenLayer);
     const brokenRun = <A>(eff: Effect.Effect<A, unknown, Db>): Promise<A> =>

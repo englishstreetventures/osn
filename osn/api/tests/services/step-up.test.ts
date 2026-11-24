@@ -24,8 +24,7 @@ import { mintingSession, mintStepUpToken } from "../helpers/step-up-session";
  * Step-up tokens must:
  *   • Be scoped to a specific account (`sub` match).
  *   • Carry an `amr` claim the verifier checks against a caller-supplied
- *     allow-list (so /recovery/generate can accept webauthn+otp, while
- *     a future /account/delete path could narrow to webauthn-only).
+ *     allow-list (so /recovery/generate can accept webauthn+otp).
  *   • Be single-use (jti replay guard) so a log leak doesn't grant two
  *     bites at a sensitive action.
  */
@@ -51,6 +50,24 @@ const registered = (email: string, handle: string) =>
   Effect.gen(function* () {
     const profile = yield* auth.registerProfile(email, handle);
     return profile;
+  });
+
+/**
+ * Runs `verify`, which must fail, with `metricStepUpVerified` spied on, and
+ * answers the error and every outcome the verifier counted, in order. Five
+ * refusals share the message "Invalid step-up token", so the outcome is what
+ * names the check that refused.
+ */
+const refusedWith = <A, E, R>(verify: Effect.Effect<A, E, R>) =>
+  Effect.suspend(() => {
+    const verified = vi.spyOn(metrics, "metricStepUpVerified");
+    return Effect.flip(verify).pipe(
+      Effect.map((error) => ({
+        error,
+        outcomes: verified.mock.calls.map(([result]) => result),
+      })),
+      Effect.ensuring(Effect.sync(() => verified.mockRestore())),
+    );
   });
 
 describe("step-up by emailed link", () => {
@@ -85,10 +102,11 @@ describe("step-up by emailed link", () => {
       );
 
       // Alice's token must NOT pass when Bob is the caller.
-      const err = yield* Effect.flip(
+      const { error: err, outcomes } = yield* refusedWith(
         auth.verifyStepUpForRecoveryGenerate(bob.accountId, stepUpToken),
       );
       expect(err._tag).toBe("AuthError");
+      expect(outcomes).toEqual(["wrong_subject"]);
     }).pipe(Effect.provide(cap.layer));
   });
 
@@ -103,17 +121,20 @@ describe("step-up by emailed link", () => {
         cap.recorded,
       );
 
-      // First verification succeeds.
-      yield* auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken);
-      // Second verification on the same jti fails.
-      const err = yield* Effect.flip(
-        auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
+      const { error: err, outcomes } = yield* refusedWith(
+        Effect.gen(function* () {
+          // First verification succeeds.
+          yield* auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken);
+          // Second verification on the same jti fails.
+          return yield* auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken);
+        }),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toBe("Step-up token already used");
+      expect(outcomes).toEqual(["ok", "jti_replay"]);
     }).pipe(Effect.provide(cap.layer));
   });
 
-  // F-SV5
   it.effect(
     "a token guard that cannot answer refuses the token, and is not counted as a replay",
     () => {
@@ -164,20 +185,18 @@ describe("step-up by emailed link", () => {
         "recovery_generate",
         cap.recorded,
       );
-      const err = yield* Effect.flip(
+      const { error: err, outcomes } = yield* refusedWith(
         strictAuth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
       );
       expect(err._tag).toBe("AuthError");
+      expect(err.message).toBe("Step-up factor not permitted");
+      expect(outcomes).toEqual(["amr_not_allowed"]);
     }).pipe(Effect.provide(cap.layer));
   });
 
-  // 5-min TTL is the containment window. A regression that drops the
-  // `exp` claim or mis-sets the TTL would silently weaken the threat model.
-  // With a 30s verifier clockTolerance, a 1.1s real-clock wait no longer
-  // proves expiry rejection — the token would still be inside tolerance. We
-  // forge a step-up token whose `exp` is well past the 30s window (but
-  // otherwise valid: correct iss/aud/sub/amr/jti) so the assertion is
-  // deterministic without a 31s sleep.
+  // A token is refused once `exp` is past the verifier's 30 s clock tolerance.
+  // The forged token is 120 s past `exp` and otherwise valid (correct
+  // iss/aud/sub/amr/jti), so expiry is the only check that refuses it.
   it.effect("expired token is rejected (beyond clockTolerance)", () => {
     const verified = vi.spyOn(metrics, "metricStepUpVerified");
     return Effect.gen(function* () {
@@ -261,21 +280,19 @@ describe("a used step-up token stays used for as long as it verifies", () => {
   }
 });
 
-// Account deletion is the highest-stakes step-up consumer (Flow A —
-// full account erasure) and had no direct coverage. It shares the recovery
-// AMR allow-list, so pin both directions of the confused-deputy guard.
-// Generating burns the account's whole existing set, so the gate
-// requires a token minted for exactly that ceremony. Pin both directions.
-describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
+// Generating codes burns the account's whole set, so the gate takes only a
+// token minted for that ceremony.
+describe("verifyStepUpForRecoveryGenerate: purpose binding", () => {
   it.effect("rejects a purposeless token", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-rec-nop@example.com", "surecnop");
       const stepUpToken = yield* mintStepUpToken(auth, profile.accountId, "otp");
-      const err = yield* Effect.flip(
+      const { error: err, outcomes } = yield* refusedWith(
         auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
       );
       expect(err._tag).toBe("AuthError");
+      expect(outcomes).toEqual(["wrong_purpose"]);
     }).pipe(Effect.provide(cap.layer));
   });
 
@@ -289,15 +306,19 @@ describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
         "email_change",
         cap.recorded,
       );
-      const err = yield* Effect.flip(
+      const { error: err, outcomes } = yield* refusedWith(
         auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
       );
       expect(err._tag).toBe("AuthError");
+      expect(outcomes).toEqual(["wrong_purpose"]);
     }).pipe(Effect.provide(cap.layer));
   });
 });
 
-describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
+// Account deletion is the highest-stakes step-up consumer (full account
+// erasure). It shares the recovery AMR allow-list, so pin both directions of
+// the confused-deputy guard.
+describe("verifyStepUpForAccountDelete: purpose binding", () => {
   it.effect("accepts a token minted with purpose account_delete", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -327,10 +348,11 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
       // Minted without a purpose — still valid for the legacy passkey gates,
       // but the account-delete verifier must refuse it.
       const stepUpToken = yield* mintStepUpToken(auth, profile.accountId, "otp");
-      const err = yield* Effect.flip(
+      const { error: err, outcomes } = yield* refusedWith(
         auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
       );
       expect(err._tag).toBe("AuthError");
+      expect(outcomes).toEqual(["wrong_purpose"]);
     }).pipe(Effect.provide(cap.layer));
   });
 
@@ -344,10 +366,11 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
         "pulse_app_delete",
         cap.recorded,
       );
-      const err = yield* Effect.flip(
+      const { error: err, outcomes } = yield* refusedWith(
         auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
       );
       expect(err._tag).toBe("AuthError");
+      expect(outcomes).toEqual(["wrong_purpose"]);
     }).pipe(Effect.provide(cap.layer));
   });
 });
@@ -385,10 +408,11 @@ describe("verifyStepUpForExternalPurpose", () => {
         "account_delete",
         cap.recorded,
       );
-      const err = yield* Effect.flip(
+      const { error: err, outcomes } = yield* refusedWith(
         auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete", profile.id),
       );
       expect(err._tag).toBe("AuthError");
+      expect(outcomes).toEqual(["wrong_purpose"]);
     }).pipe(Effect.provide(cap.layer));
   });
 });

@@ -10,7 +10,7 @@ import { createTestLayer } from "../helpers/db";
 import { createAuthRoutes } from "../helpers/routes";
 
 /**
- * F-SV3: a ceremony `begin` whose entry cannot be stored answers 503 and sends
+ * A ceremony `begin` whose entry cannot be stored answers 503 and sends
  * no mail. A code mailed for an entry that was never stored could not be
  * checked, so the user would be sent a code that can only fail.
  */
@@ -57,7 +57,7 @@ describe("a ceremony begin whose entry cannot be stored", () => {
     expect(h.recorded()).toEqual([]);
   });
 
-  it("POST /register/begin answers 503 and mails nothing", async () => {
+  it("POST /register/begin answers 503 and mails nothing when the pending registration cannot be stored", async () => {
     const h = harness((call) => call.store === "pending_registration");
     h.fail();
     const res = await h.app.handle(

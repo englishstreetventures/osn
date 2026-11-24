@@ -122,10 +122,8 @@ const makeCasLosingLayer = () =>
 /**
  * Every delete reports its count the way Cloudflare D1 does — under
  * `meta.changes`, with no top-level `changes` / `rowsAffected` at all. Tests
- * run on bun:sqlite, production runs on D1, so without this the CAS gate can
- * read `undefined ?? 0` in production and stay green here. It did: every
- * production refresh deleted its session, skipped the insert, and returned
- * `invalid_grant`.
+ * run on bun:sqlite and production on D1, so this layer makes the CAS gate
+ * read D1's shape here too.
  */
 const makeD1ShapedLayer = () =>
   makeDeleteInterceptingLayer(
@@ -173,10 +171,9 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
         const familyId = before[0]!.familyId;
 
         // Insert a SIBLING session in the same family — this stands in for the
-        // session the concurrent WINNER rotated in. The benign-race path must
-        // leave it untouched (whereas the old revoke-on-CAS-loss behaviour
-        // would have deleted it). Its survival is the assertion that the family
-        // is not revoked.
+        // session the concurrent WINNER rotated in. The benign-race path leaves
+        // it untouched; its survival is the assertion that the family is not
+        // revoked.
         const nowSec = Math.floor(Date.now() / 1000);
         yield* Effect.tryPromise(() =>
           realDb.insert(sessions).values({
@@ -207,8 +204,8 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
         // the winning grant's cookie is alive.
         expect(error.message).toBe(ROTATION_RACE_MESSAGE);
 
-        // 2. The family is PRESERVED — the concurrent winner's sibling session
-        //    survives (this is the false-positive-logout fix).
+        // 2. The family is preserved: the concurrent winner's sibling session
+        //    survives.
         const afterFamily = yield* Effect.tryPromise(() =>
           realDb.select().from(sessions).where(eq(sessions.familyId, familyId)),
         );
@@ -277,10 +274,9 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
     );
   });
 
-  // Regression: the CAS must read D1's rows-affected shape. On D1 the delete
-  // result carries its count under `meta.changes`; a reader that only knows
-  // `changes` / `rowsAffected` sees `undefined` and treats every successful
-  // rotation as a lost race — deleting the session and failing the grant.
+  // The CAS reads D1's rows-affected shape: on D1 the count is under
+  // `meta.changes`, and a reader that knew only `changes`/`rowsAffected` would
+  // treat every rotation as a lost race.
   it.effect("reads D1's `meta.changes` shape — a real rotation is not mistaken for a race", () => {
     const auth = createAuthService(config);
     const rotationRaceSpy = vi.spyOn(metrics, "metricSessionRotationRace");
