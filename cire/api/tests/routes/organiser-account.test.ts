@@ -22,7 +22,7 @@ import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { MAX_OWNED_WEDDINGS_PER_CALL } from "../../src/services/account-erasure";
 import type { OsnRemovalBridge } from "../../src/services/osn-bridge";
-import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import { appRequest, beforeStatement, jsonBody, recordStatements } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { fullWeddingStatements } from "../test-helpers/full-wedding";
 import { counterValue } from "../test-helpers/metrics-harness";
@@ -518,6 +518,32 @@ describe("a host's removal of their Cire data: the holder of a payout account", 
       w_shared: true,
       w_theirs_edit: false,
     });
+  });
+
+  it("H1d: an account connected after the route's read keeps the holder's seat; the portal's next call is refused", async () => {
+    const h = await setup();
+    const cookie = await confirmation(h);
+    // The route's read finds nothing held; the person connects the shared
+    // wedding's account before its batch runs.
+    beforeStatement(h.db, /^update "weddings" set "deleted_at"/i, () => holds(h.db, "w_shared", P));
+
+    const first = await remove(h, cookie, ANSWERS);
+    expect(first.status).toBe(202);
+    expect(seatsOf(h.db, "w_shared")).toEqual([
+      { profile: O, role: "owner" },
+      { profile: P, role: "owner" },
+    ]);
+    expect(connectorOf(h.db, "w_shared")).toBe(P);
+    // The account's clean-up never ran: the person is still signed in.
+    expect(sessionsOf(h.db, P)).toBe(1);
+    expect(sessionsOf(h.db, O)).toBe(1);
+    expect(seatsOf(h.db, "w_theirs")).toEqual([{ profile: O, role: "owner" }]);
+
+    const next = await remove(h, cookie, ANSWERS);
+    expect(next.status).toBe(409);
+    expect(((await jsonBody(next)) as { weddings: unknown }).weddings).toEqual([
+      { weddingId: "w_shared", name: "Shared" },
+    ]);
   });
 
   it("H2: asks for the confirmation first, and names the holder ahead of unanswered weddings", async () => {

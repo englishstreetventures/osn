@@ -1183,10 +1183,17 @@ describe("accountErasureService.eraseWithOutcomes — a host who holds a payout 
     holds(db, "w1", P);
     db.insert(hostRsvpNotices).values({ weddingId: "w1", osnProfileId: P, updatedAt: NOW }).run();
     signedIn(db, P);
+    // A column the account's clean-up clears, on another wedding the person
+    // last saved the settings of.
+    wedding(db, "w_saved", [OTHER]);
+    db.update(weddings).set({ updatedByOsnProfileId: P }).where(eq(weddings.id, "w_saved")).run();
 
     const done = await host(db);
     expect(done.result).toEqual({ status: "not_finished" });
     expect(done.payoutHeld).toEqual(["w1"]);
+    // No wedding the person left in this call: nothing for a notice.
+    expect(done.owned).toEqual([]);
+    expect(weddingRow(db, "w_saved")?.updatedByOsnProfileId).toBe(P);
     expect(sorted(seatsOf(db, "w1"))).toEqual([
       { profile: P, role: "owner" },
       { profile: OTHER, role: "owner" },

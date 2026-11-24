@@ -380,7 +380,10 @@ export const createOrganiserAccountRoutes = (
               });
             }
 
-            const { result, owned, lowerSeatWeddings, payoutHeld } =
+            // A holder's owner seat the erasure's own writes kept (an account
+            // connected since the read above) answers `not_finished`: the
+            // portal calls again, and that call is refused by the read.
+            const { result, owned, lowerSeatWeddings } =
               yield* accountErasureService.eraseWithOutcomes({
                 accountId,
                 profileIds,
@@ -410,14 +413,6 @@ export const createOrganiserAccountRoutes = (
               for (const weddingId of touched) {
                 yield* options.signals.membersChanged(weddingId, request, profileIds);
               }
-            }
-
-            // The erasure's own writes kept a holder's owner seat: an account
-            // connected since the read above. Refused as above, with the
-            // weddings as they stand.
-            if (payoutHeld.length > 0) {
-              const stillHeld = yield* accountRemovalService.payoutHolds(profileIds);
-              if (stillHeld.length > 0) return yield* holdsRefusal(set, stillHeld);
             }
 
             if (result.status === "not_finished") {
