@@ -4,8 +4,9 @@
  * The API stores every amount in minor units and hands them to the clients that
  * way. It prints money itself in two places: the CSV exports, which want a bare
  * decimal in one column with the currency in the next — "12.50", not "$12.50",
- * which a spreadsheet imports as text — and the emails it sends, which want the
- * amount as a person reads it ({@link formatMinor}).
+ * which a spreadsheet imports as text — and the emails and enquiry chat
+ * messages it sends, which want the amount as a person reads it
+ * ({@link formatMinor}).
  *
  * The exponent is NOT always 2. JPY has no minor unit at all (1000 minor units
  * is ¥1000, not ¥10) and KWD/BHD/JOD use 3, so a fixed `/ 100` mis-states a

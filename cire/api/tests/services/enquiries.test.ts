@@ -618,6 +618,55 @@ describe("enquiryService.quote", () => {
   });
 });
 
+/** `major` in `currency` as the runtime's own `Intl` prints it. */
+const intl = (major: number, currency: string): string =>
+  new Intl.NumberFormat(undefined, { style: "currency", currency }).format(major);
+
+describe("enquiryService.quote prints the amount in the wedding currency's own minor unit", () => {
+  // `major` is what `amountMinor` means in that currency: yen have no minor
+  // unit, a dinar has a thousand fils, a dollar a hundred cents.
+  it.each([
+    { currency: "JPY", amountMinor: 50_000, major: 50_000 },
+    { currency: "KWD", amountMinor: 1500, major: 1.5 },
+    { currency: "AUD", amountMinor: 250_000, major: 2500 },
+  ])(
+    "$currency: $amountMinor minor units in the chat message and the email",
+    async ({ currency, amountMinor, major }) => {
+      const db = db0();
+      const zap = fakeZap();
+      const email = fakeEmail();
+      const svc = createEnquiryService({
+        zap: zap.client,
+        sendEmail: email.sendEmail,
+        threadBaseUrl: THREAD_BASE,
+      });
+      const opened = await run(db, svc.open(openInput()));
+      if (!Exit.isSuccess(opened)) throw new Error("open failed");
+
+      const res = await run(
+        db,
+        svc.quote({
+          enquiry: readEnquiry(db, opened.value.id),
+          senderProfileId: VENDOR_PROFILE_ID,
+          amountMinor,
+          coupleEmail: "couple@wedding.test",
+          vendorName: "Bloom & Co",
+          currency,
+        }),
+      );
+      if (!Exit.isSuccess(res)) throw new Error("quote failed");
+
+      const quoteMessages = zap.sendCalls.filter((c) => c.body.startsWith("Quote:"));
+      expect(quoteMessages.map((c) => c.body)).toEqual([`Quote: ${intl(major, currency)}`]);
+
+      const quoteEmails = email.sent.filter((m) => m.template === "enquiry-quote");
+      expect(quoteEmails).toHaveLength(1);
+      const { amountFormatted } = quoteEmails[0]!.data as { amountFormatted: string };
+      expect(amountFormatted).toBe(intl(major, currency));
+    },
+  );
+});
+
 describe("enquiryService.addToBudget", () => {
   it("inserts a budget_items row with quotedMinor from the enquiry", async () => {
     const db = db0();
