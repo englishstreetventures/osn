@@ -9,7 +9,8 @@
  * `CIRE_REMOVAL_ADDRESS`, so its grants and step-ups spend their own windows.
  * It enrols the account's first passkey through osn-api, as Settings would;
  * the one step-up is that passkey, in the same page, which holds the virtual
- * authenticator.
+ * authenticator. Removing an app's data takes a passkey, so the sheet offers
+ * no other factor, and the confirm card says where to add one.
  *
  * First, Musubi's account deletion: cire's open action for the wedding the
  * person alone owns links its download page; the flow follows that link and
@@ -293,7 +294,7 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
     await page.getByText(P.keeper.theirs.name).count(),
   );
 
-  const { code, confirmPage } = await flow.step(
+  const { code, confirmPage, settingsLink, emailedLinks } = await flow.step(
     "answer, and confirm it's them on Musubi",
     async () => {
       await answer.check();
@@ -301,16 +302,35 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
       await page.waitForURL(`${ORIGINS.musubi}/confirm/**`);
       const confirmUrl = page.url();
       await expect(page.getByRole("heading", { name: "Remove your Cire data" })).toBeVisible();
+      // The card says where a person with no passkey adds one; the shell's own
+      // Settings links are outside it.
+      const link = await page
+        .locator("[data-request-card]")
+        .getByRole("link", { name: "Settings" })
+        .getAttribute("href");
       await page.getByRole("button", { name: "Confirm it's you" }).click();
-      await page.getByRole("button", { name: "Use passkey" }).click();
+      // The sheet draws every factor it offers in one pass, so once "Use
+      // passkey" shows, an emailed link it offered would show too.
+      const usePasskey = page.getByRole("button", { name: "Use passkey" });
+      await expect(usePasskey).toBeVisible();
+      const emailed = await page.getByRole("button", { name: "Email me a link" }).count();
+      await usePasskey.click();
       await page.waitForURL(`${ORIGINS.cireHost}/**`);
       await expect(page.getByText("Confirmed on Musubi.", { exact: false })).toBeVisible();
       return {
         code: await page.evaluate(() => window.sessionStorage.getItem("cire.removal.code")),
         confirmPage: confirmUrl,
+        settingsLink: link,
+        emailedLinks: emailed,
       };
     },
   );
+  flow.check(
+    "the confirm card links a person with no passkey to add one",
+    "/settings#security",
+    settingsLink ?? "no link",
+  );
+  flow.check("the sheet offers no emailed link: removing data takes a passkey", 0, emailedLinks);
   flow.check("the code came back to the portal", true, typeof code === "string" && code.length > 0);
   flow.check("the code is gone from the address", false, page.url().includes("code="));
   flow.check("the answer was kept across the trip", true, await answer.isChecked());

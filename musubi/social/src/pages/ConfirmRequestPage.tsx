@@ -6,10 +6,10 @@ import {
   type StepUpPurpose,
 } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
-import { Button } from "@shared/ui/ui/button";
+import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Notice } from "@shared/ui/ui/notice";
-import { useParams } from "@solidjs/router";
+import { A, useParams } from "@solidjs/router";
 import { createResource, createSignal, Match, Show, Switch, type JSX } from "solid-js";
 
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
@@ -24,6 +24,7 @@ const TITLE = "Confirm a request";
 /** What each purpose an app may ask for says, on the page and on the sheet. */
 const PURPOSE_COPY = {
   cire_app_delete: {
+    app: "Cire",
     heading: "Remove your Cire data",
     asks: "Cire asks you to confirm it's you before it removes your data there. Confirming removes nothing yet: you finish on Cire.",
     does: "On Cire, removing it takes every profile of this account off its weddings and signs you out of Cire. Your Musubi account stays.",
@@ -34,6 +35,8 @@ const PURPOSE_COPY = {
   Record<
     StepUpPurpose,
     {
+      /** The app's name, where the page sends the person back to start again. */
+      app: string;
       heading: string;
       asks: string;
       does: string;
@@ -50,10 +53,14 @@ type CopiedPurpose = keyof typeof PURPOSE_COPY;
  * `tests/pages/ConfirmRequestPage.browser.test.tsx` (DESIGN.md §Layout, An
  * app's step-up request).
  */
-const CARD_HEIGHT = { desktop: 58, phone: 73.5 } as const;
+const CARD_HEIGHT = { desktop: 70, phone: 94.5 } as const;
 
 /** Why the last press of Confirm did not go through. */
-type Problem = { readonly kind: "refused" } | { readonly kind: "line"; readonly text: string };
+type Problem =
+  | { readonly kind: "refused" }
+  /** A passkey added by emailed link, authenticator code or recovery, inside its hold. */
+  | { readonly kind: "held"; readonly holdEndsAt: number }
+  | { readonly kind: "line"; readonly text: string };
 
 /**
  * `/confirm/:requestId`: an app's step-up request. An app whose pages cannot
@@ -120,6 +127,11 @@ export function ConfirmRequestPage() {
         setEnded(true);
         return;
       }
+      if (answer.status === "held") {
+        setPhase("idle");
+        setProblem({ kind: "held", holdEndsAt: answer.holdEndsAt });
+        return;
+      }
       setPhase("leaving");
       // The tab leaves for the app; the button stays busy until it has.
       if (!returnTo(answer.returnTo)) {
@@ -152,10 +164,27 @@ export function ConfirmRequestPage() {
         <Switch>
           <Match when={open()}>
             {(current) => (
-              <RequestCard heading={PURPOSE_COPY[current().purpose].heading} problem={problem()}>
+              <RequestCard
+                heading={PURPOSE_COPY[current().purpose].heading}
+                app={PURPOSE_COPY[current().purpose].app}
+                problem={problem()}
+              >
                 <p class="text-foreground text-body">{PURPOSE_COPY[current().purpose].asks}</p>
                 <p class="text-muted-foreground text-body">
                   {PURPOSE_COPY[current().purpose].does}
+                </p>
+                {/* Removing an app's data takes a passkey past its hold, so a
+                    person without one learns here how to get one. */}
+                <p class="text-muted-foreground text-body">
+                  Confirming needs a passkey you added at least 3 days ago, or one you made when you
+                  signed up. If you have none, add one in{" "}
+                  <A
+                    href="/settings#security"
+                    class={buttonVariants({ variant: "link", size: "inline" })}
+                  >
+                    Settings
+                  </A>
+                  , then start again from {PURPOSE_COPY[current().purpose].app} in 3 days.
                 </p>
                 <p class="text-foreground text-body">
                   After you confirm, we send you back to{" "}
@@ -213,21 +242,51 @@ export function ConfirmRequestPage() {
 }
 
 /** The request's card: its heading, why the last press failed, then the rest. */
-function RequestCard(props: { heading: string; problem: Problem | null; children: JSX.Element }) {
+function RequestCard(props: {
+  heading: string;
+  app: string;
+  problem: Problem | null;
+  children: JSX.Element;
+}) {
   return (
     <Card padding="md" class="flex flex-col gap-3" data-request-card>
       <h2 class="text-foreground text-title font-medium">{props.heading}</h2>
       <Show when={props.problem} keyed>
         {(current) => (
           <Notice tone="danger" size="inline" alert>
-            {current.kind === "refused"
-              ? "Musubi couldn't use that confirmation. Confirm it's you again."
-              : current.text}
+            <Switch>
+              <Match when={current.kind === "refused"}>
+                Musubi couldn't use that confirmation. Confirm it's you again.
+              </Match>
+              <Match when={current.kind === "held" && current}>
+                {(held) => (
+                  <>
+                    That passkey is less than 3 days old. Use an older one, or start again from{" "}
+                    {props.app} after <HoldEnd at={held().holdEndsAt} />.
+                  </>
+                )}
+              </Match>
+              <Match when={current.kind === "line" && current}>{(line) => line().text}</Match>
+            </Switch>
           </Notice>
         )}
       </Show>
       {props.children}
     </Card>
+  );
+}
+
+/**
+ * When a passkey's hold ends, as a day and a clock time in the reader's
+ * locale and zone: the hold ends at an instant, so a day alone could send the
+ * person back too early on it.
+ */
+function HoldEnd(props: { at: number }) {
+  const when = () => new Date(props.at * 1_000);
+  return (
+    <time datetime={when().toISOString()}>
+      {new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(when())}
+    </time>
   );
 }
 

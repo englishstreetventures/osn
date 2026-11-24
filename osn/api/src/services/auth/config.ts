@@ -77,12 +77,13 @@ export interface AuthConfig {
    * Permitted AMR ("authentication method reference") values for the
    * `/recovery/generate` step-up gate.
    *
-   * The name understates its reach: this one set is read by FIVE verifiers —
+   * The name understates its reach: this one set is read by four verifiers —
    * `verifyStepUpForRecoveryGenerate`, `verifyStepUpForAccountDelete`
-   * (`DELETE /account`), `verifyStepUpForAccountExport` (the DSAR export),
-   * `verifyStepUpForExternalPurpose` (Pulse / Zap app deletion over
-   * `/internal/step-up/verify`) and both security-event acknowledge paths.
-   * Widening it widens all five. Defaults to passkey, OTP or TOTP.
+   * (`DELETE /account`), `verifyStepUpForAccountExport` (the DSAR export) and
+   * `verifyStepUpForAccountRestore` (`POST /account/restore`) — and by both
+   * security-event acknowledge paths. Widening it widens all of them. Removing
+   * an app's data does not read it: that is `appDeleteAllowedAmr`, fixed in
+   * `context.ts`. Defaults to passkey, OTP or TOTP.
    */
   recoveryGenerateAllowedAmr?: readonly ("webauthn" | "otp" | "totp")[];
   /**
@@ -134,6 +135,11 @@ export interface AuthConfig {
   // narrows the direct path only, and the register-then-assert pivot described
   // there produces a `webauthn` AMR this list also accepts — which is what the
   // credential-provenance rule in `step-up.ts` refuses, not this list.
+  //
+  // A fifth has no field for the same reason: `appDeleteAllowedAmr`
+  // (`context.ts`), `["webauthn"]`, gates removing an app's data (Pulse's,
+  // Zap's and cire's purposes), and the provenance rule holds a passkey
+  // registered under a weaker factor there for 72 hours.
   /**
    * Single-use guard for step-up token jtis. A deployed Worker passes the
    * coordination store's, shared by every isolate; the in-memory default

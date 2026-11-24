@@ -18,6 +18,26 @@ export class AuthError extends Data.TaggedError("AuthError")<{
 }> {}
 
 /**
+ * A step-up asserted by a passkey still inside its 72-hour hold, refused at a
+ * gate that removes an app's data. It is an {@link AuthError}, so every caller
+ * that answers a refusal still does; the one route that tells the person when
+ * the passkey can be used (`POST /step-up/requests/:id/confirm`) reads
+ * `holdEndsAt` and answers 403 `passkey_held`.
+ */
+export class PasskeyHeldError extends AuthError {
+  /** Unix seconds: when the passkey's hold ends. */
+  readonly holdEndsAt: number;
+
+  constructor(holdEndsAt: number) {
+    super({
+      message:
+        "This passkey is too new to remove an app's data. Use a passkey you already had, or try again once the security hold ends.",
+    });
+    this.holdEndsAt = holdEndsAt;
+  }
+}
+
+/**
  * Whether a value a route's runner threw is an {@link AuthError}: a refusal
  * the route answers itself, as opposed to a fault its error handler answers.
  */

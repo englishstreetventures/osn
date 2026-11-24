@@ -90,6 +90,16 @@ async function signedIn() {
   };
 }
 
+/**
+ * A passkey the account has held for a month: removing an app's data takes a
+ * passkey, and one past the hold a newly added passkey waits out.
+ */
+const HELD_PASSKEY = {
+  id: "pk_aaaaaaaaaaaa",
+  provenance: "webauthn",
+  createdAt: Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60,
+} as const;
+
 const callsOn = (fake: FakeNamespace, store: string) =>
   fake.calls.filter((call) => call.store === store).map((call) => call.op);
 
@@ -208,7 +218,7 @@ describe("createApp wires the coordination bundle into the account routes", () =
     const h = await signedIn();
     const verify = await pulseVerifier(h);
     const token = await Effect.runPromise(
-      h.auth.issueStepUpToken(h.minting, "otp", "pulse_app_delete"),
+      h.auth.issueStepUpToken(h.minting, "passkey", "pulse_app_delete", HELD_PASSKEY),
     );
 
     expect(await (await verify(token, "pulse_app_delete")).json()).toEqual({
@@ -233,7 +243,7 @@ describe("POST /internal/step-up/verify refusals", () => {
     const h = await signedIn();
     const verify = await pulseVerifier(h);
     const token = await Effect.runPromise(
-      h.auth.issueStepUpToken(h.minting, "otp", "pulse_app_delete"),
+      h.auth.issueStepUpToken(h.minting, "passkey", "pulse_app_delete", HELD_PASSKEY),
     );
     // The device that minted it signs out, as `POST /logout` does.
     await Effect.runPromise(h.auth.invalidateSession(h.refreshToken).pipe(Effect.provide(h.layer)));
@@ -250,7 +260,7 @@ describe("POST /internal/step-up/verify refusals", () => {
     const h = await signedIn();
     const verify = await pulseVerifier(h);
     const token = await Effect.runPromise(
-      h.auth.issueStepUpToken(h.minting, "otp", "pulse_app_delete"),
+      h.auth.issueStepUpToken(h.minting, "passkey", "pulse_app_delete", HELD_PASSKEY),
     );
     // Nothing on this hop reads `sessions` before the family lookup.
     h.sqlite.run("DROP TABLE sessions");
@@ -271,7 +281,7 @@ describe("POST /internal/step-up/verify refusals", () => {
     const h = await signedIn();
     const verify = await pulseVerifier(h);
     const token = await Effect.runPromise(
-      h.auth.issueStepUpToken(h.minting, "otp", "pulse_app_delete"),
+      h.auth.issueStepUpToken(h.minting, "passkey", "pulse_app_delete", HELD_PASSKEY),
     );
     const someoneElse = await Effect.runPromise(
       h.auth
@@ -298,7 +308,7 @@ describe("POST /internal/step-up/verify refusals", () => {
     const h = await signedIn();
     const verify = await pulseVerifier(h);
     const token = await Effect.runPromise(
-      h.auth.issueStepUpToken(h.minting, "otp", "zap_app_delete"),
+      h.auth.issueStepUpToken(h.minting, "passkey", "zap_app_delete", HELD_PASSKEY),
     );
 
     expect(await (await verify(token, "zap_app_delete")).json()).toEqual({

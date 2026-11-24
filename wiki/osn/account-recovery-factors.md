@@ -8,7 +8,7 @@ related:
   - "[[sessions]]"
   - "[[identity-model]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-25
 ---
 
 # Account recovery factors — TOTP and email-verified recovery
@@ -259,7 +259,9 @@ account.
 
 **Bootstrap is `webauthn`.** The account's first passkey follows a sign-up
 proved by an emailed link, so a literal reading stamps it `otp` — and through inheritance
-that restricts every credential the account ever derives from it.
+that restricts every credential the account ever derives from it. A first passkey
+enrolled within 72 hours of any recovery, by any of the three ways back in, is no
+bootstrap: it is `recovery`.
 
 **"One recovery per 72 hours" excludes the recovery-CODE path.** It stamps the
 window and is never refused by it. A recovery code is a 64-bit secret the user
@@ -427,14 +429,17 @@ on the coordination store in a deployed Worker, never in D1.
 
 ### Which step-up allow-lists admit `totp`
 
-There is no single gate; there are three allow-lists, and one is deliberately
-WebAuthn-only. Naming them is not optional.
+There is no single gate; there are five allow-lists, and two are WebAuthn-only.
+Naming them is not optional. The whole table, by gate, is in
+[[step-up#When step-up is required]].
 
 | Allow-list | Admits `totp`? |
 |---|---|
 | `passkeyRegisterAllowedAmr` | **Yes** |
 | `recoveryGenerateAllowedAmr` | **Yes** |
 | `passkeyDeleteAllowedAmr` | **No — stays `["webauthn"]`** |
+| `emailChangeAllowedAmr` | **No — `["webauthn", "otp"]`** |
+| `appDeleteAllowedAmr` (removing an app's data) | **No — `["webauthn"]`, and a passkey added under TOTP waits 72 hours** |
 
 `passkeyDelete` gates both `DELETE` and `PATCH /passkeys/:id`. Its existing
 rationale holds with TOTP present: the caller necessarily holds a passkey, so

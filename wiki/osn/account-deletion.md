@@ -202,6 +202,12 @@ The account stays; only the app's data goes.
 
 Zap has no leave route.
 
+### Leaving one app takes a passkey
+
+Removing an app's data — `pulse_app_delete`, `zap_app_delete`, `cire_app_delete` — takes a passkey step-up and nothing else, and a passkey added by an emailed link, an authenticator code or recovery counts only once it is 72 hours old ([[step-up#When step-up is required]], [[step-up#Credential provenance]]). The owner chose it: "Require a passkey" (2026-11-19), then "Passkey, 72-hour hold, no skip" (2026-11-25). The step-up sheet offers the passkey alone for these purposes.
+
+A person with no passkey they can use adds one first: signed in, from the Security part of Settings, confirming with an emailed link or an authenticator code; signed out, through "Lost your passkey?", whose restricted session adds one ([[passkey-primary#Recovery flow]]). Three days later the new passkey removes the app's data. Musubi's confirm page says so on every request, and after a held passkey's refusal names the day and time its hold ends. A request lasts 10 minutes, so the person starts again from the app. Deleting the whole account still admits an emailed link or an authenticator code ([[step-up#When step-up is required]]).
+
 ## Handle holds
 
 A deleted account's handles cannot be taken while its deletion is pending, or for 30 days after the hard delete ([`lib/handle-hold.ts`](../../osn/api/src/lib/handle-hold.ts)). `handle_holds` stores an HMAC-SHA256 of each handle under the server pepper (`OSN_SESSION_IP_PEPPER`), never the handle itself. During the window the plain handle is only in the job's restore record, which the hard delete deletes with the job. Registration, sign-up finish, the handle check, profile creation and organisation creation refuse a held handle with the answer they give a taken one. Every check that creates or offers a handle, sign-up finish included, also refuses one that starts with `deleted_`, the form the soft delete gives a profile. Each row is pending (an account, no release) or released (a release, no account), and its handle is 64 characters: two CHECKs refuse any other row. Profile creation inserts from the account row only while no deletion is pending, so a profile made as the soft delete commits is refused ("Account not found") rather than left unredacted and unheld.

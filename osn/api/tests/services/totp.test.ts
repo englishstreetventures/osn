@@ -899,9 +899,11 @@ describe("TOTP enrolment and disable are audible", () => {
 });
 
 describe("which gates a totp-AMR step-up token reaches", () => {
-  // Four allow-lists, and `recoveryGenerateAllowedAmr` is read by five separate
-  // verifiers — so a gate per verifier, not a gate per list. Every one of the
-  // five is exercised below by the verifier it actually runs through.
+  // Five allow-lists, and `recoveryGenerateAllowedAmr` is read by several
+  // verifiers — so a gate per verifier, not a gate per list, each exercised
+  // below by the verifier it actually runs through. The app-data gates, which
+  // admit a passkey alone, refuse `totp` in `tests/routes/app-step-up-requests.test.ts`,
+  // through the routes Pulse, Zap and Musubi reach them by.
   //
   // Each case pins the DIRECT gate: whether a token carrying `amr: ["totp"]`
   // satisfies that verifier. None of them says anything about what a chain of
@@ -972,22 +974,6 @@ describe("which gates a totp-AMR step-up token reaches", () => {
         auth.verifyStepUpForAccountExport(profile.accountId, token),
       );
       expect(outcome._tag).toBe("Success");
-    }).pipe(Effect.provide(makeLayer())),
-  );
-
-  it.effect("is ACCEPTED at verifyStepUpForExternalPurpose, the Pulse / Zap app delete", () =>
-    Effect.gen(function* () {
-      // The cross-service verifier behind ARC-gated `/internal/step-up/verify`.
-      // It reads the same allow-list, takes the profile the calling service
-      // verified, and returns the token's verified `sub` for it to use.
-      const profile = yield* auth.registerProfile("totp-ex@example.com", "totpex");
-      const token = yield* mintTotpToken(profile.accountId, "pulse_app_delete");
-      const result = yield* auth.verifyStepUpForExternalPurpose(
-        token,
-        "pulse_app_delete",
-        profile.id,
-      );
-      expect(result.accountId).toBe(profile.accountId);
     }).pipe(Effect.provide(makeLayer())),
   );
 

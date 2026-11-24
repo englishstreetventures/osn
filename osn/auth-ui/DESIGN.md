@@ -836,9 +836,13 @@ host a short-lived token through `onToken`.
   admits it, the host passes `totpClient`, and the account has one
   (`GET /totp/status`; a failed read hides the factor, and so does one still
   out, read by `state` so the sheet never joins its host's `Suspense`). By `purpose`:
-  `passkey_delete` admits the passkey only; `email_change` the passkey and the
-  emailed link; every other purpose all three; no purpose, the passkey and the
-  authenticator. "Use passkey" is the footer's action, beside Cancel
+  `passkey_delete` and the three purposes that remove an app's data
+  (`pulse_app_delete`, `zap_app_delete`, `cire_app_delete`) admit the passkey
+  only; `email_change` the passkey and the emailed link; every other purpose
+  all three; no purpose, the passkey and the authenticator. The sheet cannot
+  tell a passkey still inside its 72-hour hold from another, so the host's page
+  says what removing an app's data needs (`musubi/social/DESIGN.md` §Layout,
+  An app's step-up request). "Use passkey" is the footer's action, beside Cancel
   (`secondary`, as every dialog's dismiss button), which comes first; the
   other factors sit above the footer as `outline` Buttons.
 - **`passkeyOnly`** means the host cannot deliver mail: it removes the emailed

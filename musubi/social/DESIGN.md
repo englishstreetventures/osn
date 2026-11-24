@@ -654,19 +654,29 @@ its three motions that are not a colour or opacity change.
   shell route. Its head is "Confirm a request" over "An app asked you to
   confirm it's you on Musubi."; then one `Card` at `padding="md"`: the
   purpose's heading at `text-title` and 500 ("Remove your Cire data"), what the
-  app asks in full ink, what the app will do in the secondary ink, the host it
-  sends the person back to at 500, breaking anywhere, and one right-aligned
-  "Confirm it's you" (`default`, `sm`, `max-md:h-10`), which opens the step-up
-  sheet and is busy "Confirming…" then "Taking you back…". A refused step-up is
-  the danger line under the card's heading. A request used, run out or
-  another account's is one card, "This request has ended", saying to start
-  again from the app; a read that failed is the failed-load line with Try
-  again. While it reads, one `ResponsiveSkeleton` card stands at the ready
-  card's height: 294px below `md`, 232px from it.
+  app asks in full ink, what the app will do in the secondary ink, then always
+  one more line in the secondary ink for a person with no passkey they can use
+  ("Confirming needs a passkey you added at least 3 days ago, or one you made
+  when you signed up. If you have none, add one in Settings, then start again
+  from Cire in 3 days.", "Settings" a link inside the sentence to
+  `/settings#security`; the owner's choice, 2026-11-25, "One line in the card"),
+  the host it sends the person back to at 500, breaking anywhere, and one
+  right-aligned "Confirm it's you" (`default`, `sm`, `max-md:h-10`), which
+  opens the step-up sheet and is busy "Confirming…" then "Taking you back…". The
+  sheet offers the passkey alone: removing an app's data takes one. A refused
+  step-up is the danger line under the card's heading; a passkey still inside
+  its 72-hour hold has its own: "That passkey is less than 3 days old. Use an
+  older one, or start again from Cire after <day and time>.", the moment a
+  `<time>` in the reader's locale and zone with its clock time, since the hold
+  ends at an instant. A request used, run out or another account's is one
+  card, "This request has ended", saying to start again from the app; a read
+  that failed is the failed-load line with Try again. While it reads, one
+  `ResponsiveSkeleton` card stands at the ready card's height: 378px below
+  `md`, 280px from it.
 
-  *Measured 2026-11-17 — the ready card's `getBoundingClientRect().height` in
-  Chromium (Vitest browser tier, the return host `host.cireweddings.com`): 294px
-  at 390px, 232px at 1280px. `tests/pages/ConfirmRequestPage.browser.test.tsx`
+  *Measured 2026-11-25 — the ready card's `getBoundingClientRect().height` in
+  Chromium (Vitest browser tier, the return host `host.cireweddings.com`): 378px
+  at 390px, 280px at 1280px. `tests/pages/ConfirmRequestPage.browser.test.tsx`
   holds the placeholder to 2px of it at both widths.*
 
 ## Responsive layout
@@ -965,7 +975,9 @@ apart by its underline or by standing alone at 500.
   `buttonVariants({ variant: "link", size: "inline" })`. Uses:
   `/authorize`'s "No account yet? Create one" (a button: it swaps the panel to
   sign-up), Discover's empty note "Search for someone" (an `<A>`), the
-  contact address on `/privacy` ("email …") and `/terms`, and sign-up's "Terms
+  confirm card's "Settings" on `/confirm/:requestId` (an `<A>` to
+  `/settings#security`), the contact address on `/privacy` ("email …") and
+  `/terms`, and sign-up's "Terms
   of Service" and "Privacy Notice" (`@osn/auth-ui`'s `Register`, in the
   create-account dialog and on `/authorize`: two `<a>`s to `/terms` and
   `/privacy`, each opening a tab of its own so the form keeps what was typed).

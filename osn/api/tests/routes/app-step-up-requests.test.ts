@@ -23,6 +23,7 @@ import {
   exportKeyToJwk,
   generateArcKeyPair,
 } from "@shared/crypto";
+import type { StepUpFactor } from "@shared/observability/metrics";
 import { Effect } from "effect";
 import { exportJWK } from "jose";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -34,6 +35,7 @@ import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { osnLoggerLayer } from "../../src/observability";
 import { createAuthService } from "../../src/services/auth";
 import { appStepUpReturnConfig, returnToAdmitted } from "../../src/services/auth/app-step-up";
+import type { AssertingCredential } from "../../src/services/auth/types";
 import { createFakeNamespace, type FakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 
@@ -203,6 +205,7 @@ async function harness() {
 
   const cireArc = await arcCaller(run, "cire-api");
   const pulseArc = await arcCaller(run, "pulse-api");
+  const zapArc = await arcCaller(run, "zap-api");
 
   type Arc = () => Promise<string>;
   const internal = async (path: string, arc: Arc, body: unknown) =>
@@ -245,8 +248,34 @@ async function harness() {
         body: JSON.stringify({ step_up_token: stepUpToken }),
       }),
     );
-  const stepUpToken = (who: typeof a, purpose: "cire_app_delete" | "pulse_app_delete") =>
-    run(auth.issueStepUpToken(who.minting, "otp", purpose));
+  /**
+   * A step-up token of `who` for `purpose`. By default a passkey's, asserted by
+   * a credential the account has held for a month, which every app-data gate
+   * admits; `asserting: null` mints one that names no credential.
+   */
+  const stepUpToken = (
+    who: typeof a,
+    purpose: AppDataPurpose,
+    factor: StepUpFactor = "passkey",
+    asserting?: AssertingCredential | null,
+  ) =>
+    run(
+      auth.issueStepUpToken(
+        who.minting,
+        factor,
+        purpose,
+        asserting === null
+          ? undefined
+          : (asserting ?? (factor === "passkey" ? heldForAMonth() : undefined)),
+      ),
+    );
+  /** Pulse's or Zap's purpose, spent as a token by that app for `a`'s profile. */
+  const spend = (purpose: "pulse_app_delete" | "zap_app_delete", token: string) =>
+    internal("/step-up/verify", purpose === "pulse_app_delete" ? pulseArc : zapArc, {
+      purpose,
+      profile_id: a.id,
+      token,
+    });
 
   /** Begins a request for `who` and answers its id and the browser's secret. */
   const begun = async (who: { id: string } = a) => {
@@ -286,10 +315,29 @@ async function harness() {
     read,
     confirm,
     stepUpToken,
+    spend,
     begun,
     confirmed,
   };
 }
+
+type AppDataPurpose = "cire_app_delete" | "pulse_app_delete" | "zap_app_delete";
+
+/** How long a passkey added by emailed link, authenticator code or recovery is held. */
+const HOLD_S = 72 * 60 * 60;
+
+/** The two factors an app-data gate refuses outright, as a test names them. */
+const STEP_UP_BY = {
+  otp: "an emailed-link step-up",
+  totp: "an authenticator-code step-up",
+} as const;
+
+/** A credential the account has held for a month, with full standing. */
+const heldForAMonth = (): AssertingCredential => ({
+  id: "pk_aaaaaaaaaaaa",
+  provenance: "webauthn",
+  createdAt: nowSec() - 30 * 24 * 60 * 60,
+});
 
 const callsOn = (fake: FakeNamespace, store: string) =>
   fake.calls.filter((call) => call.store === store).map((call) => call.op);
@@ -642,4 +690,132 @@ describe("POST /internal/step-up/verify, for an app's request", () => {
     );
     expect(await asRequest.json()).toEqual({ ok: false, reason: "invalid" });
   });
+});
+
+// Removing an app's data takes a passkey that is past its hold. An emailed link
+// or an authenticator code is refused for every app-data purpose, and so is a
+// passkey added under one of them or by recovery, until it is 72 hours old:
+// otherwise whoever holds the mailbox or the authenticator seed could add a
+// passkey of their own and remove the data at once. Pulse's and Zap's purposes
+// are spent as a token at `/internal/step-up/verify`, cire's through a request
+// confirmed on Musubi. A refusal spends nothing.
+describe("removing an app's data takes a passkey past its hold", () => {
+  for (const purpose of ["pulse_app_delete", "zap_app_delete"] as const) {
+    for (const factor of ["otp", "totp"] as const) {
+      it(`refuses ${purpose} to ${STEP_UP_BY[factor]}, and claims nothing`, async () => {
+        const h = await harness();
+        const res = await h.spend(purpose, await h.stepUpToken(h.a, purpose, factor));
+        expect(await res.json()).toEqual({ ok: false, reason: "invalid" });
+        expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
+      });
+    }
+  }
+
+  it("admits zap_app_delete for a passkey the account has held", async () => {
+    // Red on the gate refusing every factor: Zap could never remove anyone's data.
+    const h = await harness();
+    const res = await h.spend("zap_app_delete", await h.stepUpToken(h.a, "zap_app_delete"));
+    expect(await res.json()).toEqual({ ok: true, account_id: h.a.accountId });
+  });
+
+  for (const factor of ["otp", "totp"] as const) {
+    it(`refuses cire's confirm to ${STEP_UP_BY[factor]}, and leaves the request pending`, async () => {
+      const h = await harness();
+      const { id } = await h.begun();
+      const res = await h.confirm(
+        id,
+        h.a.accessToken,
+        await h.stepUpToken(h.a, "cire_app_delete", factor),
+      );
+      expect({ status: res.status, body: await res.json() }).toEqual({
+        status: 403,
+        body: { error: "step_up_required" },
+      });
+      expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
+      const passkey = await h.stepUpToken(h.a, "cire_app_delete");
+      expect((await h.confirm(id, h.a.accessToken, passkey)).status).toBe(200);
+    });
+  }
+
+  for (const provenance of ["otp", "totp", "recovery"] as const) {
+    it(`holds cire's confirm from a passkey added by ${provenance} until it is 72 hours old`, async () => {
+      const h = await harness();
+      const { id } = await h.begun();
+      const made = nowSec();
+      const fresh = await h.stepUpToken(h.a, "cire_app_delete", "passkey", {
+        id: "pk_bbbbbbbbbbbb",
+        provenance,
+        createdAt: made,
+      });
+      const res = await h.confirm(id, h.a.accessToken, fresh);
+      expect({ status: res.status, body: await res.json() }).toEqual({
+        status: 403,
+        body: { error: "passkey_held", hold_ends_at: made + HOLD_S },
+      });
+      expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
+      // Still pending: a passkey the account has held confirms it.
+      const held = await h.stepUpToken(h.a, "cire_app_delete");
+      expect((await h.confirm(id, h.a.accessToken, held)).status).toBe(200);
+    });
+  }
+
+  it("still holds cire's confirm a minute before a passkey's 72 hours are over", async () => {
+    // Red on a hold shorter than the 72 hours `hold_ends_at` reports.
+    const h = await harness();
+    const { id } = await h.begun();
+    const made = nowSec() - HOLD_S + 60;
+    const token = await h.stepUpToken(h.a, "cire_app_delete", "passkey", {
+      id: "pk_bbbbbbbbbbbb",
+      provenance: "otp",
+      createdAt: made,
+    });
+    const res = await h.confirm(id, h.a.accessToken, token);
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 403,
+      body: { error: "passkey_held", hold_ends_at: made + HOLD_S },
+    });
+  });
+
+  it("admits cire's confirm from a passkey added by emailed link once its 72 hours are over", async () => {
+    // Red on a hold that counts from anything but the passkey's own creation.
+    const h = await harness();
+    const { id } = await h.begun();
+    const token = await h.stepUpToken(h.a, "cire_app_delete", "passkey", {
+      id: "pk_bbbbbbbbbbbb",
+      provenance: "otp",
+      createdAt: nowSec() - HOLD_S - 1,
+    });
+    expect((await h.confirm(id, h.a.accessToken, token)).status).toBe(200);
+  });
+
+  it("refuses cire's confirm to a passkey step-up that names no credential, as no hold", async () => {
+    // A rule that read a missing claim as "no hold" would be no rule at all.
+    const h = await harness();
+    const { id } = await h.begun();
+    const token = await h.stepUpToken(h.a, "cire_app_delete", "passkey", null);
+    const res = await h.confirm(id, h.a.accessToken, token);
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 403,
+      body: { error: "step_up_required" },
+    });
+  });
+
+  for (const [purpose, provenance] of [
+    ["pulse_app_delete", "otp"],
+    ["zap_app_delete", "recovery"],
+  ] as const) {
+    it(`refuses ${purpose} to a passkey added by ${provenance} inside its hold, and claims nothing`, async () => {
+      const h = await harness();
+      const token = await h.stepUpToken(h.a, purpose, "passkey", {
+        id: "pk_bbbbbbbbbbbb",
+        provenance,
+        createdAt: nowSec(),
+      });
+      expect(await (await h.spend(purpose, token)).json()).toEqual({
+        ok: false,
+        reason: "invalid",
+      });
+      expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
+    });
+  }
 });

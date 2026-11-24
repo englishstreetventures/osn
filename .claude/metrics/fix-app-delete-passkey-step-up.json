@@ -1,0 +1,190 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/app-delete-passkey-step-up",
+    "base_sha": "7a763437c44a7ba3ac8b6efff50b9775c292d1dc",
+    "head_sha": "7b1f2dca2f33987ebfc7ecf270eac6ccfd0a6756",
+    "generated_at": "2026-11-24T20:17:23.198Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none",
+    "issues": 0
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-24T13:46:57.345Z",
+    "last_ts": "2026-11-24T20:17:17.365Z",
+    "span_seconds": 23420,
+    "active_seconds": 3961,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 83.12610940000009,
+    "tokens": {
+      "input": 1222,
+      "output": 464095,
+      "thinking": 202870,
+      "cache_write_5m": 2157205,
+      "cache_write_1h": 0,
+      "cache_read": 157633241
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1222,
+          "output": 464095,
+          "thinking": 202870,
+          "cache_write_5m": 2157205,
+          "cache_write_1h": 0,
+          "cache_read": 157633241
+        },
+        "usd_equivalent": 83.12610940000009,
+        "messages": 596
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1222,
+          "output": 464095,
+          "thinking": 202870,
+          "cache_write_5m": 2157205,
+          "cache_write_1h": 0,
+          "cache_read": 157633241
+        },
+        "usd_equivalent": 83.12610940000009,
+        "messages": 596
+      }
+    },
+    "effort": {
+      "high": 227,
+      "xhigh": 369
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 10,
+      "docs": 9,
+      "config": 1,
+      "source": 13
+    },
+    "loc": {
+      "generated": {
+        "added": 23,
+        "deleted": 0
+      },
+      "test": {
+        "added": 389,
+        "deleted": 34
+      },
+      "docs": {
+        "added": 138,
+        "deleted": 70
+      },
+      "config": {
+        "added": 30,
+        "deleted": 10
+      },
+      "source": {
+        "added": 302,
+        "deleted": 70
+      }
+    },
+    "packages": [
+      "musubi/social",
+      "osn/api",
+      "osn/auth-ui",
+      "osn/client",
+      "shared/observability",
+      "shared/openapi",
+      "tools/e2e",
+      "tools/lab"
+    ],
+    "touches_migration": false,
+    "commits": 14
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 480,
+      "Read": 84,
+      "Edit": 50,
+      "Skill": 17,
+      "Write": 11,
+      "SubagentHandback": 8,
+      "Agent": 7,
+      "ToolSearch": 2,
+      "TaskStop": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 5,
+      "max_edits_one_file": 15
+    },
+    "skills": {
+      "new-feat": 1,
+      "design-system": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "write-pr": 1,
+      "review-performance": 1,
+      "review-design": 1,
+      "review-tests": 1,
+      "review-security": 3,
+      "review-docs": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 6
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 596,
+      "with_tools": 593,
+      "with_one_tool": 543,
+      "context_median": 170583,
+      "context_p90": 571120
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 6,
+    "located": 6,
+    "acted_on": 4,
+    "paired": 6,
+    "acted_on_paired": 4,
+    "control_changed": 0,
+    "acted_on_by_test": 1,
+    "acted_on_paired_by_test": 1
+  }
+}

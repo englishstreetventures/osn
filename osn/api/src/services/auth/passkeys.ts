@@ -33,6 +33,7 @@ import {
   CHALLENGE_TTL_MS,
   DELETED_HANDLE_PREFIX,
   MAX_PASSKEYS_PER_ACCOUNT,
+  RECOVERY_COOLDOWN_MS,
   RECOVERY_ENROLMENT_PASSKEY_CEILING,
 } from "./constants";
 import type { AuthContext } from "./context";
@@ -252,7 +253,18 @@ export function createPasskeysModule(
       // the registration OTP would taint every credential the account ever
       // derives from it, because provenance is inherited — ordinary rotation
       // would never become possible.
-      let provenanceAmr: PasskeyProvenance = "webauthn";
+      //
+      // A first passkey enrolled after a recovery is no bootstrap: it is
+      // `recovery`, whether a restricted recovery session enrols it (an emailed
+      // link or an authenticator code opened that session) or the ordinary
+      // session a recovery code signs in with does, inside the 72 hours the
+      // recovery stamped on the account. The hold on removing an app's data,
+      // changing the email and removing an older passkey must not start from
+      // it at full strength. Sign-up's bootstrap has no recovery behind it.
+      const recentlyRecovered =
+        account.lastRecoveredAt !== null &&
+        Date.now() - account.lastRecoveredAt * 1000 < RECOVERY_COOLDOWN_MS;
+      let provenanceAmr: PasskeyProvenance = caller || recentlyRecovered ? "recovery" : "webauthn";
       if (existingPasskeys.length > 0) {
         if (recoveryEnrolment) {
           // The restricted-recovery-session bypass: no step-up ran at all, so

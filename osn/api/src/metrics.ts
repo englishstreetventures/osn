@@ -54,6 +54,7 @@ import type {
   SecurityInvalidationTrigger,
   SessionAction,
   StepUpFactor,
+  StepUpPurpose,
   StepUpStep,
   TotpOp,
   TotpVerifyResult,
@@ -1051,7 +1052,12 @@ export const metricOidcManageDataLinkRefused = (reason: ManageDataRefusal): void
 // ---------------------------------------------------------------------------
 
 type StepUpIssuedAttrs = { factor: StepUpFactor };
-type StepUpVerifiedAttrs = { result: StepUpVerifyResult };
+/**
+ * The purpose the gate named, or `none` for a gate that names none: bounded by
+ * `StepUpPurpose`, so a dashboard can tell, say, removing an app's data from
+ * the rest.
+ */
+type StepUpVerifiedAttrs = { result: StepUpVerifyResult; purpose: StepUpPurpose | "none" };
 type SessionOpAttrs = { action: SessionAction; result: Result };
 type EmailChangeAttrs = { step: EmailChangeStep; result: Result };
 
@@ -1088,8 +1094,10 @@ const authEmailChangeDuration = createHistogram<EmailChangeAttrs>({
 
 export const metricStepUpIssued = (factor: StepUpFactor): void => authStepUpIssued.inc({ factor });
 
-export const metricStepUpVerified = (result: StepUpVerifyResult): void =>
-  authStepUpVerified.inc({ result });
+export const metricStepUpVerified = (
+  result: StepUpVerifyResult,
+  purpose: StepUpPurpose | "none",
+): void => authStepUpVerified.inc({ result, purpose });
 
 export const withStepUp =
   (step: StepUpStep) =>

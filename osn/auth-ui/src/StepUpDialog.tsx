@@ -79,15 +79,19 @@ export type RunPasskeyRegistration = (
  *
  * This mirrors the **defaults** in `osn/api/src/services/auth/context.ts`
  * (`recoveryGenerateAllowedAmr`, `passkeyRegisterAllowedAmr`,
- * `passkeyDeleteAllowedAmr`, `emailChangeAllowedAmr`). Three of those four are
- * `AuthConfig` fields, so a deployment that narrows one reintroduces the dead
- * end here; no deployment sets them today.
+ * `passkeyDeleteAllowedAmr`, `emailChangeAllowedAmr`, `appDeleteAllowedAmr`).
+ * Three of those five are `AuthConfig` fields, so a deployment that narrows one
+ * reintroduces the dead end here; no deployment sets them today.
  *
- * The two `false` entries each have a reason worth keeping:
+ * The `false` entries each have a reason worth keeping:
  * `passkey_delete` (which gates rename as well) stays WebAuthn-only because
  * the caller necessarily holds a passkey already, so requiring one costs
- * nothing; `email_change` admits the emailed link because it proves control of
- * the current mailbox, which an authenticator seed does not.
+ * nothing; removing an app's data (`pulse_app_delete`, `zap_app_delete`,
+ * `cire_app_delete`) takes a passkey, and one added by emailed link,
+ * authenticator code or recovery only once it is 72 hours old, which the gate
+ * checks and the host explains; `email_change` admits the emailed link because
+ * it proves control of the current mailbox, which an authenticator seed does
+ * not.
  */
 const PURPOSE_FACTORS = {
   recovery_generate: { email: true, totp: true },
@@ -95,9 +99,9 @@ const PURPOSE_FACTORS = {
   account_delete: { email: true, totp: true },
   account_export: { email: true, totp: true },
   account_restore: { email: true, totp: true },
-  pulse_app_delete: { email: true, totp: true },
-  zap_app_delete: { email: true, totp: true },
-  cire_app_delete: { email: true, totp: true },
+  pulse_app_delete: { email: false, totp: false },
+  zap_app_delete: { email: false, totp: false },
+  cire_app_delete: { email: false, totp: false },
   passkey_register: { email: true, totp: true },
   totp_enroll: { email: true, totp: true },
   totp_disable: { email: true, totp: true },
