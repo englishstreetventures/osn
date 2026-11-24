@@ -360,6 +360,11 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
       // test sitekey, so the sign-in and registration forms load the widget as
       // the deployed tiers do; osn-api holds no secret and checks nothing, as
       // on dev, and the fixtures stand in for Turnstile at its real URLs.
+      // `--inspector-port 0`: workerd binds the devtools socket on a port the
+      // kernel picks at bind time. Left unset, Wrangler picks the first free
+      // port from 9229 and binds it later, and cire invites' `astro dev` picks
+      // from 9229 the same way, so the two can pick one port and Musubi exits
+      // with `Address already in use (socket "direct:1:default")`.
       name: "musubi",
       dir: "musubi/social",
       build: ["bun", "run", "build"],
@@ -372,6 +377,8 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         String(PORTS.musubi),
         "--ip",
         "localhost",
+        "--inspector-port",
+        "0",
         "--show-interactive-dev-session=false",
       ],
       readyUrl: `${ORIGINS.musubi}/`,

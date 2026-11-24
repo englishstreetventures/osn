@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-23
+last-reviewed: 2026-11-24
 ---
 
 # Testing Patterns
@@ -79,6 +79,8 @@ Two E2E tests live outside it, both on real Wrangler under Node, both needing no
 
 Both write to `test-artifacts/`, not `e2e-artifacts/`, which the suite clears.
 
+A test or launcher that starts `wrangler dev` passes `--inspector-port 0`, and `--port 0` too unless the origin must be fixed before the start; with `--port 0` it reads the port from Wrangler's `Ready on` line. A port the caller picks and passes in can be taken before workerd binds it, and Wrangler then exits with `Address already in use`; for the inspector port, the message names `socket "direct:1:default"`. Left unset, the inspector port is the first free one from 9229, which cire invites' `astro dev` also picks from. The observability test passes both; the E2E stack's Musubi keeps its fixed 1422 and passes `--inspector-port 0`. The guest route comparison's child is the exception: it starts Wrangler with no inspector, on a free port it picks first, because it gives the Worker its own origin before the start.
+
 A script test that needs no install but waits out seconds is named out of `bun test ./scripts/` too, since that command runs its files one after another, and gets a root script and a step of its own in the Scripts job, not in Build & Test, whose time sets when the `ci` gate finishes on a cold turbo cache. The one such test is the relay's 13 s idle-timeout test, [`scripts/tests/guest-route-parity-relay-idle.slow.ts`](../../scripts/tests/guest-route-parity-relay-idle.slow.ts), run by `bun run test:scripts:relay-idle`.
 
 ### What one run does
@@ -99,7 +101,7 @@ A script test that needs no install but waits out seconds is named out of `bun t
 | pulse-api | 3001 | same |
 | cire-api | 8787 | same |
 | cire-api, with a Stripe key and no Connect webhook secret | 4594 | same |
-| Musubi | 1422 | `bun run build`, then `wrangler dev --config tools/e2e/musubi-social.wrangler.jsonc` |
+| Musubi | 1422 | `bun run build`, then `wrangler dev --config tools/e2e/musubi-social.wrangler.jsonc --inspector-port 0` |
 | Pulse web | 1420 | `bun run dev:app` |
 | cire invites | 4321 | `bun run dev:app --ignore-lock` |
 | cire host (the organiser portal) | 4322 | `bun run dev:app --ignore-lock` |
