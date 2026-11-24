@@ -51,7 +51,7 @@ export function createAuthRoutes(
   /**
    * Service layer supplying `Db` and `EmailService`. Defaults to
    * `DbLive` merged with a fresh `LogEmailLive` (local dev + tests).
-   * Production callers compose `DbLive` with `makeCloudflareEmailLive(...)`.
+   * Production callers compose `DbLive` with the transport `selectEmailLayer` picks.
    */
   dbLayer: Layer.Layer<Db | EmailService> = Layer.merge(DbLive, makeLogEmailLive().layer),
   /**

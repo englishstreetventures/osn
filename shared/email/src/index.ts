@@ -1,6 +1,10 @@
 export { EmailService, EmailError, type EmailServiceImpl, type SendEmailInput } from "./service";
 
-export { makeCloudflareEmailLive, type CloudflareEmailConfig } from "./cloudflare";
+export {
+  makeCloudflareEmailLive,
+  cloudflareSenderProblem,
+  type CloudflareEmailConfig,
+} from "./cloudflare";
 
 export { makeResendEmailLive, resendApiUrlProblem, type ResendEmailConfig } from "./resend";
 

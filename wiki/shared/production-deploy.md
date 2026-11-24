@@ -174,9 +174,11 @@ Setup steps (live path — Resend). Production has finished all seven for `cirew
    recording the removal.
 
 The **Cloudflare Email Service** path stays available as a legacy fallback: onboard the
-sender domain in Cloudflare Email Sending, mint an Email-Send-scoped token →
-`CLOUDFLARE_EMAIL_API_TOKEN`, and note `CLOUDFLARE_ACCOUNT_ID`. It needs a paid Workers
-plan and is **not** the live transport — prefer Resend.
+sender domain in Cloudflare Email Sending, mint an API token with the `Email Sending Write`
+permission → `CLOUDFLARE_EMAIL_API_TOKEN`, and note `CLOUDFLARE_ACCOUNT_ID`. It needs the
+Workers Paid plan to mail any address the account has not verified
+([Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/))
+and is **not** the live transport — prefer Resend.
 
 ### 1.2 Generate the ES256 JWT key pair
 

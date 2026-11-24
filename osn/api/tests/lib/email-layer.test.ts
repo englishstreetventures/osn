@@ -50,6 +50,23 @@ describe("selectEmailLayer", () => {
     );
   });
 
+  it("CF creds + a malformed OSN_EMAIL_FROM → throws naming the variable, not its value", () => {
+    expect(() =>
+      selectEmailLayer(
+        nonLocal({
+          CLOUDFLARE_ACCOUNT_ID: "acct",
+          CLOUDFLARE_EMAIL_API_TOKEN: "tok",
+          OSN_EMAIL_FROM: "Musubi <hello@musubi.social",
+        }),
+        osnLoggerLayer,
+      ),
+    ).toThrow(
+      new Error(
+        "OSN_EMAIL_FROM must be an address, or a display name followed by an address in angle brackets",
+      ),
+    );
+  });
+
   it("creds absent + non-local + opt-in set → returns a degraded (no-op) layer, does NOT throw", async () => {
     const layer = selectEmailLayer(nonLocal({ OSN_EMAIL_OPTIONAL: "true" }), osnLoggerLayer);
     // A send must be a successful no-op.
