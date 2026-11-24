@@ -791,10 +791,10 @@ const toSettingsRecord = (r: SettingsRowRead): RegistrySettingsRecord => ({
  * account settles in the currency every gift is charged in, and the couple
  * said yes. In {@link MoneyGiftsBlock}'s order.
  *
- * The holder half is the gate decision 1(a) of the gift-payout design asks
- * for: the account carries one person's identity and bank, so while they hold
- * no owner seat — or nobody is recorded — no gift is taken into it. The
- * account is kept: seated as an owner again, money opens with the switch on.
+ * The holder half: the account carries one person's identity and bank, so
+ * while they hold no owner seat — or nobody is recorded — no gift is taken
+ * into it. The account is kept: seated as an owner again, money opens with
+ * the switch on.
  * `payoutHolderAbsent` is false with no account, so a wedding with none reads
  * `stripe_not_ready`.
  *
