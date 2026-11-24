@@ -215,6 +215,7 @@ describe("the musubi stack, evaluated offline", () => {
     expect(readFileSync(seed, "utf8")).toBe(
       osnSeedSql({
         cireApiOrigin: origin(stageHosts(DEV_DOMAIN, "dev").cireApi),
+        cireOrganiserOrigin: origin(stageHosts(DEV_DOMAIN, "dev").cireHost),
         clientSecretSha256: OIDC_CLIENT_SECRET_SHA256,
         arcKeyId: ARC_KEY_ID,
         arcPublicJwk,

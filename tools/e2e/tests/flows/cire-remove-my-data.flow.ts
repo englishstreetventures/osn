@@ -16,6 +16,13 @@
  * downloads the wedding (the archive is the artifact), and the page offers
  * to add another owner. The deletion is left unconfirmed.
  *
+ * Then Musubi's Settings › Connected apps lists cire, whose row links cire's
+ * removal screen ("Remove my data from Cire", a tab of its own, no opener or
+ * referrer); following it lands on that screen. The link is the one the seed
+ * gave cire's client, which osn-api answers because the stack pins cire's
+ * portal origin to that client (`CIRE_ORGANISER_ORIGIN`). The screenshot of
+ * Connected apps is an artifact.
+ *
  * Then cire's "Remove my Cire data": the screen lists the wedding to be
  * deleted and the one they leave; they answer, go to Musubi in the same tab,
  * confirm with the passkey and come back; Musubi's confirm page, opened
@@ -28,12 +35,15 @@
  */
 
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 
 import {
+  CIRE_OIDC,
   CIRE_REMOVAL_ADDRESS,
   CIRE_REMOVAL_PERSON as P,
   DB_FILES,
   ORIGINS,
+  SCREENSHOT_DIR,
 } from "../../src/config";
 import {
   addVirtualAuthenticator,
@@ -214,9 +224,47 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
   );
 
   // -------------------------------------------------------------------------
-  // Remove my Cire data.
+  // Musubi's Connected apps links cire's removal screen.
   // -------------------------------------------------------------------------
   const answer = page.getByRole("checkbox", { name: `Delete this wedding: ${P.alone.name}` });
+  const removalLink = await flow.step(
+    "find the link to cire's removal screen in Musubi's Connected apps",
+    async () => {
+      await page.goto(`${ORIGINS.musubi}/settings#apps`);
+      const link = page.getByRole("link", { name: "Remove my data from Cire" });
+      await expect(link).toHaveCount(1);
+      await page.screenshot({
+        path: resolve(SCREENSHOT_DIR, "cire-remove-my-data", "connected-apps.png"),
+        animations: "disabled",
+      });
+      return {
+        href: await link.getAttribute("href"),
+        target: await link.getAttribute("target"),
+        rel: await link.getAttribute("rel"),
+      };
+    },
+  );
+  flow.check(
+    "the link is cire's removal screen",
+    CIRE_OIDC.manageDataUrl,
+    removalLink.href ?? "no link",
+  );
+  flow.check("it opens a tab of its own", "_blank", removalLink.target ?? "none");
+  flow.check("it sends no opener or referrer", "noopener noreferrer", removalLink.rel ?? "none");
+
+  await flow.step("follow it to cire's removal screen", async () => {
+    // The link opens a new tab; the same page holds the authenticator, so it goes there.
+    if (removalLink.href === null) throw new Error("Connected apps drew no removal link");
+    await page.goto(removalLink.href);
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Remove your Cire data" }),
+    ).toBeVisible();
+    await expect(answer).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Remove my Cire data.
+  // -------------------------------------------------------------------------
   await flow.step("open Remove my Cire data from the account menu", async () => {
     await page.goto(`${ORIGINS.cireHost}/`);
     await page.getByRole("button", { name: "Account menu" }).click();

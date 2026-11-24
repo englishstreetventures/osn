@@ -17,7 +17,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
   - "[[arc-token-debugging]]"
-last-reviewed: 2026-11-24
+last-reviewed: 2026-11-25
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -107,6 +107,7 @@ marked **TBD** blocks the deploy.
 | cire/invites `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/invites **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://invite.cireweddings.com`** (set in `production-release.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. `invite.` is served by the `cire-invites` Worker (custom-domain route), not a Pages project — see §3.3. The apex serves the marketing landing site. |
 | cire/host `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL`, `PUBLIC_MARKETING_URL` (build-time) | cire/host static build (§5.3) | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com` / `https://cireweddings.com`** (set in `production-release.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
 | `CIRE_OIDC_CLIENT_SECRET` + the `oauth_clients` row for cire | cire-api (secret) + osn D1 | **DONE 2026-07-27** — client `cid_cire` seeded in prod D1, secret set on the production cire-api Worker (§3.2, §6.3). The row's `redirect_uris` still lists the dead `api-preview` callback; pruning it is an open prod-D1 write |
+| cire's `manage_data_url` (Musubi's "Remove my data from Cire" link) | osn D1 | **Owner step, not yet run** — one `UPDATE`, after the release that ships the column (§3.5, "Set cire's manage-your-data link"). Until then Connected apps shows cire's row with no link |
 | musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social static build (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `sites`) |
 | musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social static build (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in the `sites` job. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
 | `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex to serve `@musubi/social`, which the `osn-social` Worker does (§5.3) |
@@ -638,6 +639,37 @@ The row's shape — the columns that carry a trust decision are listed in
 | `allowed_scopes` | `openid profile email` |
 | `is_first_party` | `1` — this is what puts the `osn_profile_id` claim in the ID token, which cire **requires** |
 | `owner_account_id` | `NULL` — a platform client, so no account erasure can disable it |
+| `manage_data_url` | `https://host.cireweddings.com/#/remove-data` — cire's "Remove my Cire data" screen, which Musubi's Connected apps links as "Remove my data from Cire". Set by the owner step below, once |
+
+#### Set cire's manage-your-data link (owner step, once) 🔑
+
+Run it after the first production release that ships the `manage_data_url` column
+(migration `20261119150713_oauth_clients_manage_data_url`). The release's musubi stack
+job migrates `osn-db-prod` before it deploys osn-api, so the column and the Worker that
+reads it arrive together. Run before that release, the statement fails with
+`no such column` and writes nothing.
+
+```bash
+# OWNER STEP (an agent never runs it): one row, by client id.
+cd osn/api && bunx wrangler d1 execute osn-db-prod --remote --env production --command \
+  "UPDATE oauth_clients SET manage_data_url = 'https://host.cireweddings.com/#/remove-data' WHERE client_id = 'cid_cire';"
+```
+
+The address is the organiser portal's origin (`PRODUCTION_HOSTS.cireHost` in
+[`shared/infra/src/production-sites.ts`](../../shared/infra/src/production-sites.ts)) and
+the removal screen's route. `musubi/infra/tests/seeds.test.ts` (S14) fails if this
+statement and the dev seed's builder (`cireManageDataUrl`) part. osn-api answers the
+link only while its origin is the one its production `CIRE_ORGANISER_ORIGIN` names for
+`CIRE_OIDC_CLIENT_ID` (`osn/api/wrangler.toml`), or a redirect URI's
+([[oidc-provider#Manage-your-data link]]).
+
+Check it in the product, not the database: sign in on `https://musubi.social` as an
+account that has signed in to cire, open Settings › Connected apps, and follow "Remove my
+data from Cire" on cire's row. It opens a new tab on cire's "Remove your Cire data"
+screen (cire's sign-in first, when that tab holds no cire session). No link on the row
+means osn-api refused the value: the counter `osn.oidc.manage_data_link.refused` says by
+which rule. To take the link away, run the same command with
+`"UPDATE oauth_clients SET manage_data_url = NULL WHERE client_id = 'cid_cire';"`.
 
 > ⚠️ **The secret and the hash are one credential in two places.** Rotating
 > `CIRE_OIDC_CLIENT_SECRET` without updating `oauth_clients.client_secret_hash` (or the

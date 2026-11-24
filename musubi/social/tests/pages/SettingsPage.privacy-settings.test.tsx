@@ -27,7 +27,13 @@ vi.mock("../../src/lib/authClients", () => ({
     list: () =>
       Promise.resolve({
         connections: [
-          { clientId: "client_1", clientName: "Pulse", logoUrl: null, scope: "openid" },
+          {
+            clientId: "client_1",
+            clientName: "Pulse",
+            logoUrl: null,
+            scope: "openid",
+            manageDataUrl: null,
+          },
         ],
       }),
     revoke: () => Promise.resolve(),

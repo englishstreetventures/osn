@@ -1,11 +1,13 @@
 import { describeAuthError } from "@osn/client";
-import { Button } from "@shared/ui/ui/button";
+import { clsx } from "@shared/ui/lib/utils";
+import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
 import { PRODUCT_NAME } from "../lib/auth";
 import { connectionsClient } from "../lib/authClients";
+import { removalLink } from "../lib/connected-apps";
 import { connectedApps } from "../lib/page-data";
 import { safeAvatarUrl } from "../lib/utils";
 import { AppRowsLoading } from "./AppRowsLoading";
@@ -14,6 +16,8 @@ import { EmptyNote } from "./EmptyNote";
 /**
  * Settings → Connected apps. Lists the relying parties this account has
  * authorised through the OSN OIDC provider and lets the user revoke one.
+ * Where an app sent its own screen for removing the person's data from it,
+ * its row links there too ("Remove my data from Cire").
  *
  * This is the user-facing half of the `/oidc/connections` API and the control
  * GDPR Art. 7(3) requires — "revoking must be as easy as granting". It replaced
@@ -64,8 +68,9 @@ export function ConnectedAppsSection() {
         </Notice>
       </Show>
 
-      {/* The list's place: as many apps' placeholders as it last landed until
-          the first read lands, the failure, or the list. */}
+      {/* The list's place: as many apps' placeholders as it last landed, each
+          at its row's height, until the first read lands; the failure; or the
+          list. */}
       <div aria-busy={connections.busy || undefined}>
         <Show when={connections.state === "errored"}>
           <Notice tone="danger" size="inline" alert>
@@ -73,7 +78,7 @@ export function ConnectedAppsSection() {
           </Notice>
         </Show>
         <Show when={connections.busy && list() === undefined && connections.state !== "errored"}>
-          <AppRowsLoading count={connections.rows} />
+          <AppRowsLoading />
         </Show>
         <Show when={list()}>
           {(apps) => (
@@ -88,36 +93,64 @@ export function ConnectedAppsSection() {
               <div class="flex flex-col gap-2">
                 <For each={apps()}>
                   {(conn) => (
-                    <Card radius="md" padding="sm" class="flex items-center justify-between gap-3">
-                      <div class="flex min-w-0 items-center gap-3">
-                        <Show when={safeAvatarUrl(conn.logoUrl)}>
-                          {(url) => (
-                            <img
-                              src={url()}
-                              alt=""
-                              class="border-border h-8 w-8 shrink-0 rounded-lg border object-cover"
-                              referrerpolicy="no-referrer"
-                            />
-                          )}
-                        </Show>
-                        <div class="min-w-0">
-                          <p class="text-foreground text-title truncate font-medium">
-                            {conn.clientName ?? "Unknown app"}
-                          </p>
-                          <p class="text-muted-foreground text-meta truncate">
-                            Access: {scopesOf(conn.scope).join(", ") || "—"}
-                          </p>
+                    <Card
+                      radius="md"
+                      padding="sm"
+                      class="flex flex-col gap-3"
+                      data-app={conn.clientId}
+                    >
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="flex min-w-0 items-center gap-3">
+                          <Show when={safeAvatarUrl(conn.logoUrl)}>
+                            {(url) => (
+                              <img
+                                src={url()}
+                                alt=""
+                                class="border-border h-8 w-8 shrink-0 rounded-lg border object-cover"
+                                referrerpolicy="no-referrer"
+                              />
+                            )}
+                          </Show>
+                          <div class="min-w-0">
+                            <p class="text-foreground text-title truncate font-medium">
+                              {conn.clientName ?? "Unknown app"}
+                            </p>
+                            <p class="text-muted-foreground text-meta truncate">
+                              Access: {scopesOf(conn.scope).join(", ") || "—"}
+                            </p>
+                          </div>
                         </div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          class="h-7 shrink-0 max-md:h-10"
+                          busy={revoking() === conn.clientId}
+                          onClick={() => void revoke(conn.clientId)}
+                        >
+                          {revoking() === conn.clientId ? "Revoking…" : "Revoke"}
+                        </Button>
                       </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        class="h-7 shrink-0 max-md:h-10"
-                        busy={revoking() === conn.clientId}
-                        onClick={() => void revoke(conn.clientId)}
-                      >
-                        {revoking() === conn.clientId ? "Revoking…" : "Revoke"}
-                      </Button>
+                      {/* The app's own screen for removing the person's data,
+                          in a tab of its own so this page stays as it is. Its
+                          words cut short rather than wrap, so the row keeps
+                          the height its placeholder holds (`AppRowsLoading`),
+                          and name the app, so it needs no description. A row
+                          action's height: 28px from `md`, 40px below it. */}
+                      <Show when={removalLink(conn)}>
+                        {(href) => (
+                          <a
+                            href={href()}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class={clsx(
+                              buttonVariants({ variant: "secondary", size: "sm" }),
+                              "h-7 max-w-full self-start max-md:h-10",
+                            )}
+                          >
+                            <span class="truncate">Remove my data from {conn.clientName}</span>
+                          </a>
+                        )}
+                      </Show>
                     </Card>
                   )}
                 </For>

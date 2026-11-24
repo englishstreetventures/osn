@@ -239,6 +239,13 @@ export const CIRE_OIDC = {
   clientId: "cid_cire_e2e",
   secret: "e2e-cire-client-secret-not-a-real-secret",
   redirectUri: `${ORIGINS.cireApi}/api/auth/oidc/callback`,
+  /**
+   * Where Musubi's Connected apps links to remove one's cire data: the
+   * organiser portal's removal screen, as the musubi stack's dev seed builds
+   * it (`cireManageDataUrl`, musubi/infra/src/seeds.ts). osn-api answers it
+   * because the stack gives its osn-api `CIRE_ORGANISER_ORIGIN`, the portal.
+   */
+  manageDataUrl: `${ORIGINS.cireHost}/#/remove-data`,
 } as const;
 
 /**

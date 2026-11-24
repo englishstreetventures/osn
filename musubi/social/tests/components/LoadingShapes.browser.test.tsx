@@ -295,6 +295,7 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
             clientName: "Pulse",
             logoUrl: null,
             scope: "openid profile",
+            manageDataUrl: null,
           },
         ],
       },

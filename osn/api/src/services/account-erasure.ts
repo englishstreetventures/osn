@@ -1882,10 +1882,14 @@ const hardDeleteWithOutcome = (
       // sever the ownership link. The rows themselves stay — other users'
       // consents reference them by client_id, and once unlinked they hold
       // no personal data — but a client whose steward is gone must stop
-      // authorising (disabled reads as absent everywhere).
+      // authorising (disabled reads as absent everywhere). A client its
+      // owner disabled earlier keeps the time they did.
       db
         .update(oauthClients)
-        .set({ disabledAt: Math.floor(Date.now() / 1_000), ownerAccountId: null })
+        .set({
+          disabledAt: sql`COALESCE(${oauthClients.disabledAt}, ${Math.floor(Date.now() / 1_000)})`,
+          ownerAccountId: null,
+        })
         .where(eq(oauthClients.ownerAccountId, accountId)),
     ];
     // Last, the account. Its RETURNING says whether this batch removed it, so

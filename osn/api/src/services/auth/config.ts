@@ -302,4 +302,13 @@ export interface AuthConfig {
    * run, admitting any loopback origin.
    */
   appStepUpReturn?: AppStepUpReturnConfig;
+  /**
+   * The app origin this deployment pins to each OIDC client id, besides the
+   * client's redirect URIs: a stored manage-your-data link on it is answered
+   * (`services/auth/client-links.ts`). `buildAppDeps` sets it from
+   * `CIRE_OIDC_CLIENT_ID` and `CIRE_ORGANISER_ORIGIN` through
+   * `clientAppOrigins`. Absent: none, so a link must sit on a redirect URI's
+   * origin.
+   */
+  clientAppOrigins?: ReadonlyMap<string, string>;
 }

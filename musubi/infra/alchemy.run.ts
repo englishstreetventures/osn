@@ -183,6 +183,8 @@ export const musubiStack = (input: {
     const secrets = requireSecrets({ worker: "osn-api", stage, env });
     const seed = osnSeedSql({
       cireApiOrigin: origin(hosts.cireApi),
+      // The same origin osn-api reads as CIRE_ORGANISER_ORIGIN (src/declaration.ts).
+      cireOrganiserOrigin: origin(hosts.cireHost),
       // The deploy step's cire_seed outputs; it holds no cire secret.
       clientSecretSha256: requireSeedValue(env, "CIRE_OIDC_CLIENT_SECRET_SHA256"),
       arcKeyId: requireSeedValue(env, "CIRE_API_ARC_KEY_ID"),

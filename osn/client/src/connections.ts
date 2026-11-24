@@ -39,6 +39,12 @@ export interface OidcConnection {
   scope: string;
   /** Unix seconds. */
   grantedAt: number;
+  /**
+   * The app's own screen for removing the person's data from it, or null.
+   * osn-api sends one only on an origin the app's registration holds; a page
+   * still checks the scheme before it draws a link.
+   */
+  manageDataUrl: string | null;
 }
 
 /**

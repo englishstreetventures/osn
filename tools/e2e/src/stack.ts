@@ -231,6 +231,9 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         CIRE_API_URL: ORIGINS.cireApi,
         CIRE_INTERNAL_REVOKE_SECRET,
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
+        // cire's organiser portal: where a confirmed cire step-up request
+        // returns, and the origin cire's manage-your-data link may sit on.
+        CIRE_ORGANISER_ORIGIN: ORIGINS.cireHost,
         // `musubi-account-deletion` moves its deletion job past its window
         // and waits for the sweeps (`osn/api/src/local.ts`): every 2 s here,
         // not 6 h. A pass finds nothing to do unless a job is due, and no

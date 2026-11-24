@@ -26,7 +26,7 @@ packages:
   - "@shared/ui"
   - "@musubi/social"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-20
 ---
 
 # Frontend Patterns
@@ -922,7 +922,10 @@ Security — through one module-level cache (search, the shell's prompts and
 the bare routes read on their own), `src/lib/page-cache.ts`, with the queries
 in `src/lib/page-data.ts` and Security's in `src/lib/security-data.ts`. A page shown again draws its last rows at once and
 reads them again behind them; a first load draws as many placeholders as that
-page last landed, one when nothing is known.
+page last landed, one when nothing is known. A page whose rows differ in height
+passes `pageQuery` a `rowKinds` reader too, and its placeholder draws each row's
+kind in order (`placeholderKinds`): Settings' Connected apps, whose row with an
+app's removal link is taller.
 
 - **Scope.** Entries belong to the session object `AuthProvider` holds. One
   session object stands for one account and one active profile: signing in,

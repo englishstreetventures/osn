@@ -12,7 +12,7 @@ related:
   - "[[cire-auth]]"
   - "[[pulse]]"
   - "[[zap]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-25
 ---
 
 # Account deletion
@@ -39,7 +39,7 @@ flowchart TD
 | Download their data | Any time, and during the window | Settings → Account → "Download my data" (`GET /account/export`, an `account_export` step-up, one a day) or "Send me a link" by email; during the window, "Download my data" on the window screen, since the limited session cannot ask for the link ([[dsar#Art. 15 — Right of access]]) |
 | Delete the account | Any time | Settings → Account → Danger zone → "Delete account…" ([[#The person's side]]) |
 | Keep the account | Until the window ends, seven days on; the screen and the email offer it before the day it ends on | Sign in to Musubi by passkey or email, or start a sign-in from an app, then "Keep my account" ([[#The person's side]]) |
-| Remove their data from one app and keep the account | Any time | Pulse's leave route; cire's "Remove my Cire data" ([[#Leaving one app]]) |
+| Remove their data from one app and keep the account | Any time | Pulse's leave route; cire's "Remove my Cire data", reached from cire's account menu or from Musubi's Connected apps settings ([[#Leaving one app]]) |
 
 ## The person's side
 
@@ -50,6 +50,8 @@ Musubi's Settings → Account ([[social]]) is where the person deletes the accou
 - **The window.** While the deletion is pending, every sign-in to Musubi, and the device that asked, show one screen in place of the app: the day the window ends on ("We delete it on or shortly after <day>", in the reader's zone, with no clock time, then "Before that day, you can keep it"), "Keep my account" (an `account_restore` step-up, then `POST /account/restore`; the page renews onto the ordinary audience and the app comes back) and "Download my data". `@osn/client` keeps such a session rather than ending it on the first refused route ([[sessions#The pending-deletion session]]).
 
 A person keeps the account by signing in to Musubi before the window ends — with a passkey, or with their email address (sign-in by handle finds nothing during the window) — and choosing "Keep my account".
+
+Musubi's Connected apps settings link an app's own leave screen, as "Remove my data from <app>", when the app's registration carries one that passes osn-api's rule ([[oidc-provider#Manage-your-data link]]). cire's is its portal's "Remove my Cire data", on the origin osn-api's deployment already pins to cire's client (`CIRE_ORGANISER_ORIGIN`); that screen sends the person to Musubi's `/confirm/<request id>` page for the step-up and back ([[step-up#App step-up requests]]). Every person with a cire connection sees the link, guests too; the screen is for hosts, and keeps a guest's link to their invitation (englishstreetventures/osn#2448). Revoking an app's connection takes its row, and the link, off the list. Pulse has the leave route and no screen, so no link.
 
 ### Signing in to an app during the window
 
@@ -62,8 +64,6 @@ A sign-in started from Pulse or cire lands on Musubi's `/authorize`, which shows
 - No code is issued and no consent is recorded while the deletion is pending. A silent request (`prompt=none`) gets the answer a browser with no session gets.
 
 Tests: `osn/api/tests/routes/oidc.test.ts` ("GET /authorize for an account whose deletion is pending"), `musubi/social/tests/components/AuthorizePage.test.tsx` and `DeletionWindow.test.tsx`, `musubi/social/tests/components/AuthorizeDeletion.browser.test.tsx`; end to end, `tools/e2e/tests/flows/musubi-account-deletion.flow.ts` (from Pulse signed out, back to Pulse; from cire signed in, kept, into cire).
-
-No "Remove my data" link sits in Musubi's Connected apps settings: Musubi keeps no address of an app's portal, and cire's portal origin reaches osn-api only inside one call's answer. A host removes their Cire data from cire's own portal, which sends them to Musubi's `/confirm/<request id>` page for the step-up and back ([[step-up#App step-up requests]]). Pulse has the leave route only.
 
 ## What happens, in order
 
@@ -198,7 +198,7 @@ The table above, in short:
 The account stays; only the app's data goes.
 
 - **Pulse.** `DELETE /account` on pulse-api, with an OSN step-up token for `pulse_app_delete`, which pulse-api verifies at osn-api's `/internal/step-up/verify` ([`pulse/api/src/routes/account.ts`](../../pulse/api/src/routes/account.ts)). It soft-deletes the person's Pulse data, cancels their hosted events and keeps them 14 days for their guests, and hard-deletes the rest seven days on; `POST /account/restore` cancels it inside the seven days. Pulse then closes the account's Pulse enrolment through osn-api's `/internal/app-enrollment/leave`. Pulse has no screen for it.
-- **Cire.** "Remove my Cire data" in the host portal's account menu ([`cire/host/src/components/RemoveCireData.tsx`](../../cire/host/src/components/RemoveCireData.tsx)). The screen lists the person's weddings, with each one's download and owners; each wedding they alone own needs a `delete` answer, as in an account deletion. Cire's portal holds no OSN token, so the person confirms on Musubi: the portal asks osn-api for a step-up request (`cire_app_delete`), sends the person to Musubi's `/confirm/<request id>`, where they step up, and Musubi sends them back with a code; `DELETE /api/organiser/account` then runs cire's erasure at once, with no window, for every profile of the account ([`cire/api/src/routes/organiser-account.ts`](../../cire/api/src/routes/organiser-account.ts), [[step-up#App step-up requests]], [[cire-auth#A host removes their Cire data]]). It leaves the person's vendor listing claims and guest account links; the other owners of each wedding they leave are emailed. They can sign in to cire again and start with no weddings.
+- **Cire.** "Remove my Cire data" in the host portal's account menu, also linked from Musubi's Connected apps ([`cire/host/src/components/RemoveCireData.tsx`](../../cire/host/src/components/RemoveCireData.tsx)). The screen lists the person's weddings, with each one's download and owners; each wedding they alone own needs a `delete` answer, as in an account deletion. Cire's portal holds no OSN token, so the person confirms on Musubi: the portal asks osn-api for a step-up request (`cire_app_delete`), sends the person to Musubi's `/confirm/<request id>`, where they step up, and Musubi sends them back with a code; `DELETE /api/organiser/account` then runs cire's erasure at once, with no window, for every profile of the account ([`cire/api/src/routes/organiser-account.ts`](../../cire/api/src/routes/organiser-account.ts), [[step-up#App step-up requests]], [[cire-auth#A host removes their Cire data]]). It leaves the person's vendor listing claims and guest account links; the other owners of each wedding they leave are emailed. They can sign in to cire again and start with no weddings.
 
 Zap has no leave route.
 

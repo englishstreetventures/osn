@@ -21,7 +21,9 @@ import "../../src/App.css";
  * The other data pages draw more than one placeholder only on a first load
  * after a failed read, which takes the rows and keeps their count: each lands
  * three rows, fails its next read, and is shown again, and its three blocks
- * are as tall as the three rows that land, gaps included.
+ * are as tall as the three rows that land, gaps included. One of Connected
+ * apps' three carries its app's removal link, a taller row, so its blocks hold
+ * each row's own height rather than one height for all.
  */
 
 const reads = vi.hoisted(() => {
@@ -236,12 +238,15 @@ const DATA_PAGES: {
     title: "Connected apps",
     read: "apps",
     Page: ConnectedAppsSection,
+    // The middle app sends its own removal screen, so its row is taller, and
+    // its placeholder with it.
     rows: {
       connections: three.map((name) => ({
         clientId: `cli_${name}`,
         clientName: `App ${name}`,
         logoUrl: null,
         scope: "openid profile",
+        manageDataUrl: name === "carol" ? "https://carol.example/remove-data" : null,
       })),
     },
     last: "App dan",

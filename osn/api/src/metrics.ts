@@ -63,6 +63,7 @@ import type {
 import { Effect } from "effect";
 
 import type { CeremonyStoreName, CoordinationStoreName } from "./lib/coordination/names";
+import type { ManageDataRefusal } from "./services/auth/client-links";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const OSN_METRICS = {
@@ -144,6 +145,7 @@ export const OSN_METRICS = {
   oidcAuthorize: "osn.oidc.authorize",
   oidcToken: "osn.oidc.token",
   oidcConsentGranted: "osn.oidc.consent.granted",
+  oidcManageDataLinkRefused: "osn.oidc.manage_data_link.refused",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -1032,6 +1034,17 @@ export const metricOidcAuthorize = (attrs: OidcAuthorizeAttrs): void => oidcAuth
 export const metricOidcToken = (attrs: OidcTokenAttrs): void => oidcToken.inc(attrs);
 export const metricOidcConsentGranted = (clientKind: OidcClientKind): void =>
   oidcConsentGranted.inc({ clientKind });
+
+const oidcManageDataLinkRefused = createCounter<{ reason: ManageDataRefusal }>({
+  name: OSN_METRICS.oidcManageDataLinkRefused,
+  description:
+    "Stored manage-your-data links the connections list refused to answer, by the rule they failed",
+  unit: "{link}",
+});
+
+/** A stored link failed the read rule (`services/auth/client-links.ts`) and was answered as null. */
+export const metricOidcManageDataLinkRefused = (reason: ManageDataRefusal): void =>
+  oidcManageDataLinkRefused.inc({ reason });
 
 // ---------------------------------------------------------------------------
 // Step-up (sudo mode)
