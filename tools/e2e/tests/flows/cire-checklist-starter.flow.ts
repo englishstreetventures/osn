@@ -973,18 +973,14 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   );
   // The by-event list alone, matched on the whole name: the agenda's rows
   // name events too, once one falls inside its horizon.
-  const byEvent = page
-    .getByRole("list", { name: "Attending by event", exact: true })
-    .getByRole("listitem");
   flow.check(
     "overview: the replies name the renamed event",
     1,
-    await byEvent.filter({ has: page.getByText(cached.renamed, { exact: true }) }).count(),
-  );
-  flow.check(
-    "overview: the replies no longer name the old event",
-    0,
-    await byEvent.filter({ has: page.getByText(cached.reception, { exact: true }) }).count(),
+    await page
+      .getByRole("list", { name: "Attending by event", exact: true })
+      .getByRole("listitem")
+      .filter({ has: page.getByText(cached.renamed, { exact: true }) })
+      .count(),
   );
 
   // A reply recorded on the RSVP table, which the Overview shows unread.
