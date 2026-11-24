@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 6.5.5
+
+### Patch Changes
+
+- Updated dependencies [80aa052]
+  - @osn/client@4.4.1
+
 ## 6.5.4
 
 ### Patch Changes
