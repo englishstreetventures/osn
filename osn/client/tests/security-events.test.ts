@@ -78,6 +78,11 @@ describe("createSecurityEventsClient", () => {
       stepUpToken: "eyJ.step.up",
     });
     expect(result.acknowledged).toBe(false);
+
+    // Only `true` is an acknowledgement; any other value the server sends is a miss.
+    fetchMock.mockResolvedValue(okResponse({ acknowledged: "yes" }));
+    const odd = await client.acknowledge({ id: "sev_000000000000", stepUpToken: "eyJ.step.up" });
+    expect(odd.acknowledged).toBe(false);
   });
 
   it("acknowledgeAll() POSTs /account/security-events/ack-all and returns the count", async () => {

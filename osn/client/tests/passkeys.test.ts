@@ -164,7 +164,7 @@ describe("createPasskeysClient", () => {
   });
 
   describe("registerBegin", () => {
-    it("POSTs /passkey/register/begin with bearer + X-Step-Up-Token + body step_up_token + profileId", async () => {
+    it("POSTs /passkey/register/begin through authFetch, with X-Step-Up-Token and body step_up_token and profileId", async () => {
       const options = { challenge: "chal_xyz" };
       const { calls } = stubFetch(() => jsonResponse(options));
       const result = await client.registerBegin({
@@ -187,7 +187,7 @@ describe("createPasskeysClient", () => {
   });
 
   describe("registerComplete", () => {
-    it("POSTs /passkey/register/complete with bearer and body { profileId, attestation }", async () => {
+    it("POSTs /passkey/register/complete through authFetch, with body { profileId, attestation }", async () => {
       const attestation = { id: "cred_abc" };
       const { calls } = stubFetch(() => jsonResponse({ passkeyId: "pk_new" }));
       const result = await client.registerComplete({

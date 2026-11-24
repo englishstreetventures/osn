@@ -1,11 +1,17 @@
 import { it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 import { OsnAuth, createOsnAuthLive } from "../src/service";
 import { createEphemeralStorage } from "../src/storage";
+import { fakeSleeps, untilSettled } from "./helpers/fake-sleeps";
 
 const config = { issuerUrl: "https://osn.example.com" };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 function createTestLayer() {
   return createOsnAuthLive(config).pipe(Layer.provide(createEphemeralStorage()));
@@ -84,8 +90,6 @@ it.effect(
       // The active profile is the access token's `sub`.
       const active = yield* auth.getActiveProfile();
       expect(active).toBe(profileId);
-
-      vi.unstubAllGlobals();
     }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -138,8 +142,6 @@ it.effect("loadSession rehydrates from the cookie when the stored access token h
     expect(session).not.toBeNull();
     expect(session?.accessToken).toBe(freshToken);
     expect(tokenCalls).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -167,8 +169,6 @@ it.effect("loadSession does NOT call /token when the stored access token is stil
     expect(session).not.toBeNull();
     // Fast path: the cached token is live, so the cookie is never replayed.
     expect(tokenCalls).toBe(0);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -199,8 +199,6 @@ it.effect("fetchTokenGrant does NOT retry a terminal 401 invalid_grant", () =>
     // Genuinely logged out — null, and only ONE attempt (no pointless retries).
     expect(session).toBeNull();
     expect(tokenCalls).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -243,8 +241,6 @@ it.effect("loadSession single-flights — concurrent cold-start loads fire ONE /
     expect(s3).not.toBeNull();
     // Replaying a rotated cookie a second time trips reuse detection — only ONE.
     expect(tokenCalls).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -303,8 +299,6 @@ it.effect("loadSession bootstrap racing refreshSession fires exactly ONE /token"
     expect(refreshed.accessToken).toBeTruthy();
     // The whole point: cross-path dedupe → a single /token roundtrip.
     expect(tokenCalls).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -351,8 +345,6 @@ it.effect("loadSession fires ZERO /token calls when the browser holds no marker"
 
     expect(session).toBeNull();
     expect(calls()).toBe(0);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -367,8 +359,6 @@ it.effect("loadSession still bootstraps from the cookie when the marker is prese
 
     expect(session).not.toBeNull();
     expect(calls()).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -394,11 +384,11 @@ it.effect("a CORS/network TypeError is attempted twice, not three times", () =>
     vi.stubGlobal("fetch", fetchMock);
 
     const auth = yield* OsnAuth;
-    const session = yield* auth.loadSession();
+    fakeSleeps();
+    const loading = Effect.runPromise(auth.loadSession());
+    const session = yield* Effect.promise(() => untilSettled(loading));
 
     expect(session).toBeNull();
     expect(tokenCalls).toBe(2);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );

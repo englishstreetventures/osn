@@ -2,8 +2,8 @@ import { it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { afterEach, vi } from "vitest";
 
-import { OsnAuth, createOsnAuthLive } from "../src/service";
-import { createEphemeralStorage } from "../src/storage";
+import { ACCOUNT_SESSION_KEY, OsnAuth, createOsnAuthLive } from "../src/service";
+import { Storage, createEphemeralStorage } from "../src/storage";
 
 const config = { issuerUrl: "https://osn.example.com" };
 
@@ -247,16 +247,22 @@ it.effect("deleteProfile switches active profile when deleting the current one",
 // logout clears everything
 // ---------------------------------------------------------------------------
 
-it.effect("logout clears both account session and legacy keys", () =>
+it.effect("logout clears the session and the stored account", () =>
   Effect.gen(function* () {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
     const auth = yield* OsnAuth;
+    const storage = yield* Storage;
     yield* seedSession();
+    expect(yield* storage.get(ACCOUNT_SESSION_KEY)).not.toBeNull();
 
     yield* auth.logout();
 
     expect(yield* auth.getSession()).toBeNull();
     expect(yield* auth.getActiveProfile()).toBeNull();
-  }).pipe(Effect.provide(createTestLayer())),
+    expect(yield* storage.get(ACCOUNT_SESSION_KEY)).toBeNull();
+  }).pipe(
+    Effect.provide(createOsnAuthLive(config).pipe(Layer.provideMerge(createEphemeralStorage()))),
+  ),
 );
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createOsnAuthRuntime, type OsnAuthRuntime } from "../src/runtime";
 import { OsnAuth, type OsnAuthService } from "../src/service";
 import { Storage, createEphemeralStorage } from "../src/storage";
+import { untilSettled } from "./helpers/fake-sleeps";
 
 /**
  * What the client keeps in storage: the stored account, and never a token.
@@ -24,6 +25,7 @@ const OTHER = "usr_other0000001";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -275,9 +277,21 @@ describe("the stored account", () => {
     const fetches = stubFetch(() => json(503, { error: "upstream" }));
     const storage = createEphemeralStorage();
     write(storage, { hasSession: true, activeProfileId: DEFAULT });
+    // `Date` too, so the faked clock's reading shows how long the pause is.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 
-    expect(await run(page(storage), (auth) => auth.loadSession())).toBeNull();
+    const loading = run(page(storage), (auth) => auth.loadSession());
+    // The first grant has been answered once its retry's pause begins.
+    for (let turn = 0; turn < 100 && vi.getTimerCount() === 0; turn++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(fetches.to("/token")).toHaveLength(1);
+    const paused = Date.now();
+    await vi.advanceTimersToNextTimerAsync();
+    // The retry waits before it sends.
+    expect(Date.now() - paused).toBeGreaterThan(0);
 
+    expect(await untilSettled(loading)).toBeNull();
     expect(fetches.to("/token")).toHaveLength(3);
     expect(read(storage)).toMatchObject({ hasSession: true, activeProfileId: DEFAULT });
   });

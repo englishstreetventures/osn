@@ -6,6 +6,7 @@ import type { SessionChange } from "../src/runtime";
 import { ACCOUNT_SESSION_KEY, OsnAuth, createOsnAuthLive } from "../src/service";
 import { Storage, createEphemeralStorage } from "../src/storage";
 import { extractJwtSub } from "../src/tokens";
+import { fakeSleeps, untilSettled } from "./helpers/fake-sleeps";
 
 /**
  * A session set or ended while a request made for the one before it was out
@@ -21,6 +22,7 @@ const B = "usr_accountb0001";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 /** An unsigned JWT: the client reads `sub` without verifying. */
@@ -441,6 +443,7 @@ it.effect("T3: a renewal for the new session does not take the answer of one for
 
 it.effect("T6: a grant for a session that has gone stops retrying", () =>
   Effect.gen(function* () {
+    fakeSleeps();
     const g = gate();
     const net = serve({ "/token": [after(g, () => json(503, {})), () => json(503, {})] });
     const auth = yield* OsnAuth;
@@ -450,7 +453,7 @@ it.effect("T6: a grant for a session that has gone stops retrying", () =>
     yield* g.reached;
     yield* auth.setSession(sessionB());
     g.open();
-    yield* Fiber.join(renewing);
+    yield* Effect.promise(() => untilSettled(Effect.runPromise(Fiber.join(renewing))));
 
     expect(net.count("/token")).toBe(1);
   }).pipe(Effect.provide(layer())),
@@ -458,6 +461,7 @@ it.effect("T6: a grant for a session that has gone stops retrying", () =>
 
 it.effect("T6b: a grant for a session that has gone does not retry a lost rotation race", () =>
   Effect.gen(function* () {
+    fakeSleeps();
     const g = gate();
     const raced = () =>
       json(400, {
@@ -472,7 +476,7 @@ it.effect("T6b: a grant for a session that has gone does not retry a lost rotati
     yield* g.reached;
     yield* auth.setSession(sessionB());
     g.open();
-    yield* Fiber.join(renewing);
+    yield* Effect.promise(() => untilSettled(Effect.runPromise(Fiber.join(renewing))));
 
     expect(net.count("/token")).toBe(1);
   }).pipe(Effect.provide(layer())),
@@ -646,6 +650,8 @@ it.effect(
 
       expect(yield* Fiber.join(loading)).toBeNull();
       expect(yield* stored()).toMatchObject({ activeProfileId: B, signInId: theirs });
+      // This page held no session, so ending it tells no one.
+      expect(changes).toEqual([]);
     }).pipe(Effect.provide(layer(shared)));
   },
 );
@@ -829,6 +835,7 @@ it.effect(
 it.effect("T21: a held session's renewal is not stopped by the page's session changing", () =>
   Effect.gen(function* () {
     const RECOVERY = "usr_recovery0001";
+    fakeSleeps();
     const g = gate();
     const net = serve({
       "/token": [after(g, () => json(503, {})), () => minted(RECOVERY)],
@@ -841,7 +848,9 @@ it.effect("T21: a held session's renewal is not stopped by the page's session ch
     yield* auth.logout();
     g.open();
 
-    const held = yield* Fiber.join(refreshing);
+    const held = yield* Effect.promise(() =>
+      untilSettled(Effect.runPromise(Fiber.join(refreshing))),
+    );
     expect(held._tag === "Success" && extractJwtSub(held.success.session.accessToken)).toBe(
       RECOVERY,
     );

@@ -157,7 +157,7 @@ describe("createGraphClient — error surface", () => {
     await expect(client.sendConnectionRequest("alice")).rejects.toThrow(/Request failed/);
   });
 
-  it("throws GraphClientError (not SyntaxError) when the error body is not JSON (S-L2)", async () => {
+  it("throws GraphClientError (not SyntaxError) when the error body is not JSON", async () => {
     // E.g. a proxy returns an HTML error page. The client must not leak
     // the SyntaxError from res.json() to the caller.
     vi.stubGlobal(
@@ -171,7 +171,7 @@ describe("createGraphClient — error surface", () => {
     await expect(client.sendConnectionRequest("alice")).rejects.toBeInstanceOf(GraphClientError);
   });
 
-  it("truncates long error strings (S-L2)", async () => {
+  it("truncates long error strings", async () => {
     const long = "x".repeat(500);
     mockFetch({ ok: false, json: () => Promise.resolve({ error: long }) });
     await expect(client.sendConnectionRequest("alice")).rejects.toThrow(/^x{200}…$/);

@@ -269,6 +269,7 @@ describe("account deletion client against shared/openapi/osn.json", () => {
     const file = await client.exportAccount({ stepUpToken: "eyJexport" });
     const [url, init] = exported.mock.calls[0] as [string, RequestInit];
     expect(new URL(url).pathname).toBe("/account/export");
+    expect(init.method).toBe("GET");
     expect(new Headers(init.headers).get("x-step-up-token")).toBe("eyJexport");
     expect(operation("get", "/account/export")).toBeDefined();
     expect(file.fileName).toBe("acme-account-export.ndjson");
