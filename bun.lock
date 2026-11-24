@@ -390,7 +390,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.48.0",
+      "version": "3.48.1",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.17",
