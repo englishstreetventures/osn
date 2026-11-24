@@ -48,7 +48,7 @@ describe("<AccountBanners />", () => {
   it("renders nothing, and loads nothing, for a signed-out visitor", async () => {
     render(renderGate(null));
 
-    await Promise.resolve();
+    await vi.dynamicImportSettled();
     expect(screen.queryByTestId("stack")).toBeNull();
     // The assertion that matters: not merely that nothing painted, but that
     // the chunk was never fetched.

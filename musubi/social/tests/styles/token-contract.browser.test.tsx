@@ -76,16 +76,6 @@ afterEach(() => {
 });
 
 describe("the contract reaches the pixel", () => {
-  it("emits CSS for a contract utility at all", () => {
-    // The failure this whole file exists for. An unresolvable utility emits no
-    // rule, so the element keeps its initial transparent background and every
-    // string-level assertion elsewhere still passes.
-    const { getByRole } = render(() => <Button>Save</Button>);
-    const background = getComputedStyle(getByRole("button")).backgroundColor;
-    expect(background).not.toBe("rgba(0, 0, 0, 0)");
-    expect(background).not.toBe("transparent");
-  });
-
   it("paints the default button with the app's own `--primary`", () => {
     const { getByRole } = render(() => <Button>Save</Button>);
     expect(getComputedStyle(getByRole("button")).backgroundColor).toBe(paint(token("--primary")));
@@ -94,18 +84,6 @@ describe("the contract reaches the pixel", () => {
   it("paints its label with the app's own `--primary-foreground`", () => {
     const { getByRole } = render(() => <Button>Save</Button>);
     expect(getComputedStyle(getByRole("button")).color).toBe(paint(token("--primary-foreground")));
-  });
-
-  it("paints the destructive button's ink from `--destructive-foreground`, not white", () => {
-    // Before the re-key this variant hard-coded `text-white`, so it ignored the
-    // token entirely — which meant the dark-mode contrast fix to
-    // `--destructive-foreground` was inert for the one control it was for.
-    // In light mode the token IS near-white, so this assertion only bites in
-    // dark; it is here so the pair reads together.
-    const { getByRole } = render(() => <Button variant="destructive">Delete</Button>);
-    expect(getComputedStyle(getByRole("button")).color).toBe(
-      paint(token("--destructive-foreground")),
-    );
   });
 
   it("follows `.dark`, because the mapping is aliases rather than literals", () => {

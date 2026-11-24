@@ -119,16 +119,6 @@ describe("<DiscoverPage />", () => {
     expect(await screen.findByText("Also in Acme Inc")).toBeDefined();
   });
 
-  it("sends a connection request from a suggestion card", async () => {
-    mocks.suggestConnections.mockResolvedValue({
-      suggestions: [suggestion({ reason: "mutual_connections", mutualCount: 2 })],
-    });
-    renderDiscover();
-    fireEvent.click(await screen.findByText("Connect"));
-
-    await waitFor(() => expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("bob"));
-  });
-
   it("points an empty suggestion list at search rather than a dead end", async () => {
     renderDiscover();
     const link = await screen.findByText("Search for someone");

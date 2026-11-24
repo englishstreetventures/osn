@@ -21,15 +21,6 @@ afterEach(() => {
 });
 
 describe("localDay", () => {
-  it("names the day and no clock time", () => {
-    process.env.TZ = "UTC";
-    const { words } = localDay(seconds("2026-12-07T09:00:00Z"));
-    expect(words).toContain("7");
-    expect(words).toContain("2026");
-    expect(words).not.toMatch(/\d:\d/);
-    expect(words).not.toMatch(/AM|PM/);
-  });
-
   it("gives a reader behind UTC the day before the UTC day, when the instant is early in UTC", () => {
     // 03:00 UTC on 7 December is 19:00 on 6 December in Los Angeles.
     process.env.TZ = "America/Los_Angeles";

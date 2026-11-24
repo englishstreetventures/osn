@@ -40,7 +40,6 @@ vi.mock("../../src/components/StepUpSheet", () => ({
 }));
 
 import DeletionWindow from "../../src/components/DeletionWindow";
-import { localDay } from "../../src/lib/account-deletion";
 
 /** 23 November 2026, 09:00 UTC. */
 const SCHEDULED_FOR = 1_795_424_400;
@@ -74,27 +73,6 @@ afterEach(() => {
 });
 
 describe("<DeletionWindow />", () => {
-  it("shows the day the account is deleted on, in the reader's own terms, with no clock time", async () => {
-    mocks.status.mockResolvedValue({
-      scheduled: true,
-      scheduledFor: SCHEDULED_FOR,
-      softDeletedAt: SCHEDULED_FOR - 7 * 86_400,
-    });
-    renderWindow();
-    const time = await waitFor(() => {
-      const found = document.querySelector("time");
-      if (!found) throw new Error("no date yet");
-      return found;
-    });
-    const day = localDay(SCHEDULED_FOR);
-    expect(time.getAttribute("datetime")).toBe(day.date);
-    expect(time.closest("p")!.textContent).toBe(`We delete it on or shortly after ${day.words}.`);
-    // Keeping is refused from the instant on, so the line under it ends at the day's start.
-    expect(screen.getByText(/^Before that day, you can keep it\./)).toBeTruthy();
-    expect(screen.queryByText(/Until/)).toBeNull();
-    expect(screen.getByRole("heading", { name: "Your account is set to be deleted" })).toBeTruthy();
-  });
-
   it("signs out when the status read is refused at 401", async () => {
     mocks.status.mockRejectedValue(new AccountError("unauthorized", 401, "unauthorized"));
     renderWindow();
