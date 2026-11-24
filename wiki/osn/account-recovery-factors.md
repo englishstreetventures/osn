@@ -8,7 +8,7 @@ related:
   - "[[sessions]]"
   - "[[identity-model]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-25
 ---
 
 # Account recovery factors — TOTP and email-verified recovery
@@ -427,14 +427,17 @@ on the coordination store in a deployed Worker, never in D1.
 
 ### Which step-up allow-lists admit `totp`
 
-There is no single gate; there are three allow-lists, and one is deliberately
-WebAuthn-only. Naming them is not optional.
+There is no single gate; there are five allow-lists, and two are WebAuthn-only.
+Naming them is not optional. The whole table, by gate, is in
+[[step-up#When step-up is required]].
 
 | Allow-list | Admits `totp`? |
 |---|---|
 | `passkeyRegisterAllowedAmr` | **Yes** |
 | `recoveryGenerateAllowedAmr` | **Yes** |
 | `passkeyDeleteAllowedAmr` | **No — stays `["webauthn"]`** |
+| `emailChangeAllowedAmr` | **No — `["webauthn", "otp"]`** |
+| `appDeleteAllowedAmr` (removing an app's data) | **No — `["webauthn"]`, and a passkey added under TOTP waits 72 hours** |
 
 `passkeyDelete` gates both `DELETE` and `PATCH /passkeys/:id`. Its existing
 rationale holds with TOTP present: the caller necessarily holds a passkey, so

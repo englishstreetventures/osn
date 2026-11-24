@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[account-recovery-factors]]"
   - "[[email]]"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-25
 ---
 
 # TOTP (RFC 6238) second factor
@@ -301,8 +301,9 @@ is accepted as proof for unbinding it.
 The full table, and the reasoning, is in [[step-up]] — it belongs with the other
 factors rather than here. The short version: `totp` is admitted wherever an
 emailed OTP already is, **except** `passkey_delete`, which stays WebAuthn-only,
-and `email_change`, whose OTP arm proves control of the current mailbox in a way
-a TOTP seed does not.
+`email_change`, whose OTP arm proves control of the current mailbox in a way
+a TOTP seed does not, and removing an app's data (`pulse_app_delete`,
+`zap_app_delete`, `cire_app_delete`), which takes a passkey alone.
 
 ## Lifecycle
 
@@ -355,9 +356,11 @@ security events (an `email_changed` event only once its 7-day hold ends, by any
 factor — [[step-up#Threat model]]). All of those already accept an emailed OTP,
 so admitting TOTP does not widen them.
 
-What it cannot do **directly** is delete the victim's existing passkeys or change
-the account email. Neither `passkeyDeleteAllowedAmr` nor `emailChangeAllowedAmr`
-admits a `totp` AMR.
+What it cannot do **directly** is delete the victim's existing passkeys, change
+the account email or remove an app's data. None of `passkeyDeleteAllowedAmr`,
+`emailChangeAllowedAmr` and `appDeleteAllowedAmr` admits a `totp` AMR. A passkey
+the seed's holder adds with a TOTP step-up reaches all three only after its
+72-hour hold ([[step-up#Credential provenance]]).
 
 > [!warning] Both were reachable in two hops, and the second hop is now closed
 > Those two lists narrow the **direct** path and nothing else. Both admit
@@ -389,6 +392,11 @@ admits a `totp` AMR.
 > credential at step 2 is stamped `totp`, so the token minted at step 3 is
 > refused at step 4 — while a genuine owner, asserting a passkey they already
 > held, is refused nothing. See [[step-up#Credential provenance]].
+>
+> Removing an app's data falls to the same chain with `purpose:
+> "cire_app_delete"`, or Pulse's or Zap's, at step 3. Its gates apply the same
+> 72-hour hold to a credential stamped `otp`, `totp` or `recovery`, with nothing
+> to compare it against, so the last step fails there too.
 >
 > The inheritance is what makes it hold rather than move: a passkey registered
 > under a `webauthn` step-up takes the asserting credential's provenance, so the

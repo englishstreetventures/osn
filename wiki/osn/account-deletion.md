@@ -12,7 +12,7 @@ related:
   - "[[cire-auth]]"
   - "[[pulse]]"
   - "[[zap]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-25
 ---
 
 # Account deletion
@@ -197,10 +197,16 @@ The table above, in short:
 
 The account stays; only the app's data goes.
 
-- **Pulse.** `DELETE /account` on pulse-api, with an OSN step-up token for `pulse_app_delete`, which pulse-api verifies at osn-api's `/internal/step-up/verify` ([`pulse/api/src/routes/account.ts`](../../pulse/api/src/routes/account.ts)). It soft-deletes the person's Pulse data, cancels their hosted events and keeps them 14 days for their guests, and hard-deletes the rest seven days on; `POST /account/restore` cancels it inside the seven days. Pulse then closes the account's Pulse enrolment through osn-api's `/internal/app-enrollment/leave`. Pulse has no screen for it.
-- **Cire.** "Remove my Cire data" in the host portal's account menu ([`cire/host/src/components/RemoveCireData.tsx`](../../cire/host/src/components/RemoveCireData.tsx)). The screen lists the person's weddings, with each one's download and owners; each wedding they alone own needs a `delete` answer, as in an account deletion. Cire's portal holds no OSN token, so the person confirms on Musubi: the portal asks osn-api for a step-up request (`cire_app_delete`), sends the person to Musubi's `/confirm/<request id>`, where they step up, and Musubi sends them back with a code; `DELETE /api/organiser/account` then runs cire's erasure at once, with no window, for every profile of the account ([`cire/api/src/routes/organiser-account.ts`](../../cire/api/src/routes/organiser-account.ts), [[step-up#App step-up requests]], [[cire-auth#A host removes their Cire data]]). It leaves the person's vendor listing claims and guest account links; the other owners of each wedding they leave are emailed. They can sign in to cire again and start with no weddings.
+- **Pulse.** `DELETE /account` on pulse-api, with an OSN step-up token for `pulse_app_delete` — a passkey's, past its hold ([[#Leaving one app takes a passkey]]) — which pulse-api verifies at osn-api's `/internal/step-up/verify` ([`pulse/api/src/routes/account.ts`](../../pulse/api/src/routes/account.ts)). It soft-deletes the person's Pulse data, cancels their hosted events and keeps them 14 days for their guests, and hard-deletes the rest seven days on; `POST /account/restore` cancels it inside the seven days. Pulse then closes the account's Pulse enrolment through osn-api's `/internal/app-enrollment/leave`. Pulse has no screen for it.
+- **Cire.** "Remove my Cire data" in the host portal's account menu ([`cire/host/src/components/RemoveCireData.tsx`](../../cire/host/src/components/RemoveCireData.tsx)). The screen lists the person's weddings, with each one's download and owners; each wedding they alone own needs a `delete` answer, as in an account deletion. Cire's portal holds no OSN token, so the person confirms on Musubi: the portal asks osn-api for a step-up request (`cire_app_delete`), sends the person to Musubi's `/confirm/<request id>`, where they step up with a passkey, and Musubi sends them back with a code; `DELETE /api/organiser/account` then runs cire's erasure at once, with no window, for every profile of the account ([`cire/api/src/routes/organiser-account.ts`](../../cire/api/src/routes/organiser-account.ts), [[step-up#App step-up requests]], [[cire-auth#A host removes their Cire data]]). It leaves the person's vendor listing claims and guest account links; the other owners of each wedding they leave are emailed. They can sign in to cire again and start with no weddings.
 
 Zap has no leave route.
+
+### Leaving one app takes a passkey
+
+Removing an app's data — `pulse_app_delete`, `zap_app_delete`, `cire_app_delete` — takes a passkey step-up and nothing else, and a passkey added by an emailed link, an authenticator code or recovery counts only once it is 72 hours old ([[step-up#When step-up is required]], [[step-up#Credential provenance]]). The owner chose it: "Require a passkey" (2026-11-19), then "Passkey, 72-hour hold, no skip" (2026-11-25). The step-up sheet offers the passkey alone for these purposes.
+
+A person with no passkey they can use adds one first: signed in, from Settings → Security, confirming with an emailed link or an authenticator code; signed out, through "Lost your passkey?", whose restricted session adds one ([[passkey-primary#Recovery flow]]). Three days later the new passkey removes the app's data. Musubi's confirm page says so on every request, and after a held passkey's refusal names the day and time its hold ends. A request lasts 10 minutes, so the person starts again from the app. Deleting the whole account still admits an emailed link or an authenticator code ([[step-up#When step-up is required]]).
 
 ## Handle holds
 

@@ -14,7 +14,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-25
 ---
 
 # Passkey-Primary Login
@@ -142,17 +142,26 @@ it was minted for fails.
 | Ceremony | Passkey | Emailed link | Authenticator |
 |---|---|---|---|
 | `passkey_register`, `totp_enroll`, `totp_disable` | yes | yes | yes |
-| `recovery_generate`, `security_event_ack`, `account_delete`, `account_export`, `account_restore`, `pulse_app_delete`, `zap_app_delete`, `cire_app_delete` | yes | yes | yes |
+| `recovery_generate`, `security_event_ack`, `account_delete`, `account_export`, `account_restore` | yes | yes | yes |
 | `passkey_delete` (gates rename too) | yes | **no** | **no** |
+| `pulse_app_delete`, `zap_app_delete`, `cire_app_delete` (removing an app's data) | yes, once past its hold | **no** | **no** |
 | `email_change` | yes | yes | **no** |
 
 That table mirrors the **defaults** in `osn/api/src/services/auth/context.ts`;
-three of the four allow-lists are `AuthConfig` fields, so a deployment that
+three of the five allow-lists are `AuthConfig` fields, so a deployment that
 narrows one reintroduces a dead end the UI cannot see. No deployment sets them.
 
+Removing an app's data takes a passkey, and one added by an emailed link, an
+authenticator code or recovery only once it is 72 hours old
+([[step-up#Credential provenance]]). The sheet cannot tell a held passkey from
+another, so the page that asks says it: Musubi's confirm page for an app's
+step-up request always tells a person with no such passkey to add one in
+Settings and start again from the app in 3 days, and after a held passkey's
+refusal it names the day and time the hold ends.
+
 The dialog offers "Email me a link" only where the purpose admits it, and
-never for passkey rename and delete, whose gate is `["webauthn"]`: there the
-link would arrive and the action would still fail. The emailed link needs a
+never for passkey rename and delete or for removing an app's data, whose gates
+are `["webauthn"]`: there the link would arrive and the action would still fail. The emailed link needs a
 `purpose`, which it fixes when it is sent ([[email-links#Step-up]]). The
 authenticator factor additionally requires a confirmed credential — the dialog
 asks `GET /totp/status` itself rather than taking a flag from its host, so the

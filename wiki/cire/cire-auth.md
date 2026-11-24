@@ -14,7 +14,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
   - "[[social-graph]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-25
 ---
 
 # Cire auth model
@@ -412,9 +412,12 @@ osn-api uses the bearer-secret revoke below
 
 A host can remove their Cire data and keep their Musubi account: "Remove my
 Cire data" in the portal's account menu (`#/remove-data`). It needs the
-organiser session and a step-up, which the portal cannot run (it holds no
-OSN token, and passkeys are bound to Musubi's origin), so the step-up runs on
-Musubi through an app step-up request ([[step-up#App step-up requests]]).
+organiser session and a passkey step-up, which the portal cannot run (it holds
+no OSN token, and passkeys are bound to Musubi's origin), so the step-up runs on
+Musubi through an app step-up request ([[step-up#App step-up requests]]). A
+passkey added by an emailed link, an authenticator code or recovery confirms it
+only once it is 72 hours old; Musubi's confirm page says so
+([[account-deletion#Leaving one app takes a passkey]]).
 Three routes in
 [`cire/api/src/routes/organiser-account.ts`](../../cire/api/src/routes/organiser-account.ts),
 each behind `osnAuth` and one per-user limiter (10 a minute), the two writes
