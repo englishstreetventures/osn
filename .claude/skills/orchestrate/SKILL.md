@@ -259,9 +259,9 @@ gets followed to the letter. Every dispatch carries:
 - **The command to run.** Name it, and make sure it actually runs the thing: a
   type check is not a run, and `bun test ./scripts/` collects no `*.test.sh`.
   Name the changed packages' tests, `typecheck`, `lint` and `fmt:check`. CI runs
-  every suite and the E2E job on each push, so a brief asks for a whole local
-  suite, or `bun run test:e2e`, only when the task adds or changes a flow or a
-  conflict it resolved touched that package.
+  every suite and the E2E job on each pull-request push, so a brief asks for a
+  whole local suite, or `bun run test:e2e`, only when the task adds or changes a
+  flow or a conflict it resolved touched that package.
 - **One final report.** It finishes or stops every background task it started
   (gates, waits, reviewers) before it returns, and returns once. It never waits
   on CI: Step 5 does that, with `scripts/wait-pr.sh` in the background. A

@@ -72,8 +72,10 @@ runs:
     # saves its own build's key. It saves them in a step of its own, straight
     # after the install, so a run whose flows fail still fills the cache. No
     # job that uses this runs on a merge-queue group, and the save says so
-    # again, so a push to main, or a scheduled run on main, writes main's
-    # cache, which every branch and queue group can read.
+    # again. CI's E2E job runs on pull requests only, so it saves into its own
+    # pull request's scope; main's cache, which every branch and queue group
+    # can read, is written by the scheduled determinism run and, on a push to
+    # main, by the first browser leg in ci.yml.
     - name: Key Chromium's system packages
       id: chromium-apt-key
       if: inputs.cache != 'false'

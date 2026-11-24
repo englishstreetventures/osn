@@ -11,6 +11,11 @@ name: E2E determinism
 # a value that differs between runs, through a change under tools/e2e or a
 # page that starts a fetch on a timer, is found by the next daily run rather
 # than by the pull request that adds it. It is not a required check.
+#
+# It is also the suite's only run on main: CI's E2E job runs on pull requests
+# alone, and the merge queue and the push to main skip it. So a red run here
+# is either a value that differs between runs or a break that landed, and a
+# break that landed also turns every open pull request's E2E red.
 on:
   schedule:
     # 05:17 UTC daily, off the hour that every scheduled workflow asks for.
