@@ -1390,6 +1390,77 @@ describe("check-notice and send-change-notice", () => {
     }
   });
 
+  test("N15: a commit lookup that fails, names no osn-api commit or a malformed one refuses before any request", async () => {
+    for (const productionCommits of [
+      async () => {
+        throw new TypeError(`${CANARY} lookup`);
+      },
+      async () => new Map([["cire_api", CIRE_COMMIT]]),
+      async () => new Map([["osn_api", "not-a-sha"]]),
+    ]) {
+      for (const action of ["check-notice", "send-change-notice"]) {
+        const h = harness({ env: sendEnv, show: at(REGISTRY), deps: { productionCommits } });
+        expect(await run([action], h.deps)).toBe(1);
+        expect(h.sent).toEqual([]);
+        expect(h.files.get("/github/output")).toBeUndefined();
+        clean(h);
+      }
+    }
+  });
+
+  test("N16: a malformed expected commit or digest is a usage error before any read", async () => {
+    for (const env of [
+      { ...sendEnv, EXPECTED_OSN_COMMIT: "abc" },
+      { ...sendEnv, EXPECTED_NOTICE_DIGEST: "ABC" },
+      { ...sendEnv, EXPECTED_NOTICE_DIGEST: "" },
+    ]) {
+      let read = false;
+      const h = harness({
+        env,
+        show: at(REGISTRY),
+        deps: {
+          productionCommits: async () => {
+            read = true;
+            return new Map();
+          },
+        },
+      });
+      expect(await run(["send-change-notice"], h.deps)).toBe(2);
+      expect(read).toBe(false);
+    }
+  });
+
+  test("N17: a dry run osn-api refuses or answers in another form stops with nothing printed from it", async () => {
+    for (const answer of [
+      json(401, { error: "Unauthorized" }),
+      json(200, { ok: true, finished: false, sent: 0, failed: 0, sentSoFar: 0, failedSoFar: 0 }),
+      json(200, { ok: true, dryRun: true, toSend: 1, note: CANARY }),
+      new TypeError(`${CANARY} socket`),
+    ]) {
+      const h = harness({
+        env: { ...sendEnv, DRY_RUN: "true" },
+        show: at(REGISTRY),
+        routes: { [SEND]: [answer] },
+      });
+      expect(await run(["send-change-notice"], h.deps)).toBe(1);
+      expect(h.sent).toHaveLength(1);
+      clean(h);
+    }
+  });
+
+  test("N18: Resend refusing a batch, keyed batches missing, and a registry that does not parse each stop the run with a fixed hint", async () => {
+    for (const [answer, hint] of [
+      [json(502, { error: "refused" }), "Resend refused the batch"],
+      [json(501, { error: "no_batch_transport" }), "keyed batches"],
+      [json(500, { error: "bad_registry" }), "does not parse"],
+    ] as const) {
+      const h = harness({ env: sendEnv, show: at(REGISTRY), routes: { [SEND]: [answer] } });
+      expect(await run(["send-change-notice"], h.deps)).toBe(1);
+      expect(h.text()).toContain(hint);
+      clean(h);
+    }
+  });
+
   test("N14: words that changed since the approval, a missing notice, or the route switched off stop the run with a fixed hint", async () => {
     for (const [answer, hint] of [
       [json(409, { error: "notice_changed" }), "words"],

@@ -185,6 +185,14 @@ describe("refusals before anything is read or written", () => {
     expect(h.run()).toBeNull();
   });
 
+  it("answers a secret of exactly 32 characters", async () => {
+    const secret = "s".repeat(32);
+    const h = setup({ secret });
+    h.account("ada@example.test");
+    const answer = await h.send({ dryRun: true }, { authorization: `Bearer ${secret}` });
+    expect(answer.status).toBe(200);
+  });
+
   it.each([
     ["no Authorization header", {}],
     ["a wrong secret", { authorization: "Bearer wrong-secret-wrong-secret-wrong-secret" }],
@@ -211,6 +219,7 @@ describe("refusals before anything is read or written", () => {
     expect((await h.send({ dryRun: true }, undefined, "Privacy_2027")).status).toBe(422);
     expect((await h.send({ dryRun: "yes" })).status).toBe(422);
     expect((await h.send({ dryRun: false, limit: 101 })).status).toBe(422);
+    expect((await h.send({ dryRun: false, limit: 0 })).status).toBe(422);
     expect((await h.send({ dryRun: false, expect: "x" })).status).toBe(422);
     const unknown = await h.send({ dryRun: false }, undefined, "terms-2027-01");
     expect(unknown).toEqual({ status: 404, body: { error: "unknown_notice" } });
@@ -467,6 +476,80 @@ describe("neither skipped nor mailed twice, however a call ends", () => {
     expect((await first).status).toBe(200);
     expect(recipients(h)).toEqual(["ada@example.test"]);
     expect(new Set(h.resend.calls.map((c) => c.key)).size).toBe(1);
+  });
+});
+
+describe("what moves a run without a send, and what never does", () => {
+  it("sends a batch of 100 when the call allows 100", async () => {
+    const h = setup();
+    for (let i = 0; i < 101; i += 1) h.account(`p${String(i).padStart(3, "0")}@example.test`);
+    const answer = await h.send({ dryRun: false, limit: 100 });
+    expect(answer.body).toMatchObject({ sent: 100 });
+    expect(h.resend.calls[0]!.to).toHaveLength(100);
+  });
+
+  it("moves past a batch in hand whose accounts were all erased since, sending nothing", async () => {
+    const h = setup();
+    const ada = h.account("ada@example.test");
+    h.account("bea@example.test");
+    h.resend.script.push("503");
+    expect((await h.send({ dryRun: false, limit: 1 })).status).toBe(503);
+    h.erase(ada);
+    const moved = await h.send({ dryRun: false, limit: 1 });
+    expect(moved.body).toMatchObject({ ok: true, finished: false, sent: 0, sentSoFar: 0 });
+    expect(h.resend.calls).toHaveLength(1);
+    expect(h.run()).toMatchObject({ cursor: "acc_0001", pending_key: null });
+    await h.sendAll();
+    expect(recipients(h)).toEqual(["bea@example.test"]);
+  });
+
+  it("keeps the key when the transport dies, and drops it when the email does not render", async () => {
+    const died = setup();
+    died.account("ada@example.test");
+    died.resend.script.push("defect");
+    expect(await died.send({ dryRun: false })).toEqual({
+      status: 503,
+      body: { error: "unknown_outcome" },
+    });
+    expect(died.run()).toMatchObject({ pending_attempts: 1, pending_refused: 0 });
+    expect(died.run()?.pending_key).not.toBeNull();
+
+    const unrendered = setup();
+    unrendered.account("ada@example.test");
+    unrendered.resend.script.push("render-failed");
+    expect(await unrendered.send({ dryRun: false })).toEqual({
+      status: 502,
+      body: { error: "refused" },
+    });
+    expect(unrendered.run()).toMatchObject({ pending_key: null });
+  });
+
+  it("does not hand a key of exactly 23 hours to the operator: the provider still holds it", async () => {
+    const h = setup();
+    h.account("ada@example.test");
+    h.resend.script.push("accept-then-503");
+    expect((await h.send({ dryRun: false })).status).toBe(503);
+    h.clock.now = T0 + 23 * 3_600;
+    const retried = await h.send({ dryRun: false });
+    expect(retried.status).toBe(200);
+    expect(h.resend.calls.map((c) => c.key)).toEqual([
+      h.resend.calls[0]!.key,
+      h.resend.calls[0]!.key,
+    ]);
+    expect(recipients(h)).toEqual(["ada@example.test"]);
+  });
+
+  it("answers 500 internal when the database fails, and logs no address or account id", async () => {
+    const h = setup();
+    const ada = h.account("ada@example.test");
+    h.sqlite.run("DROP TABLE change_notice_runs");
+    const failed = await h.send({ dryRun: false });
+    expect(failed).toEqual({ status: 500, body: { error: "internal" } });
+    expect(h.resend.calls).toEqual([]);
+    expect(h.logs.some((line) => JSON.stringify(line).includes("change notice call failed"))).toBe(
+      true,
+    );
+    expectRedacted(h, [ada, "ada@example.test", SECRET], [failed]);
   });
 });
 

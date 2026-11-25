@@ -28,6 +28,10 @@ export type Step =
   | "422"
   /** Never answers: the route's timeout ends the wait. */
   | "hang"
+  /** The transport dies: a defect, not a typed failure. */
+  | "defect"
+  /** The template does not render: nothing is sent. */
+  | "render-failed"
   | { readonly refuse: readonly number[] }
   /** Answers once `release` completes. */
   | { readonly hold: Deferred.Deferred<void> };
@@ -83,6 +87,10 @@ export function fakeResend() {
       if (step === "429-early") return yield* refuse(429, "rate_limit_exceeded");
       if (step === "422") return yield* refuse(422, "validation_error");
       if (step === "hang") return yield* Effect.never;
+      if (step === "defect") return yield* Effect.die(new Error("transport defect"));
+      if (step === "render-failed") {
+        return yield* Effect.fail(new EmailError({ reason: "render_failed" }));
+      }
       if ("refuse" in step) return deliver(inputs, key, step.refuse);
       inFlight.add(key);
       yield* Deferred.await(step.hold);

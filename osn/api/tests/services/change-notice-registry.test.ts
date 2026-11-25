@@ -39,6 +39,23 @@ describe("parseChangeNotices", () => {
     expect(takesEffectSeconds(notice!)).toBe(Date.UTC(2027, 0, 1) / 1_000);
   });
 
+  it("accepts each field at its cap", () => {
+    const atCap = withEntry({
+      document: `a${" b".repeat(19)}c`,
+      path: `/${"a".repeat(63)}`,
+      changes: Array.from({ length: 8 }, () => "a".repeat(300)),
+    });
+    expect(`a${" b".repeat(19)}c`).toHaveLength(40);
+    expect(() => parseChangeNotices(atCap)).not.toThrow();
+    expect(() => parseChangeNotices({ ["a".repeat(63)]: good["privacy-2027-01"] })).not.toThrow();
+  });
+
+  it("names the notice and the field in what it refuses", () => {
+    expect(() => parseChangeNotices(withEntry({ path: "privacy" }))).toThrow(
+      "change-notice registry: privacy-2027-01.path",
+    );
+  });
+
   it.each([
     ["not an object", []],
     ["null", null],
@@ -53,6 +70,7 @@ describe("parseChangeNotices", () => {
     ["a path with no leading slash", withEntry({ path: "privacy" })],
     ["a path to another host", withEntry({ path: "//evil.example/privacy" })],
     ["a path with a query", withEntry({ path: "/privacy?x=1" })],
+    ["a path of 65 characters", withEntry({ path: `/${"a".repeat(64)}` })],
     ["a day in another format", withEntry({ takesEffect: "1 January 2027" })],
     ["a day that does not exist", withEntry({ takesEffect: "2027-02-30" })],
     ["no change line", withEntry({ changes: [] })],

@@ -26,8 +26,9 @@ describe("change-notice", () => {
   let zone: string | undefined;
   beforeEach(() => {
     zone = process.env.TZ;
-    // Far from UTC, so a date read in the host's zone shows.
-    process.env.TZ = "Pacific/Kiritimati";
+    // Behind UTC, so a UTC midnight is the day before in the host's zone, and
+    // a date read in the host's zone shows.
+    process.env.TZ = "Pacific/Pago_Pago";
   });
   afterEach(() => {
     if (zone === undefined) delete process.env.TZ;
@@ -47,14 +48,11 @@ describe("change-notice", () => {
   });
 
   it("shows the UTC day, not the day in the zone the sender runs in", () => {
-    // In Kiritimati (UTC+14) the same instant is already 1 January 2027 at
-    // 14:00, and 31 December 2026 at 23:59 UTC is 1 January there too.
-    const lastDay = renderTemplate("change-notice", {
-      ...notice,
-      takesEffect: Date.UTC(2026, 11, 31) / 1_000,
-    });
-    expect(lastDay.text).toContain("31 December 2026");
-    expect(lastDay.text).not.toContain("1 January 2027");
+    // In Pago Pago (UTC-11) the UTC midnight that starts 1 January 2027 is
+    // still 31 December 2026, at 13:00.
+    const out = renderTemplate("change-notice", notice);
+    expect(out.text).toContain("The changes take effect on 1 January 2027.");
+    expect(out.html).toContain("The changes take effect on 1 January 2027.");
   });
 
   it("escapes the notice's own text in the HTML", () => {
