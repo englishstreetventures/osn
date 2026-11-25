@@ -2301,8 +2301,12 @@ describe("whose account money gifts are paid into", () => {
 
   it("lets the holder choose which owner money gifts go to, and nothing is chosen for them", async () => {
     setCachedRegistry("wed_1", seated(ME));
+    let answerSeats: (response: Response) => void = () => {};
     serve({
-      "/hosts": () => json({ hosts: seats }),
+      "/hosts": () =>
+        new Promise<Response>((resolve) => {
+          answerSeats = resolve;
+        }),
       "/registry/stripe/retire": () => json({ settings: retired() }),
     });
     renderPanel({ canManage: true });
@@ -2310,7 +2314,13 @@ describe("whose account money gifts are paid into", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Hand money gifts to another owner" }),
     );
-    await screen.findByRole("dialog", { name: "Hand money gifts to another owner?" });
+    const dialog = await screen.findByRole("dialog", {
+      name: "Hand money gifts to another owner?",
+    });
+    // While the seats are out, the dialog says it is looking, and offers no commit.
+    expect(within(dialog).getByText("Finding the wedding’s owners…")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Hand over" })).toBeNull();
+    answerSeats(json({ hosts: seats }));
     const kit = (await screen.findByRole("radio", { name: "@kit" })) as HTMLInputElement;
     const sam = screen.getByRole("radio", { name: "@sam" }) as HTMLInputElement;
     // Owners only, and never the holder themself.
@@ -2318,12 +2328,18 @@ describe("whose account money gifts are paid into", () => {
     expect(screen.queryByRole("radio", { name: "@me" })).toBeNull();
     expect([kit.checked, sam.checked]).toEqual([false, false]);
 
+    // Marked disabled, and described by why.
     const handOver = screen.getByRole("button", { name: "Hand over" });
     expect(handOver.getAttribute("aria-disabled")).toBe("true");
+    const hint = within(dialog).getByText("Choose an owner first.");
+    expect(handOver.getAttribute("aria-describedby")).toBe(hint.id);
     fireEvent.click(handOver);
     expect(retireBodies()).toEqual([]);
 
     fireEvent.click(sam);
+    expect(handOver.getAttribute("aria-disabled")).toBeNull();
+    expect(handOver.getAttribute("aria-describedby")).toBeNull();
+    expect(within(dialog).queryByText("Choose an owner first.")).toBeNull();
     fireEvent.click(handOver);
     const connect = await screen.findByRole("button", { name: "Connect an account" });
     expect(retireBodies()).toEqual([{ handTo: "usr_sam" }]);
