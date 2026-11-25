@@ -6,7 +6,7 @@
  * failure against a resolved key, the cache is bypassed once (refresh path)
  * to handle key rotation.
  *
- * Amplification defences (P-C1 / S-M3):
+ * Amplification defences:
  * - Negative cache: an unknown kid (or a fetch that fails) is remembered for
  *   NEGATIVE_TTL_MS so a flood of junk-`kid` tokens doesn't re-hit upstream on
  *   every request. A forced refresh bypasses the negative cache so a genuine
@@ -16,9 +16,9 @@
  * - Fetch timeout: each JWKS fetch is bounded by JWKS_FETCH_TIMEOUT_MS so a
  *   hung upstream cannot pin the consumer.
  *
- * P-W2: bounded to CACHE_MAX_SIZE entries via LRU eviction — mirrors the
+ * Bounded to CACHE_MAX_SIZE entries via LRU eviction — mirrors the
  * pattern in @shared/crypto/arc.ts (PR #63).
- * S-M3: cache key includes the JWKS URL so keys from different issuers never
+ * The cache key includes the JWKS URL so keys from different issuers never
  * collide even if kid values overlap.
  */
 
@@ -28,19 +28,19 @@
 import { importKeyFromJwk } from "@shared/crypto/jwk";
 
 const JWKS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-/** Negative-cache TTL for unknown kids / failed fetches (P-C1 amplification). */
+/** Negative-cache TTL for unknown kids and failed fetches, so junk kids cannot drive a fetch each. */
 const NEGATIVE_TTL_MS = 30 * 1000; // 30 seconds
 /** Upper bound on a single JWKS fetch so a hung upstream can't pin us. */
 const JWKS_FETCH_TIMEOUT_MS = 5000;
-// P-W2: realistic key-rotation scenarios will never exceed single digits;
+// Realistic key-rotation scenarios will never exceed single digits;
 // cap prevents heap exhaustion from JWTs with crafted kid values.
 const CACHE_MAX_SIZE = 256;
-// S-review: the negative cache MUST also be bounded. Unknown/junk kids each
+// The negative cache MUST also be bounded. Unknown/junk kids each
 // insert a distinct entry, so an unauthenticated flood of random-`kid` tokens
 // would otherwise grow the map without limit (heap-exhaustion DoS). FIFO-evict
 // the oldest entry once the cap is reached.
 const NEGATIVE_CACHE_MAX_SIZE = 1024;
-// S-review (M-A): minimum spacing between forced JWKS refetches for the SAME
+// Minimum spacing between forced JWKS refetches for the SAME
 // kid. A valid-`kid`/bad-signature token forces a rotation refetch; because
 // kids are public, an attacker could otherwise drive one upstream fetch per
 // request. One forced refetch per kid per window is enough to pick up a genuine
@@ -99,7 +99,7 @@ function recordNegative(ck: string): void {
   negativeCache.set(ck, Date.now());
 }
 
-/** S-M3: include jwksUrl in cache key to isolate keys by issuer. */
+/** Includes jwksUrl in the cache key, isolating keys by issuer. */
 function cacheKey(kid: string, jwksUrl: string): string {
   return `${jwksUrl}:${kid}`;
 }
@@ -240,7 +240,7 @@ export async function refreshPublicKeyForKid(
   const ck = cacheKey(kid, jwksUrl);
   const now = Date.now();
 
-  // S-review (M-A): throttle forced refetches per kid. A valid-`kid`/bad-sig
+  // Throttle forced refetches per kid. A valid-`kid`/bad-sig
   // token reaches here; without a throttle an attacker (kids are public) drives
   // one upstream JWKS fetch per request. If we forced a refetch for this kid
   // within the cooldown, skip the network call and return whatever is cached

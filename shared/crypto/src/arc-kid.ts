@@ -15,7 +15,7 @@
  *
  *  - `OSN_ARC_KID_SECRET`, held for this MAC alone, keys the first MAC.
  *  - `INTERNAL_SERVICE_SECRET` keys the second, until every Worker on every
- *    tier holds the first (englishstreetventures/osn#TBD). With both, osn-api
+ *    tier holds the first (englishstreetventures/osn#2540). With both, osn-api
  *    puts both MACs in each kid, so an app holding either secret accepts it,
  *    whichever Worker was given the kid secret first. An app holding both
  *    accepts a kid either MAC verifies; an app holding only the kid secret
@@ -66,7 +66,7 @@ export interface ArcKidSecrets {
   readonly kidSecret: string | undefined;
   /**
    * `INTERNAL_SERVICE_SECRET`, keying the MAC every Worker checks until each
-   * holds `kidSecret`. Bounded until englishstreetventures/osn#TBD lands.
+   * holds `kidSecret`. Bounded until englishstreetventures/osn#2540 lands.
    */
   readonly serviceSecret: string | undefined;
 }

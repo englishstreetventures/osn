@@ -21,7 +21,7 @@ import { captureLogs } from "./test-helpers/capture-logs";
 import { ddlStatements } from "./test-helpers/ddl-statements";
 import { counterValue } from "./test-helpers/metrics-harness";
 import { seedOrganiserSession } from "./test-helpers/organiser-session";
-import { KID_SECRET, osnArc } from "./test-helpers/osn-arc";
+import { KID_SECRET, osnArc as osnArcStandIn } from "./test-helpers/osn-arc";
 import { ownerSeat } from "./test-helpers/wedding";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
@@ -2096,7 +2096,7 @@ describe("osn-api's ARC key ids on the Worker", () => {
     extra: Record<string, unknown>,
     kid: "made-up" | "real",
   ): Promise<{ status: number; fetches: number; logs: string }> {
-    const arc = await osnArc(undefined, BASE_ENV.OSN_ISSUER_URL);
+    const arc = await osnArcStandIn(undefined, BASE_ENV.OSN_ISSUER_URL);
     try {
       const freshBinding = {
         prepare: (query: string) => DB.prepare(query),

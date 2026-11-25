@@ -90,7 +90,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
         // skipped. OSN_ARC_KID_SECRET: keys a MAC on osn-api's ARC key ids for
         // that alone, held with zap-api and cire-api (SHARED_SECRET_VALUES); unset,
         // the key ids carry INTERNAL_SERVICE_SECRET's MAC alone. Optional until
-        // every Worker holds it (englishstreetventures/osn#TBD).
+        // every Worker holds it (englishstreetventures/osn#2540).
         // OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: set only while a TOTP key rotation
         // drains (osn/api/wrangler.toml secrets block).
         optional: [

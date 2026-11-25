@@ -389,9 +389,13 @@ and `POST /internal/account-export` (scope `account:export`), in
 only when `iss` is `osn-api`, `aud` is `cire-api`, its scope holds the route's,
 and its signature checks against the key osn-api published at
 `<OSN_ISSUER_URL>/.well-known/arc-jwks.json`, the issuer cire already pins for
-organiser tokens; anything else is **401** before the body is read. cire-api
-holds no kid secret, since the value osn-api keys its kid MACs with is also the
-bearer of service-key registration, so it does not check the kid's MAC.
+organiser tokens; anything else is **401** before the body is read. With
+`OSN_ARC_KID_SECRET` set, cire-api also refuses, before it fetches osn-api's
+keys, a token whose key id carries no MAC that verifies under that secret, and
+looks a key up only by the part of the key id that MAC covers; without it, no
+key id is checked. It never holds `INTERNAL_SERVICE_SECRET`, the bearer of
+service-key registration, which keys osn-api's other key-id MAC
+([[arc-tokens#osn-api as issuer — published outbound keys]]).
 All three sit before the CSRF origin guard and carry no rate limit, as on
 Pulse's and Zap's receivers, and each asks for its own scope, so a token for
 one opens neither other. What they do is in
