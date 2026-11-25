@@ -1,4 +1,4 @@
-import { makeLogEmailLive, makeResendEmailLive } from "@shared/email";
+import { makeResendEmailLive } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
 import { parseDeploymentEnvironment } from "@shared/observability/config";
 import { installWorkersTracing } from "@shared/observability/tracing";
@@ -21,7 +21,7 @@ import { organiserOriginFrom } from "./lib/organiser-origin";
 import { createOwnerNotices } from "./lib/owner-notice-email";
 import { sendReconcileAlert, type OperatorReconcileAlert } from "./lib/reconcile-alert-email";
 import { registryOutboundLimiters } from "./lib/registry-limiters";
-import { resendEmailConfig } from "./lib/resend-email";
+import { resendEmailConfig, workerEmailLayer } from "./lib/resend-email";
 import { siteOriginOptions, webOriginProblem } from "./lib/web-origin";
 import { runCire } from "./observability";
 import { createRealtimeRoute, type RealtimeRoute } from "./routes/realtime";
@@ -123,14 +123,14 @@ export interface Env {
   // The ARC signing key is shared with the osn-api bridge above; no new key
   // env vars are introduced.
   ZAP_API_URL?: string;
-  // Native Workers Rate Limiting binding (C1/C4). When present, the claim
-  // limiter is the global, atomic edge limiter. Absent ⇒ the per-isolate
-  // in-memory fallback — allowed ONLY in the `local` tier (`bun run dev` /
-  // bun:sqlite tests). In any deployed tier (dev/staging/production) a missing
-  // binding is a fail-closed 503 at the edge (see the guard in `fetch`), because
-  // a per-isolate limiter is no real cross-request brute-force defence and the
-  // downgrade would otherwise be silent. Optional here so the missing-binding
-  // case surfaces as that explicit 503, not a type lie.
+  // Native Workers Rate Limiting binding. When present, the claim limiter is
+  // the global, atomic edge limiter. Absent ⇒ the per-isolate in-memory
+  // fallback, allowed ONLY on a local run (`OSN_ENV` exactly `local`). On any
+  // other tier, an absent or unknown `OSN_ENV` included, a missing binding is a
+  // fail-closed 503 at the edge (see the guard in `fetch`), because a
+  // per-isolate limiter is no real cross-request brute-force defence. Optional
+  // here so the missing-binding case surfaces as that explicit 503, not a type
+  // lie.
   CLAIM_RATE_LIMITER?: WorkersRateLimitBinding;
   // Native Workers Rate Limiting binding for the guest SESSION-RESTORE read
   // (`GET /api/claim/session`). Separate namespace from CLAIM_RATE_LIMITER on
@@ -444,18 +444,16 @@ const handler: ExportedHandler<Env> = {
         arcKeyId: env.CIRE_API_ARC_KEY_ID,
       });
       // Email layer for vendor claim-invite emails. Uses Resend when the API key
-      // is present (deployed tiers); falls back to LogEmailLive (no network) so
-      // the worker boots cleanly without the key (local dev + bun:sqlite tests),
-      // and when a RESEND_API_URL override is refused.
+      // is present; without it, or when a RESEND_API_URL override is refused,
+      // the Worker still boots, on a transport that sends nothing
+      // (`workerEmailLayer`).
       const resend = resendEmailConfig(env, isDeployedTier(env));
       if (resend.problem) {
         await runCire(
           Effect.logError("email disabled: Resend misconfigured", { detail: resend.problem }),
         );
       }
-      const emailLayer = resend.config
-        ? makeResendEmailLive(resend.config)
-        : makeLogEmailLive().layer;
+      const emailLayer = workerEmailLayer(resend.config, isDeployedTier(env));
       // Vendor-enquiry c2b chat bridge (Vendors S4). Reuses cire-api's existing
       // ARC key (same signing key, new audience `zap-api` + scope `chat:c2b`).
       // Null (⇒ enquiry open/reply answer 503) when ZAP_API_URL or the ARC
@@ -738,7 +736,6 @@ const handler: ExportedHandler<Env> = {
   async scheduled(_event, env, ctx) {
     installWorkersTracing(ctx.tracing);
     if (!env.DB) return;
-    if (isUnnamedTier(env)) await logUnnamedTier();
     // Same session routing as `fetch`, for the same reason. The sweeps are
     // write-heavy, so this buys little today — but it keeps one path through
     // the D1 client rather than two, and the reads each sweep does to find its
@@ -1107,6 +1104,7 @@ const handler: ExportedHandler<Env> = {
         Effect.logError("email disabled: Resend misconfigured", { detail: resend.problem }),
       );
     }
+    if (isUnnamedTier(env)) await logUnnamedTier();
   },
 };
 

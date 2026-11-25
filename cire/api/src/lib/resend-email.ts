@@ -9,7 +9,15 @@
  * never repeats the value.
  */
 
-import { resendApiUrlProblem, type ResendEmailConfig } from "@shared/email";
+import {
+  type EmailService,
+  makeLogEmailLive,
+  makeNoopEmailLive,
+  makeResendEmailLive,
+  resendApiUrlProblem,
+  type ResendEmailConfig,
+} from "@shared/email";
+import type { Layer } from "effect";
 
 /** Every cire email goes out from the sender verified in Resend. */
 const CIRE_EMAIL_FROM = "hello@cireweddings.com";
@@ -46,6 +54,21 @@ export function resendEmailConfig(
     },
     problem: null,
   };
+}
+
+/**
+ * The mail transport for the Worker: Resend when `config` is set. Without it a
+ * deployed tier gets the no-op transport, which logs only the template and
+ * never a recipient, so no address reaches the Worker's logs at any log level;
+ * only a local run (`wrangler dev`) keeps the recorder, which logs each
+ * recipient for the developer at the keyboard.
+ */
+export function workerEmailLayer(
+  config: ResendEmailConfig | null,
+  deployed: boolean,
+): Layer.Layer<EmailService> {
+  if (config) return makeResendEmailLive(config);
+  return deployed ? makeNoopEmailLive() : makeLogEmailLive().layer;
 }
 
 /**

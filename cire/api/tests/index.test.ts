@@ -45,6 +45,9 @@ let savedOsnEnv: string | undefined;
 
 const MF_HOOK_TIMEOUT_MS = 30_000;
 
+// The start of the line a Worker logs when its OSN_ENV names no tier.
+const UNNAMED_TIER = "OSN_ENV is absent or names no tier";
+
 // A stand-in for the native Workers rate-limit binding — matches
 // `WorkersRateLimitBinding` (`{ limit({ key }): Promise<{ success }> }`).
 // `success: true` = never limited, which is all these boot tests need.
@@ -285,8 +288,6 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
 // once when it builds the app (once per isolate). The app is cached per D1
 // binding, so each case hands the Worker a binding it has not seen.
 describe("an OSN_ENV that names no tier, on the Worker", () => {
-  const UNNAMED = "OSN_ENV is absent or names no tier";
-
   async function buildAndRead(tier: Record<string, unknown>) {
     const freshBinding = {
       prepare: (query: string) => DB.prepare(query),
@@ -316,17 +317,17 @@ describe("an OSN_ENV that names no tier, on the Worker", () => {
     async (tier) => {
       const { statuses, logs } = await buildAndRead({ OSN_ENV: tier });
       expect(statuses).toEqual([401, 401]);
-      expect(logs.split(UNNAMED).length - 1).toBe(1);
+      expect(logs.split(UNNAMED_TIER).length - 1).toBe(1);
     },
   );
 
   it("logs nothing about the tier when it is named", async () => {
     const { statuses, logs } = await buildAndRead({});
     expect(statuses).toEqual([401, 401]);
-    expect(logs).not.toContain(UNNAMED);
+    expect(logs).not.toContain(UNNAMED_TIER);
     const local = await buildAndRead({ OSN_ENV: "local", WEB_ORIGIN: "http://localhost:4321" });
     expect(local.statuses).toEqual([401, 401]);
-    expect(local.logs).not.toContain(UNNAMED);
+    expect(local.logs).not.toContain(UNNAMED_TIER);
   });
 });
 
@@ -1183,12 +1184,16 @@ describe("D1 session routing at the entry points", () => {
     );
   }, 30_000);
 
-  it("says once per cron run that an absent OSN_ENV names no tier, and nothing when it is named", async () => {
-    const UNNAMED = "OSN_ENV is absent or names no tier";
-    const unnamed = await captureLogs(() => runCron({ OSN_ENV: undefined }));
-    expect(unnamed.split(UNNAMED).length - 1).toBe(1);
-    const named = await captureLogs(() => runCron());
-    expect(named).not.toContain(UNNAMED);
+  // A named tier saying nothing is checked in the `production` case of the
+  // RESEND_API_URL cron test below, which captures a whole cron run's logs.
+  it("says once per cron run, after every sweep is handed off, that an absent OSN_ENV names no tier", async () => {
+    const handedOff = "<sweep handed to waitUntil>";
+    const sink = (globalThis as typeof globalThis & { console: Console }).console;
+    const logs = await captureLogs(() =>
+      runCron({ OSN_ENV: undefined }, () => sink.log(handedOff)),
+    );
+    expect(logs.split(UNNAMED_TIER).length - 1).toBe(1);
+    expect(logs.indexOf(UNNAMED_TIER)).toBeGreaterThan(logs.lastIndexOf(handedOff));
   }, 30_000);
 
   it("gives each scheduled sweep its own session", async () => {
@@ -1698,6 +1703,7 @@ describe("D1 session routing at the entry points", () => {
       );
       expect(logs).toContain("RESEND_API_URL");
       expect(logs).not.toContain("localhost:4008");
+      expect(logs.split(UNNAMED_TIER).length - 1).toBe(tier === undefined ? 1 : 0);
     },
     30_000,
   );
