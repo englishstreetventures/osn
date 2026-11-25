@@ -50,7 +50,7 @@ export default function PayoutHolderNote(props: {
     <p
       id={props.id}
       data-testid={props.testId ?? "payout-holder-note"}
-      class={`font-body text-text-muted text-ui-sm leading-ui-snug [overflow-wrap:anywhere] ${props.class ?? ""}`}
+      class={`font-body text-text-muted text-ui-sm leading-ui-snug wrap-anywhere ${props.class ?? ""}`}
     >
       {words().before}
       <Show when={props.moneyGifts} fallback="Money gifts">

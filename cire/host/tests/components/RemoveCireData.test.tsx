@@ -293,6 +293,25 @@ describe("RemoveCireData and a wedding's payout account", () => {
     expect(screen.queryByRole("link", { name: "Money gifts" })).toBeNull();
   });
 
+  it("sends the person to the profile that holds a seat this session cannot open", async () => {
+    serve([heldPlan(true)], []);
+    render(() => (
+      <RemoveCireData
+        code="code_ok"
+        canOpen={() => false}
+        onOpen={() => {}}
+        onCancel={() => {}}
+        onDone={() => {}}
+      />
+    ));
+    expect(
+      await screen.findByText(
+        /To hand it over, sign in to Cire with the profile that holds this seat\./,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Money gifts" })).toBeNull();
+  });
+
   it("says where to hand the account over when the refusal brings no words of its own", async () => {
     serve([plan([], true), heldPlan(true)], [json({ error: "holds_payout_account" }, 409)]);
     show({ code: "code_ok" });

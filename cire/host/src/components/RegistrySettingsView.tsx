@@ -1221,7 +1221,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                   ref={statusEl}
                   id="stripe-status"
                   tabindex="-1"
-                  class={`${hintClass} outline-none`}
+                  class={hintClass}
                   data-testid="stripe-status"
                 >
                   {statusWords()}
@@ -1229,13 +1229,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               }
             >
               <Notice tone="warn">
-                <p
-                  ref={statusEl}
-                  id="stripe-status"
-                  tabindex="-1"
-                  class="outline-none"
-                  data-testid="stripe-status"
-                >
+                <p ref={statusEl} id="stripe-status" tabindex="-1" data-testid="stripe-status">
                   {statusWords()}
                 </p>
               </Notice>
@@ -1251,7 +1245,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                   ref={questionEl}
                   tabindex="-1"
                   aria-labelledby="stripe-account-choice-label"
-                  class="flex min-w-0 flex-col gap-3 border-0 p-0 outline-none"
+                  class="flex min-w-0 flex-col gap-3 border-0 p-0"
                   data-testid="stripe-account-choice"
                 >
                   <p
@@ -1455,15 +1449,21 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               onChange={setCashGifts}
               label="Let guests give money"
               description={
+                // Saved on, it says when guests get the option, not that the
+                // switch will become available: it already is, to turn off.
                 <Show
                   when={holderAbsent()}
                   fallback={
                     <Show when={stripeState() !== "ready"}>
-                      Available once Stripe can take payments.
+                      {settings()?.cashGiftsEnabled === true
+                        ? "Guests are offered money once Stripe can take payments."
+                        : "Available once Stripe can take payments."}
                     </Show>
                   }
                 >
-                  Available once an owner connects an account of their own.
+                  {settings()?.cashGiftsEnabled === true
+                    ? "Guests are offered money once an owner connects an account of their own."
+                    : "Available once an owner connects an account of their own."}
                 </Show>
               }
             />

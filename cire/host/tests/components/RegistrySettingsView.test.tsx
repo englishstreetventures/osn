@@ -2355,6 +2355,10 @@ describe("whose account money gifts are paid into", () => {
       name: "Let guests give money",
     })) as HTMLInputElement;
     expect(on.disabled).toBe(false);
+    // On, it says when guests get the option; off, when the switch can be used.
+    expect(
+      screen.getByText("Guests are offered money once an owner connects an account of their own."),
+    ).toBeTruthy();
     unmount();
 
     setCachedRegistry("wed_1", absent({ cashGiftsEnabled: false }));
@@ -2363,6 +2367,9 @@ describe("whose account money gifts are paid into", () => {
       name: "Let guests give money",
     })) as HTMLInputElement;
     expect(off.disabled).toBe(true);
+    expect(
+      screen.getByText("Available once an owner connects an account of their own."),
+    ).toBeTruthy();
   });
 
   it("lets an editor turn off a switch saved on while the account cannot charge", async () => {
@@ -2383,6 +2390,9 @@ describe("whose account money gifts are paid into", () => {
       name: "Let guests give money",
     })) as HTMLInputElement;
     expect(toggle.disabled).toBe(false);
+    expect(
+      screen.getByText("Guests are offered money once Stripe can take payments."),
+    ).toBeTruthy();
   });
 
   it("never calls an absent holder's account ready after Check again", async () => {

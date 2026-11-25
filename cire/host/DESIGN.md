@@ -1909,8 +1909,11 @@ two steps and a trip to Musubi between them; the decisions:
   carries under its line, from the first step, "You connected the Stripe
   account money gifts are paid into. Hand money gifts to another owner or
   disconnect it in Money gifts before you remove your data." — "Money gifts"
-  a prose link to that wedding's registry settings where the profile can open
-  it and its tier includes the registry, the words alone otherwise. Step 1
+  a prose link to that wedding's registry settings where its tier includes
+  the registry, the words alone otherwise. A seat another profile of the
+  account holds, which this session cannot open, says instead "To hand it
+  over, sign in to Cire with the profile that holds this seat.", as the
+  download and owner links of a wedding they alone own do. Step 1
   refuses nothing for it: its list holds the signed-in profile alone, and
   another profile of the account may be the other owner. On step 2, whose list
   covers every profile as the API's refusal does, a press with such a wedding
@@ -2003,7 +2006,12 @@ held rows (above). The decisions:
 - **A switch saved on is always usable**, so anyone who can edit can turn
   money gifts off, which the API never refuses; one saved off is locked while
   Stripe cannot charge, the site takes no money, or no current owner holds the
-  account.
+  account. Its line then says when guests get the option — "Guests are offered
+  money once Stripe can take payments.", or "…once an owner connects an
+  account of their own." — where a switch saved off says when it can be used
+  ("Available once…"), since one saved on already can, to turn it off.
+- **Whatever takes focus from a script shows the house ring**: the status line
+  and the account question, as everywhere (§4, Focus).
 - **What follows a retire waits for the dialog's close**: focus moves to
   "Connect an account" after a hand-over or a disconnect, and a replace opens
   the Connect choice, whose question takes focus. The native dialog keeps the

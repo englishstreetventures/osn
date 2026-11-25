@@ -1222,9 +1222,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                       anywhere rather than run past the row. */}
                     <span class="font-body text-text text-ui-base flex max-w-full min-w-0 flex-wrap items-center gap-3">
                       {host.handle ? (
-                        <span class="text-gold-ink min-w-0 [overflow-wrap:anywhere]">
-                          @{host.handle}
-                        </span>
+                        <span class="text-gold-ink min-w-0 wrap-anywhere">@{host.handle}</span>
                       ) : (
                         <span
                           class="text-text-muted text-ui-sm tracking-ui-wide font-ui-mono"

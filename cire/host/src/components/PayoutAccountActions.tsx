@@ -384,7 +384,7 @@ export default function PayoutAccountActions(props: PayoutAccountActionsProps) {
               </Show>
 
               {/* The replace names the holder once the seats have answered. */}
-              <p class="font-body text-text-muted text-ui-sm leading-ui-normal [overflow-wrap:anywhere]">
+              <p class="font-body text-text-muted text-ui-sm leading-ui-normal wrap-anywhere">
                 {which() === "replace"
                   ? `${props.holderId && seats() ? nameOf(props.holderId) : "The person who connected it"} ${DIALOG.replace.body}`
                   : DIALOG[which()].body}
@@ -437,6 +437,7 @@ function HandOverChoice(props: {
   disabled: boolean;
 }) {
   const textClass = "font-body text-text text-ui-sm leading-ui-normal";
+  const legendId = createUniqueId();
   return (
     <Switch>
       <Match when={props.failed}>
@@ -454,26 +455,31 @@ function HandOverChoice(props: {
         </p>
       </Match>
       <Match when={props.owners.length === 1}>
-        <p class={`${textClass} [overflow-wrap:anywhere]`}>
+        <p class={`${textClass} wrap-anywhere`}>
           They go to {seatName(props.owners[0]!)}, who connects an account of their own to take
           gifts again.
         </p>
       </Match>
       <Match when={props.owners.length > 1}>
-        <fieldset class="flex min-w-0 flex-col gap-2 border-0 p-0">
-          <legend class={`${textClass} mb-1`}>Which owner takes them on?</legend>
+        {/* The radio group carries the name, from the legend, as the panel's
+            other choices do; the fieldset takes no role, so it is said once. */}
+        <fieldset role="none" class="flex min-w-0 flex-col gap-2 border-0 p-0">
+          <legend id={legendId} class={`${textClass} mb-1`}>
+            Which owner takes them on?
+          </legend>
           <RadioGroup
             box="native"
             orientation="vertical"
             value={props.chosen}
             onChange={props.onChoose}
             disabled={props.disabled}
+            aria-labelledby={legendId}
           >
             <For each={props.owners}>
               {(owner) => (
                 <RadioGroupItem
                   value={owner.osnProfileId}
-                  label={<span class="[overflow-wrap:anywhere]">{seatName(owner)}</span>}
+                  label={<span class="wrap-anywhere">{seatName(owner)}</span>}
                 />
               )}
             </For>
