@@ -573,10 +573,8 @@ describe("enquiryService.quote", () => {
     const ven = db.select().from(vendors).where(eq(vendors.id, enq.vendorId)).get();
     expect(ven!.quotedMinor).toBe(250000);
 
-    // A quote message went to zap carrying the note. The amount's text, in
-    // the chat and the email, is pinned per currency by the table below.
-    expect(zap.sendCalls.some((c) => c.body.includes("Includes setup"))).toBe(true);
-
+    // The chat message's text, with and without a note, and the email's amount
+    // are pinned per currency by the table below.
     const quoteEmails = email.sent.filter((m) => m.template === "enquiry-quote");
     expect(quoteEmails).toHaveLength(1);
     expect(quoteEmails[0]!.to).toBe("couple@wedding.test");
@@ -621,14 +619,15 @@ const intl = (major: number, currency: string): string =>
 
 describe("enquiryService.quote prints the amount in the wedding currency's own minor unit", () => {
   // `major` is what `amountMinor` means in that currency: yen have no minor
-  // unit, a dinar has a thousand fils, a dollar a hundred cents.
+  // unit, a dinar has a thousand fils, a dollar a hundred cents. A note goes
+  // on its own line after the amount.
   it.each([
-    { currency: "JPY", amountMinor: 50_000, major: 50_000 },
-    { currency: "KWD", amountMinor: 1500, major: 1.5 },
-    { currency: "AUD", amountMinor: 250_000, major: 2500 },
+    { currency: "JPY", amountMinor: 50_000, major: 50_000, note: null },
+    { currency: "KWD", amountMinor: 1500, major: 1.5, note: null },
+    { currency: "AUD", amountMinor: 250_000, major: 2500, note: "Includes setup" },
   ])(
     "$currency: $amountMinor minor units in the chat message and the email",
-    async ({ currency, amountMinor, major }) => {
+    async ({ currency, amountMinor, major, note }) => {
       const db = db0();
       const zap = fakeZap();
       const email = fakeEmail();
@@ -649,17 +648,21 @@ describe("enquiryService.quote prints the amount in the wedding currency's own m
           coupleEmail: "couple@wedding.test",
           vendorName: "Bloom & Co",
           currency,
+          ...(note !== null && { note }),
         }),
       );
       if (!Exit.isSuccess(res)) throw new Error("quote failed");
 
+      const amount = intl(major, currency);
       const quoteMessages = zap.sendCalls.filter((c) => c.body.startsWith("Quote:"));
-      expect(quoteMessages.map((c) => c.body)).toEqual([`Quote: ${intl(major, currency)}`]);
+      expect(quoteMessages.map((c) => c.body)).toEqual([
+        note === null ? `Quote: ${amount}` : `Quote: ${amount}\n${note}`,
+      ]);
 
       const quoteEmails = email.sent.filter((m) => m.template === "enquiry-quote");
       expect(quoteEmails).toHaveLength(1);
       const { amountFormatted } = quoteEmails[0]!.data as { amountFormatted: string };
-      expect(amountFormatted).toBe(intl(major, currency));
+      expect(amountFormatted).toBe(amount);
     },
   );
 });
