@@ -2030,11 +2030,12 @@ held rows (above). The decisions:
 
 `tests/components/RegistrySettingsView.money.browser.test.tsx` paints the
 absent and holder views, the hand-over dialog with a 55-letter handle and the
-holder's seat at 390 and 1280px in both ramps, and holds the focus after a
-hand-over; `RegistrySettingsView.test.tsx`, `HostsPanel.test.tsx` and
-`RegistryView.test.tsx` hold the rest. The `cire-registry-money` end-to-end
-flow shoots the holder's seat, the holder's own seat, the panel after a
-hand-over and the panel after replacing an absent holder's account.
+holder's seat at 390 and 1280px in both ramps; `RegistrySettingsView.test.tsx`,
+`HostsPanel.test.tsx` and `RegistryView.test.tsx` hold the rest. The
+`cire-registry-money` end-to-end flow follows the holder's note to Money
+gifts, checks that focus lands on "Connect an account" after a hand-over, and
+shoots the holder's seat, the holder's own seat, the panel after a hand-over
+and the panel after replacing an absent holder's account.
 
 ### A wedding's guest list close to its three years
 

@@ -167,6 +167,9 @@ function osnSessions(): number {
 }
 
 test("cire-registry-money", async ({ page, browser, flow }) => {
+  // The absent holder's section waits for the Stripe routes' limiter to open
+  // a window of its own, up to a minute by design, on top of everything else.
+  test.slow();
   const money = queryOne<{ ready: number }>(
     DB_FILES.cire,
     `SELECT (s.cash_gifts_enabled = 1 AND s.stripe_charges_enabled = 1

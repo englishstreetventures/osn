@@ -258,6 +258,52 @@ describe("RemoveCireData and a wedding's payout account", () => {
       await screen.findByText(`Part of your data is removed already. ${message}`),
     ).toBeTruthy();
   });
+
+  it("links the wedding's Money gifts through the dashboard, where its tier opens them", async () => {
+    serve([heldPlan(true)], []);
+    const onOpen = vi.fn();
+    const { unmount } = render(() => (
+      <RemoveCireData
+        code="code_ok"
+        canOpen={() => true}
+        onOpen={onOpen}
+        onCancel={() => {}}
+        onDone={() => {}}
+      />
+    ));
+    const link = await screen.findByRole("link", { name: "Money gifts" });
+    expect(link.getAttribute("href")).toBe(`#/w/${MIA.weddingId}/registry/settings`);
+    fireEvent.click(link);
+    expect(onOpen).toHaveBeenCalledWith(MIA.weddingId, "money");
+    unmount();
+
+    // Below the tier that opens the registry, the words stand alone.
+    serve([heldPlan(true)], []);
+    render(() => (
+      <RemoveCireData
+        code="code_ok"
+        canOpen={() => true}
+        canOpenMoney={() => false}
+        onOpen={onOpen}
+        onCancel={() => {}}
+        onDone={() => {}}
+      />
+    ));
+    expect(await screen.findByText(note)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Money gifts" })).toBeNull();
+  });
+
+  it("says where to hand the account over when the refusal brings no words of its own", async () => {
+    serve([plan([], true), heldPlan(true)], [json({ error: "holds_payout_account" }, 409)]);
+    show({ code: "code_ok" });
+    expect(await screen.findByText(MIA.name)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove my Cire data" }));
+    expect(
+      await screen.findByText(
+        /disconnect it in that wedding's Money gifts, then remove your data again\.$/,
+      ),
+    ).toBeTruthy();
+  });
 });
 
 describe("RemoveCireData's answers", () => {

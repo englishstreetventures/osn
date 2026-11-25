@@ -12,8 +12,9 @@
  * 2. **Handing over** (`handOverSteps`). On Handover Wedding the dev profile
  *    holds the account and Kit is the other owner. The dev profile's own
  *    role select and "Leave this wedding" are `aria-disabled` with the holder's
- *    sentence, and `DELETE /hosts/me` answers 409 `holds_payout_account`. In
- *    Money gifts, "Hand money gifts to another owner" opens a dialog naming
+ *    sentence, and `DELETE /hosts/me` answers 409 `holds_payout_account`. Its
+ *    note's link opens Money gifts, where "Hand money gifts to another owner"
+ *    opens a dialog naming
  *    Kit; "Hand over" retires the account: the panel shows none, the row has
  *    none at generation 1, and one retired row says `handed_over`. Back in the
  *    hosts panel the dev profile's step-down to editor then goes through.
@@ -223,7 +224,13 @@ export async function handOverSteps(flow: Flow, page: Page): Promise<void> {
   const handed = await flow.step(
     "Handover Wedding: hand money gifts to Kit from the Money gifts panel",
     async () => {
-      await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/settings`);
+      // From the holder's own note, by its link to Money gifts.
+      await page.goto(hostsUrl);
+      await rowWithSelect(page, "Your role on this wedding")
+        .getByTestId("payout-holder-note")
+        .getByRole("link", { name: "Money gifts" })
+        .click();
+      await expect(page).toHaveURL(new RegExp(`#/w/${weddingId}/registry/settings$`));
       await page.getByRole("button", { name: "Hand money gifts to another owner" }).click();
       const dialog = page.getByRole("dialog", { name: "Hand money gifts to another owner?" });
       await expect(dialog).toBeVisible();

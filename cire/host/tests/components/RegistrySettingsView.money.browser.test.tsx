@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 
@@ -10,8 +10,8 @@ import "../../src/styles/global.css";
  * holder's own panel with the hand-over dialog open, and the holder's seat in
  * the hosts panel, at 390 and 1280px in both ramps. Only a real engine can say
  * the new sentences, the extra pills and a long name in the dialog stay inside
- * the panel and the screen, and only a real `<dialog>` hands focus back, so the
- * focus after a hand-over is here too.
+ * the panel and the screen. Where focus lands after a hand-over, which only a
+ * real `<dialog>` decides, is the `cire-registry-money` flow's step.
  *
  * Every case leaves a screenshot under `__screenshots__/` beside this file
  * (gitignored).
@@ -229,34 +229,4 @@ describe("whose account money gifts are paid into, painted", () => {
       });
     }
   }
-
-  it("puts focus on Connect an account once a hand-over has closed its dialog", async () => {
-    await page.viewport(1280, 1400);
-    setCachedRegistry("wed_1", snapshotOf(settingsOf({})));
-    authFetch.mockImplementation(async (url: string) =>
-      String(url).endsWith("/registry/stripe/retire")
-        ? json({
-            settings: settingsOf({
-              stripeConnected: false,
-              stripeConnectedByOsnProfileId: null,
-              stripeAccountType: null,
-              stripeChargesEnabled: false,
-              moneyGiftsBlockedBy: "stripe_not_ready",
-            }),
-          })
-        : json({ hosts: SEATS.slice(0, 1).concat(SEATS[2]!) }),
-    );
-    showPanel();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Hand money gifts to another owner" }),
-    );
-    const dialog = await screen.findByRole("dialog", {
-      name: "Hand money gifts to another owner?",
-    });
-    await waitFor(() => expect(dialog.textContent).toMatch(/@kit/));
-    fireEvent.click(screen.getByRole("button", { name: "Hand over" }));
-    const connect = await screen.findByRole("button", { name: "Connect an account" });
-    await waitFor(() => expect(document.activeElement).toBe(connect));
-    expect(document.querySelector("dialog[open]")).toBeNull();
-  });
 });

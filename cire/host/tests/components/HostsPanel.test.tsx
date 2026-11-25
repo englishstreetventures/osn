@@ -353,6 +353,30 @@ describe("HostsPanel", () => {
     expect(remove.getAttribute("aria-disabled")).toBe("true");
     expect(remove.getAttribute("aria-describedby")).toBe(note.id);
     expect(screen.getByText("@ben")).toBeTruthy();
+    // Their seat now offers owner alone, and pressing Remove again sends nothing.
+    const select = roleSelect("@ben") as HTMLSelectElement;
+    expect(
+      [...select.options].filter((option) => !option.disabled).map((option) => option.value),
+    ).toEqual(["owner"]);
+    fireEvent.click(remove);
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("says why moving the payout account's holder below owner was refused, and marks their seat", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_ben", handle: "ben", role: "owner", createdAt: 1 }] }),
+    );
+    authFetchMock.mockResolvedValueOnce(json({ error: "holds_payout_account" }, 409));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("@ben")).toBeTruthy());
+    // Owner to viewer asks nothing first, so the write goes straight out.
+    fireEvent.change(roleSelect("@ben"), { target: { value: "viewer" } });
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+    expect(String(toastError.mock.calls[0]![0])).toMatch(/^@ben connected the Stripe account/);
+    await screen.findByTestId("payout-holder-note");
+    const select = roleSelect("@ben") as HTMLSelectElement;
+    expect(select.value).toBe("owner");
+    expect(select.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("explains every role, the owner's included, to an owner adding someone", async () => {
@@ -1455,6 +1479,10 @@ describe("HostsPanel", () => {
           screen.getByRole("button", { name: /Leave this wedding/i }).getAttribute("aria-disabled"),
         ).toBe("true"),
       );
+      // Pressed again, it asks nothing and sends nothing.
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      expect(screen.queryByRole("button", { name: /Yes, leave/i })).toBeNull();
+      expect(authFetchMock).toHaveBeenCalledTimes(2);
     });
   });
 
