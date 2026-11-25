@@ -17,7 +17,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
   - "[[arc-token-debugging]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -245,7 +245,7 @@ Dev steps:
 `osn/api/src/services/auth/server-mac.ts` and the handle-hold digest
 ([[account-deletion#Handle holds]]). No session stores an IP hash. In a non-local
 env it must be set and **≥32 bytes**, or the app throws
-(`osn/api/src/build-deps.ts:405-410`).
+(`osn/api/src/build-deps.ts:411-416`).
 
 ```bash
 openssl rand -base64 48   # ≥32 bytes after decode; store as OSN_SESSION_IP_PEPPER
@@ -2285,7 +2285,7 @@ How it decides:
 | What | Where |
 |---|---|
 | JWT key-pair throw / ephemeral fallback | `osn/api/src/index.ts:52-88`, warn at `272-275` |
-| Session IP pepper throw (≥32 bytes) | `osn/api/src/build-deps.ts:405-410` |
+| Session IP pepper throw (≥32 bytes) | `osn/api/src/build-deps.ts:411-416` |
 | `OSN_ENV` cookie-secure switch | `osn/api/src/index.ts:167-170` |
 | WebAuthn rpId / origin / issuer | `osn/api/src/index.ts:103-113` |
 | CORS allowlist fail-closed | `osn/api/src/lib/cors-config.ts:41-62` |
