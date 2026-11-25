@@ -190,6 +190,13 @@ describe("renderTemplate", () => {
       organisations: [{ handle: "adaco", newOwnerHandle: null }],
     },
     "account-deletion-cancelled": { instanceName: "Musubi", appUrl: "https://example.test" },
+    "change-notice": {
+      instanceName: "Musubi",
+      document: "privacy notice",
+      changes: ["We now keep sign-in records for 12 months."],
+      takesEffect: 1_798_761_600,
+      url: "https://example.test/privacy",
+    },
     "account-deletion-scheduled": {
       instanceName: "Musubi",
       deletesAt: 1_800_000_000,
@@ -349,6 +356,13 @@ describe("account emails name the instance passed in", () => {
       organisations: [],
     },
     "account-deletion-cancelled": { instanceName, appUrl: "https://example.test" },
+    "change-notice": {
+      instanceName,
+      document: "privacy notice",
+      changes: ["We now keep sign-in records for 12 months."],
+      takesEffect: 1_798_761_600,
+      url: "https://example.test/privacy",
+    },
     "account-deletion-scheduled": {
       instanceName,
       deletesAt: 1_800_000_000,

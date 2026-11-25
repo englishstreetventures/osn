@@ -42,7 +42,7 @@ import {
   metricEmailSendAttempt,
   metricEmailSendDuration,
 } from "./metrics";
-import { EmailError, EmailService, type SendEmailInput } from "./service";
+import { EmailError, EmailService, type KeyedBatchResult, type SendEmailInput } from "./service";
 import { type RenderedEmail, renderTemplate } from "./templates";
 
 /** Resend's API origin, used whenever `apiUrl` is unset or blank. */
@@ -148,23 +148,27 @@ function readRefusal(text: string): ResendRefusal {
 }
 
 /**
- * The first {@link MAX_ERROR_BODY} bytes of `body`, as text. Stops reading
- * there, and lets the stream go once done or once `signal` aborts, so neither a
- * long body nor a stalled one keeps the response open.
+ * The first `max` bytes of `body`, as text. Stops reading there, and lets the
+ * stream go once done or once `signal` aborts, so neither a long body nor a
+ * stalled one keeps the response open.
  */
-async function readCapped(body: ReadableStream<Uint8Array>, signal: AbortSignal): Promise<string> {
+async function readCapped(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+  max: number = MAX_ERROR_BODY,
+): Promise<string> {
   const reader = body.getReader();
   const release = () => void reader.cancel().catch(() => undefined);
   signal.addEventListener("abort", release, { once: true });
-  const bytes = new Uint8Array(MAX_ERROR_BODY);
+  const bytes = new Uint8Array(max);
   let size = 0;
   try {
-    while (size < MAX_ERROR_BODY) {
+    while (size < max) {
       // A stream gives its chunks one read at a time; each read waits on the last.
       // eslint-disable-next-line no-await-in-loop
       const { done, value } = await reader.read();
       if (done) break;
-      const taken = value.subarray(0, MAX_ERROR_BODY - size);
+      const taken = value.subarray(0, max - size);
       bytes.set(taken, size);
       size += taken.byteLength;
     }
@@ -241,6 +245,20 @@ const logDispatchInterrupted = (
   return Effect.logWarning("email.dispatch_interrupted").pipe(Effect.annotateLogs(fields));
 };
 
+/**
+ * The error for a refusal Resend answered: the status, and Resend's error name
+ * when it passed the code pattern. Only the status and that code — never the
+ * body, an address or the key. `cause` keeps the status, as callers read it.
+ */
+const refusedAs = (
+  reason: "rate_limited" | "dispatch_failed",
+  status: number,
+  refusal: ResendRefusal,
+): EmailError =>
+  refusal.resendError === undefined
+    ? new EmailError({ reason, cause: { status }, status })
+    : new EmailError({ reason, cause: { status }, status, providerError: refusal.resendError });
+
 /** Runtime configuration for the Resend-backed transport. */
 export interface ResendEmailConfig {
   /** Resend API key (bearer). NEVER logged, returned, or placed in a URL. */
@@ -269,26 +287,20 @@ interface ResendEmailPayload {
 }
 
 /**
- * Render every email, then POST them to the batch endpoint, at most
- * {@link RESEND_BATCH_LIMIT} per call, one call after another. A render failure
- * fails the batch before anything is sent; a failed call fails it too, though
- * calls before it have gone — callers that must not double-send keep a batch
- * within one call.
+ * Render every email into its payload. One render per distinct data object:
+ * the output depends only on the template and the data, and a caller mailing
+ * one record to several recipients (cire's gift summary, to each owner; a
+ * change notice, to every account) passes the same object. A render failure
+ * fails the whole batch before anything is sent.
  */
-const sendBatch = (
+const renderPayloads = (
   config: ResendEmailConfig,
-  batchUrl: string,
   inputs: readonly SendEmailInput[],
-): Effect.Effect<void, EmailError> =>
+  started: number,
+): Effect.Effect<ResendEmailPayload[], EmailError> =>
   Effect.gen(function* () {
-    if (inputs.length === 0) return;
-    const started = Date.now();
     const from = config.fromAddress ?? "noreply@osn.local";
-
     const payloads: ResendEmailPayload[] = [];
-    // One render per distinct data object. The output depends only on the
-    // template and the data, and a caller mailing one record to several
-    // recipients (cire's gift summary, to each owner) passes the same object.
     const renderedOnce = new Map<unknown, { template: string; rendered: RenderedEmail }>();
     for (const input of inputs) {
       const hit = renderedOnce.get(input.data);
@@ -327,72 +339,203 @@ const sendBatch = (
         headers: rendered.headers,
       });
     }
+    return payloads;
+  });
 
-    const record = (index: number, outcome: "sent" | "failed" | "rate_limited") => {
-      const template = inputs[index]!.template;
-      metricEmailSendAttempt(template, outcome);
-      metricEmailSendDuration((Date.now() - started) / 1000, template, outcome);
-    };
+type BatchOutcome = "sent" | "failed" | "rate_limited";
+
+/**
+ * One POST of `chunk` to the batch endpoint, with `headers` beside the bearer.
+ * Succeeds with the response on a 2xx; fails on a network error or any other
+ * status, recording every email of the chunk as failed or rate limited and
+ * logging the refusal. `record` counts one email's outcome.
+ */
+const postChunk = (
+  config: ResendEmailConfig,
+  batchUrl: string,
+  template: SendEmailInput["template"],
+  chunk: readonly ResendEmailPayload[],
+  record: (outcome: BatchOutcome) => void,
+  headers: Readonly<Record<string, string>> = {},
+): Effect.Effect<Response, EmailError> =>
+  Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      // The signal aborts the request when a caller's timeout interrupts.
+      try: (signal) =>
+        fetch(batchUrl, {
+          method: "POST",
+          headers: {
+            ...headers,
+            "Content-Type": "application/json",
+            // Bearer secret — header only. Never logged or echoed.
+            Authorization: `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify(chunk),
+          signal,
+        }),
+      catch: (cause) => {
+        metricEmailDispatchStatus(template, "network");
+        record("failed");
+        return new EmailError({ reason: "api_unreachable", cause });
+      },
+    }).pipe(
+      Effect.withSpan("email.resend.dispatch_batch", {
+        attributes: { template, size: chunk.length },
+      }),
+      Effect.tapError(() =>
+        logDispatchFailure({ template, reason: "api_unreachable", size: chunk.length }),
+      ),
+    );
+
+    metricEmailDispatchStatus(template, classifyHttpStatus(response.status));
+    if (response.status === 429) {
+      record("rate_limited");
+      const refusal = yield* refusalOf(response);
+      yield* logDispatchFailure({
+        template,
+        reason: "rate_limited",
+        status: response.status,
+        size: chunk.length,
+        ...refusal,
+      });
+      return yield* Effect.fail(refusedAs("rate_limited", response.status, refusal));
+    }
+    if (!response.ok) {
+      record("failed");
+      const refusal = yield* refusalOf(response);
+      yield* logDispatchFailure({
+        template,
+        reason: "dispatch_failed",
+        status: response.status,
+        size: chunk.length,
+        ...refusal,
+      });
+      return yield* Effect.fail(refusedAs("dispatch_failed", response.status, refusal));
+    }
+    return response;
+  });
+
+/**
+ * Render every email, then POST them to the batch endpoint, at most
+ * {@link RESEND_BATCH_LIMIT} per call, one call after another. A render failure
+ * fails the batch before anything is sent; a failed call fails it too, though
+ * calls before it have gone — callers that must not double-send keep a batch
+ * within one call, or use {@link sendKeyedBatch}.
+ */
+const sendBatch = (
+  config: ResendEmailConfig,
+  batchUrl: string,
+  inputs: readonly SendEmailInput[],
+): Effect.Effect<void, EmailError> =>
+  Effect.gen(function* () {
+    if (inputs.length === 0) return;
+    const started = Date.now();
+    const payloads = yield* renderPayloads(config, inputs, started);
 
     for (let offset = 0; offset < payloads.length; offset += RESEND_BATCH_LIMIT) {
       const chunk = payloads.slice(offset, offset + RESEND_BATCH_LIMIT);
-      const indexes = chunk.map((_, i) => offset + i);
-      const template = inputs[offset]!.template;
-      const response = yield* Effect.tryPromise({
-        // The signal aborts the request when a caller's timeout interrupts.
-        try: (signal) =>
-          fetch(batchUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              // Bearer secret — header only. Never logged or echoed.
-              Authorization: `Bearer ${config.apiKey}`,
-            },
-            body: JSON.stringify(chunk),
-            signal,
-          }),
-        catch: (cause) => {
-          metricEmailDispatchStatus(template, "network");
-          for (const i of indexes) record(i, "failed");
-          return new EmailError({ reason: "api_unreachable", cause });
-        },
-      }).pipe(
-        Effect.withSpan("email.resend.dispatch_batch", {
-          attributes: { template, size: chunk.length },
-        }),
-        Effect.tapError(() =>
-          logDispatchFailure({ template, reason: "api_unreachable", size: chunk.length }),
-        ),
-      );
-
-      metricEmailDispatchStatus(template, classifyHttpStatus(response.status));
-      if (response.status === 429) {
-        for (const i of indexes) record(i, "rate_limited");
-        yield* logDispatchFailure({
-          template,
-          reason: "rate_limited",
-          status: response.status,
-          size: chunk.length,
-          ...(yield* refusalOf(response)),
-        });
-        return yield* Effect.fail(new EmailError({ reason: "rate_limited" }));
-      }
-      if (!response.ok) {
-        for (const i of indexes) record(i, "failed");
-        yield* logDispatchFailure({
-          template,
-          reason: "dispatch_failed",
-          status: response.status,
-          size: chunk.length,
-          ...(yield* refusalOf(response)),
-        });
-        return yield* Effect.fail(
-          new EmailError({ reason: "dispatch_failed", cause: { status: response.status } }),
-        );
-      }
-      for (const i of indexes) record(i, "sent");
+      const chunkInputs = inputs.slice(offset, offset + RESEND_BATCH_LIMIT);
+      const record = (outcome: BatchOutcome) => {
+        for (const input of chunkInputs) {
+          metricEmailSendAttempt(input.template, outcome);
+          metricEmailSendDuration((Date.now() - started) / 1000, input.template, outcome);
+        }
+      };
+      const response = yield* postChunk(config, batchUrl, inputs[offset]!.template, chunk, record);
+      void response.body?.cancel().catch(() => undefined);
+      record("sent");
     }
   }).pipe(Effect.withSpan("email.send_batch", { attributes: { size: inputs.length } }));
+
+/** The most of a keyed batch's 2xx body read for its `errors`. 100 ids are about 6 KB. */
+const MAX_ACCEPTED_BODY = 65_536;
+
+/**
+ * The indexes Resend refused on their own in a permissive batch of `size`: the
+ * distinct whole-number `errors[].index` values inside the batch. Each entry's
+ * `message` can name an address, so it is never read. A body that cannot be
+ * read or parsed lists none.
+ */
+function refusedIndexes(text: string, size: number): ReadonlySet<number> {
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return new Set();
+  }
+  const errors =
+    typeof body === "object" && body !== null ? (body as { errors?: unknown }).errors : undefined;
+  if (!Array.isArray(errors)) return new Set();
+  const refused = new Set<number>();
+  for (const entry of errors) {
+    const index =
+      typeof entry === "object" && entry !== null
+        ? (entry as { index?: unknown }).index
+        : undefined;
+    if (typeof index === "number" && Number.isInteger(index) && index >= 0 && index < size) {
+      refused.add(index);
+    }
+  }
+  return refused;
+}
+
+/** A 2xx body, bounded in size and time; "" when it cannot be read in either. */
+const acceptedBodyOf = (response: Response): Effect.Effect<string> => {
+  const body = response.body;
+  if (body === null) return Effect.succeed("");
+  if (Number(response.headers.get("content-length")) > MAX_ACCEPTED_BODY) {
+    void body.cancel().catch(() => undefined);
+    return Effect.succeed("");
+  }
+  return Effect.tryPromise((signal) => readCapped(body, signal, MAX_ACCEPTED_BODY)).pipe(
+    Effect.timeout("2 seconds"),
+    Effect.catch(() => Effect.succeed("")),
+  );
+};
+
+/**
+ * One batch of at most {@link RESEND_BATCH_LIMIT}, in ONE call, under
+ * `idempotencyKey`, in permissive validation: Resend queues the valid emails
+ * and lists the ones it refused, by index, in `errors`. Resend sends nothing
+ * twice for one key within 24 hours, so a caller that did not learn the
+ * outcome sends the same batch again under the same key. A batch over the
+ * limit would need a second call under one key, so it fails before any
+ * request.
+ */
+const sendKeyedBatch = (
+  config: ResendEmailConfig,
+  batchUrl: string,
+  inputs: readonly SendEmailInput[],
+  idempotencyKey: string,
+): Effect.Effect<KeyedBatchResult, EmailError> =>
+  Effect.gen(function* () {
+    if (inputs.length > RESEND_BATCH_LIMIT) {
+      return yield* Effect.fail(new EmailError({ reason: "dispatch_failed" }));
+    }
+    if (inputs.length === 0) return { accepted: 0, refused: 0 };
+    const started = Date.now();
+    const payloads = yield* renderPayloads(config, inputs, started);
+    const record = (outcome: BatchOutcome, which: readonly SendEmailInput[] = inputs) => {
+      for (const input of which) {
+        metricEmailSendAttempt(input.template, outcome);
+        metricEmailSendDuration((Date.now() - started) / 1000, input.template, outcome);
+      }
+    };
+    const response = yield* postChunk(config, batchUrl, inputs[0]!.template, payloads, record, {
+      "Idempotency-Key": idempotencyKey,
+      "x-batch-validation": "permissive",
+    });
+    const refused = refusedIndexes(yield* acceptedBodyOf(response), inputs.length);
+    record(
+      "failed",
+      inputs.filter((_, i) => refused.has(i)),
+    );
+    record(
+      "sent",
+      inputs.filter((_, i) => !refused.has(i)),
+    );
+    return { accepted: inputs.length - refused.size, refused: refused.size };
+  }).pipe(Effect.withSpan("email.send_keyed_batch", { attributes: { size: inputs.length } }));
 
 /**
  * The Resend transport. Throws when `config.apiUrl` is set to anything
@@ -405,6 +548,8 @@ export const makeResendEmailLive = (config: ResendEmailConfig): Layer.Layer<Emai
   const batchUrl = `${origin}/emails/batch`;
   return Layer.succeed(EmailService, {
     sendBatch: (inputs) => sendBatch(config, batchUrl, inputs),
+    sendKeyedBatch: (inputs, { idempotencyKey }) =>
+      sendKeyedBatch(config, batchUrl, inputs, idempotencyKey),
     send: (input) =>
       Effect.suspend(() => {
         // Set once Resend answers, so a send interrupted while its error body
@@ -480,28 +625,27 @@ export const makeResendEmailLive = (config: ResendEmailConfig): Layer.Layer<Emai
           if (response.status === 429) {
             metricEmailSendAttempt(input.template, "rate_limited");
             metricEmailSendDuration((Date.now() - started) / 1000, input.template, "rate_limited");
+            const refusal = yield* refusalOf(response);
             yield* logDispatchFailure({
               template: input.template,
               reason: "rate_limited",
               status: response.status,
-              ...(yield* refusalOf(response)),
+              ...refusal,
             });
-            return yield* Effect.fail(new EmailError({ reason: "rate_limited" }));
+            return yield* Effect.fail(refusedAs("rate_limited", response.status, refusal));
           }
 
           if (!response.ok) {
             metricEmailSendAttempt(input.template, "failed");
             metricEmailSendDuration((Date.now() - started) / 1000, input.template, "failed");
+            const refusal = yield* refusalOf(response);
             yield* logDispatchFailure({
               template: input.template,
               reason: "dispatch_failed",
               status: response.status,
-              ...(yield* refusalOf(response)),
+              ...refusal,
             });
-            // The error carries only the status code — never the body or the key.
-            return yield* Effect.fail(
-              new EmailError({ reason: "dispatch_failed", cause: { status: response.status } }),
-            );
+            return yield* Effect.fail(refusedAs("dispatch_failed", response.status, refusal));
           }
 
           metricEmailSendAttempt(input.template, "sent");

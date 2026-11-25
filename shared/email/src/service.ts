@@ -19,10 +19,17 @@ import type { EmailTemplate, EmailTemplateData } from "./templates";
 /**
  * Tagged error class for email dispatch failures. `reason` is the only
  * field dashboards should slice by; keep it a bounded literal union.
+ *
+ * `status` and `providerError` are set when the provider answered: its HTTP
+ * status, and its error name when that is a lower-case code (Resend's
+ * `invalid_idempotent_request`, `daily_quota_exceeded`, …). Neither ever holds
+ * an address, message text or key, so a caller may branch on them and log them.
  */
 export class EmailError extends Data.TaggedError("EmailError")<{
   readonly reason: "dispatch_failed" | "rate_limited" | "api_unreachable" | "render_failed";
   readonly cause?: unknown;
+  readonly status?: number;
+  readonly providerError?: string;
 }> {}
 
 /**
@@ -47,6 +54,24 @@ export interface EmailServiceImpl {
    * transport without it leaves the caller to loop over {@link send}.
    */
   readonly sendBatch?: (inputs: readonly SendEmailInput[]) => Effect.Effect<void, EmailError>;
+  /**
+   * Send one batch of at most 100 in ONE provider call, under `idempotencyKey`:
+   * the provider sends nothing twice for one key (Resend keeps a key 24 hours),
+   * so a caller that did not learn a call's outcome sends the same batch again
+   * under the same key. More than 100 fails before any request. Addresses the
+   * provider refuses on their own are counted in `refused` and the rest still
+   * go. Optional: only a transport with keyed batches has it.
+   */
+  readonly sendKeyedBatch?: (
+    inputs: readonly SendEmailInput[],
+    options: { readonly idempotencyKey: string },
+  ) => Effect.Effect<KeyedBatchResult, EmailError>;
+}
+
+/** What one keyed batch did: addresses the provider accepted, and those it refused on their own. */
+export interface KeyedBatchResult {
+  readonly accepted: number;
+  readonly refused: number;
 }
 
 export class EmailService extends Context.Service<EmailService, EmailServiceImpl>()(
