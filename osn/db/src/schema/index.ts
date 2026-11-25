@@ -1106,3 +1106,71 @@ export const oauthConsents = sqliteTable(
 
 export type OauthConsent = typeof oauthConsents.$inferSelect;
 export type NewOauthConsent = typeof oauthConsents.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Change-notice runs
+//
+// One row per change notice osn-api has started to send (`POST
+// /internal/change-notices/:noticeId/send`). The run walks `accounts` in id
+// order, one batch at a time, and this row is how a run that stopped half way
+// resumes without skipping anyone or mailing anyone twice: `cursor` is the
+// last account a confirmed batch covered, and the `pending_*` columns hold the
+// batch in hand under the idempotency key the mail provider dedupes on. No
+// address is stored. The finished row is kept as the record that the notice
+// went out. See [[change-notices]].
+// ---------------------------------------------------------------------------
+
+export const changeNoticeRuns = sqliteTable(
+  "change_notice_runs",
+  {
+    /** The notice's id in osn-api's change-notice registry. */
+    noticeId: text("notice_id").primaryKey(),
+    /** Unix seconds. The audience is the accounts created at or before it. */
+    startedAt: integer("started_at").notNull(),
+    /** The highest account id a confirmed batch covered. NULL before the first, and once finished. */
+    cursor: text("cursor"),
+    /** Addresses the provider accepted. */
+    sent: integer("sent").notNull().default(0),
+    /** Addresses the provider refused on their own (not deliverable). */
+    failed: integer("failed").notNull().default(0),
+    /** Unix seconds. Set once no account is left. */
+    finishedAt: integer("finished_at"),
+    /** Idempotency key of the batch in hand; NULL with every other `pending_*` when none is. */
+    pendingKey: text("pending_key"),
+    /** The highest account id in that batch. */
+    pendingLast: text("pending_last"),
+    /** Addresses in it when it was claimed. */
+    pendingCount: integer("pending_count"),
+    /** Unix seconds. When the key was made; the provider keeps a key 24 hours. */
+    pendingSince: integer("pending_since"),
+    /** Sends begun under the key. */
+    pendingAttempts: integer("pending_attempts"),
+    /** Of those, answered with a refusal that sent nothing. */
+    pendingRefused: integer("pending_refused"),
+    /** `open`, or `unconfirmed`: the outcome cannot be known, and an operator decides. */
+    pendingState: text("pending_state"),
+  },
+  () => [
+    // The batch in hand is written and cleared whole.
+    check(
+      "change_notice_runs_pending_ck",
+      sql`(pending_key IS NULL AND pending_last IS NULL AND pending_count IS NULL AND pending_since IS NULL AND pending_attempts IS NULL AND pending_refused IS NULL AND pending_state IS NULL) OR (pending_key IS NOT NULL AND pending_last IS NOT NULL AND pending_count IS NOT NULL AND pending_since IS NOT NULL AND pending_attempts IS NOT NULL AND pending_refused IS NOT NULL AND pending_state IS NOT NULL)`,
+    ),
+    check(
+      "change_notice_runs_state_ck",
+      sql`pending_state IS NULL OR pending_state IN ('open', 'unconfirmed')`,
+    ),
+    check(
+      "change_notice_runs_attempts_ck",
+      sql`pending_refused IS NULL OR (pending_refused >= 0 AND pending_refused <= pending_attempts)`,
+    ),
+    // A finished run holds no account id and no batch.
+    check(
+      "change_notice_runs_finished_ck",
+      sql`finished_at IS NULL OR (cursor IS NULL AND pending_key IS NULL)`,
+    ),
+  ],
+);
+
+export type ChangeNoticeRun = typeof changeNoticeRuns.$inferSelect;
+export type NewChangeNoticeRun = typeof changeNoticeRuns.$inferInsert;
