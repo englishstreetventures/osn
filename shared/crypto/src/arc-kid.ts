@@ -31,8 +31,9 @@
  * itself: the service secret is the bearer of the service-key registration
  * routes, and a published MAC keyed with it would be a MAC under that bearer.
  * The two `info` values differ, so a MAC under one secret never passes for
- * the other, even were one value set as both. Minting and checking both
- * derive the keys here, so osn-api and every app agree on them.
+ * the other. A kid secret set to the service secret's value is ignored
+ * ({@link usableKeys}). Minting and checking both derive the keys here, so
+ * osn-api and every app agree on them.
  *
  * Every published kid still lets anyone test a guess at a secret offline:
  * derive, MAC, compare. HKDF is fast and adds no entropy, so the derivation
@@ -136,12 +137,17 @@ async function macOf(
   return base64url(signature).slice(0, MAC_LENGTH);
 }
 
-/** The MAC keys `secrets` can key, the kid secret's first, each as `[secret, info]`. */
+/**
+ * The MAC keys `secrets` can key, the kid secret's first, each as
+ * `[secret, info]`. A kid secret equal to the service secret is never used:
+ * the kid secret is handed to Workers that must not hold the service secret,
+ * so it must be generated on its own.
+ */
 function usableKeys(secrets: ArcKidSecrets): (readonly [string, string])[] {
   const keys: (readonly [string, string])[] = [];
   const kidSecret = arcKidMacSecret(secrets.kidSecret);
-  if (kidSecret) keys.push([kidSecret, KID_SECRET_INFO]);
   const serviceSecret = arcKidMacSecret(secrets.serviceSecret);
+  if (kidSecret && kidSecret !== serviceSecret) keys.push([kidSecret, KID_SECRET_INFO]);
   if (serviceSecret) keys.push([serviceSecret, SERVICE_SECRET_INFO]);
   return keys;
 }
@@ -196,12 +202,15 @@ export async function checkArcKid(
   const [uuid, expiry, ...macs] = parts as [string, string, ...string[]];
   if (!/^\d{1,12}$/.test(expiry) || Number(expiry) <= nowSec) return null;
   if (macs.some((mac) => mac.length !== MAC_LENGTH)) return null;
-  const expected = await Promise.all(
-    keys.map(([secret, info]) => macOf(secret, info, uuid, expiry)),
-  );
-  if (!expected.some((mac) => macs.some((part) => timingSafeEqualString(part, mac)))) {
-    return null;
-  }
+  // Under each key in turn, the kid secret's first, as osn-api writes its MACs:
+  // the first that verifies decides, and the next is not computed.
+  const verifiesFrom = async (index: number): Promise<boolean> => {
+    const key = keys[index];
+    if (!key) return false;
+    const expected = await macOf(key[0], key[1], uuid, expiry);
+    return macs.some((part) => timingSafeEqualString(part, expected)) || verifiesFrom(index + 1);
+  };
+  if (!(await verifiesFrom(0))) return null;
   const id = `${uuid}.${expiry}`;
   return {
     id,

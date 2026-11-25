@@ -363,7 +363,9 @@ keys one of its MACs offline: derive the key, compute the MAC, compare. HKDF
 is fast and adds no entropy, so it does not slow that search. Only each
 secret's own randomness stops it: generate each (`openssl rand -base64 32`),
 never choose it, and generate the kid secret on its own, never as a copy of
-the service secret. A secret shorter than 32 characters never keys a MAC, on
+the service secret: every Worker ignores a kid secret equal to the service
+secret, osn-api logs `osn.arc OSN_ARC_KID_SECRET equals INTERNAL_SERVICE_SECRET;
+key ids carry no MAC under it`, and a dev deploy refuses the pair. A secret shorter than 32 characters never keys a MAC, on
 either side: osn-api mints the kid without it and logs `osn.arc outbound key
 id carries no MAC under a secret too short to key one` once per key, naming
 the secret; Pulse and Zap treat it as unset; cire-api treats it as unset and

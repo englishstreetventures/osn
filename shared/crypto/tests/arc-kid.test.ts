@@ -164,7 +164,7 @@ describe("the rollout: osn-api and each app holding the kid secret, the service 
     expect(await passes(kid, BOTH, NOW)).toBe(true);
   });
 
-  it("one value set as both secrets still gives two MACs, neither passing for the other", async () => {
+  it("a MAC under one value as one secret never passes for the other secret", async () => {
     const value = "one-value-set-as-both-secrets-32-chars";
     const asService = await mintArcKid({ kidSecret: undefined, serviceSecret: value }, NOW + 60);
     expect(await passes(asService, { kidSecret: value, serviceSecret: undefined }, NOW)).toBe(
@@ -172,10 +172,17 @@ describe("the rollout: osn-api and each app holding the kid secret, the service 
     );
     const asKid = await mintArcKid({ kidSecret: value, serviceSecret: undefined }, NOW + 60);
     expect(await passes(asKid, { kidSecret: undefined, serviceSecret: value }, NOW)).toBe(false);
-    const [, , first, second] = (
-      await mintArcKid({ kidSecret: value, serviceSecret: value }, NOW + 60)
-    ).split(".");
-    expect(first).not.toBe(second);
+  });
+
+  it("a kid secret equal to the service secret is never used, on either side", async () => {
+    const value = "one-value-set-as-both-secrets-32-chars";
+    const same = { kidSecret: value, serviceSecret: value };
+    const kid = await mintArcKid(same, NOW + 60);
+    expect(kid.split(".")).toHaveLength(3);
+    expect(await passes(kid, { kidSecret: undefined, serviceSecret: value }, NOW)).toBe(true);
+    expect(await passes(kid, { kidSecret: value, serviceSecret: undefined }, NOW)).toBe(false);
+    const underKid = await mintArcKid({ kidSecret: value, serviceSecret: undefined }, NOW + 60);
+    expect(await passes(underKid, same, NOW)).toBe(false);
   });
 });
 

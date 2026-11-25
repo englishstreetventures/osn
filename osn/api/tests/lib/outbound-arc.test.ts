@@ -220,6 +220,26 @@ describe("outbound ARC key", () => {
     },
   );
 
+  it.effect(
+    "with the kid secret equal to the service secret, mints no MAC under it and warns, never with the value",
+    () => {
+      const lines: { level: string; message: unknown }[] = [];
+      const log = Logger.layer([
+        Logger.map(Logger.formatStructured, (line) => void lines.push(line)),
+      ]);
+      const value = "one-value-set-as-both-secrets-32-chars";
+      return Effect.gen(function* () {
+        const key = yield* publishOutboundKey({ kidSecret: value, serviceSecret: value });
+        expect(key.keyId.split(".")).toHaveLength(3);
+        const warnings = lines.filter((line) =>
+          JSON.stringify(line.message).includes("equals INTERNAL_SERVICE_SECRET"),
+        );
+        expect(warnings).toHaveLength(1);
+        expect(JSON.stringify(lines)).not.toContain(value);
+      }).pipe(Effect.provide(createTestLayer()), Effect.provide(log));
+    },
+  );
+
   for (const [label, config, parts, warned] of [
     ["both unset", { kidSecret: undefined, serviceSecret: undefined }, 2, []],
     ["both long enough", { kidSecret: "k".repeat(32), serviceSecret: "s".repeat(32) }, 4, []],

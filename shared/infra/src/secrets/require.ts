@@ -44,6 +44,19 @@ const AT_LEAST_32: ValueRule = {
   fits: (value) => value.length >= 32,
 };
 
+/**
+ * Pairs of secrets a Worker holding both must hold with different values, by
+ * tier: `OSN_ARC_KID_SECRET` goes to cire-api, which must never hold
+ * `INTERNAL_SERVICE_SECRET`, the bearer of service-key registration, so it
+ * must be generated on its own. Production reads no value, so it checks none;
+ * every Worker ignores a kid secret equal to the service secret
+ * (`@shared/crypto/arc-kid`).
+ */
+const TIER_DISTINCT_PAIRS = {
+  dev: [["OSN_ARC_KID_SECRET", "INTERNAL_SERVICE_SECRET"]],
+  production: [],
+} as const satisfies Record<Tier, readonly (readonly [string, string])[]>;
+
 const TIER_VALUE_RULES = {
   dev: new Map<string, ValueRule>([
     [
@@ -104,8 +117,20 @@ export function requireSecrets(input: {
   };
   for (const name of row.secrets) read(name, true);
   for (const name of row.optional) read(name, false);
+  const mustDiffer = new Map<string, string>();
+  for (const [name, other] of TIER_DISTINCT_PAIRS[tier]) {
+    const value = input.env[name];
+    if (value !== undefined && value !== "" && value === input.env[other]) {
+      if (present.some(([held]) => held === name) && present.some(([held]) => held === other)) {
+        breaksRule.push(name);
+        mustDiffer.set(name, `different from ${other}`);
+      }
+    }
+  }
   if (missing.length > 0 || malformed.length > 0 || breaksRule.length > 0) {
-    const broken = breaksRule.map((name) => `${name} (must be ${rules.get(name)?.rule})`);
+    const broken = breaksRule.map(
+      (name) => `${name} (must be ${mustDiffer.get(name) ?? rules.get(name)?.rule})`,
+    );
     const parts = [
       missing.length > 0 ? `unset or blank: ${missing.join(", ")}` : "",
       malformed.length > 0 ? `leading or trailing whitespace: ${malformed.join(", ")}` : "",

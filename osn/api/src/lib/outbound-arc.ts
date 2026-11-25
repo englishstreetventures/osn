@@ -242,6 +242,16 @@ const publishState = (
           { secret },
         );
       }
+      if (
+        arcKidMacSecret(config.kidSecret) !== undefined &&
+        config.kidSecret === config.serviceSecret
+      ) {
+        // The kid secret goes to cire-api, which must never hold the service
+        // secret; @shared/crypto/arc-kid ignores a kid secret equal to it.
+        yield* Effect.logWarning(
+          "osn.arc OSN_ARC_KID_SECRET equals INTERNAL_SERVICE_SECRET; key ids carry no MAC under it",
+        );
+      }
     }
     const pending = publishing;
     return yield* Effect.tryPromise({
