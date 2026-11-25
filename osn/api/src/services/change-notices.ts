@@ -104,12 +104,21 @@ export interface ChangeNoticeBatchRequest {
 const query = <A>(run: () => Promise<A>): Effect.Effect<A, ChangeNoticeDbError> =>
   Effect.tryPromise({ try: run, catch: (cause) => new ChangeNoticeDbError({ cause }) });
 
-/** The run's accounts: created at or before it started, and not restricted. */
+/**
+ * How long before the run started an account must have been created to be in
+ * its audience. A sign-up takes its `created_at` before it commits, so without
+ * a margin an account could commit after a batch was claimed and fall inside
+ * it. An account created in that minute signed up under the page already live.
+ */
+export const CHANGE_NOTICE_AUDIENCE_MARGIN_SECONDS = 60;
+
+/** The latest `created_at` in the audience of a run that started at `startedAt`, as a Date. */
+const audienceCutoff = (startedAt: number) =>
+  new Date((startedAt - CHANGE_NOTICE_AUDIENCE_MARGIN_SECONDS) * 1_000);
+
+/** The run's accounts: created a minute or more before it started, and not restricted. */
 const inAudience = (startedAt: number) =>
-  and(
-    lte(accounts.createdAt, new Date(startedAt * 1_000)),
-    isNull(accounts.processingRestrictedAt),
-  );
+  and(lte(accounts.createdAt, audienceCutoff(startedAt)), isNull(accounts.processingRestrictedAt));
 
 const after = (cursor: string | null) => (cursor === null ? undefined : gt(accounts.id, cursor));
 
@@ -153,7 +162,7 @@ export const changeNoticeCounts = (
             ),
         })
         .from(accounts)
-        .where(lte(accounts.createdAt, new Date(startedAt * 1_000))),
+        .where(lte(accounts.createdAt, audienceCutoff(startedAt))),
     );
     const stale =
       row?.pendingKey != null &&
@@ -259,6 +268,9 @@ export const sendChangeNoticeBatch = (
     let last: string;
     let count: number;
     let recipients: ReadonlyArray<{ readonly id: string; readonly email: string }>;
+    // This call sends an unconfirmed batch again under a new key, as the
+    // operator asked: it takes the batch's range as it now stands.
+    let resending = false;
 
     const inHand = row.pendingKey;
     if (inHand !== null) {
@@ -272,12 +284,15 @@ export const sendChangeNoticeBatch = (
         // Marked only when the operator has not asked to send it again: a
         // re-key below overwrites the mark in the same call.
         if (row.pendingState !== "unconfirmed" && !request.resendUnconfirmed) {
-          yield* query(() =>
+          const marked = yield* query(() =>
             db
               .update(changeNoticeRuns)
               .set({ pendingState: "unconfirmed" })
-              .where(and(ofNotice, eq(changeNoticeRuns.pendingKey, inHand))),
+              .where(and(ofNotice, eq(changeNoticeRuns.pendingKey, inHand)))
+              .returning({ noticeId: changeNoticeRuns.noticeId }),
           );
+          // Another call moved the batch on: nothing is left to confirm.
+          if (marked.length === 0) return { kind: "busy" } as const;
         }
         if (!request.resendUnconfirmed) {
           metricChangeNoticeBatch("unconfirmed");
@@ -301,6 +316,7 @@ export const sendChangeNoticeBatch = (
             .returning({ noticeId: changeNoticeRuns.noticeId }),
         );
         if (rekeyed.length === 0) return { kind: "busy" } as const;
+        resending = true;
         yield* Effect.logWarning("change notice batch sent again under a new key").pipe(
           Effect.annotateLogs({ notice_id: noticeId, count }),
         );
@@ -324,17 +340,34 @@ export const sendChangeNoticeBatch = (
       }
       last = row.pendingLast ?? "";
       const pendingLast = last;
-      // The batch as claimed, less any account erased or restricted since. No
-      // account can join it: one created since is newer than the run, and
-      // nothing lifts a restriction. Bounded by the provider's batch.
+      // The batch as claimed, less any account erased or restricted since.
+      // No account should join it (the audience margin above); one more row
+      // than the batch held means one did, and the route cannot tell which
+      // address was in the batch the provider may have taken, so it will not
+      // guess.
       recipients = yield* query(() =>
         db
           .select({ id: accounts.id, email: accounts.email })
           .from(accounts)
           .where(and(after(row.cursor), lte(accounts.id, pendingLast), inAudience(row.startedAt)))
           .orderBy(asc(accounts.id))
-          .limit(CHANGE_NOTICE_BATCH_LIMIT),
+          .limit(resending ? CHANGE_NOTICE_BATCH_LIMIT : count + 1),
       );
+      if (!resending && recipients.length > count) {
+        const marked = yield* query(() =>
+          db
+            .update(changeNoticeRuns)
+            .set({ pendingState: "unconfirmed" })
+            .where(and(ofNotice, eq(changeNoticeRuns.pendingKey, key)))
+            .returning({ noticeId: changeNoticeRuns.noticeId }),
+        );
+        if (marked.length === 0) return { kind: "busy" } as const;
+        metricChangeNoticeBatch("unconfirmed");
+        yield* Effect.logWarning("change notice batch unconfirmed").pipe(
+          Effect.annotateLogs({ notice_id: noticeId, result: "grew", count }),
+        );
+        return { kind: "unconfirmed", count } as const;
+      }
     } else {
       recipients = yield* query(() =>
         db
@@ -441,11 +474,12 @@ export const sendChangeNoticeBatch = (
 
     if (answer.kind === "accepted") {
       const moved = yield* advance(answer.accepted, answer.refused);
+      const counts = moved[0];
+      // Another call moved the run past this batch first, or the key was
+      // replaced: nothing is counted twice.
+      if (counts === undefined) return { kind: "busy" } as const;
       metricChangeNoticeBatch("sent");
       metricChangeNoticeEmails(answer.accepted, answer.refused);
-      const counts = moved[0];
-      // Another call moved the run past this batch first: nothing is counted twice.
-      if (counts === undefined) return { kind: "busy" } as const;
       yield* Effect.logInfo("change notice batch sent").pipe(
         Effect.annotateLogs({
           notice_id: noticeId,
@@ -473,13 +507,16 @@ export const sendChangeNoticeBatch = (
     );
 
     if (answer.kind === "unconfirmed") {
-      yield* query(() =>
+      const marked = yield* query(() =>
         db
           .update(changeNoticeRuns)
           .set({ pendingState: "unconfirmed" })
-          .where(and(ofNotice, eq(changeNoticeRuns.pendingKey, key))),
+          .where(and(ofNotice, eq(changeNoticeRuns.pendingKey, key)))
+          .returning({ noticeId: changeNoticeRuns.noticeId }),
       );
-      return { kind: "unconfirmed", count } as const;
+      return marked.length === 0
+        ? ({ kind: "busy" } as const)
+        : ({ kind: "unconfirmed", count } as const);
     }
     if (answer.kind === "rate_limited" || answer.kind === "refused") {
       // Counted refused, in one statement that also drops the batch when

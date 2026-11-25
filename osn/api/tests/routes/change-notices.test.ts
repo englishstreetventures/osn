@@ -87,10 +87,10 @@ function setup(
   /** An account, created a day before the run starts unless `createdAt` says otherwise. */
   function account(
     address: string,
-    extra: { deletedAt?: number; restrictedAt?: number; createdAt?: number } = {},
+    extra: { deletedAt?: number; restrictedAt?: number; createdAt?: number; id?: string } = {},
   ): string {
     created += 1;
-    const id = `acc_${String(created).padStart(4, "0")}`;
+    const id = extra.id ?? `acc_${String(created).padStart(4, "0")}`;
     sqlite.run(
       `INSERT INTO accounts (id, email, passkey_user_id, max_profiles, created_at, updated_at, deleted_at, processing_restricted_at)
        VALUES (?, ?, ?, 5, ?, ?, ?, ?)`,
@@ -550,6 +550,33 @@ describe("what moves a run without a send, and what never does", () => {
       true,
     );
     expectRedacted(h, [ada, "ada@example.test", SECRET], [failed]);
+  });
+});
+
+describe("the audience's edge", () => {
+  it("leaves out an account created in the minute before the run started", async () => {
+    const h = setup();
+    h.account("ada@example.test");
+    h.account("late@example.test", { createdAt: T0 - 30 });
+    expect((await h.send({ dryRun: true })).body).toMatchObject({ toSend: 1 });
+    await h.sendAll();
+    expect(recipients(h)).toEqual(["ada@example.test"]);
+  });
+
+  it("will not guess when an account joins a batch in hand: it hands the batch to the operator", async () => {
+    const h = setup();
+    h.account("ada@example.test", { id: "acc_a" });
+    h.account("cy@example.test", { id: "acc_c" });
+    h.resend.script.push("503");
+    expect((await h.send({ dryRun: false, limit: 2 })).status).toBe(503);
+    // A sign-up that took its time before it committed, inside the batch's range.
+    h.account("bea@example.test", { id: "acc_b", createdAt: T0 - 3_600 });
+    const grown = await h.send({ dryRun: false, limit: 2 });
+    expect(grown).toEqual({ status: 409, body: { error: "unconfirmed_batch", unconfirmed: 2 } });
+    expect(h.resend.calls).toHaveLength(1);
+    const resent = await h.send({ dryRun: false, limit: 3, resendUnconfirmed: true });
+    expect(resent.body).toMatchObject({ sent: 3 });
+    expect(recipients(h)).toEqual(["ada@example.test", "bea@example.test", "cy@example.test"]);
   });
 });
 

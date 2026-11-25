@@ -42,8 +42,8 @@ those rules ask for: keep it to the notice.
 
 ## Who gets it
 
-Every account created at or before the run started, except those under a
-processing restriction:
+Every account created a minute or more before the run started, except those
+under a processing restriction:
 
 | Account | Mailed? | Why |
 |---|---|---|
@@ -51,7 +51,7 @@ processing restriction:
 | Inside its 7-day deletion window (`accounts.deleted_at` set) | Yes, once | It can still restore |
 | Under a processing restriction (`accounts.processing_restricted_at` set) | No; counted `skipped` | Art. 18(2) allows little beyond storage. Nothing sets the column today |
 | Erased | Never | Its row is gone; one erased during a run, before its batch, is never mailed |
-| Created after the run started | No | It signed up under the page already live: release the page change before the run |
+| Created less than a minute before the run started, or after | No | It signed up under the page already live: release the page change before the run. The minute keeps a sign-up that took its time before it committed out of a batch already claimed |
 | An address that hard-bounced or complained before | Accepted, never delivered | osn keeps no bounce record. Resend puts such an address on its team-wide suppression list and drops later sends to it; the run counts it sent |
 | An address Resend refuses on its own | No; counted `failed` | The batch goes in permissive validation, so Resend refuses that one address and sends the rest |
 
@@ -79,7 +79,8 @@ how many were refused. Resend sends nothing twice under one key for 24 hours.
 - What the route cannot know it will not guess: Resend answering 409
   `invalid_idempotent_request` (the key carried another payload — an address
   changed, an account was erased, or a release changed the wording since an
-  unconfirmed send), or a key older than 23 hours with a send not refused. The
+  unconfirmed send), a key older than 23 hours with a send not refused, or a
+  batch that holds more accounts when retried than when it was claimed. The
   batch becomes `unconfirmed`, and the route answers 409 `unconfirmed_batch`
   with its count until the operator dispatches with `resend_unconfirmed`, which
   sends it again under a new key. Some in it may then get the notice twice.

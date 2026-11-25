@@ -65,6 +65,14 @@ afterAll(async () => {
   await mf?.dispose();
 });
 
+/** Waits until `condition` holds, a millisecond at a time. */
+async function until(condition: () => boolean): Promise<void> {
+  for (let i = 0; i < 500 && !condition(); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  expect(condition()).toBe(true);
+}
+
 /** A fresh notice id and its own accounts, so the cases share one database. */
 async function fixture(addresses: readonly string[]) {
   notice += 1;
@@ -102,7 +110,20 @@ async function fixture(addresses: readonly string[]) {
     (await db.select().from(changeNoticeRuns).where(eq(changeNoticeRuns.noticeId, noticeId)))[0];
   const counts = () =>
     Effect.runPromise(changeNoticeCounts(noticeId, T0).pipe(Effect.provide(layer)));
-  return { noticeId, resend, call, row, counts };
+  const readdress = (i: number, email: string) =>
+    db
+      .update(accounts)
+      .set({ email })
+      .where(eq(accounts.id, `acc_${notice}_${i}`));
+  return { noticeId, resend, call, row, counts, readdress };
+}
+
+/** Makes the first batch unconfirmed: its send went, its answer was lost, and an address changed. */
+async function unconfirmedBatch(f: Awaited<ReturnType<typeof fixture>>) {
+  f.resend.script.push("accept-then-503");
+  expect(await f.call()).toEqual({ kind: "unknown" });
+  await f.readdress(0, `moved-${notice}@example.test`);
+  expect(await f.call()).toEqual({ kind: "unconfirmed", count: 1 });
 }
 
 describe("change-notice run on D1", () => {
@@ -165,5 +186,70 @@ describe("change-notice run on D1", () => {
     // A never reached the provider.
     expect(f.resend.calls).toHaveLength(2);
     expect(f.resend.delivered).toHaveLength(1);
+  });
+
+  it("lets only one of two calls that read the same cursor claim a batch", async () => {
+    const f = await fixture(["a@example.test"]);
+    const claim = hold(/^update "change_notice_runs" set "pending_key"/);
+    const a = f.call();
+    await claim.reached;
+    expect(await f.call()).toMatchObject({ kind: "sent", sent: 1 });
+    claim.release();
+    expect(await a).toEqual({ kind: "busy" });
+    expect(f.resend.delivered).toHaveLength(1);
+    expect(f.resend.calls).toHaveLength(1);
+  });
+
+  it("moves past a batch once when two calls both hold its provider's answer", async () => {
+    const f = await fixture(["a@example.test"]);
+    const advance = hold(/^update "change_notice_runs" set "cursor"/);
+    const a = f.call();
+    await advance.reached;
+    // B retries the same key; the provider answers what it stored.
+    expect(await f.call()).toMatchObject({ kind: "sent", sentSoFar: 1 });
+    advance.release();
+    expect(await a).toEqual({ kind: "busy" });
+    expect(await f.row()).toMatchObject({ sent: 1, cursor: "acc_" + notice + "_0" });
+    expect(f.resend.delivered).toHaveLength(1);
+  });
+
+  it("re-keys an unconfirmed batch once when two calls are told to send it again", async () => {
+    const f = await fixture(["a@example.test"]);
+    await unconfirmedBatch(f);
+    const rekey = hold(/^update "change_notice_runs" set "pending_key"/);
+    const a = f.call({ resendUnconfirmed: true });
+    await rekey.reached;
+    expect(await f.call({ resendUnconfirmed: true })).toMatchObject({ kind: "sent", sent: 1 });
+    rekey.release();
+    expect(await a).toEqual({ kind: "busy" });
+    // The first send and the one resend, never a third.
+    expect(f.resend.delivered).toHaveLength(2);
+  });
+
+  it("answers busy, not unconfirmed, when another call has moved the batch on", async () => {
+    const f = await fixture(["a@example.test"]);
+    f.resend.script.push("accept-then-503");
+    expect(await f.call()).toEqual({ kind: "unknown" });
+    await f.readdress(0, `moved-${notice}@example.test`);
+    const mark = hold(/^update "change_notice_runs" set "pending_state"/);
+    const a = f.call();
+    await mark.reached;
+    // B marks it and C sends it again under a new key, as the operator asked.
+    expect(await f.call()).toEqual({ kind: "unconfirmed", count: 1 });
+    expect(await f.call({ resendUnconfirmed: true })).toMatchObject({ kind: "sent" });
+    mark.release();
+    expect(await a).toEqual({ kind: "busy" });
+  });
+
+  it("finishes a run once, keeping the first finish time", async () => {
+    // No account at all: both calls read a run with no cursor and no batch.
+    const f = await fixture([]);
+    const finish = hold(/^update "change_notice_runs" set "cursor" = \?, "finished_at"/);
+    const a = f.call({ now: T0 + 50 });
+    await finish.reached;
+    expect(await f.call({ now: T0 + 10 })).toMatchObject({ kind: "finished" });
+    finish.release();
+    expect(await a).toEqual({ kind: "busy" });
+    expect(await f.row()).toMatchObject({ finishedAt: T0 + 10 });
   });
 });

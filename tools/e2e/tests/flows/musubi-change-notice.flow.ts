@@ -36,12 +36,13 @@ import {
 import {
   CHANGE_NOTICE_SECRET,
   CHANGE_NOTICES_FILE,
+  CLOCK_T0,
   DB_FILES,
   ORIGINS,
   SCREENSHOT_DIR,
 } from "../../src/config";
 import type { CapturedMail } from "../../src/mail";
-import { queryOne, refuseNextMailTo, refusedMailCount, test } from "../support/fixtures";
+import { queryOne, refuseNextMailTo, refusedMailCount, test, writeRow } from "../support/fixtures";
 
 const NOTICE_ID = "e2e-privacy";
 const SUBJECT = "Changes to the Musubi privacy notice";
@@ -52,17 +53,53 @@ interface Answer {
   readonly body: Readonly<Record<string, unknown>>;
 }
 
-/** The accounts a run that started at `startedAt` covers, by address, one per line. */
-const audience = (startedAt: number): string[] =>
+/** osn-api's audience margin: an account created less than this before the run is left out. */
+const MARGIN_SECONDS = 60;
+
+/** The addresses of the accounts created at or before `cutoff` and not restricted, sorted. */
+const audience = (cutoff: number): string[] =>
   (
     queryOne<{ emails: string | null }>(
       DB_FILES.osn,
       "SELECT group_concat(email, char(10)) AS emails FROM (SELECT email FROM accounts WHERE created_at <= ? AND processing_restricted_at IS NULL ORDER BY email)",
-      startedAt,
+      cutoff,
     )?.emails ?? ""
   )
     .split("\n")
     .filter((email) => email !== "");
+
+/**
+ * The flow's own accounts, a day older than the suite clock, so they are in
+ * the audience however soon after the launch the flow runs: two active, one
+ * inside its deletion window, one under a processing restriction.
+ */
+const DAY_BEFORE = Math.floor(CLOCK_T0 / 1_000) - 86_400;
+const OWN = [
+  {
+    id: "acc_e2e_notice_active",
+    email: "notice-active@e2e.test",
+    deletedAt: null,
+    restrictedAt: null,
+  },
+  {
+    id: "acc_e2e_notice_refused",
+    email: "notice-refused@e2e.test",
+    deletedAt: null,
+    restrictedAt: null,
+  },
+  {
+    id: "acc_e2e_notice_deleting",
+    email: "notice-deleting@e2e.test",
+    deletedAt: DAY_BEFORE,
+    restrictedAt: null,
+  },
+  {
+    id: "acc_e2e_notice_restricted",
+    email: "notice-restricted@e2e.test",
+    deletedAt: null,
+    restrictedAt: DAY_BEFORE,
+  },
+] as const;
 
 test("musubi-change-notice", async ({ page, flow }) => {
   const registry: unknown = JSON.parse(readFileSync(CHANGE_NOTICES_FILE, "utf8"));
@@ -86,21 +123,30 @@ test("musubi-change-notice", async ({ page, flow }) => {
   );
   flow.check("without the bearer: 401", 401, refusedWithout.status);
 
+  await flow.step("the flow's own accounts", async () => {
+    for (const own of OWN) {
+      // `writeRow` binds strings and numbers, so no date is -1, read as NULL.
+      writeRow(
+        DB_FILES.osn,
+        "INSERT INTO accounts (id, email, passkey_user_id, max_profiles, created_at, updated_at, deleted_at, processing_restricted_at) VALUES (?, ?, ?, 5, ?, ?, NULLIF(?, -1), NULLIF(?, -1))",
+        own.id,
+        own.email,
+        `pk-${own.id}`,
+        DAY_BEFORE,
+        DAY_BEFORE,
+        own.deletedAt ?? -1,
+        own.restrictedAt ?? -1,
+      );
+    }
+  });
+
   const dry = await flow.step("a dry run counts, and sends nothing", () => send({ dryRun: true }));
   flow.check("dry run: 200", 200, dry.status);
-  // Every account the database holds was made on osn-api's clock, so before
-  // the dry run's now: the whole table, restricted ones aside.
-  const everyone = audience(2 ** 31);
-  flow.check(
-    "dry run: counts every account the database holds",
-    true,
-    dry.body.toSend === everyone.length,
-  );
   flow.check("dry run: nothing was started", true, dry.body.sentSoFar === 0);
+  flow.check("dry run: skips the restricted account", true, Number(dry.body.skipped) >= 1);
 
   // One address Resend will refuse on its own, as it refuses an invalid one.
-  const first = everyone[0] ?? "";
-  flow.check("the database holds an account to arm", true, first !== "");
+  const first = "notice-refused@e2e.test";
   await refuseNextMailTo(first);
 
   const answers = await flow.step("calls of two addresses until the run finishes", async () => {
@@ -133,7 +179,16 @@ test("musubi-change-notice", async ({ page, flow }) => {
     NOTICE_ID,
   );
   flow.check("the run's row exists", true, run !== undefined);
-  const covered = audience(run?.started_at ?? 0);
+  const startedAt = run?.started_at ?? 0;
+  const covered = audience(startedAt - MARGIN_SECONDS);
+  // The dry run counted a second or so before the run started: within the
+  // accounts made in the seconds either side of the margin.
+  flow.check(
+    "dry run: counted the run's audience",
+    true,
+    Number(dry.body.toSend) >= audience(startedAt - MARGIN_SECONDS - 5).length &&
+      Number(dry.body.toSend) <= audience(startedAt - MARGIN_SECONDS + 5).length,
+  );
   const mail = (await (await fetch(`${ORIGINS.mail}/__e2e/mail/all`)).json()) as CapturedMail[];
   const notices = mail.filter((message) => message.subject === SUBJECT);
   const recipients = notices.flatMap((message) => message.to).toSorted();
@@ -145,6 +200,17 @@ test("musubi-change-notice", async ({ page, flow }) => {
     JSON.stringify(recipients) === JSON.stringify(expected),
   );
   flow.check("the refused address got none", true, !recipients.includes(first));
+  flow.check(
+    "the account in its deletion window got it",
+    true,
+    recipients.includes("notice-deleting@e2e.test"),
+  );
+  flow.check(
+    "the restricted account got none",
+    true,
+    !recipients.includes("notice-restricted@e2e.test"),
+  );
+  flow.check("the active account got it", true, recipients.includes("notice-active@e2e.test"));
   flow.check("the stand-in refused it once", 1, await refusedMailCount(first));
   flow.check("the run counted it failed", true, run?.failed === 1);
   flow.check("the run counted the rest sent", true, run?.sent === expected.length);

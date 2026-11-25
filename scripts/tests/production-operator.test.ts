@@ -1234,13 +1234,15 @@ describe("check-notice and send-change-notice", () => {
     }
   });
 
-  test("N4: check-notice warns when the notice takes effect in under 30 days, or has", async () => {
-    for (const day of ["2026-11-01", "2026-12-01"]) {
-      const late = { [NOTICE_ID]: { ...REGISTRY[NOTICE_ID], takesEffect: day } };
-      const h = harness({ env: inputs, show: at(late) });
-      expect(await run(["check-notice"], h.deps)).toBe(0);
-      expect(h.text()).toContain("::warning::");
-    }
+  test("N4: check-notice warns when the notice takes effect in under 30 days, and refuses one already in effect", async () => {
+    const soon = { [NOTICE_ID]: { ...REGISTRY[NOTICE_ID], takesEffect: "2026-12-01" } };
+    const warned = harness({ env: inputs, show: at(soon) });
+    expect(await run(["check-notice"], warned.deps)).toBe(0);
+    expect(warned.text()).toContain("::warning::");
+    const past = { [NOTICE_ID]: { ...REGISTRY[NOTICE_ID], takesEffect: "2026-11-01" } };
+    const refused = harness({ env: inputs, show: at(past) });
+    expect(await run(["check-notice"], refused.deps)).toBe(1);
+    expect(refused.files.get("/github/output")).toBeUndefined();
   });
 
   test("N5: send refuses before any request when production moved off the commit or the words the approver saw", async () => {
@@ -1326,6 +1328,16 @@ describe("check-notice and send-change-notice", () => {
     expect(bodies(h).map((b) => b.resendUnconfirmed)).toEqual([true, undefined]);
     expect(h.text()).toContain("resend_unconfirmed");
     expect(h.text()).toContain("100");
+  });
+
+  test("N9b: resend_unconfirmed is not sent again on the retry of a first call whose answer was lost", async () => {
+    const h = harness({
+      env: { ...sendEnv, RESEND_UNCONFIRMED: "true" },
+      show: at(REGISTRY),
+      routes: { [SEND]: [json(503, { error: "unknown_outcome" }), sent(1, 1), finished(1)] },
+    });
+    expect(await run(["send-change-notice"], h.deps)).toBe(0);
+    expect(bodies(h).map((b) => b.resendUnconfirmed)).toEqual([true, undefined, undefined]);
   });
 
   test("N10: a 429 waits 30, 60 and 120 seconds, then stops with the resume hint", async () => {

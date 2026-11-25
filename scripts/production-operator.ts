@@ -837,10 +837,18 @@ async function checkNotice(deps: Deps): Promise<void> {
       ? "Approving counts the accounts it would reach, and sends nothing."
       : `Approving sends it to at most ${inputs.maxSends} accounts this run${inputs.resendUnconfirmed ? ", first sending again a batch whose outcome osn-api could not confirm: some in it may get the notice twice" : ""}.`,
   ];
+  const ahead = takesEffectSeconds(notice) - deps.now();
+  // The email says the changes "take effect on" the day: a day already past
+  // needs a notice of its own, in words that hold.
+  if (ahead <= 0) {
+    throw new Refusal(
+      `${inputs.noticeId} took effect on ${notice.takesEffect}: its email would announce a change already made. Add a notice with words and a day that hold, and send that.`,
+    );
+  }
   for (const line of lines) deps.out(line);
-  if (takesEffectSeconds(notice) - deps.now() < NOTICE_LATE_SECONDS) {
+  if (ahead < NOTICE_LATE_SECONDS) {
     deps.out(
-      `::warning::${inputs.noticeId} takes effect on ${notice.takesEffect}, under 30 days from now or already past.`,
+      `::warning::${inputs.noticeId} takes effect on ${notice.takesEffect}, under 30 days from now.`,
     );
   }
   const output = deps.env.GITHUB_OUTPUT ?? "";
@@ -1069,6 +1077,9 @@ async function sendChangeNotice(deps: Deps): Promise<void> {
     if (first && inputs.resendUnconfirmed) body.resendUnconfirmed = true;
     // oxlint-disable-next-line no-await-in-loop -- each call resumes where the last stopped
     const answer = await noticeCall(deps, bearer, path, body);
+    // Whatever it answered: a retry of a lost answer must not carry the flag
+    // to a batch the approver was never told of.
+    first = false;
     const unknown =
       "failed" in answer || answer.error === "unknown_outcome" || answer.error === "busy";
     if (unknown) {
@@ -1104,7 +1115,6 @@ async function sendChangeNotice(deps: Deps): Promise<void> {
           : noticeRefusal(answer),
       );
     }
-    first = false;
     rateTries = 0;
     retryTries = 0;
     const c = answer.counts;
