@@ -65,14 +65,6 @@ afterAll(async () => {
   await mf?.dispose();
 });
 
-/** Waits until `condition` holds, a millisecond at a time. */
-async function until(condition: () => boolean): Promise<void> {
-  for (let i = 0; i < 500 && !condition(); i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-  expect(condition()).toBe(true);
-}
-
 /** A fresh notice id and its own accounts, so the cases share one database. */
 async function fixture(addresses: readonly string[]) {
   notice += 1;
