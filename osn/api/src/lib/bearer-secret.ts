@@ -5,8 +5,11 @@ import { timingSafeEqualString } from "@shared/crypto/timing-safe";
  * its bearer: 501 with `disabledMessage` when this instance holds no secret,
  * or one shorter than `minLength`; 401 unless `authorization` is exactly
  * `Bearer <secret>`, compared in constant time. Returns the refusal to send,
- * or null when the caller may go on. Nothing else about the request is read
- * first, so a caller without the secret learns nothing.
+ * or null when the caller may go on. A route calls it first in its handler,
+ * before it reads any state, so a caller without the secret learns nothing a
+ * route holds. Elysia checks the route's TypeBox schema before the handler
+ * runs, so a malformed request is refused 422 whatever its bearer; the schema
+ * is public in the source.
  */
 export function refuseWithoutBearerSecret(
   secret: string | undefined,
