@@ -473,6 +473,13 @@ crons = ["0 */6 * * *"]
 #                              holding it refuses key ids minted without it.
 #                              Order and checks: wiki/shared/production-deploy.md
 #                              §5.11.
+#   OSN_CHANGE_NOTICE_SECRET   bearer for the operator's change-notice run,
+#                              POST /internal/change-notices/:noticeId/send
+#                              (optional, production only, at least 32
+#                              characters; unset, the route answers 501). The
+#                              production Environment holds the same value; set
+#                              both through set-osn-api-secret.yml. See
+#                              wiki/osn/change-notices.md.
 #   PULSE_API_URL / ZAP_API_URL vars, never secrets: where the account deletion
 #                              reaches each app; see [env.production.vars].
 #   TRUSTED_PROXY_COUNT        legacy XFF proxy-hop count. IGNORED in deployed

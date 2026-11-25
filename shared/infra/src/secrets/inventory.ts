@@ -115,9 +115,16 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "RESEND_API_KEY",
           "TURNSTILE_SECRET_KEY",
         ],
+        // OSN_CHANGE_NOTICE_SECRET: the bearer of the operator's change-notice
+        // run (wiki/osn/change-notices.md); unset, that route answers 501, so
+        // no notice can be sent. Production only: no notice is sent from dev.
+        // Kept off ENVIRONMENT_WORKER_SECRETS, though the production
+        // Environment holds it for the operator workflow, since
+        // `secrets:check-github` would then require a secret that is optional.
         optional: [
           "CIRE_INTERNAL_REVOKE_SECRET",
           "OSN_ARC_KID_SECRET",
+          "OSN_CHANGE_NOTICE_SECRET",
           "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS",
         ],
         forbidden: ["DEV_LOGIN_SECRET", "OSN_EMAIL_VERIFICATION_EMULATOR_URL", "RESEND_API_URL"],

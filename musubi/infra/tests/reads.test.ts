@@ -22,6 +22,10 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   CLOUDFLARE_EMAIL_API_TOKEN: "the same Cloudflare Email Service fallback",
   NODE_ENV: "read only by src/local.ts, the Bun dev server",
   OSN_ACCESS_TOKEN_TTL: "defaults to 300 seconds (build-deps.ts); production sets none either",
+  OSN_CHANGE_NOTICE_SECRET:
+    "no change notice is sent from dev: unset, the operator's change-notice route answers 501 (routes/change-notices.ts)",
+  OSN_CHANGE_NOTICES_FILE:
+    "read only by src/local.ts, the Bun dev server, and only while OSN_ENV is local; the E2E suite names its own registry",
   OSN_DELETION_FANOUT_MAX_JOBS:
     "dev is on Workers Free: unset, the deletion sweeps keep their default of 4 jobs a run (services/account-erasure.ts), inside the 50 D1 queries one cron run may make",
   OSN_DELETION_SWEEPER_INTERVAL_MS:

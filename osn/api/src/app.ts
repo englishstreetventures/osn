@@ -14,6 +14,7 @@ import { createAccountExportRoutes } from "./routes/account-export";
 import { createArcJwksRoutes } from "./routes/arc-jwks";
 import { createAuthRoutes } from "./routes/auth";
 import type { DevLoginConfig } from "./routes/auth/dev-login";
+import { createChangeNoticeRoutes } from "./routes/change-notices";
 import { createGraphRoutes } from "./routes/graph";
 import { createInternalGraphRoutes } from "./routes/graph-internal";
 import { createCoordinationHealthRoutes } from "./routes/health-coordination";
@@ -23,6 +24,7 @@ import { createInternalOrganisationRoutes } from "./routes/organisation-internal
 import { createProfileRoutes } from "./routes/profile";
 import { createRecommendationRoutes } from "./routes/recommendations";
 import type { AuthConfig } from "./services/auth";
+import { frontendOrigin } from "./services/auth/helpers";
 import type { CireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
 import type { DeletionAppsConfig } from "./services/deletion-apps";
 
@@ -143,6 +145,16 @@ export interface AppDeps {
    */
   internalServiceSecret: string | undefined;
   /**
+   * `OSN_CHANGE_NOTICE_SECRET`, the bearer of `POST
+   * /internal/change-notices/:noticeId/send`, the operator's run that mails a
+   * change notice to every account. Its own secret, not the shared one above:
+   * only this Worker and the production Environment hold it. `undefined`, or
+   * under 32 characters ⇒ the route answers 501.
+   */
+  changeNoticeSecret: string | undefined;
+  /** The parsed change-notice registry file (`services/change-notices.json`). */
+  changeNotices: unknown;
+  /**
    * Cloudflare Turnstile verifier (bot protection). KEY-OPTIONAL: `null` when
    * the `TURNSTILE_SECRET_KEY` secret is unset ⇒ the register / passkey-login
    * gates are skipped. A verifier ⇒ those gates enforce siteverify, fail-closed.
@@ -227,6 +239,8 @@ export function createApp(deps: AppDeps) {
     healthProbeLimiter,
     clientIpConfig,
     internalServiceSecret,
+    changeNoticeSecret,
+    changeNotices,
     turnstileVerifier,
     devLogin,
     cireOrganiserRevoke,
@@ -420,7 +434,20 @@ export function createApp(deps: AppDeps) {
         deletionApps.arc,
       ),
     )
-    .use(createInternalAccountRoutes(sharedAuthConfig, DbLive, appRuntime));
+    .use(createInternalAccountRoutes(sharedAuthConfig, DbLive, appRuntime))
+    .use(
+      createChangeNoticeRoutes(
+        {
+          secret: changeNoticeSecret,
+          registry: changeNotices,
+          appUrl: frontendOrigin(sharedAuthConfig),
+          instanceName: sharedAuthConfig.instanceName,
+        },
+        dbAndEmailLayer,
+        observabilityLayer,
+        appRuntime,
+      ),
+    );
 }
 
 export type App = ReturnType<typeof createApp>;
