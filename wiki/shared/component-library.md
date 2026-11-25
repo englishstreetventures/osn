@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-23
+last-reviewed: 2026-11-26
 ---
 
 # Component Library (Zaidan)
@@ -1926,7 +1926,10 @@ component bug:
   gestures in the browser tier ([[browser-tests]]).
 - **A dialog left open outlives its test.** `document.querySelector("dialog")`
   then finds the previous test's sheet rather than this one's, so a browser file
-  rendering dialogs needs `afterEach(cleanup)`.
+  rendering dialogs needs `afterEach(cleanup)`. In `@shared/ui` the browser
+  tier's setup file runs it, and closes any dialog left open, after every test
+  ([[browser-tests#Putting the page back]]); a file there adds no hook of its
+  own.
 - **`getBoundingClientRect()` is post-transform**, and `Modal` animates in from
   `translateY(24px) scale(0.98)`. A rect read before the entry transition
   finishes is the layout box moved and scaled, and every comparison against
