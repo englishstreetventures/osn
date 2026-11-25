@@ -31,7 +31,8 @@ import { holdQueries } from "../helpers/held-query";
  */
 
 const SECRET = "test-internal-secret-of-32-chars!";
-const arc = { kidSecret: SECRET };
+const KID_SECRET = "kid-secret-kid-secret-kid-secret-kid";
+const arc = { kidSecret: KID_SECRET, serviceSecret: SECRET };
 
 const keyRows = Effect.gen(function* () {
   const { db } = yield* Db;
@@ -80,7 +81,13 @@ describe("outbound ARC key", () => {
       const row = rows[0]!;
       const header = yield* Effect.promise(() => arcAuthHeader(key, "zap-api", "account:erase"));
       expect(kidOf(header)).toBe(row.keyId);
-      expect(yield* Effect.promise(() => checkArcKid(row.keyId, SECRET, row.createdAt))).toBe(true);
+      // An app holding either secret alone accepts the kid.
+      for (const app of [
+        { kidSecret: KID_SECRET, serviceSecret: undefined },
+        { kidSecret: undefined, serviceSecret: SECRET },
+      ]) {
+        expect(yield* Effect.promise(() => checkArcKid(row.keyId, app, row.createdAt))).toBe(true);
+      }
       expect(JSON.parse(row.publicKeyJwk)).toMatchObject({ kty: "EC", crv: "P-256" });
       expect(JSON.parse(row.publicKeyJwk)).not.toHaveProperty("d");
     }).pipe(Effect.provide(createTestLayer())),
@@ -188,19 +195,28 @@ describe("outbound ARC key", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("with a secret shorter than 32 characters, mints a kid with no MAC and warns", () => {
-    const lines: { level: string; message: unknown }[] = [];
-    const log = Logger.layer([
-      Logger.map(Logger.formatStructured, (line) => void lines.push(line)),
-    ]);
-    return Effect.gen(function* () {
-      const key = yield* publishOutboundKey({ kidSecret: "s".repeat(31) });
-      expect(key.keyId.split(".")).toHaveLength(2);
-      const warnings = lines.filter((line) => JSON.stringify(line.message).includes("no MAC"));
-      expect(warnings).toHaveLength(1);
-      expect(JSON.stringify(warnings)).not.toContain("s".repeat(31));
-    }).pipe(Effect.provide(createTestLayer()), Effect.provide(log));
-  });
+  it.effect(
+    "with secrets shorter than 32 characters, mints a kid with no MAC and warns once for each, naming it",
+    () => {
+      const lines: { level: string; message: unknown }[] = [];
+      const log = Logger.layer([
+        Logger.map(Logger.formatStructured, (line) => void lines.push(line)),
+      ]);
+      return Effect.gen(function* () {
+        const key = yield* publishOutboundKey({
+          kidSecret: "k".repeat(31),
+          serviceSecret: "s".repeat(31),
+        });
+        expect(key.keyId.split(".")).toHaveLength(2);
+        const warnings = lines.filter((line) => JSON.stringify(line.message).includes("no MAC"));
+        expect(warnings).toHaveLength(2);
+        expect(JSON.stringify(warnings)).toContain("OSN_ARC_KID_SECRET");
+        expect(JSON.stringify(warnings)).toContain("INTERNAL_SERVICE_SECRET");
+        expect(JSON.stringify(warnings)).not.toContain("s".repeat(31));
+        expect(JSON.stringify(warnings)).not.toContain("k".repeat(31));
+      }).pipe(Effect.provide(createTestLayer()), Effect.provide(log));
+    },
+  );
 });
 
 /** One structured log line, as `Logger.formatStructured` writes it. */

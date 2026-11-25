@@ -13,7 +13,7 @@ import { MAX_EXPORT_SEATS } from "../../src/services/account-export";
 import { appRequest, failStatements } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
-import { OSN_ISSUER, osnArc } from "../test-helpers/osn-arc";
+import { KID_SECRET, OSN_ISSUER, osnArc } from "../test-helpers/osn-arc";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -63,9 +63,14 @@ const seat = (
     })
     .run();
 
-function setup(organiserOrigin = PORTAL) {
+function setup(organiserOrigin = PORTAL, osnArcKidSecret?: string) {
   const db = createDb(":memory:");
-  const app = createApp(db, { osnIssuerUrl: OSN_ISSUER, osnTestKey: auth.key, organiserOrigin });
+  const app = createApp(db, {
+    osnIssuerUrl: OSN_ISSUER,
+    osnTestKey: auth.key,
+    organiserOrigin,
+    osnArcKidSecret,
+  });
   return { db, app };
 }
 
@@ -172,6 +177,23 @@ describe("ARC on the account export (refusals)", () => {
     expect(
       db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, P)).all(),
     ).toHaveLength(1);
+  });
+
+  it("with the kid secret, refuses a made-up kid before any fetch or read, and admits osn-api's real key", async () => {
+    const { db, app } = setup(PORTAL, KID_SECRET);
+    insertWedding(db, { id: "w1", slug: "w1", displayName: "One", owners: [P] });
+    const [, expiry = ""] = arc.kid.split(".");
+    const reads = failStatements(db, () => true);
+    const madeUp = await arc.tokenUnderKid(
+      "account:export",
+      `${crypto.randomUUID()}.${expiry}.${"A".repeat(22)}`,
+    );
+    expect((await post(app, madeUp, exportBody())).status).toBe(401);
+    expect(arc.fetches()).toBe(0);
+    expect(reads.failed()).toBe(0);
+    reads.restore();
+    expect((await post(app, await arc.token("account:export"), exportBody())).status).toBe(200);
+    expect(arc.fetches()).toBe(1);
   });
 
   it("a body outside the contract is refused", async () => {

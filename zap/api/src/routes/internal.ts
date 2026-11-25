@@ -1,5 +1,5 @@
-import { arcKidMacSecret } from "@shared/crypto/arc-kid";
 import { jsonEachIn } from "@shared/db-utils";
+import type { OsnArcVerification } from "@shared/osn-auth-client/arc";
 import { chatMembers, chats, messages } from "@zap/db/schema";
 import { DbLive, Db, type Db as DbType } from "@zap/db/service";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
@@ -159,13 +159,15 @@ export const createInternalRoutes = (
   // never per request) — mirrors pulse/api's internal router.
   const runtime = ManagedRuntime.make(dbLayer);
   // osn-api's tokens verify against the keys it publishes under the issuer
-  // Zap pins. INTERNAL_SERVICE_SECRET gates fetching them (a made-up kid is
-  // refused first); one shorter than 32 characters is treated as absent and
-  // gates nothing. Read per request, as workerd fills `process.env` only
-  // inside a handler.
-  const osnArc = () => ({
+  // Zap pins. OSN_ARC_KID_SECRET and INTERNAL_SERVICE_SECRET gate fetching
+  // them: a kid with no MAC that verifies under either is refused first. One
+  // shorter than 32 characters is treated as absent and gates nothing
+  // (`@shared/crypto/arc-kid`). Read per request, as workerd fills
+  // `process.env` only inside a handler.
+  const osnArc = (): OsnArcVerification => ({
     osnIssuer: verification.issuer,
-    kidSecret: arcKidMacSecret(process.env.INTERNAL_SERVICE_SECRET),
+    kidSecret: process.env.OSN_ARC_KID_SECRET,
+    serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
   });
   return (
     new Elysia({ prefix: "/internal" })

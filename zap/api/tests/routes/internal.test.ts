@@ -15,7 +15,7 @@ import {
   seedC2bMessage,
   seedMessage,
 } from "../helpers/db";
-import { osnArc } from "../helpers/osn-arc";
+import { appHolds, HOLDS, osnArc } from "../helpers/osn-arc";
 
 /**
  * Route-level coverage for the `/internal` group: the shared-secret
@@ -747,8 +747,10 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
   it("refuses a published key under a kid with no MAC or a wrong one, before any fetch", async () => {
     const [, expiry] = osn.kid.split(".");
     for (const kid of [
+      crypto.randomUUID(),
       `${crypto.randomUUID()}.${expiry}`,
       `${crypto.randomUUID()}.${expiry}.${"A".repeat(22)}`,
+      `${crypto.randomUUID()}.${expiry}.${"A".repeat(22)}.${"A".repeat(22)}`,
     ]) {
       const before = osn.fetches();
       const res = await post(
@@ -764,10 +766,9 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
 
   it.each([
     ["holds no secret", undefined],
-    ["holds a secret too short to key the MAC", "s".repeat(31)],
+    ["holds secrets too short to key the MAC", "s".repeat(31)],
   ])("admits that kid when Zap %s: the secret is what refuses it", async (_label, secret) => {
-    if (secret === undefined) delete process.env.INTERNAL_SERVICE_SECRET;
-    else process.env.INTERNAL_SERVICE_SECRET = secret;
+    appHolds({ kidSecret: secret, serviceSecret: secret });
     const [, expiry] = osn.kid.split(".");
     const res = await post(
       createInternalRoutes(createTestLayer(), osn.verification),
@@ -776,6 +777,37 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
       await osn.tokenUnderKid("account:deletion-preview", `${crypto.randomUUID()}.${expiry}`),
     );
     expect(res.status).toBe(200);
+  });
+
+  // The rollout of OSN_ARC_KID_SECRET: whichever of osn-api and Zap is given
+  // it first, Zap admits osn-api's real keys.
+  it.each([
+    [
+      "holding both secrets admits a key osn-api minted holding only the service secret",
+      "both secrets",
+      "the service secret",
+    ],
+    [
+      "holding only the service secret admits a key osn-api minted holding both",
+      "the service secret",
+      "both secrets",
+    ],
+    [
+      "holding both secrets admits a key osn-api minted holding both",
+      "both secrets",
+      "both secrets",
+    ],
+  ] as const)("Zap %s, after one fetch", async (_label, holds, osnHolds) => {
+    appHolds(HOLDS[holds]);
+    const before = osn.fetches();
+    const res = await post(
+      createInternalRoutes(createTestLayer(), osn.verification),
+      "/internal/account-deletion-preview",
+      { profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+      await osn.tokenFromOsnHolding("account:deletion-preview", HOLDS[osnHolds]),
+    );
+    expect(res.status).toBe(200);
+    expect(osn.fetches()).toBe(before + 1);
   });
 
   it("after an erasure, the other side reads the person's consumer-to-business message as empty and unnamed, and exports only its own", async () => {

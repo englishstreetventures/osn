@@ -84,6 +84,9 @@ export type EnvVars = {
   readonly OSN_TOTP_ENCRYPTION_KEY_PREVIOUS?: string;
   readonly OSN_PAIRWISE_SALT?: string;
   readonly INTERNAL_SERVICE_SECRET?: string;
+  // Keys the MAC on osn-api's ARC key ids, held for that alone. Optional in
+  // every tier; read by `deletionAppsConfig` (services/deletion-apps.ts).
+  readonly OSN_ARC_KID_SECRET?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
   // Read by the dev sign-in gate below. Unset ⇒ the routes are never mounted.
   readonly DEV_LOGIN_SECRET?: string;

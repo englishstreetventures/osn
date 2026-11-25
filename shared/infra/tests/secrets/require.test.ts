@@ -196,6 +196,24 @@ describe("SH1: requireSecrets refuses a dev secret that breaks its tier's rule b
     }
   });
 
+  test("OSN_ARC_KID_SECRET under 32 characters is refused on dev for each Worker that holds it; 32 is taken, and unset deploys", () => {
+    const short = "s3cr3t".padEnd(31, "x");
+    for (const worker of ["osn-api", "zap-api", "cire-api"] as const) {
+      const env = { ...envFor(worker, "dev"), OSN_ARC_KID_SECRET: short };
+      const error = thrown(() => requireSecrets({ worker, stage: "dev", env }));
+      expect(error).toMatchObject({ breaksRule: ["OSN_ARC_KID_SECRET"] });
+      expect((error as Error).message).toContain("at least 32 characters");
+      expect((error as Error).message).not.toContain(short);
+      const long = { ...envFor(worker, "dev"), OSN_ARC_KID_SECRET: "s3cr3t".padEnd(32, "x") };
+      expect(
+        Redacted.value(requireSecrets({ worker, stage: "dev", env: long }).OSN_ARC_KID_SECRET),
+      ).toBe("s3cr3t".padEnd(32, "x"));
+      expect(
+        requireSecrets({ worker, stage: "dev", env: envFor(worker, "dev") }),
+      ).not.toHaveProperty("OSN_ARC_KID_SECRET");
+    }
+  });
+
   test("one error names every unset, padded and rule-breaking secret together", () => {
     const env: Record<string, string | undefined> = {
       ...envFor("cire-api", "dev"),

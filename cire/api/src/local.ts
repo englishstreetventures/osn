@@ -169,6 +169,9 @@ const appOptions: Parameters<typeof createApp>[1] = {
   // osn-api's organiser-session revoke, as the Worker reads it: unset, the route
   // answers 503. The E2E stack sets it, to the value it gives its osn-api.
   internalRevokeSecret: process.env.CIRE_INTERNAL_REVOKE_SECRET ?? null,
+  // osn-api's ARC kids, as the Worker checks them: unset, none is checked. The
+  // E2E stack sets it, to the value it gives its osn-api.
+  osnArcKidSecret: process.env.OSN_ARC_KID_SECRET,
   stripe,
   stripeConnectOAuth: stripeOAuth.oauth,
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
