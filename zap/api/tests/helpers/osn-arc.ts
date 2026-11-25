@@ -16,6 +16,7 @@ export const KID_SECRET = "kid-secret-kid-secret-kid-secret-kid";
 export const HOLDS = {
   nothing: { kidSecret: undefined, serviceSecret: undefined },
   "the service secret": { kidSecret: undefined, serviceSecret: SERVICE_SECRET },
+  "the kid secret": { kidSecret: KID_SECRET, serviceSecret: undefined },
   "both secrets": { kidSecret: KID_SECRET, serviceSecret: SERVICE_SECRET },
 } as const satisfies Record<string, ArcKidSecrets>;
 

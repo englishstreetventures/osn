@@ -141,6 +141,13 @@ describe("internal routes — refusals", () => {
       "both secrets",
       "both secrets",
     ],
+    // A kid with the kid secret's MAC alone: only the app's own read of
+    // OSN_ARC_KID_SECRET can admit it.
+    [
+      "holding both secrets admits a key osn-api minted holding only the kid secret",
+      "both secrets",
+      "the kid secret",
+    ],
   ] as const)("Pulse %s, after one fetch", async (_label, holds, osnHolds) => {
     appHolds(HOLDS[holds]);
     const before = arc.fetches();

@@ -2129,20 +2129,22 @@ describe("osn-api's ARC key ids on the Worker", () => {
     }
   }
 
-  it("with OSN_ARC_KID_SECRET, refuses a made-up kid before fetching osn-api's keys", async () => {
-    const { status, fetches } = await previewThroughWorker(
+  it("with OSN_ARC_KID_SECRET, refuses a made-up kid before fetching osn-api's keys, and does not warn", async () => {
+    const { status, fetches, logs } = await previewThroughWorker(
       { OSN_ARC_KID_SECRET: KID_SECRET },
       "made-up",
     );
     expect({ status, fetches }).toEqual({ status: 401, fetches: 0 });
+    expect(logs).not.toContain(WARNING);
   });
 
   it("with OSN_ARC_KID_SECRET, admits osn-api's real key after one fetch", async () => {
-    const { status, fetches } = await previewThroughWorker(
+    const { status, fetches, logs } = await previewThroughWorker(
       { OSN_ARC_KID_SECRET: KID_SECRET },
       "real",
     );
     expect({ status, fetches }).toEqual({ status: 200, fetches: 1 });
+    expect(logs).not.toContain(WARNING);
   });
 
   it("with a value under 32 characters, checks no kid, and says so once, never with the value", async () => {

@@ -219,6 +219,37 @@ describe("outbound ARC key", () => {
       }).pipe(Effect.provide(createTestLayer()), Effect.provide(log));
     },
   );
+
+  for (const [label, config, parts, warned] of [
+    ["both unset", { kidSecret: undefined, serviceSecret: undefined }, 2, []],
+    ["both long enough", { kidSecret: "k".repeat(32), serviceSecret: "s".repeat(32) }, 4, []],
+    [
+      "the kid secret alone too short",
+      { kidSecret: "k".repeat(31), serviceSecret: "s".repeat(32) },
+      3,
+      ["OSN_ARC_KID_SECRET"],
+    ],
+    [
+      "the service secret alone too short",
+      { kidSecret: "k".repeat(32), serviceSecret: "s".repeat(31) },
+      3,
+      ["INTERNAL_SERVICE_SECRET"],
+    ],
+  ] as const) {
+    it.effect(`with ${label}, warns only of a secret set but too short`, () => {
+      const lines: { level: string; message: unknown }[] = [];
+      const log = Logger.layer([
+        Logger.map(Logger.formatStructured, (line) => void lines.push(line)),
+      ]);
+      return Effect.gen(function* () {
+        const key = yield* publishOutboundKey(config);
+        expect(key.keyId.split(".")).toHaveLength(parts);
+        const warnings = lines.filter((line) => JSON.stringify(line.message).includes("no MAC"));
+        expect(warnings).toHaveLength(warned.length);
+        for (const name of warned) expect(JSON.stringify(warnings)).toContain(name);
+      }).pipe(Effect.provide(createTestLayer()), Effect.provide(log));
+    });
+  }
 });
 
 /** One structured log line, as `Logger.formatStructured` writes it. */
