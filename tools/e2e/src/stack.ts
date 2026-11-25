@@ -14,6 +14,8 @@
 import { resolve } from "node:path";
 
 import {
+  CHANGE_NOTICE_SECRET,
+  CHANGE_NOTICES_FILE,
   CIRE_INTERNAL_REVOKE_SECRET,
   CIRE_OIDC,
   CIRE_RSVP_DEADLINE,
@@ -224,6 +226,10 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         RESEND_API_KEY: E2E_RESEND_KEY,
         RESEND_API_URL: ORIGINS.mail,
         OSN_EMAIL_FROM: "Musubi <no-reply@e2e.test>",
+        // `musubi-change-notice` sends a notice of the suite's own to every
+        // account this osn-api holds.
+        OSN_CHANGE_NOTICE_SECRET: CHANGE_NOTICE_SECRET,
+        OSN_CHANGE_NOTICES_FILE: CHANGE_NOTICES_FILE,
         // The organiser signs in to cire's portal as the dev principal, which
         // owns cire's sample wedding, and is sent back to the portal after.
         DEV_LOGIN_SECRET,

@@ -223,6 +223,19 @@ export const INTERNAL_SERVICE_SECRET = "e2e-internal-service-secret-not-a-real-s
 export const OSN_ARC_KID_SECRET = "e2e-osn-arc-kid-secret-not-a-real-secret";
 
 /**
+ * osn-api's change-notice bearer (`musubi-change-notice`): at least 32
+ * characters, as osn-api requires. Local only.
+ */
+export const CHANGE_NOTICE_SECRET = "e2e-change-notice-secret-not-a-real-secret";
+
+/**
+ * The registry the stack's osn-api sends change notices from, in place of the
+ * one it ships, which holds only notices the owner approved
+ * (`OSN_CHANGE_NOTICES_FILE`, read by osn-api's local entry alone).
+ */
+export const CHANGE_NOTICES_FILE = resolve(import.meta.dirname, "change-notices.json");
+
+/**
  * Shared by osn-api and cire-api: what osn-api presents to end an account's
  * cire organiser sessions (`cire-registry-money`). Local only.
  */
