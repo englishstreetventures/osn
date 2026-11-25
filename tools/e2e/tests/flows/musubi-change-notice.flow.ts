@@ -20,6 +20,10 @@
  *
  * Every check compares what reached the stand-in with the database as read
  * now, never a fixed number, so the results are the same on every run.
+ *
+ * It mails every account the stack's osn-api holds, the seeded ones included,
+ * so a later flow that reads an account's mail picks its own message, by
+ * subject or by the link it carries, never the first one in the inbox.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
