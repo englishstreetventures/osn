@@ -310,11 +310,15 @@ describe("an OSN_ENV that names no tier, on the Worker", () => {
     return { statuses, logs };
   }
 
-  it("serves as deployed and logs the unnamed tier once", async () => {
-    const { statuses, logs } = await buildAndRead({ OSN_ENV: undefined });
-    expect(statuses).toEqual([401, 401]);
-    expect(logs.split(UNNAMED).length - 1).toBe(1);
-  });
+  // Serving as deployed is what the 503 cases above prove; these prove it says so.
+  it.each([undefined, "prodution"])(
+    "logs once, over two requests, that OSN_ENV %p names no tier",
+    async (tier) => {
+      const { statuses, logs } = await buildAndRead({ OSN_ENV: tier });
+      expect(statuses).toEqual([401, 401]);
+      expect(logs.split(UNNAMED).length - 1).toBe(1);
+    },
+  );
 
   it("logs nothing about the tier when it is named", async () => {
     const { statuses, logs } = await buildAndRead({});
@@ -1639,53 +1643,64 @@ describe("D1 session routing at the entry points", () => {
     30_000,
   );
 
-  it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
-    // A cron-only isolate never runs the `fetch` check, and the digest builds
-    // its portal links from WEB_ORIGIN.
-    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
-    let result: Awaited<ReturnType<typeof runCron>> | undefined;
-    const logs = await captureLogs(async () => {
-      result = await runCron({
-        RESEND_API_KEY: "re_test",
-        OSN_API_URL: "https://osn.example.test",
-        CIRE_API_ARC_PRIVATE_KEY: jwk,
-        CIRE_API_ARC_KEY_ID: "kid_test",
-        WEB_ORIGIN: "http://localhost:4321",
-      });
-    });
-    expect(result?.pending).toHaveLength(11);
-    expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
-  }, 30_000);
-
-  it("sends no cron mail, and logs why after every sweep is handed off, when a deployed tier carries RESEND_API_URL", async () => {
-    // Everything the digest needs is present except a transport it may use:
-    // the override is refused in a deployed tier, so no mail goes anywhere and
-    // every sweep still runs. The reason is logged last, so no sweep waits on
-    // the logger.
-    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
-    const handedOff = "<sweep handed to waitUntil>";
-    const sink = (globalThis as typeof globalThis & { console: Console }).console;
-    let result: Awaited<ReturnType<typeof runCron>> | undefined;
-    const logs = await captureLogs(async () => {
-      result = await runCron(
-        {
+  // `undefined` is a Worker whose OSN_ENV is absent: a deployed tier too.
+  it.each(["production", undefined])(
+    "skips the RSVP digest when WEB_ORIGIN fails the boot check, with OSN_ENV %p",
+    async (tier) => {
+      // A cron-only isolate never runs the `fetch` check, and the digest builds
+      // its portal links from WEB_ORIGIN.
+      const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+      let result: Awaited<ReturnType<typeof runCron>> | undefined;
+      const logs = await captureLogs(async () => {
+        result = await runCron({
+          OSN_ENV: tier,
           RESEND_API_KEY: "re_test",
-          RESEND_API_URL: "http://localhost:4008",
           OSN_API_URL: "https://osn.example.test",
           CIRE_API_ARC_PRIVATE_KEY: jwk,
           CIRE_API_ARC_KEY_ID: "kid_test",
-        },
-        () => sink.log(handedOff),
+          WEB_ORIGIN: "http://localhost:4321",
+        });
+      });
+      expect(result?.pending).toHaveLength(11);
+      expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
+    },
+    30_000,
+  );
+
+  it.each(["production", undefined])(
+    "sends no cron mail, and logs why after every sweep is handed off, when a deployed tier (OSN_ENV %p) carries RESEND_API_URL",
+    async (tier) => {
+      // Everything the digest needs is present except a transport it may use:
+      // the override is refused in a deployed tier, so no mail goes anywhere and
+      // every sweep still runs. The reason is logged last, so no sweep waits on
+      // the logger.
+      const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+      const handedOff = "<sweep handed to waitUntil>";
+      const sink = (globalThis as typeof globalThis & { console: Console }).console;
+      let result: Awaited<ReturnType<typeof runCron>> | undefined;
+      const logs = await captureLogs(async () => {
+        result = await runCron(
+          {
+            OSN_ENV: tier,
+            RESEND_API_KEY: "re_test",
+            RESEND_API_URL: "http://localhost:4008",
+            OSN_API_URL: "https://osn.example.test",
+            CIRE_API_ARC_PRIVATE_KEY: jwk,
+            CIRE_API_ARC_KEY_ID: "kid_test",
+          },
+          () => sink.log(handedOff),
+        );
+      });
+      expect(result?.pending).toHaveLength(11);
+      expect(logs.split(handedOff).length - 1).toBe(11);
+      expect(logs.indexOf("email disabled: Resend misconfigured")).toBeGreaterThan(
+        logs.lastIndexOf(handedOff),
       );
-    });
-    expect(result?.pending).toHaveLength(11);
-    expect(logs.split(handedOff).length - 1).toBe(11);
-    expect(logs.indexOf("email disabled: Resend misconfigured")).toBeGreaterThan(
-      logs.lastIndexOf(handedOff),
-    );
-    expect(logs).toContain("RESEND_API_URL");
-    expect(logs).not.toContain("localhost:4008");
-  }, 30_000);
+      expect(logs).toContain("RESEND_API_URL");
+      expect(logs).not.toContain("localhost:4008");
+    },
+    30_000,
+  );
 
   it("asks osn-api for owners' addresses only when there is a Resend transport to mail them", async () => {
     // Owner notices with no transport would be looked up and then dropped on
@@ -1719,28 +1734,32 @@ describe("D1 session routing at the entry points", () => {
     }
   });
 
-  it("still serves, and logs why mail is off, when a deployed tier carries RESEND_API_URL", async () => {
-    // A fresh binding forces a fresh app build, which is where the reason is
-    // logged. cire's email is fail-soft: a refused override costs mail, never
-    // the Worker.
-    const probe = probeD1();
-    const env = {
-      ...BASE_ENV,
-      RESEND_API_KEY: "re_test",
-      RESEND_API_URL: "http://localhost:4008",
-      DB: probe.binding,
-    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
-    const statuses: number[] = [];
-    const logs = await captureLogs(async () => {
-      // The second request reuses the isolate's cached app, so the reason is
-      // logged once, at the build, not on every request.
-      statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
-      statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
-    });
-    expect(statuses).toEqual([404, 404]);
-    expect(logs.split("email disabled: Resend misconfigured").length - 1).toBe(1);
-    expect(logs).not.toContain("localhost:4008");
-  });
+  it.each(["production", undefined])(
+    "still serves, and logs why mail is off, when a deployed tier (OSN_ENV %p) carries RESEND_API_URL",
+    async (tier) => {
+      // A fresh binding forces a fresh app build, which is where the reason is
+      // logged. cire's email is fail-soft: a refused override costs mail, never
+      // the Worker.
+      const probe = probeD1();
+      const env = {
+        ...BASE_ENV,
+        OSN_ENV: tier,
+        RESEND_API_KEY: "re_test",
+        RESEND_API_URL: "http://localhost:4008",
+        DB: probe.binding,
+      } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+      const statuses: number[] = [];
+      const logs = await captureLogs(async () => {
+        // The second request reuses the isolate's cached app, so the reason is
+        // logged once, at the build, not on every request.
+        statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
+        statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
+      });
+      expect(statuses).toEqual([404, 404]);
+      expect(logs.split("email disabled: Resend misconfigured").length - 1).toBe(1);
+      expect(logs).not.toContain("localhost:4008");
+    },
+  );
 });
 
 // The CSP collector labels a report by the site its document came from, using
