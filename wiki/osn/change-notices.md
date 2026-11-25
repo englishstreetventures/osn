@@ -105,8 +105,9 @@ on the Free plan, 100 a day and 3,000 a month (resend.com/pricing). `max_sends`
 caps the addresses one run sends; choose it inside the quota left after a
 day's sign-in mail, and dispatch again on later days to go on.
 
-A whole run reads each account about once. A dry run reads the accounts after
-the cursor once more.
+A whole run reads each account about once. A dry run reads every account
+once more: `accounts` has no index on `created_at` or on the restriction, and
+it counts the skipped ones over the whole audience.
 
 *Unverified — the per-call CPU time has not been measured on a Worker.*
 

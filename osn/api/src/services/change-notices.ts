@@ -39,6 +39,7 @@ import {
   type SendEmailInput,
 } from "@shared/email";
 import { and, asc, eq, gt, isNull, lte, sql } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Cause, Data, type Duration, Effect, Exit, Option } from "effect";
 
 import { metricChangeNoticeBatch, metricChangeNoticeEmails } from "../metrics";
@@ -268,7 +269,9 @@ export const sendChangeNoticeBatch = (
         now - (row.pendingSince ?? now) > CHANGE_NOTICE_KEY_STALE_SECONDS &&
         (row.pendingAttempts ?? 0) > (row.pendingRefused ?? 0);
       if (row.pendingState === "unconfirmed" || stale) {
-        if (row.pendingState !== "unconfirmed") {
+        // Marked only when the operator has not asked to send it again: a
+        // re-key below overwrites the mark in the same call.
+        if (row.pendingState !== "unconfirmed" && !request.resendUnconfirmed) {
           yield* query(() =>
             db
               .update(changeNoticeRuns)
@@ -321,6 +324,9 @@ export const sendChangeNoticeBatch = (
       }
       last = row.pendingLast ?? "";
       const pendingLast = last;
+      // The batch as claimed, less any account erased or restricted since. No
+      // account can join it: one created since is newer than the run, and
+      // nothing lifts a restriction. Bounded by the provider's batch.
       recipients = yield* query(() =>
         db
           .select({ id: accounts.id, email: accounts.email })
@@ -476,24 +482,25 @@ export const sendChangeNoticeBatch = (
       return { kind: "unconfirmed", count } as const;
     }
     if (answer.kind === "rate_limited" || answer.kind === "refused") {
-      // Counted refused; the key goes only when every send under it was.
+      // Counted refused, in one statement that also drops the batch when
+      // every send under its key was refused: then nothing under it went.
+      // SQLite evaluates each SET against the row as it stood.
+      const allRefused = sql`${changeNoticeRuns.pendingRefused} + 1 = ${changeNoticeRuns.pendingAttempts}`;
+      const unlessAllRefused = (column: SQLiteColumn) =>
+        sql`CASE WHEN ${allRefused} THEN NULL ELSE ${column} END`;
       yield* query(() =>
         db
           .update(changeNoticeRuns)
-          .set({ pendingRefused: sql`${changeNoticeRuns.pendingRefused} + 1` })
+          .set({
+            pendingRefused: sql`CASE WHEN ${allRefused} THEN NULL ELSE ${changeNoticeRuns.pendingRefused} + 1 END`,
+            pendingKey: unlessAllRefused(changeNoticeRuns.pendingKey),
+            pendingLast: unlessAllRefused(changeNoticeRuns.pendingLast),
+            pendingCount: unlessAllRefused(changeNoticeRuns.pendingCount),
+            pendingSince: unlessAllRefused(changeNoticeRuns.pendingSince),
+            pendingAttempts: unlessAllRefused(changeNoticeRuns.pendingAttempts),
+            pendingState: unlessAllRefused(changeNoticeRuns.pendingState),
+          })
           .where(and(ofNotice, eq(changeNoticeRuns.pendingKey, key))),
-      );
-      yield* query(() =>
-        db
-          .update(changeNoticeRuns)
-          .set(CLEAR_PENDING)
-          .where(
-            and(
-              ofNotice,
-              eq(changeNoticeRuns.pendingKey, key),
-              eq(changeNoticeRuns.pendingRefused, changeNoticeRuns.pendingAttempts),
-            ),
-          ),
       );
       return { kind: answer.kind } as const;
     }
