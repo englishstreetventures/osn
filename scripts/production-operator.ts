@@ -20,6 +20,19 @@
  *   count-deletion-fanouts  CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN,
  *                           WINDOW_START, WINDOW_END. Two counts from
  *                           production zap-db-prod.
+ *   check-notice            NOTICE_ID, DRY_RUN, RESEND_UNCONFIRMED, MAX_SENDS,
+ *                           GITHUB_TOKEN, GITHUB_REPOSITORY. Reads the
+ *                           change notice in the registry at the commit
+ *                           production osn-api runs, shows it in full, and
+ *                           writes `osn_commit` and `notice_digest` to
+ *                           GITHUB_OUTPUT. No production secret.
+ *   send-change-notice      OSN_CHANGE_NOTICE_SECRET, the four inputs above,
+ *                           EXPECTED_OSN_COMMIT, EXPECTED_NOTICE_DIGEST,
+ *                           GITHUB_TOKEN, GITHUB_REPOSITORY. Mails the notice
+ *                           to every account through production osn-api, at
+ *                           most MAX_SENDS addresses this run, or with DRY_RUN
+ *                           only counts them. osn-api holds the addresses; the
+ *                           runner sees counts.
  *
  * Run logs on this repository are public. No path prints a token, a bearer,
  * an account id, a row or any response body: a refusal prints the HTTP status,
@@ -68,6 +81,13 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  type ChangeNotice,
+  NOTICE_ID_PATTERN,
+  noticeDigest,
+  parseChangeNotices,
+  takesEffectSeconds,
+} from "../osn/api/src/services/change-notice-registry";
 import { PRODUCTION_HOSTS } from "../shared/infra/src/production-sites";
 import { CI_USER_AGENT } from "./smoke-check";
 
@@ -711,6 +731,402 @@ async function registerThrowaway(
   }
 }
 
+// ── change notices ──────────────────────────────────────────────────────────
+
+/** The change-notice registry, by repository path, as production osn-api ships it. */
+export const CHANGE_NOTICES_FILE = "osn/api/src/services/change-notices.json";
+/** The most addresses one run may send: 1,000 calls of 100. */
+const MAX_SENDS_CEILING = 100_000;
+/** One call of osn-api sends at most this many. */
+const NOTICE_BATCH = 100;
+/** The pause between accepted batches: one request a second of Resend's ten per team. */
+const NOTICE_GAP_MS = 1_000;
+/** Waits after a 429, before giving up: Resend's rate limit, or its quota. */
+const NOTICE_RATE_WAITS_MS: readonly number[] = [30_000, 60_000, 120_000];
+/** Waits after a busy answer or an unknown outcome, before giving up. */
+const NOTICE_RETRY_WAITS_MS: readonly number[] = [5_000, 10_000, 20_000];
+/** A notice that takes effect sooner than this gets a warning in the check job. */
+const NOTICE_LATE_SECONDS = 30 * 24 * 60 * 60;
+const DIGEST = /^[0-9a-f]{64}$/;
+const NOTICE_ID = new RegExp(NOTICE_ID_PATTERN);
+
+interface NoticeInputs {
+  readonly noticeId: string;
+  readonly dryRun: boolean;
+  readonly resendUnconfirmed: boolean;
+  readonly maxSends: number;
+}
+
+const flag = (env: Deps["env"], name: string): boolean => {
+  const value = env[name] ?? "";
+  if (value !== "true" && value !== "false") throw new UsageError(`${name} must be true or false.`);
+  return value === "true";
+};
+
+/** The dispatch's inputs, each checked before anything is read. */
+function noticeInputs(env: Deps["env"]): NoticeInputs {
+  const noticeId = required(env, "NOTICE_ID");
+  if (!NOTICE_ID.test(noticeId)) throw new UsageError(`NOTICE_ID must match ${NOTICE_ID_PATTERN}.`);
+  const dryRun = flag(env, "DRY_RUN");
+  const resendUnconfirmed = flag(env, "RESEND_UNCONFIRMED");
+  const raw = required(env, "MAX_SENDS");
+  const maxSends = /^[1-9]\d{0,5}$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!(maxSends >= 1 && maxSends <= MAX_SENDS_CEILING)) {
+    throw new UsageError(`MAX_SENDS must be a whole number from 1 to ${MAX_SENDS_CEILING}.`);
+  }
+  return { noticeId, dryRun, resendUnconfirmed, maxSends };
+}
+
+interface ProductionNotice {
+  readonly osnCommit: string;
+  readonly notice: ChangeNotice;
+  readonly digest: string;
+}
+
+/** The notice as production osn-api holds it: the registry at the commit it runs. */
+async function productionNotice(deps: Deps, noticeId: string): Promise<ProductionNotice> {
+  required(deps.env, "GITHUB_TOKEN");
+  required(deps.env, "GITHUB_REPOSITORY");
+  let commits: ReadonlyMap<string, string>;
+  try {
+    commits = await deps.productionCommits();
+  } catch (error) {
+    throw new Refusal(
+      `Reading production's deployment records failed (${error instanceof Error ? error.name : "unknown error"}).`,
+    );
+  }
+  const osnCommit = commits.get("osn_api") ?? "";
+  if (!SHA.test(osnCommit)) {
+    throw new Refusal("No trusted production deployment record names osn_api's commit.");
+  }
+  const source = deps.gitShow(osnCommit, CHANGE_NOTICES_FILE);
+  if (source === undefined) {
+    throw new Refusal(
+      `git cannot show ${CHANGE_NOTICES_FILE} at production osn-api's commit ${osnCommit}: release osn-api with the notice first.`,
+    );
+  }
+  let notices: ReadonlyMap<string, ChangeNotice>;
+  try {
+    notices = parseChangeNotices(JSON.parse(source));
+  } catch (error) {
+    throw new Refusal(
+      `${CHANGE_NOTICES_FILE} at ${osnCommit} does not parse (${error instanceof Error ? error.name : "unknown error"}).`,
+    );
+  }
+  const notice = notices.get(noticeId);
+  if (notice === undefined) {
+    throw new Refusal(
+      `Production osn-api (${osnCommit}) holds no notice ${noticeId}: release osn-api with it first.`,
+    );
+  }
+  return { osnCommit, notice, digest: await noticeDigest(notice) };
+}
+
+async function checkNotice(deps: Deps): Promise<void> {
+  const inputs = noticeInputs(deps.env);
+  const planned = await productionNotice(deps, inputs.noticeId);
+  const { notice } = planned;
+  const lines = [
+    `Production osn-api runs ${planned.osnCommit}. The notice it would send, ${inputs.noticeId}:`,
+    `  page: the ${notice.document}, at ${notice.path}`,
+    `  takes effect: ${notice.takesEffect}`,
+    "  what changes:",
+    ...notice.changes.map((line) => `    - ${line}`),
+    `  digest: ${planned.digest}`,
+    inputs.dryRun
+      ? "Approving counts the accounts it would reach, and sends nothing."
+      : `Approving sends it to at most ${inputs.maxSends} accounts this run${inputs.resendUnconfirmed ? ", first sending again a batch whose outcome osn-api could not confirm: some in it may get the notice twice" : ""}.`,
+  ];
+  for (const line of lines) deps.out(line);
+  if (takesEffectSeconds(notice) - deps.now() < NOTICE_LATE_SECONDS) {
+    deps.out(
+      `::warning::${inputs.noticeId} takes effect on ${notice.takesEffect}, under 30 days from now or already past.`,
+    );
+  }
+  const output = deps.env.GITHUB_OUTPUT ?? "";
+  if (output !== "") {
+    deps.appendFile(output, `osn_commit=${planned.osnCommit}\nnotice_digest=${planned.digest}\n`);
+  }
+  summary(deps, lines);
+}
+
+/** The counts and booleans a 200 from the route may hold, and nothing else. */
+const NOTICE_COUNTS = new Set([
+  "sent",
+  "failed",
+  "sentSoFar",
+  "failedSoFar",
+  "toSend",
+  "skipped",
+  "unconfirmed",
+]);
+const NOTICE_FLAGS = new Set(["ok", "dryRun", "finished"]);
+/** The refusals the route answers with, by their fixed token. */
+const NOTICE_ERRORS = new Set([
+  "busy",
+  "unconfirmed_batch",
+  "pending_exceeds_limit",
+  "notice_changed",
+  "rate_limited",
+  "refused",
+  "unknown_outcome",
+  "unknown_notice",
+  "no_batch_transport",
+  "bad_registry",
+  "internal",
+]);
+
+/** One live call's body, as osn-api's route reads it. */
+interface NoticeSendBody {
+  readonly dryRun: false;
+  readonly expect: string;
+  readonly limit: number;
+  resendUnconfirmed?: true;
+}
+
+type NoticeAnswer =
+  | {
+      readonly status: number;
+      /** Every count and flag a 200 held, each checked; undefined for any other status or shape. */
+      readonly counts: ReadonlyMap<string, number | boolean> | undefined;
+      /** The refusal token, when the body held one this script knows. */
+      readonly error: string | undefined;
+      /** The `unconfirmed` or `pending` count a 409 carried. */
+      readonly count: number | undefined;
+      readonly mitigated: string | null;
+    }
+  | { readonly failed: string };
+
+/** One call of the route. Keeps only checked counts, flags and a known token. */
+async function noticeCall(
+  deps: Deps,
+  bearer: string,
+  path: string,
+  body: unknown,
+): Promise<NoticeAnswer> {
+  try {
+    const response = await deps.fetch(`${OSN_API_ORIGIN}${path}`, {
+      method: "POST",
+      headers: osnApiHeaders(bearer, body),
+      body: JSON.stringify(body),
+      redirect: "manual",
+      signal: AbortSignal.timeout(OSN_TIMEOUT_MS),
+    });
+    const answer: unknown = await response.json().catch(() => undefined);
+    let counts: Map<string, number | boolean> | undefined;
+    if (response.status === 200 && isRecord(answer) && answer.ok === true) {
+      counts = new Map();
+      for (const [key, value] of Object.entries(answer)) {
+        if (NOTICE_FLAGS.has(key) && typeof value === "boolean") counts.set(key, value);
+        else if (NOTICE_COUNTS.has(key) && isCount(value)) counts.set(key, value);
+        else {
+          counts = undefined;
+          break;
+        }
+      }
+    }
+    const error = isRecord(answer) ? answer.error : undefined;
+    const known = typeof error === "string" && NOTICE_ERRORS.has(error) ? error : undefined;
+    const count = isRecord(answer)
+      ? [answer.unconfirmed, answer.pending].find((value) => isCount(value))
+      : undefined;
+    return {
+      status: response.status,
+      counts,
+      error: known,
+      count: typeof count === "number" ? count : undefined,
+      mitigated: mitigation(response.headers.get("cf-mitigated")),
+    };
+  } catch (error) {
+    return { failed: error instanceof Error ? error.name : "unknown error" };
+  }
+}
+
+/** A count the answer must hold. */
+const countOf = (counts: ReadonlyMap<string, number | boolean>, key: string): number => {
+  const value = counts.get(key);
+  if (typeof value !== "number") {
+    throw new Refusal(
+      "osn-api answered in a form this script does not read; nothing from it is printed.",
+    );
+  }
+  return value;
+};
+
+/** Why a refusal of the route stopped the run, by status and token. */
+function noticeRefusal(answer: Exclude<NoticeAnswer, { readonly failed: string }>): string {
+  if (answer.mitigated !== null) {
+    return `Cloudflare answered in osn-api's place (${answer.mitigated === "" ? "cf-mitigated" : `cf-mitigated: ${answer.mitigated}`}); the request never reached osn-api.`;
+  }
+  switch (answer.error) {
+    case "notice_changed":
+      return "osn-api answered 409 notice_changed: the words it holds are not the words the approver saw. Nothing was sent. Dispatch again and read the check job's notice.";
+    case "unknown_notice":
+      return "osn-api answered 404 unknown_notice: release osn-api with the notice first.";
+    case "pending_exceeds_limit":
+      return `osn-api answered 409: the batch in hand holds ${answer.count ?? "more"} addresses, more than this run may still send. Dispatch again with max_sends of at least that many.`;
+    case "unconfirmed_batch":
+      return `osn-api answered 409 unconfirmed_batch: it cannot tell whether a batch of ${answer.count ?? "some"} addresses went. Nothing more was sent. To send that batch again, some of whom may get the notice twice, dispatch with resend_unconfirmed: true.`;
+    case "refused":
+      return "osn-api answered 502: Resend refused the batch. osn-api's log line `change notice batch not sent` holds Resend's status. Nothing in the batch was counted sent.";
+    case "no_batch_transport":
+      return "osn-api answered 501: its mail transport cannot send keyed batches.";
+    case "bad_registry":
+      return "osn-api answered 500 bad_registry: its change-notice registry does not parse.";
+    default:
+      break;
+  }
+  if (answer.status === 501) {
+    return "osn-api answered 501: it holds no OSN_CHANGE_NOTICE_SECRET of at least 32 characters, so change notices are off.";
+  }
+  if (answer.status === 401) {
+    return "osn-api answered 401: the production Environment's OSN_CHANGE_NOTICE_SECRET is not the value osn-api holds.";
+  }
+  if (answer.status >= 300 && answer.status < 400) {
+    return `osn-api answered ${answer.status}, a redirect, which this script never follows with the bearer.`;
+  }
+  return `osn-api answered ${answer.status}. Nothing from the answer is printed.`;
+}
+
+async function sendChangeNotice(deps: Deps): Promise<void> {
+  const bearer = required(deps.env, "OSN_CHANGE_NOTICE_SECRET");
+  const inputs = noticeInputs(deps.env);
+  const expectedCommit = required(deps.env, "EXPECTED_OSN_COMMIT");
+  if (!SHA.test(expectedCommit))
+    throw new UsageError("EXPECTED_OSN_COMMIT is not a full commit SHA.");
+  const expected = required(deps.env, "EXPECTED_NOTICE_DIGEST");
+  if (!DIGEST.test(expected))
+    throw new UsageError("EXPECTED_NOTICE_DIGEST is not a SHA-256 digest.");
+  const planned = await productionNotice(deps, inputs.noticeId);
+  if (planned.osnCommit !== expectedCommit) {
+    throw new Refusal(
+      `Production osn-api now runs ${planned.osnCommit}, not ${expectedCommit}, which the check job read and the approver saw. Nothing was sent. Dispatch again.`,
+    );
+  }
+  if (planned.digest !== expected) {
+    throw new Refusal(
+      "The notice's words at production osn-api's commit are not the words the check job showed. Nothing was sent. Dispatch again.",
+    );
+  }
+  const path = `/internal/change-notices/${encodeURIComponent(inputs.noticeId)}/send`;
+
+  if (inputs.dryRun) {
+    const answer = await noticeCall(deps, bearer, path, { dryRun: true, expect: expected });
+    if ("failed" in answer) throw new Refusal(`The dry run did not complete (${answer.failed}).`);
+    if (answer.counts === undefined || answer.counts.get("dryRun") !== true) {
+      throw new Refusal(
+        answer.status === 200
+          ? "osn-api answered in a form this script does not read; nothing from it is printed."
+          : noticeRefusal(answer),
+      );
+    }
+    const c = answer.counts;
+    const lines = [
+      `Dry run of ${inputs.noticeId}: nothing was sent.`,
+      `  to send: ${countOf(c, "toSend")}`,
+      `  skipped, their processing restricted: ${countOf(c, "skipped")}`,
+      `  sent so far: ${countOf(c, "sentSoFar")}; refused by Resend so far: ${countOf(c, "failedSoFar")}`,
+      `  in a batch osn-api could not confirm: ${countOf(c, "unconfirmed")}`,
+      `  finished: ${c.get("finished") === true ? "yes" : "no"}`,
+    ];
+    for (const line of lines) deps.out(line);
+    summary(deps, lines);
+    return;
+  }
+
+  let sent = 0;
+  let failed = 0;
+  let first = true;
+  let rateTries = 0;
+  let retryTries = 0;
+  let batches = 0;
+  const report = (finished: boolean, sentSoFar: number, failedSoFar: number) => {
+    const lines = [
+      `${inputs.noticeId}: this run sent ${sent}, and Resend refused ${failed} addresses on their own.`,
+      `In all: ${sentSoFar} sent, ${failedSoFar} refused.`,
+      finished
+        ? "Finished: every account in the audience has been passed."
+        : "Not finished: dispatch again to go on.",
+    ];
+    for (const line of lines) deps.out(line);
+    summary(deps, lines);
+  };
+
+  for (let call = 0; call < inputs.maxSends + NOTICE_BATCH; call += 1) {
+    const room = inputs.maxSends - sent - failed;
+    if (room < 1) {
+      deps.out(`max_sends reached: ${sent + failed} addresses this run.`);
+      report(false, sent, failed);
+      return;
+    }
+    const body: NoticeSendBody = {
+      dryRun: false,
+      expect: expected,
+      limit: Math.min(NOTICE_BATCH, room),
+    };
+    // The approval to send an unconfirmed batch again covers the one batch
+    // the approver was told of: the first call's.
+    if (first && inputs.resendUnconfirmed) body.resendUnconfirmed = true;
+    // oxlint-disable-next-line no-await-in-loop -- each call resumes where the last stopped
+    const answer = await noticeCall(deps, bearer, path, body);
+    const unknown =
+      "failed" in answer || answer.error === "unknown_outcome" || answer.error === "busy";
+    if (unknown) {
+      const wait = NOTICE_RETRY_WAITS_MS[retryTries];
+      if (wait === undefined) {
+        throw new Refusal(
+          `osn-api could not confirm the batch in hand ${retryTries + 1} times (${"failed" in answer ? answer.failed : answer.error}). Nothing is lost: dispatch again within 23 hours, and the batch is retried under the key Resend dedupes on.`,
+        );
+      }
+      retryTries += 1;
+      // oxlint-disable-next-line no-await-in-loop -- a retry waits for the try before it
+      await deps.sleep(wait);
+      continue;
+    }
+    if (answer.error === "rate_limited" || answer.status === 429) {
+      const wait = NOTICE_RATE_WAITS_MS[rateTries];
+      if (wait === undefined) {
+        report(false, sent, failed);
+        throw new Refusal(
+          "Resend refused for its rate limit or its quota four times. The run resumes where it stopped: dispatch again later, after the quota resets.",
+        );
+      }
+      rateTries += 1;
+      // oxlint-disable-next-line no-await-in-loop -- a retry waits for the try before it
+      await deps.sleep(wait);
+      continue;
+    }
+    if (answer.status !== 200 || answer.counts === undefined) {
+      if (sent + failed > 0) report(false, sent, failed);
+      throw new Refusal(
+        answer.status === 200
+          ? "osn-api answered in a form this script does not read; nothing from it is printed."
+          : noticeRefusal(answer),
+      );
+    }
+    first = false;
+    rateTries = 0;
+    retryTries = 0;
+    const c = answer.counts;
+    if (c.get("finished") === true) {
+      report(true, countOf(c, "sentSoFar"), countOf(c, "failedSoFar"));
+      return;
+    }
+    const batchSent = countOf(c, "sent");
+    const batchFailed = countOf(c, "failed");
+    sent += batchSent;
+    failed += batchFailed;
+    batches += 1;
+    deps.out(
+      `Batch ${batches}: ${batchSent} sent, ${batchFailed} refused by Resend; ${countOf(c, "sentSoFar")} sent in all.`,
+    );
+    // oxlint-disable-next-line no-await-in-loop -- one request a second, leaving Resend room for sign-in mail
+    await deps.sleep(NOTICE_GAP_MS);
+  }
+  report(false, sent, failed);
+  throw new Refusal("The run made more calls than max_sends allows for; dispatch again.");
+}
+
 // ── running ─────────────────────────────────────────────────────────────────
 
 function summary(deps: Deps, lines: readonly string[]): void {
@@ -729,6 +1145,8 @@ const ACTIONS = new Map<string, (deps: Deps) => Promise<void> | void>([
   ["plan-register", planRegister],
   ["register-cire-arc", registerCireArc],
   ["count-deletion-fanouts", countDeletionFanouts],
+  ["check-notice", checkNotice],
+  ["send-change-notice", sendChangeNotice],
 ]);
 
 /** Runs one action; the exit code. Prints nothing an error carries but a message written here. */

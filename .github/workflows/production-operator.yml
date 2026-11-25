@@ -12,6 +12,9 @@
 #   |                        |                            | while osn-api there predates the scope   |
 #   |                        |                            | renewal, one expired, revoked throwaway  |
 #   |                        |                            | key too (englishstreetventures/osn#2432) |
+#   | send-change-notice     | OSN_CHANGE_NOTICE_SECRET   | a change notice to every account, sent   |
+#   |                        |                            | by production osn-api, at most max_sends |
+#   |                        |                            | this run; with dry_run, nothing: counts  |
 #
 # Rules every action keeps:
 #   - The job that holds a secret runs under `environment: production`, after
@@ -40,6 +43,19 @@
 # this workflow never holds: that stays the hand POST in
 # wiki/shared/production-deploy.md §6.2.
 #
+# send-change-notice mails a notice from osn-api's reviewed registry
+# (osn/api/src/services/change-notices.json) to every account. The check job
+# reads the registry at the commit production osn-api runs and shows the
+# approver the notice in full and its digest; the send job refuses unless
+# production still runs that commit, and every call carries the digest, which
+# osn-api refuses unless its own notice matches. osn-api reads the addresses
+# and sends; the runner sees counts only. Run it with dry_run first. max_sends
+# caps the addresses one run sends, so a run cannot use up the Resend quota
+# sign-in mail needs; a run stopped by it, by Resend or by a failure resumes
+# where it stopped when dispatched again. resend_unconfirmed sends again the
+# one batch osn-api could not confirm, and some in it may get the notice twice.
+# wiki/osn/change-notices.md is the runbook.
+#
 # count-deletion-fanouts' window defaults to the one the account-deletion
 # follow-up asked about: from the production release of 2026-11-16T02:17:49Z to
 # the one of 2026-11-17T00:59:22Z. Both ends are included.
@@ -60,6 +76,7 @@ on:
         options:
           - count-deletion-fanouts
           - register-cire-arc
+          - send-change-notice
       window_start:
         description: "count-deletion-fanouts: the window's start, YYYY-MM-DDTHH:MM:SSZ, included. The default is the 2026-11-16 release."
         required: false
@@ -70,6 +87,24 @@ on:
         required: false
         type: string
         default: "2026-11-17T00:59:22Z"
+      notice_id:
+        description: "send-change-notice: the notice's id in osn-api's registry."
+        required: false
+        type: string
+      dry_run:
+        description: "send-change-notice: count the accounts it would reach, and send nothing."
+        required: false
+        type: boolean
+        default: true
+      max_sends:
+        description: "send-change-notice: the most addresses this run sends, 1 to 100000. Keep it inside the Resend quota left after sign-in mail."
+        required: false
+        type: string
+      resend_unconfirmed:
+        description: "send-change-notice: send again the one batch osn-api could not confirm; some in it may get the notice twice."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -93,6 +128,8 @@ jobs:
       commit: ${{ steps.plan.outputs.commit }}
       scopes: ${{ steps.plan.outputs.scopes }}
       method: ${{ steps.plan.outputs.method }}
+      osn_commit: ${{ steps.notice.outputs.osn_commit }}
+      notice_digest: ${{ steps.notice.outputs.notice_digest }}
     steps:
       - name: Refuse any ref but main
         if: github.ref != 'refs/heads/main'
@@ -100,12 +137,13 @@ jobs:
           echo "::error::Dispatch this workflow from main; the production Environment admits main alone."
           exit 1
 
-      # Full history for the registration, whose scopes are read at whichever
-      # commit production runs; one commit for the count. `0` is false in an
-      # expression, so the condition names the action that needs 1.
+      # Full history for the registration and the change notice, whose scopes
+      # and notice are read at whichever commit production runs; one commit
+      # for the count. `0` is false in an expression, so the condition names
+      # the action that needs 1.
       - uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ inputs.action != 'register-cire-arc' && 1 || 0 }}
+          fetch-depth: ${{ inputs.action != 'register-cire-arc' && inputs.action != 'send-change-notice' && 1 || 0 }}
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
@@ -125,6 +163,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: bun --no-install scripts/production-operator.ts plan-register
+
+      - name: Read the notice production osn-api would send
+        id: notice
+        if: inputs.action == 'send-change-notice'
+        env:
+          NOTICE_ID: ${{ inputs.notice_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RESEND_UNCONFIRMED: ${{ inputs.resend_unconfirmed }}
+          MAX_SENDS: ${{ inputs.max_sends }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun --no-install scripts/production-operator.ts check-notice
 
   register-cire-arc:
     name: Renew cire-api's ARC scopes at production osn-api
@@ -184,3 +233,43 @@ jobs:
           WINDOW_START: ${{ inputs.window_start }}
           WINDOW_END: ${{ inputs.window_end }}
         run: bun --no-install scripts/production-operator.ts count-deletion-fanouts
+
+  send-change-notice:
+    name: Send a change notice through production osn-api
+    needs: check
+    if: inputs.action == 'send-change-notice'
+    runs-on: ubuntu-latest
+    # At most 100,000 addresses: about 1,000 calls a second or more apart.
+    timeout-minutes: 120
+    environment: production
+    # One run at a time: two would answer each other busy, batch by batch.
+    concurrency:
+      group: production-operator-send-change-notice
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      deployments: read
+      actions: read
+    steps:
+      # Full history: the notice is read again at the commit production runs.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Send
+        env:
+          OSN_CHANGE_NOTICE_SECRET: ${{ secrets.OSN_CHANGE_NOTICE_SECRET }}
+          NOTICE_ID: ${{ inputs.notice_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RESEND_UNCONFIRMED: ${{ inputs.resend_unconfirmed }}
+          MAX_SENDS: ${{ inputs.max_sends }}
+          # What the approver saw; the script refuses if production moved on.
+          EXPECTED_OSN_COMMIT: ${{ needs.check.outputs.osn_commit }}
+          EXPECTED_NOTICE_DIGEST: ${{ needs.check.outputs.notice_digest }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun --no-install scripts/production-operator.ts send-change-notice
