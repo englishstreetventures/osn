@@ -11,7 +11,7 @@ related:
   - "[[access-control]]"
   - "[[cire]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-26
 ---
 
 # Subprocessor Register
@@ -183,7 +183,7 @@ Do this when you remove a processor:
 - [ ] Confirm data deletion certificate (or contractual deletion within DPA's offboarding window)
 - [ ] Update [[data-map]] to remove the recipient
 - [ ] Move the row from "Active" to "Removed" below
-- [ ] Notify users only if material change to privacy notice (e.g. region change)
+- [ ] If the change to the privacy notice is material (a region change, say), send a change notice to every account ([[change-notices#Sending a change notice]])
 
 ## Removed processors
 

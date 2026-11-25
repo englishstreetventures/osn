@@ -163,3 +163,14 @@ The minimum information per row:
 | 1 yr cire guest data (after final event) | The window **published in the cire `/privacy` notice** (PR #124) and enforced by `sweepExpiredGuestData` (PR #132). One year past the last event covers post-wedding thank-yous / late corrections while honouring storage limitation for special-category dietary data. Open-ended events (no stated end — legal since 2026-07-08) count from their **start** instant. The year is read from a stored Start or End only when it begins with its date; a wedding with any other value is never dated by a guess, and falls to the 3-year bound below, as does a wedding with no events. |
 | 3 yr cire guest data of a wedding with an event the sweep cannot date, or with no events (after creation) | Owner decision, 2026-11-18 (osn#2408): a bound from `weddings.created_at`, applied only to a wedding the sweep cannot date, rather than a clock that always runs; the owner expects unreadable dates not to occur. It applies whatever the wedding's readable dates say, so a wedding planned more than three years ahead with one unreadable event can lose its guest data before a readable event of it; the owner chose that over a rule that also waits for the readable dates (osn#2412). Owner decision, 2026-11-18 (osn#2410): a wedding with households and no events is treated the same, rather than kept with no end date. Such a wedding holds no RSVP or dietary answer (each needs an event, and goes with it), but does hold its guests' names and email addresses, its import sheets and any gift notes. The three years is the owner's figure, not checked against advice for cire's entity. |
 | Cire registry contributions: the guest data's window (same sweep) | Deliberately the SAME window as the guest data, not a longer tax window (owner decision, 2026-08-24): cire holds no funds and is not the merchant of record, so no payment-record obligation attaches to cire's copy — the couple's Stripe account and bank records are the durable financial record. A final summary email (count + totals — see the schedule row) preserves the couple's own record before the detail rows go. |
+
+## Change-notice runs
+
+`change_notice_runs` (osn-api), one row per change notice the operator has
+started to send ([[change-notices]]). While a run lasts, a stalled one
+included, `cursor` and `pending_last` hold account ids; the run clears both
+when it finishes, and a CHECK refuses a finished row that holds either. The
+finished row — the notice id, when the run started and finished, how many
+addresses were sent and refused — is kept for good, holding no personal data,
+as the record that the notice went out (Art. 5(2)). Enforcement: app code (the
+run's last call). Owner: Identity.
