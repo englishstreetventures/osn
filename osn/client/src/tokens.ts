@@ -211,6 +211,25 @@ export function isPendingDeletionToken(jwt: string): boolean {
 }
 
 /**
+ * The audience osn-api gives the access tokens of a restricted session: one
+ * that may only enrol a passkey, which account recovery and a sign-up before
+ * its first passkey hold. Mirrors `RECOVERY_TOKEN_AUDIENCE` in `@osn/api`
+ * (`src/services/auth/constants.ts`).
+ */
+const RESTRICTED_AUDIENCE = "osn-recovery";
+
+/**
+ * Whether an access token belongs to a restricted session: its `aud` is
+ * `osn-recovery`. Every route but passkey enrolment refuses it, so a page
+ * never publishes one as its session. Read without verification: the issuer
+ * decides what the token reaches, and this only decides what the page shows.
+ */
+export function isRestrictedToken(jwt: string): boolean {
+  const aud = decodeJwtPayload(jwt)?.aud;
+  return Array.isArray(aud) ? aud.includes(RESTRICTED_AUDIENCE) : aud === RESTRICTED_AUDIENCE;
+}
+
+/**
  * The lifetime the issuer gave a JWT, `exp - iat`, in milliseconds. Null when
  * either claim is missing or the two do not describe a positive span. Read
  * without verification: the value only tunes when the client renews.

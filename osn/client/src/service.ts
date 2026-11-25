@@ -21,6 +21,7 @@ import {
   extractJwtLifetimeMs,
   extractJwtSub,
   isPendingDeletionToken,
+  isRestrictedToken,
   parseTokenResponse,
 } from "./tokens";
 import type {
@@ -240,8 +241,9 @@ export interface OsnAuthService {
    * **without adopting it** — nothing is written to storage, nothing is
    * cached, and no session resource is refetched.
    *
-   * For a flow that HOLDS a session rather than publishing one. Post-recovery
-   * passkey enrolment is the case that needs it: its token carries
+   * For a flow that HOLDS a session rather than publishing one. Passkey
+   * enrolment on a restricted session — after a recovery, or a sign-up before
+   * its first passkey — is the case that needs it: its token carries
    * `aud: "osn-recovery"`, which every ordinary route rejects, and adopting it
    * would announce a signed-in user the rest of the app cannot serve. Holding
    * it also puts the flow outside `authFetch`, so the silent refresh that keeps
@@ -264,8 +266,8 @@ export interface OsnAuthService {
   readonly logout: () => Effect.Effect<void, StorageError>;
 
   /**
-   * Persists a Session that was obtained out-of-band (e.g. from the
-   * email-verified registration flow, which returns a Session directly).
+   * Persists a Session that was obtained out-of-band (e.g. the ordinary
+   * session a new account's cookie renews into once its first passkey is in).
    */
   readonly setSession: (session: Session) => Effect.Effect<void, StorageError>;
 
@@ -1058,7 +1060,8 @@ export function createOsnAuthLive(
       // of the app's session state, and refreshing it must not be the thing
       // that publishes it.
       //
-      // A restricted recovery session is the caller. On the server the grant
+      // A restricted session is the caller: a recovery's, or a sign-up's
+      // before its first passkey. On the server the grant
       // re-mints on the recovery audience for as long as the row's
       // `restricted_until` is set, and carries that deadline forward rather
       // than extending it — so this can renew the token but can never buy the
@@ -1130,6 +1133,17 @@ export function createOsnAuthLive(
             return null;
           }
           const next = answer.success;
+
+          // A session that may only enrol a passkey (a recovery, or a sign-up
+          // before its first passkey) is no session for the page: every route
+          // it would call refuses its token. The page stays signed out and the
+          // view that enrols holds the session itself (`refreshHeldSession`).
+          // A stored account the cookie no longer backs goes, as on a refusal.
+          if (isRestrictedToken(next.accessToken)) {
+            cache = null;
+            yield* storage.remove(ACCOUNT_SESSION_KEY).pipe(Effect.catch(() => Effect.void));
+            return null;
+          }
 
           // The access token's `sub` is the active profile id.
           const profileId = extractJwtSub(next.accessToken) ?? "default";

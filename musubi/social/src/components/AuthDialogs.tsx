@@ -1,5 +1,5 @@
 import { hasPendingRecovery } from "@osn/auth-ui/pending-recovery";
-import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
+import { forgetDraft, forgetEnrolling, hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import { Register } from "@osn/auth-ui/Register";
 import { SignIn } from "@osn/auth-ui/SignIn";
 import { useAuth } from "@osn/client/solid";
@@ -28,7 +28,9 @@ function focusDialog(event: Event) {
 /**
  * The Create-account and Sign-in dialogs, mounted once through
  * `ShellDialogSet`, above the desktop/phone shell switch; `ShellDialogs` owns
- * their open flags. Both close themselves the moment a session exists.
+ * their open flags. Both close themselves the moment a session exists. Each
+ * links to the other ("Already have an account? Sign in", "No account yet?
+ * Create one"), which closes the one and opens the other.
  */
 export function AuthDialogs(props: {
   showRegister: boolean;
@@ -46,8 +48,13 @@ export function AuthDialogs(props: {
   // next time the session went away — sign out, and the create-account modal
   // was waiting. Reset on any arriving session, whatever its source: this
   // flow's own `onSuccess`, another tab, a cookie bootstrap.
+  //
+  // A session also ends any sign-up this browser kept: what was typed, and an
+  // account waiting for its first passkey, whose cookie the session replaced.
   createEffect(() => {
     if (!session()) return;
+    forgetDraft();
+    forgetEnrolling();
     if (props.showRegister) props.onShowRegisterChange(false);
     if (props.showSignIn) props.onShowSignInChange(false);
   });
@@ -79,6 +86,10 @@ export function AuthDialogs(props: {
             legal={{ termsHref: "/terms", privacyHref: "/privacy" }}
             onCancel={() => props.onShowRegisterChange(false)}
             onSuccess={() => props.onShowRegisterChange(false)}
+            onSignIn={() => {
+              props.onShowRegisterChange(false);
+              props.onShowSignInChange(true);
+            }}
           />
         </ResponsiveDialogContent>
       </Dialog>
@@ -97,6 +108,10 @@ export function AuthDialogs(props: {
             productName={PRODUCT_NAME}
             onCancel={() => props.onShowSignInChange(false)}
             onSuccess={() => props.onShowSignInChange(false)}
+            onCreateAccount={() => {
+              props.onShowSignInChange(false);
+              props.onShowRegisterChange(true);
+            }}
           />
         </ResponsiveDialogContent>
       </Dialog>

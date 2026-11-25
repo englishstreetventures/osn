@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-26
 ---
 
 # Session introspection + revocation
@@ -180,7 +180,7 @@ Refresh-token rotation (Copenhagen Book C2) inserts a new session row with a rot
 
 ## The restricted recovery session
 
-Account recovery has to end in something that lets the user enrol a fresh passkey and do **nothing else**. That session exists as of `sessions.restricted_until`, and the restriction is carried by a **distinct token audience**, not by a flag.
+Account recovery has to end in something that lets the user enrol a fresh passkey and do **nothing else**. That session exists as of `sessions.restricted_until`, and the restriction is carried by a **distinct token audience**, not by a flag. A sign-up hands the same kind of session to the tab that began it, until the new account has its first passkey ([[#A sign-up's session before its first passkey]]).
 
 The obvious design — a `restricted` boolean checked in "the access-token guard" — has no place to live. There is no single guard: four entry points in `@osn/api` verify access tokens, and three services outside this repo (`pulse/api`, `zap/api`, `cire/api`, all through `@shared/osn-auth-client`) verify the same token over JWKS with no access to OSN's D1. A column is invisible to those three, so a "restricted" session would still read and write Pulse events and Zap chats.
 
@@ -190,7 +190,7 @@ So the access token is minted with `aud: "osn-recovery"` instead of `"osn-access
 |---|---|---|
 | Access-token `aud` | `osn-access` | `osn-recovery` |
 | `sessions.restricted_until` | `NULL` | Unix seconds, = `expires_at` |
-| `sessions.restricted_amr` | `NULL` | the factor that minted it — `otp`, `totp` or `webauthn` |
+| `sessions.restricted_amr` | `NULL` | the factor that minted it — `otp`, `totp` or `webauthn`; `signup` on a sign-up's session, which names no ceremony |
 | Lifetime | 30 days, sliding | **15 minutes, absolute — never slides** |
 | Accepted by | every verifier | `resolvePasskeyEnrollPrincipal` only |
 | Counts against `MAX_SESSIONS_PER_ACCOUNT` | yes | yes |
@@ -231,7 +231,20 @@ That `UPDATE` is the one write that turns a restricted session into a full one, 
 
 **Refreshing one from the browser.** `@osn/client` exposes `refreshHeldSession` alongside `refreshSession`, and the difference is the whole reason it exists: it redeems the refresh cookie and returns the token set **without adopting it** — no storage write, no cached account, no session resource refetched. It is for a flow that deliberately holds a session rather than publishing one, which is every flow whose token the rest of the app would reject. Post-recovery passkey enrolment is the caller; holding the session is what puts it outside `authFetch`, so this is its only refresh path. Both share one single-flight `/token` grant, so a component refreshing while the provider bootstraps produces one request — two would replay a rotated cookie, which is what reuse detection revokes a family for.
 
-**Two routes mint one:** the email recovery status poll, `POST /login/recovery/email/:requestId/status` (for the tab holding the claim secret, once the emailed link is confirmed — [[email-links]]), and `POST /login/recovery/totp/complete` — see `wiki/osn/account-recovery-factors.md` §B.
+**Three routes mint one:** the email recovery status poll, `POST /login/recovery/email/:requestId/status` (for the tab holding the claim secret, once the emailed link is confirmed — [[email-links]]), and `POST /login/recovery/totp/complete` — see `wiki/osn/account-recovery-factors.md` §B; and the completing sign-up status poll, below.
+
+### A sign-up's session before its first passkey
+
+The completing sign-up status poll, `POST /register/:requestId/status`, makes the account and answers the tab holding the claim secret with a session (`issueSignUpSession` in [`tokens.ts`](../../osn/api/src/services/auth/tokens.ts)). The account has no passkey yet, so the session is a restricted one, with everything the table above gives a recovery session: `aud: "osn-recovery"`, a 15-minute absolute deadline, accepted only by the two enrolment routes, its cookie refused by `verifyRefreshToken` to `/authorize` and every reader but its own rotation. Without it, the cookie the poll sets would be an ordinary 30-day session for an account with no way to sign back in, and `/authorize` would hand that account to relying parties.
+
+It differs in what its row records: `restricted_amr = 'signup'`.
+
+- **No bypass.** `signup` is not in `passkeyRegisterAllowedAmr`, so the session takes nobody past the step-up gate. Its first passkey needs no gate; a second, from a session somehow still restricted, needs a step-up like anyone's.
+- **The first passkey is the account's own.** `beginPasskeyRegistration` stamps a restricted caller's credential `recovery`, except a live row marked `signup` enrolling an account with no passkey, whose credential is `webauthn`: the root of trust, with no recovery behind it. The rule reads the value, never its absence, so a restricted row with no recorded value still gets `recovery` ([[passkey-primary#Step-up gating on register]]).
+- **The lift is the same.** Enrolling clears `restricted_until` and `restricted_amr`, and the next `/token` grant mints `osn-access`. `Register` makes that grant and publishes it only when it is the account's ordinary session.
+- **A lapsed one strands nothing but the session.** After 15 minutes the account has no session and no passkey; the way in is the emailed recovery link, which stamps that first passkey `recovery`.
+
+The sign-up funnel counts the first passkey as `auth.register.attempts{step="passkey_enroll"}`, so `complete` minus it is the sign-ups that never got one. Tests: `osn/api/tests/routes/sign-up-session.test.ts`; `/authorize` with its cookie in `osn/api/tests/routes/oidc.test.ts`.
 
 ## The pending-deletion session
 

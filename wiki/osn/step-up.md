@@ -8,7 +8,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Step-up (sudo) tokens
@@ -356,7 +356,11 @@ reason a user adds a device by email is that the first one is hard to reach.
 **Bootstrap is `webauthn`.** The account's first passkey follows a sign-up
 proved by an emailed link, so a literal reading would stamp it `otp` — and through
 inheritance that would restrict every credential the account ever derived from
-it. It is the account's root of trust. A first passkey enrolled after a
+it. It is the account's root of trust. The sign-up's own session is a
+restricted one until then, and its row records `signup`: that value, read
+positively, is what makes the first passkey `webauthn` rather than the
+`recovery` every other restricted caller's gets ([[sessions#A sign-up's session before its first passkey]]).
+A first passkey enrolled after a
 recovery is not a bootstrap: whether a restricted recovery session enrols it or
 the ordinary session a recovery code opened does, within the 72 hours the
 recovery stamped (`accounts.last_recovered_at`), it is `recovery` and waits out

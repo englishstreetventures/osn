@@ -675,9 +675,9 @@ export function createRegistrationModule(
           yield* links.spend(requestId, claimed);
           return { kind: "conflict" } as const;
         }
-        // Restricted until the account has a passkey: only enrolment accepts
-        // it (`issueSignUpSession`). The account was created just now, so no
-        // deletion is pending.
+        // Restricted until the account has a passkey, so only enrolment
+        // takes this session (`issueSignUpSession`). The account was created
+        // just now, so no deletion is pending.
         const issued = yield* issueSignUpSession(
           profileId,
           accountId,

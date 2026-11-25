@@ -25,8 +25,9 @@ import { parseTokenResponse, type Session } from "./tokens";
  *                                            any device) it creates the
  *                                            account + profile and returns
  *                                            `{ profileId, session }`. The
- *                                            session is ready to hand to
- *                                            `AuthProvider.adoptSession`.
+ *                                            session is restricted until the
+ *                                            account has a passkey: hold it
+ *                                            for steps 4–5, never adopt it.
  *     `resendRegistrationLink(...)`        — another link for the same request.
  *  4. `passkeyRegisterBegin({profileId, accessToken})`  — fetch WebAuthn
  *                                            options. Pass the access

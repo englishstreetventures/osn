@@ -1,3 +1,4 @@
+import { ENROLLING_KEY, forgetEnrolling } from "@osn/auth-ui/pending-sign-up";
 import { Register } from "@osn/auth-ui/Register";
 import type { PublicProfile, RegistrationClient, Session } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
@@ -54,7 +55,7 @@ export const Default: Story = {
   render: () => (
     <Gallery
       title="osn/auth-ui Register — in the dialog"
-      intro='The details step in the real sheet, named "Create your Musubi account".'
+      intro='The details step in the real sheet, named "Create your Musubi account", ending with the way across to sign-in, as Musubi passes it.'
     >
       <DialogBench>
         <AuthContext.Provider value={signedOut()}>
@@ -64,6 +65,7 @@ export const Default: Story = {
             productName="Musubi"
             legal={legal}
             onCancel={() => {}}
+            onSignIn={() => {}}
           />
         </AuthContext.Provider>
       </DialogBench>
@@ -91,4 +93,40 @@ export const OnAuthorize: Story = {
       </AuthorizeColumn>
     </Gallery>
   ),
+};
+
+/**
+ * The passkey step as a reload, a closed dialog or a closed tab brings it
+ * back: the account the browser kept, named by the handle the server made it
+ * under. The kept entry is written for this story and removed once the view
+ * has read it, so no other story opens on it.
+ */
+export const PasskeyStep: Story = {
+  render: () => {
+    localStorage.setItem(
+      ENROLLING_KEY,
+      JSON.stringify({ profileId: "usr_lab", handle: "ada", expiresAt: Date.now() + 60_000 }),
+    );
+    const view = (
+      <AuthContext.Provider value={signedOut()}>
+        <Register
+          host="dialog"
+          client={client}
+          productName="Musubi"
+          legal={legal}
+          onCancel={() => {}}
+          onSignIn={() => {}}
+        />
+      </AuthContext.Provider>
+    );
+    forgetEnrolling();
+    return (
+      <Gallery
+        title="osn/auth-ui Register — the passkey step, come back to"
+        intro="Add a passkey, naming the handle the account was made under."
+      >
+        <DialogBench>{view}</DialogBench>
+      </Gallery>
+    );
+  },
 };

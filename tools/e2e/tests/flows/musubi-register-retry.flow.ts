@@ -124,6 +124,25 @@ test("musubi-register-retry", async ({ page, browser, flow }) => {
     await page.getByRole("button", { name: "Start again" }).click();
     await expect(page.getByLabel("Email")).toHaveValue(grace.email);
   });
+
+  // What was typed survives a reload of the tab; the number never reaches its
+  // storage.
+  await flow.step("register: a reload keeps every field typed", async () => {
+    await page.reload();
+    await page.getByRole("button", { name: "Create account" }).first().click();
+    await expect(page.getByLabel("Email")).toHaveValue(grace.email);
+    await expect(page.getByLabel("Handle")).toHaveValue(grace.handle);
+    await expect(page.getByLabel("Date of birth")).toHaveValue("1990-01-01");
+    await expect(page.getByLabel("Display name (optional)")).toHaveValue(grace.name);
+  });
+  const storedValues = await page.evaluate(() =>
+    Object.keys(sessionStorage).map((key) => sessionStorage.getItem(key) ?? ""),
+  );
+  flow.check(
+    "the tab's storage holds no number",
+    false,
+    storedValues.some((value) => value.includes(`"${pairingCode}"`)),
+  );
   flow.check("sign-up begun once", 1, flow.count("POST osn-api /register/begin "));
   flow.check("the begin answered 200", true, flow.saw("POST osn-api /register/begin 200"));
   flow.check("the link resent", true, flow.saw("POST osn-api /register/:id/resend 200"));

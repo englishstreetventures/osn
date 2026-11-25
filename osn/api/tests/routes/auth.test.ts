@@ -2449,20 +2449,20 @@ describe("auth routes", () => {
         "passkey_register",
         "recovery_code_generate",
       ]);
-      const generated = json.events.filter((e) => e.kind === "recovery_code_generate");
-      expect(generated[0]!.id).toMatch(/^sev_[a-f0-9]{12}$/);
+      const generated = json.events.find((e) => e.kind === "recovery_code_generate")!;
+      expect(generated.id).toMatch(/^sev_[a-f0-9]{12}$/);
       // The route's `response` schema deletes any key it doesn't declare, so
       // pin the whole `SecurityEventSummary` key set: dropping `createdAt` or
       // `uaLabel` would quietly leave the banner unable to say when the event
       // happened or which device caused it.
-      expect(Object.keys(generated[0]!).toSorted()).toEqual([
+      expect(Object.keys(generated).toSorted()).toEqual([
         "createdAt",
         "id",
         "ipHash",
         "kind",
         "uaLabel",
       ]);
-      expect(typeof generated[0]!.createdAt).toBe("number");
+      expect(typeof generated.createdAt).toBe("number");
     });
 
     // the list is per-user and names auth events — nothing may

@@ -392,3 +392,52 @@ it.effect("a CORS/network TypeError is attempted twice, not three times", () =>
     expect(tokenCalls).toBe(2);
   }).pipe(Effect.provide(createTestLayer())),
 );
+
+// ---------------------------------------------------------------------------
+// A cookie whose session may only enrol a passkey: a sign-up before its first
+// passkey, or an account recovery. `/token` renews it onto `osn-recovery`,
+// which every ordinary route refuses, so publishing it would show a signed-in
+// page that cannot load anything. The page stays signed out; the view that
+// enrols the passkey holds that session itself (`refreshHeldSession`).
+// ---------------------------------------------------------------------------
+
+/** A fake JWT on the given audience. */
+function fakeJwtFor(sub: string, aud: string): string {
+  const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+  const payload = btoa(JSON.stringify({ sub, aud, iat: Date.now() }));
+  return `${header}.${payload}.fake_signature`;
+}
+
+it.effect("loadSession publishes no session when the cookie's grant is a restricted one", () =>
+  Effect.gen(function* () {
+    let tokenCalls = 0;
+    const fetchMock = vi
+      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+        if (url.endsWith("/token")) {
+          tokenCalls += 1;
+          return Promise.resolve(
+            mockResponse(200, {
+              access_token: fakeJwtFor("usr_restricted01", "osn-recovery"),
+              token_type: "Bearer",
+              expires_in: 300,
+              scope: "openid profile",
+            }),
+          );
+        }
+        return Promise.resolve(mockResponse(404));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).toBeNull();
+    expect(tokenCalls).toBe(1);
+    // Nothing stored: the next load asks the cookie again rather than holding
+    // a token no route serves.
+    expect(yield* auth.getSession()).toBeNull();
+    expect(yield* auth.getActiveProfile()).toBeNull();
+  }).pipe(Effect.provide(createTestLayer())),
+);

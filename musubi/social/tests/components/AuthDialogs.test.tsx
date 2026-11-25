@@ -23,10 +23,16 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
     </div>
   ),
 }));
-const pendingSignUp = vi.hoisted(() => ({ value: false }));
+const pendingSignUp = vi.hoisted(() => ({
+  value: false,
+  forgetDraft: vi.fn(),
+  forgetEnrolling: vi.fn(),
+}));
 
 vi.mock("@osn/auth-ui/pending-sign-up", () => ({
   hasPendingSignUp: () => pendingSignUp.value,
+  forgetDraft: pendingSignUp.forgetDraft,
+  forgetEnrolling: pendingSignUp.forgetEnrolling,
 }));
 vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { onSuccess?: () => void; productName: string }) => (
@@ -161,6 +167,23 @@ describe("<AuthDialogs /> — close-on-session invariant", () => {
 
     expect(onShowRegisterChange).toHaveBeenCalledWith(false);
     expect(onShowSignInChange).toHaveBeenCalledWith(false);
+  });
+
+  it("forgets a kept sign-up once a session appears, and not before", async () => {
+    const [session, setSession] = createSignal<unknown>(null);
+    pendingSignUp.forgetDraft.mockClear();
+    pendingSignUp.forgetEnrolling.mockClear();
+    renderDialogs(makeAuth(session), { register: true, signIn: false });
+    expect(pendingSignUp.forgetDraft).not.toHaveBeenCalled();
+    expect(pendingSignUp.forgetEnrolling).not.toHaveBeenCalled();
+
+    // The session's cookie replaced the sign-up's, and what was typed is not
+    // for the next person to open Create account.
+    setSession(SAMPLE_SESSION);
+    await Promise.resolve();
+
+    expect(pendingSignUp.forgetDraft).toHaveBeenCalled();
+    expect(pendingSignUp.forgetEnrolling).toHaveBeenCalled();
   });
 
   // Only the flag that was actually set gets cleared. Without the per-flag

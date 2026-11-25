@@ -15,7 +15,7 @@ import { describePasskeyError } from "./passkey-errors";
 import { hasPendingRecovery, RecoveryLoginForm } from "./RecoveryLoginForm";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
-import { StepLink, stepAction, ViewStep } from "./ViewParts";
+import { StepLink, stepAction, SwitchLine, ViewStep } from "./ViewParts";
 
 /**
  * Shared sign-in component. WebAuthn (passkey or security key) is the only
@@ -59,6 +59,11 @@ interface SignInBaseProps {
   turnstileSiteKey?: string;
   /** Product name shown in this dialog's copy — e.g. "Musubi". */
   productName: string;
+  /**
+   * Takes the person to the host's create-account view. Given, the passkey
+   * form ends with "No account yet? Create one".
+   */
+  onCreateAccount?: () => void;
 }
 
 /**
@@ -262,7 +267,21 @@ export function SignIn(props: SignInProps) {
                 {busy() ? "Verifying…" : "Continue"}
               </Button>
             }
-            links={lostPasskey()}
+            links={
+              <>
+                {lostPasskey()}
+                <Show when={props.onCreateAccount}>
+                  {(onCreateAccount) => (
+                    <SwitchLine
+                      lead="No account yet?"
+                      action="Create one"
+                      onClick={onCreateAccount()}
+                      disabled={busy()}
+                    />
+                  )}
+                </Show>
+              </>
+            }
           >
             <Field labelTreatment="plain" label="Email or @handle">
               {(field) => (

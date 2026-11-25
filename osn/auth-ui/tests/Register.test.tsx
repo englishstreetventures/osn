@@ -19,6 +19,7 @@ const hoisted = vi.hoisted(() => {
   return {
     webauthnSupported: true,
     adoptSession: vi.fn(),
+    refreshHeldSession: vi.fn(),
     startRegistration: vi.fn(),
   };
 });
@@ -26,6 +27,7 @@ const hoisted = vi.hoisted(() => {
 vi.mock("@osn/client/solid", () => ({
   useAuth: () => ({
     adoptSession: hoisted.adoptSession,
+    refreshHeldSession: hoisted.refreshHeldSession,
   }),
 }));
 
@@ -132,6 +134,20 @@ const sampleSession = {
   scopes: [],
 };
 
+/** A JWT for `sub` on `aud`, as osn-api writes one; the signature is never read here. */
+function jwtFor(sub: string, aud: string): string {
+  const part = (value: unknown) => btoa(JSON.stringify(value)).replace(/=+$/, "");
+  return `${part({ alg: "ES256" })}.${part({ sub, aud })}.sig`;
+}
+
+/** The ordinary session the cookie renews into once the passkey is in. */
+const renewedSession = {
+  accessToken: jwtFor("usr_abc", "osn-access"),
+  idToken: null,
+  expiresAt: Date.now() + 300_000,
+  scopes: [],
+};
+
 /** The number the waiting view shows, or null: the digits after its hidden "Your number:". */
 function shownNumber(): string | null {
   const label = screen.queryByText("Your number:");
@@ -161,6 +177,10 @@ describe("Register component", () => {
     hoisted.webauthnSupported = true;
     stub = makeClientStub();
     hoisted.adoptSession.mockReset();
+    hoisted.refreshHeldSession.mockReset();
+    // Once the passkey is in, the cookie renews into the account's ordinary
+    // session, which is what the view publishes.
+    hoisted.refreshHeldSession.mockResolvedValue({ held: true, session: renewedSession });
     hoisted.startRegistration.mockReset();
     sessionStorage.clear();
     localStorage.clear();
@@ -201,7 +221,7 @@ describe("Register component", () => {
       // except [a-z0-9_], so any input that survives is by construction valid.
       // Instead, drive the "invalid" branch via length: > 30 chars.
       fillHandle("a".repeat(31));
-      expect(screen.getByText(/1.30 chars/)).toBeTruthy();
+      expect(screen.getByText("Use 30 characters or fewer.")).toBeTruthy();
       expect(stub.checkHandle).not.toHaveBeenCalled();
     });
 
@@ -820,12 +840,17 @@ describe("Register component", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
       await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
-      late.resolve(completed());
+      // The handle is edited, but the account the server made is the first's.
+      fillHandle("alice_two");
+      late.resolve({ ...completed(), handle: "alice" });
       await waitFor(() => screen.getByRole("button", { name: /^Add a passkey$/ }));
       expect(hoisted.adoptSession).not.toHaveBeenCalled();
+      // The step names the handle the server answered, not the one typed.
+      expect(screen.getByText("@alice")).toBeTruthy();
+      expect(screen.queryByText("@alice_two")).toBeNull();
     });
 
-    it("publishes the session of a completing answer that lands after the dialog closed, and clears the stored wait", async () => {
+    it("keeps the account of a completing answer that lands after the dialog closed, publishes nothing, and clears the stored wait", async () => {
       stub.beginRegistration.mockResolvedValue(begun());
       const late = deferred<unknown>();
       stub.registrationStatus.mockReturnValueOnce(late.promise);
@@ -842,11 +867,20 @@ describe("Register component", () => {
       late.resolve(completed());
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
+      // The session is the new account's restricted one, which reaches
+      // nothing but enrolment: it is never published. The browser keeps the
+      // account instead, so the next view opens on its passkey step.
+      expect(hoisted.adoptSession).not.toHaveBeenCalled();
+      expect(JSON.parse(localStorage.getItem("osn.signup.enrolling")!)).toMatchObject({
+        profileId: "usr_abc",
+        handle: "alice",
+      });
       expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
       expect(sessionStorage.getItem("osn.signup.previous")).toBeNull();
       await vi.advanceTimersByTimeAsync(60_000);
       expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+      renderRegister();
+      expect(screen.getByRole("button", { name: /^Add a passkey$/ })).toBeTruthy();
     });
 
     it("drops a stale expired answer for a request it no longer waits on", async () => {
@@ -922,7 +956,11 @@ describe("Register component", () => {
       await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
       const alert = screen.getByRole("alert");
       expect(alert.id).not.toBe("");
-      expect(screen.getByLabelText("Handle").getAttribute("aria-describedby")).toBe(alert.id);
+      // After the standing hint, which the field always names.
+      const names = screen.getByLabelText("Handle").getAttribute("aria-describedby")!.split(" ");
+      expect(names).toHaveLength(2);
+      expect(document.getElementById(names[0]!)?.textContent).toMatch(/^Up to 30 lowercase/);
+      expect(names[1]).toBe(alert.id);
     });
 
     it("drops the reason once the person changes the handle, and with it the field's description", async () => {
@@ -934,7 +972,10 @@ describe("Register component", () => {
       await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
       const field = fillHandle("alice_2");
       expect(screen.queryByText(/taken while you waited/i)).toBeNull();
-      expect(field.hasAttribute("aria-describedby")).toBe(false);
+      // Only the standing hint is left.
+      const names = field.getAttribute("aria-describedby")!.split(" ");
+      expect(names).toHaveLength(1);
+      expect(document.getElementById(names[0]!)?.textContent).toMatch(/^Up to 30 lowercase/);
     });
   });
 
@@ -1051,7 +1092,9 @@ describe("Register component", () => {
       expect(localStorage.getItem(LIVE)).toBeNull();
       view.unmount();
 
+      // A new sign-up from a fresh tab, with no account waiting for a passkey.
       sessionStorage.clear();
+      localStorage.removeItem("osn.signup.enrolling");
       renderRegister();
       await submitDetailsAs();
       expect(live()?.requestId).toBe(begun(1).requestId);
@@ -1169,6 +1212,24 @@ describe("Register component", () => {
       expect(localStorage.getItem(LIVE)).toBeNull();
     });
 
+    // `AuthDialogs` and `/authorize` read it to reopen `Register`, which then
+    // opens on the passkey step of the account the browser kept.
+    it("reports an account waiting for its first passkey, and drops one whose session has ended", () => {
+      const ENROLLING = "osn.signup.enrolling";
+      localStorage.setItem(
+        ENROLLING,
+        JSON.stringify({ profileId: "usr_abc", handle: "alice", expiresAt: Date.now() + 60_000 }),
+      );
+      expect(hasPendingSignUp()).toBe(true);
+
+      localStorage.setItem(
+        ENROLLING,
+        JSON.stringify({ profileId: "usr_abc", handle: "alice", expiresAt: Date.now() - 1 }),
+      );
+      expect(hasPendingSignUp()).toBe(false);
+      expect(localStorage.getItem(ENROLLING)).toBeNull();
+    });
+
     it("leaves another tab's entry in place when a begin that carried it is refused, and does not send it again", async () => {
       seedLive(3);
       stub.beginRegistration
@@ -1236,6 +1297,8 @@ describe("Register component", () => {
           retireSecret: begun(1).retireSecret,
         });
         await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+        // A rate limit holds Send for its minute.
+        if (!dropped) await vi.advanceTimersByTimeAsync(60_000);
 
         fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
         await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(3));
@@ -1279,10 +1342,16 @@ describe("Register component", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
+      // What is published is the session the cookie renews into once the
+      // passkey is in, never the restricted one the step held.
       await waitFor(() => {
-        expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
+        expect(hoisted.adoptSession).toHaveBeenCalledWith(renewedSession);
       });
+      expect(hoisted.adoptSession).not.toHaveBeenCalledWith(sampleSession);
       expect(stub.passkeyRegisterComplete.mock.invocationCallOrder[0]).toBeLessThan(
+        hoisted.refreshHeldSession.mock.invocationCallOrder[0],
+      );
+      expect(hoisted.refreshHeldSession.mock.invocationCallOrder[0]).toBeLessThan(
         hoisted.adoptSession.mock.invocationCallOrder[0],
       );
     });
@@ -1318,10 +1387,17 @@ describe("Register component", () => {
       fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
-        expect(screen.getByRole("alert").textContent).toContain(PASSKEY_GENERAL);
+        expect(screen.getByRole("alert").textContent).toContain(
+          "Your passkey is added, but we couldn't sign you in. Try again.",
+        );
       });
       expect(alertsText()).not.toContain("PLANTED");
-      expect(screen.getByRole("button", { name: /^Add a passkey$/ })).toBeTruthy();
+      // The passkey is in: a press only tries the sign-in again.
+      hoisted.adoptSession.mockResolvedValue(undefined);
+      fireEvent.click(screen.getByRole("button", { name: /^Try again$/ }));
+      await waitFor(() => expect(hoisted.adoptSession).toHaveBeenCalledTimes(2));
+      expect(stub.passkeyRegisterBegin).toHaveBeenCalledTimes(1);
+      expect(stub.passkeyRegisterComplete).toHaveBeenCalledTimes(1);
     });
 
     it("happy path: enrolls a WebAuthn credential using the freshly-issued access token", async () => {
@@ -1436,7 +1512,9 @@ describe("Register component", () => {
     }
 
     const send = () =>
-      screen.getByRole("button", { name: /Send verification link|Sending…/ }) as HTMLButtonElement;
+      screen.getByRole("button", {
+        name: /Send verification link|Sending…|Try again in/,
+      }) as HTMLButtonElement;
 
     it.each([
       ["a 400", apiError("PLANTED-register-400"), DETAILS],

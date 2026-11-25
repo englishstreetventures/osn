@@ -22,7 +22,6 @@ import { DatabaseSync } from "node:sqlite";
 import {
   test as base,
   expect,
-  type APIRequestContext,
   type BrowserContext,
   type CDPSession,
   type Page,
@@ -505,14 +504,18 @@ export async function osnDispatchFailureLog(): Promise<string> {
 /**
  * Registers an OSN account through the API, the way Musubi's dialog and the
  * emailed link's page do between them — begin, confirm with the pairing code
- * begin answered, claim — and leaves its session cookie in `request`'s jar.
- * For flows whose subject is not registration.
+ * begin answered, claim — then adds its first passkey on `page`, at Musubi's
+ * origin, with a virtual authenticator, as `Register`'s last step does. The
+ * claim's session is a restricted one until that passkey is in; the
+ * enrolment lifts it, so `page`'s context ends holding an ordinary session
+ * cookie. For flows whose subject is not registration.
  */
 export async function registerThroughApi(
   flow: Flow,
-  request: APIRequestContext,
+  page: Page,
   person: { readonly email: string; readonly handle: string; readonly name: string },
 ): Promise<void> {
+  const request = page.context().request;
   const headers = { Origin: ORIGINS.musubi };
   const beginUrl = `${ORIGINS.osnApi}/register/begin`;
   const begin = await request.post(beginUrl, {
@@ -544,6 +547,36 @@ export async function registerThroughApi(
   });
   flow.recordRequest("POST", statusUrl, status.status());
   expect(status.status(), "register status").toBe(201);
+  const made = (await status.json()) as { profileId: string; session: { access_token: string } };
+
+  // The first passkey, from a Musubi page, whose origin the ceremony is bound to.
+  await addVirtualAuthenticator(page);
+  await page.goto(`${ORIGINS.musubi}/privacy`);
+  const enrolled = await page.evaluate(
+    async ({ api, bearer, profileId }) => {
+      const sent = { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" };
+      const passkeyBegin = await fetch(`${api}/passkey/register/begin`, {
+        method: "POST",
+        credentials: "include",
+        headers: sent,
+        body: JSON.stringify({ profileId }),
+      });
+      if (!passkeyBegin.ok) return `begin ${passkeyBegin.status}`;
+      const created = await navigator.credentials.create({
+        publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(await passkeyBegin.json()),
+      });
+      if (!(created instanceof PublicKeyCredential)) return "no credential";
+      const complete = await fetch(`${api}/passkey/register/complete`, {
+        method: "POST",
+        credentials: "include",
+        headers: sent,
+        body: JSON.stringify({ profileId, attestation: created.toJSON() }),
+      });
+      return `complete ${complete.status}`;
+    },
+    { api: ORIGINS.osnApi, bearer: made.session.access_token, profileId: made.profileId },
+  );
+  expect(enrolled, "first passkey").toBe("complete 200");
 }
 
 /** A virtual platform authenticator on `page`, through the Chrome DevTools Protocol. */

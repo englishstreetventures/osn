@@ -555,6 +555,21 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   );
   await phoneContext.close();
 
+  // Until the passkey is in, the session is restricted: a reload publishes
+  // none, and the dialog comes back on the step that adds one.
+  const grantsBeforePasskeyReload = flow.count("POST osn-api /token 200");
+  await flow.step("register: a reload on the passkey step comes back to it", async () => {
+    await page.reload();
+    await expect(registerDialog.getByRole("button", { name: "Add a passkey" })).toBeVisible();
+    await expect(registerDialog.getByText(`@${ada.handle}`)).toBeVisible();
+  });
+  flow.check(
+    "the reload renewed the cookie but published no session",
+    true,
+    flow.count("POST osn-api /token 200") > grantsBeforePasskeyReload &&
+      (await shellSignIn().isVisible()),
+  );
+
   const passkeyRegisterBegin = `${ORIGINS.osnApi}/passkey/register/begin`;
   const enrollHeld = holdMethod("POST");
   await page.route(passkeyRegisterBegin, enrollHeld.handler);
