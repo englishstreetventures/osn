@@ -41,10 +41,16 @@
  * the panel's own status read when it comes back — would pass the limit. The
  * section first has the limiter open a window of its own (`openStripeWindow`),
  * waiting on the limiter's answers, never on a clock (`tests/flows.test.ts`).
+ * It skips that when more than 62 seconds have passed since the flow's last
+ * earlier Stripe call, which it reads from `performance.now()`: every window
+ * those calls opened has closed by then, so nothing is waited for that is not
+ * needed.
  *
  * Every id the run makes (the new account's) is compared, never recorded, so
  * `results.json` reads the same on every run.
  */
+
+import { performance } from "node:perf_hooks";
 
 import type { BrowserContext, Page } from "@playwright/test";
 
@@ -302,13 +308,21 @@ export async function handOverSteps(flow: Flow, page: Page): Promise<void> {
  * then asks again until a call passes, which is the first of a new window. A
  * refused call counts against nothing, so the new window holds that one call
  * and the section's four. These calls go outside the browser and are not
- * recorded, so `results.json` does not depend on how many were left.
+ * recorded, so `results.json` does not depend on how many were left. More than
+ * 62 seconds after `lastStripeCall` (a `performance.now()` reading), every
+ * window the earlier calls opened has closed, so it asks nothing; the step is
+ * recorded either way, so the run's steps read the same on every machine.
  */
-async function openStripeWindow(flow: Flow, context: BrowserContext): Promise<void> {
+async function openStripeWindow(
+  flow: Flow,
+  context: BrowserContext,
+  lastStripeCall: number,
+): Promise<void> {
   const url = weddingApi(CIRE_ORGANISER.absent.weddingId, "/registry/stripe/accounts");
   const status = async () =>
     (await context.request.get(url, { headers: { origin: ORIGINS.cireHost } })).status();
   await flow.step("let the Stripe routes' limiter open a window for this section", async () => {
+    if (performance.now() - lastStripeCall > 62_000) return;
     let refused = false;
     // One call at a time: each must be counted before the next is asked.
     // oxlint-disable-next-line no-await-in-loop
@@ -319,7 +333,11 @@ async function openStripeWindow(flow: Flow, context: BrowserContext): Promise<vo
 }
 
 /** Section 3: replace the account of Absent Holder Wedding, whose holder is an editor now. */
-export async function replaceAbsentHolderSteps(flow: Flow, context: BrowserContext): Promise<void> {
+export async function replaceAbsentHolderSteps(
+  flow: Flow,
+  context: BrowserContext,
+  lastStripeCall: number,
+): Promise<void> {
   const { weddingId, accountId } = CIRE_ORGANISER.absent;
   const registryUrl = weddingApi(weddingId, "/registry");
   const settingsUrl = weddingApi(weddingId, "/registry/settings");
@@ -327,7 +345,7 @@ export async function replaceAbsentHolderSteps(flow: Flow, context: BrowserConte
   const panelUrl = `${ORIGINS.cireHost}/#/w/${weddingId}/registry/settings`;
   const page = await flow.newPage(context);
 
-  await openStripeWindow(flow, context);
+  await openStripeWindow(flow, context, lastStripeCall);
 
   const read = await flow.step(
     "Absent Holder Wedding: the Money gifts panel says why guests can't give",

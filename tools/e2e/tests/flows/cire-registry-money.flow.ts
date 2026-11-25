@@ -123,6 +123,8 @@
  * because they end it. A flow after this one signs in afresh.
  */
 
+import { performance } from "node:perf_hooks";
+
 import type { Page } from "@playwright/test";
 
 import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
@@ -779,6 +781,10 @@ test("cire-registry-money", async ({ page, browser, flow }) => {
   );
   flow.check("cire-api onboarding on a Standard account", 409, standardLink.status);
   flow.check("cire-api says why", "stripe_standard_account", standardLink.error);
+  // The flow's last call to the Stripe routes' limiter before the absent
+  // holder's section, which waits for a window of its own only while a window
+  // this call may have opened can still be open.
+  const lastStripeCall = performance.now();
 
   // On a page of its own, so the flow's screenshot stays the connected panel,
   // and before the sign-out below, which ends the session these steps use.
@@ -786,7 +792,7 @@ test("cire-registry-money", async ({ page, browser, flow }) => {
   await budgetSteps(flow, planning);
   await enquirySteps(flow, planning);
   await giveToANewFund(flow, planning, browser);
-  await replaceAbsentHolderSteps(flow, page.context());
+  await replaceAbsentHolderSteps(flow, page.context(), lastStripeCall);
 
   const accessToken = await flow.step(
     "organiser: an access token from the OSN session",
