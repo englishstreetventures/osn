@@ -12,8 +12,13 @@
  *    platform. A code is good once here too: a second exchange of one code is a
  *    400 `invalid_grant`, as Stripe answers a used code;
  *  - `POST /oauth/deauthorize` — handing an account back;
- *  - `GET /v1/accounts/:id` — the account, a Standard one that can take charges
- *    and settles in AUD, so the portal's page-load refresh has nothing to ask;
+ *  - `POST /v1/accounts` — a new Express account for a wedding's onboarding,
+ *    `acct_e2eExpress<n>`, that cannot take charges yet;
+ *  - `POST /v1/account_links` — an onboarding link for an account it made, on
+ *    Stripe's own Connect host, which the flow routes itself;
+ *  - `GET /v1/accounts/:id` — an account it made, as Express and not yet able
+ *    to take charges; any other, a Standard one that can take charges and
+ *    settles in AUD, so the portal's page-load refresh has nothing to ask;
  *  - `GET /v1/prices/:id` — the one Price the stack sells,
  *    {@link STRIPE_STANDIN_GOLD_PRICE};
  *  - `POST /v1/checkout/sessions` — a platform Checkout session (no
@@ -61,10 +66,17 @@ export const STRIPE_STANDIN_GOLD_PRICE = {
 /** Where a Checkout session's page is. The browser never reaches it: the flow routes it. */
 export const STRIPE_CHECKOUT_HOST = "https://checkout.stripe.com";
 
+/** Where an onboarding link's page is: the one origin the portal sends a browser to for onboarding. */
+export const STRIPE_CONNECT_HOST = "https://connect.stripe.com";
+
 export interface StripeCalls {
   token: number;
   deauthorize: number;
   account: number;
+  /** Express accounts created for a wedding's onboarding. */
+  accountCreate: number;
+  /** Onboarding links made for an account it created. */
+  accountLink: number;
   price: number;
   /** Platform Checkout sessions created: an upgrade's. */
   checkoutCreate: number;
@@ -144,6 +156,17 @@ const missing = (): Response =>
     { status: 404 },
   );
 
+/** An Express account the stand-in made, as Stripe answers one whose onboarding has not finished. */
+const expressAccount = (id: string) => ({
+  id,
+  object: "account",
+  type: "express",
+  charges_enabled: false,
+  payouts_enabled: false,
+  details_submitted: false,
+  default_currency: "aud",
+});
+
 /** A session as Stripe's API answers it, and as its events carry it. */
 function sessionBody(session: Session) {
   return {
@@ -174,12 +197,16 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
     token: 0,
     deauthorize: 0,
     account: 0,
+    accountCreate: 0,
+    accountLink: 0,
     price: 0,
     checkoutCreate: 0,
     giftCheckoutCreate: 0,
     refund: 0,
   };
   const usedCodes = new Set<string>();
+  /** The Express accounts it made, none of which has finished onboarding. */
+  const madeAccounts = new Set<string>();
   const sessions = new Map<string, Session>();
   const refunds: StandInRefund[] = [];
   /** A POST's first answer, by its idempotency key. */
@@ -264,11 +291,44 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
         const form = new URLSearchParams(await request.text());
         return Response.json({ stripe_user_id: form.get("stripe_user_id") });
       }
+      // An Express account cire-api creates for a wedding's onboarding, the
+      // platform's own call, keyed so a repeat press gets the same account.
+      if (
+        method === "POST" &&
+        pathname === "/v1/accounts" &&
+        request.headers.get("stripe-account") === null
+      ) {
+        calls.accountCreate += 1;
+        const form = new URLSearchParams(await request.text());
+        if (form.get("type") !== "express") return stripeError(400, "invalid_request");
+        return once(request, () => {
+          const id = `acct_e2eExpress${madeAccounts.size + 1}`;
+          madeAccounts.add(id);
+          return expressAccount(id);
+        });
+      }
+      if (method === "POST" && pathname === "/v1/account_links") {
+        calls.accountLink += 1;
+        const form = new URLSearchParams(await request.text());
+        const accountId = form.get("account") ?? "";
+        if (!madeAccounts.has(accountId) || form.get("type") !== "account_onboarding") {
+          return missing();
+        }
+        const created = Math.floor(options.now() / 1000);
+        return Response.json({
+          object: "account_link",
+          url: `${STRIPE_CONNECT_HOST}/setup/e/${accountId}/e2e`,
+          created,
+          expires_at: created + 300,
+        });
+      }
       const account = /^\/v1\/accounts\/(acct_[A-Za-z0-9_]+)$/.exec(pathname);
       if (method === "GET" && account) {
         calls.account += 1;
+        const id = account[1] ?? "";
+        if (madeAccounts.has(id)) return Response.json(expressAccount(id));
         return Response.json({
-          id: account[1],
+          id,
           object: "account",
           type: "standard",
           charges_enabled: true,

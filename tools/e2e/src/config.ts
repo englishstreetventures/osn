@@ -412,6 +412,28 @@ export const CIRE_ORGANISER = {
     connector: { hostId: "whost_e2e_fund_kit", profileId: "usr_e2e_kit" },
     household: { familyId: "fam_e2e_fund", code: "PARKES-E2E-FD01", guestName: "Pia" },
   },
+  /**
+   * A Gold wedding whose Stripe account, which can charge and pays out in AUD,
+   * the dev profile connected; it owns the wedding with Kit. The hosts panel
+   * refuses its step-down and leave until it hands money gifts to Kit
+   * (`tests/support/cire-payout-account.ts`).
+   */
+  handover: {
+    weddingId: "wed_e2e_handover",
+    accountId: "acct_e2e_handover",
+    kit: { hostId: "whost_wed_e2e_handover_kit", profileId: "usr_e2e_kit" },
+  },
+  /**
+   * A Gold wedding whose Stripe account Kit connected while an owner; Kit is
+   * an editor now, so money gifts are closed and the dev profile, its one
+   * owner, replaces the account with a new one through the Stripe stand-in.
+   * Money gifts off.
+   */
+  absent: {
+    weddingId: "wed_e2e_absent",
+    accountId: "acct_e2e_absent",
+    kit: { hostId: "whost_wed_e2e_absent_kit", profileId: "usr_e2e_kit" },
+  },
   /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
    *  Cy Charlie at Table 2, all three having said yes. And an after party,
    *  inviting Ada, with no plan yet. */

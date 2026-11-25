@@ -1306,6 +1306,11 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   invited to one event with no address. The owner adds a cash fund through
  *   the portal and the guest gives to it through the E2E suite's Stripe
  *   stand-in (`seedE2eFund`).
+ * - `wed_e2e_handover` and `wed_e2e_absent`: Handover Wedding, whose Stripe
+ *   account the dev profile connected and owns with Kit, and Absent Holder
+ *   Wedding, whose account Kit connected and where Kit is an editor now; for
+ *   handing money gifts over and replacing an account
+ *   (`seedE2ePayoutAccounts`).
  * - `wed_e2e_upgrade` and `wed_e2e_upgrade_refund`: two Ivory weddings the
  *   dev profile owns alone, for buying Gold through the Stripe stand-in. The
  *   first is granted Gold; the second is deleted while its checkout is open,
@@ -1901,11 +1906,94 @@ function seedE2eOrganiser(db: TestDb): void {
   seedE2eSeating(db, now);
   seedE2eSettings(db, now);
   seedE2eFund(db, now);
+  seedE2ePayoutAccounts(db, now);
   seedE2eEnquiries(db, now);
   seedE2eEnvelope(db, now);
   seedE2eLegacyEvent(db, now);
   seedE2eCreationBound(db, now);
   seedE2eCache(db, now);
+}
+
+/**
+ * `wed_e2e_handover` and `wed_e2e_absent`, for {@link seedE2eOrganiser}: two
+ * Gold weddings whose Stripe account (Express, no `stripe_account_type`) can
+ * charge and pays out in AUD, for handing money gifts over and replacing an
+ * account in the Money gifts panel (`tests/support/cire-payout-account.ts` in
+ * `tools/e2e`).
+ *
+ * - Handover Wedding: the dev profile connected its account and owns it with
+ *   Kit (`usr_e2e_kit`), so the hosts panel refuses the dev profile's own
+ *   step-down and leave until it hands money gifts to Kit. Money gifts on.
+ * - Absent Holder Wedding: Kit connected its account and is an editor there
+ *   now, as a holder who left before the hosts writes refused it would be, so
+ *   money gifts are closed and the dev profile, its one owner, may replace the
+ *   account. Money gifts off, so the flow can ask to turn them on.
+ *
+ * The flow retires the first account before any other wedding of the dev
+ * profile asks which accounts it may reuse, and the second is Kit's, so
+ * neither is offered elsewhere. The values a flow checks are written out
+ * again as `CIRE_ORGANISER.handover` and `CIRE_ORGANISER.absent` in
+ * `tools/e2e/src/config.ts`.
+ */
+function seedE2ePayoutAccounts(db: TestDb, now: Date): void {
+  const seeded = [
+    {
+      id: "wed_e2e_handover",
+      slug: "handover-wedding",
+      displayName: "Handover Wedding",
+      account: "acct_e2e_handover",
+      holder: DEV_OWNER_PROFILE_ID,
+      kitRole: "owner",
+      cashGiftsEnabled: true,
+    },
+    {
+      id: "wed_e2e_absent",
+      slug: "absent-holder-wedding",
+      displayName: "Absent Holder Wedding",
+      account: "acct_e2e_absent",
+      holder: "usr_e2e_kit",
+      kitRole: "editor",
+      cashGiftsEnabled: false,
+    },
+  ] as const;
+  for (const w of seeded) {
+    db.insert(schema.weddings)
+      .values({
+        id: w.id,
+        slug: w.slug,
+        displayName: w.displayName,
+        tier: "gold",
+        tierSource: "comp",
+        tierGrantedBy: "script:e2e-seed",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    seatDevOwner(db, w.id, `whost_${w.id}_owner`, now);
+    db.insert(schema.weddingHosts)
+      .values({
+        id: `whost_${w.id}_kit`,
+        weddingId: w.id,
+        osnProfileId: "usr_e2e_kit",
+        addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+        role: w.kitRole,
+        createdAt: now,
+      })
+      .run();
+    db.insert(schema.registrySettings)
+      .values({
+        weddingId: w.id,
+        cashGiftsEnabled: w.cashGiftsEnabled,
+        stripeAccountId: w.account,
+        stripeConnectedByOsnProfileId: w.holder,
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
 }
 
 /**

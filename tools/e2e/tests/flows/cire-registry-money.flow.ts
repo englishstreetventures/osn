@@ -95,6 +95,19 @@
  * received. The money panel, the fund chosen, is
  * `screenshots/cire-registry-money/guest-money-panel.png`.
  *
+ * The payout account's holder and handing it over take three sections of
+ * their own (`tests/support/cire-payout-account.ts`). Straight after the
+ * connector steps, Kit's seat on Money Wedding is marked in the hosts panel
+ * and its removal refused; then on Handover Wedding the dev profile, the
+ * holder, cannot step down or leave until it hands money gifts to Kit, and
+ * can once it has. That hand-over comes before Party Wedding's account
+ * question, which would otherwise offer Handover Wedding's account too. Last
+ * before the sign-out, on Absent Holder Wedding, whose holder Kit is an
+ * editor now, the owner is told why guests can't give, cannot turn money
+ * gifts on, and replaces the account with a new one through the Stripe
+ * stand-in. That section first has the Stripe routes' limiter open a window
+ * of its own, by the limiter's answers rather than a clock.
+ *
  * Then the owner signs out everywhere else on OSN, and their cire sessions end
  * too. The flow asks osn-api the way `@osn/auth-ui`'s sessions view does: an
  * access token from `POST /token` on the session cookie, then
@@ -114,6 +127,11 @@ import type { Page } from "@playwright/test";
 
 import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
 import { giveToANewFund } from "../support/cire-fund-gift";
+import {
+  handOverSteps,
+  holderSeatSteps,
+  replaceAbsentHolderSteps,
+} from "../support/cire-payout-account";
 import {
   expect,
   onSuiteClock,
@@ -446,6 +464,11 @@ test("cire-registry-money", async ({ page, browser, flow }) => {
   flow.check("the account is unchanged", accountId, after?.account ?? "absent");
   flow.check("the connector is unchanged", connector.profileId, after?.connector ?? "absent");
 
+  // The holder's seat, then a hand-over: before Party Wedding asks which of
+  // the dev profile's accounts it may reuse, so Handover Wedding's is retired.
+  await holderSeatSteps(flow, page);
+  await handOverSteps(flow, page);
+
   const shared = CIRE_ORGANISER.shared;
   const partyStripe = `${ORIGINS.cireApi}/api/organiser/weddings/${shared.to.weddingId}/registry/stripe`;
   const partySettings = `${ORIGINS.cireHost}/#/w/${shared.to.weddingId}/registry/settings`;
@@ -760,6 +783,7 @@ test("cire-registry-money", async ({ page, browser, flow }) => {
   await budgetSteps(flow, planning);
   await enquirySteps(flow, planning);
   await giveToANewFund(flow, planning, browser);
+  await replaceAbsentHolderSteps(flow, page.context());
 
   const accessToken = await flow.step(
     "organiser: an access token from the OSN session",
