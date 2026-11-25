@@ -332,6 +332,29 @@ describe("HostsPanel", () => {
     expect(screen.getByText("@ben")).toBeTruthy();
   });
 
+  it("says why removing the payout account's holder was refused, and marks their seat (409 holds_payout_account)", async () => {
+    // A page read before Ben connected the wedding's Stripe account.
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_ben", handle: "ben", role: "owner", createdAt: 1 }] }),
+    );
+    authFetchMock.mockResolvedValueOnce(json({ error: "holds_payout_account" }, 409));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("@ben")).toBeTruthy());
+    expect(screen.queryByTestId("payout-holder-note")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove @ben" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+    expect(String(toastError.mock.calls[0]![0])).toMatch(
+      /^@ben connected the Stripe account money gifts are paid into\. Before @ben can leave or stop being an owner/,
+    );
+    const note = await screen.findByTestId("payout-holder-note");
+    expect(note.textContent).toBe(String(toastError.mock.calls[0]![0]));
+    const remove = screen.getByRole("button", { name: "Remove @ben" });
+    expect(remove.getAttribute("aria-disabled")).toBe("true");
+    expect(remove.getAttribute("aria-describedby")).toBe(note.id);
+    expect(screen.getByText("@ben")).toBeTruthy();
+  });
+
   it("explains every role, the owner's included, to an owner adding someone", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
@@ -1397,6 +1420,41 @@ describe("HostsPanel", () => {
       expect(String(toastError.mock.calls[0]![0])).toMatch(/only owner/i);
       expect(String(toastError.mock.calls[0]![0])).toMatch(/delete the wedding/i);
       expect(onLeft).not.toHaveBeenCalled();
+    });
+
+    it("keeps the wedding and tells the payout account's holder to hand it over first", async () => {
+      // A page read before this owner connected the wedding's Stripe account.
+      activeProfileIdMock.mockImplementation(() => "usr_me");
+      authFetchMock.mockResolvedValueOnce(
+        json({
+          hosts: [
+            { osnProfileId: "usr_me", role: "owner", createdAt: 1 },
+            { osnProfileId: "usr_bob", role: "owner", createdAt: 2 },
+          ],
+        }),
+      );
+      authFetchMock.mockResolvedValueOnce(json({ error: "holds_payout_account" }, 409));
+      const onLeft = vi.fn();
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" canLeave onLeft={onLeft} />);
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+      await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+      const words = String(toastError.mock.calls[0]![0]);
+      expect(words).toBe(
+        "You connected the Stripe account money gifts are paid into. Hand money gifts to another owner or disconnect your account in Money gifts before you leave or step down.",
+      );
+      expect(words).not.toMatch(/only owner/i);
+      expect(onLeft).not.toHaveBeenCalled();
+      // The seat is marked now, and the leave and step-down say why.
+      await screen.findByTestId("payout-holder-note");
+      const own = screen.getByRole("combobox", { name: "Your role on this wedding" });
+      expect(own.getAttribute("aria-disabled")).toBe("true");
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: /Leave this wedding/i }).getAttribute("aria-disabled"),
+        ).toBe("true"),
+      );
     });
   });
 

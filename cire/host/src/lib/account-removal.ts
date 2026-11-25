@@ -29,6 +29,21 @@ export interface RemovalWedding {
   readonly soleOwner: boolean;
   /** Already deleted: the removal takes the last seat, and the restore window with it. */
   readonly deleted: boolean;
+  /**
+   * A profile of the account holds the Stripe account this wedding's money
+   * gifts are paid into, as one of its owners beside another owner: the
+   * removal is refused until it is handed over or disconnected. Before the
+   * person confirms, the list holds the signed-in profile alone, so another
+   * profile of theirs can count as the other owner. Missing from an API that
+   * predates it.
+   */
+  readonly payoutHolder?: boolean;
+}
+
+/** A wedding the removal was refused for, as the refusal names it. */
+export interface HeldPayoutWedding {
+  readonly weddingId: string;
+  readonly name: string;
 }
 
 /** An answer the removal needs: one per wedding the person alone owns, or one for them all past 100. */
@@ -140,7 +155,20 @@ export type RemovalOutcome =
       readonly openActions: readonly RemovalAction[];
       readonly weddings: readonly RemovalWedding[];
       readonly more: number;
+    }
+  /**
+   * Refused: a profile of the account holds a wedding's payout account. The
+   * API's `message` is plain words the screen shows as they are.
+   */
+  | {
+      readonly status: "holds_payout_account";
+      readonly message: string;
+      readonly weddings: readonly HeldPayoutWedding[];
     };
+
+/** What the screen says if a payout refusal came with no words of its own. */
+const HOLDS_PAYOUT_ACCOUNT_FALLBACK =
+  "You connected the Stripe account money gifts are paid into on a wedding you own with someone else. Hand money gifts to another owner or disconnect it in that wedding's Money gifts, then remove your data again.";
 
 /** The removal, with the confirmation's code and the person's answers. */
 export async function removeCireData(
@@ -161,6 +189,7 @@ export async function removeCireData(
   if (res.status === 409) {
     const body = (await res.json()) as {
       error?: unknown;
+      message?: unknown;
       openActions?: RemovalAction[];
       weddings?: RemovalWedding[];
       more?: number;
@@ -171,6 +200,16 @@ export async function removeCireData(
         openActions: body.openActions,
         weddings: body.weddings,
         more: body.more ?? 0,
+      };
+    }
+    if (body.error === "holds_payout_account") {
+      return {
+        status: "holds_payout_account",
+        message:
+          typeof body.message === "string" && body.message.trim() !== ""
+            ? body.message
+            : HOLDS_PAYOUT_ACCOUNT_FALLBACK,
+        weddings: Array.isArray(body.weddings) ? body.weddings : [],
       };
     }
     throw new RemovalError("server");

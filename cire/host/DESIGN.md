@@ -1905,11 +1905,27 @@ two steps and a trip to Musubi between them; the decisions:
   (the rounds already taken left one such wedding, or the weddings changed
   between visits), the answer is dropped, so no box shows ticked where it
   cannot be unticked.
+- **A wedding whose Stripe account the person holds**, beside another owner,
+  carries under its line, from the first step, "You connected the Stripe
+  account money gifts are paid into. Hand money gifts to another owner or
+  disconnect it in Money gifts before you remove your data." — "Money gifts"
+  a prose link to that wedding's registry settings where the profile can open
+  it and its tier includes the registry, the words alone otherwise. Step 1
+  refuses nothing for it: its list holds the signed-in profile alone, and
+  another profile of the account may be the other owner. On step 2, whose list
+  covers every profile as the API's refusal does, a press with such a wedding
+  listed is refused before any call: a `danger` line ("Hand money gifts over
+  on each wedding marked above first."), an inline `danger` `Notice` on each
+  such row ("Hand this over before you remove your data.") and focus on the
+  first one's link. A 409 that still comes (an account connected since)
+  shows the refusal's own words as the line, after "Part of your data is
+  removed already." past a round, and reads the list again. Nothing here
+  promises a step beyond Money gifts and Musubi's own confirmation.
 - **One line about the whole screen**, a `Notice` at `sm`, under the list and
   over the buttons the person pressed: an answer missing (`danger`), the list
   changed under them (`warn`), the confirmation run out (`warn`), a failure
-  (`danger`), and on step 2 with nothing else to say, "Confirmed on Musubi…"
-  (`success`). A press with answers missing also marks each unanswered box:
+  (`danger`), a payout account to hand over first (`danger`), and on step 2
+  with nothing else to say, "Confirmed on Musubi…" (`success`). A press with answers missing also marks each unanswered box:
   `aria-invalid`, an inline `danger` `Notice` as the box's note ("Tick this to
   go on, or add another owner first."), and focus on the first.
 - **The buttons**, after a hairline: step 1's `primary` "Confirm on Musubi",
@@ -1941,9 +1957,84 @@ two steps and a trip to Musubi between them; the decisions:
 and 1280px in both ramps and fails if anything runs past the page or the
 column, a 90-letter wedding name with no space included.
 `tests/components/RemoveCireData.test.tsx` holds the removal's rounds (a 429
-between them waited out, a failure after one) and the dropped answer;
+between them waited out, a failure after one), the dropped answer and the
+payout account refusals;
 `tests/components/OrganiserApp.removal-code.test.tsx` holds the code out of a
 sign-in bounce.
+
+### Whose account money gifts are paid into
+
+A wedding's money gifts are paid into one Stripe account, which carries one
+person's identity and bank, so handing it from one partner to the other is a
+new account and the old one retired
+(`docs/superpowers/specs/2026-11-17-cire-gift-payout-design.md`). The
+portal's side is the Money gifts panel's row of actions
+(`PayoutAccountActions.tsx`), the hosts panel's note on the holder's seat
+(`PayoutHolderNote.tsx`), a line in the gift log, and the removal screen's
+held rows (above). The decisions:
+
+- **The actions join the panel's row of `md` pills**, after the onboarding
+  control and before "Check again": the holder gets `outline` "Hand money
+  gifts to another owner" and `quiet` "Disconnect"; another owner gets `quiet`
+  "Replace with my own account". Each opens a centred `Modal` at `max-w-md`
+  in the portal's dialog shape: the question in the display face at the `md`
+  step, muted words, a `quiet` Cancel then the commit, right-aligned. The
+  commit is `primary` ("Hand over", "Replace it") or `danger` for the one that
+  disconnects. Each dialog says guests cannot give money until the next account
+  can take payments, and that gifts already given, and any refund or dispute
+  on them, stay with the account they were paid into.
+- **The hand-over names who.** One other owner is named; several are a native
+  radio group with nothing chosen, the commit `aria-disabled` and described by
+  "Choose an owner first."; none says to make someone an owner first or
+  disconnect, and draws no commit. A name breaks anywhere: a handle is one
+  word. The names come from the seats, read as the dialog opens, with
+  `Loading`'s line meanwhile.
+- **An account no current owner holds** draws its status line as a `warn`
+  `Notice` — the one money state that closed gifts without anyone here doing
+  anything, and only an owner can act on it — standing, so no alert: "Guests
+  can't give money right now. This Stripe account isn't held by a current
+  owner of this wedding, so gifts would be paid to someone who no longer runs
+  it. Use your own account to take gifts again, or leave money gifts off."
+  Beside it, `outline` "Use your own account" and "Check again"; no onboarding
+  control and no connector note, since the account is no one's to continue.
+  The switch says "Available once an owner connects an account of their own."
+  "Use your own account" has no dialog: gifts are already closed, and a
+  confirmation belongs to what can still be lost.
+- **A switch saved on is always usable**, so anyone who can edit can turn
+  money gifts off, which the API never refuses; one saved off is locked while
+  Stripe cannot charge, the site takes no money, or no current owner holds the
+  account.
+- **What follows a retire waits for the dialog's close**: focus moves to
+  "Connect an account" after a hand-over or a disconnect, and a replace opens
+  the Connect choice, whose question takes focus. The native dialog keeps the
+  page inert until it has closed, and hands focus back to the button that
+  opened it, which the retire removed.
+- **The holder's seat** in the hosts panel (an owner reading only): its role
+  select offers owner alone, and it and Remove are `aria-disabled`, never
+  `disabled`, and described by a note on a line of its own under the row,
+  muted at the `sm` step, with "Money gifts" a prose link where the tier
+  includes the registry. `Select` owns its look and marks only `disabled`, so
+  an `aria-disabled` select still looks live: the note beside it, and the
+  options below owner greyed in its list, carry the reason. A look of its own
+  for an `aria-disabled` select is a change to `@shared/ui`. The holder's own step-down and
+  "Leave this wedding" take the same treatment, the leave's note under its
+  button. A handle in a row breaks anywhere rather than run past it.
+- **The gift log** says under a gift paid into an earlier account, in the
+  muted ink at the `sm` step, as the refunded line beside it: "Paid into an
+  earlier Stripe account. Any refund comes from that account."
+- **An editor is told nothing** about whose account it is: no note on any
+  seat, no retire control, and an absent holder's account reads as one Stripe
+  has not finished with.
+- **No motion of its own.** The dialogs are `Modal`'s own rise and exit (§4);
+  the notes and lines arrive at once, as every `Notice` does.
+
+`tests/components/RegistrySettingsView.money.browser.test.tsx` paints the
+absent and holder views, the hand-over dialog with a 55-letter handle and the
+holder's seat at 390 and 1280px in both ramps, and holds the focus after a
+hand-over; `RegistrySettingsView.test.tsx`, `HostsPanel.test.tsx` and
+`RegistryView.test.tsx` hold the rest. The `cire-registry-money` end-to-end
+flow shoots the holder's seat, the holder's own seat, the panel after a
+hand-over and the panel after replacing an absent holder's account.
 
 ### A wedding's guest list close to its three years
 

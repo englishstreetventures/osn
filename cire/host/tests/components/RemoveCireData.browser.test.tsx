@@ -80,6 +80,8 @@ const JO = wedding("wed_jo", "Jo & Lee's day on the farm", "helper");
 const ANA = wedding("wed_ana", "Ana & Ben", "owner", { deleted: true });
 /** A wedding another profile of the account owns, listed once the person has confirmed. */
 const KAI = wedding("wed_kai", "Kai & Noor", "owner", { soleOwner: true });
+/** A wedding the person owns with someone else, whose Stripe account they hold. */
+const HANA = wedding("wed_hana", "Hana & Leo", "owner", { payoutHolder: true });
 
 const SIGNED_IN: RemovalPlan = {
   weddings: [ANA, PRIYA, JO, LONG, MIA, ROSA],
@@ -324,6 +326,29 @@ describe("Remove my Cire data, painted", () => {
         fireEvent.click(button("Remove my Cire data"));
         expect(await screen.findByText(/Your weddings changed since you looked/)).toBeTruthy();
         await shot("09-refused-fresh-list", viewport, theme);
+      });
+
+      it(`refused for a payout account the person holds — ${at}`, async () => {
+        serve({
+          preview: (body) =>
+            json(
+              body.code
+                ? { ...CONFIRMED, weddings: [...CONFIRMED.weddings, HANA] }
+                : { ...SIGNED_IN, weddings: [...SIGNED_IN.weddings, HANA] },
+            ),
+          remove: never,
+        });
+        await open({ code: "code_confirmed" });
+        expect(await screen.findByText(HANA.name)).toBeTruthy();
+        fireEvent.click(
+          screen.getByRole("checkbox", { name: /Delete every wedding only you own/ }),
+        );
+        fireEvent.click(button("Remove my Cire data"));
+        expect(
+          await screen.findByText("Hand money gifts over on each wedding marked above first."),
+        ).toBeTruthy();
+        expect(screen.getByRole("link", { name: "Money gifts" })).toBeTruthy();
+        await shot("10a-payout-account-held", viewport, theme);
       });
 
       it(`removing, past "not finished" — ${at}`, async () => {

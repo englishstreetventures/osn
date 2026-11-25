@@ -438,12 +438,26 @@ export default function ModuleShell(props: ModuleShellProps) {
 
   /** A link to one of Settings' views, built only for a link that is drawn. */
   function settingsLink(sub: string): InAppLink {
-    const to: PlaceRoute = { module: "settings", sub };
+    return placeLink({ module: "settings", sub });
+  }
+
+  /** A link to another view of this wedding's dashboard. */
+  function placeLink(to: PlaceRoute): InAppLink {
     return {
       href: serializeRoute({ view: "weddings", weddingId: props.weddingId, ...to }),
       onOpen: () => openPlace(to),
     };
   }
+
+  /**
+   * Money gifts, the registry's settings, where the payout account's holder
+   * hands it over; none where the registry is locked for this wedding's tier,
+   * since the shell would open the overview in its place.
+   */
+  const moneyGiftsLink = (): InAppLink | undefined =>
+    isModuleLocked("registry", props.tier)
+      ? undefined
+      : placeLink({ module: "registry", sub: "settings" });
 
   /** The invite-message line for one place, wired to this shell's roles and
    *  navigation. A fresh element per call — each leaf renders its own. */
@@ -1025,6 +1039,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                       canLeave
                       onLeft={props.onLeftWedding}
                       onOwnRoleChanged={props.onOwnRoleChanged}
+                      moneyGifts={moneyGiftsLink()}
                     />
                   </Show>
                   <Show when={active() === "export"}>

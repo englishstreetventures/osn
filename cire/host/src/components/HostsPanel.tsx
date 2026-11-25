@@ -23,6 +23,7 @@ import {
   setFreshHosts,
   setFreshHostsPanel,
 } from "../lib/hosts-store";
+import type { InAppLink } from "../lib/link-click";
 import { useMembersChanged } from "../lib/members-changed";
 import {
   atPeopleLimit,
@@ -54,6 +55,7 @@ import {
 } from "../lib/wedding-roles";
 import { TipNote } from "./ActionTip";
 import LeaveWedding from "./LeaveWedding";
+import PayoutHolderNote, { payoutHolderSentence } from "./PayoutHolderNote";
 import SectionIntro from "./SectionIntro";
 import UpgradeDialog from "./UpgradeDialog";
 
@@ -117,10 +119,13 @@ const SEAT_REFUSALS = {
 type SeatRefusal = keyof typeof SEAT_REFUSALS;
 
 /** What a refused seat change said: the words for it, if this panel words it,
- *  and the people count a `people_limit_reached` refusal carries. */
+ *  the people count a `people_limit_reached` refusal carries, and whether the
+ *  seat's holder holds the wedding's payout account (`holds_payout_account`),
+ *  whose words name the seat, so the caller writes them. */
 interface Refusal {
   message: string | null;
   peopleLimit: PeopleLimit | null;
+  holdsPayoutAccount: boolean;
 }
 
 /**
@@ -137,6 +142,7 @@ async function readRefusal(res: Response): Promise<Refusal> {
         ? peopleLimitMessage(peopleLimit)
         : "This wedding has reached its plan's limit of people.",
       peopleLimit,
+      holdsPayoutAccount: false,
     };
   }
   return {
@@ -145,6 +151,7 @@ async function readRefusal(res: Response): Promise<Refusal> {
         ? SEAT_REFUSALS[body.error as SeatRefusal]
         : null,
     peopleLimit: null,
+    holdsPayoutAccount: body.error === "holds_payout_account",
   };
 }
 
@@ -198,6 +205,9 @@ interface HostsPanelProps {
    *  with Gold, so below it the role is still offered but says so. Absent
    *  says nothing. */
   tier?: Tier;
+  /** Money gifts, where the payout account's holder hands it over: drawn only
+   *  where the reader can open it (the registry comes with Gold). */
+  moneyGifts?: InAppLink;
 }
 
 /**
@@ -210,6 +220,15 @@ interface HostsPanelProps {
  * the wedding with no owner. Everyone else sees the list and nothing to change
  * in it. Offering a control here that the API would 403 is the failure this
  * mirroring avoids.
+ *
+ * The owner who holds the wedding's Stripe account cannot leave, be removed or
+ * stop being an owner until it is handed over (409 `holds_payout_account`).
+ * `GET /hosts` marks their seat `payoutHolder` for an owner reading it, so
+ * their remove and role controls, and their own leave and step-down, are
+ * `aria-disabled` with a note saying why and pointing at Money gifts: still
+ * reachable, so a keyboard or screen-reader user can find the reason. A page
+ * read before the account was connected learns it from the refusal, and marks
+ * the seat then.
  */
 export default function HostsPanel(props: HostsPanelProps) {
   const { authFetch, activeProfileId } = useAuth();
@@ -699,7 +718,26 @@ export default function HostsPanel(props: HostsPanelProps) {
     }
   }
 
+  /**
+   * The API says this seat's holder holds the wedding's payout account, which
+   * a page read before they connected it did not know: mark the seat, so its
+   * controls say why from now on, and drop the panel's cached read.
+   */
+  function markPayoutHolder(profileId: string): void {
+    setHosts((prev) =>
+      prev.map((h) => (h.osnProfileId === profileId ? { ...h, payoutHolder: true } : h)),
+    );
+    invalidateHostsPanel(props.weddingId);
+  }
+
+  /** Why the holder's seat cannot go or step down, as a toast: theirs, or the reader's own. */
+  const holderSentence = (host: HostRow) => payoutHolderSentence(isMe(host) ? null : nameOf(host));
+  /** The id of the note under the holder's row, which its controls name. */
+  const holderNoteId = (host: HostRow) => `payout-holder-note-${host.osnProfileId}`;
+
   async function remove(host: HostRow) {
+    // Its Remove is `aria-disabled`, which swallows the press; this holds too.
+    if (host.payoutHolder) return;
     const label = host.handle ? `@${host.handle}` : host.osnProfileId;
     const done = beginWrite();
     try {
@@ -709,9 +747,13 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
         haptic("reject");
-        toast.error(
-          (await readRefusal(res)).message ?? "Could not remove that host. Please try again.",
-        );
+        const refusal = await readRefusal(res);
+        if (refusal.holdsPayoutAccount) {
+          markPayoutHolder(host.osnProfileId);
+          toast.error(holderSentence(host));
+          return;
+        }
+        toast.error(refusal.message ?? "Could not remove that host. Please try again.");
         return;
       }
       keepPeopleLimit(await peopleLimitIn(res));
@@ -853,6 +895,14 @@ export default function HostsPanel(props: HostsPanelProps) {
    */
   function selectRole(host: HostRow, nextRole: AssignableRole) {
     if (nextRole === host.role) return;
+    // The holder's select offers owner alone; were another role ever picked,
+    // a fresh copy of the seat puts the select back on the role it holds.
+    if (host.payoutHolder && nextRole !== "owner") {
+      setLocalHosts((prev) =>
+        prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)),
+      );
+      return;
+    }
     const ownSeat = isMe(host);
     if (needsRoleChangeConfirmation(host.role, nextRole, ownSeat)) {
       setPending({ host, to: nextRole, ownSeat });
@@ -880,6 +930,11 @@ export default function HostsPanel(props: HostsPanelProps) {
         // The select already shows the refused role in the DOM, and its value
         // expression has not changed, so nothing would put it back. A fresh
         // copy of the seat re-renders the row from the role it still holds.
+        if (refusal.holdsPayoutAccount) {
+          markPayoutHolder(host.osnProfileId);
+          toast.error(holderSentence(host));
+          return;
+        }
         setLocalHosts((prev) =>
           prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)),
         );
@@ -1163,9 +1218,13 @@ export default function HostsPanel(props: HostsPanelProps) {
                     class={HOST_ROW_CLASS}
                     classList={{ "border-gold/40 bg-gold/5": host.role === "owner" }}
                   >
-                    <span class="font-body text-text text-ui-base flex flex-wrap items-center gap-3">
+                    {/* A handle is one word OSN lets run long: it breaks
+                      anywhere rather than run past the row. */}
+                    <span class="font-body text-text text-ui-base flex max-w-full min-w-0 flex-wrap items-center gap-3">
                       {host.handle ? (
-                        <span class="text-gold-ink">@{host.handle}</span>
+                        <span class="text-gold-ink min-w-0 [overflow-wrap:anywhere]">
+                          @{host.handle}
+                        </span>
                       ) : (
                         <span
                           class="text-text-muted text-ui-sm tracking-ui-wide font-ui-mono"
@@ -1218,10 +1277,17 @@ export default function HostsPanel(props: HostsPanelProps) {
                           dismissed: the option changed in the DOM the moment it
                           was picked, and only a change to this expression can
                           undo it. */}
+                        {/* The payout account's holder keeps the owner seat until
+                          the account is handed over: their select offers owner
+                          alone, `aria-disabled` and described by the note under
+                          the row. `Select` owns its look, which marks only
+                          `disabled`, so the note carries the reason. */}
                         <Select
                           size="form-compact"
                           value={pendingRoleFor(host) ?? host.role}
                           disabled={roleBusyId() === host.osnProfileId}
+                          aria-disabled={host.payoutHolder ? "true" : undefined}
+                          aria-describedby={host.payoutHolder ? holderNoteId(host) : undefined}
                           aria-label={
                             isMe(host) ? "Your role on this wedding" : `Role for ${nameOf(host)}`
                           }
@@ -1230,7 +1296,14 @@ export default function HostsPanel(props: HostsPanelProps) {
                           }
                         >
                           <For each={grantable()}>
-                            {(option) => <option value={option}>{roleLabel(option)}</option>}
+                            {(option) => (
+                              <option
+                                value={option}
+                                disabled={host.payoutHolder === true && option !== "owner"}
+                              >
+                                {roleLabel(option)}
+                              </option>
+                            )}
                           </For>
                         </Select>
                         {/* No remove on your own row: stepping down is the select
@@ -1241,12 +1314,25 @@ export default function HostsPanel(props: HostsPanelProps) {
                             size="sm"
                             type="button"
                             onClick={() => void remove(host)}
+                            aria-disabled={host.payoutHolder ? "true" : undefined}
+                            aria-describedby={host.payoutHolder ? holderNoteId(host) : undefined}
                             aria-label={`Remove ${host.handle ? `@${host.handle}` : "host"}`}
                           >
                             Remove
                           </Button>
                         </Show>
                       </span>
+                    </Show>
+                    {/* Why the holder's seat stays as it is, and where the
+                      account is handed over. A line of its own, as a helper's
+                      scope is. `GET /hosts` marks the seat for an owner alone. */}
+                    <Show when={canManage() && host.payoutHolder}>
+                      <PayoutHolderNote
+                        id={holderNoteId(host)}
+                        name={isMe(host) ? null : nameOf(host)}
+                        moneyGifts={props.moneyGifts}
+                        class="basis-full"
+                      />
                     </Show>
                     {/* How far into the run sheet a helper sees: a helper's
                       setting alone, so no other row names one. An owner sets
@@ -1302,7 +1388,16 @@ export default function HostsPanel(props: HostsPanelProps) {
       </div>
 
       <Show when={props.canLeave}>
-        <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
+        <LeaveWedding
+          weddingId={props.weddingId}
+          onLeft={props.onLeft}
+          payoutHolder={canManage() && hosts().some((h) => isMe(h) && h.payoutHolder === true)}
+          moneyGifts={props.moneyGifts}
+          onHoldsPayoutAccount={() => {
+            const me = activeProfileId();
+            if (me) markPayoutHolder(me);
+          }}
+        />
       </Show>
 
       {/* Kept mounted across the close so the exit animates; `shownPromotion`

@@ -18,6 +18,9 @@ import { isWeddingClosed } from "./wedding-scope";
  *  The first that applies; the API owns the order. */
 export type MoneyGiftsBlock =
   | "payments_unavailable"
+  /** The account's holder is no owner of the wedding now, or nobody is
+   *  recorded: to owners only, since an editor reads `stripe_not_ready`. */
+  | "payout_holder_absent"
   | "stripe_not_ready"
   | "stripe_currency_unknown"
   | "currency_mismatch"
@@ -53,6 +56,15 @@ export interface RegistrySettings {
    *  server's answer, by the guest list's own rule. Anything else, a value this
    *  build has no words for or the field missing included, means it does not. */
   moneyGiftsBlockedBy: MoneyGiftsBlock | null;
+  /**
+   * To owners only: the account money gifts are paid into is held by someone
+   * who holds no owner seat here, or by nobody on record, so money gifts are
+   * closed until an owner connects an account of their own. Apart from
+   * `moneyGiftsBlockedBy`, which can name an earlier reason. `null` for anyone
+   * who is not an owner; missing from an API that predates it. Only `true`
+   * means absent, so the panel never reads a missing connector as absent.
+   */
+  payoutHolderAbsent?: boolean | null;
   updatedAt: number | null;
 }
 
@@ -139,6 +151,12 @@ export interface GiftLogEntry {
   fxRate: string | null;
   thankedAt: number | null;
   createdAt: number;
+  /**
+   * A money gift paid into a Stripe account the wedding does not name now, so
+   * any refund on it comes from that earlier account. Optional because the
+   * portal can deploy before the API that sends it; missing reads as no.
+   */
+  paidIntoEarlierAccount?: boolean;
 }
 
 /** What `POST …/gifts/:kind/:giftId/note-hidden` answers: the note as the gift
