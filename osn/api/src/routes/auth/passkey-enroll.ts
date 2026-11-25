@@ -58,14 +58,15 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
       // gate because no step-up ceremony is reachable before the account
       // has any credentials.
       //
-      // These two routes also accept a restricted recovery session's token
-      // (`aud: "osn-recovery"`), which no other route in this service does,
-      // and such a caller can pass the step-up gate as well — losing the
+      // These two routes also accept a restricted session's token
+      // (`aud: "osn-recovery"`), which no other route in this service does:
+      // a recovery's, or a sign-up's before the new account's first passkey.
+      // A recovery caller can pass the step-up gate as well — losing the
       // device does not delete its passkey row, so the gate would otherwise
       // block the common recovery case. See `resolvePasskeyEnrollPrincipal`.
       // The audience only makes the bypass reachable; whether it is granted
-      // turns on the factor the session row records — see
-      // `recoverySessionAdmitsEnrolment` in the service.
+      // turns on what the session row records — see `callerRestriction` in
+      // the service. A sign-up's row records `signup`, which grants nothing.
       // -------------------------------------------------------------------------
       .post(
         "/passkey/register/begin",

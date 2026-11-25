@@ -27,6 +27,16 @@ export interface TokenSet {
 export type RecoveryFactorAmr = "webauthn" | "otp" | "totp";
 
 /**
+ * What a restricted session records on `sessions.restricted_amr`: the factor
+ * behind a recovery session, or `signup` for the session a sign-up hands the
+ * tab that began it before the new account has a passkey. `signup` names no
+ * ceremony of an existing account's, so `passkeyRegisterAllowedAmr` never
+ * admits it and it takes nobody past the step-up gate; it only says the
+ * session's first passkey is the account's own root credential.
+ */
+export type RestrictedSessionFactor = RecoveryFactorAmr | "signup";
+
+/**
  * How a passkey came to exist — the **effective** strength of the ceremony
  * chain behind it, stored on `passkeys.provenance_amr`.
  *

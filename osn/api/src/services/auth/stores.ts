@@ -84,6 +84,13 @@ export interface RegistrationChallengeEntry extends ChallengeEntry {
    * to keep refusing.
    */
   recoveryEnrolment: boolean;
+  /**
+   * Whether the caller was a sign-up's restricted session enrolling the new
+   * account's first passkey, so `complete` counts the sign-up funnel's
+   * `passkey_enroll` step. Only a metric reads it; an entry without it counts
+   * nothing.
+   */
+  signUpEnrolment?: boolean;
 }
 
 /**

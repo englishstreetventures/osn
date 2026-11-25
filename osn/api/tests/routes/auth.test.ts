@@ -51,6 +51,34 @@ beforeAll(async () => {
   config = await makeTestAuthConfig();
 });
 
+/**
+ * A sign-up through the routes with its first passkey added, read the way the
+ * completing status answer is read: its body, with the ordinary session the
+ * passkey earns in place of the restricted one the answer carried, and that
+ * session's `Set-Cookie` lines. For the tests that use the session rather than
+ * test the answer.
+ */
+async function signedUp(
+  app: ReturnType<typeof createAuthRoutes>,
+  recorded: () => readonly RecordedEmail[],
+  email: string,
+  handle: string,
+  options?: { displayName?: string },
+) {
+  const done = await registerThroughRoutes(app, recorded, email, handle, options);
+  return {
+    status: 201,
+    json: async () => ({
+      ...done.body,
+      session: { ...done.body.session, access_token: done.accessToken },
+    }),
+    headers: {
+      get: (name: string) => (name === "set-cookie" ? done.cookies.join(", ") : null),
+      getSetCookie: () => done.cookies,
+    },
+  };
+}
+
 /** Drive the whole sign-up through the emailed link and return an access token. */
 async function registerAndGetAccessToken(
   freshApp: ReturnType<typeof createAuthRoutes>,
@@ -1414,7 +1442,7 @@ describe("auth routes", () => {
     async function getAccessToken(): Promise<{ accessToken: string; profileId: string }> {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         verifiedApp,
         capture.recorded,
         "profiles@example.com",
@@ -1485,7 +1513,7 @@ describe("auth routes", () => {
     }> {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         verifiedApp,
         capture.recorded,
         "switch@example.com",
@@ -1582,7 +1610,7 @@ describe("auth routes", () => {
     }> {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         verifiedApp,
         capture.recorded,
         "recovery-user@example.com",
@@ -1897,12 +1925,19 @@ describe("auth routes", () => {
     });
 
     it("POST /step-up/passkey/begin rejects accounts without passkeys", async () => {
-      const { app: freshApp, captured } = appWithCapturingEmail();
-      const accessToken = await registerAndGetAccessToken(
-        freshApp,
-        captured,
-        "su-pkbegin@example.com",
-        "supkbegin",
+      // An account with no passkey and an ordinary session: no sign-up makes
+      // one any more (its session stays restricted until the passkey is in),
+      // so the store seeds it, as an account from before that held one.
+      const { app: freshApp } = appWithCapturingEmail();
+      const svc = createAuthService(config);
+      const accessToken = await Effect.runPromise(
+        svc.registerProfile("su-pkbegin@example.com", "supkbegin").pipe(
+          Effect.flatMap((user) =>
+            svc.issueTokens(user.id, user.accountId, user.email, user.handle, user.displayName),
+          ),
+          Effect.map((issued) => issued.accessToken),
+          Effect.provide(layer),
+        ),
       );
       const res = await freshApp.handle(
         new Request("http://localhost/step-up/passkey/begin", {
@@ -1944,7 +1979,7 @@ describe("auth routes", () => {
     }> {
       const capture = buildEmailCapture(layer);
       const freshApp = createAuthRoutes(config, capture.layer);
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         freshApp,
         capture.recorded,
         "sess-route@example.com",
@@ -2073,12 +2108,7 @@ describe("auth routes", () => {
     }> {
       const cap = buildEmailCapture(layer);
       const freshApp = createAuthRoutes(config, cap.layer);
-      const completeRes = await registeredResponse(
-        freshApp,
-        cap.recorded,
-        "ec-route@example.com",
-        "ecroute",
-      );
+      const completeRes = await signedUp(freshApp, cap.recorded, "ec-route@example.com", "ecroute");
       const json = (await completeRes.json()) as {
         session: { access_token: string };
       };
@@ -2339,11 +2369,12 @@ describe("auth routes", () => {
     }> {
       // Drive the full register → step-up → /recovery/generate ceremony so
       // there's exactly one unacked recovery_code_generate event on the
-      // account by the time we hit GET /account/security-events.
+      // account by the time we hit GET /account/security-events, beside the
+      // `passkey_register` event the sign-up's first passkey recorded.
       const cap = buildEmailCapture(layer);
       const freshApp = createAuthRoutes(config, cap.layer);
 
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         freshApp,
         cap.recorded,
         "sev-route@example.com",
@@ -2385,7 +2416,7 @@ describe("auth routes", () => {
         app: freshApp,
         accessToken,
         recorded: cap.recorded,
-        generatedEventId: events[0]!.id,
+        generatedEventId: events.find((e) => e.kind === "recovery_code_generate")!.id,
       };
     }
 
@@ -2414,21 +2445,24 @@ describe("auth routes", () => {
           ipHash: string | null;
         }>;
       };
-      expect(json.events).toHaveLength(1);
-      expect(json.events[0]!.kind).toBe("recovery_code_generate");
-      expect(json.events[0]!.id).toMatch(/^sev_[a-f0-9]{12}$/);
+      expect(json.events.map((e) => e.kind).toSorted()).toEqual([
+        "passkey_register",
+        "recovery_code_generate",
+      ]);
+      const generated = json.events.filter((e) => e.kind === "recovery_code_generate");
+      expect(generated[0]!.id).toMatch(/^sev_[a-f0-9]{12}$/);
       // The route's `response` schema deletes any key it doesn't declare, so
       // pin the whole `SecurityEventSummary` key set: dropping `createdAt` or
       // `uaLabel` would quietly leave the banner unable to say when the event
       // happened or which device caused it.
-      expect(Object.keys(json.events[0]!).toSorted()).toEqual([
+      expect(Object.keys(generated[0]!).toSorted()).toEqual([
         "createdAt",
         "id",
         "ipHash",
         "kind",
         "uaLabel",
       ]);
-      expect(typeof json.events[0]!.createdAt).toBe("number");
+      expect(typeof generated[0]!.createdAt).toBe("number");
     });
 
     // the list is per-user and names auth events — nothing may
@@ -2477,14 +2511,15 @@ describe("auth routes", () => {
       expect(ackRes.status).toBe(200);
       expect((await ackRes.json()) as { acknowledged: boolean }).toEqual({ acknowledged: true });
 
-      // List again — should be empty.
+      // List again — only the sign-up's own passkey event is left.
       const listAfter = await freshApp.handle(
         new Request("http://localhost/account/security-events", {
           headers: { Authorization: `Bearer ${accessToken}` },
         }),
       );
-      const json = (await listAfter.json()) as { events: unknown[] };
-      expect(json.events).toHaveLength(0);
+      const json = (await listAfter.json()) as { events: Array<{ id: string; kind: string }> };
+      expect(json.events.map((e) => e.id)).not.toContain(generatedEventId);
+      expect(json.events.map((e) => e.kind)).toEqual(["passkey_register"]);
     });
 
     it("POST /account/security-events/:id/ack rejects malformed ids via path regex", async () => {
@@ -2524,7 +2559,8 @@ describe("auth routes", () => {
 
     it("POST /account/security-events/ack-all dismisses every unacked event in one call", async () => {
       const { app: freshApp, accessToken, recorded } = await setupWithRecovery();
-      // Generate two more events so there are 3 unacked rows.
+      // Generate two more events so there are 4 unacked rows: three
+      // generates and the sign-up's first passkey.
       for (const _ of [1, 2]) {
         // eslint-disable-next-line no-await-in-loop -- each step-up reads its own mailed link
         const freshStepUp = await mintStepUp(freshApp, accessToken, recorded, "recovery_generate");
@@ -2553,7 +2589,7 @@ describe("auth routes", () => {
         }),
       );
       expect(ackAllRes.status).toBe(200);
-      expect((await ackAllRes.json()) as { acknowledged: number }).toEqual({ acknowledged: 3 });
+      expect((await ackAllRes.json()) as { acknowledged: number }).toEqual({ acknowledged: 4 });
 
       const listAfter = await freshApp.handle(
         new Request("http://localhost/account/security-events", {

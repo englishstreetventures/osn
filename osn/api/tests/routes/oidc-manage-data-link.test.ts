@@ -20,7 +20,7 @@ import type { ManageDataRefusal } from "../../src/services/auth/client-links";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
-import { registeredResponse } from "../helpers/registration";
+import { registerThroughRoutes } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 /** The origin osn-api's deployment pins to `cid_portal`, as `CIRE_ORGANISER_ORIGIN` pins cire's. */
@@ -258,8 +258,14 @@ beforeAll(async () => {
     { ...config, clientAppOrigins: new Map([["cid_portal", PORTAL]]) },
     layer,
   );
-  const res = await registeredResponse(app, () => email.recorded(), "leaver@example.com", "leaver");
-  const { session } = (await res.json()) as { session: { access_token: string } };
+  // With its first passkey, so the session is an ordinary one.
+  const done = await registerThroughRoutes(
+    app,
+    () => email.recorded(),
+    "leaver@example.com",
+    "leaver",
+  );
+  const session = { access_token: done.accessToken };
   const profile = sqlite
     .query<{ id: string; account_id: string }, [string]>(
       "SELECT id, account_id FROM users WHERE handle = ?",
