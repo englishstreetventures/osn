@@ -287,6 +287,13 @@ describe("CloudflareEmailLive sender", () => {
     ["hello@localhost", NOT_A_SENDER],
     ['"Musubi <hello@musubi.social>', NOT_A_SENDER],
     ["< hello@musubi.social >", NOT_A_SENDER],
+    [".hello@musubi.social", NOT_A_SENDER],
+    ["hello.@musubi.social", NOT_A_SENDER],
+    ["hel..lo@musubi.social", NOT_A_SENDER],
+    ["hello@-musubi.social", NOT_A_SENDER],
+    ["hello@musubi-.social", NOT_A_SENDER],
+    [`hello@${"b".repeat(64)}.social`, NOT_A_SENDER],
+    ['"Caf\\\u00e9" <hello@musubi.social>', NOT_A_SENDER],
     [`${"a".repeat(65)}@musubi.social`, LENGTH],
     [`${LONGEST}d`, LENGTH],
   ])("refuses %j when the layer is built", (raw, message) => {
@@ -296,9 +303,10 @@ describe("CloudflareEmailLive sender", () => {
   it.each([
     "Musubi\r\nBcc: x@evil.example <hello@musubi.social>",
     '"Mu\nsubi" <hello@musubi.social>',
-    "Mu‮subi <hello@musubi.social>",
-    "Mu​subi <hello@musubi.social>",
-    "Mu subi <hello@musubi.social>",
+    "Mu\u202Esubi <hello@musubi.social>",
+    "Mu\u200Bsubi <hello@musubi.social>",
+    "Mu\u2028subi <hello@musubi.social>",
+    "Mu\u2029subi <hello@musubi.social>",
   ])("refuses %j, which holds a control, format or separator character", (raw) => {
     expect(refusal(raw)).toBe(UNSAFE);
   });
@@ -313,6 +321,11 @@ describe("CloudflareEmailLive sender", () => {
       '"The \\"Musubi\\" team" <hello@musubi.social>',
       { address: "hello@musubi.social", name: 'The "Musubi" team' },
     ],
+    [
+      '"Back\\\\slash" <hello@musubi.social>',
+      { address: "hello@musubi.social", name: "Back\\slash" },
+    ],
+    ['"Musubi"<hello@musubi.social>', { address: "hello@musubi.social", name: "Musubi" }],
   ])("keeps the whole quoted name of %j", async (raw, expected) => {
     expect(await sentFrom(raw)).toStrictEqual(expected);
   });
@@ -323,7 +336,11 @@ describe("CloudflareEmailLive sender", () => {
     "Musubi > <hello@musubi.social>",
     "a@b.example, Musubi <c@d.example>",
     "support@bank.example <hello@musubi.social>",
-  ])("refuses %j, whose unquoted name holds a quote, bracket, comma or @", (raw) => {
+    "Musubi: Team <hello@musubi.social>",
+    "Musubi; Team <hello@musubi.social>",
+    "Musubi [dev] <hello@musubi.social>",
+    "Musubi \\ Team <hello@musubi.social>",
+  ])("refuses %j, whose unquoted name holds a character only a quoted name may", (raw) => {
     expect(refusal(raw)).toBe(NOT_A_SENDER);
   });
 
