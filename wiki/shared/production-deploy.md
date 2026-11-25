@@ -175,7 +175,7 @@ Setup steps (live path — Resend). Production has finished all seven for `cirew
 
 The **Cloudflare Email Service** path stays available as a legacy fallback: onboard the
 sender domain in Cloudflare Email Sending, mint an API token with the `Email Sending Write`
-permission → `CLOUDFLARE_EMAIL_API_TOKEN`, and note `CLOUDFLARE_ACCOUNT_ID`. It needs the
+permission, store it as `CLOUDFLARE_EMAIL_API_TOKEN`, and note `CLOUDFLARE_ACCOUNT_ID`. It needs the
 Workers Paid plan to mail any address the account has not verified
 ([Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/))
 and is **not** the live transport — prefer Resend.
