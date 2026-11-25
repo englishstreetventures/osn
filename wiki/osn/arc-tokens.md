@@ -300,43 +300,82 @@ and each app fetches the one a token names:
    over its budget`) ([[rate-limiting]]).
 5. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
    Worker-safe): the token must claim `iss: "osn-api"`, ask for a scope the app
-   lets osn-api use, and, when the app's secret can key the MAC, carry a `kid`
-   whose MAC verifies and whose expiry has not passed; only then is the key
-   resolved, through the same bounded kid cache
+   lets osn-api use, and, when the app holds a secret that can key a MAC, carry
+   a `kid` with a MAC that verifies under it and an expiry that has not passed;
+   only then is the key resolved, through the same bounded kid cache
    the app uses for access-token keys, at `<issuer>/.well-known/arc-jwks.json`
-   below the issuer origin it already pins. Then jose checks the signature
+   below the issuer origin it already pins. A checked kid is looked up and
+   cached by the `<uuid>.<expiry>` its verified MAC covers, never by a part the
+   app did not verify (below). Then jose checks the signature
    (ES256 only), `iss`, `aud`, `exp` and `iat`, and the token's scope must hold
    the route's.
 
-**The key id.** `<uuid>.<expiry>.<MAC>`, the MAC the first 22 base64url
-characters of HMAC-SHA256 over the uuid and the expiry, under a key derived
-from `INTERNAL_SERVICE_SECRET` with HKDF-SHA-256 (fixed salt
-`osn-arc-kid-salt`, `info` `osn-arc-kid-mac-v1`), never under the secret
-itself (`@shared/crypto/arc-kid`). osn-api and every app derive the key in
-that one module, so both sides change together. An app holding the secret
-refuses a `kid` whose MAC fails, or whose expiry has passed, before it fetches
-anything, so a stream of tokens with made-up or scraped `kid`s costs it no
-request to osn-api. On the ARC path the MAC gates fetching only; a token is
-authenticated by its signature against the published key.
+**The key id.** `<uuid>.<expiry>` and one or two MACs, each the first 22
+base64url characters of HMAC-SHA256 over the uuid and the expiry
+(`@shared/crypto/arc-kid`). Each MAC is keyed by a key derived from its secret
+with HKDF-SHA-256 (fixed salt `osn-arc-kid-salt`), never by the secret itself:
 
-The same secret is the bearer of the key-registration routes
+| MAC | Secret | HKDF `info` | Held by |
+|---|---|---|---|
+| First | `OSN_ARC_KID_SECRET`, held for this MAC alone | `osn-arc-kid-mac-v2` | osn-api, zap-api, pulse-api, cire-api, once set on each |
+| Second | `INTERNAL_SERVICE_SECRET` | `osn-arc-kid-mac-v1` | osn-api, zap-api, pulse-api |
+
+osn-api puts a MAC in the kid for each secret it holds: `<uuid>.<expiry>.<v1>`
+with the service secret alone, `<uuid>.<expiry>.<v2>.<v1>` with both. An app
+holding either secret refuses, before it fetches anything, a kid whose expiry
+has passed or that carries no MAC verifying under a secret it holds, so a
+stream of tokens with made-up `kid`s costs it no request to osn-api. On the
+ARC path the MAC gates fetching only; a token is authenticated by its
+signature against the published key. osn-api and every app derive the keys in
+that one module, so both sides change together.
+
+A 4-part kid carries a MAC the app may hold no key for. An app that checked a
+kid therefore looks the key up, and caches it or its absence, by the
+`<uuid>.<expiry>` its verified MAC covers, and takes from the published set
+the 3- or 4-part kid with that uuid and expiry (`checkArcKid`'s lookup, passed
+as `names` to `resolvePublicKeyForKid` in `@shared/osn-auth-client/jwks-cache`).
+No fetch and no cache entry depends on a part of a kid the app did not verify.
+An app holding no secret checks nothing and looks the kid up exactly as sent.
+
+**Rolling out the kid secret.** The owner sets `OSN_ARC_KID_SECRET` by hand,
+Worker by Worker ([[production-deploy#5.11 The ARC key-id secret 🔑]]), and
+until every Worker holds it, one holding the service secret alone behaves as
+before. Whether osn-api's kids are admitted:
+
+| osn-api holds | cire-api: neither | Zap, Pulse: service secret | cire-api: kid secret | Zap, Pulse: both |
+|---|---|---|---|---|
+| Service secret only | admitted, unchecked | admitted | **refused** | admitted |
+| Both | admitted, unchecked | admitted | admitted | admitted |
+
+Zap and Pulse admit osn-api's kids whichever of them gets the secret first.
+cire-api never holds the service secret, so it admits only a kid carrying the
+kid secret's MAC: it gets the secret after osn-api, once every kid in the key
+set has four parts. Code older than this rule refuses a 4-part kid, so every
+Worker on the tier runs it before osn-api gets the secret. The service
+secret's MAC goes once every Worker holds the kid secret
+(englishstreetventures/osn#2540).
+
+The service secret is also the bearer of the key-registration routes
 (`POST /graph/internal/register-service` on osn-api,
-`POST /internal/register-service` on Zap) and of `GET /health/coordination`,
-and every kid in the public key set lets anyone test a guess at it offline:
-derive the key, compute the MAC, compare. The derivation keeps the bearer
-value itself out of the MAC, but HKDF is fast and adds no entropy, so it does
-not slow that search. A secret found that way would let anyone register a key
-under any service id and scope. Only the secret's own randomness stops it:
-generate it (`openssl rand -base64 32`), never choose it. A secret shorter
-than 32 characters never keys the MAC, on either side: osn-api mints kids
-without a MAC and logs `osn.arc outbound key id carries no MAC` once per key,
-and Pulse and Zap treat it as unset and skip the check. A dev deploy refuses a
-shorter `INTERNAL_SERVICE_SECRET` ([[infrastructure-as-code]]). The floor
-refuses a value too short to be random; it cannot tell a long generated value
-from a long guessable one. A secret held for the kid MAC alone, apart from the
-bearer, would keep a found MAC key from opening the registration routes. A deployed osn-api
-without the secret refuses to boot. Locally, osn-api and the app hold it both
-or neither: an app holding it refuses osn-api's kids minted without it.
+`POST /internal/register-service` on Zap) and of `GET /health/coordination`.
+Every kid in the public key set lets anyone test a guess at a secret that
+keys one of its MACs offline: derive the key, compute the MAC, compare. HKDF
+is fast and adds no entropy, so it does not slow that search. Only each
+secret's own randomness stops it: generate each (`openssl rand -base64 32`),
+never choose it, and generate the kid secret on its own, never as a copy of
+the service secret: every Worker ignores a kid secret equal to the service
+secret, osn-api logs `osn.arc OSN_ARC_KID_SECRET equals INTERNAL_SERVICE_SECRET;
+key ids carry no MAC under it`, and a dev deploy refuses the pair. A secret shorter than 32 characters never keys a MAC, on
+either side: osn-api mints the kid without it and logs `osn.arc outbound key
+id carries no MAC under a secret too short to key one` once per key, naming
+the secret; Pulse and Zap treat it as unset; cire-api treats it as unset and
+logs `osn-api's ARC key ids are not checked: OSN_ARC_KID_SECRET is shorter
+than 32 characters` once per app build. A dev deploy refuses either secret
+shorter than 32 characters ([[infrastructure-as-code]]). The floor refuses a
+value too short to be random; it cannot tell a long generated value from a
+long guessable one. A deployed osn-api without `INTERNAL_SERVICE_SECRET`
+refuses to boot. Locally, osn-api and the app hold each secret both or
+neither: an app holding one refuses osn-api's kids minted without it.
 
 **What each app lets osn-api use.** Pulse: `account:erase`, `account:export`,
 `account:deletion-preview`, `account:sessions-revoke`; it takes ARC from no
@@ -349,11 +388,11 @@ holds `chat:c2b` keys for cire-api only. cire-api: `account:deletion-preview`,
 `cire/api/src/lib/osn-arc.ts`; each of its three routes asks for its own
 scope, so a token for one opens neither other.
 
-**cire-api holds no kid secret.** The value that keys the kid MAC is the
-registration bearer above, and cire-api is not given it, so a compromised
-cire-api cannot register keys or revoke Zap's, and cire-api does not check the
-kid's MAC. A secret held for the kid MAC alone would let cire-api check kids
-too.
+**cire-api holds the kid secret, never the service secret.** The service
+secret is the registration bearer above, and cire-api is not given it, so a
+compromised cire-api cannot register keys or revoke Zap's. cire-api checks
+kids with `OSN_ARC_KID_SECRET` alone (`cire/api/src/lib/osn-arc.ts`), and
+checks none while it does not hold it.
 
 **Trust.** Whoever can write osn-db's `arc_outbound_keys`, or answer for
 osn-api's origin, can mint tokens an app accepts as osn-api's. The same write

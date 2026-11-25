@@ -6,7 +6,7 @@
  * failure against a resolved key, the cache is bypassed once (refresh path)
  * to handle key rotation.
  *
- * Amplification defences (P-C1 / S-M3):
+ * Amplification defences:
  * - Negative cache: an unknown kid (or a fetch that fails) is remembered for
  *   NEGATIVE_TTL_MS so a flood of junk-`kid` tokens doesn't re-hit upstream on
  *   every request. A forced refresh bypasses the negative cache so a genuine
@@ -16,9 +16,9 @@
  * - Fetch timeout: each JWKS fetch is bounded by JWKS_FETCH_TIMEOUT_MS so a
  *   hung upstream cannot pin the consumer.
  *
- * P-W2: bounded to CACHE_MAX_SIZE entries via LRU eviction — mirrors the
+ * Bounded to CACHE_MAX_SIZE entries via LRU eviction — mirrors the
  * pattern in @shared/crypto/arc.ts (PR #63).
- * S-M3: cache key includes the JWKS URL so keys from different issuers never
+ * The cache key includes the JWKS URL so keys from different issuers never
  * collide even if kid values overlap.
  */
 
@@ -28,19 +28,19 @@
 import { importKeyFromJwk } from "@shared/crypto/jwk";
 
 const JWKS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-/** Negative-cache TTL for unknown kids / failed fetches (P-C1 amplification). */
+/** Negative-cache TTL for unknown kids and failed fetches, so junk kids cannot drive a fetch each. */
 const NEGATIVE_TTL_MS = 30 * 1000; // 30 seconds
 /** Upper bound on a single JWKS fetch so a hung upstream can't pin us. */
 const JWKS_FETCH_TIMEOUT_MS = 5000;
-// P-W2: realistic key-rotation scenarios will never exceed single digits;
+// Realistic key-rotation scenarios will never exceed single digits;
 // cap prevents heap exhaustion from JWTs with crafted kid values.
 const CACHE_MAX_SIZE = 256;
-// S-review: the negative cache MUST also be bounded. Unknown/junk kids each
+// The negative cache MUST also be bounded. Unknown/junk kids each
 // insert a distinct entry, so an unauthenticated flood of random-`kid` tokens
 // would otherwise grow the map without limit (heap-exhaustion DoS). FIFO-evict
 // the oldest entry once the cap is reached.
 const NEGATIVE_CACHE_MAX_SIZE = 1024;
-// S-review (M-A): minimum spacing between forced JWKS refetches for the SAME
+// Minimum spacing between forced JWKS refetches for the SAME
 // kid. A valid-`kid`/bad-signature token forces a rotation refetch; because
 // kids are public, an attacker could otherwise drive one upstream fetch per
 // request. One forced refetch per kid per window is enough to pick up a genuine
@@ -62,9 +62,22 @@ interface JwksEntry {
   readonly kid: string;
 }
 
-/** True when `value` is a JWKS entry published under `kid`. */
-function hasKid(value: unknown, kid: string): value is JwksEntry {
-  return typeof value === "object" && value !== null && "kid" in value && value.kid === kid;
+/**
+ * Which published `kid` a lookup wants. Exact by default; an ARC lookup whose
+ * kid carries a part the app could not verify names the entry by the part it
+ * did verify (`@shared/crypto/arc-kid`, `checkArcKid`).
+ */
+export type KidNames = (publishedKid: string) => boolean;
+
+/** True when `value` is a JWKS entry published under a kid `names` accepts. */
+function isNamedEntry(value: unknown, names: KidNames): value is JwksEntry {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kid" in value &&
+    typeof value.kid === "string" &&
+    names(value.kid)
+  );
 }
 
 const cache = new Map<string, CachedKey>();
@@ -86,7 +99,7 @@ function recordNegative(ck: string): void {
   negativeCache.set(ck, Date.now());
 }
 
-/** S-M3: include jwksUrl in cache key to isolate keys by issuer. */
+/** Includes jwksUrl in the cache key, isolating keys by issuer. */
 function cacheKey(kid: string, jwksUrl: string): string {
   return `${jwksUrl}:${kid}`;
 }
@@ -131,11 +144,16 @@ async function fetchJwksKeys(jwksUrl: string): Promise<unknown[]> {
 }
 
 /**
- * Resolves a CryptoKey for `kid` by fetching the JWKS. Returns `null` for any
- * failure (network error, non-OK, malformed JSON, unknown kid, bad JWK) and
- * records a negative-cache entry so repeated misses don't re-fetch.
+ * Resolves a CryptoKey for `kid` by fetching the JWKS and taking the first
+ * entry `names` accepts. Returns `null` for any failure (network error,
+ * non-OK, malformed JSON, unknown kid, bad JWK) and records a negative-cache
+ * entry under `kid` so repeated misses don't re-fetch.
  */
-async function fetchPublicKey(kid: string, jwksUrl: string): Promise<CryptoKey | null> {
+async function fetchPublicKey(
+  kid: string,
+  jwksUrl: string,
+  names: KidNames = (published) => published === kid,
+): Promise<CryptoKey | null> {
   let keys: unknown[];
   try {
     keys = await fetchJwksKeys(jwksUrl);
@@ -144,7 +162,7 @@ async function fetchPublicKey(kid: string, jwksUrl: string): Promise<CryptoKey |
     return null;
   }
 
-  const jwk = keys.find((k): k is JwksEntry => hasKid(k, kid));
+  const jwk = keys.find((k): k is JwksEntry => isNamedEntry(k, names));
 
   if (!jwk) {
     recordNegative(cacheKey(kid, jwksUrl));
@@ -181,10 +199,16 @@ function isNegativelyCached(ck: string): boolean {
  * Returns `null` if the key cannot be resolved (network error, unknown kid,
  * malformed JWK). Unknown kids are negative-cached for NEGATIVE_TTL_MS so a
  * flood of junk-`kid` tokens doesn't re-fetch upstream on every request.
+ *
+ * Both caches are keyed by `kid` as given, and `names` picks the published
+ * entry (exact `kid` by default). A caller that verified only part of a token's
+ * kid passes that part as `kid` and a `names` matching it, so no cache entry
+ * and no fetch depends on a part it did not verify.
  */
 export async function resolvePublicKeyForKid(
   kid: string,
   jwksUrl: string,
+  names?: KidNames,
 ): Promise<CryptoKey | null> {
   const ck = cacheKey(kid, jwksUrl);
   const now = Date.now();
@@ -196,14 +220,15 @@ export async function resolvePublicKeyForKid(
 
   if (isNegativelyCached(ck)) return null;
 
-  const key = await fetchPublicKey(kid, jwksUrl);
+  const key = await fetchPublicKey(kid, jwksUrl, names);
   if (key) storeInCache(ck, key);
   return key;
 }
 
 /**
  * Bypasses both the positive and negative caches and re-fetches the JWKS
- * endpoint for `kid`. Call this when token verification fails against a cached
+ * endpoint for `kid`, matched exactly: never pass it an ARC lookup id, which
+ * names no published kid by itself (ARC never refreshes). Call this when token verification fails against a cached
  * key — it may have been rotated. A genuine rotation must never be masked by a
  * stale negative entry, so this path ignores the negative cache. Updates the
  * cache on success.
@@ -215,7 +240,7 @@ export async function refreshPublicKeyForKid(
   const ck = cacheKey(kid, jwksUrl);
   const now = Date.now();
 
-  // S-review (M-A): throttle forced refetches per kid. A valid-`kid`/bad-sig
+  // Throttle forced refetches per kid. A valid-`kid`/bad-sig
   // token reaches here; without a throttle an attacker (kids are public) drives
   // one upstream JWKS fetch per request. If we forced a refetch for this kid
   // within the cooldown, skip the network call and return whatever is cached

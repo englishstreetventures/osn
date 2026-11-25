@@ -87,9 +87,17 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
         ],
         // CIRE_INTERNAL_REVOKE_SECRET: the bearer for cire-api's organiser-session
         // revoke, held by both Workers (SHARED_SECRET_VALUES); unset, the revoke is
-        // skipped. OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: set only while a TOTP key
-        // rotation drains (osn/api/wrangler.toml secrets block).
-        optional: ["CIRE_INTERNAL_REVOKE_SECRET", "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"],
+        // skipped. OSN_ARC_KID_SECRET: keys a MAC on osn-api's ARC key ids for
+        // that alone, held with zap-api and cire-api (SHARED_SECRET_VALUES); unset,
+        // the key ids carry INTERNAL_SERVICE_SECRET's MAC alone. Optional until
+        // every Worker holds it (englishstreetventures/osn#2540).
+        // OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: set only while a TOTP key rotation
+        // drains (osn/api/wrangler.toml secrets block).
+        optional: [
+          "CIRE_INTERNAL_REVOKE_SECRET",
+          "OSN_ARC_KID_SECRET",
+          "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS",
+        ],
         // RESEND_API_URL and OSN_EMAIL_VERIFICATION_EMULATOR_URL point osn-api at
         // local stand-ins; it refuses to boot with either outside a local stack.
         forbidden: ["OSN_EMAIL_VERIFICATION_EMULATOR_URL", "RESEND_API_URL"],
@@ -107,7 +115,11 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "RESEND_API_KEY",
           "TURNSTILE_SECRET_KEY",
         ],
-        optional: ["CIRE_INTERNAL_REVOKE_SECRET", "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"],
+        optional: [
+          "CIRE_INTERNAL_REVOKE_SECRET",
+          "OSN_ARC_KID_SECRET",
+          "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS",
+        ],
         forbidden: ["DEV_LOGIN_SECRET", "OSN_EMAIL_VERIFICATION_EMULATOR_URL", "RESEND_API_URL"],
       },
     },
@@ -135,9 +147,12 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
         // STRIPE_CONNECT_CLIENT_ID: the platform's Stripe Connect OAuth client id
         // (`ca_…`); unset, no owner may connect a Stripe account they already
         // have. Not secret, but set with the other Stripe values.
+        // OSN_ARC_KID_SECRET: checks osn-api's ARC key ids before any key fetch;
+        // unset, none is checked (osn-api's row).
         optional: [
           "CIRE_INTERNAL_REVOKE_SECRET",
           "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS",
+          "OSN_ARC_KID_SECRET",
           "STRIPE_CONNECT_CLIENT_ID",
         ],
         // RESEND_API_URL, STRIPE_API_URL, STRIPE_CONNECT_URL: local stand-ins
@@ -162,6 +177,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "CIRE_INTERNAL_REVOKE_SECRET",
           "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS",
           "CIRE_OPS_EMAIL",
+          "OSN_ARC_KID_SECRET",
         ],
         forbidden: ["RESEND_API_URL", "STRIPE_API_URL", "STRIPE_CONNECT_URL"],
       },
@@ -175,7 +191,9 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
         scriptName: "zap-api-dev",
         source: "environment",
         secrets: ["INTERNAL_SERVICE_SECRET"],
-        optional: [],
+        // OSN_ARC_KID_SECRET: checks osn-api's ARC key ids with
+        // INTERNAL_SERVICE_SECRET (osn-api's row).
+        optional: ["OSN_ARC_KID_SECRET"],
         // No zap code reads a GrowthBook key.
         forbidden: ["GROWTHBOOK_CLIENT_KEY"],
       },
@@ -183,7 +201,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
         scriptName: "zap-api-production",
         source: "worker",
         secrets: ["INTERNAL_SERVICE_SECRET"],
-        optional: [],
+        optional: ["OSN_ARC_KID_SECRET"],
         // No zap code reads a GrowthBook key; the release refuses zap-api
         // while it is live (englishstreetventures/osn#1532).
         forbidden: ["GROWTHBOOK_CLIENT_KEY"],
@@ -223,7 +241,7 @@ export const SHARED_SECRET_VALUES: readonly {
   readonly name: string;
   readonly workers: readonly WorkerKey[];
 }[] = [
-  // zap-api registers its ARC key at osn-api with this value, and checks the MAC
+  // zap-api registers its ARC key at osn-api with this value, and checks a MAC
   // on osn-api's outbound key ids with it, so both must hold the same one.
   { tier: "dev", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
   { tier: "production", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
@@ -231,6 +249,15 @@ export const SHARED_SECRET_VALUES: readonly {
   // compares it with its own: one value on both, or every revoke is refused.
   { tier: "dev", name: "CIRE_INTERNAL_REVOKE_SECRET", workers: ["cire-api", "osn-api"] },
   { tier: "production", name: "CIRE_INTERNAL_REVOKE_SECRET", workers: ["cire-api", "osn-api"] },
+  // osn-api keys a MAC on its ARC key ids with this value, and zap-api and
+  // cire-api check that MAC with theirs: one value on all three, or an app
+  // holding another refuses osn-api's calls.
+  { tier: "dev", name: "OSN_ARC_KID_SECRET", workers: ["cire-api", "osn-api", "zap-api"] },
+  {
+    tier: "production",
+    name: "OSN_ARC_KID_SECRET",
+    workers: ["cire-api", "osn-api", "zap-api"],
+  },
 ];
 
 /**

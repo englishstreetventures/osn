@@ -10,16 +10,18 @@
  * and the same trust.
  *
  * Before any fetch the token must claim `iss: "osn-api"`, ask for a scope the
- * app lets osn-api use, and, when the app holds an `INTERNAL_SERVICE_SECRET`
- * of at least 32 characters, carry a kid whose MAC verifies and whose expiry
- * has not passed (`@shared/crypto/arc-kid`). A token failing any of these costs no fetch.
+ * app lets osn-api use, and, when the app holds a kid secret of at least 32
+ * characters, carry a kid with a MAC that verifies under it and an expiry
+ * that has not passed (`@shared/crypto/arc-kid`). A token failing any of
+ * these costs no fetch, and the key is then looked up by the part of the
+ * kid the check verified alone (`checkArcKid`'s lookup).
  * Then jose checks the signature (ES256 only), `iss`, `aud`, `exp` and `iat`,
  * and the token's scope must hold the route's.
  *
  * Worker-safe: no database, no `@shared/crypto` barrel.
  */
 
-import { checkArcKid } from "@shared/crypto/arc-kid";
+import { checkArcKid, type ArcKidSecrets } from "@shared/crypto/arc-kid";
 import { classifyArcVerifyError, metricArcTokenVerification } from "@shared/crypto/arc-metrics";
 import { normaliseScopes } from "@shared/crypto/jwk";
 import { decodeJwt, decodeProtectedHeader, errors, jwtVerify } from "jose";
@@ -32,15 +34,14 @@ export const OSN_ARC_ISSUER = "osn-api";
 /** Where osn-api publishes its outbound ARC public keys, below its issuer origin. */
 export const OSN_ARC_JWKS_PATH = "/.well-known/arc-jwks.json";
 
-/** Where to find osn-api's keys, and what gates fetching them. */
-export interface OsnArcVerification {
+/**
+ * Where to find osn-api's keys, and the secrets that gate fetching them: the
+ * kid MAC check is skipped when the app holds neither, or only ones shorter
+ * than 32 characters (`@shared/crypto/arc-kid`).
+ */
+export interface OsnArcVerification extends ArcKidSecrets {
   /** osn-api's origin: the issuer the app pins for access tokens. */
   readonly osnIssuer: string;
-  /**
-   * `INTERNAL_SERVICE_SECRET` when this app holds it; the kid MAC check is
-   * skipped without it, and with one shorter than 32 characters.
-   */
-  readonly kidSecret: string | undefined;
 }
 
 /** What one route admits. */
@@ -124,11 +125,17 @@ export async function verifyOsnArcToken(
   const scope = expected.scope.trim().toLowerCase();
   if (!expected.allowedScopes.has(scope)) return refuse("scope_denied", OSN_ARC_ISSUER);
 
-  if (!(await checkArcKid(kid, verification.kidSecret, Math.floor(Date.now() / 1000)))) {
-    return refuse("unknown_issuer", OSN_ARC_ISSUER);
-  }
+  const lookup = await checkArcKid(kid, verification, Math.floor(Date.now() / 1000));
+  if (!lookup) return refuse("unknown_issuer", OSN_ARC_ISSUER);
 
-  const key = await resolvePublicKeyForKid(kid, `${verification.osnIssuer}${OSN_ARC_JWKS_PATH}`);
+  // Looked up and cached by the part of the kid the check verified, never by
+  // the rest: a copy of a published kid with an unchecked part replaced finds
+  // the real kid's entry and costs no fetch of its own.
+  const key = await resolvePublicKeyForKid(
+    lookup.id,
+    `${verification.osnIssuer}${OSN_ARC_JWKS_PATH}`,
+    lookup.names,
+  );
   if (!key) return refuse("unknown_issuer", OSN_ARC_ISSUER);
 
   let granted: unknown;

@@ -31,7 +31,8 @@ import { holdQueries } from "../helpers/held-query";
  */
 
 const SECRET = "test-internal-secret-of-32-chars!";
-const arc = { kidSecret: SECRET };
+const KID_SECRET = "kid-secret-kid-secret-kid-secret-kid";
+const arc = { kidSecret: KID_SECRET, serviceSecret: SECRET };
 
 const keyRows = Effect.gen(function* () {
   const { db } = yield* Db;
@@ -80,7 +81,15 @@ describe("outbound ARC key", () => {
       const row = rows[0]!;
       const header = yield* Effect.promise(() => arcAuthHeader(key, "zap-api", "account:erase"));
       expect(kidOf(header)).toBe(row.keyId);
-      expect(yield* Effect.promise(() => checkArcKid(row.keyId, SECRET, row.createdAt))).toBe(true);
+      // An app holding either secret alone accepts the kid.
+      for (const app of [
+        { kidSecret: KID_SECRET, serviceSecret: undefined },
+        { kidSecret: undefined, serviceSecret: SECRET },
+      ]) {
+        expect(
+          yield* Effect.promise(() => checkArcKid(row.keyId, app, row.createdAt)),
+        ).not.toBeNull();
+      }
       expect(JSON.parse(row.publicKeyJwk)).toMatchObject({ kty: "EC", crv: "P-256" });
       expect(JSON.parse(row.publicKeyJwk)).not.toHaveProperty("d");
     }).pipe(Effect.provide(createTestLayer())),
@@ -188,19 +197,79 @@ describe("outbound ARC key", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("with a secret shorter than 32 characters, mints a kid with no MAC and warns", () => {
-    const lines: { level: string; message: unknown }[] = [];
-    const log = Logger.layer([
-      Logger.map(Logger.formatStructured, (line) => void lines.push(line)),
-    ]);
-    return Effect.gen(function* () {
-      const key = yield* publishOutboundKey({ kidSecret: "s".repeat(31) });
-      expect(key.keyId.split(".")).toHaveLength(2);
-      const warnings = lines.filter((line) => JSON.stringify(line.message).includes("no MAC"));
-      expect(warnings).toHaveLength(1);
-      expect(JSON.stringify(warnings)).not.toContain("s".repeat(31));
-    }).pipe(Effect.provide(createTestLayer()), Effect.provide(log));
-  });
+  it.effect(
+    "with secrets shorter than 32 characters, mints a kid with no MAC and warns once for each, naming it",
+    () => {
+      const lines: { level: string; message: unknown }[] = [];
+      const log = Logger.layer([
+        Logger.map(Logger.formatStructured, (line) => void lines.push(line)),
+      ]);
+      return Effect.gen(function* () {
+        const key = yield* publishOutboundKey({
+          kidSecret: "k".repeat(31),
+          serviceSecret: "s".repeat(31),
+        });
+        expect(key.keyId.split(".")).toHaveLength(2);
+        const warnings = lines.filter((line) => JSON.stringify(line.message).includes("no MAC"));
+        expect(warnings).toHaveLength(2);
+        expect(JSON.stringify(warnings)).toContain("OSN_ARC_KID_SECRET");
+        expect(JSON.stringify(warnings)).toContain("INTERNAL_SERVICE_SECRET");
+        expect(JSON.stringify(warnings)).not.toContain("s".repeat(31));
+        expect(JSON.stringify(warnings)).not.toContain("k".repeat(31));
+      }).pipe(Effect.provide(createTestLayer()), Effect.provide(log));
+    },
+  );
+
+  it.effect(
+    "with the kid secret equal to the service secret, mints no MAC under it and warns, never with the value",
+    () => {
+      const lines: { level: string; message: unknown }[] = [];
+      const log = Logger.layer([
+        Logger.map(Logger.formatStructured, (line) => void lines.push(line)),
+      ]);
+      const value = "one-value-set-as-both-secrets-32-chars";
+      return Effect.gen(function* () {
+        const key = yield* publishOutboundKey({ kidSecret: value, serviceSecret: value });
+        expect(key.keyId.split(".")).toHaveLength(3);
+        const warnings = lines.filter((line) =>
+          JSON.stringify(line.message).includes("equals INTERNAL_SERVICE_SECRET"),
+        );
+        expect(warnings).toHaveLength(1);
+        expect(JSON.stringify(lines)).not.toContain(value);
+      }).pipe(Effect.provide(createTestLayer()), Effect.provide(log));
+    },
+  );
+
+  for (const [label, config, parts, warned] of [
+    ["both unset", { kidSecret: undefined, serviceSecret: undefined }, 2, []],
+    ["both long enough", { kidSecret: "k".repeat(32), serviceSecret: "s".repeat(32) }, 4, []],
+    [
+      "the kid secret alone too short",
+      { kidSecret: "k".repeat(31), serviceSecret: "s".repeat(32) },
+      3,
+      ["OSN_ARC_KID_SECRET"],
+    ],
+    [
+      "the service secret alone too short",
+      { kidSecret: "k".repeat(32), serviceSecret: "s".repeat(31) },
+      3,
+      ["INTERNAL_SERVICE_SECRET"],
+    ],
+  ] as const) {
+    it.effect(`with ${label}, warns only of a secret set but too short`, () => {
+      const lines: { level: string; message: unknown }[] = [];
+      const log = Logger.layer([
+        Logger.map(Logger.formatStructured, (line) => void lines.push(line)),
+      ]);
+      return Effect.gen(function* () {
+        const key = yield* publishOutboundKey(config);
+        expect(key.keyId.split(".")).toHaveLength(parts);
+        const warnings = lines.filter((line) => JSON.stringify(line.message).includes("no MAC"));
+        expect(warnings).toHaveLength(warned.length);
+        for (const name of warned) expect(JSON.stringify(warnings)).toContain(name);
+      }).pipe(Effect.provide(createTestLayer()), Effect.provide(log));
+    });
+  }
 });
 
 /** One structured log line, as `Logger.formatStructured` writes it. */

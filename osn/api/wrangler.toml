@@ -466,6 +466,13 @@ crons = ["0 */6 * * *"]
 #                              skipped (unset here) or refused with 503 (unset
 #                              on cire-api). Generate with
 #                              `openssl rand -base64 32`.
+#   OSN_ARC_KID_SECRET         keys a MAC on osn-api's ARC key ids, held for
+#                              that alone (optional, at least 32 characters,
+#                              `openssl rand -base64 32`). zap-api and cire-api
+#                              hold the SAME value. Set it here first: cire-api
+#                              holding it refuses key ids minted without it.
+#                              Order and checks: wiki/shared/production-deploy.md
+#                              §5.11.
 #   PULSE_API_URL / ZAP_API_URL vars, never secrets: where the account deletion
 #                              reaches each app; see [env.production.vars].
 #   TRUSTED_PROXY_COUNT        legacy XFF proxy-hop count. IGNORED in deployed

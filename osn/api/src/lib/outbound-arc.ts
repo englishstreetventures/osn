@@ -8,8 +8,10 @@
  * verify osn-api's tokens against that set (`@shared/osn-auth-client/arc`), so
  * a key written by any isolate verifies at any app isolate, with no
  * registration call to each app. The kid carries the key's expiry and an HMAC
- * under a key derived from `INTERNAL_SERVICE_SECRET` (`@shared/crypto/arc-kid`),
- * so an app refuses a made-up kid before it fetches the set.
+ * under a key derived from `OSN_ARC_KID_SECRET`, and another under one derived
+ * from `INTERNAL_SERVICE_SECRET` while apps that hold only that one remain
+ * (`@shared/crypto/arc-kid`), so an app holding either refuses a made-up kid
+ * before it fetches the set.
  *
  * The Worker writes the isolate's key after the isolate's first request,
  * whatever the route, and its replacement after the first request once that
@@ -31,7 +33,7 @@
 import { arcOutboundKeys } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { exportKeyToJwk, generateArcKeyPair, getOrCreateArcToken } from "@shared/crypto";
-import { arcKidMacSecret, mintArcKid } from "@shared/crypto/arc-kid";
+import { arcKidMacSecret, mintArcKid, type ArcKidSecrets } from "@shared/crypto/arc-kid";
 import { commitBatch } from "@shared/db-utils";
 import { count, desc, gt, gte, lt, sql } from "drizzle-orm";
 import { Cause, Data, Effect } from "effect";
@@ -72,14 +74,26 @@ const SERVED_CHECK_REUSE_MS = 30_000;
 /** How often, at most, the read warns about the bound, per isolate. */
 const BOUND_WARNING_INTERVAL_MS = 60_000;
 
-/** What signing needs from the deployment. */
-export interface OutboundArcConfig {
-  /**
-   * `INTERNAL_SERVICE_SECRET`, from which the kid MAC key is derived. Unset
-   * only on a local run. A value shorter than 32 characters keys no MAC
-   * (`@shared/crypto/arc-kid`).
-   */
-  readonly kidSecret: string | undefined;
+/**
+ * What signing needs from the deployment: the secrets each kid's MACs are
+ * keyed from, `OSN_ARC_KID_SECRET` and `INTERNAL_SERVICE_SECRET`. The service
+ * secret is unset only on a local run; a value of either shorter than 32
+ * characters keys no MAC (`@shared/crypto/arc-kid`).
+ */
+export type OutboundArcConfig = ArcKidSecrets;
+
+/** The names of the secrets in `config` that are set but too short to key a MAC. */
+function tooShortToKey(
+  config: OutboundArcConfig,
+): ("OSN_ARC_KID_SECRET" | "INTERNAL_SERVICE_SECRET")[] {
+  const names: ("OSN_ARC_KID_SECRET" | "INTERNAL_SERVICE_SECRET")[] = [];
+  if (config.kidSecret !== undefined && !arcKidMacSecret(config.kidSecret)) {
+    names.push("OSN_ARC_KID_SECRET");
+  }
+  if (config.serviceSecret !== undefined && !arcKidMacSecret(config.serviceSecret)) {
+    names.push("INTERNAL_SERVICE_SECRET");
+  }
+  return names;
 }
 
 /** Writing the key's public half failed; nothing may be signed with it yet. */
@@ -151,10 +165,7 @@ const nowSeconds = (): number => Math.floor(Date.now() / 1_000);
 function mint(config: OutboundArcConfig): KeyState {
   const expiresAt = nowSeconds() + KEY_TTL_SECONDS;
   const key = (async (): Promise<OutboundKey> => {
-    const [pair, keyId] = await Promise.all([
-      generateArcKeyPair(),
-      mintArcKid(config.kidSecret, expiresAt),
-    ]);
+    const [pair, keyId] = await Promise.all([generateArcKeyPair(), mintArcKid(config, expiresAt)]);
     const publicKeyJwk = await exportKeyToJwk(pair.publicKey);
     return { privateKey: pair.privateKey, publicKeyJwk, keyId, expiresAt };
   })();
@@ -224,10 +235,23 @@ const publishState = (
       current.publishing = write;
       publishing = write;
     }
-    if (writesNow && config.kidSecret !== undefined && !arcKidMacSecret(config.kidSecret)) {
-      yield* Effect.logWarning(
-        "osn.arc outbound key id carries no MAC: INTERNAL_SERVICE_SECRET is too short to key one",
-      );
+    if (writesNow) {
+      for (const secret of tooShortToKey(config)) {
+        yield* Effect.logWarning(
+          "osn.arc outbound key id carries no MAC under a secret too short to key one",
+          { secret },
+        );
+      }
+      if (
+        arcKidMacSecret(config.kidSecret) !== undefined &&
+        config.kidSecret === config.serviceSecret
+      ) {
+        // The kid secret goes to cire-api, which must never hold the service
+        // secret; @shared/crypto/arc-kid ignores a kid secret equal to it.
+        yield* Effect.logWarning(
+          "osn.arc OSN_ARC_KID_SECRET equals INTERNAL_SERVICE_SECRET; key ids carry no MAC under it",
+        );
+      }
     }
     const pending = publishing;
     return yield* Effect.tryPromise({

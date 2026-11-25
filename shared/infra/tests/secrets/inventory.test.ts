@@ -169,6 +169,22 @@ describe("secret inventory", () => {
     }
   });
 
+  test("osn-api, zap-api and cire-api keep the ARC key-id secret on both tiers once set, and need it on neither", () => {
+    // Required, an unset `dev` Environment secret would fail the dev deploy.
+    const name = "OSN_ARC_KID_SECRET";
+    for (const worker of ["osn-api", "zap-api", "cire-api"] as const) {
+      for (const tier of TIERS) {
+        const row = tierSecrets(worker, tier);
+        expect({
+          worker,
+          tier,
+          optional: row.optional.includes(name),
+          required: row.secrets.includes(name),
+        }).toEqual({ worker, tier, optional: true, required: false });
+      }
+    }
+  });
+
   test("zap-api production forbids the GrowthBook key no zap code reads, while cire-api production keeps its own", () => {
     expect(reads("zap/api/src", "GROWTHBOOK_CLIENT_KEY")).toBe(false);
     expect(tierSecrets("zap-api", "production").forbidden).toContain("GROWTHBOOK_CLIENT_KEY");

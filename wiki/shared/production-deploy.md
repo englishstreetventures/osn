@@ -97,6 +97,7 @@ marked **TBD** blocks the deploy.
 | **The production account's plan: Workers Paid** | osn-api's coordination store (and every Worker, Durable Object and D1 database on the account) | **The owner switches it in the Cloudflare dashboard before the first release that ships the coordination store** — the deploy token has no billing scope. §1.4 |
 | `INTERNAL_SERVICE_SECRET` (bearer for the coordination probe and register-service) | osn-api + its smoke-check step | **required** — the release refuses to deploy osn-api while its Worker lacks it (§5.9), and the post-deploy smoke check sends it to `GET /health/coordination`. It also guards `POST /graph/internal/register-service`, which registers cire's ARC key, and `PUT /graph/internal/service-scopes/:serviceId`, which renews its scopes (§6.2). The `production` Environment secret of that name holds the Worker's value, for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2): it is the one Worker secret value that Environment keeps |
 | `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional; set on both production Workers on 2026-11-19, by the owner** — without it on both Workers, sign out everywhere else, revoking cire's connection and an account deletion's soft delete leave cire organiser sessions alone, to end within their 7 days ([[sessions#Sign out everywhere else reaches cire]]). To set or replace it: `openssl rand -base64 32`, keep your copy, then `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`; no Environment copy (§5.9). On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
+| `OSN_ARC_KID_SECRET` (one value per tier, ≥32 characters) | osn-api + zap-api + cire-api | **optional** — keys a MAC on osn-api's outbound ARC key ids, held for that alone. With it on cire-api, a key id cire-api cannot verify is refused before it fetches osn-api's key list. Set it in the order and with the checks in §5.11. |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
 | osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5`, staging `eb71428e-8540-4a30-815f-fb9cd4ae97ea`, prod `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
 | cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `6e835474-e0a7-4db9-8883-3247c3c891cd` |
@@ -431,7 +432,7 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
 | `OSN_EMAIL_VERIFICATION_API` | `[env.production.vars]` and `musubiProductionApis` (`musubi/infra/src/declaration.ts`), which PA1 holds equal | No (default off) | Truthy (`true`/`1`/`yes`/`on`) lets sign-up accept a browser Email Verification API token, which proves the address with no emailed link. **`true` on production**, and on dev, set in `musubiDeclaration` ([[email-verification-api#Our code]]). Read once, in `build-deps.ts`. |
 | `OSN_EMAIL_VERIFICATION_EMULATOR_URL` | **Never set** | **Must be absent** | Local E2E only: points the token verifier at a stand-in issuer. osn-api refuses to boot with it unless `OSN_ENV` is exactly `local`, and the release refuses to deploy osn-api while its Worker holds it as a secret (§5.9). |
-| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key, and for `PUT /graph/internal/service-scopes/:serviceId` beside it, which renews its scopes (§6.2). Each answers 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. A key derived from it also MACs osn-api's outbound ARC key ids, which zap-api checks with its own copy, so the two must hold one value, generated (`openssl rand -base64 32`), never chosen ([[arc-tokens#osn-api as issuer — published outbound keys]]); a deployed osn-api without it answers 503. The `production` GitHub Environment holds the same value for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2). |
+| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key, and for `PUT /graph/internal/service-scopes/:serviceId` beside it, which renews its scopes (§6.2). Each answers 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. A key derived from it also MACs osn-api's outbound ARC key ids, which zap-api checks with its own copy until every Worker holds `OSN_ARC_KID_SECRET` (row below), so the two must hold one value, generated (`openssl rand -base64 32`), never chosen ([[arc-tokens#osn-api as issuer — published outbound keys]]); a deployed osn-api without it answers 503. The `production` GitHub Environment holds the same value for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2). |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, `/register/begin` + `/login/passkey/begin` **require** a valid Turnstile token and **fail-closed** (reject on missing/invalid/duplicate; single-use enforced by Cloudflare). When unset, those gates are skipped and the flows behave as before — safe to leave unset until the widget exists. **Currently SET** on `osn-api-production` (#160), so the gates bite. Server half of the sitekey baked into the **musubi/social** build as `VITE_TURNSTILE_SITEKEY` (§3.3) — it was the organiser-portal build until the 2026-07-27 OIDC swap moved the ceremonies. Create the widget in §3.4. (`build-deps.ts` → `createTurnstileVerifier`). |
 | `TRUSTED_PROXY_COUNT` | `[env.<env>.vars]` | Optional | On Workers, Cloudflare sets `cf-connecting-ip`, so this is usually unneeded. Set only if a proxy sits in front and XFF must be trusted N hops. |
 | `OSN_RP_NAME` | `[env.<env>.vars]` | Optional | Display name in passkey prompts and the issuer label in authenticator apps (default: the instance name, `Musubi`). Display only: changing it leaves existing passkeys and authenticator codes working, since sign-in checks `OSN_RP_ID` and the TOTP secret, never the name. |
@@ -441,6 +442,7 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `OSN_DELETION_FANOUT_MAX_JOBS` | `[env.production.vars]` | Set: `50` | Deletion jobs one fan-out pass reaches, and accounts one hard-delete pass erases, from 1 to 200 (`index.ts` `scheduled`). Unset, as on dev, it is 4, inside Workers Free's 50 D1 queries a cron run ([[free-tier-limits]]). |
 | `CIRE_OIDC_CLIENT_ID` | `[env.production.vars]` | Set: `cid_cire` | cire's OIDC client id, which every cire organiser-session revoke needs: it finds the account's profiles that signed in to cire by their consent to this client. Ending them goes to `CIRE_API_URL` (row above), which with this must equal cire-api's own `CIRE_API_ORIGIN` / `CIRE_OIDC_CLIENT_ID`; `cire/infra/tests/cross-stack.test.ts` holds them equal. Nothing is sent while `CIRE_INTERNAL_REVOKE_SECRET` is unset or shorter than 32 characters: each sign out everywhere else, each revoke of cire's connection and each soft delete of an account logs `cire organiser sessions not revoked: back-channel unconfigured` instead. |
 | `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put` | Optional; set on production 2026-11-19 | The bearer cire-api's organiser-session revoke checks, at least 32 characters (osn-api treats a shorter one as unset). Same value on cire-api; how to set it is in the pre-deploy table at the top of this page. |
+| `OSN_ARC_KID_SECRET` | `wrangler secret put` (§5.11) | Optional | Keys a MAC on osn-api's outbound ARC key ids, held for that alone; at least 32 characters (osn-api treats a shorter one as unset and warns). Same value on zap-api and cire-api. Set it here first, then the apps, in the order §5.11 gives. |
 
 > [!important] zap-api and cire-api answer the account deletion before osn-api asks
 > osn-api asks every app it reaches (`ZAP_API_URL`, `CIRE_API_URL`) before it schedules a deletion, and holds the deletion with 409 `could_not_check` while an app answers 404 or an error. A release that ships a new deletion route on zap-api or cire-api ships that stack before or with the musubi stack; while osn-api is ahead of an app, deletions wait, and nothing is lost.
@@ -488,6 +490,7 @@ quietly accepting tokens from anywhere.
 | `CIRE_OPS_EMAIL` | `printf '%s' "$VALUE" \| bunx wrangler secret put CIRE_OPS_EMAIL --env production` from `cire/api` (§5.9). cire-api's production row in `shared/infra/src/secrets/inventory.ts` lists it as optional; no Environment copy | **Optional** | The operator address for the daily "vendor claims are waiting for review" email and the R2 orphan reconcilers' alerts ([[backup-dr]]). A secret because the repo is public. Needs `RESEND_API_KEY` on this Worker too; with either unset no email is sent and the cron's log line is the only signal (`src/index.ts` `scheduled`). [[cire-vendors]] |
 | `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` | `wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production` | **Optional** | Comma-separated wedding ids whose households get the household member step ("Who are you?", reply attribution, `member_required`, "Answered by") only while `cire.account-linking` is on for them (and the ARC bridge is configured); every other guest household always gets it. A secret because the repo is public and a wedding id is the couple's; never a `[vars]` entry, since a declared var's name cannot also be a secret. Unset or empty ⇒ no wedding excluded. The owner finds an id by hand, never an agent and never in a pull request, issue or changeset: `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT id FROM weddings WHERE slug = '<slug>'"`. Set it **before** approving the release that first deploys the code reading it, or that wedding's households are asked "Who are you?" and their replies stamped until it lands; rows stamped by then keep their stamp. An isolate reads it once when it builds the app and logs `member step exclusion loaded` with the count (a warning when an entry is not a `wed_…` id), never the ids; a later change reaches a warm isolate only once cire-api deploys again, and a release deploys it only when its code or declaration changed (§5.9). [[cire-auth]] |
 | `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` | **Optional; set on production 2026-11-19, by the owner** | What osn-api presents to `POST /internal/revoke-organiser-sessions`. Unset or shorter than 32 characters ⇒ the route answers 503, and osn-api's sign out everywhere else, cire connection revoke and account deletion's soft delete leave organiser sessions alone. The same value osn-api holds; how to set it is in the pre-deploy table at the top of this page. [[cire-auth]] |
+| `OSN_ARC_KID_SECRET` | `printf '%s' "$VALUE" \| bunx wrangler secret put OSN_ARC_KID_SECRET --env production` from `cire/api`, only after osn-api holds it (§5.11) | **Optional** | The value osn-api keys a MAC on its ARC key ids with. Set, osn-api's account deletion and export calls are refused before any key fetch unless their key id carries a MAC under it; unset, no key id is checked. Shorter than 32 characters ⇒ treated as unset, and logged once per app build. |
 | `CIRE_R2_RECONCILE_DISABLED` | `wrangler.toml` `[env.production.vars]` (and every other tier's vars block) | **Yes — `"false"` or `"true"`** | Tier-wide switch for the cron's two R2 orphan reconcilers. `"true"` (any value but `"false"`) leaves both out of `scheduled`, logs `r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED` and emails `CIRE_OPS_EMAIL` each run; every other cron job still runs. It changes only with a deploy; to stop the reconcilers at once, around a `cire-db` restore, put `reconcile/stop` in each bucket instead ([[backup-dr]]). A dashboard edit is written back by the next deploy. Never a secret: it is a declared var. `tests/services/r2-reconcile.test.ts` fails unless every tier holds `"false"` or `"true"`. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). In a deployed tier cire-api refuses it: no mail is sent, and `email disabled: Resend misconfigured` is logged. The release refuses to deploy cire-api while its Worker holds it as a secret (§5.9). |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put TURNSTILE_SECRET_KEY` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, the guest **`/api/claim`** + **`/api/rsvp`** endpoints require a valid Turnstile token and **fail-closed** (403 on missing/invalid/duplicate). Unset ⇒ those gates are skipped (guest flow unchanged). Same widget/secret as osn-api — the widget's domains must cover every gated origin. **Currently unset** on `cire-api-production`: a mismatched secret rejected every guest claim on 2026-07-20 and was deleted, which reverts the gate to a no-op. Create the widget in §3.4. (`src/index.ts` → `createTurnstileVerifier`). |
@@ -1829,6 +1832,87 @@ names refuses any release, since the upload would delete it with its storage; an
 observability change, or a custom domain whose previews flag differs, is listed. A
 first release that fails is fixed forward on `main`, and the next release offers the
 same stacks again; a short outage of the surface that failed is accepted.
+
+### 5.11 The ARC key-id secret 🔑
+
+`OSN_ARC_KID_SECRET` keys a MAC on osn-api's outbound ARC key ids, apart from
+`INTERNAL_SERVICE_SECRET`, which keys the other MAC until every Worker holds
+this one (englishstreetventures/osn#2540). One value per tier, held by osn-api,
+zap-api and cire-api, generated on its own, never a copy of another secret. The
+inventory lists it as optional on every Worker on both tiers, so nothing
+refuses a deploy without it. Which Worker admits which key id while it is set
+Worker by Worker: [[arc-tokens#osn-api as issuer — published outbound keys]].
+
+**Before you start, on each tier:** osn-api, zap-api and cire-api all run the
+release that taught them the key-id secret, or a later one. Code older than
+that refuses osn-api's 4-part key ids. On production, the newest **Production
+release** run's `plan` summary lists the commit each surface runs (§5.0); on
+dev, a **Deploy** run at that commit or later passed `stack-musubi-dev`,
+`stack-zap-dev` and `stack-cire-dev` without a rollback.
+
+**Order:** osn-api, then zap-api (before or after osn-api, it does not matter),
+then cire-api last, once every key id osn-api publishes has four parts. cire-api
+holding the secret refuses every key id minted without it, so never give it the
+secret first, and never take the secret off osn-api while cire-api holds it:
+to back out on production, delete cire-api's first.
+
+**Dev.** One `dev` Environment secret; each Worker gets it only from its own
+stack's next deploy, and a dispatch deploys every stack at once. Until the
+musubi stack has deployed with it, a cire-api that has it refuses osn-api's
+calls (a deletion preview shows cire as "could not check"; the fan-out retries
+on the next cron run). To back out, delete the Environment secret and dispatch:
+every stack drops it in one run. In fish:
+
+```fish
+set -g kid_secret (openssl rand -base64 32)
+printf '%s' $kid_secret | gh secret set OSN_ARC_KID_SECRET --env dev --repo englishstreetventures/osn
+set -e kid_secret
+gh workflow run deploy.yml --repo englishstreetventures/osn --ref main
+```
+
+Then check that run's `stack-musubi-dev` deployed; if it did not, dispatch
+again until it does.
+
+**Production.** A value of its own, never dev's; keep it in your password
+manager, since Cloudflare never returns it. `wrangler` needs the production
+account, and with the value piped in it cannot ask which account to use. In
+fish, from a checkout of `main`:
+
+```fish
+set -gx CLOUDFLARE_ACCOUNT_ID <the production account id>
+set -g kid_secret (openssl rand -base64 32)
+# store $kid_secret in the password manager now
+
+cd osn/api
+printf '%s' $kid_secret | bunx wrangler secret put OSN_ARC_KID_SECRET --env production
+bunx wrangler secret list --env production | grep OSN_ARC_KID_SECRET
+cd ../../zap/api
+printf '%s' $kid_secret | bunx wrangler secret put OSN_ARC_KID_SECRET --env production
+bunx wrangler secret list --env production | grep OSN_ARC_KID_SECRET
+
+# cire-api only once this prints a single entry, with parts 4:
+curl -s https://id.musubi.social/.well-known/arc-jwks.json \
+  | jq '[.keys[].kid | split(".") | length] | group_by(.) | map({parts: .[0], keys: length})'
+cd ../../cire/api
+printf '%s' $kid_secret | bunx wrangler secret put OSN_ARC_KID_SECRET --env production
+bunx wrangler secret list --env production | grep OSN_ARC_KID_SECRET
+
+set -e kid_secret
+cd ../..
+```
+
+The key list serves every unexpired key, and osn-api signs only with a key it
+lists, so once every key id there has four parts no call can carry one minted
+without the secret. That is normally true within four hours (a key's life) of
+osn-api's `secret put`; a **Production release** dispatched with `force` for
+`osn_api` makes every isolate mint a new key sooner (§5.9).
+`secrets:check-live` passes whether an optional secret is live or not, so the
+`secret list` lines are the check that each Worker holds it.
+
+Run each `secret put` once. A second run with a new value is a rotation: set
+osn-api first, then zap-api, then cire-api, which refuses osn-api's calls
+signed with keys minted under the old value until they expire, at most four
+hours.
 
 ## 6. Optional: guest account-linking bridge (cire → osn)
 

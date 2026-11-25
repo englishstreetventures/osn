@@ -112,6 +112,12 @@ export interface Env {
   // waiting out its 7-day TTL. A wrangler secret (`wrangler secret put
   // CIRE_INTERNAL_REVOKE_SECRET`). Absent ⇒ the endpoint is disabled (503).
   CIRE_INTERNAL_REVOKE_SECRET?: string;
+  // The secret osn-api keys one of its ARC kid MACs with for that alone (a
+  // wrangler secret, the SAME value osn-api holds). Set ⇒ osn-api's account
+  // deletion and export calls are refused before any key fetch unless their
+  // kid carries a MAC under it. Set it here only after osn-api holds it:
+  // until then osn-api's kids carry no such MAC. Absent ⇒ no kid is checked.
+  OSN_ARC_KID_SECRET?: string;
   // Optional — base URL of zap-api for the vendor enquiry c2b chat bridge.
   // Absent (or combined with a missing ARC key) ⇒ vendor chat disabled (503).
   // The ARC signing key is shared with the osn-api bridge above; no new key
@@ -563,6 +569,8 @@ const handler: ExportedHandler<Env> = {
         // default limiter in createApp counts only refused callers, so osn-api,
         // holding the secret, is never limited.
         internalRevokeSecret: env.CIRE_INTERNAL_REVOKE_SECRET ?? null,
+        // osn-api's ARC kids are checked under this before any key fetch.
+        osnArcKidSecret: env.OSN_ARC_KID_SECRET,
         // The digest's stop links are signed with a key derived from the OIDC
         // client secret; the cron below signs them from the same value.
         digestStopSecret: env.CIRE_OIDC_CLIENT_SECRET ?? null,

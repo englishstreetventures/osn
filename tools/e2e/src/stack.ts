@@ -23,6 +23,7 @@ import {
   E2E_RESEND_KEY,
   INTERNAL_SERVICE_SECRET,
   ORIGINS,
+  OSN_ARC_KID_SECRET,
   PORTS,
   PULSE_OIDC,
   REPO_ROOT,
@@ -217,6 +218,8 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         OSN_ORIGIN: [ORIGINS.musubi, ORIGINS.pulseWeb].join(","),
         OSN_CORS_ORIGIN: [ORIGINS.musubi, ORIGINS.pulseWeb].join(","),
         INTERNAL_SERVICE_SECRET,
+        // Keys a MAC on its ARC key ids; Pulse and cire check it.
+        OSN_ARC_KID_SECRET,
         PULSE_API_URL: ORIGINS.pulseApi,
         RESEND_API_KEY: E2E_RESEND_KEY,
         RESEND_API_URL: ORIGINS.mail,
@@ -292,6 +295,7 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         OSN_OIDC_CLIENT_ID: PULSE_OIDC.clientId,
         OSN_OIDC_CLIENT_SECRET: PULSE_OIDC.secret,
         INTERNAL_SERVICE_SECRET,
+        OSN_ARC_KID_SECRET,
       },
     },
     {
@@ -329,6 +333,8 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         ...ownerAddresses,
         // What osn-api presents to end organiser sessions; the same value as its own.
         CIRE_INTERNAL_REVOKE_SECRET,
+        // osn-api's ARC key ids are checked under it before any key fetch.
+        OSN_ARC_KID_SECRET,
       },
     },
     {

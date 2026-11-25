@@ -878,7 +878,10 @@ export const deletionJobs = sqliteTable(
 export const arcOutboundKeys = sqliteTable(
   "arc_outbound_keys",
   {
-    /** The key id, `<uuid>.<expiry>.<mac>`, as the token header carries it. */
+    /**
+     * The key id, `<uuid>.<expiry>` and one or two MACs
+     * (`@shared/crypto/arc-kid`), as the token header carries it.
+     */
     keyId: text("key_id").primaryKey(),
     /** The public key, as a JWK JSON string. */
     publicKeyJwk: text("public_key_jwk").notNull(),

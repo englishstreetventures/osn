@@ -17,7 +17,7 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { osnArcAdmits, OSN_ARC_SCOPES } from "../lib/osn-arc";
+import { osnArcAdmits, OSN_ARC_SCOPES, type CireOsnArc } from "../lib/osn-arc";
 import { metricAccountDeletionErasure, metricAccountDeletionPreview } from "../metrics";
 import { runCire } from "../observability";
 import { accountErasureService } from "../services/account-erasure";
@@ -55,8 +55,8 @@ const ErasureBody = Schema.Struct({
 });
 
 export interface InternalAccountDeletionOptions {
-  /** osn-api's origin, whose published keys sign its tokens (`OSN_ISSUER_URL`). */
-  readonly osnIssuer: string;
+  /** Where osn-api's keys are, and the secret that gates fetching them. */
+  readonly osnArc: CireOsnArc;
   /** The organiser portal, where an action's link points. */
   readonly organiserOrigin: string;
 }
@@ -73,7 +73,7 @@ const badRequest = (set: { status?: number | string }) => {
 
 export const createInternalAccountDeletionRoutes = (
   db: Db,
-  { osnIssuer, organiserOrigin }: InternalAccountDeletionOptions,
+  { osnArc, organiserOrigin }: InternalAccountDeletionOptions,
 ) => {
   return new Elysia({ prefix: "/internal" })
     .post(
@@ -82,7 +82,7 @@ export const createInternalAccountDeletionRoutes = (
         if (
           !(await osnArcAdmits(
             request.headers.get("authorization"),
-            osnIssuer,
+            osnArc,
             OSN_ARC_SCOPES.deletionPreview,
           ))
         ) {
@@ -125,11 +125,7 @@ export const createInternalAccountDeletionRoutes = (
       "/account-deleted",
       async ({ request, set }) => {
         if (
-          !(await osnArcAdmits(
-            request.headers.get("authorization"),
-            osnIssuer,
-            OSN_ARC_SCOPES.erase,
-          ))
+          !(await osnArcAdmits(request.headers.get("authorization"), osnArc, OSN_ARC_SCOPES.erase))
         ) {
           return refused(set);
         }

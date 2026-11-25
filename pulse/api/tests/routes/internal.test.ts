@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { createInternalRoutes, MAX_ACCOUNT_PROFILE_IDS } from "../../src/routes/internal";
 import { createTestLayer, seedCloseFriend, seedEvent } from "../helpers/db";
-import { osnArc } from "../helpers/osn-arc";
+import { appHolds, HOLDS, osnArc } from "../helpers/osn-arc";
 
 /**
  * Route-level coverage for the `/internal` group, every route of which only
@@ -91,8 +91,10 @@ describe("internal routes — refusals", () => {
   it("refuses a published key under a kid with no MAC or a wrong one, before any fetch", async () => {
     const [, expiry] = arc.kid.split(".");
     for (const kid of [
+      crypto.randomUUID(),
       `${crypto.randomUUID()}.${expiry}`,
       `${crypto.randomUUID()}.${expiry}.${"A".repeat(22)}`,
+      `${crypto.randomUUID()}.${expiry}.${"A".repeat(22)}.${"A".repeat(22)}`,
     ]) {
       const before = arc.fetches();
       const res = await post(
@@ -108,10 +110,9 @@ describe("internal routes — refusals", () => {
 
   it.each([
     ["holds no secret", undefined],
-    ["holds a secret too short to key the MAC", "s".repeat(31)],
+    ["holds secrets too short to key the MAC", "s".repeat(31)],
   ])("admits that kid when Pulse %s: the secret is what refuses it", async (_label, secret) => {
-    if (secret === undefined) delete process.env.INTERNAL_SERVICE_SECRET;
-    else process.env.INTERNAL_SERVICE_SECRET = secret;
+    appHolds({ kidSecret: secret, serviceSecret: secret });
     const [, expiry] = arc.kid.split(".");
     const res = await post(
       routes(),
@@ -120,6 +121,44 @@ describe("internal routes — refusals", () => {
       await arc.tokenUnderKid("account:deletion-preview", `${crypto.randomUUID()}.${expiry}`),
     );
     expect(res.status).toBe(200);
+  });
+
+  // The rollout of OSN_ARC_KID_SECRET: whichever of osn-api and Pulse is given
+  // it first, Pulse admits osn-api's real keys.
+  it.each([
+    [
+      "holding both secrets admits a key osn-api minted holding only the service secret",
+      "both secrets",
+      "the service secret",
+    ],
+    [
+      "holding only the service secret admits a key osn-api minted holding both",
+      "the service secret",
+      "both secrets",
+    ],
+    [
+      "holding both secrets admits a key osn-api minted holding both",
+      "both secrets",
+      "both secrets",
+    ],
+    // A kid with the kid secret's MAC alone: only the app's own read of
+    // OSN_ARC_KID_SECRET can admit it.
+    [
+      "holding both secrets admits a key osn-api minted holding only the kid secret",
+      "both secrets",
+      "the kid secret",
+    ],
+  ] as const)("Pulse %s, after one fetch", async (_label, holds, osnHolds) => {
+    appHolds(HOLDS[holds]);
+    const before = arc.fetches();
+    const res = await post(
+      routes(),
+      "/internal/account-deletion-preview",
+      { profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+      await arc.tokenFromOsnHolding("account:deletion-preview", HOLDS[osnHolds]),
+    );
+    expect(res.status).toBe(200);
+    expect(arc.fetches()).toBe(before + 1);
   });
 
   it("/internal/register-service is not a route: osn-api publishes its keys", async () => {

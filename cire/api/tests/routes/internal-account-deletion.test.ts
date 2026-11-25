@@ -10,7 +10,7 @@ import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { appRequest, failStatements, jsonBody } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
-import { OSN_ISSUER, osnArc } from "../test-helpers/osn-arc";
+import { KID_SECRET, OSN_HOLDS, OSN_ISSUER, osnArc } from "../test-helpers/osn-arc";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -41,7 +41,7 @@ afterEach(() => {
   setSystemTime();
 });
 
-function setup(owners: readonly string[] = [P, OTHER]) {
+function setup(owners: readonly string[] = [P, OTHER], osnArcKidSecret?: string) {
   const db = createDb(":memory:");
   insertWedding(db, { id: "w1", slug: "slug-w1", displayName: "Ama & Jonah", owners });
   db.insert(weddingHosts)
@@ -58,6 +58,7 @@ function setup(owners: readonly string[] = [P, OTHER]) {
     osnIssuerUrl: OSN_ISSUER,
     osnTestKey: auth.key,
     organiserOrigin: PORTAL,
+    osnArcKidSecret,
   });
   return { db, app };
 }
@@ -246,6 +247,67 @@ const previews = (result: "ok" | "error") =>
   counterValue(CIRE_METRICS.accountDeletionPreviews, { result });
 const erasures = (result: "done" | "not_finished" | "error") =>
   counterValue(CIRE_METRICS.accountDeletionErasures, { result });
+
+/**
+ * cire-api holding `OSN_ARC_KID_SECRET`: it refuses a kid with no MAC under
+ * that secret before it fetches osn-api's key list, and never falls back to
+ * admitting a kid it cannot check.
+ */
+describe("ARC on the account-deletion calls, with the kid secret", () => {
+  const madeUpKids = (expiry: string) => [
+    "made-up-kid",
+    crypto.randomUUID(),
+    `${crypto.randomUUID()}.${expiry}`,
+    `${crypto.randomUUID()}.${expiry}.${"A".repeat(22)}`,
+    `${crypto.randomUUID()}.${expiry}.${"A".repeat(22)}.${"A".repeat(22)}`,
+  ];
+
+  it("refuses made-up kids, published or not, on both calls, before any fetch", async () => {
+    const { db, app } = setup([P, OTHER], KID_SECRET);
+    const [, expiry = ""] = arc.kid.split(".");
+    for (const kid of madeUpKids(expiry)) {
+      for (const [path, scope, body] of [
+        [PREVIEW, "account:deletion-preview", previewBody],
+        [ERASE, "account:erase", eraseBody],
+      ] as const) {
+        const res = await post(app, path, await arc.tokenUnderKid(scope, kid), body);
+        expect({ kid, path, status: res.status }).toEqual({ kid, path, status: 401 });
+      }
+    }
+    expect(arc.fetches()).toBe(0);
+    expect(untouched(db)).toBe(true);
+  });
+
+  it("admits osn-api's real key once osn-api holds the secret too, after one fetch", async () => {
+    const { app } = setup([P, OTHER], KID_SECRET);
+    const preview = await post(
+      app,
+      PREVIEW,
+      await arc.token("account:deletion-preview"),
+      previewBody,
+    );
+    expect(preview.status).toBe(200);
+    expect(arc.fetches()).toBe(1);
+  });
+
+  it("refuses a key osn-api minted holding only the service secret, before any fetch", async () => {
+    arc.restore();
+    arc = await osnArc(OSN_HOLDS["the service secret"]);
+    const { db, app } = setup([P, OTHER], KID_SECRET);
+    const res = await post(app, ERASE, await arc.token("account:erase"), eraseBody);
+    expect(res.status).toBe(401);
+    expect(arc.fetches()).toBe(0);
+    expect(untouched(db)).toBe(true);
+  });
+
+  it("without the secret, admits that key, as it admits any kid it cannot check", async () => {
+    arc.restore();
+    arc = await osnArc(OSN_HOLDS["the service secret"]);
+    const { app } = setup();
+    const res = await post(app, ERASE, await arc.token("account:erase"), eraseBody);
+    expect(res.status).toBe(200);
+  });
+});
 
 describe("the account-deletion calls", () => {
   it("preview answers the contract's shape: a wedding the person alone owns is an action", async () => {

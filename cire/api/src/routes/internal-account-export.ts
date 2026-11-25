@@ -17,7 +17,7 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { osnArcAdmits, OSN_ARC_SCOPES } from "../lib/osn-arc";
+import { osnArcAdmits, OSN_ARC_SCOPES, type CireOsnArc } from "../lib/osn-arc";
 import { metricAccountExport } from "../metrics";
 import { runCire } from "../observability";
 import { accountExportService } from "../services/account-export";
@@ -41,25 +41,21 @@ const ExportBody = Schema.Struct({
 });
 
 export interface InternalAccountExportOptions {
-  /** osn-api's origin, whose published keys sign its tokens (`OSN_ISSUER_URL`). */
-  readonly osnIssuer: string;
+  /** Where osn-api's keys are, and the secret that gates fetching them. */
+  readonly osnArc: CireOsnArc;
   /** The organiser portal, where a wedding's download page is. */
   readonly organiserOrigin: string;
 }
 
 export const createInternalAccountExportRoutes = (
   db: Db,
-  { osnIssuer, organiserOrigin }: InternalAccountExportOptions,
+  { osnArc, organiserOrigin }: InternalAccountExportOptions,
 ) =>
   new Elysia({ prefix: "/internal" }).post(
     "/account-export",
     async ({ request, set }) => {
       if (
-        !(await osnArcAdmits(
-          request.headers.get("authorization"),
-          osnIssuer,
-          OSN_ARC_SCOPES.export,
-        ))
+        !(await osnArcAdmits(request.headers.get("authorization"), osnArc, OSN_ARC_SCOPES.export))
       ) {
         set.status = 401;
         return { error: "unauthorized" };

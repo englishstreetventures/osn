@@ -1,5 +1,5 @@
 import { DbLive, type Db } from "@pulse/db/service";
-import { arcKidMacSecret } from "@shared/crypto/arc-kid";
+import type { OsnArcVerification } from "@shared/osn-auth-client/arc";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -32,13 +32,15 @@ export const createInternalRoutes = (
 ) => {
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
-  // INTERNAL_SERVICE_SECRET gates fetching osn-api's keys (a made-up kid is
-  // refused before any fetch); one shorter than 32 characters is treated as
-  // absent and gates nothing. Read per request: on workerd `process.env` is
-  // filled only inside a handler.
-  const osnArc = () => ({
+  // OSN_ARC_KID_SECRET and INTERNAL_SERVICE_SECRET gate fetching osn-api's
+  // keys: a kid with no MAC that verifies under either is refused before any
+  // fetch. One shorter than 32 characters is treated as absent and gates
+  // nothing (`@shared/crypto/arc-kid`). Read per request: on workerd
+  // `process.env` is filled only inside a handler.
+  const osnArc = (): OsnArcVerification => ({
     osnIssuer: verification.issuer,
-    kidSecret: arcKidMacSecret(process.env.INTERNAL_SERVICE_SECRET),
+    kidSecret: process.env.OSN_ARC_KID_SECRET,
+    serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
   });
   return (
     new Elysia({ prefix: "/internal" })

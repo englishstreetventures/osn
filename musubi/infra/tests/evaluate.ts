@@ -54,6 +54,7 @@ export function stackEnv(arcPublicJwk: string): Record<string, string | undefine
       [...row.secrets, ...row.optional].map((name) => [name, `placeholder-${name}`]),
     ),
     DEV_LOGIN_SECRET: "placeholder-DEV_LOGIN_SECRET-of-32-characters-or-more",
+    OSN_ARC_KID_SECRET: "placeholder-OSN_ARC_KID_SECRET".padEnd(32, "-"),
     CIRE_API_ARC_KEY_ID: ARC_KEY_ID,
     CIRE_API_ARC_PUBLIC_JWK: arcPublicJwk,
     CIRE_OIDC_CLIENT_SECRET_SHA256: OIDC_CLIENT_SECRET_SHA256,

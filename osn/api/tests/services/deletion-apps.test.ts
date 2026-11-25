@@ -26,6 +26,7 @@ afterEach(() => {
 });
 
 const SECRET = "i".repeat(32);
+const KID_SECRET = "k".repeat(32);
 
 describe("deletionAppsConfig", () => {
   it("reads each app's URL and the apps declared absent", () => {
@@ -35,12 +36,13 @@ describe("deletionAppsConfig", () => {
       CIRE_API_URL: "https://api.cire.example/",
       OSN_DELETION_ABSENT_APPS: " pulse ",
       INTERNAL_SERVICE_SECRET: SECRET,
+      OSN_ARC_KID_SECRET: KID_SECRET,
     });
     expect(config).toEqual({
       local: false,
       urls: { zap: "https://zap.example", cire: "https://api.cire.example" },
       absent: new Set(["pulse"]),
-      arc: { kidSecret: SECRET },
+      arc: { kidSecret: KID_SECRET, serviceSecret: SECRET },
       previewTimeoutMs: 8_000,
       fanoutTimeoutMs: 10_000,
     });
@@ -59,6 +61,10 @@ describe("deletionAppsConfig", () => {
       { ZAP_API_URL: "https://zap.example", OSN_DELETION_ABSENT_APPS: "zap" },
     ],
     ["a deployed tier with no INTERNAL_SERVICE_SECRET", { OSN_ENV: "dev" }],
+    [
+      "a deployed tier with OSN_ARC_KID_SECRET but no INTERNAL_SERVICE_SECRET",
+      { OSN_ENV: "dev", OSN_ARC_KID_SECRET: KID_SECRET },
+    ],
     [
       "a plain-HTTP app URL on a deployed tier",
       { OSN_ENV: "dev", INTERNAL_SERVICE_SECRET: SECRET, ZAP_API_URL: "http://zap.example" },

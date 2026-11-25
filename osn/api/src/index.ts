@@ -150,6 +150,9 @@ export interface Env {
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_EMAIL_API_TOKEN?: string;
   INTERNAL_SERVICE_SECRET?: string;
+  // Keys the MAC on osn-api's ARC key ids, held for that alone (KEY-OPTIONAL;
+  // apps check it once they hold it too). `deletionAppsConfig` reads it.
+  OSN_ARC_KID_SECRET?: string;
   // Turnstile bot-protection secret (KEY-OPTIONAL). When set, `/register/begin`
   // and `/login/passkey/begin` require a valid Turnstile token (fail-closed).
   // Unset ⇒ those gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.

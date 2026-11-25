@@ -1,4 +1,4 @@
-import { mintArcKid } from "@shared/crypto/arc-kid";
+import { mintArcKid, type ArcKidSecrets } from "@shared/crypto/arc-kid";
 import { signArcToken } from "@shared/crypto/jwk";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,17 +15,33 @@ import { clearJwksCache } from "../src/jwks-cache";
 
 const ISSUER = "https://id.osn.test";
 const JWKS_URL = `${ISSUER}${OSN_ARC_JWKS_PATH}`;
+/** `INTERNAL_SERVICE_SECRET`'s stand-in. */
 const SECRET = "test-internal-secret-of-32-chars!";
+/** `OSN_ARC_KID_SECRET`'s stand-in. */
+const KID_SECRET = "kid-secret-kid-secret-kid-secret-kid";
 const AUDIENCE = "zap-api";
 const SCOPE = "account:erase";
 const ALLOWED = new Set(["account:erase", "account:export"]);
 
+/** What osn-api or an app can hold, named by the rollout state table. */
+const HOLDS = {
+  nothing: { kidSecret: undefined, serviceSecret: undefined },
+  "the service secret": { kidSecret: undefined, serviceSecret: SECRET },
+  "the kid secret": { kidSecret: KID_SECRET, serviceSecret: undefined },
+  "both secrets": { kidSecret: KID_SECRET, serviceSecret: SECRET },
+} as const satisfies Record<string, ArcKidSecrets>;
+
 let published: Record<string, unknown>[];
 let fetches: number;
+/** When set, osn-api's key list answers 429, as its budget does to a caller over it. */
+let refuseFetches: boolean;
 
-async function osnKey(expiresAt = Math.floor(Date.now() / 1000) + 3600) {
+async function osnKey(
+  expiresAt = Math.floor(Date.now() / 1000) + 3600,
+  osnHolds: ArcKidSecrets = HOLDS["the service secret"],
+) {
   const pair = await generateKeyPair("ES256");
-  const kid = await mintArcKid(SECRET, expiresAt);
+  const kid = await mintArcKid(osnHolds, expiresAt);
   const jwk = { ...(await exportJWK(pair.publicKey)), kid, alg: "ES256", use: "sig" };
   return { privateKey: pair.privateKey, kid, jwk };
 }
@@ -42,10 +58,13 @@ async function token(
   })}`;
 }
 
-const verify = (authorization: string | undefined, kidSecret: string | null = SECRET) =>
+const verify = (
+  authorization: string | undefined,
+  appHolds: ArcKidSecrets = HOLDS["the service secret"],
+) =>
   verifyOsnArcToken(
     authorization,
-    { osnIssuer: ISSUER, kidSecret: kidSecret ?? undefined },
+    { osnIssuer: ISSUER, ...appHolds },
     { audience: AUDIENCE, scope: SCOPE, allowedScopes: ALLOWED },
   );
 
@@ -53,11 +72,13 @@ beforeEach(() => {
   clearJwksCache();
   published = [];
   fetches = 0;
+  refuseFetches = false;
   (globalThis as typeof globalThis & { fetch: typeof fetch }).fetch = (async (
     input: Parameters<typeof fetch>[0],
   ) => {
     if (String(input) !== JWKS_URL) return new Response("not found", { status: 404 });
     fetches += 1;
+    if (refuseFetches) return new Response("too many requests", { status: 429 });
     return Response.json({ keys: published });
   }) as typeof fetch;
 });
@@ -100,7 +121,7 @@ describe("verifyOsnArcToken", () => {
     published.push(key.jwk);
     const result = await verifyOsnArcToken(
       await token(key, { scope: "chat:c2b" }),
-      { osnIssuer: ISSUER, kidSecret: SECRET },
+      { osnIssuer: ISSUER, ...HOLDS["the service secret"] },
       { audience: AUDIENCE, scope: "chat:c2b", allowedScopes: ALLOWED },
     );
     expect(result).toEqual({ ok: false, reason: "scope_denied" });
@@ -177,8 +198,11 @@ describe("verifyOsnArcToken", () => {
         `${uuid}.${expiry}`,
         `${uuid}.${expiry}.${"A".repeat(22)}`,
         crypto.randomUUID(),
-        await mintArcKid(SECRET, now - 1),
-        await mintArcKid("another-secret-also-of-32-characters", now + 3600),
+        await mintArcKid(HOLDS["the service secret"], now - 1),
+        await mintArcKid(
+          { kidSecret: undefined, serviceSecret: "another-secret-also-of-32-characters" },
+          now + 3600,
+        ),
       ]) {
         expect(await verify(await token({ privateKey: key.privateKey, kid }))).toEqual({
           ok: false,
@@ -222,25 +246,160 @@ describe("verifyOsnArcToken", () => {
       expect(fetches).toBe(1);
     });
 
-    it("admits a kid with no MAC when this app's secret is too short to key one", async () => {
+    it("admits a kid with no MAC when this app's secrets are too short to key one", async () => {
       const short = "s".repeat(31);
       const pair = await generateKeyPair("ES256");
-      const kid = await mintArcKid(short, Math.floor(Date.now() / 1000) + 3600);
+      const holds = { kidSecret: short, serviceSecret: short };
+      const kid = await mintArcKid(holds, Math.floor(Date.now() / 1000) + 3600);
       expect(kid.split(".")).toHaveLength(2);
       published.push({ ...(await exportJWK(pair.publicKey)), kid, alg: "ES256", use: "sig" });
-      expect(await verify(await token({ privateKey: pair.privateKey, kid }), short)).toEqual({
+      expect(await verify(await token({ privateKey: pair.privateKey, kid }), holds)).toEqual({
         ok: true,
       });
     });
 
     it("skips the check when this app holds no secret", async () => {
       const pair = await generateKeyPair("ES256");
-      const kid = await mintArcKid(undefined, Math.floor(Date.now() / 1000) + 3600);
+      const kid = await mintArcKid(HOLDS.nothing, Math.floor(Date.now() / 1000) + 3600);
       published.push({ ...(await exportJWK(pair.publicKey)), kid, alg: "ES256", use: "sig" });
-      expect(await verify(await token({ privateKey: pair.privateKey, kid }), null)).toEqual({
-        ok: true,
-      });
+      expect(
+        await verify(await token({ privateKey: pair.privateKey, kid }), HOLDS.nothing),
+      ).toEqual({ ok: true });
     });
+  });
+});
+
+/**
+ * The rollout of `OSN_ARC_KID_SECRET`, Worker by Worker. On a deployed tier
+ * osn-api holds the service secret, and the kid secret once it is set; Zap
+ * and Pulse hold the service secret, and the kid secret once set; cire-api
+ * holds no service secret, and the kid secret once set. Each cell: does the
+ * app admit osn-api's real key, and does it fetch before deciding?
+ */
+describe("the rollout of the kid secret", () => {
+  type Holds = keyof typeof HOLDS;
+  const cells: readonly (readonly [Holds, Holds, boolean])[] = [
+    // osn-api holds the service secret alone: as before the kid secret.
+    ["the service secret", "nothing", true],
+    ["the service secret", "the service secret", true],
+    ["the service secret", "the kid secret", false],
+    ["the service secret", "both secrets", true],
+    // osn-api holds both: every app admits its key, whatever it holds.
+    ["both secrets", "nothing", true],
+    ["both secrets", "the service secret", true],
+    ["both secrets", "the kid secret", true],
+    ["both secrets", "both secrets", true],
+  ];
+
+  it.each(cells)(
+    "osn-api holding %s, an app holding %s: admitted %s",
+    async (osnHolds, appHolds, admitted) => {
+      const key = await osnKey(undefined, HOLDS[osnHolds]);
+      published.push(key.jwk);
+      const verdict = await verify(await token(key), HOLDS[appHolds]);
+      expect(verdict).toEqual(admitted ? { ok: true } : { ok: false, reason: "unknown_issuer" });
+      // Refused before any fetch; admitted after exactly one.
+      expect(fetches).toBe(admitted ? 1 : 0);
+    },
+  );
+
+  it.each(["the service secret", "the kid secret", "both secrets"] as const)(
+    "an app holding %s refuses made-up kids, published or not, with no fetch",
+    async (appHolds) => {
+      const key = await osnKey(undefined, HOLDS["both secrets"]);
+      const [, expiry] = key.kid.split(".");
+      const mac = "A".repeat(22);
+      for (const kid of [
+        crypto.randomUUID(),
+        `${crypto.randomUUID()}.${expiry}`,
+        `${crypto.randomUUID()}.${expiry}.${mac}`,
+        `${crypto.randomUUID()}.${expiry}.${mac}.${mac}`,
+      ]) {
+        published.push({ ...key.jwk, kid });
+        expect(
+          await verify(await token({ privateKey: key.privateKey, kid }), HOLDS[appHolds]),
+        ).toEqual({ ok: false, reason: "unknown_issuer" });
+      }
+      expect(fetches).toBe(0);
+    },
+  );
+
+  /**
+   * A published 4-part kid carries a MAC the app may hold no key for, and
+   * anyone can replace that part. Each copy passes the check; none may cost a
+   * fetch the real kid would not, or the copies would spend the key-list budget.
+   */
+  const copies = async (kid: string, index: 2 | 3, count: number) => {
+    const signer = await generateKeyPair("ES256");
+    const out: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const parts = kid.split(".");
+      parts[index] = crypto.randomUUID().replace(/-/g, "").slice(0, 22);
+      out.push(await token({ privateKey: signer.privateKey, kid: parts.join(".") }));
+    }
+    return out;
+  };
+
+  it.each([
+    ["the service secret", 2],
+    ["the kid secret", 3],
+    ["both secrets", 2],
+    ["both secrets", 3],
+  ] as const)(
+    "an app holding %s refuses ten copies of a published kid with part %i replaced, after one fetch in all",
+    async (appHolds, index) => {
+      const key = await osnKey(undefined, HOLDS["both secrets"]);
+      published.push(key.jwk);
+      for (const copy of await copies(key.kid, index, 10)) {
+        expect(await verify(copy, HOLDS[appHolds])).toEqual({
+          ok: false,
+          reason: "bad_signature",
+        });
+      }
+      expect(fetches).toBe(1);
+      expect(await verify(await token(key), HOLDS[appHolds])).toEqual({ ok: true });
+      expect(fetches).toBe(1);
+    },
+  );
+
+  it.each([
+    ["the service secret", 2, "not published"],
+    ["the kid secret", 3, "not published"],
+    ["both secrets", 2, "not published"],
+    ["both secrets", 3, "not published"],
+    ["the service secret", 2, "a refused fetch"],
+    ["the kid secret", 3, "a refused fetch"],
+    ["both secrets", 3, "a refused fetch"],
+  ] as const)(
+    "an app holding %s: copies with part %i replaced of a kid it finds %s cost one fetch in all, and the real kid waits on that refusal",
+    async (appHolds, index, why) => {
+      const key = await osnKey(undefined, HOLDS["both secrets"]);
+      if (why === "a refused fetch") {
+        published.push(key.jwk);
+        refuseFetches = true;
+      }
+      for (const copy of await copies(key.kid, index, 10)) {
+        expect(await verify(copy, HOLDS[appHolds])).toEqual({
+          ok: false,
+          reason: "unknown_issuer",
+        });
+      }
+      expect(await verify(await token(key), HOLDS[appHolds])).toEqual({
+        ok: false,
+        reason: "unknown_issuer",
+      });
+      expect(fetches).toBe(1);
+    },
+  );
+
+  it("an app holding nothing fetches for a made-up kid, and then refuses it", async () => {
+    const key = await osnKey(undefined, HOLDS["both secrets"]);
+    const kid = `${crypto.randomUUID()}.${key.kid.split(".")[1]}`;
+    expect(await verify(await token({ privateKey: key.privateKey, kid }), HOLDS.nothing)).toEqual({
+      ok: false,
+      reason: "unknown_issuer",
+    });
+    expect(fetches).toBe(1);
   });
 });
 

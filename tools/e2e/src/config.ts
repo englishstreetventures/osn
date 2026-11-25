@@ -216,6 +216,13 @@ export const DB_FILES = {
 export const INTERNAL_SERVICE_SECRET = "e2e-internal-service-secret-not-a-real-secret";
 
 /**
+ * Shared by osn-api, pulse-api and cire-api: the MAC on osn-api's ARC key ids
+ * held for that alone, so the deletion and export flows run with every app
+ * checking it. Local only.
+ */
+export const OSN_ARC_KID_SECRET = "e2e-osn-arc-kid-secret-not-a-real-secret";
+
+/**
  * Shared by osn-api and cire-api: what osn-api presents to end an account's
  * cire organiser sessions (`cire-registry-money`). Local only.
  */
