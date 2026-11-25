@@ -105,11 +105,12 @@ function readAddress(address: string, name: string): SenderReading {
 }
 
 function readSender(raw: string): SenderReading {
-  const value = raw.trim();
-  if (value === "") return { problem: "is empty" };
-  if (UNSAFE.test(value)) {
+  // Checked before trimming, which would drop one at either end unseen.
+  if (UNSAFE.test(raw)) {
     return { problem: "contains a control, format or line-separator character" };
   }
+  const value = raw.trim();
+  if (value === "") return { problem: "is empty" };
   if (!value.includes("<")) return readAddress(value, "");
   const quoted = QUOTED_NAME.exec(value);
   if (quoted) {
@@ -129,8 +130,8 @@ function readSender(raw: string): SenderReading {
  * a bare address (`hello@musubi.social`), an address in angle brackets, or a
  * display name before one: unquoted (`Musubi (dev) <dev@musubi.social>`) with
  * none of `" < > [ ] : ; @ \ ,`, or quoted (`"Musubi, Inc." <hello@musubi.social>`)
- * with `\"` and `\\` for a quote and a backslash. Surrounding whitespace is
- * ignored. The address is a dot-atom local part of at most 64 characters, `@`
+ * with `\"` and `\\` for a quote and a backslash. Spaces around the
+ * value are ignored. The address is a dot-atom local part of at most 64 characters, `@`
  * and a hostname of two or more labels, 254 characters in all. No control,
  * format or line-separator character anywhere. The answer never repeats `raw`.
  */

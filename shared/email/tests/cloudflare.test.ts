@@ -307,6 +307,10 @@ describe("CloudflareEmailLive sender", () => {
     "Mu\u200Bsubi <hello@musubi.social>",
     "Mu\u2028subi <hello@musubi.social>",
     "Mu\u2029subi <hello@musubi.social>",
+    "hello@musubi.social\r\n",
+    "\thello@musubi.social",
+    "\uFEFFhello@musubi.social",
+    "Musubi <hello@musubi.social>\u2028",
   ])("refuses %j, which holds a control, format or separator character", (raw) => {
     expect(refusal(raw)).toBe(UNSAFE);
   });
