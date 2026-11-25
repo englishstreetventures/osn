@@ -39,8 +39,6 @@ afterEach(async () => {
   await cdp()
     .send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] })
     .catch(() => {});
-  await emulateMedia({ reducedMotion: "no-preference" });
-  cleanup();
 });
 
 async function atSize(width: number, height = 844) {

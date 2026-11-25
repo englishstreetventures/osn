@@ -1,7 +1,7 @@
 // oxlint-disable vitest/expect-expect -- a picture tool, not a test: it asserts nothing, and runs only when asked.
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal, type JSX } from "solid-js";
-import { afterEach, describe, it, vi } from "vitest";
+import { describe, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "../src/ui/dialog";
@@ -38,14 +38,6 @@ import "./test-support/tailwind.css";
 const DIR = "__screenshots__/overlay-motion.look.browser.test.tsx";
 const WIDTHS = [390, 1440] as const;
 const STOPS = [0, 25, 50, 75, 100] as const;
-
-afterEach(() => {
-  for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
-  for (const subject of SUBJECTS)
-    for (const name of Object.keys(subject.tokens ?? {}))
-      document.documentElement.style.removeProperty(name);
-  cleanup();
-});
 
 const frames = (n = 2) =>
   new Promise<void>((resolve) => {

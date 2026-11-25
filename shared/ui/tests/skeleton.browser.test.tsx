@@ -24,7 +24,7 @@
 
 import { cleanup, render } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { cdp, commands } from "vitest/browser";
 
 import { Skeleton, type SkeletonStandIn } from "../src/ui/skeleton";
@@ -121,11 +121,6 @@ async function accessibilityNode(element: HTMLElement): Promise<AXNode> {
   if (!nodes[0]) throw new Error("Chrome returned no accessibility node for the block");
   return nodes[0];
 }
-
-afterEach(async () => {
-  await emulateMedia({ reducedMotion: "no-preference", forcedColors: "none" });
-  cleanup();
-});
 
 describe("Skeleton: the pulse", () => {
   it("runs the theme's --animate-pulse: 2s, on its curve, without end", () => {

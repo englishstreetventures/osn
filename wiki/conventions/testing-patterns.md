@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Testing Patterns
@@ -422,7 +422,7 @@ describe("events routes", () => {
 
 - **Import the matchers where you assert with them, and declare the dependency only there.** A test that uses `toHaveAttribute` or `toBeInTheDocument` writes `import "@testing-library/jest-dom/vitest";` at the top of the file, and its package lists `@testing-library/jest-dom` in `devDependencies`. Three packages do — `cire/host`, `cire/vendor` and `pulse/web`. Ten others declared it while importing no matcher and were pruned. Bun's install layout is not hoisted, so an undeclared dependency is unresolvable rather than quietly satisfied: the failure is a red `Cannot find module`, not a green suite. `tsconfig.json` already has the test files in `include`, so the matcher types resolve across a package from any one import. `tools/lab` is the deliberate exception — it leaves the plugin out entirely, so nothing injects and it needs no marker; the guard matches the import statement rather than the plugin's name so its comment about the plugin does not trip it.
 
-- **A file that renders calls `afterEach(cleanup)`.** No Vitest config here turns on `globals`, and `@solidjs/testing-library` registers its own cleanup only when `afterEach` is a global. Without the call, each test's render stays mounted into the next: its effects and timers keep running, and `screen` queries find it. The queries `render()` returns are bound to that render's container, so a file that uses only those passes without the call and still leaks.
+- **A file that renders calls `afterEach(cleanup)`.** No Vitest config here turns on `globals`, and `@solidjs/testing-library` registers its own cleanup only when `afterEach` is a global. Without the call, each test's render stays mounted into the next: its effects and timers keep running, and `screen` queries find it. The queries `render()` returns are bound to that render's container, so a file that uses only those passes without the call and still leaks. A file in `@shared/ui`'s browser tier leaves it out: the setup file its config names calls it after every test ([[browser-tests#Putting the page back]]).
 
 - **Check the Bun version before you believe a failure that names no code you touched.** CI installs the Bun that `.bun-version` pins, so a different local Bun can fail a test on its own wording or behaviour while CI stays green. Compare `bun --version` with `.bun-version` first; a `SessionStart` hook runs [check-bun-version.sh](../../scripts/check-bun-version.sh), which warns at the start of every session when they differ. To rerun under the pin without changing the installed Bun, put that version's binary first on `PATH`. Most CLI tests under `scripts/tests/` start their child `bun` by name, so a binary run by its path alone leaves those children on the installed one; the few that start `process.execPath` follow whichever Bun runs the suite.
 
@@ -796,8 +796,9 @@ What the configs depend on, and what breaks without it:
 The Kobalte menus, dialogs and popovers behind `@shared/ui` (see
 [[component-library]]) mark everything outside themselves `aria-hidden` while
 open and clear it when they close. Both writes run from a zero-delay
-`setTimeout` that then requests an animation frame. Under happy-dom they can
-still be queued when the test that opened the overlay ends, and land in a later,
+`setTimeout` that then requests an animation frame. Under happy-dom, and in a
+real browser when a frame falls between the two writes, they can still be
+queued when the test that opened the overlay ends, and land in a later,
 unrelated test. `<body>` then carries `aria-hidden="true"`, and every
 `getByRole` in that test fails with "There are no accessible roles". Whether a
 test fails depends on where it sits in the file, so it shows up when someone
@@ -814,8 +815,11 @@ afterEach(async () => {
 ```
 
 `cire/host/tests/components/OrganiserApp.test.tsx` does this for its
-profile-menu tests. Prove a fix like this with `--sequence.shuffle` under
-several seeds, not with one green run in file order. Without the drain, that
+profile-menu tests. `@shared/ui`'s browser tier does it for every file, twice
+over, in the setup file its config names
+([[browser-tests#Putting the page back]]). Prove a fix like this with
+`--sequence.shuffle` under several seeds, not with one green run in file
+order. Without the drain, that
 suite failed in file order and under two of three seeds.
 
 *Measured 2026-10-02 — drain removed, in `cire/host`: `bunx --bun vitest run --project unit tests/components/OrganiserApp.test.tsx --sequence.shuffle --sequence.seed=<1|7|42>`; seeds 1 and 7 failed, 42 passed*

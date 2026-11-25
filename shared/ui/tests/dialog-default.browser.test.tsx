@@ -20,18 +20,14 @@
  * platform font.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../src/ui/dialog";
 import { frames, watchAnimations } from "./test-support/motion";
 
 import "./test-support/tailwind.css";
-
-afterEach(() => {
-  cleanup();
-});
 
 /** Gitignored; a rerun of this file draws them again. */
 const shot = (name: string) => `__screenshots__/dialog-default.browser.test.tsx/${name}.png`;

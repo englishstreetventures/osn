@@ -9,9 +9,9 @@
  * here is missing from this frame only.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it } from "vitest";
 
 import { Button } from "../src/ui/button";
 
@@ -26,10 +26,6 @@ beforeAll(() => {
 
 afterAll(() => {
   globalThis.requestIdleCallback = idleCallback;
-});
-
-afterEach(() => {
-  cleanup();
 });
 
 /** Every fetch of the orb's module this frame has made. */

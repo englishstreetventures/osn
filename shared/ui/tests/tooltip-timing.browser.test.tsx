@@ -19,20 +19,13 @@
  * cold.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { Tooltip } from "../src/ui/tooltip";
-import {
-  emulateMedia,
-  firstEvent,
-  frames,
-  movePointer,
-  wait,
-  watchNodes,
-} from "./test-support/motion";
+import { firstEvent, frames, movePointer, wait, watchNodes } from "./test-support/motion";
 
 import "./test-support/tailwind.css";
 
@@ -68,9 +61,7 @@ async function moveAway() {
 }
 
 afterEach(async () => {
-  await emulateMedia({ reducedMotion: "no-preference" });
   if (panels().length > 0) await moveAway();
-  cleanup();
 });
 
 /** Two badges side by side, room above them for the panels, and a place to go. */

@@ -13,9 +13,9 @@
  * drawn radio's dot and the switch's thumb stay visible.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createRenderEffect } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { commands, userEvent } from "vitest/browser";
 
 import { Checkbox } from "../src/ui/checkbox";
@@ -27,11 +27,6 @@ import "./test-support/tailwind.css";
 type Media = { forcedColors?: "active" | "none" };
 const emulate = (media: Media) =>
   (commands as unknown as { emulateMedia: (m: Media) => Promise<void> }).emulateMedia(media);
-
-afterEach(async () => {
-  cleanup();
-  await emulate({ forcedColors: "none" });
-});
 
 /** Ticks every box and chooses every radio already built inside `holder`, before mount. */
 function Restore(props: { holder: () => HTMLElement | undefined }) {

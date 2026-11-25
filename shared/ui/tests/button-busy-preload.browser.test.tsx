@@ -8,17 +8,13 @@
  * filtered out.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { afterEach, expect, it } from "vitest";
+import { expect, it } from "vitest";
 
 import { Button } from "../src/ui/button";
 
 import "./test-support/tailwind.css";
-
-afterEach(() => {
-  cleanup();
-});
 
 /** Every fetch of the orb's module this frame has made. */
 const orbFetches = () =>

@@ -12,29 +12,14 @@
  * `button-busy-load`, `button-busy-preload` and `button-busy-failed`.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cdp, commands, page, userEvent } from "vitest/browser";
+import { describe, expect, it, vi } from "vitest";
+import { cdp, page, userEvent } from "vitest/browser";
 
 import { Button, buttonVariants } from "../src/ui/button";
 
 import "./test-support/tailwind.css";
-
-const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
-  (
-    commands as unknown as {
-      emulateMedia: (o: { forcedColors: "active" | "none" }) => Promise<void>;
-    }
-  ).emulateMedia(options);
-
-beforeAll(async () => {
-  await emulateMedia({ forcedColors: "none" });
-});
-
-afterEach(() => {
-  cleanup();
-});
 
 const shot = (name: string) => `__screenshots__/button-busy.browser.test.tsx/${name}.png`;
 

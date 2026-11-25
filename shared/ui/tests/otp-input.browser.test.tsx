@@ -21,9 +21,9 @@
  *   outline the theme paints on the focused box only inside one.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { cdp, commands, page, userEvent } from "vitest/browser";
 
 import { Button } from "../src/ui/button";
@@ -149,13 +149,6 @@ function contrast(a: [number, number, number], b: [number, number, number]): num
   const [la, lb] = [luminance(a), luminance(b)];
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
-
-afterEach(async () => {
-  await emulateMedia({ forcedColors: "none" });
-  for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
-  cleanup();
-  for (const p of document.querySelectorAll("[data-kb-top-layer]")) p.remove();
-});
 
 describe("OtpInput geometry", () => {
   it.each([

@@ -8,22 +8,14 @@
  * "the fill is transformed, not resized" is likewise only visible here.
  */
 
-import { cleanup, render } from "@solidjs/testing-library";
+import { render } from "@solidjs/testing-library";
 import { For } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { Meter, meterPct } from "../src/ui/meter";
 import { Table, Td, Th } from "../src/ui/table";
 
 import "./test-support/tailwind.css";
-
-// The claims below are about where things sit on the page, so each test starts
-// on an empty page scrolled to the top: a table left behind pushes the next one
-// down, below the window, where `elementFromPoint` finds nothing.
-afterEach(() => {
-  cleanup();
-  window.scrollTo(0, 0);
-});
 
 describe("Table", () => {
   it("scrolls sideways itself rather than taking the page with it", () => {

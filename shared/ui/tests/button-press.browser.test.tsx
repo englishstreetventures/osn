@@ -12,7 +12,7 @@
  * button in the gitignored `__screenshots__/` beside the file.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 
@@ -50,8 +50,6 @@ const shot = (name: string) => `__screenshots__/button-press.browser.test.tsx/${
 afterEach(async () => {
   await press.releasePointer();
   await press.releaseKey("Space");
-  await emulateMedia({ reducedMotion: "no-preference" });
-  cleanup();
 });
 
 /** The running transition on `scale`, if the press started one. */
