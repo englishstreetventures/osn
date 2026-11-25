@@ -45,14 +45,27 @@ describe("change-notice", () => {
       expect(part).toContain(notice.url);
     }
     expect(out.html).toContain(`href="${notice.url}"`);
+    // The link as text under the button, for a client that drops its styles,
+    // and the same label in the plain text as on the button.
+    expect(out.html).toContain(`<p style="color:#666;word-break:break-all">${notice.url}</p>`);
+    expect(out.html).toContain(">Read the privacy notice</a>");
+    expect(out.text).toContain(`Read the privacy notice: ${notice.url}`);
+  });
+
+  it("tells the reader where to ask to delete the account, and promises nothing more", () => {
+    const out = renderTemplate("change-notice", notice);
+    expect(out.text).toContain(
+      'you can ask to delete it: sign in to Acme, open Settings, then Account, and choose "Delete account…".',
+    );
+    expect(out.text).not.toMatch(/at any time/);
   });
 
   it("shows the UTC day, not the day in the zone the sender runs in", () => {
     // In Pago Pago (UTC-11) the UTC midnight that starts 1 January 2027 is
     // still 31 December 2026, at 13:00.
     const out = renderTemplate("change-notice", notice);
-    expect(out.text).toContain("The changes take effect on 1 January 2027.");
-    expect(out.html).toContain("The changes take effect on 1 January 2027.");
+    expect(out.text).toContain("The changes take effect on 1 January 2027 (UTC).");
+    expect(out.html).toContain("The changes take effect on 1 January 2027 (UTC).");
   });
 
   it("escapes the notice's own text in the HTML", () => {
