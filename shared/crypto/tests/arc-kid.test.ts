@@ -16,6 +16,10 @@ const BOTH: ArcKidSecrets = { kidSecret: KID, serviceSecret: SERVICE };
 afterEach(() => vi.restoreAllMocks());
 const NOW = 1_900_000_000;
 
+/** Whether `kid` passes the check, whatever the app then looks it up by. */
+const passes = async (kid: string, secrets: ArcKidSecrets, nowSec: number): Promise<boolean> =>
+  (await checkArcKid(kid, secrets, nowSec)) !== null;
+
 describe("ARC key ids that carry their expiry and a MAC", () => {
   it.each([
     ["the service secret", SERVICE_ONLY, 3],
@@ -26,8 +30,8 @@ describe("ARC key ids that carry their expiry and a MAC", () => {
     async (_label, secrets, parts) => {
       const kid = await mintArcKid(secrets, NOW + 60);
       expect(kid.split(".")).toHaveLength(parts);
-      expect(await checkArcKid(kid, secrets, NOW)).toBe(true);
-      expect(await checkArcKid(kid, secrets, NOW + 59)).toBe(true);
+      expect(await passes(kid, secrets, NOW)).toBe(true);
+      expect(await passes(kid, secrets, NOW + 59)).toBe(true);
     },
   );
 
@@ -37,20 +41,20 @@ describe("ARC key ids that carry their expiry and a MAC", () => {
     ["both secrets", BOTH],
   ] as const)("refuses a kid whose expiry has passed, under %s", async (_label, secrets) => {
     const kid = await mintArcKid(secrets, NOW + 60);
-    expect(await checkArcKid(kid, secrets, NOW + 60)).toBe(false);
+    expect(await passes(kid, secrets, NOW + 60)).toBe(false);
   });
 
   it("refuses a kid minted under another value of the same secret", async () => {
     const other = "another-secret-also-of-32-characters";
     expect(
-      await checkArcKid(
+      await passes(
         await mintArcKid({ kidSecret: undefined, serviceSecret: other }, NOW + 60),
         SERVICE_ONLY,
         NOW,
       ),
     ).toBe(false);
     expect(
-      await checkArcKid(
+      await passes(
         await mintArcKid({ kidSecret: other, serviceSecret: undefined }, NOW + 60),
         KID_ONLY,
         NOW,
@@ -66,7 +70,7 @@ describe("ARC key ids that carry their expiry and a MAC", () => {
     "refuses a kid whose expiry was raised after minting, under %s",
     async (_label, secrets) => {
       const [uuid, , ...macs] = (await mintArcKid(secrets, NOW + 60)).split(".");
-      expect(await checkArcKid([uuid, NOW + 6000, ...macs].join("."), secrets, NOW)).toBe(false);
+      expect(await passes([uuid, NOW + 6000, ...macs].join("."), secrets, NOW)).toBe(false);
     },
   );
 
@@ -90,21 +94,21 @@ describe("ARC key ids that carry their expiry and a MAC", () => {
   ])("refuses %s", async (_label, alter) => {
     for (const secrets of [SERVICE_ONLY, KID_ONLY, BOTH]) {
       const kid = await mintArcKid(secrets, NOW + 60);
-      expect(await checkArcKid(alter(kid), secrets, NOW)).toBe(false);
+      expect(await passes(alter(kid), secrets, NOW)).toBe(false);
     }
   });
 
   it("mints a kid with no MAC when there is no secret, and the check then passes anything", async () => {
     const kid = await mintArcKid(NONE, NOW + 60);
     expect(kid.split(".")).toHaveLength(2);
-    expect(await checkArcKid(kid, NONE, NOW)).toBe(true);
-    expect(await checkArcKid("anything", NONE, NOW)).toBe(true);
+    expect(await passes(kid, NONE, NOW)).toBe(true);
+    expect(await passes("anything", NONE, NOW)).toBe(true);
   });
 
   it("a checker holding either secret refuses a kid minted without one", async () => {
     const kid = await mintArcKid(NONE, NOW + 60);
     for (const secrets of [SERVICE_ONLY, KID_ONLY, BOTH]) {
-      expect(await checkArcKid(kid, secrets, NOW)).toBe(false);
+      expect(await passes(kid, secrets, NOW)).toBe(false);
     }
   });
 
@@ -112,8 +116,8 @@ describe("ARC key ids that carry their expiry and a MAC", () => {
     const short = { kidSecret: undefined, serviceSecret: "s".repeat(31) };
     const kid = await mintArcKid(short, NOW + 60);
     expect(kid.split(".")).toHaveLength(2);
-    expect(await checkArcKid(kid, short, NOW)).toBe(true);
-    expect(await checkArcKid("anything", short, NOW)).toBe(true);
+    expect(await passes(kid, short, NOW)).toBe(true);
+    expect(await passes("anything", short, NOW)).toBe(true);
     const long = { kidSecret: undefined, serviceSecret: "s".repeat(32) };
     expect((await mintArcKid(long, NOW + 60)).split(".")).toHaveLength(3);
   });
@@ -122,16 +126,16 @@ describe("ARC key ids that carry their expiry and a MAC", () => {
     const short = "k".repeat(31);
     const minted = await mintArcKid({ kidSecret: short, serviceSecret: SERVICE }, NOW + 60);
     expect(minted.split(".")).toHaveLength(3);
-    expect(await checkArcKid(minted, SERVICE_ONLY, NOW)).toBe(true);
-    expect(await checkArcKid(minted, KID_ONLY, NOW)).toBe(false);
+    expect(await passes(minted, SERVICE_ONLY, NOW)).toBe(true);
+    expect(await passes(minted, KID_ONLY, NOW)).toBe(false);
 
-    expect(await checkArcKid("anything", { kidSecret: short, serviceSecret: undefined }, NOW)).toBe(
+    expect(await passes("anything", { kidSecret: short, serviceSecret: undefined }, NOW)).toBe(
       true,
     );
 
     const shortAndService = { kidSecret: short, serviceSecret: SERVICE };
-    expect(await checkArcKid(minted, shortAndService, NOW)).toBe(true);
-    expect(await checkArcKid(await mintArcKid(NONE, NOW + 60), shortAndService, NOW)).toBe(false);
+    expect(await passes(minted, shortAndService, NOW)).toBe(true);
+    expect(await passes(await mintArcKid(NONE, NOW + 60), shortAndService, NOW)).toBe(false);
     const long = { kidSecret: "k".repeat(32), serviceSecret: SERVICE };
     expect((await mintArcKid(long, NOW + 60)).split(".")).toHaveLength(4);
   });
@@ -141,39 +145,98 @@ describe("the rollout: osn-api and each app holding the kid secret, the service 
   it("osn-api holding both mints a kid that an app holding either secret, or both, accepts", async () => {
     const kid = await mintArcKid(BOTH, NOW + 60);
     expect(kid.split(".")).toHaveLength(4);
-    expect(await checkArcKid(kid, SERVICE_ONLY, NOW)).toBe(true);
-    expect(await checkArcKid(kid, KID_ONLY, NOW)).toBe(true);
-    expect(await checkArcKid(kid, BOTH, NOW)).toBe(true);
+    expect(await passes(kid, SERVICE_ONLY, NOW)).toBe(true);
+    expect(await passes(kid, KID_ONLY, NOW)).toBe(true);
+    expect(await passes(kid, BOTH, NOW)).toBe(true);
   });
 
   it("an app holding both accepts a kid osn-api minted under the service secret alone", async () => {
-    expect(await checkArcKid(await mintArcKid(SERVICE_ONLY, NOW + 60), BOTH, NOW)).toBe(true);
+    expect(await passes(await mintArcKid(SERVICE_ONLY, NOW + 60), BOTH, NOW)).toBe(true);
   });
 
   it("an app holding the kid secret alone refuses a kid minted under the service secret alone", async () => {
-    expect(await checkArcKid(await mintArcKid(SERVICE_ONLY, NOW + 60), KID_ONLY, NOW)).toBe(false);
+    expect(await passes(await mintArcKid(SERVICE_ONLY, NOW + 60), KID_ONLY, NOW)).toBe(false);
   });
 
   it("an app holding the service secret alone refuses a kid minted under the kid secret alone", async () => {
     const kid = await mintArcKid(KID_ONLY, NOW + 60);
-    expect(await checkArcKid(kid, SERVICE_ONLY, NOW)).toBe(false);
-    expect(await checkArcKid(kid, BOTH, NOW)).toBe(true);
+    expect(await passes(kid, SERVICE_ONLY, NOW)).toBe(false);
+    expect(await passes(kid, BOTH, NOW)).toBe(true);
   });
 
   it("one value set as both secrets still gives two MACs, neither passing for the other", async () => {
     const value = "one-value-set-as-both-secrets-32-chars";
     const asService = await mintArcKid({ kidSecret: undefined, serviceSecret: value }, NOW + 60);
-    expect(await checkArcKid(asService, { kidSecret: value, serviceSecret: undefined }, NOW)).toBe(
+    expect(await passes(asService, { kidSecret: value, serviceSecret: undefined }, NOW)).toBe(
       false,
     );
     const asKid = await mintArcKid({ kidSecret: value, serviceSecret: undefined }, NOW + 60);
-    expect(await checkArcKid(asKid, { kidSecret: undefined, serviceSecret: value }, NOW)).toBe(
-      false,
-    );
+    expect(await passes(asKid, { kidSecret: undefined, serviceSecret: value }, NOW)).toBe(false);
     const [, , first, second] = (
       await mintArcKid({ kidSecret: value, serviceSecret: value }, NOW + 60)
     ).split(".");
     expect(first).not.toBe(second);
+  });
+});
+
+/**
+ * What a key id that passes may be looked up by. A 4-part kid carries a MAC
+ * the app may hold no key for, and anyone can replace that part; the lookup
+ * must not depend on it, or every altered copy would be a new fetch.
+ */
+describe("what a kid that passes is looked up by", () => {
+  const swap = (kid: string, index: 2 | 3) => {
+    const parts = kid.split(".");
+    parts[index] = "Z".repeat(22);
+    return parts.join(".");
+  };
+
+  it.each([
+    ["the service secret", SERVICE_ONLY, 2],
+    ["the kid secret", KID_ONLY, 3],
+    ["both secrets", BOTH, 2],
+    ["both secrets", BOTH, 3],
+  ] as const)(
+    "an app holding %s looks a copy with part %i replaced up by the uuid and expiry, as the real kid",
+    async (_label, secrets, index) => {
+      const kid = await mintArcKid(BOTH, NOW + 60);
+      const [uuid, expiry] = kid.split(".");
+      const real = await checkArcKid(kid, secrets, NOW);
+      const copy = await checkArcKid(swap(kid, index), secrets, NOW);
+      expect(real?.id).toBe(`${uuid}.${expiry}`);
+      expect(copy?.id).toBe(`${uuid}.${expiry}`);
+    },
+  );
+
+  it("a checked lookup names every published kid of that uuid and expiry, and no other", async () => {
+    const kid = await mintArcKid(BOTH, NOW + 60);
+    const [uuid, expiry, v2, v1] = kid.split(".") as [string, string, string, string];
+    const lookup = await checkArcKid(kid, KID_ONLY, NOW);
+    expect(lookup).not.toBeNull();
+    for (const published of [kid, `${uuid}.${expiry}.${v1}`, `${uuid}.${expiry}.${v2}`]) {
+      expect({ published, names: lookup?.names(published) }).toEqual({ published, names: true });
+    }
+    for (const published of [
+      `${uuid}.${expiry}`,
+      `${uuid}.${Number(expiry) + 1}.${v2}`,
+      `${uuid}.${expiry}0.${v2}`,
+      `${uuid}.${expiry.slice(0, -1)}.${v2}`,
+      `${crypto.randomUUID()}.${expiry}.${v2}`,
+      `${uuid}.${expiry}.${v2}.${v1}.${v1}`,
+      `${uuid}${expiry}.${v2}`,
+      `x${uuid}.${expiry}.${v2}`,
+    ]) {
+      expect({ published, names: lookup?.names(published) }).toEqual({ published, names: false });
+    }
+  });
+
+  it("an app holding no secret checks nothing and looks the kid up exactly as sent", async () => {
+    const kid = await mintArcKid(BOTH, NOW + 60);
+    const lookup = await checkArcKid(kid, NONE, NOW);
+    expect(lookup?.id).toBe(kid);
+    expect(lookup?.names(kid)).toBe(true);
+    expect(lookup?.names(swap(kid, 3))).toBe(false);
+    expect((await checkArcKid("anything", NONE, NOW))?.id).toBe("anything");
   });
 });
 
@@ -236,9 +299,9 @@ describe("the MAC keys", () => {
       [KID, KID_ONLY, "osn-arc-kid-mac-v2"],
     ] as const) {
       const direct = await macUnder(await directKey(secret), uuid, expiry);
-      expect(await checkArcKid(`${uuid}.${expiry}.${direct}`, secrets, NOW)).toBe(false);
+      expect(await passes(`${uuid}.${expiry}.${direct}`, secrets, NOW)).toBe(false);
       const derived = await macUnder(await derivedKey(secret, info), uuid, expiry);
-      expect(await checkArcKid(`${uuid}.${expiry}.${derived}`, secrets, NOW)).toBe(true);
+      expect(await passes(`${uuid}.${expiry}.${derived}`, secrets, NOW)).toBe(true);
     }
   });
 
@@ -249,6 +312,6 @@ describe("the MAC keys", () => {
     importKey.mockRejectedValueOnce(new Error("import failed"));
     await expect(mintArcKid(secrets, NOW + 60)).rejects.toThrow("import failed");
     const kid = await mintArcKid(secrets, NOW + 60);
-    expect(await checkArcKid(kid, secrets, NOW)).toBe(true);
+    expect(await passes(kid, secrets, NOW)).toBe(true);
   });
 });

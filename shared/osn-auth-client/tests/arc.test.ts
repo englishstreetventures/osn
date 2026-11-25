@@ -33,6 +33,8 @@ const HOLDS = {
 
 let published: Record<string, unknown>[];
 let fetches: number;
+/** When set, osn-api's key list answers 429, as its budget does to a caller over it. */
+let refuseFetches: boolean;
 
 async function osnKey(
   expiresAt = Math.floor(Date.now() / 1000) + 3600,
@@ -70,11 +72,13 @@ beforeEach(() => {
   clearJwksCache();
   published = [];
   fetches = 0;
+  refuseFetches = false;
   (globalThis as typeof globalThis & { fetch: typeof fetch }).fetch = (async (
     input: Parameters<typeof fetch>[0],
   ) => {
     if (String(input) !== JWKS_URL) return new Response("not found", { status: 404 });
     fetches += 1;
+    if (refuseFetches) return new Response("too many requests", { status: 429 });
     return Response.json({ keys: published });
   }) as typeof fetch;
 });
@@ -317,6 +321,74 @@ describe("the rollout of the kid secret", () => {
         ).toEqual({ ok: false, reason: "unknown_issuer" });
       }
       expect(fetches).toBe(0);
+    },
+  );
+
+  /**
+   * A published 4-part kid carries a MAC the app may hold no key for, and
+   * anyone can replace that part. Each copy passes the check; none may cost a
+   * fetch the real kid would not, or the copies would spend the key-list budget.
+   */
+  const copies = async (kid: string, index: 2 | 3, count: number) => {
+    const signer = await generateKeyPair("ES256");
+    const out: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const parts = kid.split(".");
+      parts[index] = crypto.randomUUID().replace(/-/g, "").slice(0, 22);
+      out.push(await token({ privateKey: signer.privateKey, kid: parts.join(".") }));
+    }
+    return out;
+  };
+
+  it.each([
+    ["the service secret", 2],
+    ["the kid secret", 3],
+    ["both secrets", 2],
+    ["both secrets", 3],
+  ] as const)(
+    "an app holding %s refuses ten copies of a published kid with part %i replaced, after one fetch in all",
+    async (appHolds, index) => {
+      const key = await osnKey(undefined, HOLDS["both secrets"]);
+      published.push(key.jwk);
+      for (const copy of await copies(key.kid, index, 10)) {
+        expect(await verify(copy, HOLDS[appHolds])).toEqual({
+          ok: false,
+          reason: "bad_signature",
+        });
+      }
+      expect(fetches).toBe(1);
+      expect(await verify(await token(key), HOLDS[appHolds])).toEqual({ ok: true });
+      expect(fetches).toBe(1);
+    },
+  );
+
+  it.each([
+    ["the service secret", 2, "not published"],
+    ["the kid secret", 3, "not published"],
+    ["both secrets", 2, "not published"],
+    ["both secrets", 3, "not published"],
+    ["the service secret", 2, "a refused fetch"],
+    ["the kid secret", 3, "a refused fetch"],
+    ["both secrets", 3, "a refused fetch"],
+  ] as const)(
+    "an app holding %s: copies with part %i replaced of a kid it finds %s cost one fetch in all, and the real kid waits on that refusal",
+    async (appHolds, index, why) => {
+      const key = await osnKey(undefined, HOLDS["both secrets"]);
+      if (why === "a refused fetch") {
+        published.push(key.jwk);
+        refuseFetches = true;
+      }
+      for (const copy of await copies(key.kid, index, 10)) {
+        expect(await verify(copy, HOLDS[appHolds])).toEqual({
+          ok: false,
+          reason: "unknown_issuer",
+        });
+      }
+      expect(await verify(await token(key), HOLDS[appHolds])).toEqual({
+        ok: false,
+        reason: "unknown_issuer",
+      });
+      expect(fetches).toBe(1);
     },
   );
 

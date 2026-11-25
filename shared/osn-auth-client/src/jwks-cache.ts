@@ -62,9 +62,22 @@ interface JwksEntry {
   readonly kid: string;
 }
 
-/** True when `value` is a JWKS entry published under `kid`. */
-function hasKid(value: unknown, kid: string): value is JwksEntry {
-  return typeof value === "object" && value !== null && "kid" in value && value.kid === kid;
+/**
+ * Which published `kid` a lookup wants. Exact by default; an ARC lookup whose
+ * kid carries a part the app could not verify names the entry by the part it
+ * did verify (`@shared/crypto/arc-kid`, `checkArcKid`).
+ */
+export type KidNames = (publishedKid: string) => boolean;
+
+/** True when `value` is a JWKS entry published under a kid `names` accepts. */
+function isNamedEntry(value: unknown, names: KidNames): value is JwksEntry {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kid" in value &&
+    typeof value.kid === "string" &&
+    names(value.kid)
+  );
 }
 
 const cache = new Map<string, CachedKey>();
@@ -131,11 +144,16 @@ async function fetchJwksKeys(jwksUrl: string): Promise<unknown[]> {
 }
 
 /**
- * Resolves a CryptoKey for `kid` by fetching the JWKS. Returns `null` for any
- * failure (network error, non-OK, malformed JSON, unknown kid, bad JWK) and
- * records a negative-cache entry so repeated misses don't re-fetch.
+ * Resolves a CryptoKey for `kid` by fetching the JWKS and taking the first
+ * entry `names` accepts. Returns `null` for any failure (network error,
+ * non-OK, malformed JSON, unknown kid, bad JWK) and records a negative-cache
+ * entry under `kid` so repeated misses don't re-fetch.
  */
-async function fetchPublicKey(kid: string, jwksUrl: string): Promise<CryptoKey | null> {
+async function fetchPublicKey(
+  kid: string,
+  jwksUrl: string,
+  names: KidNames = (published) => published === kid,
+): Promise<CryptoKey | null> {
   let keys: unknown[];
   try {
     keys = await fetchJwksKeys(jwksUrl);
@@ -144,7 +162,7 @@ async function fetchPublicKey(kid: string, jwksUrl: string): Promise<CryptoKey |
     return null;
   }
 
-  const jwk = keys.find((k): k is JwksEntry => hasKid(k, kid));
+  const jwk = keys.find((k): k is JwksEntry => isNamedEntry(k, names));
 
   if (!jwk) {
     recordNegative(cacheKey(kid, jwksUrl));
@@ -181,10 +199,16 @@ function isNegativelyCached(ck: string): boolean {
  * Returns `null` if the key cannot be resolved (network error, unknown kid,
  * malformed JWK). Unknown kids are negative-cached for NEGATIVE_TTL_MS so a
  * flood of junk-`kid` tokens doesn't re-fetch upstream on every request.
+ *
+ * Both caches are keyed by `kid` as given, and `names` picks the published
+ * entry (exact `kid` by default). A caller that verified only part of a token's
+ * kid passes that part as `kid` and a `names` matching it, so no cache entry
+ * and no fetch depends on a part it did not verify.
  */
 export async function resolvePublicKeyForKid(
   kid: string,
   jwksUrl: string,
+  names?: KidNames,
 ): Promise<CryptoKey | null> {
   const ck = cacheKey(kid, jwksUrl);
   const now = Date.now();
@@ -196,14 +220,15 @@ export async function resolvePublicKeyForKid(
 
   if (isNegativelyCached(ck)) return null;
 
-  const key = await fetchPublicKey(kid, jwksUrl);
+  const key = await fetchPublicKey(kid, jwksUrl, names);
   if (key) storeInCache(ck, key);
   return key;
 }
 
 /**
  * Bypasses both the positive and negative caches and re-fetches the JWKS
- * endpoint for `kid`. Call this when token verification fails against a cached
+ * endpoint for `kid`, matched exactly: never pass it an ARC lookup id, which
+ * names no published kid by itself (ARC never refreshes). Call this when token verification fails against a cached
  * key — it may have been rotated. A genuine rotation must never be masked by a
  * stale negative entry, so this path ignores the negative cache. Updates the
  * cache on success.

@@ -26,12 +26,16 @@ export const OSN_HOLDS = {
  * An osn-api stand-in for ARC, as cire-api sees it: one published key at
  * `<issuer>/.well-known/arc-jwks.json` (every other fetch goes through, and
  * each fetch of the set is counted) and tokens signed with it, its kid minted
- * as osn-api mints it holding `osnHolds`, both secrets unless told otherwise.
- * `restore` puts `fetch` and the key cache back. Read by
- * `tests/routes/internal-account-deletion.test.ts` and
- * `tests/routes/internal-account-export.test.ts`.
+ * as osn-api mints it holding `osnHolds`, both secrets unless told otherwise,
+ * under `issuer` ({@link OSN_ISSUER} unless told otherwise). `restore` puts
+ * `fetch` and the key cache back. Read by
+ * `tests/routes/internal-account-deletion.test.ts`,
+ * `tests/routes/internal-account-export.test.ts` and `tests/index.test.ts`.
  */
-export async function osnArc(osnHolds: ArcKidSecrets = OSN_HOLDS["both secrets"]) {
+export async function osnArc(
+  osnHolds: ArcKidSecrets = OSN_HOLDS["both secrets"],
+  issuer: string = OSN_ISSUER,
+) {
   const pair = await generateArcKeyPair();
   const kid = await mintArcKid(osnHolds, Math.floor(Date.now() / 1000) + 3600);
   const jwk = {
@@ -44,7 +48,7 @@ export async function osnArc(osnHolds: ArcKidSecrets = OSN_HOLDS["both secrets"]
   let fetches = 0;
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-    if (String(input) !== `${OSN_ISSUER}/.well-known/arc-jwks.json`) return original(input, init);
+    if (String(input) !== `${issuer}/.well-known/arc-jwks.json`) return original(input, init);
     fetches += 1;
     return Response.json({ keys });
   }) as typeof fetch;

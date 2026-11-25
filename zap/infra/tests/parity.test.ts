@@ -60,6 +60,7 @@ describe("zap-api on dev against Wrangler's production config", () => {
         "DB",
         "INTERNAL_SERVICE_SECRET",
         "OSN_API_URL",
+        "OSN_ARC_KID_SECRET",
         "OSN_ENV",
         "OSN_ISSUER_URL",
         "OSN_JWKS_URL",

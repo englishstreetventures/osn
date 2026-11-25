@@ -110,3 +110,8 @@ enabled = false
 # plaintext var:
 #   bunx wrangler secret put OSN_JWT_SECRET --env staging
 #   bunx wrangler secret put OSN_JWT_SECRET --env production
+#
+# OSN_ARC_KID_SECRET (optional) checks a MAC on osn-api's ARC key ids beside
+# INTERNAL_SERVICE_SECRET's; the SAME value osn-api holds, at least 32
+# characters. Any order with osn-api (wiki/shared/production-deploy.md §5.11):
+#   bunx wrangler secret put OSN_ARC_KID_SECRET --env production

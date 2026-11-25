@@ -161,27 +161,53 @@ export async function mintArcKid(secrets: ArcKidSecrets, expiresAt: number): Pro
 }
 
 /**
- * Whether an app may fetch the key `kid` names. With no secret that can key a
- * MAC ({@link arcKidMacSecret}) it always may: the app cannot tell. With one,
- * only a kid of one or two MACs, each {@link MAC_LENGTH} characters, whose
- * expiry is after `nowSec`, and one of whose MACs verifies under a secret the
- * app holds.
+ * How an app looks up the key a kid names, once the kid has passed
+ * {@link checkArcKid}.
+ */
+export interface ArcKidLookup {
+  /**
+   * What the app caches the key under. For a kid whose MAC verified, the
+   * `<uuid>.<expiry>` that MAC covers: a 4-part kid carries a MAC the app may
+   * hold no key for, which anyone can replace, so no lookup depends on it.
+   * The whole kid only when the app holds no secret and checked nothing.
+   */
+  readonly id: string;
+  /** Whether a kid in osn-api's published set is the key this lookup wants. */
+  readonly names: (publishedKid: string) => boolean;
+}
+
+/**
+ * Whether an app may fetch the key `kid` names, and what it looks the key up
+ * by ({@link ArcKidLookup}); `null` refuses. With no secret that can key a
+ * MAC ({@link arcKidMacSecret}) every kid passes, looked up exactly: the app
+ * cannot tell. With one, only a kid of one or two MACs, each
+ * {@link MAC_LENGTH} characters, whose expiry is after `nowSec`, and one of
+ * whose MACs verifies under a secret the app holds.
  */
 export async function checkArcKid(
   kid: string,
   secrets: ArcKidSecrets,
   nowSec: number,
-): Promise<boolean> {
+): Promise<ArcKidLookup | null> {
   const keys = usableKeys(secrets);
-  if (keys.length === 0) return true;
+  if (keys.length === 0) return { id: kid, names: (published) => published === kid };
   const parts = kid.split(".");
-  if (parts.length < 3 || parts.length > 4) return false;
+  if (parts.length < 3 || parts.length > 4) return null;
   const [uuid, expiry, ...macs] = parts as [string, string, ...string[]];
-  if (!/^\d{1,12}$/.test(expiry) || Number(expiry) <= nowSec) return false;
-  if (macs.some((mac) => mac.length !== MAC_LENGTH)) return false;
-  for (const [secret, info] of keys) {
-    const expected = await macOf(secret, info, uuid, expiry);
-    if (macs.some((mac) => timingSafeEqualString(mac, expected))) return true;
+  if (!/^\d{1,12}$/.test(expiry) || Number(expiry) <= nowSec) return null;
+  if (macs.some((mac) => mac.length !== MAC_LENGTH)) return null;
+  const expected = await Promise.all(
+    keys.map(([secret, info]) => macOf(secret, info, uuid, expiry)),
+  );
+  if (!expected.some((mac) => macs.some((part) => timingSafeEqualString(part, mac)))) {
+    return null;
   }
-  return false;
+  const id = `${uuid}.${expiry}`;
+  return {
+    id,
+    names: (published) => {
+      const named = published.split(".");
+      return (named.length === 3 || named.length === 4) && `${named[0]}.${named[1]}` === id;
+    },
+  };
 }

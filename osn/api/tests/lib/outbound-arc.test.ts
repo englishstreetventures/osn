@@ -86,7 +86,9 @@ describe("outbound ARC key", () => {
         { kidSecret: KID_SECRET, serviceSecret: undefined },
         { kidSecret: undefined, serviceSecret: SECRET },
       ]) {
-        expect(yield* Effect.promise(() => checkArcKid(row.keyId, app, row.createdAt))).toBe(true);
+        expect(
+          yield* Effect.promise(() => checkArcKid(row.keyId, app, row.createdAt)),
+        ).not.toBeNull();
       }
       expect(JSON.parse(row.publicKeyJwk)).toMatchObject({ kty: "EC", crv: "P-256" });
       expect(JSON.parse(row.publicKeyJwk)).not.toHaveProperty("d");

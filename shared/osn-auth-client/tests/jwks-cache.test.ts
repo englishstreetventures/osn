@@ -74,6 +74,30 @@ describe("jwks-cache", () => {
     gate = { promise, release };
   }
 
+  it("matches a published kid exactly unless told otherwise: a lookup of a.b never takes a.b.c", async () => {
+    routes.set(URL_1, [await makeJwk("a.b.c")]);
+    expect(await resolvePublicKeyForKid("a.b", URL_1)).toBeNull();
+    expect(await resolvePublicKeyForKid("a.b.c", URL_1)).not.toBeNull();
+  });
+
+  it("with names, caches and refuses under the id given, never the published kid", async () => {
+    routes.set(URL_1, [await makeJwk("a.b.c")]);
+    const names = (published: string) => published.startsWith("a.b.");
+    expect(await resolvePublicKeyForKid("a.b", URL_1, names)).not.toBeNull();
+    expect(await resolvePublicKeyForKid("a.b", URL_1, names)).not.toBeNull();
+    expect(calls.get(URL_1)).toBe(1);
+    expect(await resolvePublicKeyForKid("x.y", URL_1, () => false)).toBeNull();
+    expect(await resolvePublicKeyForKid("x.y", URL_1, () => false)).toBeNull();
+    expect(calls.get(URL_1)).toBe(2);
+  });
+
+  it("skips a published entry whose kid is not a string, and still answers the one named", async () => {
+    routes.set(URL_1, [{ kid: 7 }, { kid: null }, await makeJwk("a.b.c")]);
+    expect(
+      await resolvePublicKeyForKid("a.b", URL_1, (published) => published === "a.b.c"),
+    ).not.toBeNull();
+  });
+
   it("same kid on two issuers resolves to distinct keys (no collision)", async () => {
     routes.set(URL_1, [jwkA]);
     routes.set(URL_2, [jwkB]);

@@ -40,6 +40,7 @@
 
 # --- S2S + fan-out (optional) ---
 # INTERNAL_SERVICE_SECRET = "<shared-secret>"   # enables /graph/internal/register-service
+# OSN_ARC_KID_SECRET      = "<same value as the apps'>"   # a MAC on ARC key ids, held for that alone
 # PULSE_API_URL = "http://localhost:3001"   # unset: the deletion skips Pulse
 # ZAP_API_URL   = "http://localhost:3002"   # unset: the deletion skips Zap
 # cire-api's origin (HTTPS, or HTTP to a loopback host): the deletion reaches

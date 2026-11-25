@@ -13,7 +13,8 @@
  * app lets osn-api use, and, when the app holds a kid secret of at least 32
  * characters, carry a kid with a MAC that verifies under it and an expiry
  * that has not passed (`@shared/crypto/arc-kid`). A token failing any of
- * these costs no fetch.
+ * these costs no fetch, and the key is then looked up by the part of the
+ * kid the check verified alone (`checkArcKid`'s lookup).
  * Then jose checks the signature (ES256 only), `iss`, `aud`, `exp` and `iat`,
  * and the token's scope must hold the route's.
  *
@@ -124,11 +125,17 @@ export async function verifyOsnArcToken(
   const scope = expected.scope.trim().toLowerCase();
   if (!expected.allowedScopes.has(scope)) return refuse("scope_denied", OSN_ARC_ISSUER);
 
-  if (!(await checkArcKid(kid, verification, Math.floor(Date.now() / 1000)))) {
-    return refuse("unknown_issuer", OSN_ARC_ISSUER);
-  }
+  const lookup = await checkArcKid(kid, verification, Math.floor(Date.now() / 1000));
+  if (!lookup) return refuse("unknown_issuer", OSN_ARC_ISSUER);
 
-  const key = await resolvePublicKeyForKid(kid, `${verification.osnIssuer}${OSN_ARC_JWKS_PATH}`);
+  // Looked up and cached by the part of the kid the check verified, never by
+  // the rest: a copy of a published kid with an unchecked part replaced finds
+  // the real kid's entry and costs no fetch of its own.
+  const key = await resolvePublicKeyForKid(
+    lookup.id,
+    `${verification.osnIssuer}${OSN_ARC_JWKS_PATH}`,
+    lookup.names,
+  );
   if (!key) return refuse("unknown_issuer", OSN_ARC_ISSUER);
 
   let granted: unknown;

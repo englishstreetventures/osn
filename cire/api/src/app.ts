@@ -1,5 +1,6 @@
 import type { DesignMeta } from "@cire/invite-designs";
 import { cors } from "@elysiajs/cors";
+import { arcKidMacSecret } from "@shared/crypto/arc-kid";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { SendEmailInput } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
@@ -999,6 +1000,20 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
         {
           detail:
             "guests are offered no money gift until the Connect webhook secret is set and the Worker redeployed",
+        },
+      ),
+    );
+  }
+
+  if (osnArcKidSecret !== undefined && arcKidMacSecret(osnArcKidSecret) === undefined) {
+    // Once per app build. Names the variable, never its value. A value this
+    // short is treated as unset, as osn-api treats its own.
+    runCireSync(
+      Effect.logWarning(
+        "osn-api's ARC key ids are not checked: OSN_ARC_KID_SECRET is shorter than 32 characters",
+        {
+          detail:
+            "set a value from `openssl rand -base64 32`, the one osn-api holds, and redeploy the Worker",
         },
       ),
     );

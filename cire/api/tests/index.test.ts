@@ -21,6 +21,7 @@ import { captureLogs } from "./test-helpers/capture-logs";
 import { ddlStatements } from "./test-helpers/ddl-statements";
 import { counterValue } from "./test-helpers/metrics-harness";
 import { seedOrganiserSession } from "./test-helpers/organiser-session";
+import { KID_SECRET, osnArc } from "./test-helpers/osn-arc";
 import { ownerSeat } from "./test-helpers/wedding";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
@@ -2076,5 +2077,87 @@ describe("co-host add at the Worker entry", () => {
       .from(weddingHosts)
       .where(eq(weddingHosts.weddingId, "wed_add"));
     expect(seats.map((s) => s.osnProfileId).toSorted()).toEqual(["usr_add_friend", OWNER]);
+  });
+});
+
+describe("osn-api's ARC key ids on the Worker", () => {
+  const SHORT = "x".repeat(31);
+  const WARNING =
+    "osn-api's ARC key ids are not checked: OSN_ARC_KID_SECRET is shorter than 32 characters";
+
+  /**
+   * One deletion preview from osn-api through the Worker, built for `extra`
+   * on a binding it has not seen (the app is cached per D1 binding, and the
+   * warning is logged when it is built): with a made-up kid, or with osn-api's
+   * real key. The made-up kid is published too, so only the kid check can
+   * refuse it. Counts the Worker's fetches of osn-api's key list.
+   */
+  async function previewThroughWorker(
+    extra: Record<string, unknown>,
+    kid: "made-up" | "real",
+  ): Promise<{ status: number; fetches: number; logs: string }> {
+    const arc = await osnArc(undefined, BASE_ENV.OSN_ISSUER_URL);
+    try {
+      const freshBinding = {
+        prepare: (query: string) => DB.prepare(query),
+        batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+        withSession: (constraint: string) => DB.withSession(constraint),
+      };
+      const env = { ...BASE_ENV, ...extra, DB: freshBinding } as unknown as Parameters<
+        NonNullable<typeof handler.fetch>
+      >[1];
+      const scope = "account:deletion-preview";
+      const authorization =
+        kid === "real"
+          ? await arc.token(scope)
+          : await arc.tokenUnderKid(
+              scope,
+              `${crypto.randomUUID()}.${arc.kid.split(".")[1]}.${"A".repeat(22)}`,
+            );
+      const request = new Request("https://api.example.com/internal/account-deletion-preview", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization },
+        body: JSON.stringify({ profileIds: ["usr_nobody"], deletesAt: 1_900_000_000 }),
+      }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0];
+      let status = 0;
+      const logs = await captureLogs(async () => {
+        status = (await handler.fetch!(request, env, ctx)).status;
+      });
+      return { status, fetches: arc.fetches(), logs };
+    } finally {
+      arc.restore();
+    }
+  }
+
+  it("with OSN_ARC_KID_SECRET, refuses a made-up kid before fetching osn-api's keys", async () => {
+    const { status, fetches } = await previewThroughWorker(
+      { OSN_ARC_KID_SECRET: KID_SECRET },
+      "made-up",
+    );
+    expect({ status, fetches }).toEqual({ status: 401, fetches: 0 });
+  });
+
+  it("with OSN_ARC_KID_SECRET, admits osn-api's real key after one fetch", async () => {
+    const { status, fetches } = await previewThroughWorker(
+      { OSN_ARC_KID_SECRET: KID_SECRET },
+      "real",
+    );
+    expect({ status, fetches }).toEqual({ status: 200, fetches: 1 });
+  });
+
+  it("with a value under 32 characters, checks no kid, and says so once, never with the value", async () => {
+    const { status, fetches, logs } = await previewThroughWorker(
+      { OSN_ARC_KID_SECRET: SHORT },
+      "made-up",
+    );
+    expect({ status, fetches }).toEqual({ status: 200, fetches: 1 });
+    expect(logs.split(WARNING).length - 1).toBe(1);
+    expect(logs).not.toContain(SHORT);
+  });
+
+  it("without OSN_ARC_KID_SECRET, checks no kid and says nothing about it", async () => {
+    const { status, fetches, logs } = await previewThroughWorker({}, "made-up");
+    expect({ status, fetches }).toEqual({ status: 200, fetches: 1 });
+    expect(logs).not.toContain(WARNING);
   });
 });

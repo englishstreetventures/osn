@@ -33,6 +33,8 @@ export function stackEnv(): Record<string, string | undefined> {
     ...Object.fromEntries(
       [...row.secrets, ...row.optional].map((name) => [name, `placeholder-${name}`]),
     ),
+    // The dev rule refuses a value under 32 characters.
+    OSN_ARC_KID_SECRET: "placeholder-OSN_ARC_KID_SECRET".padEnd(32, "-"),
   };
 }
 
