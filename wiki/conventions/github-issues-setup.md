@@ -5,7 +5,7 @@ related:
   - "[[review-findings]]"
   - "[[agent-tooling]]"
   - "[[index]]"
-last-reviewed: 2026-11-24
+last-reviewed: 2026-11-26
 ---
 
 # GitHub Issues setup (repos, labels, Project)
@@ -181,7 +181,12 @@ GitHub user, so an assignee cannot carry the claim; the Status can, because the
 owner reads the board by it. The check and the commands are in
 `.claude/skills/next-batch/SKILL.md` §Claim, and `orchestrate` and `new-feat`
 run it. Nobody sets Done by hand: merging closes the issue, and a closed issue's
-card moves to Done.
+card moves to Done. A merge closes only the issues its `Closes` lines name, so
+the pull request that finishes an issue earlier ones marked `Part of` writes
+`Closes` (`write-pr` §Issues), and after a merge that left an issue open,
+`next-batch` §Claim step 5 reads its **Done when** against `main`: every item
+met, the session closes it with a comment saying where each landed; items left,
+it puts the card back with a comment listing them.
 
 **Held by and Last touched say whose claim it is.** The owner runs sessions
 under three Claude accounts, and no account can see another's sessions, so the

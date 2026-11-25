@@ -164,17 +164,34 @@ jq -n --arg d "$(date +%F)" '{fields: [{id: <Status field id>, value: "<In Revie
 
 Task dropped → step 5, with the reason in `ORCHESTRATE.md`. Parked until a limit resets → it stays In Progress, and `next:` says why. Never set Done: merging closes the issue, and the board moves a closed issue's card.
 
-**5. Release it.** A claim ends in one of two ways: the merge closes the issue, or the session puts the card back. A merge closes only the issues its `Closes` lines name, so an issue the pull request only touched (`Part of`), an epic, a tracker close the classifier refused and a dropped task all stay In Progress with no session working on them, and step 1 then refuses them to the next session. When a pull request merges, is dropped or is parked, read each issue **this task or session** claimed (its `claimed:` or `Claimed:` lines, no one else's):
+**5. Release it.** A claim ends in one of two ways: the issue closes, by the merge or by this step once its **Done when** holds on `main`, or the session puts the card back. A merge closes only the issues its `Closes` lines name, so an issue the pull request only touched (`Part of`), an epic, a tracker close the classifier refused and a dropped task all stay In Progress with no session working on them, and step 1 then refuses them to the next session. When a pull request merges, is dropped or is parked, read each issue **this task or session** claimed (its `claimed:` or `Claimed:` lines, no one else's):
 
 ```bash
 gh api repos/englishstreetventures/<repo>/issues/<n> --jq '"\(.state) \(.title)"'
 ```
 
-Then read the card's current Status with step 2's query. Touch the card only while it still says In Progress: any other Status means the owner or another session has moved it, and it stays.
+Then read the card's current Status with step 2's query. Touch the card, or close the issue, only while the card still says In Progress: any other Status means the owner or another session has moved it, and it stays.
 
 - `closed`: nothing to do.
 - Open, and a pull request is open for it, this session's draft included: In Review.
-- Open and no pull request is open: put it back, with the option id on the claim line (`from <Status name> <option id>`), not the In Progress option id; a card that had no Status goes to Up Next. The same body clears Held by with `null` (an empty string is refused with HTTP 400) and sets Last touched to today. Write no comment.
+- Open after a merge, and no pull request is open for it — the merged one named it `Part of` or not at all (an epic, a tracker close the classifier refused), or its `Closes` line did not take: read what is left before touching the card. Fetch `main`, then read the issue's **Done when** (a finding has none: read its **Solution**) and the merged pull requests that named it. Check each item against `origin/main`, never this branch's checkout: the command it names prints what it says, the file holds the text, the issue it names is closed. An item a merged pull request handed to another issue, listed under its **Raised against this branch**, is met. An item nothing in the repository or its CI can show — an owner's answer, a judgement that the item no longer applies — is left.
+
+  ```bash
+  git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+  gh api repos/englishstreetventures/<repo>/issues/<n> --jq .body
+  gh api --paginate 'repos/englishstreetventures/<repo>/issues/<n>/timeline?per_page=100' \
+    --jq '.[] | select(.event=="cross-referenced" and .source.issue.pull_request.merged_at) | "#\(.source.issue.number) \(.source.issue.title)"'
+  ```
+
+  - Every item met: comment, then close. The comment names the pull requests and where each item landed (`#2131 moved every @osn/auth-ui catch onto the copy map; Musubi's own pages went to #2129`), and on a public issue it names no tracker issue (`AGENTS.md` §Issues). Write it to a file under `/tmp` first. The board moves the closed card to Done.
+
+    ```bash
+    gh api repos/englishstreetventures/<repo>/issues/<n>/comments -F body=@<comment file>
+    gh api -X PATCH repos/englishstreetventures/<repo>/issues/<n> -f state=closed -f state_reason=completed
+    ```
+
+  - Items left: one comment, one line, listing them (`Left after #1894: the production site-parity report, which scripts/site-parity.ts no longer writes.`), then put the card back as the next bullet says.
+- Open and no pull request is open — the task was dropped, or the read above left items: put it back, with the option id on the claim line (`from <Status name> <option id>`), not the In Progress option id; a card that had no Status goes to Up Next. The same body clears Held by with `null` (an empty string is refused with HTTP 400) and sets Last touched to today. A dropped task gets no comment.
 
 ```bash
 jq -n --arg d "$(date +%F)" '{fields: [{id: <Status field id>, value: "<option id from the claim line>"}, {id: 449016881, value: null}, {id: 449016914, value: $d}]}' \
@@ -187,7 +204,8 @@ Then print the reminder to the owner, one line per issue taken and what became o
 ```
 Issues taken
 osn#2364 — Musubi sign-up: turn on the browser email verification path in production — closed by the merge
-osn#2089 — OSN docs: record the browser Email Verification API's status — open, put back in Backlog (the pull request only touched it)
+osn#2044 — Musubi and @osn/auth-ui: every error through the copy map, a signed-out notice, and a shell that survives a failed load — closed after the merge: every Done when item is on main or handed to #2129
+osn#2089 — OSN docs: record the browser Email Verification API's status — open, put back in Backlog with a comment listing what is left (the pull request only touched it)
 ```
 
 The claim is the Status, never an assignee: every session runs as the same GitHub user, under any of the owner's three Claude accounts, and `new-feat` and the owner read the board by Status. Held by only says whose claim it is.
@@ -204,5 +222,6 @@ The claim is the Status, never an assignee: every session runs as the same GitHu
 | `$(basename "$PWD")` as the worktree in Held by | The worktree's directory by name: the claim runs before it exists, from `main/` |
 | Moving another session's In Progress card | A question to the owner |
 | A claimed issue left In Progress after its pull request merged | Step 5 |
+| A `Part of` card put back unread after its last part merged | Step 5: read its Done when against `main`, and close it when every item is met |
 | An issue number without its repository | `osn#N` or `osn-tracker#N`; the numbers repeat |
 | A rate-limit error read as "not claimed" | Unknown: wait, then check again |
