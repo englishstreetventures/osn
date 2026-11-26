@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Retention
@@ -29,7 +29,7 @@ already enforces some of them; the rest need a sweeper job.
 | `zap_account_purges` (an erased account's id, when Zap erased it, and how many end-to-end messages it left with other members; never message content) | Indefinite: the replay ledger a repeat of the erasure answers from. Once osn-api has hard-deleted the account, the id names no one. | None | OK | Zap |
 | Hosted events of a host who left Pulse: `cancellation_reason = "host_left"`, and any the host had already cancelled (`hard_delete_at` set) | 14 days from the leave, then hard-deleted. | Sweeper (`accountErasure.runEventCancellationSweep`) | OK | Pulse |
 | `passkeys` | While account active; deleted on credential revoke and at the account's hard delete. Kept through the 7-day deletion window, so the person can sign in and cancel. `provenance_amr` is a column on this row and dies with it — no separate sweep | App code | OK | Identity |
-| `sessions` | 30 d sliding window; family-revoked on rotation reuse (a **restricted recovery session** is the exception: 15 minutes absolute, never sliding, until enrolment clears `restricted_until` and it becomes an ordinary row — see [[data-map]]) | DB `expires_at` + nightly purge job (planned) | Sliding window OK; purge of expired rows missing | Identity |
+| `sessions` | 30 d sliding window; family-revoked on rotation reuse (a **restricted session** — a recovery's, or a sign-up's before its first passkey — is the exception: 15 minutes absolute, never sliding, until enrolment clears `restricted_until` and it becomes an ordinary row — see [[data-map]]) | DB `expires_at` + nightly purge job (planned) | Sliding window OK; purge of expired rows missing | Identity |
 | `rotated_sessions` (D1; `rotated_at` and `expires_at` in Unix milliseconds) | 30 d from rotation — the session lifetime, `refreshTokenTtl`. Deleted with its family when a replay revokes it. Security state: **not exported** | 6-hourly `scheduled` sweep of expired rows (`runRotatedSessionSweep`, in chunks of 500 with a 75 ms pause between two chunks, at most 10 chunks a run — 5,000 rows — unless `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS` sets another count: staging and production set 100, so 50,000 rows a run; dev leaves it unset; counted on `osn.retention.rows_deleted` and `osn.retention.cycle.duration`). Account erasure: soft delete removes the records of every family it revokes and keeps the cancel handle's family's through the grace period; hard delete removes them all | OK | Identity |
 | `security_events` | 12 months from `created_at`, the account's hard delete included (Art. 6(1)(c)+(f), [[data-map]]) | 6-hourly cron sweep (`runSecurityEventSweep`, [`osn/api/src/services/retention.ts`](../../osn/api/src/services/retention.ts)) over `security_events_created_at_idx`: chunks of 500, a 75 ms pause between two, at most 2 a run (1,000 rows); counted under `table: "security_events"`, and a run that ends on a full chunk logs `retention.sweep.security_events ended on a full chunk` | OK | Identity |
 | `email_changes` audit | 90 days from `completed_at`, the account's hard delete included (Art. 6(1)(c)+(f), [[data-map]]) | 6-hourly cron sweep (`runEmailChangeSweep`, same file) over `email_changes_completed_at_idx`: the same chunks, pause and cap; counted under `table: "email_changes"` | OK | Identity |

@@ -363,14 +363,21 @@ before it mails, reads, replaces or spends anything
   token and checks it: a refusal, or a token for any other profile, ends on a
   screen whose one action is Sign in, saying the account is saved and the
   emailed recovery link adds its passkey; an ordinary token for this profile
-  (the passkey went in from another tab) is published at once. The entry goes
-  once the passkey is in, when its session has ended, or when any session
-  arrives on the page.
+  (the passkey went in from another tab) is published at once. A press that
+  follows a lost answer to complete gets 401 at begin, since the session is
+  ordinary by then, and ends the same way: renewed and published. `Register`
+  removes the entry only while it names that view's own account (another
+  tab's sign-up may have written its own over it), once the passkey is in or
+  when its session has ended. A sign-in through `SignIn`, on any host, removes
+  it once its session is published, and so does Musubi's `AuthDialogs` when a
+  session appears ([[eprivacy]]).
 - **What was typed survives too.** `Register` keeps the details step's fields
   in this tab's `sessionStorage`, `osn.signup.draft`, as they are typed: the
   address, handle and display name, and the date of birth only once it is in
   range and clears the 13+ gate. Closing the dialog, or reloading, loses none
-  of it; it goes when the account is made or a session arrives. A draft alone
+  of it; it goes when the account is made, when a sign-in through `SignIn`
+  publishes its session (the `/authorize` page included), or when a session
+  appears under Musubi's `AuthDialogs`. A draft alone
   reopens nothing: it shows the next time the form opens.
 
 ## Recovery

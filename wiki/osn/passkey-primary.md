@@ -33,10 +33,16 @@ do anything but add one.** A sign-up makes the account before its first
 passkey, so the second half covers that window and a sign-up abandoned inside
 it. The one exception is an account whose deletion job predates the restore
 record: that deletion took its passkeys and kept one session as its way to
-cancel ([[identity-model]], `replaced_at`). Accounts from before the sign-up
-session was restricted lost their ordinary sessions to migration
-`20261126014432_end_passkeyless_sessions` ([[sessions#A sign-up's session before its first passkey]]).
-The invariant holds from registration to deletion:
+cancel ([[identity-model]], `replaced_at`). Accounts made before the sign-up
+session was restricted, and never given a passkey, are outside it. Migration
+`20261126014432_end_passkeyless_sessions` runs once: it deletes the ordinary
+sessions such accounts hold when it runs, and spares restricted sessions and
+every session of an account with a deletion job. It is a clean-up of those
+rows, not a rule held from then on: renewal and `/authorize` do not check
+whether the account holds a passkey
+([[sessions#A sign-up's session before its first passkey]]).
+For an account a sign-up makes, the invariant holds from registration to
+deletion:
 
 - **Registration.** The completing sign-up status poll
   (`POST /register/:requestId/status`, from the tab holding the claim secret)
@@ -48,7 +54,7 @@ The invariant holds from registration to deletion:
   route; it lives 15 minutes, absolute; and its row records `signup`, which
   takes nobody past the step-up gate and stamps the first passkey `webauthn`,
   the account's own root credential. Enrolling that passkey lifts the
-  restriction. There is no "skip for now" button. **`Register.tsx` holds that
+  restriction, in the batch that inserts it. There is no "skip for now" button. **`Register.tsx` holds that
   session without adopting it** — enrolment authenticates with the returned
   access token, passed explicitly as a bearer token — and once the credential
   exists it renews the cookie and adopts the renewal only when it is this
