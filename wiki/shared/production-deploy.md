@@ -17,7 +17,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
   - "[[arc-token-debugging]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1906,6 +1906,9 @@ lists, so once every key id there has four parts no call can carry one minted
 without the secret. That is normally true within four hours (a key's life) of
 osn-api's `secret put`; a **Production release** dispatched with `force` for
 `osn_api` makes every isolate mint a new key sooner (§5.9).
+Every address shares the list's 60 reads an hour, so the `curl` can answer
+`{"error":"rate_limited"}`, on which `jq` fails: run it again in the next hour,
+or wait out the four hours.
 `secrets:check-live` passes whether an optional secret is live or not, so the
 `secret list` lines are the check that each Worker holds it.
 

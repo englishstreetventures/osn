@@ -2,9 +2,10 @@
  * In-process JWKS public key cache for verifying OSN-issued user access tokens.
  *
  * Fetches the OSN API's JWKS endpoint on cache miss and caches resolved
- * CryptoKeys by `${jwksUrl}:${kid}` for JWKS_CACHE_TTL_MS. On verification
- * failure against a resolved key, the cache is bypassed once (refresh path)
- * to handle key rotation.
+ * CryptoKeys by `${jwksUrl}:${kid}` for JWKS_CACHE_TTL_MS, or for the time an
+ * ARC lookup gives ({@link KeyLookup}). On verification failure against a
+ * resolved key, the cache is bypassed once (refresh path) to handle key
+ * rotation.
  *
  * Amplification defences:
  * - Negative cache: an unknown kid (or a fetch that fails) is remembered for
@@ -12,7 +13,9 @@
  *   every request. A forced refresh bypasses the negative cache so a genuine
  *   rotation is never masked.
  * - Single-flight: concurrent fetches for the same jwksUrl share one in-flight
- *   promise instead of stampeding the issuer.
+ *   promise instead of stampeding the issuer. An ARC lookup's fetches share
+ *   one per cache key instead, in a map of their own, so no kid a sender
+ *   names can join an access-token fetch.
  * - Fetch timeout: each JWKS fetch is bounded by JWKS_FETCH_TIMEOUT_MS so a
  *   hung upstream cannot pin the consumer.
  *
@@ -50,6 +53,8 @@ const FORCED_REFRESH_COOLDOWN_MS = NEGATIVE_TTL_MS;
 interface CachedKey {
   key: CryptoKey;
   fetchedAt: number;
+  /** How long after `fetchedAt` the key is used without asking again. */
+  ttlMs: number;
 }
 
 /**
@@ -68,6 +73,20 @@ interface JwksEntry {
  * did verify (`@shared/crypto/arc-kid`, `checkArcKid`).
  */
 export type KidNames = (publishedKid: string) => boolean;
+
+/**
+ * How an ARC lookup finds its key: which published kid it wants, the URL that
+ * answers for that one key, and how long the key is kept. The lookup id is
+ * what the key is cached under; `from` may carry parts of the kid the app did
+ * not verify, so no fetch count and no cache entry depends on it.
+ */
+export interface KeyLookup {
+  readonly names: KidNames;
+  /** The URL to fetch: the JWKS URL, asking for one kid. */
+  readonly from: string;
+  /** How long the key is kept once fetched. */
+  readonly ttlMs: number;
+}
 
 /** True when `value` is a JWKS entry published under a kid `names` accepts. */
 function isNamedEntry(value: unknown, names: KidNames): value is JwksEntry {
@@ -89,6 +108,8 @@ const negativeCache = new Map<string, number>();
 const lastForcedRefresh = new Map<string, number>();
 /** Single-flight: in-flight JWKS fetches keyed by jwksUrl. */
 const inFlight = new Map<string, Promise<unknown[]>>();
+/** Single-flight for ARC lookups: in-flight fetches keyed by cache key, apart from `inFlight`. */
+const lookupsInFlight = new Map<string, Promise<unknown[]>>();
 
 /** Records a negative-cache entry, FIFO-evicting the oldest when at capacity. */
 function recordNegative(ck: string): void {
@@ -120,67 +141,77 @@ function evictLru(): void {
 }
 
 /**
- * Fetches the JWKS `keys` array for `jwksUrl`, coalescing concurrent callers
- * onto one in-flight request. Throws on network error / non-OK / malformed
- * JSON so the caller can distinguish "fetch failed" from "kid absent".
+ * Fetches the JWKS `keys` array from `url`, coalescing concurrent callers that
+ * share `flight` in `flights` onto one in-flight request. Throws on network
+ * error / non-OK / malformed JSON so the caller can distinguish "fetch
+ * failed" from "kid absent".
  */
-async function fetchJwksKeys(jwksUrl: string): Promise<unknown[]> {
-  const existing = inFlight.get(jwksUrl);
+async function fetchJwksKeys(
+  url: string,
+  flights: Map<string, Promise<unknown[]>> = inFlight,
+  flight: string = url,
+): Promise<unknown[]> {
+  const existing = flights.get(flight);
   if (existing) return existing;
 
   const promise = (async () => {
-    const res = await fetch(jwksUrl, { signal: AbortSignal.timeout(JWKS_FETCH_TIMEOUT_MS) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(JWKS_FETCH_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
     const body = (await res.json()) as { keys?: unknown[] };
     return Array.isArray(body.keys) ? body.keys : [];
   })();
 
-  inFlight.set(jwksUrl, promise);
+  flights.set(flight, promise);
   try {
     return await promise;
   } finally {
-    inFlight.delete(jwksUrl);
+    flights.delete(flight);
   }
 }
 
 /**
  * Resolves a CryptoKey for `kid` by fetching the JWKS and taking the first
- * entry `names` accepts. Returns `null` for any failure (network error,
- * non-OK, malformed JSON, unknown kid, bad JWK) and records a negative-cache
- * entry under `kid` so repeated misses don't re-fetch.
+ * entry the lookup's `names` accepts (the exact kid without one). Returns
+ * `null` for any failure (network error, non-OK, malformed JSON, unknown kid,
+ * bad JWK) and records a negative-cache entry under `kid` so repeated misses
+ * don't re-fetch.
  */
 async function fetchPublicKey(
   kid: string,
   jwksUrl: string,
-  names: KidNames = (published) => published === kid,
+  lookup?: KeyLookup,
 ): Promise<CryptoKey | null> {
+  const ck = cacheKey(kid, jwksUrl);
+  const names: KidNames = lookup?.names ?? ((published) => published === kid);
   let keys: unknown[];
   try {
-    keys = await fetchJwksKeys(jwksUrl);
+    keys = lookup
+      ? await fetchJwksKeys(lookup.from, lookupsInFlight, ck)
+      : await fetchJwksKeys(jwksUrl);
   } catch {
-    recordNegative(cacheKey(kid, jwksUrl));
+    recordNegative(ck);
     return null;
   }
 
   const jwk = keys.find((k): k is JwksEntry => isNamedEntry(k, names));
 
   if (!jwk) {
-    recordNegative(cacheKey(kid, jwksUrl));
+    recordNegative(ck);
     return null;
   }
 
   try {
     return await importKeyFromJwk(jwk);
   } catch {
-    recordNegative(cacheKey(kid, jwksUrl));
+    recordNegative(ck);
     return null;
   }
 }
 
-function storeInCache(ck: string, key: CryptoKey): void {
+function storeInCache(ck: string, key: CryptoKey, ttlMs: number = JWKS_CACHE_TTL_MS): void {
   if (cache.size >= CACHE_MAX_SIZE) evictLru();
   const now = Date.now();
-  cache.set(ck, { key, fetchedAt: now });
+  cache.set(ck, { key, fetchedAt: now, ttlMs });
   lastAccess.set(ck, now);
   negativeCache.delete(ck);
 }
@@ -200,28 +231,29 @@ function isNegativelyCached(ck: string): boolean {
  * malformed JWK). Unknown kids are negative-cached for NEGATIVE_TTL_MS so a
  * flood of junk-`kid` tokens doesn't re-fetch upstream on every request.
  *
- * Both caches are keyed by `kid` as given, and `names` picks the published
- * entry (exact `kid` by default). A caller that verified only part of a token's
- * kid passes that part as `kid` and a `names` matching it, so no cache entry
- * and no fetch depends on a part it did not verify.
+ * Both caches are keyed by `kid` as given. Without `lookup` the key is the
+ * entry published under exactly `kid`, fetched from `jwksUrl` and kept
+ * JWKS_CACHE_TTL_MS. An ARC lookup ({@link KeyLookup}) passes the part of the
+ * kid it verified as `kid`, a `names` matching it, the URL that answers for
+ * that key and how long to keep it.
  */
 export async function resolvePublicKeyForKid(
   kid: string,
   jwksUrl: string,
-  names?: KidNames,
+  lookup?: KeyLookup,
 ): Promise<CryptoKey | null> {
   const ck = cacheKey(kid, jwksUrl);
   const now = Date.now();
   const cached = cache.get(ck);
-  if (cached && now - cached.fetchedAt < JWKS_CACHE_TTL_MS) {
+  if (cached && now - cached.fetchedAt < cached.ttlMs) {
     lastAccess.set(ck, now);
     return cached.key;
   }
 
   if (isNegativelyCached(ck)) return null;
 
-  const key = await fetchPublicKey(kid, jwksUrl, names);
-  if (key) storeInCache(ck, key);
+  const key = await fetchPublicKey(kid, jwksUrl, lookup);
+  if (key) storeInCache(ck, key, lookup?.ttlMs);
   return key;
 }
 
@@ -266,4 +298,5 @@ export function clearJwksCache(): void {
   negativeCache.clear();
   lastForcedRefresh.clear();
   inFlight.clear();
+  lookupsInFlight.clear();
 }

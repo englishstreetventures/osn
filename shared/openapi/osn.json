@@ -19,6 +19,18 @@
     "/.well-known/arc-jwks.json": {
       "get": {
         "operationId": "getArcJwks",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kid",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {

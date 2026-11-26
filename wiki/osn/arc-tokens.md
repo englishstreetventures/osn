@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 # ARC Tokens (S2S Auth)
 
@@ -269,46 +269,79 @@ and each app fetches the one a token names:
    with an expired one; the account export takes its key once and signs each
    app's section as the reader pulls it, so a reader slower than two hours can
    get the later sections refused.
-4. `GET /.well-known/arc-jwks.json` serves the unexpired rows as a JWK Set, read
-   fresh on every request (`cache-control: no-store`): a key written a moment
-   ago must be in the next answer, or the app asking would refuse that `kid` for
-   30 seconds. osn-db reads its primary (`readReplication: "disabled"`), so it is.
-   It serves at most the newest 1,000 keys by expiry
-   (`PUBLISHED_OUTBOUND_KEYS_BOUND`), so a key just written is always among
-   them. The set holds the keys written in the last four hours: one for each
-   isolate that started in that time, two for one older than two hours. From
-   500 live keys the read
-   logs `osn.arc published outbound keys are nearing the read bound`, and past
-   1,000 `... passed the read bound; the oldest are left out`, each at most
-   once a minute per isolate. A key left out is refused by every app that has
-   not cached it, until its isolate's next call replaces it (step 3); calls
-   signed in the thirty seconds a passing check stands can still be refused. No
-   published figure caps how many isolates load can start: Cloudflare runs
-   348 cities ([network](https://www.cloudflare.com/network/)), publishes no
-   server count per city, and runs a Worker on more than one server in a data
-   centre when the first is overloaded
-   ([sharding](https://blog.cloudflare.com/eliminating-cold-starts-2-shard-and-conquer/)).
-   On either warning, find why the set grew before raising the bound. Each
-   caller's address (an IPv6 one by its /64) may read the list 30 times a
-   minute and 60 an hour; a configured app's fetch, which Cloudflare sends
-   from the address every Worker's cross-zone subrequest shares, is budgeted
-   under the app's zone (its `CF-Worker` header) instead. A refused app
-   fetches again 30 seconds later, so it recovers when its window ends, at
-   most an hour; meanwhile some of osn-api's calls to it can be refused. Each
-   refusal is counted (`osn.arc.jwks.refused`, by `lane` and `reason`) and the
-   first in each minute per lane is logged (`osn.arc key list refused a caller
-   over its budget`) ([[rate-limiting]]).
+4. `GET /.well-known/arc-jwks.json?kid=<kid>` answers the one key an app asks
+   for, as a JWK Set of one key or none; without `kid` the same path serves the
+   whole list. Neither may be cached (`cache-control: no-store`;
+   `osn/api/src/routes/arc-jwks.ts`).
+   - **By kid.** osn-api first reads the ask (`readArcKeyAsk`,
+     `@shared/crypto/arc-kid`): a uuid as `crypto.randomUUID` writes it, an
+     expiry ahead of now by at most a key's life and five minutes, and at most
+     two MAC parts of 22 base64url characters. Anything else is answered with
+     no key and no read. A kid one of whose MACs verifies under a secret
+     osn-api holds is answered from the isolate's memory
+     (`osn/api/src/lib/outbound-key-memory.ts`): a key found is held a minute,
+     a key not found 30 seconds, and at most 1,024 keys, about 1.4 KB each on
+     V8; past that a key is answered from a read and not held. A key written a
+     moment ago is read on its first ask, so it is found at once: no token
+     names a kid before its row is written. The read is one seek down the
+     primary key's index for the row whose kid starts with the ask's
+     `<uuid>.<expiry>`, so it never depends on a MAC part. A kid osn-api
+     cannot verify (a made-up one, or one minted under a secret value this
+     isolate does not hold, during a rotation) is read on every ask and never
+     held, under a budget of its own: 30 a minute per app zone or address.
+     Nothing else budgets an app's ask, and no ask calls the coordination
+     store, so nothing a sender makes an app ask for can refuse its asks for
+     osn-api's real keys. A direct caller's asks also spend its address's
+     minute budget. Each answer is counted (`osn.arc.jwks.key_lookups`, by
+     `lane` and `result`: `memory`, `read`, `probe` or `refused`), and a full
+     memory is logged once a minute (`osn.arc key memory is full; answering
+     without holding`).
+   - **The whole list.** The unexpired rows, read fresh on every request: a key
+     written a moment ago must be in the next answer, or an app asking for it
+     would refuse that `kid` for 30 seconds. osn-db reads its primary
+     (`readReplication: "disabled"`), so it is. It serves at most the newest
+     1,000 keys by expiry (`PUBLISHED_OUTBOUND_KEYS_BOUND`), so a key just
+     written is always among them. The set holds the keys written in the last
+     four hours: one for each isolate that started in that time, two for one
+     older than two hours. From 500 live keys the read logs
+     `osn.arc published outbound keys are nearing the read bound`, and past
+     1,000 `... passed the read bound; the oldest are left out`, each at most
+     once a minute per isolate. A key left out is refused by every app on the
+     code before key-by-id that has not cached it, until its isolate's next
+     call replaces it (step 3); calls signed in the thirty seconds a passing
+     check stands can still be refused. No published figure caps how many
+     isolates load can start: Cloudflare runs 348 cities
+     ([network](https://www.cloudflare.com/network/)), publishes no server
+     count per city, and runs a Worker on more than one server in a data
+     centre when the first is overloaded
+     ([sharding](https://blog.cloudflare.com/eliminating-cold-starts-2-shard-and-conquer/)).
+     On either warning, find why the set grew before raising the bound. Each
+     caller's address (an IPv6 one by its /64) may read the list 30 times a
+     minute, and every address shares one budget of 60 an hour; a configured
+     app's fetch, which Cloudflare sends from the address every Worker's
+     cross-zone subrequest shares, is budgeted under the app's zone (its
+     `CF-Worker` header) instead, 30 a minute and 60 an hour. The apps read
+     the list only while a release runs their code from before key-by-id, and
+     a person may read it by hand. A refused app fetches again 30 seconds
+     later, so it recovers when its window ends, at most an hour; meanwhile
+     some of osn-api's calls to it can be refused. Each refusal is counted
+     (`osn.arc.jwks.refused`, by `lane` and `reason`) and the first in each
+     minute per lane is logged (`osn.arc key list refused a caller over its
+     budget`) ([[rate-limiting]]).
 5. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
    Worker-safe): the token must claim `iss: "osn-api"`, ask for a scope the app
    lets osn-api use, and, when the app holds a secret that can key a MAC, carry
-   a `kid` with a MAC that verifies under it and an expiry that has not passed;
-   only then is the key resolved, through the same bounded kid cache
-   the app uses for access-token keys, at `<issuer>/.well-known/arc-jwks.json`
-   below the issuer origin it already pins. A checked kid is looked up and
-   cached by the `<uuid>.<expiry>` its verified MAC covers, never by a part the
-   app did not verify (below). Then jose checks the signature
-   (ES256 only), `iss`, `aud`, `exp` and `iat`, and the token's scope must hold
-   the route's.
+   a `kid` with a MAC that verifies under it and an expiry that has not passed.
+   Only then does it ask osn-api for the key,
+   `<issuer>/.well-known/arc-jwks.json?kid=<ask>` below the issuer origin it
+   already pins, and keep it four minutes, through the same bounded kid cache
+   the app uses for access-token keys (`@shared/osn-auth-client/jwks-cache`).
+   A checked kid is looked up, cached and fetched once by the
+   `<uuid>.<expiry>` its verified MAC covers, never by a part the app did not
+   verify (below). An osn-api on the code before key-by-id ignores `kid` and
+   answers the whole list, from which the app takes the same key, so either
+   side may deploy first. Then jose checks the signature (ES256 only), `iss`,
+   `aud`, `exp` and `iat`, and the token's scope must hold the route's.
 
 **The key id.** `<uuid>.<expiry>` and one or two MACs, each the first 22
 base64url characters of HMAC-SHA256 over the uuid and the expiry
@@ -330,12 +363,18 @@ signature against the published key. osn-api and every app derive the keys in
 that one module, so both sides change together.
 
 A 4-part kid carries a MAC the app may hold no key for. An app that checked a
-kid therefore looks the key up, and caches it or its absence, by the
-`<uuid>.<expiry>` its verified MAC covers, and takes from the published set
-the 3- or 4-part kid with that uuid and expiry (`checkArcKid`'s lookup, passed
-as `names` to `resolvePublicKeyForKid` in `@shared/osn-auth-client/jwks-cache`).
-No fetch and no cache entry depends on a part of a kid the app did not verify.
-An app holding no secret checks nothing and looks the kid up exactly as sent.
+kid therefore looks the key up, caches it or its absence, and shares one fetch,
+by the `<uuid>.<expiry>` its verified MAC covers, and takes from the answer the
+3- or 4-part kid with that uuid and expiry (`checkArcKid`'s lookup, passed to
+`resolvePublicKeyForKid` in `@shared/osn-auth-client/jwks-cache`). It asks
+osn-api for the `<uuid>.<expiry>` and the kid's parts shaped as MACs, the
+verified one always among them (`checkArcKid`'s `ask`): osn-api can check each
+MAC it holds, and junk in a part the app could not verify never reaches it,
+so no copy of a real kid can make osn-api refuse the ask for it. No fetch
+count and no cache entry depends on a part of a kid the app did not verify.
+An app holding no secret checks nothing, asks for the kid as it came, and
+looks it up exactly as sent; osn-api checks the MACs, and a kid no URL can
+carry is refused before any fetch.
 
 **Rolling out the kid secret.** The owner sets `OSN_ARC_KID_SECRET` by hand,
 Worker by Worker ([[production-deploy#5.11 The ARC key-id secret 🔑]]), and
@@ -346,6 +385,12 @@ before. Whether osn-api's kids are admitted:
 |---|---|---|---|---|
 | Service secret only | admitted, unchecked | admitted | **refused** | admitted |
 | Both | admitted, unchecked | admitted | admitted | admitted |
+
+Every cell asks osn-api by kid. osn-api checks every MAC it holds, so an
+isolate holding the service secret alone still finds a key minted under both,
+and one it cannot verify at all is found through its budgeted read: neither a
+secret change nor a rotation that leaves isolates holding different values
+refuses a kid the app admits.
 
 Zap and Pulse admit osn-api's kids whichever of them gets the secret first.
 cire-api never holds the service secret, so it admits only a kid carrying the
@@ -399,8 +444,10 @@ osn-api's origin, can mint tokens an app accepts as osn-api's. The same write
 access already reaches every account (a session row), and the same origin
 already vouches for every access token, so neither gains a power it lacks.
 
-**Revoking a key.** Delete its `arc_outbound_keys` row. Apps stop accepting it
-when their cached copy lapses, within five minutes. The isolate holding it
+**Revoking a key.** Delete its `arc_outbound_keys` row. Each osn-api isolate
+stops answering it within a minute, and apps stop accepting it when their copy
+lapses, within five minutes in all. While a release runs, an app on the code
+before key-by-id keeps its copy five minutes, so up to six. The isolate holding it
 replaces it at its next call to an app once its last passing check is thirty
 seconds old (step 3). Until then it still signs with the revoked key, and so
 does an account export already streaming with it; apps accept those calls

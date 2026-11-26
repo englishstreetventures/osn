@@ -12,7 +12,7 @@ related:
   - "[[cire-auth]]"
   - "[[pulse]]"
   - "[[zap]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Account deletion
@@ -256,7 +256,7 @@ What each tier needs before a deletion reaches every app:
 | osn-api and cire-api | `CIRE_INTERNAL_REVOKE_SECRET`, one value on both | Optional; both production Workers hold it since 2026-11-19. Without it the soft delete leaves cire organiser sessions to end on their own, within 7 days ([[sessions#Sign out everywhere else reaches cire]]) |
 | osn-api, zap-api and cire-api | `OSN_ARC_KID_SECRET`, one value on all three, which keys the other MAC on osn-api's ARC key ids | Optional; set Worker by Worker, cire-api last ([[production-deploy#5.11 The ARC key-id secret 🔑]]). A cire-api holding it while osn-api does not refuses osn-api's calls: every preview shows cire as "could not check" and the fan-out leaves its mark pending |
 | zap-api | `INTERNAL_SERVICE_SECRET`, the same value as osn-api's, with which it checks a MAC on osn-api's key ids ([`zap/api/src/routes/internal.ts`](../../zap/api/src/routes/internal.ts)) | A different value refuses osn-api's calls; with none, the MAC is not checked and a token stands on its signature alone |
-| cire-api | `OSN_ISSUER_URL`, the issuer it already pins for organiser sign-in, where it fetches osn-api's keys | Checks the key id's MAC with `OSN_ARC_KID_SECRET` (row above) and never holds `INTERNAL_SERVICE_SECRET`; without the kid secret it checks no MAC ([`cire/api/src/lib/osn-arc.ts`](../../cire/api/src/lib/osn-arc.ts)) |
+| cire-api | `OSN_ISSUER_URL`, the issuer it already pins for organiser sign-in, where it asks osn-api for each key by kid | Checks the key id's MAC with `OSN_ARC_KID_SECRET` (row above) and never holds `INTERNAL_SERVICE_SECRET`; without the kid secret it checks no MAC itself, and osn-api checks the kid it asks for ([`cire/api/src/lib/osn-arc.ts`](../../cire/api/src/lib/osn-arc.ts), [[arc-tokens#osn-api as issuer — published outbound keys]]) |
 | cire-api | Its ARC registration on osn-api carrying the `step-up:verify` scope. On production the production operator workflow's `register-cire-arc` sets the scopes ([[production-deploy#6.2 Register cire's ARC public key with osn-api]]) | Without it "Remove my Cire data" answers 503 instead of sending the host to Musubi to confirm |
 
 [[production-deploy]] says how each secret is set, and [[dev-environment]] which ones the `dev` Environment holds.

@@ -80,14 +80,33 @@ describe("jwks-cache", () => {
     expect(await resolvePublicKeyForKid("a.b.c", URL_1)).not.toBeNull();
   });
 
+  /** An ARC lookup naming `names`, fetched from `URL_1` itself, kept five minutes. */
+  const lookup = (names: (published: string) => boolean) => ({
+    names,
+    from: URL_1,
+    ttlMs: 5 * 60 * 1000,
+  });
+
   it("with names, caches and refuses under the id given, never the published kid", async () => {
     routes.set(URL_1, [await makeJwk("a.b.c")]);
     const names = (published: string) => published.startsWith("a.b.");
-    expect(await resolvePublicKeyForKid("a.b", URL_1, names)).not.toBeNull();
-    expect(await resolvePublicKeyForKid("a.b", URL_1, names)).not.toBeNull();
+    expect(await resolvePublicKeyForKid("a.b", URL_1, lookup(names))).not.toBeNull();
+    expect(await resolvePublicKeyForKid("a.b", URL_1, lookup(names))).not.toBeNull();
     expect(calls.get(URL_1)).toBe(1);
-    expect(await resolvePublicKeyForKid("x.y", URL_1, () => false)).toBeNull();
-    expect(await resolvePublicKeyForKid("x.y", URL_1, () => false)).toBeNull();
+    expect(
+      await resolvePublicKeyForKid(
+        "x.y",
+        URL_1,
+        lookup(() => false),
+      ),
+    ).toBeNull();
+    expect(
+      await resolvePublicKeyForKid(
+        "x.y",
+        URL_1,
+        lookup(() => false),
+      ),
+    ).toBeNull();
     expect(calls.get(URL_1)).toBe(2);
   });
 
@@ -96,7 +115,7 @@ describe("jwks-cache", () => {
     // Reads the kid as a string, as `checkArcKid`'s lookup does: handed a
     // number or null it would throw.
     const names = (published: string) => published.split(".").slice(0, 2).join(".") === "a.b";
-    expect(await resolvePublicKeyForKid("a.b", URL_1, names)).not.toBeNull();
+    expect(await resolvePublicKeyForKid("a.b", URL_1, lookup(names))).not.toBeNull();
   });
 
   it("same kid on two issuers resolves to distinct keys (no collision)", async () => {

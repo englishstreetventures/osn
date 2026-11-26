@@ -132,6 +132,8 @@ export const OSN_METRICS = {
   accountExportRequested: "osn.account.export.requested",
   // `GET /.well-known/arc-jwks.json` refusals, by lane and the budget that refused
   arcJwksRefused: "osn.arc.jwks.refused",
+  // `GET /.well-known/arc-jwks.json?kid=` answers, by lane and where the answer came from
+  arcJwksKeyLookups: "osn.arc.jwks.key_lookups",
   // Account deletion (Flow A)
   accountDeletionRequested: "osn.account.deletion.requested",
   accountDeletionCompleted: "osn.account.deletion.completed",
@@ -1399,12 +1401,19 @@ type ExportRequestedAttrs = { result: ExportRequestResult };
 /** Whose budget a key-list request spent: a configured app's zone, or the caller's address. */
 export type ArcJwksLane = "app" | "address";
 /**
- * Why a key-list request was refused: its minute or hour budget, or no
- * address. A failing limiter refuses as its budget would, so a store failure
- * reads as `hour`.
+ * Why a key-list request was refused: its minute or hour budget, the budget
+ * for asks osn-api cannot verify (`probe`), or no address. A failing limiter
+ * refuses as its budget would, so a store failure reads as `hour`.
  */
-export type ArcJwksRefusal = "minute" | "hour" | "unresolved";
+export type ArcJwksRefusal = "minute" | "hour" | "probe" | "unresolved";
 type ArcJwksRefusedAttrs = { lane: ArcJwksLane; reason: ArcJwksRefusal };
+/**
+ * Where an answer to an ask for one key came from: osn-api's memory of a kid
+ * it verified, a read for one, a read for a kid it could not verify
+ * (`probe`), or no read for an ask no osn-api could have minted (`refused`).
+ */
+export type ArcJwksKeyLookup = "memory" | "read" | "probe" | "refused";
+type ArcJwksKeyLookupAttrs = { lane: ArcJwksLane; result: ArcJwksKeyLookup };
 type DeletionCompletedAttrs = {
   result: DeletionCompletedResult;
   source: DeletionCompletedSource;
@@ -1498,6 +1507,15 @@ const arcJwksRefused = createCounter<ArcJwksRefusedAttrs>({
 
 export const metricArcJwksRefused = (lane: ArcJwksLane, reason: ArcJwksRefusal): void =>
   arcJwksRefused.inc({ lane, reason });
+
+const arcJwksKeyLookups = createCounter<ArcJwksKeyLookupAttrs>({
+  name: OSN_METRICS.arcJwksKeyLookups,
+  description: "Answers to an ask for one of osn-api's outbound ARC keys, by lane and source",
+  unit: "{request}",
+});
+
+export const metricArcJwksKeyLookup = (lane: ArcJwksLane, result: ArcJwksKeyLookup): void =>
+  arcJwksKeyLookups.inc({ lane, result });
 
 const accountExportRequested = createCounter<ExportRequestedAttrs>({
   name: OSN_METRICS.accountExportRequested,

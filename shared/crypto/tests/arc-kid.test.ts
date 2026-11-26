@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { checkArcKid, mintArcKid, type ArcKidSecrets } from "../src/arc-kid";
+import {
+  checkArcKid,
+  holdsArcKidKey,
+  mintArcKid,
+  readArcKeyAsk,
+  type ArcKidSecrets,
+} from "../src/arc-kid";
 
 /** `INTERNAL_SERVICE_SECRET`'s stand-in: the derivation every Worker holds today. */
 const SERVICE = "test-internal-secret-of-32-chars!";
@@ -320,5 +326,117 @@ describe("the MAC keys", () => {
     await expect(mintArcKid(secrets, NOW + 60)).rejects.toThrow("import failed");
     const kid = await mintArcKid(secrets, NOW + 60);
     expect(await passes(kid, secrets, NOW)).toBe(true);
+  });
+});
+
+/**
+ * What an app sends osn-api to ask for the key a kid names, and what osn-api
+ * reads from that ask. osn-api answers an ask it cannot read with no key and
+ * no read, and an app that checked a MAC caches that answer under the kid's
+ * `<uuid>.<expiry>`: so an ask the app builds for a kid whose MAC verified
+ * must always be one osn-api reads, whatever the other parts hold.
+ */
+describe("the ask for a key, and osn-api's reading of it", () => {
+  const LIFE = 4 * 3_600 + 300;
+  const junkParts = ["~".repeat(22), "!".repeat(22), `${"A".repeat(21)}\ud800`, "A".repeat(23), ""];
+
+  // Each row: what the app holds, what the minting osn-api held, and a MAC
+  // slot the app cannot verify (a 4th part added when the kid has three).
+  it.each([
+    ["the service secret", SERVICE_ONLY, BOTH, 2],
+    ["the service secret", SERVICE_ONLY, SERVICE_ONLY, 3],
+    ["the kid secret", KID_ONLY, BOTH, 3],
+    ["both secrets", BOTH, BOTH, 2],
+    ["both secrets", BOTH, BOTH, 3],
+    ["both secrets", BOTH, SERVICE_ONLY, 3],
+  ] as const)(
+    "an app holding %s asks with the uuid, the expiry and only well-formed MAC parts, whatever a part it cannot verify holds",
+    async (_label, appHolds, minter, slot) => {
+      const kid = await mintArcKid(minter, NOW + 60);
+      const parts = kid.split(".");
+      const [uuid, expiry] = parts as [string, string];
+      let asked = 0;
+      for (const junk of junkParts) {
+        const copy = [...parts];
+        // The slot the app cannot verify; for an app holding both, the other MAC's.
+        copy[slot] = junk;
+        const lookup = await checkArcKid(copy.join("."), appHolds, NOW);
+        if (!lookup) continue; // the app refused it before asking
+        const kept = copy.slice(2).filter((part) => /^[A-Za-z0-9_-]{22}$/.test(part));
+        expect(lookup.ask).toBe([uuid, expiry, ...kept].join("."));
+        expect(lookup.ask).not.toContain(junk === "" ? ".." : junk);
+        expect(readArcKeyAsk(lookup.ask, NOW, LIFE)).toBe(`${uuid}.${expiry}`);
+        asked += 1;
+      }
+      // The three junk parts of 22 characters pass the app's length check.
+      expect(asked).toBe(3);
+      const real = await checkArcKid(kid, appHolds, NOW);
+      expect(real?.ask).toBe(kid);
+      expect(readArcKeyAsk(kid, NOW, LIFE)).toBe(`${uuid}.${expiry}`);
+    },
+  );
+
+  it("an app holding no secret asks with the kid as it came", async () => {
+    for (const kid of ["anything", "a&b#c+d/e=f", await mintArcKid(BOTH, NOW + 60)]) {
+      expect((await checkArcKid(kid, NONE, NOW))?.ask).toBe(kid);
+    }
+  });
+
+  it("osn-api reads a kid of two, three or four parts whose expiry is ahead within a key's life", async () => {
+    const uuid = crypto.randomUUID();
+    const mac = "A".repeat(22);
+    for (const ask of [
+      `${uuid}.${NOW + 1}`,
+      `${uuid}.${NOW + LIFE}.${mac}`,
+      `${uuid}.${NOW + 60}.${mac}.${"-_".repeat(11)}`,
+    ]) {
+      expect({ ask, id: readArcKeyAsk(ask, NOW, LIFE) }).toEqual({
+        ask,
+        id: ask.split(".").slice(0, 2).join("."),
+      });
+    }
+  });
+
+  it("osn-api reads no ask osn-api could not have minted", () => {
+    const uuid = crypto.randomUUID();
+    const mac = "A".repeat(22);
+    for (const ask of [
+      "",
+      uuid,
+      `${uuid}.${NOW}`,
+      `${uuid}.${NOW - 1}.${mac}`,
+      `${uuid}.${NOW + LIFE + 1}.${mac}`,
+      `${uuid.toUpperCase()}.${NOW + 60}.${mac}`,
+      `${uuid.slice(1)}.${NOW + 60}.${mac}`,
+      `x${uuid}.${NOW + 60}.${mac}`,
+      `${uuid}.${NOW + 60}x.${mac}`,
+      `${uuid}.0${NOW + 60}.${mac}`,
+      `${uuid}.${NOW + 60}.${mac}.${mac}.${mac}`,
+      `${uuid}.${NOW + 60}.${"~".repeat(22)}`,
+      `${uuid}.${NOW + 60}.${"A".repeat(21)}`,
+      `${uuid}.${NOW + 60}.${mac}.`,
+      `${uuid}.${NOW + 60}.${"A".repeat(21)}\ud800`,
+    ]) {
+      expect({ ask, id: readArcKeyAsk(ask, NOW, LIFE) }).toEqual({ ask, id: null });
+    }
+  });
+
+  it.each([
+    ["no secret", NONE, false],
+    ["the service secret", SERVICE_ONLY, true],
+    ["the kid secret", KID_ONLY, true],
+    ["both secrets", BOTH, true],
+    [
+      "secrets too short to key a MAC",
+      { kidSecret: "s".repeat(31), serviceSecret: "t".repeat(31) },
+      false,
+    ],
+    [
+      "a kid secret equal to an unusable service secret",
+      { kidSecret: "u".repeat(31), serviceSecret: "u".repeat(31) },
+      false,
+    ],
+  ] as const)("holding %s, a Worker holds a MAC key: %s", (_label, secrets, holds) => {
+    expect(holdsArcKidKey(secrets)).toBe(holds);
   });
 });

@@ -14,7 +14,7 @@ related:
   - "[[subprocessors]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Production Access Control Matrix (SOC 2 CC6)
@@ -185,7 +185,8 @@ ARC tokens are S2S only; no human ever holds one. Rotation is automatic
   `evictPublicKeyCacheEntry(kid)`; other processes refuse it once their cached
   copy lapses, within the cache TTL (300 s by default). Revoking one of
   osn-api's published keys is a delete of its `arc_outbound_keys` row, which
-  apps honour within five minutes, their kid cache's lifetime.
+  apps honour within five minutes: osn-api answers a key it has read for a
+  minute, and an app keeps it four.
 
 ## Cire access expectations
 

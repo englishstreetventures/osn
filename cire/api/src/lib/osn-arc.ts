@@ -11,7 +11,9 @@
  * Before it fetches, cire-api checks the kid's MAC under `OSN_ARC_KID_SECRET`,
  * the secret osn-api keys one of its kid MACs with for that alone, and refuses
  * a kid with no MAC that verifies under it (`@shared/crypto/arc-kid`). Without
- * that secret, or with one shorter than 32 characters, it checks no MAC. It
+ * that secret, or with one shorter than 32 characters, it checks no MAC and
+ * asks osn-api for the kid as it came; osn-api checks the MACs itself, so a
+ * made-up kid costs it no read of the database beyond a budgeted one. It
  * never holds `INTERNAL_SERVICE_SECRET`, which keys osn-api's other kid MAC
  * and is the bearer of service-key registration on osn-api and zap-api, so it
  * never accepts a kid on that MAC alone. A token is authenticated by its

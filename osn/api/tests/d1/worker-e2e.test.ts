@@ -27,8 +27,8 @@ import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
  * restart, a recovery-code lockout and refresh-token reuse detection.
  *
  * It ends by writing `e2e-artifacts/osn-api-workerd/results.json`: each
- * request's step, method, path, status and error code, and the counts read
- * off the store. No token, code, timestamp or IP goes in it, so a rerun
+ * request's step, method, path, status and error code, the counts read off
+ * the store, and the query plan and rows read of one key's read by kid. No token, code, timestamp or IP goes in it, so a rerun
  * writes the same bytes.
  */
 
@@ -95,6 +95,8 @@ const steps: Step[] = [];
 const store: Record<string, number | string | null> = {};
 /** How many outbound ARC keys D1 and the published set held, by moment (never a kid). */
 const outboundKeys: Record<string, number> = {};
+/** How the read of one key by kid ran on D1 with a thousand keys published (never a kid). */
+const keyById: Record<string, number | string> = {};
 const mail: Mail[] = [];
 const strayOutbound: string[] = [];
 /** Called once each, and cleared, when the next mail arrives. */
@@ -315,7 +317,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mkdir(ARTIFACT_DIR, { recursive: true });
-  const results = { steps, coordinationStore: store, outboundKeys, strayOutbound };
+  const results = { steps, coordinationStore: store, outboundKeys, keyById, strayOutbound };
   await writeFile(join(ARTIFACT_DIR, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
   await mf?.dispose();
   await Promise.all(
@@ -352,6 +354,70 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     const served = (res.json["keys"] as { kid: string }[]).map((key) => key.kid);
     outboundKeys["served, after the first request"] = served.length;
     expect(served).toEqual(kids);
+  });
+
+  it("answers an ask for one key by kid, reading it down the primary key", async () => {
+    const [kid = ""] = await outboundKeyIds(1);
+    const [, expiry = ""] = kid.split(".");
+    const served = async (step: string, asked: string) => {
+      const res = await call(step, "GET", "/.well-known/arc-jwks.json", {
+        ip: MAIN_IP,
+        query: `?kid=${encodeURIComponent(asked)}`,
+      });
+      expect(res.status).toBe(200);
+      return (res.json["keys"] as { kid: string }[]).map((key) => key.kid);
+    };
+    expect(await served("one key by kid", kid)).toEqual([kid]);
+    // A MAC this isolate cannot verify: read by the uuid and expiry all the same.
+    const parts = kid.split(".");
+    parts[2] = "Z".repeat(22);
+    expect(await served("one key by kid, its MAC replaced", parts.join("."))).toEqual([kid]);
+    const madeUp = `${crypto.randomUUID()}.${expiry}`;
+    expect(await served("one key by a made-up kid", `${madeUp}.${"Z".repeat(22)}`)).toEqual([]);
+
+    // With a thousand more keys published, the read is one seek down the
+    // primary key's index, never a walk of the expiry index.
+    const db = await mf.getD1Database("DB");
+    const seeded = Array.from(
+      { length: 1_000 },
+      () => `${crypto.randomUUID()}.${expiry}.${"S".repeat(22)}`,
+    );
+    for (let i = 0; i < seeded.length; i += 100) {
+      // eslint-disable-next-line no-await-in-loop -- one batch at a time
+      await db.batch(
+        seeded
+          .slice(i, i + 100)
+          .map((id) =>
+            db
+              .prepare(
+                "INSERT INTO arc_outbound_keys (key_id, public_key_jwk, created_at, expires_at) VALUES (?, '{}', 0, ?)",
+              )
+              .bind(id, Number(expiry)),
+          ),
+      );
+    }
+    try {
+      // The statement `publishedOutboundKeyById` sends, as drizzle writes it.
+      const sql =
+        'select "key_id", "public_key_jwk", "expires_at" from "arc_outbound_keys" where (("arc_outbound_keys"."key_id" >= ?) and ("arc_outbound_keys"."key_id" < ?)) limit ?';
+      const id = `${parts[0]}.${expiry}`;
+      const plan = await db
+        .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+        .bind(id, `${id}/`, 2)
+        .all<{ detail: string }>();
+      keyById["query plan"] = plan.results.map((row) => row.detail).join("; ");
+      expect(keyById["query plan"]).toContain("sqlite_autoindex_arc_outbound_keys_1");
+      const hit = await db.prepare(sql).bind(id, `${id}/`, 2).all();
+      const miss = await db.prepare(sql).bind(madeUp, `${madeUp}/`, 2).all();
+      expect(hit.results).toHaveLength(1);
+      expect(miss.results).toHaveLength(0);
+      keyById["rows read, a key that is there"] = hit.meta.rows_read;
+      keyById["rows read, a key that is not"] = miss.meta.rows_read;
+      expect(hit.meta.rows_read).toBeLessThanOrEqual(2);
+      expect(miss.meta.rows_read).toBeLessThanOrEqual(2);
+    } finally {
+      await db.prepare("DELETE FROM arc_outbound_keys WHERE public_key_jwk = '{}'").run();
+    }
   });
 
   it("signs in as the dev principal", async () => {
