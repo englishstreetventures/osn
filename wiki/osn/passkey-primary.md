@@ -37,9 +37,7 @@ cancel ([[identity-model]], `replaced_at`). Accounts made before the sign-up
 session was restricted, and never given a passkey, are outside it. Migration
 `20261126014432_end_passkeyless_sessions` runs once: it deletes the ordinary
 sessions such accounts hold when it runs, and spares restricted sessions and
-every session of an account with a deletion job. It is a clean-up of those
-rows, not a rule held from then on: renewal and `/authorize` do not check
-whether the account holds a passkey
+every session of an account with a deletion job
 ([[sessions#A sign-up's session before its first passkey]]).
 For an account a sign-up makes, the invariant holds from registration to
 deletion:
