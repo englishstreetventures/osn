@@ -190,19 +190,23 @@ function stubLean(w: World, version = LEAN) {
 
 function bendSh(
   w: World,
-  command: string,
+  command: string | readonly string[],
   opts: { onPath?: boolean; lean?: boolean; env?: Readonly<Record<string, string>> } = {},
 ) {
   const { onPath = true, lean = false, env = {} } = opts;
-  const result = spawnSync("bash", [join(w.tools, "bend.sh"), ...command.split(" ")], {
-    cwd: w.repo,
-    encoding: "utf8",
-    env: {
-      PATH: `${onPath ? `${w.bin}:` : ""}${lean ? `${w.leanBin}:` : ""}/usr/bin:/bin`,
-      HOME: w.home,
-      ...env,
+  const result = spawnSync(
+    "bash",
+    [join(w.tools, "bend.sh"), ...(typeof command === "string" ? command.split(" ") : command)],
+    {
+      cwd: w.repo,
+      encoding: "utf8",
+      env: {
+        PATH: `${onPath ? `${w.bin}:` : ""}${lean ? `${w.leanBin}:` : ""}/usr/bin:/bin`,
+        HOME: w.home,
+        ...env,
+      },
     },
-  });
+  );
   const calls = existsSync(w.log) ? readFileSync(w.log, "utf8").split("\n").filter(Boolean) : [];
   return {
     status: result.status,
@@ -594,6 +598,15 @@ describe("bend.sh verdict: CI's recheck with the BendTT kernel", () => {
         return at;
       },
     ],
+    [
+      // bend.sh would hash ./bendtt here, while bend runs it from each set's
+      // directory, or looks a bare name up on the PATH.
+      "naming the pinned kernel by a relative path",
+      (w: World) => {
+        executable(join(w.repo, "bendtt"), KERNEL);
+        return "bendtt";
+      },
+    ],
   ])("a $BENDTT %s fails verdict before any bend runs, Lean or no Lean", (_, bendtt) => {
     const w = world();
     stubBend(w);
@@ -604,6 +617,40 @@ describe("bend.sh verdict: CI's recheck with the BendTT kernel", () => {
     expect(run.output).toContain("$BENDTT");
     expect(run.calls).toEqual([]);
   });
+
+  test("in CI, a $BENDTT on a platform lean.env pins no kernel for fails verdict, which runs no bend", () => {
+    const w = world();
+    stubBend(w);
+    pinIn(w, "lean.env", "BENDTT_SHA256", "");
+    const bendtt = join(w.home, "bendtt");
+    executable(bendtt, "#!/bin/sh\necho ALL PROOFS CHECK\n");
+    const ci = bendSh(w, "verdict", { env: { BENDTT: bendtt, GITHUB_ACTIONS: "true" } });
+    expect(ci.status, ci.output).toBe(1);
+    expect(ci.output).toContain("pins no kernel");
+    expect(ci.calls).toEqual([]);
+    // Off CI, a kernel built on a platform with no pin is the owner's to name.
+    const here = bendSh(w, "verdict", { env: { BENDTT: bendtt } });
+    expect(here.status, here.output).toBe(0);
+    expect(verdicts(w, here.calls)).toEqual([...SETS]);
+  });
+
+  test.each([
+    ["exits 1", 1],
+    ["exits 0", 0],
+  ])(
+    "a kernel that did not build or run fails verdict, never skips it, when bend %s",
+    (_, status) => {
+      const w = world();
+      const broken = "Error: BendTT infrastructure: kernel exited 1 without a verdict";
+      stubBend(w, { verdicts: { "cire/api/laws/two": { out: broken, status } } });
+      stubLean(w);
+      const run = bendSh(w, "verdict", { lean: true });
+      expect(run.status, run.output).toBe(1);
+      expect(run.output).toMatch(/^::error::cire\/api\/laws\/two: /m);
+      expect(verdicts(w, run.calls)).toEqual([...SETS]);
+      expect(run.output).not.toContain("skipped");
+    },
+  );
 });
 
 describe("bend.sh prove and check: the verdict after the plain run, where this machine can", () => {
@@ -666,6 +713,20 @@ describe("bend.sh prove and check: the verdict after the plain run, where this m
       expect(verdicts(w, run.calls)).toEqual(["cire/api/laws/two"]);
       expect(run.output).toContain("--verdict skipped");
       expect(run.output).toContain("leanc: boom");
+    },
+  );
+
+  test.each(["prove", "check"])(
+    "%s fails a rejection that also names the kernel's infrastructure, rather than skipping it",
+    (command) => {
+      const w = world();
+      const rejected =
+        "SOME PROOFS FAIL\nBendTT infrastructure: the kernel and bend2 disagree on Laws.one";
+      stubBend(w, { verdicts: { "cire/api/laws/two": { out: rejected, status: 1 } } });
+      stubLean(w);
+      const run = bendSh(w, command, { lean: true });
+      expect(run.status, run.output).toBe(1);
+      expect(run.output).not.toContain("--verdict skipped");
     },
   );
 
@@ -783,4 +844,45 @@ describe("bend.sh kernel: CI's BendTT kernel, restored or built, only with the p
     expect(run.output).toContain(said);
     expect(existsSync(join(cacheOf(w), "bendtt"))).toBe(false);
   });
+
+  test.each([
+    ["no directory", ["kernel"]],
+    ["an empty directory name", ["kernel", ""]],
+    ["two directories", ["kernel", "a", "b"]],
+  ])("kernel with %s is a usage error, exit 2, and runs no bend", (_, args) => {
+    const w = world();
+    stubBend(w);
+    stubLean(w);
+    pinIn(w, "lean.env", "BENDTT_SHA256", sha256(KERNEL));
+    const run = bendSh(w, args, { lean: true });
+    expect(run.status, run.output).toBe(2);
+    expect(run.output).toContain("usage: bend.sh kernel <dir>");
+    expect(run.calls).toEqual([]);
+  });
+});
+
+describe("bend.sh pin files", () => {
+  // LEAN_VERSION names a directory under $HOME/.elan/toolchains/, and both
+  // versions are checked before any command runs.
+  test.each([
+    ["lean.env", "LEAN_VERSION"],
+    ["bend.env", "BEND_VERSION"],
+  ] as const)(
+    "a %s whose %s is not <n>.<n>.<n> fails every command before bend runs",
+    (file, key) => {
+      const w = world();
+      stubBend(w);
+      const env = join(w.tools, file);
+      writeFileSync(
+        env,
+        readFileSync(env, "utf8").replace(new RegExp(`^${key}=.*$`, "m"), `${key}=../4.34.0`),
+      );
+      for (const command of ["sets", "check", "hook", "verdict"]) {
+        const run = bendSh(w, command);
+        expect({ command, status: run.status }).toEqual({ command, status: 1 });
+        expect(run.output).toContain(`pins no ${key}=`);
+      }
+      expect(bendSh(w, "sets").calls).toEqual([]);
+    },
+  );
 });

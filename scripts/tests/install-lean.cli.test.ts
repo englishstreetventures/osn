@@ -1,7 +1,7 @@
 // tools/bend/install-lean.sh, one test per way it can fail. The `bend-proofs`
-// CI job builds the BendTT kernel with the Lean toolchain this script unpacks
-// and puts on the PATH, so a tarball that is not the pinned release must stop
-// the job before anything is unpacked. Each test runs the whole script with a
+// CI job builds the BendTT kernel with the Lean toolchain this script
+// unpacks, so a tarball that is not the pinned release must stop the job
+// before anything is unpacked. Each test runs the whole script with a
 // stub `curl` on its PATH that serves a world's `served` file, or fails as a
 // 504 does when there is none, and a stub `zstd` that decompresses with Bun,
 // since not every machine has zstd.
@@ -143,8 +143,12 @@ describe("install-lean.sh", () => {
     expect(run.curl).toHaveLength(1);
     const [call] = run.curl;
     expect(call?.endsWith(` ${URL}`), call).toBe(true);
-    expect(call).toContain("--proto =https");
+    expect(call).toContain("--proto =https --tlsv1.2");
     expect(call).toContain("--retry 5 --retry-all-errors");
+    // Ten minutes, not install-bend's two: the tarball is about 580 MB, and
+    // each retry starts it again.
+    expect(call).toContain("--retry-max-time 600");
+    expect(call).toContain("--max-time 600");
   });
 
   test.each([

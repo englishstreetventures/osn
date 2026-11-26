@@ -37,7 +37,7 @@
 # The verdict. `bend PROOF.bend` is Bend's own checker, which has no proof of
 # its own; `--verdict` rechecks the set with BendTT, a small kernel with a
 # proof in Lean, which bend builds from its release's bend2/bendtt.lean with
-# Lean LEAN_VERSION (lean.env) the first time, taking minutes, and keeps under
+# Lean LEAN_VERSION (lean.env) the first time, and keeps under
 # ~/.bend/bendtt/. A machine can run it with $BENDTT naming a built kernel, or
 # with that Lean where bend looks for it: elan's toolchain for the version,
 # else `lean` on the PATH. `prove` and `check` run it after each plain run on
@@ -241,22 +241,28 @@ kernel_gap() {
 }
 
 # What is wrong with $BENDTT, or nothing. Unset is no kernel named; set, it
-# must name a file that runs and, where lean.env pins a kernel for this
-# platform, has that SHA-256. Set but empty is a step that failed to provide
-# the kernel, never "no kernel".
+# must be an absolute path (bend runs it from each set's directory, and looks
+# a bare name up on the PATH) to a file that runs and, where lean.env pins a
+# kernel for this platform, has that SHA-256. In CI ($GITHUB_ACTIONS) a
+# platform with no pin is refused too. Set but empty is a step that failed to
+# provide the kernel, never "no kernel".
 bendtt_gap() {
   local want got
   if [ -z "${BENDTT+set}" ]; then return; fi
-  if [ -z "$BENDTT" ] || [ ! -f "$BENDTT" ] || [ ! -x "$BENDTT" ]; then
-    echo "\$BENDTT is '$BENDTT', which names no kernel that can run"
+  if [[ $BENDTT != /* ]] || [ ! -f "$BENDTT" ] || [ ! -x "$BENDTT" ]; then
+    echo "\$BENDTT is '$BENDTT', which is not the absolute path of a kernel that can run"
     return
   fi
   want=$(kernel_pin)
-  if [ -n "$want" ]; then
-    got=$(sha256 "$BENDTT")
-    if [ "$got" != "$want" ]; then
-      echo "\$BENDTT ($BENDTT) has SHA-256 $got, not the $want tools/bend/lean.env pins"
+  if [ -z "$want" ]; then
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+      echo "\$BENDTT ($BENDTT) cannot be checked: tools/bend/lean.env pins no kernel for $(target), and CI runs only a pinned one"
     fi
+    return
+  fi
+  got=$(sha256 "$BENDTT")
+  if [ "$got" != "$want" ]; then
+    echo "\$BENDTT ($BENDTT) has SHA-256 $got, not the $want tools/bend/lean.env pins"
   fi
 }
 

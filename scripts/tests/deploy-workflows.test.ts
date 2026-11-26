@@ -1351,7 +1351,15 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   test("each cancellable job is grouped by its own name, and only a pull request cancels", () => {
     const grouped = Object.entries(ci.jobs).filter(([, job]) => job.concurrency !== undefined);
     expect(grouped.map(([id]) => id).toSorted()).toEqual(
-      ["browser", "build-test", "cire-api-tests", "d1", "e2e", "migration-flow"].toSorted(),
+      [
+        "bend-proofs",
+        "browser",
+        "build-test",
+        "cire-api-tests",
+        "d1",
+        "e2e",
+        "migration-flow",
+      ].toSorted(),
     );
     for (const [id, job] of grouped) {
       const [key, extra] = id === "browser" ? [`${id}-{1}`, ", matrix.leg"] : [id, ""];

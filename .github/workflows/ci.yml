@@ -1226,10 +1226,14 @@ jobs:
   # kernel with a proof in Lean, which bend builds from its release with the
   # Lean tools/bend/lean.env pins; only ALL PROOFS CHECK alone passes. The
   # agreement tests run in Build & Test and in the cire-api job, on every
-  # change. Bend is one binary and the kernel another, so the job installs no
-  # dependencies.
+  # change. The job installs no package dependencies: Bend is one binary, the
+  # kernel another, and the Lean toolchain that builds the kernel is
+  # downloaded only when no kernel is cached.
   bend-proofs:
     name: Bend proofs
+    concurrency:
+      group: ${{ format('ci-{0}-bend-proofs', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     needs: changes
     # Only when the change touches what the proofs read (the `changes` job's
     # `bend`), or when no diff could be computed; skipped counts as passed.
@@ -1237,8 +1241,10 @@ jobs:
     runs-on: ubuntu-latest
     # Bounded: one checkout, one pinned Bend tarball (cached, or downloaded
     # with retries), the kernel (restored, or built after a 580 MB Lean
-    # download) and three Bend runs a set, each under a second.
-    timeout-minutes: 30
+    # download whose retries alone may take ten minutes) and three Bend runs a
+    # set, each under a second. A run that builds the kernel takes about a
+    # minute.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1299,6 +1305,10 @@ jobs:
 
       # The BendTT kernel, kept under every pin it is built from, so a run
       # whose pins have a saved entry downloads no Lean and builds nothing.
+      # The pinned SHA-256 covers the kernel file alone: an entry's archive
+      # can write outside its path, as the Bend tarball's can, so the job
+      # trusts what GitHub's cache scoping allows, entries saved by this
+      # job on this pull request's ref or on `main`.
       - name: Restore the BendTT kernel
         id: kernel-cache
         uses: actions/cache/restore@v4
@@ -1341,7 +1351,8 @@ jobs:
       # `verdict` runs `bend PROOF.bend --verdict` in every set, then fails
       # unless each printed ALL PROOFS CHECK alone. BENDTT is passed by name,
       # so one the step above never wrote arrives empty, which `verdict`
-      # refuses, rather than unset; it also checks the kernel's SHA-256 again.
+      # refuses, rather than unset; it also checks the kernel's SHA-256 again,
+      # and refuses one when lean.env pins none.
       - name: Recheck every law set with the BendTT kernel
         env:
           BEND_NO_TELEMETRY: "1"
