@@ -685,6 +685,13 @@ export const PEOPLE = {
 } as const;
 
 /**
+ * The second profile `musubi-passkey` adds to `PEOPLE.musubi`'s account
+ * through Settings' "Create a new profile" sheet. Neither value contains the
+ * first profile's handle or name, so a locator for one never finds the other.
+ */
+export const MUSUBI_SECOND_PROFILE = { handle: "e2e_lovelace", name: "Lovelace E2E" } as const;
+
+/**
  * The issuer stand-in (`src/issuer.ts`): the mail domain whose
  * `_email-verification` record names it, and its host. Its answers reach only
  * the osn-api told `OSN_EMAIL_VERIFICATION_EMULATOR_URL`. The host's address

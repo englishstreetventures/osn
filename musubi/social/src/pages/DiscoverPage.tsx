@@ -1,12 +1,12 @@
 import { type Suggestion } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
-import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { A } from "@solidjs/router";
 import { createSignal, For, Show } from "solid-js";
 
+import { ProfileAvatar } from "../components/Avatars";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SignedOutNote } from "../components/SignedOutNote";
@@ -15,7 +15,6 @@ import { graphClient } from "../lib/api";
 import { scopeMark } from "../lib/page-cache";
 import { sentRequests, suggestions } from "../lib/page-data";
 import { usePageTitle } from "../lib/page-title";
-import { safeAvatarUrl } from "../lib/utils";
 
 /**
  * The line under a suggested profile explaining why they're being suggested.
@@ -125,21 +124,7 @@ export function DiscoverPage() {
                     // Connect button is), so it takes no hover wash.
                     <Card padding="sm" class="flex flex-col gap-3">
                       <div class="flex items-center gap-3">
-                        <Avatar class="h-10 w-10">
-                          <Show when={safeAvatarUrl(suggestion.avatarUrl)}>
-                            {(url) => (
-                              <AvatarImage
-                                src={url()}
-                                alt={suggestion.handle}
-                                referrerpolicy="no-referrer"
-                                loading="lazy"
-                              />
-                            )}
-                          </Show>
-                          <AvatarFallback>
-                            {suggestion.handle.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                        <ProfileAvatar profile={suggestion} class="size-10" decorative />
                         <div class="min-w-0 flex-1">
                           <p class="text-foreground text-title truncate font-medium">
                             {suggestion.displayName || `@${suggestion.handle}`}

@@ -33,27 +33,28 @@ type Shell = {
   component: Component;
   frame: Component<{ failed: boolean }>;
   /** Resolves once everything the shell waits for before it draws is in. */
-  load: (loadDialogs: () => Promise<void>) => Promise<void>;
+  load: () => Promise<void>;
 };
 
 /**
  * Each shell: what it draws, the frame that holds its place, and what it waits
- * for before it draws, which is its own chunk and the shell dialogs' (through
- * `loadDialogs`). `Reserved` awaits a shell's `load` and nothing besides it.
- * The browser tests await the same `load` (`tests/test-support/shell-chunks.ts`)
- * before they look for a shell, so a load added here reaches their waits too.
+ * for before it draws, which is its own chunk alone. The shell dialogs load
+ * beside it, and the shell's Sign in and Create account stay `invisible` until
+ * they have (`useShellDialogs().ready()`). `Reserved` awaits a shell's `load`
+ * and nothing besides it. The browser tests await the same `load`
+ * (`tests/test-support/shell-chunks.ts`) before they look for a shell, so a
+ * load added here reaches their waits too.
  */
 export const shells = {
   rail: {
     component: Sidebar,
     frame: RailFrame,
-    load: (loadDialogs) => Promise.all([Sidebar.preload(), loadDialogs()]).then(() => undefined),
+    load: () => Sidebar.preload().then(() => undefined),
   },
   topBar: {
     component: MobileChrome,
     frame: TopBarFrame,
-    load: (loadDialogs) =>
-      Promise.all([MobileChrome.preload(), loadDialogs()]).then(() => undefined),
+    load: () => MobileChrome.preload().then(() => undefined),
   },
 } satisfies Record<string, Shell>;
 
@@ -185,8 +186,13 @@ function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
 }
 
 function Shell(props: { isMobile: boolean; children?: JSX.Element }) {
+  const { session } = useAuth();
+  // The session has settled with none (a failed read counts as none): only
+  // then are the sign-in and create-account dialogs fetched, so a signed-in
+  // reader never downloads them.
+  const signedOut = () => !session.loading && (session.error !== undefined || !session());
   return (
-    <ShellDialogsProvider>
+    <ShellDialogsProvider loadWhen={signedOut}>
       {/* Mount only the active shell: one chunk fetched, one shell hydrating.
           The dialogs sit above this switch, so one open across a crossing
           stays open. The CSS hidden classes on each shell remain as a
@@ -238,26 +244,27 @@ function WindowScreen() {
  * Draws a shell's frame until the shell can draw itself, so the page beside
  * it never moves when the shell's chunk lands.
  *
- * The shell shows once its `load` has resolved: its own chunk and the
- * dialogs' chunks are in. A shell drawn earlier would offer a Sign in that
- * cannot open yet. By then `lazy()` holds the module, so the shell renders at
- * once, with no resource and nothing to suspend. A `Suspense` fallback would
- * not do: the shell reads the session and profile resources, and a boundary
- * above it would put the frame back on every refetch.
- *
- * The dialogs load through the provider's `load`, not their bare chunk: a
- * load that succeeds after an earlier failure is what mounts them. Wait on
- * nothing outside the shell's `load`; the browser tests wait on it too, and a
- * load they cannot see falls back to `waitFor`'s one second.
+ * The shell shows once its `load` has resolved: its own chunk is in. By then
+ * `lazy()` holds the module, so the shell renders at once, with no resource
+ * and nothing to suspend. A `Suspense` fallback would not do: the shell reads
+ * the session and profile resources, and a boundary above it would put the
+ * frame back on every refetch. Wait on nothing outside the shell's `load`;
+ * the browser tests wait on it too, and a load they cannot see falls back to
+ * `waitFor`'s one second.
  *
  * If a load fails (offline, or a chunk renamed by a deploy since the page
  * loaded) the frame stays and says to reload. The rejection is handled here,
  * so the page beside it keeps working.
+ *
+ * A shell drawn after the dialogs failed to load (the other shell's, after a
+ * crossing) fetches them again, through the provider's `load`: a load that
+ * succeeds after a failure is what mounts them.
  */
 function Reserved(props: { shell: Shell }) {
   const dialogs = useShellDialogs();
+  if (dialogs.failed()) dialogs.load().catch(() => {});
   const [state, setState] = createSignal<"loading" | "ready" | "failed">("loading");
-  props.shell.load(dialogs.load).then(
+  props.shell.load().then(
     () => setState("ready"),
     () => setState("failed"),
   );

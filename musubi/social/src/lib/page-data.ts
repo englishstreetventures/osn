@@ -52,10 +52,13 @@ export const myOrganisations = pageQuery(
   (value) => value.organisations.length,
 );
 
-/** One organisation, by handle. */
+/**
+ * One organisation, by handle, with the reader's own standing in it (`caller`,
+ * null for someone not in it), which decides the actions its page offers.
+ */
 export const organisationDetail = pageQuery(
   PAGE_DATA.organisation,
-  async (handle: string) => (await orgClient.getOrg(handle)).organisation,
+  (handle: string) => orgClient.getOrg(handle),
   () => 1,
 );
 

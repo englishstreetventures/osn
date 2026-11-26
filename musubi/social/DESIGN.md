@@ -171,8 +171,8 @@ rest at 3:1 and unwaived (§Choices).
 
   | Utility | Size / line-height | Role |
   | --- | --- | --- |
-  | `text-display` | 24 / 30 | page titles (`h1`) in the shell, `/authorize`'s client name (the `h1` on its sign-in and consent screens), large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
-  | `text-title`   | 14 / 20 | person & org names, section headers, default Button labels; card and dialog titles at the size and 500, on their own leading (Dialog and card titles, below); the `h1` of a bare route whose page is one card (`/authorize`'s dead end, its load-error card and "Choose a profile"; the emailed-link confirm page) |
+  | `text-display` | 24 / 30 | page titles (`h1`) in the shell, `/authorize`'s client name (the `h1` on every screen that decides: sign-in, account, picker, consent, and the deletion window), large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
+  | `text-title`   | 14 / 20 | person & org names, section headers, default Button labels; card and dialog titles at the size and 500, on their own leading (Dialog and card titles, below); the `h1` of a bare route whose page is one card (`/authorize`'s dead end and its load-error card; the emailed-link confirm page) |
   | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
 
@@ -188,11 +188,12 @@ rest at 3:1 and unwaived (§Choices).
   app's name on its client card at `text-display` and 500, so the app the
   reader is signing in to is the screen's first word ([the owner's
   call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06), breaking anywhere since the app chose the words; the screen's own heading under it
-  is `text-title` at 500 (the sign-in panel's title, "Signed in as", the
-  deletion window's heading). The
-  profile picker, which draws no client card, titles its screen "Choose a
-  profile" at `text-title` and 500. The rail's account trigger is shell chrome and keeps its own
-  size.
+  is an `h2` at `text-title` and 500 (the sign-in panel's title, "Signed in
+  as", "Choose a profile", the deletion window's heading), each but the last
+  drawn by `@osn/auth-ui`'s `AuthHeader` with `host="page"`, so the `h1` is
+  the screen's largest heading on every screen
+  (`tests/pages/AuthorizeScreens.browser.test.tsx`). The rail's account
+  trigger is shell chrome and keeps its own size.
 - **Words someone else wrote break anywhere** (`wrap-anywhere`), so a name
   with no space in it, or a pasted address, stays in its column: `/authorize`'s
   client name; an organisation's name in its page's `h1`, which its admins
@@ -280,7 +281,8 @@ Where the app does not follow this yet — known breaks include:
 - **pill** (`rounded-pill`; the contract's `--ui-radius-control` and
   `--ui-radius-pill`) — every Button variant, `ghost`, `ghostDanger` and
   `link` included (the radius sits on Button's base class,
-  `shared/ui/src/ui/button.tsx`); chips (§Chips); avatars.
+  `shared/ui/src/ui/button.tsx`); chips (§Chips); a person's avatar
+  (§Avatars). An organisation's avatar takes 8px (§Avatars).
 - **Sheets** — below `md`, dialogs render as bottom sheets: 16px top corners
   (the contract's `--ui-radius-sheet`, which Musubi leaves to fall back to
   `--ui-radius-lg`) with square bottom corners at every width up to 767px,
@@ -333,6 +335,48 @@ and the rail's results panel, `SearchResultRows.tsx`), and `/authorize`'s
   and marks itself with a shape as well: the rail's with the `bg-muted` fill,
   the bottom bar's with a 2px bar along its top edge (§Responsive layout).
 
+## Avatars
+
+A person's avatar is a circle and an organisation's a square with 8px
+corners, so the two never read as one kind (the owner's D5 B, [#2034's first
+comment](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893),
+2026-11-06). Two parts draw every avatar in the app, both in
+`src/components/Avatars.tsx`:
+
+- **`ProfileAvatar`** — a person: `@shared/ui`'s round `Avatar`.
+- **`OrgAvatar`** — an organisation: its own square frame (`rounded-md`,
+  8px), since `Avatar` draws circles only and owns its shape
+  (`shadcn/no-restyle` refuses a corner class on it); the picture and the
+  initials inside are `@shared/ui`'s `AvatarImage` and `AvatarFallback`.
+
+Both draw the picture when there is one and it loads, and the initials
+otherwise — one or the other, never both. The initials are one rule,
+`profileInitials` (`src/lib/utils.ts`): the first two characters of the name a
+reader sees (the display name, else the handle; an organisation's name),
+upper-cased, a character being what a reader counts as one, so a joined emoji
+or a letter with a combining mark stays whole (`tests/lib/initials.test.ts`).
+An avatar beside the name it stands for is hidden from a screen reader
+(`decorative`), which hears the name once: the rows that name a profile, the
+rail's account trigger and Settings' profile card. The top bar's avatar is a
+trigger with no words beside it, so the trigger carries its own name
+("Account menu, @handle") and its avatar is hidden too. The call site sets
+the size alone, never a margin (a gap beside the avatar is its wrapper's):
+36px in a list row, 32px in the roster and the rail's search, 40px on an
+organisation's or a suggestion's card and the top bar, 56px heading an
+organisation's page, 64px heading Settings' profile card (initials at
+`lg`), 20px in the account menu. The account menu's 20px circle takes the
+first character alone (`letters={1}`): two at the smallest type step, 12px,
+overflow it ("MW" is 22.4px wide and "WW" 23.6px, and "山田" and two joined
+emoji wrap onto two lines), and `tests/components/AccountMenu.browser.test.tsx`
+holds one line inside the circle for "MW", "WW", "山田" and a joined emoji.
+`tools/e2e` reads an organisation's 8px corners on the list, its page and a
+search result, and a person's circle in the roster (`musubi-surfaces.ts`).
+
+*Measured 2026-11-26 — a `Range` over the initials in the account menu's
+20px circle, Chromium (Vitest browser tier, `AccountMenu` at 390px, Musubi's
+`App.css`), with two characters: "MW" one line 22.4px, "WW" 23.6px, "山田"
+two lines of 11.4px, two joined emoji two lines of 14.9px.*
+
 ## Theme (light / dark)
 
 Follow the system theme by default; the fallback is **dark**. Light is shown
@@ -349,7 +393,8 @@ only when the OS explicitly asks for light, or the user opts into light.
   header and in the mobile top bar: a ghost icon Button opening `@shared/ui`'s
   `DropdownMenu`, one radio row per choice (`DropdownMenuRadioGroup`), so it
   draws the account menu's rows, focus and trailing check, and a screen reader
-  hears which theme is on.
+  hears which theme is on (`menuitemradio`, `aria-checked`), as it hears which
+  profile is (§Layout, The account menu).
 
 ## Focus
 
@@ -366,22 +411,21 @@ holds at 3:1. A focus mark appears at once, never animated.
 - **Inset where a box clips.** Where an outline 2px outside the element would
   be cut off, the call site adds `focus-visible:-outline-offset-2`, which draws
   the same ring just inside the element. Today: the bottom bar's tabs, whose
-  cells run to the screen's edges (`MobileNav`); `SectionTabs`, whose row
-  scrolls sideways; and the profile switcher's rows, which run to the dialog's
-  edges, inside a sheet that scrolls below `md` (`ProfileSwitcherDialog`).
+  cells run to the screen's edges (`MobileNav`); and `SectionTabs`, whose row
+  scrolls sideways.
 - **Parts that draw their own.** `@shared/ui`'s parts draw focus from the
   utilities layer, which outranks the base rule, so each shows one mark, not
   two: Button a ring (`ring-2 ring-ui-focus`) with its outline hidden
   (`outline-hidden`), the text fields a ring 2px off, and a menu row (the
   account and theme menus) the sunk fill, its outline hidden while it has
   focus. A hand-drawn control that wants the ring instead writes
-  `focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden`;
-  the profile choice on `/authorize`'s account screen does
-  (`AuthorizePage.tsx`, in the contract's `ring-ui-focus`, the same colour).
+  `focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden`.
+  A profile choice's radio draws the house outline round its circle, as every
+  drawn radio does (§Choices).
 - **Where focus goes when a dialog opens.** To its first control, Kobalte's
   default, which a footer's Cancel never is unless the dialog has nothing
-  before it ("Generate a new set?", the remove-friend dialog): the profile
-  switcher opens on its first row, a form dialog on its first field. The
+  before it ("Generate a new set?", the remove-friend dialog): a form dialog
+  opens on its first field. The
   step-up sheet puts it on "Use passkey" itself (`onOpenAutoFocus`), since its
   other factors come first in the page. The sign-in and create-account dialogs open
   with focus on the dialog itself (`AuthDialogs`, `onOpenAutoFocus`): their
@@ -394,13 +438,16 @@ holds at 3:1. A focus mark appears at once, never animated.
   without it Kobalte leaves focus on `<body>`. A shell dialog whose opener has
   gone — the shell switched while the dialog was open — gives focus to the
   current shell's control for the same dialog, which carries
-  `data-dialog-return="sign-in" | "register" | "switcher"` (the shells' Sign
-  in and Create account buttons, the account-menu trigger). After a sign-in
-  succeeds, or a removal takes the row that opened it, neither exists, and
-  focus stays on the page.
+  `data-dialog-return="sign-in" | "register"` (the shells' Sign in and Create
+  account buttons). After a sign-in succeeds, or a removal takes the row that
+  opened it, neither exists, and focus stays on the page.
+- **Where focus goes when a menu closes.** Back to its trigger, Kobalte's own
+  (`DropdownMenuTrigger`), choosing a profile in the account menu included:
+  the trigger stays while the switch runs. A menu open as the window crosses
+  768px goes with its shell, and focus falls to the page.
 - **Contrast themes.** Windows forced colours drop the ring and the fill, and
-  `outline-hidden` there is a 2px system-colour outline, so a `Button`, a menu
-  row or the profile choice still shows focus. `outline-none` removes that outline
+  `outline-hidden` there is a 2px system-colour outline, so a `Button` or a menu
+  row still shows focus, and a drawn radio's outline is an outline already. `outline-none` removes that outline
   too: never pass it to an element that draws a ring.
 
 ## Motion
@@ -477,11 +524,11 @@ than Chrome 117, Firefox 129 or Safari 17.5, which cannot read
 `@starting-style`, a sheet appears at once and still slides out, or fades out
 under reduced motion.
 `tools/e2e/tests/support/musubi-surfaces.ts` holds the first frame of the
-account menu, the profile switcher and the create-organisation dialog, and
-the half-way frame of the menu and the switcher closing: the menu and the
-card show no transform, and the switcher, a sheet at 390px, sits its own
-height below the edge as it opens and part-way down half-way out, at full
-opacity and unscaled.
+account menu, the create-profile sheet and the create-organisation dialog,
+and the half-way frame of the menu and the sheet closing: the menu and the
+card show no transform, and the sheet, at 390px, sits its own height below
+the edge as it opens and part-way down half-way out, at full opacity and
+unscaled.
 
 **A sheet drags down to close.** Below `md` a finger or a pointer pressed on
 a dialog's title row moves the sheet with it, one to one from the first
@@ -498,8 +545,8 @@ the same path as Cancel; otherwise it goes back. Either way it leaves the
 finger on a critically damped spring with a 0.3s response, started at the
 sheet's speed, with no bounce. The spring is the release's alone: Cancel,
 Escape and the scrim keep the 200ms close on `--ui-ease-sheet` above. A sheet
-that cannot close — the step-up, the profile switcher and the
-delete-organisation confirmation while their call runs — gives on the band
+that cannot close — the step-up and the delete-organisation confirmation
+while their call runs — gives on the band
 both ways and comes back; a press on it while it springs back stops it under
 the finger once the finger moves, and a tap goes through. A sheet already on
 its way out is not caught: a close is final once let go, the owner's default
@@ -525,8 +572,8 @@ one and 355ms on an 800px one. A return runs on to rest: 30px from rest takes
 `shared/ui/tests/dialog-drag.browser.test.tsx` holds the drag,
 `tests/components/SecurityStepUp.browser.test.tsx` the step-up refusing it
 while the passkey call runs and handing over only once the sheet has left,
-and `tools/e2e/tests/support/musubi-surfaces.ts` drags the profile switcher
-closed at 390px.
+and `tools/e2e/tests/support/musubi-surfaces.ts` drags the create-profile
+sheet (Settings' add-a-profile card) closed at 390px.
 
 **A dialog's scroll edge follows the scroll.** Under the header of a dialog
 taller than its 85% cap, the 16px fade (§Responsive layout, Dialogs) comes in
@@ -602,12 +649,20 @@ its three motions that are not a colour or opacity change.
   the account banners above a signed-in page still push it down when they
   arrive. The phone's tab bar needs no frame; it is fixed to the bottom edge,
   out of the flow, and the scroll column carries `pb-nav` from the first paint.
-- **A shell whose chunk, or the shell dialogs' chunk, fails to load**
-  (offline, or a chunk renamed by a deploy since the page loaded) leaves its
-  frame in place with the failed-load line
-  (§Empty states and failed loads): "Musubi could not finish loading. Reload
-  and try again." The page beside it keeps working. A later load that succeeds
-  (the other shell's, after a crossing) draws the shell with its dialogs.
+- **A shell whose chunk fails to load** (offline, or a chunk renamed by a
+  deploy since the page loaded) leaves its frame in place with the
+  failed-load line (§Empty states and failed loads): "Musubi could not finish
+  loading. Reload and try again." The page beside it keeps working.
+- **The shell dialogs' chunk** (sign in and create account) loads beside the
+  shell, never in front of it: a shell draws on its own chunk, and its Sign
+  in and Create account are `invisible` until the dialogs they open have
+  loaded, holding their place, as a page's `SignedOutNote` does. The chunk is
+  fetched once the session has settled with none, so a signed-in reader never
+  downloads it. If it fails, the shell notice above the page says the same
+  failed-load line, as an inline danger `Notice` with `alert`; a later load
+  that succeeds (the other shell's, after a crossing) shows the buttons and
+  takes the line away. `tests/App.dialogs-load-failure.browser.test.tsx`
+  holds it.
 - Content column centered at `max-w-2xl`, `px-4 py-6 md:px-8 md:py-8` — every
   page's `main`, and the account banners above it at the same width and side
   padding. The legal pages use `max-w-2xl px-6 py-12`.
@@ -621,6 +676,58 @@ its three motions that are not a colour or opacity change.
 - Bare routes (`/authorize`, `/verify/:requestId`) = no shell; one centred
   column, `max-w-md px-6 py-10`, centred vertically in the viewport.
   `/verify/:requestId` sets the product name above its card, `gap-6` apart.
+- **`/authorize`'s screens are one layout.** Every screen that decides —
+  sign-in, account, picker, consent — leads with the app's client card (its
+  name the `h1`, §Typography), then, 24px down, the screen's own heading and
+  what it asks (an `AuthHeader` `h2` and a `text-meta` line in the secondary
+  ink on the account screen and the picker; the scope cards and the chosen
+  profile's row on consent; the sign-in panel), then its one notice slot and
+  its actions. The notice slot is an inline `Notice` with `alert`, directly
+  above the actions and 16px from them (on the sign-in screen, above the
+  panel): `info` for guidance ("Please sign in again to continue.", "You
+  signed in as a different account — check this before continuing.", and on
+  the way to another account "Sign in with the account you want to use."),
+  `danger` for a failure, the copy map's sentence, which takes the slot over
+  any guidance. No guidance is drawn outside the slot. The actions are one
+  column as wide as the page's, 24px under what they act on and 8px apart,
+  each `size="lg"` with `max-md:h-11`: the screen's one next step first
+  (Continue, Allow), then any other way on ("Use another account",
+  `secondary`), and Cancel last, `secondary`, one per screen. The sign-in
+  screen has no Cancel until it gains a Decline (#2048). The account screen
+  and the picker choose a profile with `ProfileChoice` (§Choices), and leave
+  only on Continue: an arrow key moves a radio as it chooses it. The picker
+  starts on the profile already in force (the one chosen before Change, or
+  the one the app knows); with neither, no radio is checked and Continue is
+  disabled until the person picks. An account
+  of one profile shows it in the same bordered row with no radio, since one
+  is not a choice. On consent, the chosen profile's row carries Change
+  (`secondary`, `sm`, `max-md:h-10`) when there are several, and Allow is
+  offered only while that row is on screen.
+  `tests/pages/AuthorizeScreens.browser.test.tsx` holds each screen's slot,
+  its one Cancel and its `h1` at 390 and 1440px in both schemes, and, read
+  off the rendered page at both widths, the slot's 16px, the actions' 24px
+  and 8px, their width and height, and the `ProfileChoice` rows' padding,
+  gap and height.
+- **The account menu** (`AccountMenu.tsx`, from the rail's account trigger
+  and the top bar's avatar) is also the profile switcher (the owner's choice
+  on #2046, 2026-11-26: "Menu of menuitemradio"): under the identity label,
+  one `DropdownMenuRadioItem` per profile — a 20px avatar, the display name
+  (or the handle), the handle after it in the secondary ink, truncated — the
+  active one checked; then Log out. Choosing another switches to it and
+  closes the menu; the check moves once the switch has landed, and while it
+  runs every profile row is disabled, in either shell's menu
+  (`src/lib/profile-switch.ts`). An account of one profile shows no profile
+  rows. `tests/App.signed-in.browser.test.tsx` holds the rows, their
+  `aria-checked`, the hold and its end after a failure.
+- **An organisation's page offers what the reader may do**, by the standing
+  osn-api sends with the organisation (`caller`): Edit for an admin, Delete
+  for the owner, and on the roster Remove on a member's row for an admin and
+  on an admin's row too for the owner, never on the reader's own row. A
+  reader who is not in it, or whose standing has not landed, is offered
+  none. Edit and Delete come with the organisation's own read, so nothing
+  moves when the roster lands. `tests/pages/OrgDetailPage.roles.test.tsx`
+  holds each standing, and `musubi-org-detail` the owner removing an admin
+  and a non-member offered nothing.
 - **A flow of several steps is a page, not a dialog**: the account's deletion,
   `/settings/delete-account` (`DeleteAccountPage.tsx`), which Settings →
   Account's "Delete account…" opens. Its steps hold long, wrapping choices
@@ -736,7 +843,7 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
 
 - **One shell at a time** — `Layout` (`App.tsx`) mounts either the rail or the
   mobile shell, chosen by an `md` media-query signal. The shell's dialogs —
-  sign in, create account, switch profile — are mounted once, above that
+  sign in and create account — are mounted once, above that
   switch (`ShellDialogs.tsx`), so a dialog open when the window crosses 768px
   stays open, with what was typed in it. A control in either shell, or a page,
   opens one through `useShellDialogs()`.
@@ -772,9 +879,8 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   indicator), the shared centred card at `md+`, each at most 85% of the
   window tall (`85dvh`) and scrolling past that. All app
   dialogs go through it; never mount a raw `DialogContent` in a screen. Below
-  `md` the sheet is as wide as the screen. The card's cap at `md+` is the
-  `width` prop: `"sm"`, 384px, the default, or `"xs"`, 320px, which the
-  profile switcher takes. The component takes no `class`, `classList` or
+  `md` the sheet is as wide as the screen; the card at `md+` is capped at
+  384px. The component takes no `class`, `classList` or
   `style`: the sheet's rules sit behind `base:`, so a call-site `max-w-*` would
   cap the sheet too and pin a narrow sheet to a phone's left edge. A dialog's
   padding and layout go on the children it wraps. Every dialog has a name: its
@@ -794,9 +900,7 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   below `md` (`max-md:h-10`): 32px from `md`. One part draws each, so the
   app's dialogs and the auth views' cannot drift apart. No dialog puts a button in its header. At `sm` every footer pair the
   app and the auth views draw fits a 320px sheet's 288px on one line
-  (`osn/auth-ui/DESIGN.md` §4 has the measure). A dialog that commits nothing
-  of its own has Cancel alone: the profile switcher, whose rows are the
-  choice, puts it after them. A dialog taller than its 85% cap, sheet or
+  (`osn/auth-ui/DESIGN.md` §4 has the measure). A dialog taller than its 85% cap, sheet or
   card, scrolls, footer included, while the header stays at the top on the
   sheet's colour; the scrim above the sheet and Escape stay as ways out. Once
   the body has passed under the header, a 16px fade from `--card` to clear
@@ -815,8 +919,8 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   `tools/e2e` holds the shape (`musubi-surfaces.ts`): `dialogTitle` and
   `formDialog` read the create and edit organisation dialogs' centred title
   and footer order, `signInLinkSurfaces` the sign-in dialog's,
-  `removalSheetSurfaces` the step-up sheet's, and the switcher check its
-  centred title, Cancel alone, focus on its row and Tab to Cancel.
+  `removalSheetSurfaces` the step-up sheet's, and `profileSheet` the create-profile
+  sheet's centred title and Cancel, then its commit.
 - **A form dialog** (create and edit organisation) = `AuthHeader`, then the
   `<form>`: its fields in a body `div` padded 16px (`flex flex-col gap-4
   p-4`), its actions in `DialogActions`. The footer sits inside the form, so
@@ -876,7 +980,9 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   layout) is taller on a phone, so its placeholder is
   `src/components/ResponsiveSkeleton.tsx`: one block per width, each hidden
   at the other, since `Skeleton` takes one height. Rows: a connection or a
-  member with Remove 56px and 60px below `md`, a Discover card 114px and
+  member with Remove 56px and 60px below `md` (a roster's placeholder takes
+  the Remove height only for a reader who is an admin or the owner, the only
+  readers Remove shows to; a member's is 56px at both), a Discover card 114px and
   126px, a connected app 70px and 74px, and 110px and 126px with its app's
   removal link (§Links); an organisation card is 74px at both. Settings'
   Security fallback stands for `@osn/auth-ui`'s passkey
@@ -1090,8 +1196,8 @@ orb (§The orb).
   form or dialog is `disabled` while it runs, its Cancel, Back and links among
   them, so nothing leaves it mid-call: the organisation dialogs' Cancel while
   Create or Save runs, `@osn/auth-ui`'s sign-up Cancel while its link is
-  sent or resent, and the profile switcher's Cancel while a switch runs,
-  where Escape and a press outside are refused too, as on the step-up sheet.
+  sent or resent. While a profile switch runs, the account menu's profile
+  rows are disabled in both shells' menus (§Layout, The account menu).
   A row's action leaves the other rows alone, but on Settings → Security,
   where a press opens the step-up sheet and the panel's other actions are
   disabled with it, as an open sheet disables them.
@@ -1204,7 +1310,30 @@ is the owner's.
 
 Uses: the deletion flow's open actions (`OpenActionCard.tsx`) and its "Delete
 everything" (`DeleteAccountPage.tsx`); `@osn/auth-ui`'s "I've saved these
-codes" box.
+codes" box; and `ProfileChoice` (below).
+
+**Choosing a profile** is `ProfileChoice` (`src/components/ProfileChoice.tsx`),
+on `/authorize`'s account screen and its picker: `RadioGroup` at `size="sm"`,
+named by `aria-label` ("Profiles"), each profile a radio in a bordered row
+whose edge turns ink when it is the one chosen (the owner's D3 A, [#2034's
+first comment](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893),
+2026-11-06). The row is a hairline `border` on the 8px corner, padded 12px by
+10px, 8px apart, 58px tall (the 36px avatar, or the name's 20px line over the
+handle's 16px, inside the padding and the hairline), with the hover and press
+wash; the chosen row's edge is
+`--foreground`. Its words are the profile's avatar (36px, hidden from a
+screen reader), its name at `text-title` and 500, and its handle under it at
+`text-meta` in the secondary ink when it has a display name. The circle keeps
+the shared rule: on the name's line, 8px from the avatar, not centred on it.
+The frame is the app's own around the shared radio, which owns its look
+(`shadcn/no-restyle` refuses a border or padding on it): the radio's label
+stretches over the frame (`after:absolute after:inset-0`), so a press
+anywhere in the row chooses it, and the frame is the containing block of the
+radio's hidden input. The ink edge follows the value the part is given, not
+`:has(:checked)`, which Firefox before 121 lacks.
+`tests/components/ProfileChoice.browser.test.tsx` holds the roles, a press in
+a row's padding, the arrow keys, the edges and the corner, at 390 and 1440px
+in both schemes.
 
 ## Auth surfaces
 
@@ -1234,7 +1363,7 @@ outline (§Focus). Every text field in the views is `@shared/ui`'s `Input` (or
 | View | Where | Host file |
 | --- | --- | --- |
 | `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
-| `SignIn`, `Register` | `/authorize`, unframed (`host="page"`), 24px under the client card, at the column's width with no side padding; "No account yet? Create one" sits 24px under `SignIn` and swaps to `Register`, whose Cancel reads "Sign in instead". While the panel's code loads, its placeholder takes the same shape (`SignInLoading`) | `components/AuthorizeSignIn.tsx`, in `pages/AuthorizePage.tsx` |
+| `SignIn`, `Register` | `/authorize`, unframed (`host="page"`), 24px under the client card, at the column's width with no side padding, the screen's notice slot above it (§Layout); "No account yet? Create one" sits 24px under `SignIn` and swaps to `Register`, whose Cancel reads "Sign in instead". While the panel's code loads, its placeholder takes the same shape (`SignInLoading`) | `components/AuthorizeSignIn.tsx`, in `pages/AuthorizePage.tsx` |
 | `CheckEmailView` | Inside `Register` once its link is sent, and inside `RecoveryLoginForm` once a recovery link is | — |
 | `ConfirmLinkPage` | `/verify/:requestId`, a bare route with no app shell: the wordmark above the card, in `AuthorizePage`'s `<main>` column. A sign-up link's page offers the numbers to pick; a recovery link's asks for the number typed (`typeNumber`). Its expired card also answers a link whose id names no flow | `pages/VerifyEmailLinkPage.tsx` |
 | `RecoveryLoginForm` | Inside `SignIn`, from "Lost your passkey?" | — |

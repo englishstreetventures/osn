@@ -75,7 +75,7 @@ vi.mock("../../src/lib/authClients", () => ({
   stepUpClient: {},
 }));
 vi.mock("../../src/components/ShellDialogs", () => ({
-  useShellDialogs: () => ({ ready: () => true, open: () => {} }),
+  useShellDialogs: () => ({ ready: () => true, failed: () => false, open: () => {} }),
 }));
 
 import { ConnectedAppsSection } from "../../src/components/ConnectedAppsSection";
@@ -88,7 +88,9 @@ import { OrgDetailPage } from "../../src/pages/OrgDetailPage";
 /** Relative to this file: the repository's `e2e-artifacts/`. */
 const SHOTS = "../../../../e2e-artifacts/musubi-loading";
 
-const newSession = () => ({ accessToken: "a.b.c", idToken: null, expiresAt: 0, scopes: [] });
+/** Signed in as an admin's profile, `ada`, so the roster's member rows carry Remove. */
+const ACCESS_TOKEN = `header.${btoa(JSON.stringify({ sub: "prof_ada", handle: "ada" }))}.signature`;
+const newSession = () => ({ accessToken: ACCESS_TOKEN, idToken: null, expiresAt: 0, scopes: [] });
 const [session, setSession] = createSignal(newSession());
 const auth = {
   session: Object.defineProperties(() => session(), {
@@ -132,6 +134,7 @@ function busyRegion(blocks: number): Promise<HTMLElement> {
 
 const org = (handle: string, name: string) => ({
   organisation: { handle, name, avatarUrl: null, description: null },
+  caller: { role: "admin", owner: false },
 });
 const roster = (...handles: string[]) => ({
   members: handles.map((handle) => ({ handle, displayName: `Member ${handle}`, role: "member" })),

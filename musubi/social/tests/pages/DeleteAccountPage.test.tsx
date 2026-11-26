@@ -49,6 +49,7 @@ vi.mock("../../src/components/ShellDialogs", () => ({
     open: mocks.openDialog,
     load: () => Promise.resolve(),
     ready: () => true,
+    failed: () => false,
   }),
 }));
 

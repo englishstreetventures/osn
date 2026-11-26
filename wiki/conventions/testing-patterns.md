@@ -211,7 +211,7 @@ Every app is served from `localhost`. Cookies ignore the port, so the suite prov
 
 The Musubi flow reports conditional mediation as unavailable. The virtual authenticator answers an autofill passkey request on its own, which a person never does, so leaving it on would race the "@handle → Continue" path the flow drives.
 
-A flow step that opens a DevTools session of its own on a page with a virtual authenticator, to send `Input.dispatchTouchEvent` for instance, leaves it attached until the page closes. `musubi-surfaces.ts`'s drag of the profile switcher detached its session once, and every passkey ceremony later in `musubi-passkey` then waited on "Waiting for your passkey…" until the step timed out; with the session left attached, the flow passed.
+A flow step that opens a DevTools session of its own on a page with a virtual authenticator, to send `Input.dispatchTouchEvent` for instance, leaves it attached until the page closes. A detached session leaves every passkey ceremony later in the flow waiting on "Waiting for your passkey…" until the step times out, so `musubi-surfaces.ts`'s drag of the create-profile sheet leaves its session attached.
 
 *Measured 2026-11-23 — `bun run --cwd tools/e2e e2e musubi-passkey`, twice with the `detach()` (both failed at "add an authenticator app: the setup key"), once without the drag step and once with the session left attached (both passed).*
 
@@ -875,8 +875,9 @@ run passed.
 A test that watches the chunk arrive cannot warm it: the warm-up loads the
 module before the first frame the test measures. Import every chunk the
 component waits for inside the test instead, after that measurement and before
-the `waitFor`. Musubi's rail draws once its own chunk and the shell dialogs'
-have both loaded, so in the plain form its test imports the pair:
+the `waitFor`. Musubi's rail draws once its own chunk has loaded, and shows
+its Sign in once the shell dialogs' chunk has too, so in the plain form a test
+that waits for that Sign in imports the pair:
 
 ```ts
 const before = main(); // the first frame, the chunks still loading
@@ -884,7 +885,7 @@ await Promise.all([
   import("../src/components/Sidebar"),
   import("../src/components/ShellDialogSet"),
 ]);
-await waitFor(() => expect(railSignIn()).toBeDefined());
+await waitFor(() => expect(shown(railSignIn())).toBe(true));
 ```
 
 The specifiers resolve to the URLs the app imports, so the imports join the
@@ -895,9 +896,11 @@ own budget, 15 seconds in the browser tier, covers the transform, and
 read. In musubi, `src/App.tsx` exports `shells`, whose `load` for each shell
 is what `Reserved` awaits before that shell draws, and
 [`musubi/social/tests/test-support/shell-chunks.ts`](../../musubi/social/tests/test-support/shell-chunks.ts)
-awaits the same `load` in `railChunks()` and `topBarChunks()`. Every wait for
-a shell in that package's browser tests awaits one of them first, so a load
-added to a shell's `load` reaches those waits with no second edit.
+awaits the same `load` in `railChunks()` and `topBarChunks()`, and the
+dialogs' chunk in `dialogChunk()`. Every wait for a shell in that package's
+browser tests awaits one of the first two first, and every wait for a
+signed-out shell's Sign in `dialogChunk()` as well, so a load added to a
+shell's `load` reaches those waits with no second edit.
 
 *Measured 2026-11-10 — in `musubi/social`, a throwaway Vitest config adding a Vite plugin that delays `Sidebar.tsx`'s transform by 2.5 s and logs each request for a shell module, then `bunx --bun vitest run --config <it> --no-fsModuleCache tests/App.browser.test.tsx`: waiting with `waitFor` alone, the first rail test failed at 1110–1131 ms in 3 of 3 runs; awaiting the chunks, it passed in 2645–2702 ms in 10 of 10, with one request per shell module in each run*
 

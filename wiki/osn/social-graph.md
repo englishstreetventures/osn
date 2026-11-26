@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-26
 ---
 
 # Social Graph
@@ -243,7 +243,7 @@ Same two-phase shape — anchored `handle LIKE 'q%'`, then an unanchored pass ov
 Differences from people search, all deliberate:
 
 - **No exclusions.** Organisations are public entities whose handles share a namespace with user handles, and the caller's *own* organisations are more relevant in a search box, not less — they come back flagged `isMember: true` so the row renders a badge instead of a CTA, and membership is worth `+15` in the score so it can change *which* organisations make the page rather than only how the chosen ones are labelled.
-- **Addressed by handle, never by `org_*` id.** `GET /organisations/:handle` resolves by handle (`getOrganisationByHandle`) and the public `orgProjection` deliberately omits the id, so returning one would both widen that surface and hand the client a key nothing accepts. (Finding this is what surfaced a **pre-existing bug**: `OrganisationsPage` linked `/organisations/${org.id}` against a projection with no `id`, so every organisation row navigated to `/organisations/undefined` → 404. Fixed to link by handle in the same change.)
+- **Addressed by handle, never by `org_*` id.** `GET /organisations/:handle` resolves by handle (`getOrganisationByHandle`), answers the caller's own standing beside it (`caller`: `{ role, owner }`, or `null` for a non-member, so a client offers only the actions the routes allow; it tells a caller nothing about anyone else), and the public `orgProjection` deliberately omits the id, so returning one would both widen that surface and hand the client a key nothing accepts. (Finding this is what surfaced a **pre-existing bug**: `OrganisationsPage` linked `/organisations/${org.id}` against a projection with no `id`, so every organisation row navigated to `/organisations/undefined`, which answered 404. Fixed to link by handle in the same change.)
 
 ### Budget
 

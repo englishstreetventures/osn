@@ -82,6 +82,8 @@ vi.mock("../../src/lib/api", () => ({
           createdAt: "2026-01-01T00:00:00Z",
           updatedAt: "2026-01-01T00:00:00Z",
         },
+        // The owner, who sees Delete: the block is theirs to decline.
+        caller: { role: "admin", owner: true },
       }),
     listMembers: () =>
       Promise.resolve({

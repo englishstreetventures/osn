@@ -1,12 +1,12 @@
 import { useAuth } from "@osn/client/solid";
 import { clsx } from "@shared/ui/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { A, useLocation } from "@solidjs/router";
 import { createMemo, For, Show } from "solid-js";
 
-import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
+import { getTokenClaims } from "../lib/utils";
 import { AccountMenu } from "./AccountMenu";
+import { ProfileAvatar } from "./Avatars";
 import { GlobalSearch } from "./GlobalSearch";
 import { DESKTOP_NAV_ITEMS, isNavActive } from "./nav";
 import { useShellDialogs } from "./ShellDialogs";
@@ -71,7 +71,9 @@ export function Sidebar() {
         <Show
           when={session()}
           fallback={
-            <div class="flex flex-col gap-1.5">
+            // Invisible until the dialogs they open have loaded: they hold
+            // their place, and never offer a dialog that cannot open.
+            <div class={clsx("flex flex-col gap-1.5", !dialogs.ready() && "invisible")}>
               <Button
                 size="sm"
                 class="w-full"
@@ -92,23 +94,8 @@ export function Sidebar() {
             </div>
           }
         >
-          <AccountMenu
-            triggerClass="hover:bg-muted flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-ui-colors"
-            onSwitchProfile={() => dialogs.open("switcher")}
-          >
-            <Avatar class="h-8 w-8">
-              <Show when={safeAvatarUrl(activeProfile()?.avatarUrl)}>
-                {(url) => (
-                  <AvatarImage
-                    src={url()}
-                    alt={activeProfile()!.handle}
-                    referrerpolicy="no-referrer"
-                    loading="lazy"
-                  />
-                )}
-              </Show>
-              <AvatarFallback>{profileInitials(activeProfile())}</AvatarFallback>
-            </Avatar>
+          <AccountMenu triggerClass="hover:bg-muted flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-ui-colors">
+            <ProfileAvatar profile={activeProfile()} class="size-8" decorative />
             <div class="flex min-w-0 flex-1 flex-col">
               <span class="text-foreground text-body truncate font-medium">
                 {activeProfile()?.displayName || `@${claims().handle ?? "…"}`}

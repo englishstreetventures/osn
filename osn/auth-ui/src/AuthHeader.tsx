@@ -1,7 +1,10 @@
 import { Button } from "@shared/ui/ui/button";
 // Imported for the dialog host alone, so the page host pays for it too: in
-// Musubi, `/authorize`'s sign-in chunk loads the dialog module (6.80 kB, 2.39
-// kB gzipped, from `vite build`) it never runs. Kept over a header split in two,
+// Musubi, `/authorize` loads the dialog module on every visit, since its own
+// headings are this file's page host. From `vite build` (gzip -9): the chunk
+// holding this file and the dialog module is 19.25 kB (6.97 kB gzipped), and
+// it imports Kobalte's shared code, 21.78 kB (8.02 kB gzipped), which nothing
+// else `/authorize` loads up front needs. Kept over a header split in two,
 // which would make the dialog host hand its header to `SignIn` and `Register`.
 import { DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
 import { Show } from "solid-js";
@@ -53,9 +56,9 @@ export type AuthHeaderProps = DialogHostHeader | PageHostHeader;
 
 /**
  * The title row of a sign-in or create-account view, and of every dialog the
- * package draws and its host's own (Musubi's switcher, remove-friend and
- * organisation dialogs). Cancel, on a page, calls `onCancel` and closes
- * nothing itself.
+ * package draws and its host's own (Musubi's remove-friend and organisation
+ * dialogs, and its `/authorize` screens' headings). Cancel, on a page, calls
+ * `onCancel` and closes nothing itself.
  */
 export function AuthHeader(props: AuthHeaderProps) {
   return (
