@@ -1,4 +1,5 @@
 import { AuthHeader } from "@osn/auth-ui/AuthHeader";
+import { HANDLE_HINT } from "@osn/auth-ui/handle-copy";
 import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import type { AuthorizeContext, PublicProfile } from "@osn/client";
 import { AuthorizeError, describeAuthError } from "@osn/client";
@@ -977,7 +978,7 @@ function SignInLoading(props: { mode: "register" | "signIn" }) {
           { label: 4, hint: undefined },
           {
             label: 3.5,
-            hint: "Up to 30 lowercase letters, numbers and underscores. Capitals become lowercase as you type, and anything else is left out.",
+            hint: HANDLE_HINT,
           },
           { label: 3.5, hint: "You must be 13 or older to create an account." },
           { label: 3.5, hint: undefined },

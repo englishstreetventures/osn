@@ -9,6 +9,7 @@ import { UsernameInput } from "@shared/ui/ui/username-input";
 import { createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 
 import { describedBy, fieldError, type FieldError } from "./error-lines";
+import { HANDLE_HINT, HANDLE_TOO_LONG } from "./handle-copy";
 import { stepAction, ViewStep } from "./ViewParts";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
@@ -120,7 +121,7 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
           </Button>
         }
       >
-        <Field labelTreatment="plain" label="Handle">
+        <Field labelTreatment="plain" label="Handle" hint={HANDLE_HINT}>
           {(field) => (
             <UsernameInput
               id={field.id}
@@ -129,8 +130,7 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
               value={handle()}
               onInput={onHandleInput}
               status={handleStatus()}
-              placeholder="lowercase, numbers, _"
-              invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
+              invalidMessage={HANDLE_TOO_LONG}
               aria-describedby={describedBy(field["aria-describedby"], error() && errorId)}
               aria-invalid={error()?.invalid || undefined}
             />

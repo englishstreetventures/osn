@@ -1554,7 +1554,7 @@ describe("Register component", () => {
 
         fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
-        await screen.findByText(/ran out of time before a passkey was added/);
+        await screen.findByRole("heading", { name: "This sign-up ran out of time" });
         expect(hoisted.adoptSession).not.toHaveBeenCalled();
         expect(markerOwner()).toBe("usr_other");
       });

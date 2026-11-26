@@ -23,6 +23,7 @@ import { createEffect, createSignal, createUniqueId, on, Show, onCleanup, onMoun
 import { AuthHeader } from "./AuthHeader";
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy } from "./error-lines";
+import { HANDLE_HINT, HANDLE_TOO_LONG } from "./handle-copy";
 import { describePasskeyError } from "./passkey-errors";
 import {
   clearLive,
@@ -76,10 +77,13 @@ const LIMIT_LINE =
   "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again.";
 const CONFLICT_LINE = "That handle was taken while you waited. Choose another.";
 
-/** The handle field's standing hint: the rule, and what typing does to what breaks it. */
-const HANDLE_HINT =
-  "Up to 30 lowercase letters, numbers and underscores. Capitals become lowercase as you type, and anything else is left out.";
-const HANDLE_TOO_LONG = "Use 30 characters or fewer.";
+/**
+ * The countdown label's box: tabular figures, and an unseen two-digit label in
+ * the same cell, so the button holds one width from 60 to 1 and Cancel beside
+ * it never moves as the label loses a digit.
+ */
+const COUNTDOWN_BOX = "inline-grid tabular-nums";
+const COUNTDOWN_CELL = "col-start-1 row-start-1";
 const BIRTHDATE_FUTURE = "That date is in the future. Enter your date of birth.";
 const BIRTHDATE_EARLY = "Check the year. That date is more than 120 years ago.";
 /** The earliest date of birth the field takes, in years before today. */
@@ -88,10 +92,12 @@ const OLDEST_YEARS = 120;
  * The new account's session ended before its first passkey: the account and
  * its address are kept, and the emailed recovery link is the way back in.
  */
+const RAN_OUT_HEADING = "This sign-up ran out of time";
 const RAN_OUT_LINE =
-  "This sign-up ran out of time before a passkey was added. Your account is saved: sign in, choose “Lost your passkey?”, and confirm your email to add one.";
+  "Your account is saved, but it has no passkey yet. Sign in, choose “Lost your passkey?”, and confirm your email to add one.";
 /** The passkey is in, but this browser holds no session for the account. */
-const ADDED_LINE = "Your passkey is added. Sign in with it to finish.";
+const ADDED_HEADING = "Your passkey is added";
+const ADDED_LINE = "Sign in with it to finish.";
 /** The passkey is in, and signing the person in failed in a way a retry may mend. */
 const NOT_SIGNED_IN_LINE = "Your passkey is added, but we couldn't sign you in. Try again.";
 /**
@@ -1053,8 +1059,13 @@ export function Register(props: RegisterProps) {
                   {sending() ? (
                     "Sending…"
                   ) : sendWait() > 0 ? (
-                    <span>
-                      Try again in <span class="tabular-nums">{sendWait()}</span>s
+                    <span class={COUNTDOWN_BOX}>
+                      <span class={`${COUNTDOWN_CELL} text-center`}>
+                        Try again in {sendWait()}s
+                      </span>
+                      <span aria-hidden="true" class={`${COUNTDOWN_CELL} invisible`}>
+                        Try again in 00s
+                      </span>
                     </span>
                   ) : (
                     "Send verification link"
@@ -1311,13 +1322,23 @@ export function Register(props: RegisterProps) {
             onCancel={dismiss()}
             action={
               <Button {...stepAction(props.host)} onClick={toSignIn}>
-                Sign in
+                {step() === "added" ? "Sign in with your new passkey" : "Sign in"}
               </Button>
             }
           >
-            <Notice tone="info" size="sm" alert>
+            {/* The heading takes focus as the end appears: the passkey step's
+                button that held it is gone, and nothing else would announce
+                the change. */}
+            <h3
+              ref={(heading) => queueMicrotask(() => heading.focus())}
+              tabindex="-1"
+              class="text-ui-ink text-ui-base font-medium focus:outline-none"
+            >
+              {step() === "added" ? ADDED_HEADING : RAN_OUT_HEADING}
+            </h3>
+            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
               {step() === "added" ? ADDED_LINE : RAN_OUT_LINE}
-            </Notice>
+            </p>
           </ViewStep>
         </Show>
 
