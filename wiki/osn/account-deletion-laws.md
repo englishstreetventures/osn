@@ -7,7 +7,8 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[dsar]]"
-last-reviewed: 2026-11-26
+  - "[[cire-gift-payout-laws]]"
+last-reviewed: 2026-11-27
 ---
 
 # Account deletion laws
@@ -100,7 +101,7 @@ bun run --cwd tools/bend build     # rebuild every set's model.mjs after a .bend
 bun run --cwd tools/bend check     # prove every set, and fail unless each model.mjs is what its model.bend builds
 bash tools/bend/bend.sh prove osn/api/laws/account-deletion   # one set
 bunx --bun vitest run --project laws   # in osn/api: the osn-api agreement tests
-bun test --preload ./tests/test-helpers/metrics-harness.ts tests/laws/   # in cire/api: the cire-api agreement test
+bun test --preload ./tests/test-helpers/metrics-harness.ts tests/laws/   # in cire/api: cire-api's agreement tests, this set's and the gift-payout set's
 ```
 
 Run Bend only through `bend.sh` (`bash tools/bend/bend.sh guide` for the guide), never bare and never `bend update`. It sets `BEND_NO_TELEMETRY=1`, without which Bend asks bend-lang.com for its latest version once a day, and it runs a `bend` only when the binary's SHA-256 is the one `bend.env` pins for the platform. It reads `bend.env` as data, `KEY=value` lines, and never runs it, as the CI job does. A proof passes only when `bend PROOF.bend` exits 0 and prints `ALL PROOFS CHECK`.
