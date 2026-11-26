@@ -183,10 +183,10 @@ owner reads the board by it. The check and the commands are in
 run it. Nobody sets Done by hand: merging closes the issue, and a closed issue's
 card moves to Done. A merge closes only the issues its `Closes` lines name, so
 the pull request that finishes an issue earlier ones marked `Part of` writes
-`Closes` (`write-pr` §Issues), and after a merge that left an issue open,
-`next-batch` §Claim step 5 reads its **Done when** against `main`: every item
-met, the session closes it with a comment saying where each landed; items left,
-it puts the card back with a comment listing them.
+`Closes` (`write-pr` §Issues), and after a merge that left a `Part of` issue
+open, `next-batch` §Claim step 5 reads its **Done when** against `main`: every
+item met, the session closes it with a comment saying where each landed; items
+left, it puts the card back with a comment listing them.
 
 **Held by and Last touched say whose claim it is.** The owner runs sessions
 under three Claude accounts, and no account can see another's sessions, so the
