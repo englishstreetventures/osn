@@ -251,12 +251,16 @@ export async function checkArcKid(
   const [uuid, expiry, ...macs] = parts as [string, string, ...string[]];
   if (!/^\d{1,12}$/.test(expiry) || Number(expiry) <= nowSec) return null;
   if (macs.some((mac) => mac.length !== MAC_LENGTH)) return null;
-  // Every key's MAC, so a kid is refused unless one of its parts verifies
-  // under a secret held; the ask then keeps each part shaped as a MAC.
-  const expected = await Promise.all(
-    keys.map(([secret, info]) => macOf(secret, info, uuid, expiry)),
-  );
-  if (!macs.some((part) => expected.some((mac) => timingSafeEqualString(part, mac)))) return null;
+  // Under each key in turn, the kid secret's first, as osn-api writes its MACs:
+  // the first that verifies decides, and the next is not computed. The ask
+  // keeps every part shaped as a MAC, whichever verified.
+  const verifiesFrom = async (index: number): Promise<boolean> => {
+    const key = keys[index];
+    if (!key) return false;
+    const expected = await macOf(key[0], key[1], uuid, expiry);
+    return macs.some((part) => timingSafeEqualString(part, expected)) || verifiesFrom(index + 1);
+  };
+  if (!(await verifiesFrom(0))) return null;
   const id = `${uuid}.${expiry}`;
   return {
     id,

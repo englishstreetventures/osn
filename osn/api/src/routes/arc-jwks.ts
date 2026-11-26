@@ -139,10 +139,12 @@ function appZone(
  * budget, so while this isolate holds the secret value a key was minted
  * under, nothing a sender makes an app ask for can refuse the asks for it. A
  * kid osn-api cannot verify (a made-up one, or one minted under a secret
- * value this isolate does not hold, during a rotation) is read every time,
- * under a minute budget of its own per address or app zone; a direct
- * caller's asks also spend its address's minute budget. No ask calls the
- * coordination store.
+ * value this isolate does not hold, during a rotation) is answered from
+ * memory when its key is held, and otherwise read under a minute budget of
+ * its own per address or app zone, which the native binding counts in each
+ * Cloudflare location; a key that read finds is held, an absence never. A
+ * direct caller's asks also spend its address's minute budget. No ask calls
+ * the coordination store.
  *
  * Without `kid` it serves the whole list, read fresh, at most
  * `PUBLISHED_OUTBOUND_KEYS_BOUND` keys, the newest: apps on the code before
@@ -252,14 +254,24 @@ export function createArcJwksRoutes(
     }
     const read = () => run(publishedOutboundKeyById(id));
     if (checksKids && (await checkArcKid(ask, kidSecrets, now)) !== null) {
-      const answer = await memory.answer(id, read);
+      const answer = await memory.answer(id, read, true);
       if (answer.full) memoryFull();
       metricArcJwksKeyLookup(lane, answer.read ? "read" : "memory");
       return answer.key;
     }
+    // A kid this isolate cannot verify: a key already held is answered with
+    // no read and no budget; otherwise one budgeted read, holding the key it
+    // finds and never an absence, which a sender could choose.
+    const held = memory.held(id);
+    if (held) {
+      metricArcJwksKeyLookup(lane, "memory");
+      return held.key;
+    }
     if (!(await admittedBy(limiters.minute, probeKey))) return "probe";
     metricArcJwksKeyLookup(lane, "probe");
-    return read();
+    const answer = await memory.answer(id, read, false);
+    if (answer.full) memoryFull();
+    return answer.key;
   };
 
   return new Elysia().get(

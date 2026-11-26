@@ -279,23 +279,30 @@ and each app fetches the one a token names:
      two MAC parts of 22 base64url characters. Anything else is answered with
      no key and no read. A kid one of whose MACs verifies under a secret
      osn-api holds is answered from the isolate's memory
-     (`osn/api/src/lib/outbound-key-memory.ts`): a key found is held a minute,
-     a key not found 30 seconds, and at most 1,024 keys, about 1.4 KB each on
-     V8; past that a key is answered from a read and not held. A key written a
+     (`osn/api/src/lib/outbound-key-memory.ts`): a key found is held a minute
+     from when its read started, a key not found 30 seconds; at most 1,024
+     keys, about 1.4 KB each on V8, past which a key is answered from a read
+     and not held, and at most 128 absences in a map of their own, so ids a
+     holder of a kid secret MACs can never push a key out. Asks that arrive
+     while a read runs share it for five seconds, then start their own, so a
+     read whose request was cancelled holds nothing up. A key written a
      moment ago is read on its first ask, so it is found at once: no token
      names a kid before its row is written. The read is one seek down the
      primary key's index for the row whose kid starts with the ask's
      `<uuid>.<expiry>`, so it never depends on a MAC part. A kid osn-api
      cannot verify (a made-up one, or one minted under a secret value this
-     isolate does not hold, during a rotation) is read on every ask and never
-     held, under a budget of its own: 30 a minute per app zone or address.
+     isolate does not hold, during a rotation) is answered from memory when
+     its key is held; otherwise it is read under a budget of its own, 30 a
+     minute per app zone or address, which the native binding counts in each
+     Cloudflare location, and a key that read finds is held, an absence never.
      A kid osn-api verifies has no budget in the app lane, and no ask calls
      the coordination store, so while osn-api's isolates hold the secret value
      a key was minted under, nothing a sender makes an app ask for can refuse
      its asks for osn-api's real keys. During a rotation, a key minted under
-     the old value takes that budget, which a sender can spend through
-     an app holding no secret: while those keys are in use, a sender can have
-     their asks refused for the rest of each minute. A direct caller's asks also spend
+     the old value takes that budget on its first ask in each isolate each
+     minute, which a sender can spend through an app holding no secret: while
+     those keys are in use, a sender can have such asks refused for the rest
+     of a minute. A direct caller's asks also spend
      its address's minute budget. Each answer is counted (`osn.arc.jwks.key_lookups`, by
      `lane` and `result`: `memory`, `read`, `probe` or `refused`), and a full
      memory is logged once a minute (`osn.arc key memory is full; answering
@@ -451,8 +458,10 @@ already vouches for every access token, so neither gains a power it lacks.
 
 **Revoking a key.** Delete its `arc_outbound_keys` row. Each osn-api isolate
 stops answering it within a minute, and apps stop accepting it when their copy
-lapses, within five minutes in all. While a release runs, an app on the code
-before key-by-id keeps its copy five minutes, so up to six. The isolate holding it
+lapses, within five minutes in all: osn-api holds it a minute from its read's
+start and an app four from its fetch's start. An app on the code before
+key-by-id reads the whole list, which osn-api reads fresh, and keeps its copy
+five minutes. The isolate holding it
 replaces it at its next call to an app once its last passing check is thirty
 seconds old (step 3). Until then it still signs with the revoked key, and so
 does an account export already streaming with it; apps accept those calls

@@ -566,6 +566,33 @@ describe("asking osn-api for one key", () => {
     }
   });
 
+  it("counts the four minutes from when the fetch started, however long it took", async () => {
+    const key = await osnKey(undefined, HOLDS["both secrets"]);
+    published.push(key.jwk);
+    const header = await token(key);
+    const start = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    let release!: () => void;
+    hold = new Promise((resolve) => (release = resolve));
+    try {
+      const first = verify(header, HOLDS["the service secret"]);
+      await vi.waitFor(() => expect(fetches).toBe(1));
+      // The answer takes ten seconds to come back.
+      clock.mockReturnValue(start + 10_000);
+      release();
+      expect(await first).toEqual({ ok: true });
+      hold = null;
+      clock.mockReturnValue(start + 4 * 60_000 - 1);
+      expect(await verify(header, HOLDS["the service secret"])).toEqual({ ok: true });
+      expect(fetches).toBe(1);
+      clock.mockReturnValue(start + 4 * 60_000);
+      expect(await verify(header, HOLDS["the service secret"])).toEqual({ ok: true });
+      expect(fetches).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("admits from the whole list, as an osn-api on the code before key-by-id answers", async () => {
     wholeList = true;
     const key = await osnKey(undefined, HOLDS["both secrets"]);

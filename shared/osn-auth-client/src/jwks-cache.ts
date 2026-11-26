@@ -84,7 +84,7 @@ export interface KeyLookup {
   readonly names: KidNames;
   /** The URL to fetch: the JWKS URL, asking for one kid. */
   readonly from: string;
-  /** How long the key is kept once fetched. */
+  /** How long the key is kept, from when its fetch started. */
   readonly ttlMs: number;
 }
 
@@ -208,10 +208,15 @@ async function fetchPublicKey(
   }
 }
 
-function storeInCache(ck: string, key: CryptoKey, ttlMs: number = JWKS_CACHE_TTL_MS): void {
+function storeInCache(
+  ck: string,
+  key: CryptoKey,
+  ttlMs: number = JWKS_CACHE_TTL_MS,
+  fetchedAt: number = Date.now(),
+): void {
   if (cache.size >= CACHE_MAX_SIZE) evictLru();
   const now = Date.now();
-  cache.set(ck, { key, fetchedAt: now, ttlMs });
+  cache.set(ck, { key, fetchedAt, ttlMs });
   lastAccess.set(ck, now);
   negativeCache.delete(ck);
 }
@@ -252,8 +257,11 @@ export async function resolvePublicKeyForKid(
 
   if (isNegativelyCached(ck)) return null;
 
+  // An ARC lookup's key is kept from when its fetch started, so its time
+  // never runs past what osn-api's own hold allows for (`KeyLookup`).
+  const startedAt = Date.now();
   const key = await fetchPublicKey(kid, jwksUrl, lookup);
-  if (key) storeInCache(ck, key, lookup?.ttlMs);
+  if (key) storeInCache(ck, key, lookup?.ttlMs, lookup ? startedAt : undefined);
   return key;
 }
 

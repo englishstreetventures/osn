@@ -73,9 +73,7 @@ function osnApi(osnHolds: ArcKidSecrets = HOLDS["both secrets"]) {
     osnHolds,
   );
   /** Reads of one key by id: the only statement the key-by-id path runs. */
-  const keyReads = () =>
-    captured.filter((statement) => statement.sql.includes('"arc_outbound_keys"."key_id" >='))
-      .length;
+  const keyReads = () => captured.filter((statement) => statement.sql === KEY_BY_ID_SQL).length;
   const ask = async (kid: string, headers: Record<string, string> = APP) => {
     const res = await routes.handle(
       new Request(`http://localhost/.well-known/arc-jwks.json?kid=${encodeURIComponent(kid)}`, {
@@ -260,13 +258,35 @@ describe("GET /.well-known/arc-jwks.json?kid= — what is read", () => {
     expect(await api.ask(`${uuid}.${expiry}.${v1}`)).toEqual({ status: 200, kids: [kid] });
   });
 
-  it("holding no secret that keys a MAC, reads on every ask and holds nothing", async () => {
+  it("holding no secret that keys a MAC, holds a key it finds and never an absence", async () => {
     const api = osnApi(HOLDS.nothing);
     const kid = await api.publish(HOLDS.nothing);
     expect(kid.split(".")).toHaveLength(2);
     expect(await api.ask(kid)).toEqual({ status: 200, kids: [kid] });
     expect(await api.ask(kid)).toEqual({ status: 200, kids: [kid] });
-    expect(api.keyReads()).toBe(2);
+    expect(api.keyReads()).toBe(1);
+    const missing = `${crypto.randomUUID()}.${nowSec() + 3_600}`;
+    await api.ask(missing);
+    await api.ask(missing);
+    expect(api.keyReads()).toBe(3);
+  });
+
+  it("answers a key minted under a secret value it does not hold from memory once read, past a spent budget", async () => {
+    const api = osnApi({ kidSecret: undefined, serviceSecret: OTHER_SERVICE_SECRET });
+    const kid = await api.publish(HOLDS["the service secret"]);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    expect(await api.ask(kid)).toEqual({ status: 200, kids: [kid] });
+    for (let i = 1; i < OSN_RATE_LIMITS.arcJwksIp.maxRequests; i++) {
+      // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+      await api.ask(madeUp());
+    }
+    expect((await api.ask(madeUp())).status).toBe(429);
+    const reads = api.keyReads();
+    for (let i = 0; i < 10; i++) {
+      // eslint-disable-next-line no-await-in-loop -- one ask at a time
+      expect(await api.ask(kid)).toEqual({ status: 200, kids: [kid] });
+    }
+    expect(api.keyReads()).toBe(reads);
   });
 
   it(`holds at most ${KEY_MEMORY_MAX} keys, answers past that from a read, and says so once a minute`, async () => {
