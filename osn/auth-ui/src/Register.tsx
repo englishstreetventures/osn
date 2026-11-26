@@ -80,7 +80,9 @@ const CONFLICT_LINE = "That handle was taken while you waited. Choose another.";
 /**
  * The countdown label's box: tabular figures, and an unseen two-digit label in
  * the same cell, so the button holds one width from 60 to 1 and Cancel beside
- * it never moves as the label loses a digit.
+ * it never moves as the label loses a digit. The shown label is one text node,
+ * as the unseen one is: Chromium rounds each text node's width up to 1/64px,
+ * so the same words split over three nodes can measure 1/32px wider.
  */
 const COUNTDOWN_BOX = "inline-grid tabular-nums";
 const COUNTDOWN_CELL = "col-start-1 row-start-1";
@@ -1061,7 +1063,7 @@ export function Register(props: RegisterProps) {
                   ) : sendWait() > 0 ? (
                     <span class={COUNTDOWN_BOX}>
                       <span class={`${COUNTDOWN_CELL} text-center`}>
-                        Try again in {sendWait()}s
+                        {`Try again in ${sendWait()}s`}
                       </span>
                       <span aria-hidden="true" class={`${COUNTDOWN_CELL} invisible`}>
                         Try again in 00s
