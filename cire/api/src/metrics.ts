@@ -178,6 +178,9 @@ export const CIRE_METRICS = {
   // Retires of a wedding's Stripe account, by the standing the write recorded
   // or the refusal.
   registryStripeRetire: "cire.registry.stripe.retire",
+  // Retired Standard accounts the daily hand-back sweep reached, by how each
+  // ended.
+  registryStripeHandBack: "cire.registry.stripe.hand_back",
   // Organiser wedding-profile (Settings) saves.
   weddingSettingsSaved: "cire.wedding.settings.saved",
   // Settings writes refused because a non-owner reached past the RSVP-by date.
@@ -371,6 +374,9 @@ export type StripeUnmatchedEvent = "refund" | "dispute";
  */
 export type StripeUnmatchedAccount = "express" | "standard" | "unknown";
 
+/** How the daily sweep ended with one retired Standard account: handed back,
+ *  found already gone at Stripe, or left for a later run and a hand fix. */
+export type StripeHandBackResult = "handed_back" | "released" | "failed";
 /**
  * How a retire of a wedding's Stripe account ended: the standing its write
  * recorded (`registry_retired_accounts.reason`), or why it was refused.
@@ -886,6 +892,7 @@ type OwnerNoticeAttrs = { kind: OwnerNoticeKind; result: OwnerNoticeResult };
 type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent; account: StripeUnmatchedAccount };
 type StripeOAuthAttrs = { outcome: StripeOAuthOutcome };
 type StripeRetireAttrs = { outcome: StripeRetireOutcome };
+type StripeHandBackAttrs = { result: StripeHandBackResult };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
@@ -1443,6 +1450,12 @@ const registryStripeRetire = createCounter<StripeRetireAttrs>({
   unit: "{request}",
 });
 
+const registryStripeHandBack = createCounter<StripeHandBackAttrs>({
+  name: CIRE_METRICS.registryStripeHandBack,
+  description: "Retired Standard accounts the hand-back sweep reached, by result",
+  unit: "{account}",
+});
+
 const weddingSettingsSaved = createCounter<WeddingSettingsSavedAttrs>({
   name: CIRE_METRICS.weddingSettingsSaved,
   description: "Wedding-profile (Settings) saves, by outcome",
@@ -1843,6 +1856,10 @@ export const metricRegistryStripeOAuth = (outcome: StripeOAuthOutcome): void =>
 
 export const metricRegistryStripeRetire = (outcome: StripeRetireOutcome): void =>
   registryStripeRetire.inc({ outcome });
+
+export const metricRegistryStripeHandBack = (result: StripeHandBackResult, count: number): void => {
+  if (count > 0) registryStripeHandBack.add(count, { result });
+};
 
 export const metricWeddingSettingsSaved = (result: WeddingSettingsSavedResult): void =>
   weddingSettingsSaved.inc({ result });

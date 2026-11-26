@@ -409,7 +409,9 @@ export function cireProductionApis(input: {
         flags: ["nodejs_compat", "nodejs_compat_populate_process_env", "legacy_module_registry"],
       },
       domain: hosts.cireApi,
-      crons: ["0 4 * * *"],
+      // The daily run and the retired-account hand-back, which `scheduled`
+      // tells apart by expression (cire/api/src/lib/crons.ts).
+      crons: ["0 4 * * *", "30 4 * * *"],
       workersDev: false,
       previewUrls: false,
       vars: {
@@ -571,7 +573,9 @@ export function cireDeclaration(input: {
         flags: ["nodejs_compat", "nodejs_compat_populate_process_env", "legacy_module_registry"],
       },
       domain: hosts.cireApi,
-      crons: ["0 4 * * *"],
+      // The daily run and the retired-account hand-back, which `scheduled`
+      // tells apart by expression (cire/api/src/lib/crons.ts).
+      crons: ["0 4 * * *", "30 4 * * *"],
       workersDev: false,
       // Off until per-pull-request previews (englishstreetventures/osn#1578):
       // each version's preview URL is a public workers.dev host that no

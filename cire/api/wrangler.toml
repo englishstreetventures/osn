@@ -26,13 +26,16 @@ compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 # migrates the production database.
 workers_dev = false
 
-# The one daily cron. Daily 04:00 UTC — off-peak for the AU/EU guest audience,
-# low contention with normal traffic. It runs every maintenance job in
-# `scheduled` (src/index.ts): the session sweeps, guest-data retention, the
-# wedding purge, the two R2 orphan reconcilers and the rest, all in one
-# invocation. Add a job there rather than a second trigger.
+# Two crons, told apart in `scheduled` (src/index.ts) by the expression,
+# character for character (src/lib/crons.ts holds them; tests/wrangler-config.test.ts
+# keeps them equal). Daily 04:00 UTC — off-peak for the AU/EU guest audience,
+# low contention with normal traffic — runs every maintenance job: the session
+# sweeps, guest-data retention, the wedding purge, the two R2 orphan
+# reconcilers and the rest, all in one invocation; add a job there. Daily 04:30
+# UTC runs only the hand-back of retired Standard Stripe accounts, whose Stripe
+# calls and queries need an invocation of their own.
 [triggers]
-crons = ["0 4 * * *"]
+crons = ["0 4 * * *", "30 4 * * *"]
 
 # Cloudflare Workers Logs / invocations. `enabled = true` persists the Worker's
 # logs (and invocation records) in the dashboard under
@@ -452,7 +455,7 @@ CIRE_R2_RECONCILE_DISABLED = "false"
 # the never-deployed top-level config and never run in production. Keep the
 # schedule in sync with the top-level block.
 [env.production.triggers]
-crons = ["0 4 * * *"]
+crons = ["0 4 * * *", "30 4 * * *"]
 
 # Custom-domain route: serves cire-api on api.cireweddings.com. `custom_domain =
 # true` auto-provisions DNS + edge cert because the cireweddings.com zone is in

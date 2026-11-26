@@ -14,6 +14,7 @@ import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
 import { effectDbFor } from "./db/effect-handle";
 import { parseWeddingIdList } from "./lib/account-linking";
 import { claimReviewAlertTarget, sendClaimReviewAlert } from "./lib/claim-review-email";
+import { HAND_BACK_CRON } from "./lib/crons";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { oidcConfigFromEnv } from "./lib/oidc";
@@ -679,10 +680,18 @@ const handler: ExportedHandler<Env> = {
     return response;
   },
 
-  // Cron-triggered daily maintenance and mail. Configured by the single
-  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Thirteen
-  // independent jobs share the cron (one fewer when the digest has no
-  // transport, and one fewer with no Stripe key):
+  // Cron-triggered maintenance and mail. Two triggers in wrangler.toml's
+  // `[triggers] crons`, told apart by `event.cron`, which Cloudflare hands over
+  // exactly as configured (lib/crons.ts):
+  //
+  //  - HAND_BACK_CRON, daily 04:30 UTC: the hand-back of retired Standard
+  //    Stripe accounts past their 120 days, alone, at most HAND_BACKS_PER_RUN
+  //    a run (services/maintenance-sweeps.ts), wherever Stripe OAuth is set
+  //    up. Alone so its Stripe calls and queries never share the daily run's
+  //    invocation limits.
+  //  - Any other expression, the daily 04:00 UTC run. Thirteen independent
+  //    jobs share it (one fewer when the digest has no transport, and one
+  //    fewer with no Stripe key):
   //
   //  1. Expired-session sweep — guest logins leave session rows that are never
   //     deleted on the read path, so the table grows unbounded without this. The
@@ -733,7 +742,7 @@ const handler: ExportedHandler<Env> = {
   // the other and the isolate stays alive until each delete settles. All
   // thirteen share this one invocation's Workers limits (CPU, subrequests, D1
   // queries).
-  async scheduled(_event, env, ctx) {
+  async scheduled(event, env, ctx) {
     installWorkersTracing(ctx.tracing);
     if (!env.DB) return;
     // Same session routing as `fetch`, for the same reason. The sweeps are
@@ -761,6 +770,33 @@ const handler: ExportedHandler<Env> = {
     const d1 = env.DB;
     const runSweep = <Result>(body: () => Promise<Result>) =>
       ctx.waitUntil(runInD1Session(d1, body));
+
+    if (event.cron === HAND_BACK_CRON) {
+      // Both come from the Stripe key; the hand-back also needs the Connect
+      // client id. Without them no Standard account was ever connected here.
+      const deauthorize = stripeConnectOAuthFromEnv(env).oauth?.deauthorize;
+      const handBackStripe = createStripeClientFromEnv(env);
+      if (deauthorize && handBackStripe) {
+        runSweep(() =>
+          runCire(
+            maintenanceSweeps
+              .handBackRetiredAccounts(new Date(), {
+                deauthorize,
+                retrieveAccount: (accountId) => handBackStripe.retrieveAccount(accountId),
+              })
+              .pipe(
+                Effect.catch((err) =>
+                  Effect.logError("scheduled retired account hand-back failed", {
+                    reason: err.reason,
+                  }),
+                ),
+                Effect.provide(dbLayer),
+              ),
+          ),
+        );
+      }
+      return;
+    }
 
     runSweep(() =>
       runCire(
