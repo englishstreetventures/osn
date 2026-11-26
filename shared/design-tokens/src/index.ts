@@ -95,6 +95,12 @@ export const CONTRACT_SCALAR_TOKENS = {
     // than with a card's corner — cire's guest site wants 28px there with
     // smaller card corners.
     "--ui-radius-sheet",
+    // The fourth role radius: a row inside a menu panel. Apart from `sm`,
+    // which the drawn Checkbox's 16px box also reads, so an app can round its
+    // menu rows like its list rows without turning its checkboxes round. It
+    // falls back to `sm`, so an app that maps none draws its rows at its own
+    // `sm`.
+    "--ui-radius-menu-row",
   ],
   fontFamily: ["--ui-font-body", "--ui-font-display", "--ui-font-mono"],
   // A role, not a step: the weight a shared part sets a short title or a tag

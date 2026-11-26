@@ -109,8 +109,8 @@ which name a new package, token or identifier takes.
 
 Scales, each spelled as a Tailwind utility: `text-ui-xs` … `2xl`,
 `tracking-ui-tight` … `ultra`, `leading-ui-none` … `relaxed`,
-`rounded-ui-hair` … `pill` plus the three role radii `rounded-ui-control`,
-`rounded-ui-field` and `rounded-ui-sheet`, `font-ui-body` /
+`rounded-ui-hair` … `pill` plus the four role radii `rounded-ui-control`,
+`rounded-ui-field`, `rounded-ui-sheet` and `rounded-ui-menu-row`, `font-ui-body` /
 `-display` / `-mono`, the weight role `font-ui-title`, and the measure scale
 `max-w-ui-xs` … `3xl` — declared as `--container-ui-*`, which is the namespace
 Tailwind reads a `max-w-*` from.
@@ -128,30 +128,45 @@ and `CONTRACT_SCALAR_TOKENS` in `src/index.ts` are the enumerable form of both
 lists, and `tests/tokens-css-agrees.test.ts` fails if they and `tokens.css`
 drift apart.
 
-**`control`, `field` and `sheet` are roles, not sizes**, the same way `focus` is
-its own colour rather than an alias of the accent. How round a _button_ is turns
-out to be independent of how round a card is, and so is how round a _text
-field_ is: `Button` reads `control`, while `Input`, `Textarea` and `Select` read
-`field` (`shared/ui/src/ui/control.ts`), so an app can give its buttons pill
-ends without making its fields pills, which read as search boxes. The top edge
-of a _bottom sheet_ is a third: a sheet's grip is measured against the screen
-edge it is pulled from, not against a card.
+**`control`, `field`, `sheet` and `menu-row` are roles, not sizes**, the same
+way `focus` is its own colour rather than an alias of the accent. How round a
+_button_ is turns out to be independent of how round a card is, and so is how
+round a _text field_ is: `Button` reads `control`, while `Input`, `Textarea`
+and `Select` read `field` (`shared/ui/src/ui/control.ts`), so an app can give
+its buttons pill ends without making its fields pills, which read as search
+boxes. The top edge of a _bottom sheet_ is a third: a sheet's grip is measured
+against the screen edge it is pulled from, not against a card. A _row inside a
+menu panel_ is the fourth: `DropdownMenu`'s rows in both looks and `MENU_TOUCH`'s
+rows read `menu-row` (`menu-classes.ts`, `menu-touch-classes.ts`). It is apart
+from `sm` because `sm` is also the corner of small marks: `@shared/ui`'s drawn
+`Checkbox`, a 16px box, reads it, and an app that raised `sm` to round its menu
+rows like its list rows would turn its checkboxes into circles, which read as
+radio buttons.
 
 Each role falls back to a sized step, so an app with no opinion gets its own
-value rather than one from the package: `control` to `md`, `sheet` to `lg`.
-`field` falls back to `control` first and only then to `md`, so an app that maps
-`control` alone keeps its fields and its buttons alike.
+value rather than one from the package: `control` to `md`, `sheet` to `lg`,
+`menu-row` to `sm`. `field` falls back to `control` first and only then to
+`md`, so an app that maps `control` alone keeps its fields and its buttons
+alike.
 
-| Role      | musubi               | pulse                            | cire                                     |
-| --------- | -------------------- | -------------------------------- | ---------------------------------------- |
-| `control` | pill                 | `--radius`, the same as its `md` | pill                                     |
-| `field`   | `--radius-md`, 8px   | not mapped: `--radius`           | 14px                                     |
-| `sheet`   | not mapped: its `lg` | not mapped: its `lg`             | 1.75rem on the guest and marketing sites |
+| Role       | musubi                    | pulse                            | cire                                     |
+| ---------- | ------------------------- | -------------------------------- | ---------------------------------------- |
+| `control`  | pill                      | `--radius`, the same as its `md` | pill                                     |
+| `field`    | `--radius-md`, 8px        | not mapped: `--radius`           | 14px                                     |
+| `sheet`    | not mapped: its `lg`      | not mapped: its `lg`             | 1.75rem on the guest and marketing sites |
+| `menu-row` | not mapped: its `sm`, 6px | not mapped: its `sm`, 6px        | not mapped: its `sm`, 6px                |
+
+`shared/ui/tests/dropdown-menu-default.browser.test.tsx` holds a default row at
+`--ui-radius-sm`'s corner while no menu-row corner is mapped, and at the role's
+once one is; `dropdown-menu.browser.test.tsx` holds the accent and touch rows
+the same way. The E2E suite reads a row of each of pulse's avatar menus at 6px
+under pulse's own stylesheet (`tools/e2e/tests/support/pulse-menus.ts`).
 
 cire's sized steps are 2px `hair`, 6px `sm`, 10px `md`, 16px `lg` and 999px
 `pill`, and its `--toast-radius` is `md`. All four cire stylesheets carry the
 same values: `cire/vendor/tests/styles/tokens.test.ts` reads each one and fails
-if a role or a step differs. What each step paints in cire is
+if a role or a step differs, bar `sheet`, which host and vendor do not map, and
+fails if any of the four maps `menu-row`. What each step paints in cire is
 `cire/host/DESIGN.md` §4.
 
 **`title` is a weight role**, not a step on a weight scale: the weight a shared

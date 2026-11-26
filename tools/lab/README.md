@@ -31,7 +31,7 @@ view. For a component's full range of variants and states, open its own group:
 | `shared/ui/feedback` | Notice, Chip, EmptyState, Stat, Skeleton (`Skeletons`, `SkeletonGrounds`, `SkeletonInPlace`, `SkeletonPlayground`) |
 | `shared/ui/data`     | Table, Meter                                                                    |
 | `shared/ui/Orb`      | The nine states at 64 and 20px, the orb inside each Button variant, live playground |
-| `shared/ui/overlays` | Dialog (title weight, fade with no scale, the sheet's slide), Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs |
+| `shared/ui/overlays` | Dialog (title weight, fade with no scale, the sheet's slide), Modal, DropdownMenu (and a row's corner beside a checkbox's), Popover, InfoPopover, Tooltip, Tabs |
 | `cire/ui/Button`  | Every variant at every size in cire's light and dark mapping; states; each shape claim measured from the painted button; live playground |
 | `cire/ui/Card`    | The plain, accent, eyebrow and interactive cards in cire's light and dark mapping; each padding step, fill and tone, measured from the painted card |
 | `cire/ui/Disclosure` | Each tone closed and open, a card disclosure holding rows, and a nested one, in cire's light and dark mapping, captioned with the marker's painted turn |
@@ -43,7 +43,7 @@ view. For a component's full range of variants and states, open its own group:
 | `design-system/colour` | Every colour role of the token contract in use, swatches captioned with what the browser painted; the contract's obligation groups |
 | `design-system/contrast` | Every pair the conformance harness checks, measured live from the pixels in the current theme |
 | `design-system/type` | The type, tracking, leading and measure scales stacked and compared, contract value beside painted value |
-| `design-system/shape-motion` | Radius (and why `control` is a role), elevation, the focus ring, and durations × easings that move |
+| `design-system/shape-motion` | Radius (and why `control`, `field`, `sheet` and `menu-row` are roles), elevation, the focus ring, and durations × easings that move |
 | `design-system/theming` | The same `@shared/ui` components under musubi's mapping, cire's ramp, and no mapping at all — what `@theme inline` buys |
 
 The `design-system/*` group is the token contract (`@shared/design-tokens`,

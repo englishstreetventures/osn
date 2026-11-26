@@ -191,6 +191,18 @@
    * rather than a number from this package. */
   --radius-ui-sheet: var(--ui-radius-sheet, var(--ui-radius-lg, 10px));
 
+  /* `menu-row` is the fourth role radius: the corner of a row inside a menu
+   * panel — `DropdownMenu`'s rows in both looks, and the touch rows of a menu
+   * drawn without Kobalte (`menu-classes.ts`, `menu-touch-classes.ts`). It is
+   * apart from `sm` because `sm` is also the corner of small marks, and the
+   * drawn `Checkbox`'s 16px box reads it: an app that wants its menu rows at
+   * its list rows' corner, larger than `sm`, would turn its checkboxes round
+   * by raising `sm`.
+   *
+   * It falls back to `sm`, so an app that maps no menu-row corner draws its
+   * rows at its own small corner. */
+  --radius-ui-menu-row: var(--ui-radius-menu-row, var(--ui-radius-sm, 4px));
+
   /* ── Type families ────────────────────────────────────────────────────────
    * Families only — the sizes are the scale below. */
   --font-ui-body: var(--ui-font-body, ui-sans-serif, system-ui, sans-serif);
