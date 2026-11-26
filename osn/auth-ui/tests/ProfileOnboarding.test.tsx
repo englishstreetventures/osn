@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
+import { render, cleanup, screen, fireEvent, waitFor, within } from "@solidjs/testing-library";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 const DISMISSED_KEY = "@osn/ui:profile_onboarding_dismissed";
@@ -27,6 +27,7 @@ vi.mock("@shared/toast", () => ({
 }));
 
 import { ProfileOnboarding } from "../src/ProfileOnboarding";
+import { apiError } from "./helpers/errors";
 
 describe("ProfileOnboarding", () => {
   beforeEach(() => {
@@ -98,5 +99,110 @@ describe("ProfileOnboarding", () => {
     expect(create.map((b) => b.textContent)).toEqual(["Cancel", "Create profile"]);
     expect(create[1]!.form).not.toBeNull();
     expect(create[1]!.form).toBe(screen.getByLabelText("Handle").closest("form"));
+  });
+
+  // Escape, a press outside and a drag down close the sheet, except while
+  // the request it started runs. The drag reads the same `dismissible` that
+  // refuses Escape here; `shared/ui/tests/dialog-drag.browser.test.tsx` ("a
+  // sheet that cannot close") holds that it refuses the drag too.
+  describe("closing the create sheet", () => {
+    /**
+     * Kobalte marks the panel `data-expanded` while it is open and
+     * `data-closed` once it closes. happy-dom never ends the exit animation,
+     * so a closed panel stays in the document: these read the mark.
+     */
+    const isOpen = (dialog: HTMLElement) => dialog.hasAttribute("data-expanded");
+
+    /** Presses the card's Create profile, never the sheet's submit. */
+    async function openSheet() {
+      const card = screen
+        .getAllByRole("button", { name: "Create profile" })
+        .find((button) => !button.closest("[role=dialog]"));
+      fireEvent.click(card!);
+      const dialog = await screen.findByRole("dialog", { name: "Create a new profile" });
+      await waitFor(() => expect(isOpen(dialog)).toBe(true));
+      return dialog;
+    }
+
+    /** Types a handle and presses the sheet's Create profile. */
+    function create(dialog: HTMLElement) {
+      fireEvent.input(within(dialog).getByLabelText("Handle"), { target: { value: "bob" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Create profile" }));
+    }
+
+    function pressEscape(dialog: HTMLElement) {
+      fireEvent.keyDown(dialog, { key: "Escape" });
+    }
+
+    function pressOutside() {
+      fireEvent.pointerDown(document.body);
+    }
+
+    /** Lets every queued promise callback run, and a `setTimeout(0)` after them. */
+    async function flush() {
+      for (let i = 0; i < 5; i += 1) await new Promise((r) => setTimeout(r, 0));
+    }
+
+    // The positive control: the presses the refusals below send do close
+    // the sheet when no request runs.
+    it("closes on Escape and on a press outside before any request", async () => {
+      render(() => <ProfileOnboarding />);
+      const first = await openSheet();
+      pressEscape(first);
+      await waitFor(() => expect(isOpen(first)).toBe(false));
+
+      const second = await openSheet();
+      await flush();
+      pressOutside();
+      await waitFor(() => expect(isOpen(second)).toBe(false));
+    });
+
+    it("refuses Escape while the profile is created", async () => {
+      hoisted.createProfile.mockReturnValue(new Promise(() => {}));
+      render(() => <ProfileOnboarding />);
+      const dialog = await openSheet();
+      create(dialog);
+      await within(dialog).findByRole("button", { name: "Creating…" });
+      pressEscape(dialog);
+      await flush();
+      expect(isOpen(dialog)).toBe(true);
+      expect(within(dialog).getByRole("button", { name: "Creating…" })).toBeTruthy();
+    });
+
+    it("refuses a press outside while the profile is created", async () => {
+      hoisted.createProfile.mockReturnValue(new Promise(() => {}));
+      render(() => <ProfileOnboarding />);
+      const dialog = await openSheet();
+      await flush();
+      create(dialog);
+      await within(dialog).findByRole("button", { name: "Creating…" });
+      pressOutside();
+      await flush();
+      expect(isOpen(dialog)).toBe(true);
+      expect(within(dialog).getByRole("button", { name: "Creating…" })).toBeTruthy();
+    });
+
+    it("closes on Escape again once the request fails", async () => {
+      hoisted.createProfile.mockRejectedValue(apiError("PLANTED Handle taken"));
+      render(() => <ProfileOnboarding />);
+      const dialog = await openSheet();
+      create(dialog);
+      await within(dialog).findByRole("alert");
+      pressEscape(dialog);
+      await waitFor(() => expect(isOpen(dialog)).toBe(false));
+    });
+
+    it("closes itself once the profile is created, and opened again, closes on a press outside", async () => {
+      hoisted.createProfile.mockResolvedValue({ id: "p_2", handle: "bob" });
+      render(() => <ProfileOnboarding />);
+      const first = await openSheet();
+      create(first);
+      await waitFor(() => expect(isOpen(first)).toBe(false));
+
+      const second = await openSheet();
+      await flush();
+      pressOutside();
+      await waitFor(() => expect(isOpen(second)).toBe(false));
+    });
   });
 });

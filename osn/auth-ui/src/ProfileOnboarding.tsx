@@ -25,6 +25,7 @@ export function ProfileOnboarding(props: ProfileOnboardingProps) {
 
   const [dismissed, setDismissed] = createSignal(localStorage.getItem(DISMISSED_KEY) === "1");
   const [showCreate, setShowCreate] = createSignal(false);
+  const [creating, setCreating] = createSignal(false);
 
   function dismiss() {
     setDismissed(true);
@@ -58,13 +59,18 @@ export function ProfileOnboarding(props: ProfileOnboardingProps) {
       </Card>
 
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
-        <DialogContent presentation="sheet" class="md:max-w-sm">
+        {/* Escape, a press outside and a drag down close it, as Cancel does —
+            but never while the create request runs, since Cancel is disabled
+            then too: `dismissible` refuses all three at the panel. Success
+            still closes it, through `open`. */}
+        <DialogContent presentation="sheet" class="md:max-w-sm" dismissible={!creating()}>
           <AuthHeader host="dialog" title="Create a new profile" />
           {/* The form draws its own padded body and its footer. */}
           <CreateProfileForm
             checkHandle={props.checkHandle}
             onSuccess={() => setShowCreate(false)}
             onCancel={() => setShowCreate(false)}
+            onBusyChange={setCreating}
           />
         </DialogContent>
       </Dialog>
