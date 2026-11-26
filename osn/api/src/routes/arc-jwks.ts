@@ -135,12 +135,14 @@ function appZone(
  * no read. A kid one of whose MACs verifies under a secret osn-api holds is
  * answered from this isolate's memory, which reads the database at most once
  * a minute for it (`lib/outbound-key-memory.ts`); a key written a moment ago
- * is read on its first ask. An app's ask spends no budget, so nothing a
- * sender makes an app ask for can refuse the asks for osn-api's real keys. A
+ * is read on its first ask. An app's ask for a kid osn-api verifies spends no
+ * budget, so while this isolate holds the secret value a key was minted
+ * under, nothing a sender makes an app ask for can refuse the asks for it. A
  * kid osn-api cannot verify (a made-up one, or one minted under a secret
- * value this isolate does not hold) is read every time, under a minute budget
- * of its own per address or app zone; a direct caller's asks also spend its
- * address's minute budget. No ask calls the coordination store.
+ * value this isolate does not hold, during a rotation) is read every time,
+ * under a minute budget of its own per address or app zone; a direct
+ * caller's asks also spend its address's minute budget. No ask calls the
+ * coordination store.
  *
  * Without `kid` it serves the whole list, read fresh, at most
  * `PUBLISHED_OUTBOUND_KEYS_BOUND` keys, the newest: apps on the code before

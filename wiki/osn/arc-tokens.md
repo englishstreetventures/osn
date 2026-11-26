@@ -289,10 +289,14 @@ and each app fetches the one a token names:
      cannot verify (a made-up one, or one minted under a secret value this
      isolate does not hold, during a rotation) is read on every ask and never
      held, under a budget of its own: 30 a minute per app zone or address.
-     Nothing else budgets an app's ask, and no ask calls the coordination
-     store, so nothing a sender makes an app ask for can refuse its asks for
-     osn-api's real keys. A direct caller's asks also spend its address's
-     minute budget. Each answer is counted (`osn.arc.jwks.key_lookups`, by
+     A kid osn-api verifies has no budget in the app lane, and no ask calls
+     the coordination store, so while osn-api's isolates hold the secret value
+     a key was minted under, nothing a sender makes an app ask for can refuse
+     its asks for osn-api's real keys. During a rotation, a key minted under
+     the old value takes that budget, which a sender can spend through
+     an app holding no secret: while those keys are in use, a sender can have
+     their asks refused for the rest of each minute. A direct caller's asks also spend
+     its address's minute budget. Each answer is counted (`osn.arc.jwks.key_lookups`, by
      `lane` and `result`: `memory`, `read`, `probe` or `refused`), and a full
      memory is logged once a minute (`osn.arc key memory is full; answering
      without holding`).
@@ -386,11 +390,12 @@ before. Whether osn-api's kids are admitted:
 | Service secret only | admitted, unchecked | admitted | **refused** | admitted |
 | Both | admitted, unchecked | admitted | admitted | admitted |
 
-Every cell asks osn-api by kid. osn-api checks every MAC it holds, so an
-isolate holding the service secret alone still finds a key minted under both,
-and one it cannot verify at all is found through its budgeted read: neither a
-secret change nor a rotation that leaves isolates holding different values
-refuses a kid the app admits.
+Every cell that admits asks osn-api by kid. osn-api checks every MAC it
+holds, so an isolate holding the service secret alone still finds a key minted
+under both, from memory. A key it cannot verify at all, minted under a value
+it does not hold during a rotation, is found through its budgeted read: in
+normal running nothing spends that budget, and a sender who spends it through
+an app holding no secret can delay such keys for the rest of its minute.
 
 Zap and Pulse admit osn-api's kids whichever of them gets the secret first.
 cire-api never holds the service secret, so it admits only a kid carrying the

@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 import { createSchemaSql } from "@osn/db/testing";
 import type { CoordinationStub } from "@shared/coordination";
+import { mintArcKid } from "@shared/crypto/arc-kid";
+import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
 import {
   Miniflare,
   Response as MiniflareResponse,
@@ -15,6 +17,7 @@ import { RECOVERY_LOCKOUT_THRESHOLD } from "../../src/lib/recovery-lockout-store
 import { DEV_PRINCIPAL } from "../../src/routes/auth/dev-login";
 import { AUTH_RATE_LIMITS } from "../../src/routes/auth/limiters";
 import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
+import { KEY_BY_ID_SQL } from "../helpers/arc-key-sql";
 
 /**
  * osn-api end to end on workerd: the bundle `wrangler deploy` uploads, with
@@ -375,9 +378,29 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     const madeUp = `${crypto.randomUUID()}.${expiry}`;
     expect(await served("one key by a made-up kid", `${madeUp}.${"Z".repeat(22)}`)).toEqual([]);
 
+    // A key the Worker can verify with the secret it was deployed with is
+    // answered from memory: deleting its row a moment after the first ask
+    // leaves it answered, where a kid it could not verify is read every time.
+    const db = await mf.getD1Database("DB");
+    const pair = await generateArcKeyPair();
+    const remembered = await mintArcKid(
+      { kidSecret: undefined, serviceSecret: INTERNAL_SERVICE_SECRET },
+      Number(expiry),
+    );
+    await db
+      .prepare(
+        "INSERT INTO arc_outbound_keys (key_id, public_key_jwk, created_at, expires_at) VALUES (?, ?, 0, ?)",
+      )
+      .bind(remembered, await exportKeyToJwk(pair.publicKey), Number(expiry))
+      .run();
+    expect(await served("one key by kid, first ask", remembered)).toEqual([remembered]);
+    await db.prepare("DELETE FROM arc_outbound_keys WHERE key_id = ?").bind(remembered).run();
+    expect(await served("one key by kid, asked again a moment later", remembered)).toEqual([
+      remembered,
+    ]);
+
     // With a thousand more keys published, the read is one seek down the
     // primary key's index, never a walk of the expiry index.
-    const db = await mf.getD1Database("DB");
     const seeded = Array.from(
       { length: 1_000 },
       () => `${crypto.randomUUID()}.${expiry}.${"S".repeat(22)}`,
@@ -397,9 +420,7 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
       );
     }
     try {
-      // The statement `publishedOutboundKeyById` sends, as drizzle writes it.
-      const sql =
-        'select "key_id", "public_key_jwk", "expires_at" from "arc_outbound_keys" where (("arc_outbound_keys"."key_id" >= ?) and ("arc_outbound_keys"."key_id" < ?)) limit ?';
+      const sql = KEY_BY_ID_SQL;
       const id = `${parts[0]}.${expiry}`;
       const plan = await db
         .prepare(`EXPLAIN QUERY PLAN ${sql}`)

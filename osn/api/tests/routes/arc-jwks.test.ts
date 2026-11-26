@@ -46,6 +46,17 @@ describe("GET /.well-known/arc-jwks.json", () => {
     ]);
   });
 
+  it("answers 500 when the read fails", async () => {
+    const { layer, db } = createTestLayerWithSqlite();
+    const app = createArcJwksRoutes(layer);
+    vi.spyOn(db, "select").mockImplementationOnce(() => {
+      throw new Error("D1 is down");
+    });
+    const res = await app.handle(new Request("http://localhost/.well-known/arc-jwks.json"));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "internal_error" });
+  });
+
   it("shows a key written a moment ago on the next request", async () => {
     const { layer, db } = createTestLayerWithSqlite();
     const app = createArcJwksRoutes(layer);

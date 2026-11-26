@@ -97,7 +97,7 @@ marked **TBD** blocks the deploy.
 | **The production account's plan: Workers Paid** | osn-api's coordination store (and every Worker, Durable Object and D1 database on the account) | **The owner switches it in the Cloudflare dashboard before the first release that ships the coordination store** — the deploy token has no billing scope. §1.4 |
 | `INTERNAL_SERVICE_SECRET` (bearer for the coordination probe and register-service) | osn-api + its smoke-check step | **required** — the release refuses to deploy osn-api while its Worker lacks it (§5.9), and the post-deploy smoke check sends it to `GET /health/coordination`. It also guards `POST /graph/internal/register-service`, which registers cire's ARC key, and `PUT /graph/internal/service-scopes/:serviceId`, which renews its scopes (§6.2). The `production` Environment secret of that name holds the Worker's value, for the smoke-check step and for the production operator workflow's `register-cire-arc` (§6.2): it is the one Worker secret value that Environment keeps |
 | `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional; set on both production Workers on 2026-11-19, by the owner** — without it on both Workers, sign out everywhere else, revoking cire's connection and an account deletion's soft delete leave cire organiser sessions alone, to end within their 7 days ([[sessions#Sign out everywhere else reaches cire]]). To set or replace it: `openssl rand -base64 32`, keep your copy, then `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`; no Environment copy (§5.9). On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
-| `OSN_ARC_KID_SECRET` (one value per tier, ≥32 characters) | osn-api + zap-api + cire-api | **optional** — keys a MAC on osn-api's outbound ARC key ids, held for that alone. With it on cire-api, a key id cire-api cannot verify is refused before it fetches osn-api's key list. Set it in the order and with the checks in §5.11. |
+| `OSN_ARC_KID_SECRET` (one value per tier, ≥32 characters) | osn-api + zap-api + cire-api | **optional** — keys a MAC on osn-api's outbound ARC key ids, held for that alone. With it on cire-api, a key id cire-api cannot verify is refused before it asks osn-api for the key. Set it in the order and with the checks in §5.11. |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
 | osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5`, staging `eb71428e-8540-4a30-815f-fb9cd4ae97ea`, prod `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
 | cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `6e835474-e0a7-4db9-8883-3247c3c891cd` |
@@ -1901,8 +1901,8 @@ set -e kid_secret
 cd ../..
 ```
 
-The key list serves every unexpired key, and osn-api signs only with a key it
-lists, so once every key id there has four parts no call can carry one minted
+The key list serves the newest 1,000 unexpired keys, and osn-api signs only
+with a key it lists, so once every key id there has four parts no call can carry one minted
 without the secret. That is normally true within four hours (a key's life) of
 osn-api's `secret put`; a **Production release** dispatched with `force` for
 `osn_api` makes every isolate mint a new key sooner (§5.9).

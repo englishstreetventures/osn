@@ -15,6 +15,7 @@ import {
 import { KEY_MEMORY_MAX } from "../../src/lib/outbound-key-memory";
 import { createArcJwksRoutes } from "../../src/routes/arc-jwks";
 import { memoryLimiter, MINUTE_MS, OSN_RATE_LIMITS } from "../../src/routes/auth/limiters";
+import { KEY_BY_ID_SQL } from "../helpers/arc-key-sql";
 import { createCapturingTestLayer } from "../helpers/db";
 
 /**
@@ -185,6 +186,13 @@ describe("GET /.well-known/arc-jwks.json?kid= — what is read", () => {
     clock.mockReturnValue(start + MINUTE_MS + 1_000);
     expect(await api.ask(kid)).toEqual({ status: 200, kids: [kid] });
     expect(api.keyReads()).toBe(2);
+  });
+
+  it("reads one key with the statement whose plan the workerd test reads on D1", async () => {
+    const api = osnApi();
+    const kid = await api.publish();
+    await api.ask(kid);
+    expect(api.keyReads()).toBe(1);
   });
 
   it("finds a key written a moment ago, while it holds others", async () => {

@@ -1,5 +1,5 @@
 import { generateKeyPair, exportJWK } from "jose";
-import { describe, expect, it, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeAll, beforeEach, afterEach, vi } from "vitest";
 
 import { clearJwksCache, resolvePublicKeyForKid, refreshPublicKeyForKid } from "../src/jwks-cache";
 
@@ -116,6 +116,40 @@ describe("jwks-cache", () => {
     // number or null it would throw.
     const names = (published: string) => published.split(".").slice(0, 2).join(".") === "a.b";
     expect(await resolvePublicKeyForKid("a.b", URL_1, lookup(names))).not.toBeNull();
+  });
+
+  it("keeps an access-token key five minutes, then fetches again", async () => {
+    routes.set(URL_1, [jwkA]);
+    const start = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      clock.mockReturnValue(start + 5 * 60_000 - 1_000);
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      expect(calls.get(URL_1)).toBe(1);
+      clock.mockReturnValue(start + 5 * 60_000 + 1_000);
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      expect(calls.get(URL_1)).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("keeps a refreshed key five minutes too", async () => {
+    routes.set(URL_1, [jwkA]);
+    const start = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      expect(await refreshPublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      clock.mockReturnValue(start + 5 * 60_000 - 1_000);
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      expect(calls.get(URL_1)).toBe(1);
+      clock.mockReturnValue(start + 5 * 60_000 + 1_000);
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      expect(calls.get(URL_1)).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("same kid on two issuers resolves to distinct keys (no collision)", async () => {
