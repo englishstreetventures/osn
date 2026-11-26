@@ -486,6 +486,7 @@ describe("moving the wedding date", () => {
         published: true,
         cashGiftsEnabled: true,
         stripeAccountId: "acct_couple",
+        stripeConnectedByOsnProfileId: OWNER,
         stripeChargesEnabled: true,
         stripeDefaultCurrency: "AUD",
         createdAt: now,

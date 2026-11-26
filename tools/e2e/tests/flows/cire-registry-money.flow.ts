@@ -25,8 +25,10 @@
  *
  * The wedding is `CIRE_ORGANISER.money`, which cire-api seeds for the suite
  * (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`). The flow reads its
- * settings from the database first, so what the portal says is the
- * deployment's doing, not a seed whose couple never switched money gifts on.
+ * settings from the database first — money gifts on, an account that can
+ * charge, and its holder an owner of the wedding — so what the portal says is
+ * the deployment's doing, not a seed whose couple never switched money gifts
+ * on.
  *
  * The wedding's other owner, Kit, connected its Stripe account, so the dev
  * profile is an owner who did not. Back on the settings tab, the panel shows
@@ -149,9 +151,13 @@ function osnSessions(): number {
 test("cire-registry-money", async ({ page, browser, flow }) => {
   const money = queryOne<{ ready: number }>(
     DB_FILES.cire,
-    `SELECT (cash_gifts_enabled = 1 AND stripe_charges_enabled = 1
-             AND stripe_account_id IS NOT NULL) AS ready
-       FROM registry_settings WHERE wedding_id = ?`,
+    `SELECT (s.cash_gifts_enabled = 1 AND s.stripe_charges_enabled = 1
+             AND s.stripe_account_id IS NOT NULL
+             AND EXISTS (SELECT 1 FROM wedding_hosts h
+                          WHERE h.wedding_id = s.wedding_id
+                            AND h.osn_profile_id = s.stripe_connected_by_osn_profile_id
+                            AND h.role = 'owner')) AS ready
+       FROM registry_settings s WHERE s.wedding_id = ?`,
     weddingId,
   );
   flow.check("the couple's settings take money", 1, money?.ready ?? 0);

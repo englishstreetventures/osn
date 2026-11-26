@@ -11,8 +11,10 @@
  * which has a Stripe key and no Connect webhook secret: it could open a
  * payment page but never record the gift, so the list offers neither the money
  * form nor the fund. The flow reads the fund's row and the couple's
- * Stripe-ready settings from that server's database first, so the fund's
- * absence is the deployment's doing, not a seed that lacks one. The guest
+ * Stripe-ready settings from that server's database first — an account held by
+ * an owner of the wedding among them, since cire-api offers no money while the
+ * account's holder holds no owner seat — so the fund's absence is the
+ * deployment's doing, not a seed that lacks one. The guest
  * site's server render reads the first cire-api, which seeds the same wedding;
  * nothing it renders depends on whether a server takes money.
  *
@@ -195,7 +197,11 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
     DB_FILES.cireKeyOnly,
     `SELECT (s.cash_gifts_enabled = 1 AND s.stripe_charges_enabled = 1
              AND s.stripe_account_id IS NOT NULL
-             AND upper(s.stripe_default_currency) = upper(w.currency)) AS ready
+             AND upper(s.stripe_default_currency) = upper(w.currency)
+             AND EXISTS (SELECT 1 FROM wedding_hosts h
+                          WHERE h.wedding_id = s.wedding_id
+                            AND h.osn_profile_id = s.stripe_connected_by_osn_profile_id
+                            AND h.role = 'owner')) AS ready
        FROM registry_settings s JOIN weddings w ON w.id = s.wedding_id
       WHERE w.slug = ?`,
     CIRE_GIFT_LIST.slug,

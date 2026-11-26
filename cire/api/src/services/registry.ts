@@ -102,6 +102,14 @@ class SettlementCurrencyUnknown extends Data.TaggedError("SettlementCurrencyUnkn
   readonly current: RegistrySettingsDto;
 }> {}
 /**
+ * Cash gifts asked for while the account's holder holds no owner seat here, or
+ * nobody is recorded. 409-class: it clears when the holder is an owner again,
+ * or an owner replaces the account. The route names it to owners alone.
+ */
+class PayoutHolderAbsent extends Data.TaggedError("PayoutHolderAbsent")<{
+  readonly current: RegistrySettingsDto;
+}> {}
+/**
  * A settings write whose `expected` values no longer match the row: someone
  * else saved one of the same fields since this caller read it. 409-class.
  * Carries the row as it stands, so the caller can show what changed.
@@ -308,11 +316,19 @@ export const accountTypeOf = (settings: {
  * applies, in this order: what the couple cannot fix with the switch comes
  * before the switch, so a couple with money off and an account in another
  * currency are told the currency, which turning money on would be refused for.
- * The three middle values are the settings PUT's own 409 codes.
+ * The four middle values are the settings PUT's own 409 codes.
  */
 export type MoneyGiftsBlock =
   /** This deployment cannot take a money gift (`takesPayments` false). */
   | "payments_unavailable"
+  /**
+   * The account's holder holds no owner seat here, or nobody is recorded
+   * (`payoutHolderAbsentSql`): a gift would be paid to someone who no longer
+   * runs the wedding. Ahead of `stripe_not_ready`, since only a new account
+   * fixes it. To owners only; anyone else reads `stripe_not_ready`
+   * ({@link settingsForReader}).
+   */
+  | "payout_holder_absent"
   /** No connected account, or Stripe cannot take a charge on it. */
   | "stripe_not_ready"
   /** Stripe has not said which currency the account settles in. */
@@ -370,8 +386,8 @@ export interface RegistrySettingsDto {
   /**
    * To owners only (`settingsForReader`): the account money gifts are paid
    * into is held by someone who holds no owner seat here, or by nobody on
-   * record. Apart from `moneyGiftsBlockedBy`, which can name an earlier
-   * reason. Null for anyone who is not an owner.
+   * record, so money gifts are closed. Apart from `moneyGiftsBlockedBy`, which
+   * can name an earlier reason. Null for anyone who is not an owner.
    */
   payoutHolderAbsent: boolean | null;
   updatedAt: number | null;
@@ -770,9 +786,17 @@ const toSettingsRecord = (r: SettingsRowRead): RegistrySettingsRecord => ({
 });
 
 /**
- * What stops the couple and their account taking money today, or null: Stripe
- * can take a charge, the account settles in the currency every gift is charged
- * in, and the couple said yes. In {@link MoneyGiftsBlock}'s order.
+ * What stops the couple and their account taking money today, or null: the
+ * account's holder holds an owner seat here, Stripe can take a charge, the
+ * account settles in the currency every gift is charged in, and the couple
+ * said yes. In {@link MoneyGiftsBlock}'s order.
+ *
+ * The holder half: the account carries one person's identity and bank, so
+ * while they hold no owner seat — or nobody is recorded — no gift is taken
+ * into it. The account is kept: seated as an owner again, money opens with
+ * the switch on.
+ * `payoutHolderAbsent` is false with no account, so a wedding with none reads
+ * `stripe_not_ready`.
  *
  * The currency half is checked HERE, where money moves, and not only when the
  * couple switch gifts on: an account can be revoked and another connected, or
@@ -784,6 +808,7 @@ const accountMoneyBlock = (
   settings: RegistrySettingsRecord,
   currency: string,
 ): Exclude<MoneyGiftsBlock, "payments_unavailable"> | null => {
+  if (settings.payoutHolderAbsent) return "payout_holder_absent";
   if (!settings.stripeChargesEnabled) return "stripe_not_ready";
   if (!settings.stripeDefaultCurrency) return "stripe_currency_unknown";
   if (settings.stripeDefaultCurrency.toUpperCase() !== currency.toUpperCase()) {
@@ -833,7 +858,10 @@ export interface SettingsReader {
  * cire, and whether its holder still holds an owner seat: the portal needs the
  * first two to offer that owner, and no one else, the onboarding link or the
  * way to their own Stripe Dashboard, and an editor or a viewer need not know
- * whose bank the gifts reach.
+ * whose bank the gifts reach. So to anyone else an account whose holder is
+ * absent reads as one Stripe has not finished with, a state they already see:
+ * it cannot charge, and `payout_holder_absent` reads `stripe_not_ready`. A
+ * reason that comes first, `payments_unavailable`, passes through.
  *
  * A member who cannot edit is also told less about why guests cannot give
  * money. The two currency reasons are an editor's to act on, and they say
@@ -853,10 +881,15 @@ export function settingsForReader(
         ...settings,
         stripeConnectedByOsnProfileId: null,
         stripeAccountType: null,
+        stripeChargesEnabled: settings.stripeChargesEnabled && !settings.payoutHolderAbsent,
+        moneyGiftsBlockedBy:
+          settings.moneyGiftsBlockedBy === "payout_holder_absent"
+            ? "stripe_not_ready"
+            : settings.moneyGiftsBlockedBy,
         payoutHolderAbsent: null,
       };
   if (reader.canEdit) return told;
-  switch (settings.moneyGiftsBlockedBy) {
+  switch (told.moneyGiftsBlockedBy) {
     case "stripe_currency_unknown":
     case "currency_mismatch":
       return {
@@ -1100,19 +1133,21 @@ function claimedByItem(weddingId: string): Effect.Effect<Map<string, number>, ne
 }
 
 /**
- * Why turning money gifts on is refused for this row, or null: the Stripe and
- * currency half of {@link accountMoneyBlock}, which the guest gate reads too.
- * An account can take charges before Stripe names the currency it settles in;
- * until it does, a gift could be converted on Stripe's terms, so the switch
- * waits. Each refusal carries `current`, the row as it stands.
+ * Why turning money gifts on is refused for this row, or null: the holder,
+ * Stripe and currency half of {@link accountMoneyBlock}, which the guest gate
+ * reads too. An account can take charges before Stripe names the currency it
+ * settles in; until it does, a gift could be converted on Stripe's terms, so
+ * the switch waits. Each refusal carries `current`, the row as it stands.
  */
 function moneyOnRefusal(
   record: RegistrySettingsRecord,
   currency: string,
   deployment: MoneyDeployment,
-): StripeNotReady | SettlementCurrencyUnknown | CurrencyMismatch | null {
+): PayoutHolderAbsent | StripeNotReady | SettlementCurrencyUnknown | CurrencyMismatch | null {
   const current = () => toSettingsDto(record, deployment, currency);
   switch (accountMoneyBlock(record, currency)) {
+    case "payout_holder_absent":
+      return new PayoutHolderAbsent({ current: current() });
     case "stripe_not_ready":
       return new StripeNotReady({ current: current() });
     case "stripe_currency_unknown":
@@ -2029,6 +2064,14 @@ export const registryService = {
    * in `./wedding-settings`). The guest gate checks the same rule where the money
    * moves (`takesMoney`).
    *
+   * Nor can it be turned on while the account's holder holds no owner seat
+   * here, or nobody is recorded (`PayoutHolderAbsent`). That check is the read
+   * before the write alone: a holder going between the two leaves the switch on
+   * beside an absent holder, which an erasure leaves too, and the guest gate
+   * closes money either way. Turning money gifts off is never refused: the
+   * switch is the couple's intent, and nothing but this save writes it, so it
+   * survives a change of account.
+   *
    * Two organisers can have the settings open at once. `patch.expected` is how
    * a write says what it was looking at: each field named there must still hold
    * that value — or already hold the new one, so two people making the same
@@ -2052,7 +2095,11 @@ export const registryService = {
     deployment: MoneyDeployment,
   ): Effect.Effect<
     RegistrySettingsDto,
-    StripeNotReady | CurrencyMismatch | SettlementCurrencyUnknown | SettingsChanged,
+    | PayoutHolderAbsent
+    | StripeNotReady
+    | CurrencyMismatch
+    | SettlementCurrencyUnknown
+    | SettingsChanged,
     DbService
   > {
     return Effect.gen(function* () {
@@ -3205,8 +3252,9 @@ export const registryService = {
    *    reads the list and never gives;
    *  - the couple must have said yes (`cash_gifts_enabled`) AND Stripe must be
    *    able to take the charge today (`stripe_charges_enabled`) AND there must
-   *    be an account to take it into. All three, or the guest is sent away
-   *    before their card is;
+   *    be an account to take it into, AND the account's holder must hold an
+   *    owner seat here (`takesMoney`, with the currency rule). All of them, or
+   *    the guest is sent away before their card is;
    *  - a gift given to a fund must name a cash fund of THIS wedding.
    *
    * A missing registry and a foreign family both fail as `RegistryNotVisible`,
@@ -4813,7 +4861,9 @@ const toPublicFundDto = (weddingId: string, r: ItemRow): PublicRegistryFundDto =
  * The settings row travels back with the id because every caller that needs the
  * gate also needs the settings, and re-reading it per route would be a second
  * round trip for a row already in hand. So does the wedding's currency, which
- * saves `guestView` and `contributionContext` a second read of the same row.
+ * saves `guestView` and `contributionContext` a second read of the same row,
+ * and whether the account's holder holds an owner seat, which the money gate
+ * reads (`payoutHolderAbsentSql`).
  */
 function resolveVisibleRegistry(
   slug: string,
@@ -4881,6 +4931,10 @@ function resolveVisibleRegistry(
           stripePayoutsEnabled: registrySettings.stripePayoutsEnabled,
           stripeDefaultCurrency: registrySettings.stripeDefaultCurrency,
           updatedAt: registrySettings.updatedAt,
+          // Whether the account's holder holds an owner seat here: one probe
+          // of `wedding_hosts`' unique index, made only when the row names an
+          // account. 0 with no settings row, where the account is NULL.
+          payoutHolderAbsent: payoutHolderAbsentSql(),
         })
         .from(weddings)
         .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
@@ -4938,14 +4992,15 @@ interface GateRow {
   stripePayoutsEnabled: boolean | null;
   stripeDefaultCurrency: string | null;
   updatedAt: Date | null;
+  payoutHolderAbsent: number | null;
 }
 
 /**
  * The settings half of a gate row whose wedding HAS a settings row. The guest
- * gate does not read who connected the account, nor whether they hold an owner
- * seat — no guest path uses either — so the record says nobody, which no
- * authorisation check would match, and not absent. It does read how the
- * account came, as stored, since a gift keeps it.
+ * gate reads whether the account's holder holds an owner seat, since money
+ * gifts close while they do not, but not who they are — no guest path uses
+ * that — so the record names nobody, which no authorisation check would match.
+ * It does read how the account came, as stored, since a gift keeps it.
  */
 const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   weddingId: r.id,
@@ -4961,7 +5016,8 @@ const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   stripeChargesEnabled: r.stripeChargesEnabled === true,
   stripePayoutsEnabled: r.stripePayoutsEnabled === true,
   stripeDefaultCurrency: r.stripeDefaultCurrency,
-  payoutHolderAbsent: false,
+  // SQLite answers the predicate as 0 or 1.
+  payoutHolderAbsent: r.payoutHolderAbsent === 1,
   updatedAt: r.updatedAt ? r.updatedAt.getTime() : null,
 });
 

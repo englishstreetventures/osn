@@ -330,12 +330,14 @@ export type AccountDeletionWeddingOutcome = "deleted" | "seat_removed";
 /**
  * How a host's request to remove their Cire data ended: all removed, part
  * removed (the portal asks again), refused for an unanswered wedding, refused
- * for want of a confirmation from Musubi, osn-api unavailable, or failed.
+ * while they hold a wedding's payout account, refused for want of a
+ * confirmation from Musubi, osn-api unavailable, or failed.
  */
 export type AccountRemovalResult =
   | "done"
   | "not_finished"
   | "open_actions"
+  | "holds_payout_account"
   | "confirmation_required"
   | "unavailable"
   | "error";
@@ -422,8 +424,9 @@ type HostAddResult =
   | "error";
 
 /** Outcome of removing a seat. `last_owner` — refused, it was the wedding's
- *  only owner (an owner leaving included). */
-type HostRemoveResult = "ok" | "last_owner" | "error";
+ *  only owner (an owner leaving included); `holds_payout_account` — refused,
+ *  the owner holds the Stripe account money gifts are paid into. */
+type HostRemoveResult = "ok" | "last_owner" | "holds_payout_account" | "error";
 
 /**
  * Which route removed the seat — not the caller's role. `owner` is an owner
@@ -433,12 +436,15 @@ type HostRemoveResult = "ok" | "last_owner" | "error";
 type HostRemoveActor = "owner" | "self";
 
 /** Outcome of changing a seat's role. `last_owner` — refused, it would have
- *  left the wedding without an owner; `people_limit_reached` — refused,
- *  moving another owner below owner would have passed the tier's people limit. */
+ *  left the wedding without an owner; `holds_payout_account` — refused, the
+ *  owner moved below owner holds the Stripe account money gifts are paid into;
+ *  `people_limit_reached` — refused, moving another owner below owner would
+ *  have passed the tier's people limit. */
 export type HostRoleChangeResult =
   | "ok"
   | "not_found"
   | "last_owner"
+  | "holds_payout_account"
   | "people_limit_reached"
   | "error";
 

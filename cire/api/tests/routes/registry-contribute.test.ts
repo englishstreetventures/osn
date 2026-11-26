@@ -6,6 +6,7 @@ import {
   registryContributions,
   registryItems,
   registrySettings,
+  weddingHosts,
   weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
@@ -14,7 +15,8 @@ import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
-import { createDb, seedDb } from "../../src/db/setup";
+import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
+import { accountErasureService } from "../../src/services/account-erasure";
 import { hostCodeService } from "../../src/services/host-code";
 import {
   StripeError,
@@ -106,6 +108,7 @@ function buildApp({
   cashGiftsEnabled = true,
   chargesEnabled = true,
   accountId = ACCOUNT as string | null,
+  holder = DEV_OWNER_PROFILE_ID as string | null,
   settlementCurrency = "AUD" as string | null,
   published = true,
   stripe,
@@ -115,6 +118,11 @@ function buildApp({
   cashGiftsEnabled?: boolean;
   chargesEnabled?: boolean;
   accountId?: string | null;
+  /**
+   * Who connected the account: the wedding's owner unless said. Money gifts
+   * close while the holder holds no owner seat, or none is recorded.
+   */
+  holder?: string | null;
   /** The currency Stripe settles the account in; the wedding prices in AUD. */
   settlementCurrency?: string | null;
   published?: boolean;
@@ -159,6 +167,7 @@ function buildApp({
       published,
       cashGiftsEnabled,
       stripeAccountId: accountId,
+      stripeConnectedByOsnProfileId: accountId === null ? null : holder,
       stripeChargesEnabled: chargesEnabled,
       stripePayoutsEnabled: chargesEnabled,
       stripeDefaultCurrency: settlementCurrency,
@@ -408,6 +417,79 @@ describe("the couple must be taking money", () => {
       expect(stripe.sessions).toHaveLength(0);
     });
   }
+
+  /**
+   * The account carries the identity and bank of the owner who connected it.
+   * While they hold no owner seat here, or nobody is recorded, a gift would be
+   * paid to someone who no longer runs the wedding, so none is taken.
+   */
+  describe("and the account's holder must hold an owner seat", () => {
+    const HOLDER = "usr_gift_holder";
+
+    function seatHolder(db: Db, role: "owner" | "editor") {
+      db.insert(weddingHosts)
+        .values({
+          id: "whost_gift_holder",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: HOLDER,
+          addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+          role,
+          createdAt: new Date(),
+        })
+        .run();
+    }
+
+    async function refused(app: App, stripe: ReturnType<typeof stripeStub>) {
+      const res = await contribute(app, await guestCookie(app), { amountMinor: 5000 });
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "cash_gifts_unavailable" });
+      expect(stripe.sessions).toHaveLength(0);
+    }
+
+    it("takes the gift while the holder holds an owner seat", async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ holder: HOLDER, stripe: stripe.client });
+      seatHolder(db, "owner");
+      const res = await contribute(app, await guestCookie(app), { amountMinor: 5000 });
+      expect(res.status).toBe(200);
+      expect(stripe.sessions).toHaveLength(1);
+    });
+
+    it("refuses once the holder's account is erased", async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ holder: HOLDER, stripe: stripe.client });
+      seatHolder(db, "owner");
+      await Effect.runPromise(
+        accountErasureService
+          .erase({ accountId: "acc_gift_holder", profileIds: [HOLDER] })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      await refused(app, stripe);
+    });
+
+    it("refuses when nobody is recorded as the holder", async () => {
+      const stripe = stripeStub();
+      const { app } = buildApp({ holder: null, stripe: stripe.client });
+      await refused(app, stripe);
+    });
+
+    it("refuses while the holder sits below owner, and takes the gift once they are an owner again", async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ holder: HOLDER, stripe: stripe.client });
+      seatHolder(db, "editor");
+      await refused(app, stripe);
+
+      db.update(weddingHosts)
+        .set({ role: "owner" })
+        .where(eq(weddingHosts.osnProfileId, HOLDER))
+        .run();
+      const res = await contribute(app, await guestCookie(app), { amountMinor: 5000 });
+      expect(res.status).toBe(200);
+      // The switch was the couple's all along: nothing turned it off.
+      const [row] = db.select().from(registrySettings).all();
+      expect(row?.cashGiftsEnabled).toBe(true);
+    });
+  });
 
   it("refuses a household of another wedding as the 404 first, even when cash is off", async () => {
     // The household check comes before the cash checks: a 409 here would tell

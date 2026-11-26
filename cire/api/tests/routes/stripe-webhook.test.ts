@@ -12,7 +12,7 @@ import {
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
-import { createDb, seedDb } from "../../src/db/setup";
+import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { WEBHOOK_TOLERANCE_SECONDS } from "../../src/services/stripe";
 import { appRequest, beforeStatement, jsonBody, recordStatements } from "../test-helpers";
@@ -82,6 +82,8 @@ function buildApp({ secret = SECRET as string | null } = {}) {
       published: true,
       cashGiftsEnabled: false,
       stripeAccountId: ACCOUNT,
+      // Connected by the wedding's owner, who holds their owner seat.
+      stripeConnectedByOsnProfileId: DEV_OWNER_PROFILE_ID,
       stripeChargesEnabled: false,
       stripePayoutsEnabled: false,
       createdAt: now,

@@ -15,7 +15,7 @@ import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
-import { createDb, seedDb } from "../../src/db/setup";
+import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { hostCodeService } from "../../src/services/host-code";
 import type {
@@ -117,6 +117,8 @@ function buildApp() {
       published: true,
       cashGiftsEnabled: true,
       stripeAccountId: ACCOUNT,
+      // Connected by the wedding's owner, who holds their owner seat.
+      stripeConnectedByOsnProfileId: DEV_OWNER_PROFILE_ID,
       stripeChargesEnabled: true,
       stripePayoutsEnabled: true,
       stripeDefaultCurrency: "AUD",
