@@ -256,10 +256,15 @@ Where the app does not follow this yet — known breaks include:
   controls; text fields (`@shared/ui`'s `Input`, `Textarea` and `Select`, and
   `OtpInput`'s boxes, through the contract's `--ui-radius-field`, which Musubi
   maps to `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s Popover and
-  menu panels; and the rail search's results panel (`GlobalSearch`), a
-  floating panel drawn as the menus are: `rounded-md`, `bg-popover`,
-  `shadow-md`. A bordered row nested inside a card takes 8px too, the card's
-  own corner already spent; a row standing alone takes 16px ([the owner's
+  menu panels; the rows inside those menus (the account menu's and the theme
+  menu's), through the contract's `--ui-radius-menu-row`, which Musubi maps to
+  `--radius-md` ([the owner's
+  call](https://github.com/englishstreetventures/osn/issues/2103#issuecomment-7164167974),
+  2026-11-26), so the rows take 8px while the drawn Checkbox's box, which
+  reads `--ui-radius-sm`, stays at 6px; and the rail search's results panel
+  (`GlobalSearch`), a floating panel drawn as the menus are: `rounded-md`,
+  `bg-popover`, `shadow-md`. A bordered row nested inside a card takes 8px
+  too, the card's own corner already spent; a row standing alone takes 16px ([the owner's
   call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06): `@osn/auth-ui`'s Settings rows and Settings'
   connected apps, each a `Card radius="md" padding="sm"` inside Settings' card,
   and the new recovery codes' well.
@@ -283,18 +288,25 @@ Where the app does not follow this yet — known breaks include:
   `link` included (the radius sits on Button's base class,
   `shared/ui/src/ui/button.tsx`); chips (§Chips); a person's avatar
   (§Avatars). An organisation's avatar takes 8px (§Avatars).
+- **6px** (`--ui-radius-sm`) — not a family: the corner of a small mark,
+  `@shared/ui`'s drawn Checkbox box, 16px, which at 8px would read as a radio
+  button. The owner kept it at 6px when menu rows moved to 8px ([the owner's
+  call](https://github.com/englishstreetventures/osn/issues/2103#issuecomment-7164167974),
+  2026-11-26). No row, card or control takes it.
 - **Sheets** — below `md`, dialogs render as bottom sheets: 16px top corners
   (the contract's `--ui-radius-sheet`, which Musubi leaves to fall back to
   `--ui-radius-lg`) with square bottom corners at every width up to 767px,
   pinned to the bottom edge (see Responsive layout).
 
+`tools/e2e` reads a theme-menu row at 8px (`musubi-surfaces.ts`) and the
+drawn "Delete everything" box at 6px (`musubi-account-deletion`).
+
 Where the app does not follow this yet — known breaks include:
 
-- `@shared/ui`'s default menu rows, the account menu's and the theme menu's,
-  take `--ui-radius-sm`, 6px (#2103), and so do `Notice`'s `sm` and `md`
-  boxes (the shell's "You've been signed out." and the legal pages' draft
-  notice). The token stays 6px because `@shared/ui`'s drawn Checkbox, a 16px
-  box, reads it too, and would turn round at 8px.
+- `Notice`'s `sm` and `md` boxes (the shell's "You've been signed out." and
+  the legal pages' draft notice) take `--ui-radius-sm`, 6px. The token stays
+  6px because `@shared/ui`'s drawn Checkbox, a 16px box, reads it too, and
+  would turn round at 8px.
 
 ## Chips
 
@@ -1437,8 +1449,8 @@ own vocabulary (`bg-card`, `text-muted-foreground`) stays as written.
   the toast accents; `--ui-danger` takes `--destructive`; `--ui-focus` takes
   `--ring`.
 - **Radius.** `--ui-radius-sm` 6px, `-md` 8px, `-lg` 16px (`--radius-card`),
-  `-pill` and `-control` a pill, `-field` 8px (`--radius-md`). No
-  `--ui-radius-sheet` is set, so sheets take the large radius.
+  `-pill` and `-control` a pill, `-field` and `-menu-row` 8px (`--radius-md`).
+  No `--ui-radius-sheet` is set, so sheets take the large radius.
 - **Base rules.** The bare-border and focus rules (§Borders, §Focus) read the
   contract's `--ui-hairline` and `--ui-focus`, so a subtree that maps its own —
   the lab's cire column — draws its own colours.

@@ -362,7 +362,9 @@ function EveryRow(props: { variant?: "default" | "accent"; theme?: CireTheme }) 
  * Every row kind in the shared default look, the look musubi's and pulse's
  * menus take. The lab maps Musubi's motion, so here the panel fades in and out
  * with no scale, as in Musubi; pulse maps no scale, so its menus grow
- * from 96% as they open and shrink to 98% as they close.
+ * from 96% as they open and shrink to 98% as they close. The lab maps
+ * Musubi's 8px menu-row corner too, where pulse's rows keep its 6px small
+ * corner (`MenuRowCorner` shows both).
  */
 export const MenuItems = () => <EveryRow />;
 
