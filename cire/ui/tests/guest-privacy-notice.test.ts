@@ -293,9 +293,10 @@ describe("guest privacy notice", () => {
    * promises no email.
    */
   it("says a change shows on the page and its date, and promises no email", () => {
-    const start = body.indexOf("Changes to this notice");
+    const start = body.indexOf("<Section>Changes to this notice</Section>");
     expect(start).toBeGreaterThan(-1);
-    const changes = body.slice(start);
+    const next = body.indexOf("<Section>", start + 1);
+    const changes = body.slice(start, next === -1 ? undefined : next);
     expect(changes).toMatch(
       phrase("this page is updated and the “last updated” date above revised."),
     );

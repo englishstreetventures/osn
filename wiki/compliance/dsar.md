@@ -208,7 +208,7 @@ owners, each with an `owner` seat. Two consequences:
     into, as an owner beside another owner
     ([`organiser-account.ts`](../../cire/api/src/routes/organiser-account.ts));
     the screen marks such weddings from its first step, and the hosts'
-    privacy notice says so. Then it runs only once each wedding they alone own
+    privacy notice states the refusal. Then it runs only once each wedding they alone own
     is answered `delete`.
     It runs with the `host` scope, which leaves their vendor listing claims and
     their guest account links as they are; everything else above goes, their
@@ -228,10 +228,10 @@ owners, each with an `owner` seat. Two consequences:
     until they have added another owner or agreed to its deletion in writing;
     then remove their seats and notice rows, soft-delete each wedding left
     with no owner, and clear every column that names one of their profiles as
-    a host. The payout-account refusal is the portal's: the notice states it
-    for Remove my Cire data alone, and a request by email from a person who
-    holds a wedding's payout account goes to the owner
-    ([[#Art. 17 — Right of erasure]], the payout account).
+    a host. The payout-account refusal is the portal's, and the notice states
+    it for Remove my Cire data alone. A request by email from a person who
+    holds a wedding's payout account is answered as the payout-account
+    paragraph under [[#Art. 17 — Right of erasure]] says.
 - **Co-owners in an owner's export (Art. 15(4)).** An owner's own data
   includes the seats on their weddings, and those name other people: every
   other owner's and co-host's profile id, who added each seat
@@ -496,6 +496,8 @@ answering, since no Art. 17(3) ground covers the hold.
 ### Art. 18 — Restriction of processing
 
 Sets `accounts.processing_restricted_at`. The column exists and `findAccountById` reads it, but **nothing writes it and no route enforces it yet** — an operator sets it by hand in the DB, and the intended effect (account cannot post events, send messages, accept connections, while data is preserved) is not enforced in code. Used pending dispute.
+
+The change-notice run skips a restricted account ([[change-notices#Who gets it]]), while Musubi's privacy notice and terms promise the email to every account holder. When you set the column, tell the person that change notices stop until the restriction is lifted.
 
 ### Art. 20 — Portability
 

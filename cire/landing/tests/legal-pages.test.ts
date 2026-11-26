@@ -361,14 +361,13 @@ describe("legal pages", () => {
    * owners beside another (`cire/api/src/routes/organiser-account.ts`), so
    * the hosts' notice says so where it offers the removal.
    */
-  it("the hosts' notice says the removal asks a payout account's holder to hand it on first", () => {
+  it("the hosts' notice says the removal waits for a payout account's holder to hand it on", () => {
     const text = flat(hosts);
     expect(text).toMatch(
       /If you connected the Stripe account a wedding&rsquo;s money gifts are paid/,
     );
-    expect(text).toMatch(
-      /Remove my Cire data asks you first to hand money gifts to another owner or disconnect the account/,
-    );
+    expect(text).toMatch(/hand money gifts to another owner or disconnect the account/);
+    expect(text).toMatch(/until you do, Remove my Cire data will not run/);
   });
 });
 
