@@ -4,9 +4,11 @@
   "tasks": {
     // tests/laws/ compares the deletion model that tools/deletion-laws
     // compiles to model.mjs with this package's services. It runs as
-    // `test:repo`, which names that file and its types, so the other suites
-    // stay cached when only the model changes. The type check reads the
-    // types too, beside the root task's own input.
+    // `test:repo`, which names that file and its types as inputs. `test`
+    // depends on `test:repo`, and turbo folds a dependency's hash into the
+    // task's, so a change to the model reruns this package's whole suite as
+    // well. The type check reads the types too, beside the root task's own
+    // input.
     "test": {
       "dependsOn": ["^build", "test:repo"]
     },

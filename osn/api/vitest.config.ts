@@ -15,9 +15,8 @@ const EXCLUDE = [...configDefaults.exclude, "**/dist/**", "tests/d1/**", "tests/
 
 // `tests/laws/` reads a file outside this package: the deletion model that
 // tools/deletion-laws compiles to `model.mjs`. It runs as the `repo` project
-// (`test:repo`), which turbo reruns when that file changes (`turbo.json`
-// here); the `shared` and `isolated` projects stay cached on this package's
-// own files.
+// (`test:repo`), whose turbo inputs name that file (`turbo.json` here); the
+// `shared` and `isolated` projects run as `test`.
 const READS_REPO = "tests/laws/**/*.test.ts";
 
 // Most files share a worker's module cache (`isolate: false`), so the app and

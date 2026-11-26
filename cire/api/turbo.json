@@ -23,12 +23,13 @@
     // tests/laws/ compares the deletion model that tools/deletion-laws
     // compiles to model.mjs with this package's services: `test` leaves it
     // out (package.json) and `test:repo` runs it, rerun when the model or its
-    // types change. The type check reads the types too, beside the root
-    // task's own input.
+    // types change; through `test`'s dependency on it, so is the whole suite.
+    // The type check reads the types too, beside the root task's own input.
     "test:repo": {
       "inputs": [
         "$TURBO_DEFAULT$",
         "!**/*.md",
+        "!tests/db/d1-integration.test.ts",
         "$TURBO_ROOT$/tools/deletion-laws/model.mjs",
         "$TURBO_ROOT$/tools/deletion-laws/model.d.mts"
       ]

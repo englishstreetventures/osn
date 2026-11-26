@@ -61,12 +61,12 @@ Work is tracked in GitHub Issues, never the wiki.
 - **Deferrals** get an issue, and the code carries only the link: `// Bounded until englishstreetventures/osn#412 lands.` A settled choice with its reason can stay inline.
 - **Instruction files state the present.** This file, a `SKILL.md` or a wiki page says what to do now, never how it came to be; `git log` holds that. A reason that stops a mistake stays.
 - **Bend.** The account-deletion rules are a Bend model in `tools/deletion-laws/`, with laws proved about it (`wiki/osn/account-deletion-laws.md`). When writing or changing a `.bend` file:
-  - run `bend guide` to learn Bend 2 first; what you know of Bend 1 is wrong here;
+  - run `bend guide` to learn Bend 2 first (`bash tools/deletion-laws/bend.sh guide`); what you know of Bend 1 is wrong here;
   - keep the important rules in `LAWS.bend`, and change a law there only by the owner's decision;
-  - run `bend PROOF.bend` before committing (`bun run --cwd tools/deletion-laws check` also checks `model.mjs`);
+  - run `bend PROOF.bend` before committing (`bun run --cwd tools/deletion-laws prove`; `check` also checks `model.mjs`);
   - parallelize the code wherever a parallel call fits: independent calls of about the same size.
 
-  Run Bend through `tools/deletion-laws/bend.sh`, which holds it to the version `bend.env` pins and sets `BEND_NO_TELEMETRY=1`, so it never pings bend-lang.com.
+  Never run `bend` bare, and never `bend update`: run it through `tools/deletion-laws/bend.sh`, which runs only the build `bend.env` pins and sets `BEND_NO_TELEMETRY=1`. Without that variable, Bend asks bend-lang.com for its latest version once a day.
 - **House lint rules** (`house/*` in `tools/oxlint/house`) and why they exist: `wiki/conventions/house-lint-rules.md`. Agent skills, evals and vendored trees: `wiki/conventions/agent-tooling.md`.
 - Lefthook formats and lints staged files on commit, runs the advisory secret scan on staged content, proves the deletion laws when a `.bend` file is staged, and type-checks on push. CI's `Secret scan` job is the gate.
 

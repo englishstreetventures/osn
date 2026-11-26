@@ -1370,7 +1370,6 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   const ci = load(".github/workflows/ci.yml");
   const SKIP = "needs.changes.outputs.docs-only != 'true'";
   const SKIPPABLE = [
-    "bend-proofs",
     "browser",
     "build-test",
     "cire-api-tests",
@@ -1390,7 +1389,10 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
     const waiting = Object.entries(ci.jobs)
       .filter(([, job]) => needsOf(job).includes("changes"))
       .map(([id]) => id);
-    expect(waiting.toSorted()).toEqual([...SKIPPABLE, "ci"].toSorted());
+    expect(waiting.toSorted()).toEqual([...SKIPPABLE, "bend-proofs", "ci"].toSorted());
+    // The Bend proofs read only their own files: the classifier's `bend`
+    // output, true for any change to them and whenever no diff was computed.
+    expect(ci.jobs["bend-proofs"]?.if).toBe("needs.changes.outputs.bend == 'true'");
     for (const id of SKIPPABLE) {
       expect({ id, if: ci.jobs[id]?.if }).toEqual({
         id,
@@ -1422,7 +1424,12 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
     commits: readonly (readonly Change[])[],
     event: (shas: readonly string[]) => Record<string, string>,
     { classifierOnBase = true } = {},
-  ): { readonly exitCode: number; readonly output: string; readonly verdict: string } {
+  ): {
+    readonly exitCode: number;
+    readonly output: string;
+    readonly verdict: string;
+    readonly bend: string;
+  } {
     const dir = mkdtempSync(join(tmpdir(), "ci-changes-"));
     const git = (...args: string[]) => {
       const result = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...args], {
@@ -1473,6 +1480,7 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
       exitCode: result.exitCode,
       output: result.stdout.toString() + result.stderr.toString(),
       verdict: /^docs-only=(.*)$/m.exec(written)?.[1] ?? "<none>",
+      bend: /^bend=(.*)$/m.exec(written)?.[1] ?? "<none>",
     };
   }
 
@@ -1530,10 +1538,27 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   });
 
   test("a base with no classifier yet runs every job", () => {
-    const { exitCode, output, verdict } = classify([["wiki/a.md"]], pullRequest, {
+    const { exitCode, output, verdict, bend } = classify([["wiki/a.md"]], pullRequest, {
       classifierOnBase: false,
     });
-    expect({ exitCode, verdict }, output).toEqual({ exitCode: 0, verdict: "false" });
+    expect({ exitCode, verdict, bend }, output).toEqual({
+      exitCode: 0,
+      verdict: "false",
+      bend: "true",
+    });
+  });
+
+  // The Bend proofs read tools/deletion-laws, their installer and this
+  // workflow, and nothing else; a change to none of them skips the job.
+  test.each([
+    ["a change to the model", "true", [["tools/deletion-laws/account.bend"]]],
+    ["a change to the installer", "true", [["scripts/install-bend.sh"]]],
+    ["a change to this workflow", "true", [[".github/workflows/ci.yml"]]],
+    ["a change to a service the model describes", "false", [["osn/api/src/a.ts"]]],
+    ["a change of prose", "false", [["wiki/a.md"]]],
+  ] as const)("%s: the Bend proofs run is %s", (_, expected, commits) => {
+    const { exitCode, output, bend } = classify(commits, pullRequest);
+    expect({ exitCode, bend }, output).toEqual({ exitCode: 0, bend: expected });
   });
 });
 

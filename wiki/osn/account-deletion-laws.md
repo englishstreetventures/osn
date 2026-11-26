@@ -81,7 +81,7 @@ The model makes one assumption the code does not state: one clock that never goe
 
 ## Running it
 
-Install the pinned Bend once (it checks the release's SHA-256 against `bend.env`, and installs into `~/.bend`):
+Install the pinned Bend once (it checks the release's SHA-256 against `bend.env`, and installs into `~/.bend`; leave `~/.bend/bin` off the PATH, so nothing runs it bare):
 
 ```bash
 bash tools/deletion-laws/bend.sh install
@@ -92,7 +92,7 @@ bun run --cwd osn/api test:repo           # the osn-api agreement tests
 bun run --cwd cire/api test:repo          # the cire-api agreement test
 ```
 
-Every run goes through `bend.sh`, which sets `BEND_NO_TELEMETRY=1`: without it, Bend asks bend-lang.com for the latest version once a day. It refuses any version but the one `bend.env` pins.
+Run Bend only through `bend.sh` (`bash tools/deletion-laws/bend.sh guide` for the guide), never bare and never `bend update`. It sets `BEND_NO_TELEMETRY=1`, without which Bend asks bend-lang.com for its latest version once a day, and it runs a `bend` only when the binary's SHA-256 is the one `bend.env` pins for the platform.
 
 - **On commit**, lefthook's `bend-proofs` step runs when a `.bend` file is staged: it proves the laws and rebuilds `model.mjs`, and fails, asking for it to be staged, when the rebuild changed it. With no Bend, or another version, it prints one line and passes.
 - **`bend.sh` itself** is tested by `scripts/tests/deletion-laws-bend-sh.cli.test.ts` (a stale `model.mjs`, a failed proof, another version, no Bend, the hook's two outcomes), and the pinned install by `scripts/tests/install-bend.cli.test.ts`.
@@ -102,4 +102,4 @@ Every run goes through `bend.sh`, which sets `BEND_NO_TELEMETRY=1`: without it, 
 
 - **The code changes.** If an agreement test fails, the model no longer describes the code: change the model and re-prove, or the code was wrong. If a law then fails to prove, the change broke a deletion rule.
 - **A rule changes.** Change the model, rebuild `model.mjs`, re-prove; a law changes only by the owner's decision.
-- **Writing Bend.** `AGENTS.md` §Standing rules has the owner's four rules. Run `bend guide` first: Bend 2 is not Bend 1, and what you know of Bend 1 is wrong here.
+- **Writing Bend.** `AGENTS.md` §Standing rules has the owner's four rules. Read the guide first (`bash tools/deletion-laws/bend.sh guide`): Bend 2 is not Bend 1, and what you know of Bend 1 is wrong here.

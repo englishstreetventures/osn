@@ -7,6 +7,7 @@ proofs do not show and how to run them: `wiki/osn/account-deletion-laws.md`.
 
 ```bash
 bash tools/deletion-laws/bend.sh install     # the Bend release bend.env pins, SHA-256 checked
+bash tools/deletion-laws/bend.sh guide       # how to write Bend 2 (never run bend bare: it pings bend-lang.com)
 bun run --cwd tools/deletion-laws prove      # bend PROOF.bend
 bun run --cwd tools/deletion-laws check      # prove, and check model.mjs is what model.bend builds
 bun run --cwd tools/deletion-laws build      # rebuild model.mjs after changing a .bend file

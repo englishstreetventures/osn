@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       docs-only: ${{ steps.classify.outputs.docs-only }}
+      bend: ${{ steps.classify.outputs.bend }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,12 +82,22 @@ jobs:
             changed=$(git diff --no-renames --name-only "$base" HEAD); then
             printf '%s\n' "$changed"
             docs_only=$(printf '%s\n' "$changed" | bash "$RUNNER_TEMP/docs-only.sh")
+            # The Bend proofs read only tools/deletion-laws, the installer and
+            # this workflow.
+            if printf '%s\n' "$changed" | grep -qE '^(tools/deletion-laws/|scripts/install-bend\.sh$|\.github/workflows/ci\.yml$)'; then
+              bend=true
+            else
+              bend=false
+            fi
           else
             echo "::notice::No diff or no classifier at '$base'; every job runs."
             docs_only=false
+            bend=true
           fi
           echo "Prose only: $docs_only"
+          echo "Bend proofs: $bend"
           echo "docs-only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "bend=$bend" >> "$GITHUB_OUTPUT"
 
   lint:
     name: Lint & Format
@@ -1211,12 +1222,14 @@ jobs:
   # LAWS.bend is proved (`bend PROOF.bend` prints ALL PROOFS CHECK), and that
   # the committed model.mjs, which the agreement tests in osn/api and cire/api
   # import, is byte for byte what model.bend builds. Those tests run in Build
-  # & Test and in the cire-api job. Bend is one binary, so the job installs no
-  # dependencies.
+  # & Test and in the cire-api job, on every change. Bend is one binary, so
+  # the job installs no dependencies.
   bend-proofs:
     name: Bend proofs
     needs: changes
-    if: needs.changes.outputs.docs-only != 'true'
+    # Only when the change touches what the proofs read (the `changes` job's
+    # `bend`), or when no diff could be computed; skipped counts as passed.
+    if: needs.changes.outputs.bend == 'true'
     runs-on: ubuntu-latest
     # Bounded: one checkout, one pinned tarball (cached, or downloaded with
     # retries) and two Bend runs of under a second each.

@@ -1,9 +1,11 @@
-// tools/deletion-laws/bend.sh, one test per way it can let a broken proof or
-// a stale model through, or block someone it should not. CI's `bend-proofs`
-// job runs `bend.sh check` and lefthook's `bend-proofs` step runs `bend.sh
-// hook`. Each test copies the script into a scratch repository beside a copy
-// of the real bend.env and puts a stub `bend` on the PATH that answers
-// `version`, proves or fails as the world says, and builds the world's model.
+// tools/deletion-laws/bend.sh, one test per way it can let a broken proof, a
+// stale model or a bend that is not the pinned build through, run bend with
+// its version ping on, or block someone it should not. CI's `bend-proofs` job
+// runs `bend.sh check` and lefthook's `bend-proofs` step runs `bend.sh hook`.
+// Each test copies the script into a scratch repository beside a copy of the
+// real bend.env and puts a stub `bend` on the PATH that answers `version`,
+// proves or fails as the world says, builds the world's model and prints a
+// guide; bend.env then pins the stub's own SHA-256.
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -64,9 +66,20 @@ function world(): World {
   return { repo, laws, bin, log };
 }
 
-/** A stub bend: `version`, `PROOF.bend` and `model.bend -o <out>`, logging each call's telemetry setting. */
-function stubBend(w: World, opts: { version?: string; proves?: boolean; builds?: string } = {}) {
-  const { version = `bend ${PINNED}`, proves = true, builds = COMMITTED } = opts;
+const TARGET = `${process.platform === "darwin" ? "DARWIN" : "LINUX"}_${process.arch === "arm64" ? "ARM64" : "X64"}`;
+const sha256 = (bytes: Buffer) => new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+
+/**
+ * A stub bend: `version`, `PROOF.bend`, `model.bend -o <out>` and `guide`,
+ * logging each call's telemetry setting. Unless `pinned` is false, the world's
+ * bend.env pins the stub's own SHA-256 for this platform, as it pins the real
+ * release's binary.
+ */
+function stubBend(
+  w: World,
+  opts: { version?: string; proves?: boolean; builds?: string; pinned?: boolean } = {},
+) {
+  const { version = `bend ${PINNED}`, proves = true, builds = COMMITTED, pinned = true } = opts;
   writeFileSync(join(w.bin, "model.out"), builds);
   writeFileSync(
     join(w.bin, "bend"),
@@ -79,14 +92,26 @@ function stubBend(w: World, opts: { version?: string; proves?: boolean; builds?:
         ? '  PROOF.bend) echo "ALL PROOFS CHECK" ;;'
         : '  PROOF.bend) echo "SOME PROOFS FAIL"; exit 1 ;;',
       `  model.bend) cp "${join(w.bin, "model.out")}" "$3" ;;`,
+      '  guide) echo "# Bend guide $2" ;;',
       "esac",
     ].join("\n"),
   );
   chmodSync(join(w.bin, "bend"), 0o755);
+  if (pinned) {
+    const env = join(w.laws, "bend.env");
+    const digest = sha256(readFileSync(join(w.bin, "bend")));
+    writeFileSync(
+      env,
+      readFileSync(env, "utf8").replace(
+        new RegExp(`^BEND_BIN_SHA256_${TARGET}=.*$`, "m"),
+        `BEND_BIN_SHA256_${TARGET}=${digest}`,
+      ),
+    );
+  }
 }
 
 function bendSh(w: World, command: string, onPath = true) {
-  const result = spawnSync("bash", [join(w.laws, "bend.sh"), command], {
+  const result = spawnSync("bash", [join(w.laws, "bend.sh"), ...command.split(" ")], {
     cwd: w.repo,
     encoding: "utf8",
     env: {
@@ -154,6 +179,24 @@ describe("bend.sh", () => {
     expect(run.status, run.output).toBe(0);
   });
 
+  test("prove refuses a bend that reports the pinned version but is not the pinned build", () => {
+    const w = world();
+    stubBend(w, { pinned: false });
+    const run = bendSh(w, "prove");
+    expect(run.status, run.output).toBe(1);
+    expect(run.output).toContain(`not the pinned Bend ${PINNED} build`);
+    expect(run.calls).toEqual([]);
+  });
+
+  test("guide passes its topic to the pinned bend, with telemetry off", () => {
+    const w = world();
+    stubBend(w);
+    const run = bendSh(w, "guide effects");
+    expect(run.status, run.output).toBe(0);
+    expect(run.output).toContain("# Bend guide effects");
+    expect(run.calls.filter((call) => call.endsWith(" guide"))).toEqual(["1 guide"]);
+  });
+
   test("with no bend installed, prove fails and says how to install it", () => {
     const w = world();
     const run = bendSh(w, "prove", false);
@@ -164,9 +207,12 @@ describe("bend.sh", () => {
   test.each([
     ["no bend installed", undefined],
     ["another version installed", "bend 2.0.39"],
-  ])("hook passes with one line when there is %s", (_, version) => {
+    ["a binary that is not the pinned build", `bend ${PINNED}`],
+  ])("hook passes with one line when there is %s", (name, version) => {
     const w = world();
-    if (version !== undefined) stubBend(w, { version, proves: false });
+    if (version !== undefined) {
+      stubBend(w, { version, proves: false, pinned: !name.includes("not the pinned build") });
+    }
     const run = bendSh(w, "hook", version !== undefined);
     expect(run.status, run.output).toBe(0);
     expect(run.output.trim().split("\n")).toHaveLength(1);
