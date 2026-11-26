@@ -19,6 +19,8 @@ last-reviewed: 2026-11-26
 
 How a person deletes their Musubi account, what happens in each app when they do, and how they leave one app while keeping the account. This page is the one description of the flow and of the contract every app implements; [[dsar]] holds the legal side (the rights, the runbook for a written request, cire's guest data) and [[retention]] the periods.
 
+[[account-deletion-laws]] states this page's rules as laws, proves them about a model of the flow, and tests the model against the code.
+
 > [!important] Every app tells the person what is still open
 > Before an account deletion is accepted, each app says what it still holds that needs the person's answer, and the person answers it or chooses "Delete everything". An app that cannot be asked blocks the deletion. Cire never lets a wedding pass to an editor or exist without an owner: while the person is the only owner of a live wedding, the deletion is refused until they add another owner, delete the wedding, or answer that it is deleted with them (owner, 2026-11-16).
 

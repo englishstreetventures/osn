@@ -78,7 +78,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Monorepo Structure
@@ -172,6 +172,7 @@ tools/                 # local-only developer tooling, never shipped
   pr-metrics/          # @tools/pr-metrics — the session-performance cards themselves
   oxlint/house/        # @tools/oxlint-house — this repo's own lint rules (oxlint/anti-slop beside it is a vendored upstream copy)
   stryker/             # @tools/stryker — runs Stryker mutation testing for a cire package (`test:mutation`)
+  deletion-laws/       # not a workspace — the account-deletion rules as a Bend model, the laws proved about it (`bend PROOF.bend`), and the compiled model.mjs the agreement tests import
 ```
 
 ## Where to find things

@@ -11,7 +11,13 @@ import { configDefaults, defineConfig } from "vitest/config";
 // all REPLACES vitest's default list, so an explicit array silently drops
 // `**/.git/**` along with anything a future vitest adds to it.
 const INCLUDE = "tests/**/*.test.ts";
-const EXCLUDE = [...configDefaults.exclude, "**/dist/**", "tests/d1/**"];
+const EXCLUDE = [...configDefaults.exclude, "**/dist/**", "tests/d1/**", "tests/laws/**"];
+
+// `tests/laws/` reads a file outside this package: the deletion model that
+// tools/deletion-laws compiles to `model.mjs`. It runs as the `repo` project
+// (`test:repo`), whose turbo inputs name that file (`turbo.json` here); the
+// `shared` and `isolated` projects run as `test`.
+const READS_REPO = "tests/laws/**/*.test.ts";
 
 // Most files share a worker's module cache (`isolate: false`), so the app and
 // its dependencies load once per worker instead of once per file. A file that
@@ -22,9 +28,10 @@ const EXCLUDE = [...configDefaults.exclude, "**/dist/**", "tests/d1/**"];
 // anyone editing this list.
 const REPLACES_MODULES = /\bvi\.(?:doMock|mock|resetModules)\(/;
 const root = import.meta.dirname;
-const replacing = globSync(INCLUDE, { cwd: root, exclude: ["tests/d1/**"] }).filter((file) =>
-  REPLACES_MODULES.test(readFileSync(join(root, file), "utf8")),
-);
+const replacing = globSync(INCLUDE, {
+  cwd: root,
+  exclude: ["tests/d1/**", "tests/laws/**"],
+}).filter((file) => REPLACES_MODULES.test(readFileSync(join(root, file), "utf8")));
 
 // Restores what one file can leave behind for the next in a shared worker.
 const setupFiles = ["./tests/setup/reset-between-files.ts"];
@@ -46,6 +53,7 @@ export default defineConfig({
       ...(replacing.length > 0
         ? [{ extends: true, test: { name: "isolated", include: replacing, exclude: EXCLUDE } }]
         : []),
+      { extends: true, test: { name: "repo", include: [READS_REPO] } },
     ],
   },
 });

@@ -1,0 +1,18 @@
+{
+  "name": "@tools/deletion-laws",
+  "private": true,
+  "description": "The account-deletion rules as a Bend model, the laws proved about it, and the model compiled for the agreement tests. Not a workspace: it installs nothing.",
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstreetventures/osn.git"
+  },
+  "scripts": {
+    "prove": "bash bend.sh prove",
+    "build": "bash bend.sh build",
+    "check": "bash bend.sh check",
+    "install-bend": "bash bend.sh install"
+  }
+}

@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       docs-only: ${{ steps.classify.outputs.docs-only }}
+      bend: ${{ steps.classify.outputs.bend }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,12 +82,22 @@ jobs:
             changed=$(git diff --no-renames --name-only "$base" HEAD); then
             printf '%s\n' "$changed"
             docs_only=$(printf '%s\n' "$changed" | bash "$RUNNER_TEMP/docs-only.sh")
+            # The Bend proofs read only tools/deletion-laws, the installer and
+            # this workflow.
+            if printf '%s\n' "$changed" | grep -qE '^(tools/deletion-laws/|scripts/install-bend\.sh$|\.github/workflows/ci\.yml$)'; then
+              bend=true
+            else
+              bend=false
+            fi
           else
             echo "::notice::No diff or no classifier at '$base'; every job runs."
             docs_only=false
+            bend=true
           fi
           echo "Prose only: $docs_only"
+          echo "Bend proofs: $bend"
           echo "docs-only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "bend=$bend" >> "$GITHUB_OUTPUT"
 
   lint:
     name: Lint & Format
@@ -1206,6 +1217,71 @@ jobs:
           path: e2e-artifacts/migrations/
           if-no-files-found: ignore
 
+  # The account-deletion proofs in tools/deletion-laws: Bend, at the version
+  # and SHA-256 tools/deletion-laws/bend.env pins, checks every law in
+  # LAWS.bend is proved (`bend PROOF.bend` prints ALL PROOFS CHECK), and that
+  # the committed model.mjs, which the agreement tests in osn/api and cire/api
+  # import, is byte for byte what model.bend builds. Those tests run in Build
+  # & Test and in the cire-api job, on every change. Bend is one binary, so
+  # the job installs no dependencies.
+  bend-proofs:
+    name: Bend proofs
+    needs: changes
+    # Only when the change touches what the proofs read (the `changes` job's
+    # `bend`), or when no diff could be computed; skipped counts as passed.
+    if: needs.changes.outputs.bend == 'true'
+    runs-on: ubuntu-latest
+    # Bounded: one checkout, one pinned tarball (cached, or downloaded with
+    # retries) and two Bend runs of under a second each.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # bend.env is the one place the pin lives; this runner is linux-x64.
+      - name: Read the pinned Bend release
+        run: |
+          . tools/deletion-laws/bend.env
+          {
+            echo "BEND_VERSION=$BEND_VERSION"
+            echo "BEND_TARGET=linux-x64"
+            echo "BEND_SHA256=$BEND_SHA256_LINUX_X64"
+          } >> "$GITHUB_ENV"
+
+      # The release tarball, kept under its version and SHA-256, so most runs
+      # download nothing.
+      - name: Restore Bend
+        id: bend-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/bend
+          key: bend-${{ env.BEND_VERSION }}-${{ env.BEND_TARGET }}-${{ env.BEND_SHA256 }}
+
+      # scripts/install-bend.sh checks the SHA-256 on every run, cached or
+      # downloaded, before it unpacks anything, and deletes a tarball that
+      # fails.
+      - name: Install Bend ${{ env.BEND_VERSION }}
+        run: |
+          bash scripts/install-bend.sh "$HOME/.cache/bend" "$RUNNER_TEMP/bend"
+          echo "$RUNNER_TEMP/bend/bin" >> "$GITHUB_PATH"
+
+      # Only a tarball that passed its SHA-256 is here to save. A merge-queue
+      # group saves nothing: no later run can restore from its ref.
+      - name: Save Bend
+        if: github.event_name != 'merge_group' && steps.bend-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/bend
+          key: ${{ steps.bend-cache.outputs.cache-primary-key }}
+
+      # BEND_NO_TELEMETRY: the installed bend otherwise asks bend-lang.com for
+      # the latest version once a day; bend.sh sets it too.
+      - name: Prove the laws and check model.mjs
+        env:
+          BEND_NO_TELEMETRY: "1"
+        run: bash tools/deletion-laws/bend.sh check
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
@@ -1305,7 +1381,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [changes, lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, e2e, secrets]
+    needs: [changes, lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, e2e, bend-proofs, secrets]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
