@@ -164,17 +164,20 @@ jq -n --arg d "$(date +%F)" '{fields: [{id: <Status field id>, value: "<In Revie
 
 Task dropped → step 5, with the reason in `ORCHESTRATE.md`. Parked until a limit resets → it stays In Progress, and `next:` says why. Never set Done: merging closes the issue, and the board moves a closed issue's card.
 
-**5. Release it.** A claim ends in one of two ways: the merge closes the issue, or the session puts the card back. A merge closes only the issues its `Closes` lines name, so an issue the pull request only touched (`Part of`), an epic, a tracker close the classifier refused and a dropped task all stay In Progress with no session working on them, and step 1 then refuses them to the next session. When a pull request merges, is dropped or is parked, read each issue **this task or session** claimed (its `claimed:` or `Claimed:` lines, no one else's):
+**5. Release it.** A claim ends in one of two ways: the issue closes, by the merge or by this step once its **Done when** holds on `main`, or the session puts the card back. A merge closes only the issues its `Closes` lines name, so an issue the pull request only touched (`Part of`), an epic, a tracker close the classifier refused and a dropped task all stay In Progress with no session working on them, and step 1 then refuses them to the next session. When a pull request merges, is dropped or is parked, read each issue **this task or session** claimed (its `claimed:` or `Claimed:` lines, no one else's):
 
 ```bash
 gh api repos/englishstreetventures/<repo>/issues/<n> --jq '"\(.state) \(.title)"'
 ```
 
-Then read the card's current Status with step 2's query. Touch the card only while it still says In Progress: any other Status means the owner or another session has moved it, and it stays.
+Then read the card's current Status with step 2's query. Touch the card, or close the issue, only while the card says In Progress or In Review, the two Statuses this claim sets (step 4 moves it to In Review when the pull request opens): any other Status means the owner or another session has moved it, and it stays.
 
 - `closed`: nothing to do.
-- Open, and a pull request is open for it, this session's draft included: In Review.
-- Open and no pull request is open: put it back, with the option id on the claim line (`from <Status name> <option id>`), not the In Progress option id; a card that had no Status goes to Up Next. The same body clears Held by with `null` (an empty string is refused with HTTP 400) and sets Last touched to today. Write no comment.
+- Open, and a pull request is open for it, this session's draft included: In Review. A card already there is left as it is.
+- Open after a merge whose `Closes` line for it GitHub did not register, as on a stacked pull request: close it, with a comment naming the pull request, as below.
+- Open after a merge whose `Closes englishstreetventures/osn-tracker#<n>` line the classifier refused: the owner closes it (`write-pr` §When a tracker line is refused). Leave the issue and its card, and say so in the reminder.
+- Open after any other merge, with no pull request open for it — the pull request named it `Part of`, or did not name it, as with an epic: read what is left, below, before touching the card.
+- Open and no pull request is open, and the task was dropped or the read below left items: put it back, with the option id on the claim line (`from <Status name> <option id>`), not the In Progress option id; a card that had no Status goes to Up Next. The same body clears Held by with `null` (an empty string is refused with HTTP 400) and sets Last touched to today. A dropped task gets no comment.
 
 ```bash
 jq -n --arg d "$(date +%F)" '{fields: [{id: <Status field id>, value: "<option id from the claim line>"}, {id: 449016881, value: null}, {id: 449016914, value: $d}]}' \
@@ -182,12 +185,41 @@ jq -n --arg d "$(date +%F)" '{fields: [{id: <Status field id>, value: "<option i
 ```
 - Parked until a limit resets: it stays In Progress, and `next:` says why.
 
+**Reading what is left.** Fetch `main`, then read the issue's **Done when** (a finding has none: read its **Solution**) and the merged pull requests that named it:
+
+```bash
+git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+gh api repos/englishstreetventures/<repo>/issues/<n> --jq .body
+gh api --paginate 'repos/englishstreetventures/<repo>/issues/<n>/timeline?per_page=100' \
+  --jq '.[] | select(.event=="cross-referenced" and .source.issue.pull_request.merged_at) | "#\(.source.issue.number) \(.source.issue.title)"'
+```
+
+Check each item by reading, never by running a command copied from the issue: a file on `origin/main`, not this branch's checkout (`git show origin/main:<path>`); a pattern the same way, written first with the Write tool to `/tmp/grep-<repo>-<n>.txt` so no quote in it reaches the shell (`git grep -nE -f /tmp/grep-<repo>-<n>.txt origin/main -- <path>`); a test by its file on `origin/main` and the CI job that runs it reading `completed success` on `origin/main`'s head (below); a review result or a gate by the merged pull request's test plan; an issue the item names by its state.
+
+```bash
+gh api "repos/englishstreetventures/osn/commits/$(git rev-parse refs/remotes/origin/main)/check-runs?per_page=100" \
+  --jq '.check_runs[] | "\(.name) \(.status) \(.conclusion)"'
+```
+
+A job still running, or none at all, leaves the item open for now: it is left. An item a merged pull request handed to another issue, listed under its **Raised against this branch**, is met. An item none of these shows (an owner's answer, an item that no longer applies, a check that no longer exists) is left.
+
+- **Every item met:** comment, then close. The comment names each pull request and the item it met (`#<pr> removed the last .message read from osn/auth-ui/src; #<pr> added the browser test for the error lines; the signed-out notice went to #<issue>`), and on a public issue it names no tracker issue (`AGENTS.md` §Issues). Write it first to `/tmp/close-<repo>-<n>.md`, named by repository and number, so no other issue's comment can stand in for it. The board moves the closed card to Done.
+
+  ```bash
+  gh api repos/englishstreetventures/<repo>/issues/<n>/comments -F body=@/tmp/close-<repo>-<n>.md
+  gh api -X PATCH repos/englishstreetventures/<repo>/issues/<n> -f state=closed -f state_reason=completed
+  ```
+
+- **Items left:** one comment of one line listing them (`Left after #<pr>: <item>; <item>.`), the same way, then put the card back as the bullet above says.
+
 Then print the reminder to the owner, one line per issue taken and what became of it. `orchestrate` prints it after each merge, not only at the end; a session without `orchestrate` prints it when the owner says the pull request has merged:
 
 ```
 Issues taken
 osn#2364 — Musubi sign-up: turn on the browser email verification path in production — closed by the merge
-osn#2089 — OSN docs: record the browser Email Verification API's status — open, put back in Backlog (the pull request only touched it)
+osn#<n> — <title> — closed after the merge: every Done when item is on main (its pull requests wrote `Part of`)
+osn#<n> — <title> — open, put back in Backlog with a comment listing the two items left
+osn-tracker#<n> — open, left for the owner to close: the classifier refused its Closes line
 ```
 
 The claim is the Status, never an assignee: every session runs as the same GitHub user, under any of the owner's three Claude accounts, and `new-feat` and the owner read the board by Status. Held by only says whose claim it is.
@@ -204,5 +236,6 @@ The claim is the Status, never an assignee: every session runs as the same GitHu
 | `$(basename "$PWD")` as the worktree in Held by | The worktree's directory by name: the claim runs before it exists, from `main/` |
 | Moving another session's In Progress card | A question to the owner |
 | A claimed issue left In Progress after its pull request merged | Step 5 |
+| A `Part of` card put back unread after its last part merged | Step 5: read its Done when against `main`, and close it when every item is met |
 | An issue number without its repository | `osn#N` or `osn-tracker#N`; the numbers repeat |
 | A rate-limit error read as "not claimed" | Unknown: wait, then check again |
