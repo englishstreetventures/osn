@@ -28,6 +28,11 @@ vi.mock("@shared/toast", () => ({
 
 import { ProfileOnboarding } from "../src/ProfileOnboarding";
 import { apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// A closed sheet leaves the page at once, as under reduced motion
+// (`helpers/motion.ts`).
+withoutAnimations();
 
 describe("ProfileOnboarding", () => {
   beforeEach(() => {
@@ -106,22 +111,12 @@ describe("ProfileOnboarding", () => {
   // refuses Escape here; `shared/ui/tests/dialog-drag.browser.test.tsx` ("a
   // sheet that cannot close") holds that it refuses the drag too.
   describe("closing the create sheet", () => {
-    /**
-     * Kobalte marks the panel `data-expanded` while it is open and
-     * `data-closed` once it closes. happy-dom never ends the exit animation,
-     * so a closed panel stays in the document: these read the mark.
-     */
-    const isOpen = (dialog: HTMLElement) => dialog.hasAttribute("data-expanded");
+    const sheet = () => screen.queryByRole("dialog", { name: "Create a new profile" });
 
-    /** Presses the card's Create profile, never the sheet's submit. */
+    /** Presses the card's Create profile. */
     async function openSheet() {
-      const card = screen
-        .getAllByRole("button", { name: "Create profile" })
-        .find((button) => !button.closest("[role=dialog]"));
-      fireEvent.click(card!);
-      const dialog = await screen.findByRole("dialog", { name: "Create a new profile" });
-      await waitFor(() => expect(isOpen(dialog)).toBe(true));
-      return dialog;
+      fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
+      return screen.findByRole("dialog", { name: "Create a new profile" });
     }
 
     /** Types a handle and presses the sheet's Create profile. */
@@ -147,14 +142,13 @@ describe("ProfileOnboarding", () => {
     // the sheet when no request runs.
     it("closes on Escape and on a press outside before any request", async () => {
       render(() => <ProfileOnboarding />);
-      const first = await openSheet();
-      pressEscape(first);
-      await waitFor(() => expect(isOpen(first)).toBe(false));
+      pressEscape(await openSheet());
+      await waitFor(() => expect(sheet()).toBeNull());
 
-      const second = await openSheet();
+      await openSheet();
       await flush();
       pressOutside();
-      await waitFor(() => expect(isOpen(second)).toBe(false));
+      await waitFor(() => expect(sheet()).toBeNull());
     });
 
     it("refuses Escape while the profile is created", async () => {
@@ -165,7 +159,7 @@ describe("ProfileOnboarding", () => {
       await within(dialog).findByRole("button", { name: "Creating…" });
       pressEscape(dialog);
       await flush();
-      expect(isOpen(dialog)).toBe(true);
+      expect(sheet()).toBe(dialog);
       expect(within(dialog).getByRole("button", { name: "Creating…" })).toBeTruthy();
     });
 
@@ -178,7 +172,7 @@ describe("ProfileOnboarding", () => {
       await within(dialog).findByRole("button", { name: "Creating…" });
       pressOutside();
       await flush();
-      expect(isOpen(dialog)).toBe(true);
+      expect(sheet()).toBe(dialog);
       expect(within(dialog).getByRole("button", { name: "Creating…" })).toBeTruthy();
     });
 
@@ -189,20 +183,19 @@ describe("ProfileOnboarding", () => {
       create(dialog);
       await within(dialog).findByRole("alert");
       pressEscape(dialog);
-      await waitFor(() => expect(isOpen(dialog)).toBe(false));
+      await waitFor(() => expect(sheet()).toBeNull());
     });
 
     it("closes itself once the profile is created, and opened again, closes on a press outside", async () => {
       hoisted.createProfile.mockResolvedValue({ id: "p_2", handle: "bob" });
       render(() => <ProfileOnboarding />);
-      const first = await openSheet();
-      create(first);
-      await waitFor(() => expect(isOpen(first)).toBe(false));
+      create(await openSheet());
+      await waitFor(() => expect(sheet()).toBeNull());
 
-      const second = await openSheet();
+      await openSheet();
       await flush();
       pressOutside();
-      await waitFor(() => expect(isOpen(second)).toBe(false));
+      await waitFor(() => expect(sheet()).toBeNull());
     });
   });
 });
