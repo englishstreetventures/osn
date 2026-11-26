@@ -98,6 +98,7 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
     stripeConnectedByOsnProfileId: null,
     // What the server says for no Stripe account.
     moneyGiftsBlockedBy: "stripe_not_ready",
+    stripeAccountGeneration: null,
     updatedAt: null,
   },
   items: [],
@@ -994,6 +995,43 @@ describe("RegistryView — gifts received", () => {
     ));
     expect(await screen.findByText("Refunded")).toBeInTheDocument();
     expect(screen.getByText(/not counted in the total/i)).toBeInTheDocument();
+  });
+
+  it("says a gift paid into an earlier Stripe account is refunded from it, under that gift only", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        gifts: [
+          gift({
+            id: "old",
+            kind: "contribution",
+            status: "succeeded",
+            amountMinor: 5_000,
+            currency: "AUD",
+            displayName: "The Okafors",
+            paidIntoEarlierAccount: true,
+          }),
+          gift({
+            id: "new",
+            kind: "contribution",
+            status: "succeeded",
+            amountMinor: 2_000,
+            currency: "AUD",
+            displayName: "The Lees",
+            paidIntoEarlierAccount: false,
+          }),
+          gift({ id: "claim", kind: "claim", status: "reserved", displayName: "The Hales" }),
+        ],
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={false} />
+    ));
+    const line = await screen.findByText(
+      "Paid into an earlier Stripe account. Any refund comes from that account.",
+    );
+    expect(screen.getAllByText(/earlier Stripe account/)).toHaveLength(1);
+    expect(line.closest("li")?.textContent).toContain("The Okafors");
   });
 
   it("leaves an unfamiliar status showing rather than blanking the pill", async () => {

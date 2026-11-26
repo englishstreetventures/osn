@@ -23,6 +23,10 @@ import {
   type RegistrySnapshot,
 } from "../lib/registry-store";
 import { haptic } from "../lib/touch-feedback";
+import PayoutAccountActions, {
+  type AfterRetire,
+  type PayoutAccountMode,
+} from "./PayoutAccountActions";
 import SectionIntro from "./SectionIntro";
 
 const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-6`;
@@ -51,6 +55,16 @@ const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-6`;
  * account's status, the same disabled button with the reason, and can still
  * "Check again", which only reads the status. A connected account with nobody on
  * record is no owner's to continue.
+ *
+ * WHOSE ACCOUNT IT IS CAN CHANGE. The account carries its holder's identity,
+ * so a hand-over is a new account (`PayoutAccountActions`): the holder hands
+ * money gifts to another owner or disconnects; any other owner replaces it
+ * with their own. While the account's holder is no owner of the wedding
+ * (`payoutHolderAbsent`, owners only), money gifts are closed and the panel
+ * says why and offers to use the owner's own account. Only `true` there means
+ * absent: a missing connector id never does. An editor is told nothing about
+ * whose account it is: the API sends them such an account as one Stripe has
+ * not finished with.
  *
  * WHICH ACCOUNT IS ASKED AT CONNECT. An owner pressing "Connect an account" may
  * already have connected one on another wedding of theirs, and the press asks
@@ -211,6 +225,8 @@ function fundsDontCountWords(reason: MoneyGiftsBlock | null | undefined, currenc
   switch (reason) {
     case "payments_unavailable":
       return " Cash funds and group gifts don’t count: money gifts aren’t available on this site yet.";
+    case "payout_holder_absent":
+      return " Cash funds and group gifts don’t count: the Stripe account isn’t held by a current owner of this wedding.";
     case "stripe_not_ready":
       return " Cash funds and group gifts count once Stripe can take payments for you and money gifts are on.";
     case "stripe_currency_unknown":
@@ -235,15 +251,31 @@ interface StripeCheckWords {
   text: string;
 }
 
+/** Why guests can't give money while the account's holder is no owner here, as
+ *  the panel's status line says it to an owner. */
+const HOLDER_ABSENT =
+  "Guests can’t give money right now. This Stripe account isn’t held by a current owner of this wedding, so gifts would be paid to someone who no longer runs it. Use your own account to take gifts again, or leave money gifts off.";
+
 /**
  * What a press of "Check again" found, as a toast. "Ready" only when nothing
  * on Stripe's side keeps guests from giving: an account that can charge but
- * pays out in another currency, or has not said which, is not.
+ * pays out in another currency, or has not said which, is not, and nor is one
+ * no current owner holds, whatever Stripe says of it.
  */
 function stripeCheckWords(
-  status: { chargesEnabled: boolean; moneyGiftsBlockedBy: MoneyGiftsBlock | null },
+  status: {
+    chargesEnabled: boolean;
+    moneyGiftsBlockedBy: MoneyGiftsBlock | null;
+    payoutHolderAbsent?: boolean;
+  },
   currency: string,
 ): StripeCheckWords {
+  if (status.payoutHolderAbsent === true || status.moneyGiftsBlockedBy === "payout_holder_absent") {
+    return {
+      ready: false,
+      text: "This Stripe account isn’t held by a current owner of this wedding, so guests can’t give money. Use your own account to take gifts again.",
+    };
+  }
   if (!status.chargesEnabled) {
     return { ready: false, text: "Stripe still has something outstanding on your account." };
   }
@@ -352,14 +384,16 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     return (snapshot()?.items ?? []).some((it) => it.kind !== "cash_fund" || fundsShow);
   });
   /**
-   * The money switch can be turned on only where this site takes money gifts
-   * and Stripe can charge. Where the site cannot, a switch saved on stays
-   * usable so the couple can turn it off.
+   * The money switch can be turned on only where this site takes money gifts,
+   * Stripe can charge, and a current owner holds the account. A switch saved
+   * on stays usable whatever else holds, so the couple, an editor included,
+   * can always turn it off: the API never refuses that.
    */
-  const cashGiftsLocked = () =>
-    !props.canEdit ||
-    stripeState() !== "ready" ||
-    (!siteTakesPayments() && settings()?.cashGiftsEnabled !== true);
+  const cashGiftsLocked = () => {
+    if (!props.canEdit) return true;
+    if (settings()?.cashGiftsEnabled === true) return false;
+    return stripeState() !== "ready" || holderAbsent() || !siteTakesPayments();
+  };
   const hasFunds = () => (snapshot()?.items ?? []).some((it) => it.kind === "cash_fund");
 
   const stripeState = createMemo<StripeState>(() => {
@@ -367,6 +401,27 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     if (!s?.stripeConnected) return "none";
     return s.stripeChargesEnabled ? "ready" : "incomplete";
   });
+
+  /**
+   * The account's holder is no owner of this wedding now, or nobody is on
+   * record, as the API tells owners alone. Only `true` means it: a missing
+   * connector id, which a 403 or an older API leaves, never does.
+   */
+  const holderAbsent = () =>
+    props.canManage === true && stripeState() !== "none" && settings()?.payoutHolderAbsent === true;
+
+  /** Which way this owner may stop the wedding using its account, or none. */
+  const payoutMode = (): PayoutAccountMode | null => {
+    if (!props.canManage || stripeState() === "none") return null;
+    if (holderAbsent()) return "absent";
+    return canOpenStripe() ? "holder" : "other";
+  };
+
+  /**
+   * Moved by every retire, so a Stripe read sent before one, which may still
+   * name the retired account, is dropped when it answers.
+   */
+  let retireSeq = 0;
 
   /**
    * Whether this organiser may open Stripe's onboarding — the API's rule: an
@@ -562,17 +617,21 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         //    currency, and this account would pay it out in another.
         //  - `stripe_currency_unknown`: Stripe has not yet said which currency
         //    the account pays out in. Only an owner may ask it again.
+        //  - `payout_holder_absent`: to an owner, the account's holder is no
+        //    owner of the wedding now (an editor is sent `stripe_not_ready`).
         haptic("reject");
         setCashGifts(false);
         const code = refusal?.error;
         toast.error(
-          code === "currency_mismatch"
-            ? "Your Stripe account pays out in a different currency from this wedding, so money gifts stay off."
-            : code === "stripe_currency_unknown"
-              ? props.canManage
-                ? "Stripe hasn’t told us which currency your account pays out in yet, so money gifts stay off. We’ve asked again — try in a few minutes."
-                : "Stripe hasn’t told us which currency your account pays out in yet, so money gifts stay off. Ask an owner to check the Stripe connection, then try again."
-              : "Stripe can’t take a payment for this wedding yet, so money gifts stay off.",
+          code === "payout_holder_absent"
+            ? "This Stripe account isn’t held by a current owner of this wedding, so money gifts stay off. Use your own account to take gifts again."
+            : code === "currency_mismatch"
+              ? "Your Stripe account pays out in a different currency from this wedding, so money gifts stay off."
+              : code === "stripe_currency_unknown"
+                ? props.canManage
+                  ? "Stripe hasn’t told us which currency your account pays out in yet, so money gifts stay off. We’ve asked again — try in a few minutes."
+                  : "Stripe hasn’t told us which currency your account pays out in yet, so money gifts stay off. Ask an owner to check the Stripe connection, then try again."
+                : "Stripe can’t take a payment for this wedding yet, so money gifts stay off.",
         );
         // The page is out of date about Stripe, and about why guests cannot
         // give money. The refusal carries the row as it stands, which patches
@@ -803,11 +862,22 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
       if (!res.ok) {
         haptic("reject");
         // Two 403s: the role gate's, and the account being another owner's —
-        // which this page, loaded before someone else connected it, did not know.
+        // which this page, loaded before someone else connected it, did not
+        // know. And a 409 when the wedding's account was connected and
+        // retired while this owner's was being made.
         const refusal =
-          res.status === 403
+          res.status === 403 || res.status === 409
             ? ((await res.json().catch(() => null)) as { error?: unknown } | null)
             : null;
+        if (refusal?.error === "stripe_account_changed") {
+          toast.error(
+            "This wedding’s Stripe account changed while you were connecting. Check what it shows now, then try again.",
+          );
+          // The refusal carries no settings: read them, and patch only them.
+          const fresh = await readSettings();
+          if (fresh) patchCache(fresh);
+          return;
+        }
         toast.error(
           refusal?.error === "stripe_connector_only"
             ? CONNECTOR_ONLY
@@ -817,10 +887,16 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         );
         // The wedding has an account and it is not this owner's, whatever the
         // page loaded with. Say so until the next read names who connected it,
-        // rather than offer the button again.
+        // rather than offer the button again. Its holder is not taken to be
+        // absent: only the API's own word says that.
         const current = settings();
         if (refusal?.error === "stripe_connector_only" && current) {
-          patchCache({ ...current, stripeConnected: true, stripeConnectedByOsnProfileId: null });
+          patchCache({
+            ...current,
+            stripeConnected: true,
+            stripeConnectedByOsnProfileId: null,
+            payoutHolderAbsent: false,
+          });
         }
         return;
       }
@@ -855,9 +931,13 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   async function refreshStripe(quiet = false): Promise<void> {
     if (checking() || !props.canManage) return;
     setChecking(true);
+    const sentAt = retireSeq;
     try {
       const res = await authFetch(stripeUrl("refresh"), { method: "POST" });
       if (res.status === 401) return redirectToLogin();
+      // A retire committed while this was out: what it read may name the
+      // retired account, so it says nothing and changes nothing.
+      if (sentAt !== retireSeq) return;
       if (!res.ok) {
         if (!quiet) {
           haptic("reject");
@@ -869,20 +949,24 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         connected: boolean;
         chargesEnabled: boolean;
         moneyGiftsBlockedBy: MoneyGiftsBlock | null;
+        payoutHolderAbsent?: boolean;
       };
+      if (sentAt !== retireSeq) return;
       const current = settings();
       if (current) {
         // `patchCache`, never `patchSettings`: this read changes Stripe state
         // the form does not own, and re-seeding would discard whatever the
         // couple has typed since the page loaded. `connected` as well as the
         // charge flag, so an account Stripe has since revoked reads as "connect
-        // one" rather than as unfinished onboarding; and the reason, which the
-        // payout currency Stripe just reported may have changed.
+        // one" rather than as unfinished onboarding; the reason, which the
+        // payout currency Stripe just reported may have changed; and whether
+        // a current owner holds the account.
         patchCache({
           ...current,
           stripeConnected: status.connected,
           stripeChargesEnabled: status.chargesEnabled,
           moneyGiftsBlockedBy: status.moneyGiftsBlockedBy,
+          payoutHolderAbsent: status.payoutHolderAbsent ?? current.payoutHolderAbsent,
         });
       }
       if (!quiet) {
@@ -901,7 +985,60 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     }
   }
 
+  /**
+   * The settings as they stand, read again with the whole registry, or `null`
+   * when the read failed. Only the settings are used: the snapshot is never
+   * dropped from this tab, since a refetch that failed would leave the form
+   * rendering from nothing (see the save's refusals).
+   */
+  async function readSettings(): Promise<RegistrySettings | null> {
+    try {
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/registry")));
+      if (res.status === 401) {
+        redirectToLogin();
+        return null;
+      }
+      if (!res.ok) return null;
+      const body = (await res.json().catch(() => null)) as RegistrySnapshot | null;
+      return body?.settings ?? null;
+    } catch (err) {
+      if (isAuthExpired(err)) redirectToLogin();
+      return null;
+    }
+  }
+
+  /** What follows a retire, once its dialog has closed. */
+  function afterRetire(next: AfterRetire): void {
+    if (next === "connect") return void connectStripe();
+    if (connectButtonEl?.isConnected) connectButtonEl.focus();
+    else statusEl?.focus();
+  }
+
   const hintClass = "font-body text-text-muted text-ui-sm leading-ui-normal";
+
+  /** The status line: what is connected, and whether it can take payments. */
+  const statusWords = () =>
+    holderAbsent()
+      ? HOLDER_ABSENT
+      : accountIsTheirOwn() && stripeState() !== "none"
+        ? stripeState() === "ready"
+          ? accountIsAnotherOwners()
+            ? "The Stripe account of the person who connected it can take payments. Gifts go straight to it — we never hold the money. Only they can manage it, in their own Stripe Dashboard."
+            : "Your own Stripe account is connected and can take payments. Gifts go straight to it — we never hold the money. Stripe’s fees come out of each gift at your account’s rates, and you handle refunds and disputes in your Stripe Dashboard."
+          : accountIsAnotherOwners()
+            ? "The Stripe account of the person who connected it can’t take payments yet: Stripe wants something from them. Only they can manage it, in their own Stripe Dashboard."
+            : "Your Stripe account is connected but can’t take payments yet. Finish what Stripe asks for in your Stripe Dashboard."
+        : stripeState() === "ready"
+          ? accountIsAnotherOwners()
+            ? "Stripe is connected and can take payments. Gifts go straight to the account of the person who connected it — we never hold the money."
+            : "Stripe is connected and can take payments. Gifts go straight to your account — we never hold the money."
+          : stripeState() === "incomplete"
+            ? accountIsAnotherOwners()
+              ? "Stripe has the account but still wants something from the person who connected it before it can take payments."
+              : "Stripe has your account but still wants something before it can take payments."
+            : props.canManage
+              ? "To let guests give money, connect a Stripe account. Gifts go straight to it — we never hold the money. One you connected for another of your weddings can take this one’s gifts too."
+              : "To let guests give money, connect a Stripe account. Gifts go straight to it — we never hold the money.";
 
   return (
     <div class={PANEL_CLASS}>
@@ -1073,34 +1210,30 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             </Show>
 
             {/* An owner who did not connect the account is not told it is
-                theirs: it carries the identity and bank of whoever connected it. */}
-            <p
-              ref={statusEl}
-              id="stripe-status"
-              tabindex="-1"
-              class={`${hintClass} outline-none`}
-              data-testid="stripe-status"
+                theirs: it carries the identity and bank of whoever connected it.
+                An account no current owner holds closed money gifts without
+                anyone here doing anything, and only an owner can act on it, so
+                its line is a `warn` note: a standing one, so no alert. */}
+            <Show
+              when={holderAbsent()}
+              fallback={
+                <p
+                  ref={statusEl}
+                  id="stripe-status"
+                  tabindex="-1"
+                  class={hintClass}
+                  data-testid="stripe-status"
+                >
+                  {statusWords()}
+                </p>
+              }
             >
-              {accountIsTheirOwn() && stripeState() !== "none"
-                ? stripeState() === "ready"
-                  ? accountIsAnotherOwners()
-                    ? "The Stripe account of the person who connected it can take payments. Gifts go straight to it — we never hold the money. Only they can manage it, in their own Stripe Dashboard."
-                    : "Your own Stripe account is connected and can take payments. Gifts go straight to it — we never hold the money. Stripe’s fees come out of each gift at your account’s rates, and you handle refunds and disputes in your Stripe Dashboard."
-                  : accountIsAnotherOwners()
-                    ? "The Stripe account of the person who connected it can’t take payments yet: Stripe wants something from them. Only they can manage it, in their own Stripe Dashboard."
-                    : "Your Stripe account is connected but can’t take payments yet. Finish what Stripe asks for in your Stripe Dashboard."
-                : stripeState() === "ready"
-                  ? accountIsAnotherOwners()
-                    ? "Stripe is connected and can take payments. Gifts go straight to the account of the person who connected it — we never hold the money."
-                    : "Stripe is connected and can take payments. Gifts go straight to your account — we never hold the money."
-                  : stripeState() === "incomplete"
-                    ? accountIsAnotherOwners()
-                      ? "Stripe has the account but still wants something from the person who connected it before it can take payments."
-                      : "Stripe has your account but still wants something before it can take payments."
-                    : props.canManage
-                      ? "To let guests give money, connect a Stripe account. Gifts go straight to it — we never hold the money. One you connected for another of your weddings can take this one’s gifts too."
-                      : "To let guests give money, connect a Stripe account. Gifts go straight to it — we never hold the money."}
-            </p>
+              <Notice tone="warn">
+                <p ref={statusEl} id="stripe-status" tabindex="-1" data-testid="stripe-status">
+                  {statusWords()}
+                </p>
+              </Notice>
+            </Show>
 
             {/* The account question, after an owner with accounts on other
                 weddings pressed Connect. Nothing is chosen for them. An account
@@ -1112,7 +1245,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                   ref={questionEl}
                   tabindex="-1"
                   aria-labelledby="stripe-account-choice-label"
-                  class="flex min-w-0 flex-col gap-3 border-0 p-0 outline-none"
+                  class="flex min-w-0 flex-col gap-3 border-0 p-0"
                   data-testid="stripe-account-choice"
                 >
                   <p
@@ -1220,39 +1353,60 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 {/* Their own Stripe account has no onboarding of cire's: the person
                   who connected it runs it in their own Dashboard, a page on
                   Stripe's site, so this is a link, not a button. Anyone else
-                  is told whose it is below. */}
-                <Show
-                  when={accountIsTheirOwn() && stripeState() !== "none"}
-                  fallback={
-                    <Button
-                      ref={connectButtonEl}
-                      type="button"
-                      variant="outline"
-                      disabled={connecting()}
-                      aria-disabled={canOpenStripe() ? undefined : "true"}
-                      aria-describedby={canOpenStripe() ? undefined : stripeReasonId()}
-                      onClick={() => void connectStripe()}
-                    >
-                      {connecting()
-                        ? "Opening Stripe…"
-                        : stripeState() === "none"
-                          ? "Connect an account"
-                          : "Continue on Stripe"}
-                    </Button>
-                  }
-                >
-                  <Show when={canOpenStripe()}>
-                    <a
-                      href={STRIPE_DASHBOARD_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class={buttonClass({ variant: "outline" })}
-                      data-testid="stripe-dashboard-link"
-                    >
-                      Open your Stripe Dashboard
-                      <span class="sr-only"> (opens in a new tab)</span>
-                    </a>
+                  is told whose it is below. An account no current owner holds
+                  is no one's to continue, so it draws neither. */}
+                <Show when={!holderAbsent()}>
+                  <Show
+                    when={accountIsTheirOwn() && stripeState() !== "none"}
+                    fallback={
+                      <Button
+                        ref={connectButtonEl}
+                        type="button"
+                        variant="outline"
+                        disabled={connecting()}
+                        aria-disabled={canOpenStripe() ? undefined : "true"}
+                        aria-describedby={canOpenStripe() ? undefined : stripeReasonId()}
+                        onClick={() => void connectStripe()}
+                      >
+                        {connecting()
+                          ? "Opening Stripe…"
+                          : stripeState() === "none"
+                            ? "Connect an account"
+                            : "Continue on Stripe"}
+                      </Button>
+                    }
+                  >
+                    <Show when={canOpenStripe()}>
+                      <a
+                        href={STRIPE_DASHBOARD_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class={buttonClass({ variant: "outline" })}
+                        data-testid="stripe-dashboard-link"
+                      >
+                        Open your Stripe Dashboard
+                        <span class="sr-only"> (opens in a new tab)</span>
+                      </a>
+                    </Show>
                   </Show>
+                </Show>
+                {/* Changing whose account it is: kept mounted for an owner
+                  whatever the account, so a dialog whose retire has just
+                  cleared it still closes as it should. */}
+                <Show when={props.canManage}>
+                  <PayoutAccountActions
+                    weddingId={props.weddingId}
+                    mode={payoutMode()}
+                    holderId={settings()?.stripeConnectedByOsnProfileId ?? null}
+                    generation={settings()?.stripeAccountGeneration ?? null}
+                    busy={checking() || connecting()}
+                    onSettings={patchCache}
+                    onRetired={() => {
+                      retireSeq += 1;
+                    }}
+                    onNext={afterRetire}
+                    readSettings={readSettings}
+                  />
                 </Show>
                 <Show when={stripeState() !== "none"}>
                   {/* Same owner-only route as its neighbour, so the same gate and
@@ -1280,7 +1434,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             </Show>
             {/* Their own account draws no disabled button for this to describe:
                 the status line above already says whose it is. */}
-            <Show when={props.canManage && !canOpenStripe() && !accountIsTheirOwn()}>
+            <Show
+              when={props.canManage && !canOpenStripe() && !accountIsTheirOwn() && !holderAbsent()}
+            >
               <p id="stripe-connector-only" class={hintClass} data-testid="stripe-connector-only">
                 {CONNECTOR_ONLY}
               </p>
@@ -1294,8 +1450,21 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               onChange={setCashGifts}
               label="Let guests give money"
               description={
-                <Show when={stripeState() !== "ready"}>
-                  Available once Stripe can take payments.
+                // Saved on, it says when guests get the option, not that the
+                // switch will become available: it already is, to turn off.
+                <Show
+                  when={holderAbsent()}
+                  fallback={
+                    <Show when={stripeState() !== "ready"}>
+                      {settings()?.cashGiftsEnabled === true
+                        ? "Guests are offered money once Stripe can take payments."
+                        : "Available once Stripe can take payments."}
+                    </Show>
+                  }
+                >
+                  {settings()?.cashGiftsEnabled === true
+                    ? "Guests are offered money once an owner connects an account of their own."
+                    : "Available once an owner connects an account of their own."}
                 </Show>
               }
             />

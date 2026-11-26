@@ -288,6 +288,11 @@ interface RegistrySettingsRecord {
    * or none is recorded (`payoutHolderAbsentSql`). False with no account.
    */
   payoutHolderAbsent: boolean;
+  /**
+   * Counts the accounts this row has held: every attach and every retire moves
+   * it on. 0 for a wedding with no row.
+   */
+  stripeAccountGeneration: number;
   updatedAt: number | null;
 }
 
@@ -390,6 +395,12 @@ export interface RegistrySettingsDto {
    * can name an earlier reason. Null for anyone who is not an owner.
    */
   payoutHolderAbsent: boolean | null;
+  /**
+   * To owners only (`settingsForReader`): the account generation these
+   * settings were read at, which the retire sends back so it acts only on the
+   * account the page showed. Null for anyone who is not an owner.
+   */
+  stripeAccountGeneration: number | null;
   updatedAt: number | null;
 }
 
@@ -696,6 +707,7 @@ interface SettingsRow {
   stripePayoutsEnabled: boolean;
   stripeDefaultCurrency: string | null;
   stripeAccountUpdatedAt: Date | null;
+  stripeAccountGeneration: number;
   /** Written by the retention sweep, never from the portal. Both or neither. */
   giftSummaryJson: string | null;
   giftSummaryAt: Date | null;
@@ -757,6 +769,7 @@ const defaultSettings = (weddingId: string): RegistrySettingsRecord => ({
   stripePayoutsEnabled: false,
   stripeDefaultCurrency: null,
   payoutHolderAbsent: false,
+  stripeAccountGeneration: 0,
   updatedAt: null,
 });
 
@@ -782,6 +795,7 @@ const toSettingsRecord = (r: SettingsRowRead): RegistrySettingsRecord => ({
   stripeDefaultCurrency: r.stripeDefaultCurrency,
   // SQLite answers the predicate as 0 or 1.
   payoutHolderAbsent: r.payoutHolderAbsent === 1,
+  stripeAccountGeneration: r.stripeAccountGeneration,
   updatedAt: r.updatedAt.getTime(),
 });
 
@@ -887,6 +901,7 @@ export function settingsForReader(
             ? "stripe_not_ready"
             : settings.moneyGiftsBlockedBy,
         payoutHolderAbsent: null,
+        stripeAccountGeneration: null,
       };
   if (reader.canEdit) return told;
   switch (told.moneyGiftsBlockedBy) {
@@ -923,6 +938,7 @@ const toSettingsDto = (
   stripeChargesEnabled: s.stripeChargesEnabled,
   moneyGiftsBlockedBy: moneyGiftsBlock(deployment, s, currency),
   payoutHolderAbsent: s.payoutHolderAbsent,
+  stripeAccountGeneration: s.stripeAccountGeneration,
   updatedAt: s.updatedAt,
 });
 
@@ -2232,9 +2248,7 @@ export const registryService = {
    * attach's guard both need, read in the same statement; a wedding with no
    * row is at generation 0, which is what its first row starts at.
    */
-  settingsOnly(
-    weddingId: string,
-  ): Effect.Effect<RegistrySettingsRecord & { stripeAccountGeneration: number }, never, DbService> {
+  settingsOnly(weddingId: string): Effect.Effect<RegistrySettingsRecord, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
@@ -2247,10 +2261,8 @@ export const registryService = {
           .where(eq(registrySettings.weddingId, weddingId))
           .all(),
       );
-      const found = row as (SettingsRowRead & { stripeAccountGeneration: number }) | undefined;
-      return found
-        ? { ...toSettingsRecord(found), stripeAccountGeneration: found.stripeAccountGeneration }
-        : { ...defaultSettings(weddingId), stripeAccountGeneration: 0 };
+      const found = row as SettingsRowRead | undefined;
+      return found ? toSettingsRecord(found) : defaultSettings(weddingId);
     }).pipe(Effect.withSpan("cire.registry.settingsOnly"));
   },
 
@@ -2905,7 +2917,8 @@ export const registryService = {
    *
    * Only a refusal pays for one more read, which chooses the answer: the
    * caller no longer owns it (`StripeRetireForbidden`); the account or its
-   * generation moved (`StripeAccountChanged`, with the settings); `handTo`
+   * generation moved, or a hand-over comes from someone the row no longer
+   * names as its holder (`StripeAccountChanged`, with the settings); `handTo`
    * breaks its rule (`HandoverNotOwner`); or everything holds now, so it
    * changed between the write and the read (`StripeAccountChanged`). A read
    * that found no account skips the batch.
@@ -3029,6 +3042,7 @@ export const registryService = {
     input: {
       weddingId: string;
       osnProfileId: string;
+      handTo: string | null;
       accountId: string | null;
       generation: number;
     },
@@ -3056,7 +3070,7 @@ export const registryService = {
           .all(),
       );
       if (verdict?.owns !== 1) return yield* Effect.fail(new StripeRetireForbidden());
-      const row = verdict.settings as (SettingsRow & { stripeAccountGeneration: number }) | null;
+      const row = verdict.settings as SettingsRow | null;
       const current = toSettingsDto(
         row
           ? toSettingsRecord({ ...row, payoutHolderAbsent: verdict.payoutHolderAbsent })
@@ -3069,6 +3083,10 @@ export const registryService = {
         row?.stripeAccountId !== input.accountId ||
         row.stripeAccountGeneration !== input.generation;
       if (changed) return yield* Effect.fail(new StripeAccountChanged({ current }));
+      // A hand-over is the holder's own. Asked by someone the row no longer
+      // names, the page that offered it is stale, whoever holds the seat.
+      if (input.handTo !== null && row?.stripeConnectedByOsnProfileId !== input.osnProfileId)
+        return yield* Effect.fail(new StripeAccountChanged({ current }));
       if (verdict.handToAllowed !== 1) return yield* Effect.fail(new HandoverNotOwner());
       // Every rule holds now: something changed between the write and this
       // read. Nothing was written, so the caller is told to look again.
@@ -4930,6 +4948,7 @@ function resolveVisibleRegistry(
           stripeChargesEnabled: registrySettings.stripeChargesEnabled,
           stripePayoutsEnabled: registrySettings.stripePayoutsEnabled,
           stripeDefaultCurrency: registrySettings.stripeDefaultCurrency,
+          stripeAccountGeneration: registrySettings.stripeAccountGeneration,
           updatedAt: registrySettings.updatedAt,
           // Whether the account's holder holds an owner seat here: one probe
           // of `wedding_hosts`' unique index, made only when the row names an
@@ -4991,6 +5010,7 @@ interface GateRow {
   stripeChargesEnabled: boolean | null;
   stripePayoutsEnabled: boolean | null;
   stripeDefaultCurrency: string | null;
+  stripeAccountGeneration: number | null;
   updatedAt: Date | null;
   payoutHolderAbsent: number | null;
 }
@@ -5018,6 +5038,7 @@ const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   stripeDefaultCurrency: r.stripeDefaultCurrency,
   // SQLite answers the predicate as 0 or 1.
   payoutHolderAbsent: r.payoutHolderAbsent === 1,
+  stripeAccountGeneration: r.stripeAccountGeneration ?? 0,
   updatedAt: r.updatedAt ? r.updatedAt.getTime() : null,
 });
 

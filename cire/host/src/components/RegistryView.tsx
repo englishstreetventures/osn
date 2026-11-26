@@ -1769,6 +1769,13 @@ export default function RegistryView(props: RegistryViewProps) {
                         This one went back to the guest, so it is not counted in the total above.
                       </p>
                     </Show>
+                    {/* The wedding uses another Stripe account now: a refund on
+                        this gift can only come from the one it was paid into. */}
+                    <Show when={gift.paidIntoEarlierAccount === true}>
+                      <p class="text-text-muted text-ui-sm">
+                        Paid into an earlier Stripe account. Any refund comes from that account.
+                      </p>
+                    </Show>
                     {/* A hidden note arrives without its words, so there is
                         nothing of the guest's to render — only the fact. An
                         owner or editor can hide a shown note or show a hidden

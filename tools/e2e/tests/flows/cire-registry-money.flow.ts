@@ -95,6 +95,19 @@
  * received. The money panel, the fund chosen, is
  * `screenshots/cire-registry-money/guest-money-panel.png`.
  *
+ * The payout account's holder and handing it over take three sections of
+ * their own (`tests/support/cire-payout-account.ts`). Straight after the
+ * connector steps, Kit's seat on Money Wedding is marked in the hosts panel
+ * and its removal refused; then on Handover Wedding the dev profile, the
+ * holder, cannot step down or leave until it hands money gifts to Kit, and
+ * can once it has. That hand-over comes before Party Wedding's account
+ * question, which would otherwise offer Handover Wedding's account too. Last
+ * before the sign-out, on Absent Holder Wedding, whose holder Kit is an
+ * editor now, the owner is told why guests can't give, cannot turn money
+ * gifts on, and replaces the account with a new one through the Stripe
+ * stand-in. That section first has the Stripe routes' limiter open a window
+ * of its own, by the limiter's answers rather than a clock.
+ *
  * Then the owner signs out everywhere else on OSN, and their cire sessions end
  * too. The flow asks osn-api the way `@osn/auth-ui`'s sessions view does: an
  * access token from `POST /token` on the session cookie, then
@@ -110,10 +123,17 @@
  * because they end it. A flow after this one signs in afresh.
  */
 
+import { performance } from "node:perf_hooks";
+
 import type { Page } from "@playwright/test";
 
 import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
 import { giveToANewFund } from "../support/cire-fund-gift";
+import {
+  handOverSteps,
+  holderSeatSteps,
+  replaceAbsentHolderSteps,
+} from "../support/cire-payout-account";
 import {
   expect,
   onSuiteClock,
@@ -149,6 +169,9 @@ function osnSessions(): number {
 }
 
 test("cire-registry-money", async ({ page, browser, flow }) => {
+  // The absent holder's section waits for the Stripe routes' limiter to open
+  // a window of its own, up to a minute by design, on top of everything else.
+  test.slow();
   const money = queryOne<{ ready: number }>(
     DB_FILES.cire,
     `SELECT (s.cash_gifts_enabled = 1 AND s.stripe_charges_enabled = 1
@@ -445,6 +468,11 @@ test("cire-registry-money", async ({ page, browser, flow }) => {
   );
   flow.check("the account is unchanged", accountId, after?.account ?? "absent");
   flow.check("the connector is unchanged", connector.profileId, after?.connector ?? "absent");
+
+  // The holder's seat, then a hand-over: before Party Wedding asks which of
+  // the dev profile's accounts it may reuse, so Handover Wedding's is retired.
+  await holderSeatSteps(flow, page);
+  await handOverSteps(flow, page);
 
   const shared = CIRE_ORGANISER.shared;
   const partyStripe = `${ORIGINS.cireApi}/api/organiser/weddings/${shared.to.weddingId}/registry/stripe`;
@@ -753,6 +781,10 @@ test("cire-registry-money", async ({ page, browser, flow }) => {
   );
   flow.check("cire-api onboarding on a Standard account", 409, standardLink.status);
   flow.check("cire-api says why", "stripe_standard_account", standardLink.error);
+  // The flow's last call to the Stripe routes' limiter before the absent
+  // holder's section, which waits for a window of its own only while a window
+  // this call may have opened can still be open.
+  const lastStripeCall = performance.now();
 
   // On a page of its own, so the flow's screenshot stays the connected panel,
   // and before the sign-out below, which ends the session these steps use.
@@ -760,6 +792,7 @@ test("cire-registry-money", async ({ page, browser, flow }) => {
   await budgetSteps(flow, planning);
   await enquirySteps(flow, planning);
   await giveToANewFund(flow, planning, browser);
+  await replaceAbsentHolderSteps(flow, page.context(), lastStripeCall);
 
   const accessToken = await flow.step(
     "organiser: an access token from the OSN session",

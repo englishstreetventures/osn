@@ -1199,7 +1199,7 @@ describe("the payout account's holder keeps their owner seat while they hold it"
       "POST",
       `/api/organiser/weddings/${WEDDING_ID}/registry/stripe/retire`,
       HOLDER,
-      { handTo: null },
+      { handTo: null, generation: 0 },
     );
     expect(retired.status).toBe(200);
     expect((await req(app, "DELETE", `${hostsPath}/me`, HOLDER)).status).toBe(200);

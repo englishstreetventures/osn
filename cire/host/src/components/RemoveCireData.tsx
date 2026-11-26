@@ -53,10 +53,14 @@ type Phase =
 
 /** The line about the whole screen, beside its buttons. */
 interface Line {
-  readonly kind: "missing" | "changed" | "expired" | "failure";
+  /** `held`: a wedding's payout account is the person's to hand over first. */
+  readonly kind: "missing" | "changed" | "expired" | "failure" | "held";
   readonly tone: NoticeTone;
   readonly text: string;
 }
+
+/** Where a wedding's link from this screen goes: its download, its co-hosts, or Money gifts. */
+export type RemovalPlace = "export" | "hosts" | "money";
 
 /** How long the removal waits after the limiter refuses one of its rounds. */
 const LIMIT_WAIT_MS = 60_000;
@@ -134,8 +138,14 @@ export interface RemoveCireDataProps {
   code?: string;
   /** Whether the signed-in profile can open this wedding's dashboard. */
   canOpen: (weddingId: string) => boolean;
-  /** Opens a wedding's Settings view, through the dashboard's own navigation. */
-  onOpen: (weddingId: string, sub: "export" | "hosts") => void;
+  /**
+   * Whether it can open this wedding's Money gifts: the registry comes with
+   * Gold, and below it the dashboard opens the overview instead. `canOpen`
+   * when not given.
+   */
+  canOpenMoney?: (weddingId: string) => boolean;
+  /** Opens a wedding's download, co-hosts or Money gifts, through the dashboard's own navigation. */
+  onOpen: (weddingId: string, place: RemovalPlace) => void;
   /** The person kept their data: back to the wedding list. */
   onCancel: () => void;
   /** Everything is removed; the person's Cire sessions are gone. */
@@ -157,6 +167,14 @@ export interface RemoveCireDataProps {
  * the list, beside the buttons the person pressed: an answer missing, the list
  * changed under them, the confirmation run out, a failure. Every state arrives
  * at once (DESIGN.md §7, Remove my Cire data).
+ *
+ * A wedding whose Stripe account the person holds, beside another owner,
+ * says to hand it over in Money gifts first: the API refuses the removal
+ * until then (409 `holds_payout_account`). Once confirmed, the list covers
+ * every profile of the account, as the removal's own check does, so a press
+ * with such a wedding listed is refused here and the row marked. Before then
+ * the list holds one profile, and another profile of the same account may be
+ * that other owner, so step one only says so.
  */
 export default function RemoveCireData(props: RemoveCireDataProps) {
   const { authFetch } = useAuth();
@@ -170,6 +188,8 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
   const [answered, setAnswered] = createSignal<ReadonlySet<string>>(new Set());
   const [everything, setEverything] = createSignal(false);
   const [marks, setMarks] = createSignal<ReadonlySet<string>>(new Set());
+  /** The weddings marked for a payout account to hand over, by id. */
+  const [heldMarks, setHeldMarks] = createSignal<ReadonlySet<string>>(new Set());
   const [line, setLine] = createSignal<Line | null>(null);
 
   let root: HTMLDivElement | undefined;
@@ -205,6 +225,8 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
     weddings().filter((w) => !w.deleted && !soleRows().includes(w) && !ownRows().includes(w)),
   );
   const deletedRows = createMemo(() => weddings().filter((w) => w.deleted));
+  /** Live weddings whose payout account the person holds beside another owner. */
+  const heldRows = () => weddings().filter((w) => !w.deleted && w.payoutHolder === true);
 
   /** Actions no row on screen answers: the one past 100, or a wedding past the list's 200. */
   const unlisted = createMemo(() => {
@@ -371,12 +393,32 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
     });
   }
 
+  /**
+   * Marks each listed wedding whose payout account the person holds and moves
+   * focus to the first one's way to Money gifts. Run once the removal's own
+   * refusal has read the list again, so the marks are the API's, not a read
+   * from before the press.
+   */
+  function markHeld(): void {
+    const held = heldRows();
+    setHeldMarks(new Set(held.map((w) => w.weddingId)));
+    if (held.length === 0) return;
+    // Its link to Money gifts, or the note itself where there is none.
+    queueMicrotask(() => {
+      const note = root?.querySelector<HTMLElement>("[data-removal-held] [data-held-note]");
+      (note?.querySelector<HTMLElement>("a") ?? note)?.focus();
+    });
+  }
+
   /** Step two: remove, calling again for as long as the answer is "not finished". */
   async function remove() {
     const current = code();
     if (phase().kind !== "ready" || current === null) return;
     if (markMissing("missing")) return haptic("reject");
+    // A wedding the list marks as holding a payout account is still sent: the
+    // mark can be stale, and the API's `holds_payout_account` refusal decides.
     setLine(null);
+    setHeldMarks(new Set<string>());
     let rounds = 0;
     setPhase({ kind: "removing", rounds, waiting: false });
     /* Sequential by design: each round removes up to three weddings the
@@ -416,6 +458,17 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
         rounds += 1;
         setPhase({ kind: "removing", rounds, waiting: false });
         continue;
+      }
+      if (outcome.status === "holds_payout_account") {
+        // The API's own words, as given, and the list read again, so each
+        // wedding whose account the person holds says where to hand it over,
+        // and is marked.
+        haptic("reject");
+        const partly = rounds > 0 ? `${PARTLY_DONE} ` : "";
+        setLine({ kind: "held", tone: "danger", text: `${partly}${outcome.message}` });
+        await load(null);
+        if (!disposed) markHeld();
+        return;
       }
       // Answers missing on the rows as they stand now: the fresh list.
       const fresh = outcome;
@@ -462,11 +515,20 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
     props.onCancel();
   }
 
-  /** A wedding's Settings view, as a link the dashboard follows. */
-  const linkTo = (weddingId: string, sub: "export" | "hosts"): InAppLink => ({
-    href: serializeRoute({ view: "weddings", weddingId, module: "settings", sub }),
-    onOpen: () => props.onOpen(weddingId, sub),
+  /** A wedding's download, co-hosts or Money gifts, as a link the dashboard follows. */
+  const linkTo = (weddingId: string, place: RemovalPlace): InAppLink => ({
+    href: serializeRoute(
+      place === "money"
+        ? { view: "weddings", weddingId, module: "registry", sub: "settings" }
+        : { view: "weddings", weddingId, module: "settings", sub: place },
+    ),
+    onOpen: () => props.onOpen(weddingId, place),
   });
+  /** Money gifts, where this wedding's payout account is handed over, when it can be opened. */
+  const moneyLinkFor = (weddingId: string): InAppLink | null =>
+    props.canOpen(weddingId) && (props.canOpenMoney ?? props.canOpen)(weddingId)
+      ? linkTo(weddingId, "money")
+      : null;
 
   const hasRows = () => weddings().length > 0 || (plan()?.more ?? 0) > 0;
 
@@ -640,7 +702,10 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
                 <Group label="You own these" count={ownRows().length}>
                   <For each={ownRows()}>
                     {(wedding) => (
-                      <li class={LIVE_ROW}>
+                      <li
+                        class={LIVE_ROW}
+                        data-removal-held={heldMarks().has(wedding.weddingId) || undefined}
+                      >
                         <WeddingName wedding={wedding} />
                         <p class={textClass}>You own it. If no one else does, it's deleted.</p>
                         <KeepLinks
@@ -648,6 +713,13 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
                           canOpen={props.canOpen(wedding.weddingId)}
                           linkTo={linkTo}
                         />
+                        <Show when={wedding.payoutHolder}>
+                          <HeldAccount
+                            canOpen={props.canOpen(wedding.weddingId)}
+                            money={moneyLinkFor(wedding.weddingId)}
+                            marked={heldMarks().has(wedding.weddingId)}
+                          />
+                        </Show>
                       </li>
                     )}
                   </For>
@@ -658,13 +730,23 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
                 <Group label="You leave these" count={leaveRows().length}>
                   <For each={leaveRows()}>
                     {(wedding) => (
-                      <li class={LIVE_ROW}>
+                      <li
+                        class={LIVE_ROW}
+                        data-removal-held={heldMarks().has(wedding.weddingId) || undefined}
+                      >
                         <WeddingName wedding={wedding} />
                         <p class={hintClass}>
                           {wedding.role === "owner"
                             ? "You own it with others. You leave it, and they keep it."
                             : `You're ${ROLE_WORD[wedding.role]}. You leave it, and it stays.`}
                         </p>
+                        <Show when={wedding.payoutHolder}>
+                          <HeldAccount
+                            canOpen={props.canOpen(wedding.weddingId)}
+                            money={moneyLinkFor(wedding.weddingId)}
+                            marked={heldMarks().has(wedding.weddingId)}
+                          />
+                        </Show>
                       </li>
                     )}
                   </For>
@@ -786,7 +868,7 @@ function WeddingName(props: { wedding: RemovalWedding }) {
 function KeepLinks(props: {
   wedding: RemovalWedding;
   canOpen: boolean;
-  linkTo: (weddingId: string, sub: "export" | "hosts") => InAppLink;
+  linkTo: (weddingId: string, place: RemovalPlace) => InAppLink;
 }) {
   const download = () => props.linkTo(props.wedding.weddingId, "export");
   const owners = () => props.linkTo(props.wedding.weddingId, "hosts");
@@ -811,6 +893,41 @@ function KeepLinks(props: {
         to keep it on Cire.
       </p>
     </Show>
+  );
+}
+
+/**
+ * A wedding whose Stripe account the person holds beside another owner: where
+ * to hand it over before the removal can go through, and, once a press found
+ * it still held, a mark saying so. Promises no step beyond Money gifts: the
+ * next is Musubi's own confirmation, which the screen already describes.
+ */
+function HeldAccount(props: { canOpen: boolean; money: InAppLink | null; marked: boolean }) {
+  return (
+    <>
+      <p class={hintClass} data-held-note tabindex={props.money ? undefined : -1}>
+        You connected the Stripe account money gifts are paid into.{" "}
+        <Show
+          when={props.canOpen}
+          fallback="To hand it over, sign in to Cire with the profile that holds this seat."
+        >
+          Hand money gifts to another owner or disconnect it in{" "}
+          <Show when={props.money} fallback="Money gifts">
+            {(link) => (
+              <a href={link().href} class={proseLinkClass()} onClick={followInApp(link())}>
+                Money gifts
+              </a>
+            )}
+          </Show>{" "}
+          before you remove your data.
+        </Show>
+      </p>
+      <Show when={props.marked}>
+        <Notice tone="danger" size="inline">
+          Hand this over before you remove your data.
+        </Notice>
+      </Show>
+    </>
   );
 }
 

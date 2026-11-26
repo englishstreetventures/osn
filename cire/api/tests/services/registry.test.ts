@@ -2988,6 +2988,7 @@ describe("registryService.retireStripeAccount", () => {
         {
           weddingId: BOOTSTRAP_WEDDING_ID,
           osnProfileId: OWNER,
+          handTo: null,
           accountId: "acct_held",
           generation: 0,
         },

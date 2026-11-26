@@ -74,6 +74,7 @@ const snapshot = (items: RegistryItem[] = ITEMS): RegistrySnapshot => ({
     stripeChargesEnabled: false,
     stripeConnectedByOsnProfileId: null,
     moneyGiftsBlockedBy: "stripe_not_ready",
+    stripeAccountGeneration: null,
     updatedAt: null,
   },
   items,
