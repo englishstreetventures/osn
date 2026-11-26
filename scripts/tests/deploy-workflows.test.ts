@@ -1370,6 +1370,7 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   const ci = load(".github/workflows/ci.yml");
   const SKIP = "needs.changes.outputs.docs-only != 'true'";
   const SKIPPABLE = [
+    "bend-proofs",
     "browser",
     "build-test",
     "cire-api-tests",

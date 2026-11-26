@@ -45,6 +45,15 @@ pre-commit:
         - ".agents/**"
       run: bun fmt --no-script {staged_files}
       stage_fixed: true
+    bend-proofs:
+      # The deletion proofs (tools/deletion-laws): `bend PROOF.bend` must print
+      # ALL PROOFS CHECK, and model.mjs must be what model.bend builds; the
+      # script rebuilds it and fails, asking for it to be staged, when it is
+      # not. It never stages anything itself, since `format` restages in
+      # parallel. With no Bend, or another version than bend.env pins, it
+      # prints one line and passes: CI's `bend-proofs` job is the gate.
+      glob: "*.bend"
+      run: bash tools/deletion-laws/bend.sh hook
     secrets:
       # Advisory on this machine: `--no-verify` skips it, and CI scans the same
       # commits. The script prints one line and passes when gitleaks is missing.
