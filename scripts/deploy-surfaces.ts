@@ -38,9 +38,10 @@
  * against production; a change to scripts/guest-route-parity.ts or its Node
  * child, scripts/guest-route-parity-reference.js, which check the guest
  * site's, redeploys that surface. A workspace's Bend law sets,
- * `<workspace>/laws/<topic>/`, redeploy nothing: no Worker or site imports
- * them (oxlint refuses an import of one from any `src/`), so a change to them
- * alone ships nothing.
+ * `<workspace>/laws/<topic>/`, redeploy nothing: nothing a Worker or site
+ * builds from names them (oxlint refuses an import of one from any `src/`;
+ * scripts/tests/law-set-references.test.ts covers the rest), so a change to
+ * them alone ships nothing.
  *
  * The job ids and names are load-bearing. A GitHub Deployment record does not
  * say which surface it deployed; the name of the job that made it does, and

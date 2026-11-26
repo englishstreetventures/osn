@@ -66,7 +66,7 @@ Work is tracked in GitHub Issues, never the wiki.
   - run `bend PROOF.bend` before committing (`bun run --cwd tools/bend prove` for every set; `check` also checks each `model.mjs`);
   - parallelize the code wherever a parallel call fits: independent calls of about the same size.
 
-  Never run `bend` bare, and never `bend update`: run it through `tools/bend/bend.sh`, which runs only the build `bend.env` pins and sets `BEND_NO_TELEMETRY=1`. Without that variable, Bend asks bend-lang.com for its latest version once a day. No `src/` may import a law set: it ships in nothing.
+  Never run `bend` bare, and never `bend update`: run it through `tools/bend/bend.sh`, which runs only the build `bend.env` pins and sets `BEND_NO_TELEMETRY=1`. Without that variable, Bend asks bend-lang.com for its latest version once a day. Nothing a build reads may name a law set (oxlint, and `scripts/tests/law-set-references.test.ts` for `.astro`, globs and config): it ships in nothing.
 - **House lint rules** (`house/*` in `tools/oxlint/house`) and why they exist: `wiki/conventions/house-lint-rules.md`. Agent skills, evals and vendored trees: `wiki/conventions/agent-tooling.md`.
 - Lefthook formats and lints staged files on commit, runs the advisory secret scan on staged content, proves every Bend law set when a `.bend` file is staged, and type-checks on push. CI's `Secret scan` job is the gate.
 

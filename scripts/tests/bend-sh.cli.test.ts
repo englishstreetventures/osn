@@ -6,8 +6,9 @@
 // scratch repository holding a copy of the script and the real bend.env, and
 // two law sets, `osn/api/laws/one` and `cire/api/laws/two`, each with a
 // committed model.mjs; a stub `bend` on the PATH answers `version`, proves or
-// fails a set as the world says, builds a set's model from the world's text
-// for it, and prints a guide; bend.env pins the stub's own SHA-256.
+// fails a set as the world says (exiting 1, or the status the world gives),
+// builds a set's model from the world's text for it, and prints a guide;
+// bend.env pins the stub's own SHA-256.
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -93,11 +94,18 @@ function stubBend(
   opts: {
     version?: string;
     failing?: readonly string[];
+    failStatus?: number;
     builds?: Readonly<Record<string, string>>;
     pinned?: boolean;
   } = {},
 ) {
-  const { version = `bend ${PINNED}`, failing = [], builds = {}, pinned = true } = opts;
+  const {
+    version = `bend ${PINNED}`,
+    failing = [],
+    failStatus = 1,
+    builds = {},
+    pinned = true,
+  } = opts;
   for (const set of SETS) {
     writeFileSync(join(w.bin, `${set.replaceAll("/", "_")}.out`), builds[set] ?? COMMITTED(set));
   }
@@ -110,7 +118,7 @@ function stubBend(
       `set=\${PWD#${w.repo}/}`,
       'case "$1" in',
       `  version) echo "${version}" ;;`,
-      `  PROOF.bend) if grep -qx "$PWD" "${join(w.bin, "failing")}"; then echo "SOME PROOFS FAIL"; exit 1; fi; echo "ALL PROOFS CHECK" ;;`,
+      `  PROOF.bend) if grep -qx "$PWD" "${join(w.bin, "failing")}"; then echo "SOME PROOFS FAIL"; exit ${failStatus}; fi; echo "ALL PROOFS CHECK" ;;`,
       `  model.bend) cp "${w.bin}/\${set//\\//_}.out" "$3" ;;`,
       '  guide) echo "# Bend guide $2" ;;',
       "esac",
@@ -178,6 +186,40 @@ describe("bend.sh", () => {
     expect(proved(w, run.calls)).toEqual(["cire/api/laws/two"]);
   });
 
+  test.each(["zap/api/laws/café", "zap/api/laws/two words"])(
+    "a set at %s, a name git quotes or a list splits, fails sets and check instead of dropping out",
+    (bad) => {
+      const w = world();
+      stubBend(w);
+      lawSet(w.repo, bad);
+      git(w.repo, "add", "-A");
+      for (const command of ["sets", "check"]) {
+        const run = bendSh(w, command);
+        expect(run.status, `${command}: ${run.output}`).toBe(1);
+        expect(run.output).toContain("name its folders with A-Z, a-z, 0-9");
+      }
+      expect(proved(w, bendSh(w, "sets").calls)).toEqual([]);
+      const named = bendSh(w, "check zap/api/laws/café");
+      expect(named.status, named.output).toBe(1);
+      expect(named.output).toContain("no law set at zap/api/laws/café");
+    },
+  );
+
+  test("bend.env is read as data: no line in it turns the version ping on or runs", () => {
+    const w = world();
+    stubBend(w);
+    const env = join(w.tools, "bend.env");
+    writeFileSync(
+      env,
+      `${readFileSync(env, "utf8")}BEND_NO_TELEMETRY=0\nexport BEND_NO_TELEMETRY=0\ntouch ran\n`,
+    );
+    const run = bendSh(w, "check");
+    expect(run.status, run.output).toBe(0);
+    expect(proved(w, run.calls)).toEqual([...SETS]);
+    expect(run.calls.every((call) => call.startsWith("1 "))).toBe(true);
+    expect(existsSync(join(w.repo, "ran"))).toBe(false);
+  });
+
   test("a set with no model.bend is proved, and build, check and hook build no model in it", () => {
     const w = world();
     stubBend(w);
@@ -213,6 +255,16 @@ describe("bend.sh", () => {
     const run = bendSh(w, "check");
     expect(run.status, run.output).not.toBe(0);
     expect(run.output).toContain("SOME PROOFS FAIL");
+  });
+
+  test("check fails a proof that prints SOME PROOFS FAIL even when bend exits 0", () => {
+    const w = world();
+    stubBend(w, { failing: ["cire/api/laws/two"], failStatus: 0 });
+    const run = bendSh(w, "check");
+    expect(run.status, run.output).toBe(1);
+    expect(run.output).toContain(
+      "cire/api/laws/two: bend exited 0 but did not print ALL PROOFS CHECK",
+    );
   });
 
   test("check fails on one set's stale model.mjs, names it, checks the rest, and leaves the files alone", () => {

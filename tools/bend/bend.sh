@@ -35,8 +35,22 @@ set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(cd "$here/../.." && pwd)
 export BEND_NO_TELEMETRY=1
-# shellcheck source=/dev/null
-. "$here/bend.env"
+
+# A value from bend.env, which is read as data and never run, so no line in it
+# can change this script's environment.
+pin() {
+  local line value=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in "$1="*) value=${line#"$1="} ;; esac
+  done <"$here/bend.env"
+  echo "$value"
+}
+
+BEND_VERSION=$(pin BEND_VERSION)
+if [[ ! $BEND_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "tools/bend/bend.env pins no BEND_VERSION=<major>.<minor>.<patch>" >&2
+  exit 1
+fi
 
 target() {
   local os arch
@@ -55,9 +69,7 @@ target() {
 
 # The value of bend.env's `<prefix>_<TARGET>` for this machine.
 pinned() {
-  local key
-  key="$1_$(target | tr 'a-z-' 'A-Z_')"
-  echo "${!key:-}"
+  pin "$1_$(target | tr 'a-z-' 'A-Z_')"
 }
 
 sha256() {
@@ -98,32 +110,41 @@ pinned_bend() {
   echo "$bend"
 }
 
+# A law set's folders use these characters only, so a set name never needs
+# quoting: git prints it as it is, and a list of sets splits on whitespace.
+SAFE_SET='^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/laws/[A-Za-z0-9._-]+$'
+
 # Every law set: a `PROOF.bend` in a topic folder of a `laws/` directory that
 # sits directly in a workspace (`<top>/<package>/laws/<topic>/`), as the index
 # holds it (so a staged new set counts and an untracked one does not), and
-# still on disk.
+# still on disk. A set named with any other character fails, never drops out.
 all_sets() {
-  local proof
-  git -C "$root" ls-files --cached -- '*/laws/*/PROOF.bend' \
-    | grep -E '^[^/]+/[^/]+/laws/[^/]+/PROOF\.bend$' \
-    | sort -u \
-    | while read -r proof; do
-        if [ -f "$root/$proof" ]; then echo "${proof%/PROOF.bend}"; fi
-      done
+  local proof set
+  git -C "$root" ls-files -z --cached -- '*/laws/*/PROOF.bend' \
+    | while IFS= read -r -d '' proof; do
+        set=${proof%/PROOF.bend}
+        if [[ ! $proof =~ ^[^/]+/[^/]+/laws/[^/]+/PROOF\.bend$ ]]; then continue; fi
+        if [[ ! $set =~ $SAFE_SET ]]; then
+          echo "law set '$set': name its folders with A-Z, a-z, 0-9, '.', '_' and '-' only" >&2
+          exit 1
+        fi
+        if [ -f "$root/$proof" ]; then echo "$set"; fi
+      done \
+    | sort -u
 }
 
 # The sets a command runs: the one named, or all of them.
 sets_for() {
   if [ -n "${1:-}" ]; then
     local set=${1%/}
-    if [ ! -f "$root/$set/PROOF.bend" ]; then
+    if [[ ! $set =~ $SAFE_SET ]] || [ ! -f "$root/$set/PROOF.bend" ]; then
       echo "no law set at $set: it needs a PROOF.bend (bash tools/bend/bend.sh sets lists them)" >&2
       return 1
     fi
     echo "$set"
   else
     local found
-    found=$(all_sets)
+    found=$(all_sets) || return 1
     if [ -z "$found" ]; then
       echo "no law set found: none of the index's */laws/*/PROOF.bend is <workspace>/laws/<topic>/PROOF.bend" >&2
       return 1
@@ -139,7 +160,16 @@ prove() {
     echo "$set/PROOF.bend does not import ./LAWS.bend, so it proves no law of the set" >&2
     return 1
   fi
-  (cd "$root/$set" && "$bend" PROOF.bend)
+  local out status=0
+  out=$(cd "$root/$set" && "$bend" PROOF.bend 2>&1) || status=$?
+  echo "$out"
+  if [ "$status" -ne 0 ]; then return "$status"; fi
+  # The verdict is the text as well as the exit status, so a bend that prints
+  # a failure and exits 0 does not pass.
+  if [[ $out != *"ALL PROOFS CHECK"* || $out == *"SOME PROOFS FAIL"* ]]; then
+    echo "$set: bend exited 0 but did not print ALL PROOFS CHECK" >&2
+    return 1
+  fi
 }
 
 build_to() {

@@ -79,9 +79,9 @@ is_allowed() {
   esac
 
   # A workspace's Bend law sets, `<top>/<package>/laws/<topic>/…`: proofs and
-  # the model their agreement tests import, which no build ships (no `src/`
-  # may import them, and scripts/deploy-surfaces.ts redeploys nothing for
-  # them). Exactly two levels before `laws/`, by regex, since a case `*`
+  # the model their agreement tests import, which no build ships (nothing a
+  # build reads may name them, and scripts/deploy-surfaces.ts redeploys
+  # nothing for them). Exactly two levels before `laws/`, by regex, since a case `*`
   # crosses `/`.
   if [[ $f =~ ^[^/]+/[^/]+/laws/[^/]+/ ]]; then
     return 0

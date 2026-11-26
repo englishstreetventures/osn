@@ -17,8 +17,9 @@ type Diagnostic = {
 
 // A Bend law set (`<workspace>/laws/<topic>/`) ships in no build: the deploy
 // map redeploys nothing for it and it needs no changeset. The root
-// oxlintrc.json's `no-restricted-imports` override is what stops shipped code
-// importing one. A later override that sets the same rule for an overlapping
+// oxlintrc.json's `no-restricted-imports` override stops a workspace's `src/`
+// importing one (scripts/tests/law-set-references.test.ts covers what oxlint
+// does not read). A later override that sets the same rule for an overlapping
 // glob replaces it silently, and a mistyped glob matches nothing, so these run
 // oxlint with the repository's own config over probes in real workspaces.
 describe("no-restricted-imports keeps law sets out of shipped code", () => {
@@ -43,6 +44,8 @@ describe("no-restricted-imports keeps law sets out of shipped code", () => {
         "oxlint",
         "-c",
         join(repoRoot, "oxlintrc.json"),
+        // The probe's name is gitignored, so it stays out of git and turbo.
+        "--no-ignore",
         "--format=json",
         ...Object.values(probes),
       ],

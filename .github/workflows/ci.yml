@@ -1239,14 +1239,15 @@ jobs:
         with:
           persist-credentials: false
 
-      # bend.env is the one place the pin lives; this runner is linux-x64.
+      # bend.env is the one place the pin lives, read as data and never run,
+      # as bend.sh reads it; this runner is linux-x64.
       - name: Read the pinned Bend release
         run: |
-          . tools/bend/bend.env
+          pin() { sed -n "s/^$1=//p" tools/bend/bend.env | tail -n 1; }
           {
-            echo "BEND_VERSION=$BEND_VERSION"
+            echo "BEND_VERSION=$(pin BEND_VERSION)"
             echo "BEND_TARGET=linux-x64"
-            echo "BEND_SHA256=$BEND_SHA256_LINUX_X64"
+            echo "BEND_SHA256=$(pin BEND_SHA256_LINUX_X64)"
           } >> "$GITHUB_ENV"
 
       # The release tarball, kept under its version and SHA-256, so most runs

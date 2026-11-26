@@ -339,6 +339,8 @@
       // build: scripts/deploy-surfaces.ts redeploys nothing for them and they
       // need no changeset. So no shipped code may import one, or a proof-only
       // change would alter a Worker or a site without a deploy or a changelog.
+      // scripts/tests/law-set-references.test.ts covers what oxlint does not
+      // read: `.astro` files, globs and config outside `src/`.
       "files": ["*/*/src/**"],
       "rules": {
         "no-restricted-imports": [
