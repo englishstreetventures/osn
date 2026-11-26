@@ -106,47 +106,60 @@ const gateOpen = async (db: TestDb, actor: string): Promise<boolean> => {
   return seat._tag === "Success" && seat.success !== null;
 };
 
-/** Applies one event to the code; for a gated write, answers whether the gate let it in. */
-async function applyToCode(db: TestDb, s: P, e: Ev, index: number): Promise<boolean | null> {
+/**
+ * A service's answer: `Success`, its failure's tag, or null when the organiser
+ * routes' gate kept the call from the service.
+ */
+type Answer = string | null;
+
+const answerOf = (result: { _tag: "Success" } | { _tag: "Failure"; failure: unknown }): string =>
+  result._tag === "Success"
+    ? "Success"
+    : String((result.failure as { _tag?: unknown } | null)?._tag ?? "untagged");
+
+/**
+ * Applies one event to the code. Answers whether the gate let a gated write in
+ * (null for an event no gate stands in front of), and the service's answer.
+ */
+async function applyToCode(
+  db: TestDb,
+  s: P,
+  e: Ev,
+  index: number,
+): Promise<{ gate: boolean | null; answer: Answer }> {
   const owner = usr(ownerOf(s) ?? 99);
+  const ungated = async <A, E>(effect: Effect.Effect<A, E, DbService>) => ({
+    gate: null,
+    answer: answerOf(await run(db, effect)),
+  });
+  const gated = async <A, E>(actor: string, effect: () => Effect.Effect<A, E, DbService>) =>
+    (await gateOpen(db, actor))
+      ? { gate: true, answer: answerOf(await run(db, effect())) }
+      : { gate: false, answer: null };
+  const account = (n: number, charges: boolean) => ({
+    id: acct(n),
+    chargesEnabled: charges,
+    payoutsEnabled: false,
+    defaultCurrency: "AUD",
+  });
   switch (e.$) {
     case "Connect":
-      await run(
-        db,
-        registryService.attachStripeAccount(
-          WEDDING,
-          {
-            id: acct(e.account),
-            chargesEnabled: e.charges,
-            payoutsEnabled: false,
-            defaultCurrency: "AUD",
-          },
-          usr(e.by),
-          { generation: e.gen },
-        ),
+      return ungated(
+        registryService.attachStripeAccount(WEDDING, account(e.account, e.charges), usr(e.by), {
+          generation: e.gen,
+        }),
       );
-      return null;
     case "Join":
-      await run(
-        db,
-        registryService.attachStripeAccount(
-          WEDDING,
-          {
-            id: acct(e.account),
-            chargesEnabled: e.charges,
-            payoutsEnabled: false,
-            defaultCurrency: "AUD",
-          },
-          usr(e.by),
-          { accountType: "standard", ownersMustFit: true },
-        ),
+      return ungated(
+        registryService.attachStripeAccount(WEDDING, account(e.account, e.charges), usr(e.by), {
+          accountType: "standard",
+          ownersMustFit: true,
+        }),
       );
-      return null;
     case "Retire": {
       const hand = valueOf(e.hand);
       const read = valueOf(e.read);
-      await run(
-        db,
+      return ungated(
         registryService.retireStripeAccount(
           {
             weddingId: WEDDING,
@@ -158,34 +171,30 @@ async function applyToCode(db: TestDb, s: P, e: Ev, index: number): Promise<bool
           DEPLOYMENT,
         ),
       );
-      return null;
     }
+    // Stripe's webhook passes its own time; cire's OAuth hand-back passes
+    // none. Every other detach takes each shape.
     case "Detach":
-      await run(db, registryService.detachStripeAccount({ accountId: acct(e.account) }));
-      return null;
+      return ungated(
+        registryService.detachStripeAccount(
+          index % 2 === 0
+            ? { accountId: acct(e.account), observedAt: 4_000_000_000 + index }
+            : { accountId: acct(e.account) },
+        ),
+      );
     case "Update":
-      await run(
-        db,
+      return ungated(
         registryService.applyStripeAccountState({
-          id: acct(e.account),
-          chargesEnabled: e.charges,
-          payoutsEnabled: false,
-          defaultCurrency: "AUD",
+          ...account(e.account, e.charges),
           observedAt: 4_000_000_000 + index,
         }),
       );
-      return null;
     case "Gifts":
-      if (!(await gateOpen(db, owner))) return false;
-      await run(
-        db,
+      return gated(owner, () =>
         registryService.updateSettings(WEDDING, { cashGiftsEnabled: e.on }, DEPLOYMENT),
       );
-      return true;
     case "Add":
-      if (!(await gateOpen(db, owner))) return false;
-      await run(
-        db,
+      return gated(owner, () =>
         hostsService.add({
           weddingId: WEDDING,
           osnProfileId: usr(e.profile),
@@ -193,15 +202,12 @@ async function applyToCode(db: TestDb, s: P, e: Ev, index: number): Promise<bool
           role: roleName(e.role),
         }),
       );
-      return true;
     case "Remove":
-      if (!(await gateOpen(db, owner))) return false;
-      await run(db, hostsService.remove({ weddingId: WEDDING, osnProfileId: usr(e.profile) }));
-      return true;
+      return gated(owner, () =>
+        hostsService.remove({ weddingId: WEDDING, osnProfileId: usr(e.profile) }),
+      );
     case "SetRole":
-      if (!(await gateOpen(db, usr(e.profile)))) return false;
-      await run(
-        db,
+      return gated(usr(e.profile), () =>
         hostsService.setRole({
           weddingId: WEDDING,
           osnProfileId: usr(e.profile),
@@ -209,23 +215,18 @@ async function applyToCode(db: TestDb, s: P, e: Ev, index: number): Promise<bool
           actorOsnProfileId: usr(e.profile),
         }),
       );
-      return true;
     case "Discard":
-      await run(
-        db,
+      return ungated(
         weddingLifecycleService.softDelete({
           weddingId: WEDDING,
           osnProfileId: usr(e.by),
           confirmSlug: SLUG,
         }),
       );
-      return null;
     case "Revive":
-      await run(
-        db,
+      return ungated(
         weddingLifecycleService.restore({ weddingId: WEDDING, osnProfileId: usr(e.profile) }),
       );
-      return null;
     case "Erase": {
       const profiles = array(e.profiles);
       const result = await run(
@@ -236,8 +237,48 @@ async function applyToCode(db: TestDb, s: P, e: Ev, index: number): Promise<bool
         }),
       );
       expect(result).toMatchObject({ _tag: "Success", success: { status: "done" } });
-      return null;
+      return { gate: null, answer: answerOf(result) };
     }
+  }
+}
+
+/**
+ * The refusals each service may answer here. Anything else — a write error, a
+ * people limit the test's tier and self-only role changes never meet — fails
+ * the case: the state could agree while the statement broke.
+ */
+const REFUSALS: Record<Ev["$"], ReadonlyArray<string>> = {
+  Connect: [],
+  Join: [],
+  Retire: ["StripeRetireForbidden", "StripeAccountChanged", "HandoverNotOwner"],
+  Detach: [],
+  Update: [],
+  Gifts: ["PayoutHolderAbsent", "StripeNotReady"],
+  Add: ["HostConflict"],
+  Remove: ["LastOwner", "HoldsPayoutAccount"],
+  SetRole: ["LastOwner", "HoldsPayoutAccount", "HostNotFound"],
+  Discard: ["WeddingLifecycleRefused"],
+  Revive: ["WeddingLifecycleRefused"],
+  Erase: [],
+};
+
+/**
+ * What the model says the service answers, where it says: a retire succeeds
+ * exactly when it clears the account, and a money-gifts save exactly when it
+ * turns them off or the holder is seated with charges on, refusing an absent
+ * holder before an account that cannot charge.
+ */
+function expectedAnswer(before: P, e: Ev, after: P): Answer | undefined {
+  switch (e.$) {
+    case "Retire":
+      return before.account.$ === "Some" && after.account.$ === "None" ? "Success" : undefined;
+    case "Gifts":
+      if (!before.live) return null;
+      if (!e.on) return "Success";
+      if (model["payout:absent"](before)) return "PayoutHolderAbsent";
+      return before.charges ? "Success" : "StripeNotReady";
+    default:
+      return undefined;
   }
 }
 
@@ -314,8 +355,9 @@ async function expectModelAgrees(
     const e = next(s, i);
     if (e === null) return;
     trace.push(e);
-    const gate = await applyToCode(db, s, e, i);
+    const { gate, answer } = await applyToCode(db, s, e, i);
     const expectedGate = GATED.has(e.$) ? s.live : null;
+    const before = s;
     s = model["payout:step"](s, e);
     const at = `event ${i} of ${JSON.stringify(trace)}`;
     expect({ at, gate, ...(await codeState(db)) }).toEqual({
@@ -323,6 +365,16 @@ async function expectModelAgrees(
       gate: expectedGate,
       ...modelState(s),
     });
+    // The answer, as well as the state: a refusal the service may give, and
+    // where the model decides it, the very one.
+    if (answer !== null && answer !== "Success") {
+      const allowed = REFUSALS[e.$].includes(answer);
+      expect({ at, answer, allowed }).toEqual({ at, answer, allowed: true });
+    }
+    const expected = expectedAnswer(before, e, s);
+    if (expected !== undefined) expect({ at, answer }).toEqual({ at, answer: expected });
+    if (e.$ === "Retire" && expected === undefined)
+      expect({ at, answer }).not.toEqual({ at, answer: "Success" });
   }
 }
 
@@ -362,6 +414,256 @@ const discard = (by: number): Ev => ({ $: "Discard", by });
 const revive = (profile: number): Ev => ({ $: "Revive", profile });
 const erase = (account: number): Ev => ({ $: "Erase", profiles: list(profilesOf(account)) });
 
+const SEEDS = 60;
+
+const owners = (s: P): number[] =>
+  array(s.seats)
+    .filter((seat) => seat.role.$ === "Owner")
+    .map((seat) => seat.profile);
+
+/**
+ * Events drawn against the model's state, so most reads are fresh and most
+ * writes have something to act on. Half the traces start with a second owner
+ * and an account the creator connected. A connect or a retire carries the
+ * wedding's generation four times in five, and a retire reads the account it
+ * names nine times in ten (the route reads the account itself and takes only
+ * the generation from the page). The caller is the holder or an owner more
+ * often than not, and a hand-over names an owner more often than not.
+ */
+function drawer(seed: number): { creator: number; next: (s: P, i: number) => Ev | null } {
+  const rand = seeded(seed);
+  const creator = rand.pick(PROFILES);
+  const partner = rand.pick(PROFILES.filter((p) => accountOf(p) !== accountOf(creator)));
+  const prelude: Ev[] = rand.chance(0.5)
+    ? [add(partner, OWNER), connect(creator, rand.pick(ACCOUNTS), 0, rand.chance(0.7))]
+    : [];
+  const length = prelude.length + 6 + rand.int(10);
+  const otherGen = (s: P) => (s.gen === 0 ? 1 : s.gen + rand.pick([-1, 1]));
+  const someone = (s: P): number => {
+    const holder = valueOf(s.holder);
+    const seatedOwners = owners(s);
+    if (holder !== null && rand.chance(0.4)) return holder;
+    if (seatedOwners.length > 0 && rand.chance(0.5)) return rand.pick(seatedOwners);
+    return rand.pick(PROFILES);
+  };
+  const seatedOne = (s: P): number => {
+    const seats = array(s.seats);
+    return seats.length > 0 && rand.chance(0.8) ? rand.pick(seats).profile : rand.pick(PROFILES);
+  };
+  return {
+    creator,
+    next: (s: P, i: number): Ev | null => {
+      if (i < prelude.length) return prelude[i]!;
+      if (i >= length) return null;
+      const p = rand.pick(PROFILES);
+      const current = valueOf(s.account);
+      switch (
+        rand.pick([
+          "connect",
+          "connect",
+          "join",
+          "retire",
+          "retire",
+          "retire",
+          "detach",
+          "update",
+          "update",
+          "gifts",
+          "gifts",
+          "add",
+          "add",
+          "remove",
+          "setRole",
+          "discard",
+          "revive",
+          "erase",
+        ] as const)
+      ) {
+        case "connect":
+          return connect(
+            someone(s),
+            rand.pick(ACCOUNTS),
+            rand.chance(0.8) ? s.gen : otherGen(s),
+            rand.chance(0.6),
+          );
+        case "join":
+          return join(someone(s), rand.pick(ACCOUNTS), rand.chance(0.6));
+        case "retire": {
+          const seatedOwners = owners(s);
+          const hand = rand.chance(0.4)
+            ? null
+            : seatedOwners.length > 0 && rand.chance(0.7)
+              ? rand.pick(seatedOwners)
+              : rand.pick(PROFILES);
+          return retire(
+            someone(s),
+            hand,
+            rand.chance(0.9) ? current : rand.chance(0.5) ? null : rand.pick(ACCOUNTS),
+            rand.chance(0.8) ? s.gen : otherGen(s),
+          );
+        }
+        case "detach":
+          return detach(current !== null && rand.chance(0.6) ? current : rand.pick(ACCOUNTS));
+        case "update":
+          return update(
+            current !== null && rand.chance(0.8) ? current : rand.pick(ACCOUNTS),
+            rand.chance(0.6),
+          );
+        case "gifts":
+          return gifts(rand.chance(0.7));
+        case "add":
+          return add(p, rand.chance(0.5) ? OWNER : EDITOR);
+        case "remove":
+          return remove(rand.chance(0.5) ? someone(s) : seatedOne(s));
+        case "setRole":
+          return setRole(
+            rand.chance(0.5) ? someone(s) : seatedOne(s),
+            rand.chance(0.5) ? OWNER : EDITOR,
+          );
+        case "discard":
+          return discard(someone(s));
+        case "revive":
+          return revive(rand.chance(0.7) ? (ownerOf(s) ?? p) : p);
+        case "erase":
+          return erase(accountOf(rand.chance(0.5) ? (valueOf(s.holder) ?? p) : p));
+      }
+    },
+  };
+}
+
+/**
+ * The outcomes the laws turn on, each of which the seeded traces must reach at
+ * least once, read off the model alone: a drawer change that stops reaching
+ * one fails by name rather than leaving its guard to a single named case.
+ */
+const OUTCOMES = [
+  "a connect fills the account",
+  "a connect on a stale generation is refused",
+  "a connect with no generation fills the account",
+  "a retire hands over",
+  "a retire disconnects",
+  "a retire replaces a seated holder",
+  "a retire replaces an absent holder",
+  "a retire on a stale generation is refused",
+  "a retire by a caller with no owner seat is refused",
+  "a hand-over to someone who is not another owner is refused",
+  "a detach clears the account",
+  "a detach releases a retired record",
+  "an update turns charges on",
+  "money gifts turn on",
+  "turning money gifts on is refused while the holder is absent",
+  "turning money gifts on is refused while Stripe cannot charge",
+  "money gifts turn off",
+  "the holder rule refuses a removal",
+  "the holder rule refuses a move below owner",
+  "a seat is removed",
+  "an erasure leaves the holder absent",
+  "money gifts are open",
+  "a wedding is deleted",
+  "a wedding is restored",
+] as const;
+
+function reached(): Record<(typeof OUTCOMES)[number], boolean> {
+  const seen = new Set<string>();
+  const isOwner = (s: P, q: number) =>
+    array(s.seats).some((seat) => seat.profile === q && seat.role.$ === "Owner");
+  for (let seed = 1; seed <= SEEDS; seed++) {
+    const { creator, next } = drawer(seed);
+    let s = model["payout:created"](creator);
+    for (let i = 0; ; i++) {
+      const e = next(s, i);
+      if (e === null) break;
+      const t = model["payout:step"](s, e);
+      const cleared = s.account.$ === "Some" && t.account.$ === "None";
+      const filled = s.account.$ === "None" && t.account.$ === "Some";
+      const holdsSeat = (q: number) =>
+        valueOf(s.holder) === q && s.account.$ === "Some" && isOwner(s, q);
+      switch (e.$) {
+        case "Connect":
+          if (filled) seen.add("a connect fills the account");
+          if (s.account.$ === "None" && s.live && isOwner(s, e.by) && e.gen !== s.gen)
+            seen.add("a connect on a stale generation is refused");
+          break;
+        case "Join":
+          if (filled) seen.add("a connect with no generation fills the account");
+          break;
+        case "Retire": {
+          const newest = array(t.retired)[0];
+          if (cleared && newest) {
+            seen.add(
+              {
+                HandedOver: "a retire hands over",
+                Disconnected: "a retire disconnects",
+                Replaced: "a retire replaces a seated holder",
+                HolderAbsent: "a retire replaces an absent holder",
+              }[newest.reason.$],
+            );
+          }
+          const fresh = s.account.$ === "Some" && valueOf(e.read) === s.account.value;
+          if (fresh && e.gen !== s.gen && s.live && isOwner(s, e.by))
+            seen.add("a retire on a stale generation is refused");
+          if (fresh && e.gen === s.gen && s.live && !isOwner(s, e.by))
+            seen.add("a retire by a caller with no owner seat is refused");
+          if (
+            fresh &&
+            e.gen === s.gen &&
+            s.live &&
+            isOwner(s, e.by) &&
+            e.hand.$ === "Some" &&
+            !cleared
+          )
+            seen.add("a hand-over to someone who is not another owner is refused");
+          break;
+        }
+        case "Detach":
+          if (cleared) seen.add("a detach clears the account");
+          if (
+            array(t.retired).filter((r) => r.released).length >
+            array(s.retired).filter((r) => r.released).length
+          )
+            seen.add("a detach releases a retired record");
+          break;
+        case "Update":
+          if (!s.charges && t.charges) seen.add("an update turns charges on");
+          break;
+        case "Gifts":
+          if (!s.gifts && t.gifts) seen.add("money gifts turn on");
+          if (s.gifts && !t.gifts) seen.add("money gifts turn off");
+          if (e.on && s.live && model["payout:absent"](s))
+            seen.add("turning money gifts on is refused while the holder is absent");
+          if (e.on && s.live && !model["payout:absent"](s) && !s.charges)
+            seen.add("turning money gifts on is refused while Stripe cannot charge");
+          break;
+        case "Remove":
+          if (s.live && holdsSeat(e.profile) && owners(s).length > 1)
+            seen.add("the holder rule refuses a removal");
+          if (array(t.seats).length < array(s.seats).length) seen.add("a seat is removed");
+          break;
+        case "SetRole":
+          if (s.live && holdsSeat(e.profile) && e.role.$ === "Editor" && owners(s).length > 1)
+            seen.add("the holder rule refuses a move below owner");
+          break;
+        case "Discard":
+          if (s.live && !t.live) seen.add("a wedding is deleted");
+          break;
+        case "Revive":
+          if (!s.live && t.live) seen.add("a wedding is restored");
+          break;
+        case "Erase":
+          if (!model["payout:absent"](s) && model["payout:absent"](t))
+            seen.add("an erasure leaves the holder absent");
+          break;
+      }
+      if (model["payout:block"](t).$ === "Open") seen.add("money gifts are open");
+      s = t;
+    }
+  }
+  return Object.fromEntries(OUTCOMES.map((name) => [name, seen.has(name)])) as Record<
+    (typeof OUTCOMES)[number],
+    boolean
+  >;
+}
+
 describe("one wedding's payout account: the model and cire-api agree", () => {
   it("refuses to remove or demote the holder, and lets them go once they hand money gifts over", async () => {
     await expectModelAgrees(
@@ -378,7 +680,21 @@ describe("one wedding's payout account: the model and cire-api agree", () => {
     );
   });
 
-  it("refuses a retire whose generation is stale, even on the same account, or that read no account", async () => {
+  it("hands over, the partner connects their own, another owner replaces it, and a detach releases only the first record", async () => {
+    await expectModelAgrees(
+      0,
+      events([
+        add(1, OWNER),
+        connect(0, 0, 0, true),
+        retire(0, 1, 0, 0),
+        connect(1, 1, 1, true),
+        retire(0, null, 1, 1),
+        detach(0),
+      ]),
+    );
+  });
+
+  it("refuses a retire that read a stale generation, even on the same account, or another account, or none", async () => {
     await expectModelAgrees(
       0,
       events([
@@ -387,6 +703,7 @@ describe("one wedding's payout account: the model and cire-api agree", () => {
         connect(0, 0, 1),
         retire(0, null, 0, 0),
         retire(0, null, null, 1),
+        retire(0, null, 1, 1),
         retire(0, null, 0, 1),
       ]),
     );
@@ -414,19 +731,22 @@ describe("one wedding's payout account: the model and cire-api agree", () => {
         gifts(true),
         erase(0),
         gifts(true),
+        gifts(false),
         retire(1, null, 0, 0),
         connect(1, 1, 1, true),
+        gifts(true),
       ]),
     );
   });
 
-  it("hands over only from the holder to another owner; another owner's retire is a replace", async () => {
+  it("retires only for an owner, hands over only from the holder to another owner, and another owner's retire is a replace", async () => {
     await expectModelAgrees(
       0,
       events([
         add(1, OWNER),
         add(2, EDITOR),
         connect(0, 0, 0),
+        retire(2, null, 0, 0),
         retire(0, 2, 0, 0),
         retire(0, 0, 0, 0),
         retire(1, 0, 0, 0),
@@ -508,100 +828,15 @@ describe("one wedding's payout account: the model and cire-api agree", () => {
     );
   });
 
-  /**
-   * Events drawn against the model's state, so most reads are fresh: a
-   * connect or a retire carries the wedding's generation four times in five,
-   * and a retire the account it names nine times in ten (the route reads the
-   * account itself and takes only the generation from the page).
-   */
-  const drawer = (seed: number) => {
-    const rand = seeded(seed);
-    const length = 6 + rand.int(10);
-    const otherGen = (s: P) => Math.max(0, s.gen + rand.pick([-1, 1]));
-    // The holder or an owner half the time, so writes that need one land.
-    const someone = (s: P) =>
-      rand.chance(0.5)
-        ? (valueOf(s.holder) ?? ownerOf(s) ?? rand.pick(PROFILES))
-        : rand.pick(PROFILES);
-    // A seated profile most of the time, so seat changes have a seat to move.
-    const seatedOne = (s: P) => {
-      const seats = array(s.seats);
-      return seats.length > 0 && rand.chance(0.8) ? rand.pick(seats).profile : rand.pick(PROFILES);
-    };
-    return {
-      creator: rand.pick(PROFILES),
-      next: (s: P, i: number): Ev | null => {
-        if (i >= length) return null;
-        const p = rand.pick(PROFILES);
-        const current = valueOf(s.account);
-        switch (
-          rand.pick([
-            "connect",
-            "connect",
-            "join",
-            "retire",
-            "retire",
-            "retire",
-            "detach",
-            "update",
-            "update",
-            "gifts",
-            "gifts",
-            "add",
-            "add",
-            "remove",
-            "setRole",
-            "discard",
-            "revive",
-            "erase",
-          ] as const)
-        ) {
-          case "connect":
-            return connect(
-              someone(s),
-              rand.pick(ACCOUNTS),
-              rand.chance(0.8) ? s.gen : otherGen(s),
-              rand.chance(0.5),
-            );
-          case "join":
-            return join(someone(s), rand.pick(ACCOUNTS), rand.chance(0.5));
-          case "retire":
-            return retire(
-              someone(s),
-              rand.chance(0.5) ? null : rand.pick(PROFILES),
-              rand.chance(0.9) ? current : rand.chance(0.5) ? null : rand.pick(ACCOUNTS),
-              rand.chance(0.8) ? s.gen : otherGen(s),
-            );
-          case "detach":
-            return detach(current !== null && rand.chance(0.6) ? current : rand.pick(ACCOUNTS));
-          case "update":
-            return update(
-              current !== null && rand.chance(0.8) ? current : rand.pick(ACCOUNTS),
-              rand.chance(0.6),
-            );
-          case "gifts":
-            return gifts(rand.chance(0.7));
-          case "add":
-            return add(p, rand.chance(0.5) ? OWNER : EDITOR);
-          case "remove":
-            return remove(seatedOne(s));
-          case "setRole":
-            return setRole(seatedOne(s), rand.chance(0.5) ? OWNER : EDITOR);
-          case "discard":
-            return discard(someone(s));
-          case "revive":
-            return revive(rand.chance(0.7) ? (ownerOf(s) ?? p) : p);
-          case "erase":
-            return erase(accountOf(p));
-        }
-      },
-    };
-  };
-
-  for (let seed = 1; seed <= 60; seed++) {
+  for (let seed = 1; seed <= SEEDS; seed++) {
     it(`agrees on seeded trace ${seed}`, async () => {
       const { creator, next } = drawer(seed);
       await expectModelAgrees(creator, next);
     });
   }
+
+  it("the seeded traces reach every outcome a law turns on", () => {
+    const all: Record<string, boolean> = Object.fromEntries(OUTCOMES.map((name) => [name, true]));
+    expect(reached() as Record<string, boolean>).toEqual(all);
+  });
 });
