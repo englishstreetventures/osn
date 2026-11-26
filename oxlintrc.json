@@ -58,7 +58,13 @@
       "error",
       {
         "additionalTestBlockFunctions": ["it.effect", "effectIt.effect", "it.live"],
-        "assertFunctionNames": ["expect", "expectFailsWith", "assertNoAccountId", "expectPass"]
+        "assertFunctionNames": [
+          "expect",
+          "expectFailsWith",
+          "assertNoAccountId",
+          "expectPass",
+          "expectModelAgrees"
+        ]
       }
     ],
 
@@ -519,6 +525,9 @@
     "tools/oxlint/anti-slop",
     "shared/ui/vendor",
     "cire/waves/vendor",
+    // What `bend model.bend -o model.mjs` writes: generated, and CI's
+    // `bend-proofs` job fails unless it is byte for byte that build.
+    "tools/deletion-laws/model.mjs",
     // Shallow checkouts of an upstream repo, cloned as reference material and
     // gitignored (the Effect v4 migration's two lived here). Not our source,
     // and linting them buries real findings in someone else's warnings.
