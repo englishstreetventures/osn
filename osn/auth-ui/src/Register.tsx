@@ -921,18 +921,20 @@ export function Register(props: RegisterProps) {
         await withEnrolmentToken((token) =>
           client.passkeyRegisterComplete({ profileId: id, accessToken: token, attestation }),
         );
-        // The account has its passkey: nothing is left to reopen this step for.
-        forgetEnrolling();
+        // The account has its passkey: nothing is left to reopen this step
+        // for. Only this account's marker goes; another tab's sign-up may have
+        // written its own over it since.
+        forgetEnrolling(id);
         setEnrolled(true);
       }
       await signIn(name);
     } catch (err) {
       if (err instanceof Ended) {
-        forgetEnrolling();
+        forgetEnrolling(id);
         setAccessToken(null);
         setStep("ran-out");
       } else if (err instanceof AlreadyIn) {
-        forgetEnrolling();
+        forgetEnrolling(id);
         await publish(err.session, name).catch(() => setStep("added"));
       } else if (enrolled()) {
         setPasskeyError(NOT_SIGNED_IN_LINE);

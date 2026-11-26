@@ -300,12 +300,24 @@ export function keepEnrolling(enrolling: Enrolling): void {
   }
 }
 
-/** Removes the stored enrolment. */
-export function forgetEnrolling(): void {
+/**
+ * Removes the stored enrolment. Given `profileId`, only when the entry names
+ * that account: the slot is the whole browser's, and another tab's sign-up
+ * may have written its own account over it since, which this tab leaves
+ * alone. With none given, removes whatever is there.
+ */
+export function forgetEnrolling(profileId?: string): void {
   try {
+    if (profileId !== undefined) {
+      const raw = localStorage.getItem(ENROLLING_KEY);
+      if (raw === null) return;
+      const named = (JSON.parse(raw) as Partial<Enrolling> | null)?.profileId;
+      if (named !== profileId) return;
+    }
     localStorage.removeItem(ENROLLING_KEY);
   } catch {
-    // Storage disabled: there is no entry to remove.
+    // Storage disabled, or an entry that does not parse: `storedEnrolling`
+    // removes a malformed one on its next read.
   }
 }
 

@@ -12,6 +12,7 @@ import { AuthHeader } from "./AuthHeader";
 import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { InlineAction } from "./InlineAction";
 import { describePasskeyError } from "./passkey-errors";
+import { forgetDraft, forgetEnrolling } from "./pending-sign-up";
 import { hasPendingRecovery, RecoveryLoginForm } from "./RecoveryLoginForm";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
@@ -116,8 +117,21 @@ export function SignIn(props: SignInProps) {
     setView("recovery");
   }
 
+  /**
+   * Once a sign-in's session is published, a sign-up kept in this browser has
+   * nothing left to resume: the sign-in replaced the cookie its passkey step
+   * stood for. So what was typed on the sign-up form (this tab's) and the
+   * account the passkey step was for (the browser's) both go, on every host
+   * this view is mounted in.
+   */
+  function forgetSignUp() {
+    forgetDraft();
+    forgetEnrolling();
+  }
+
   async function finishWithSession(session: Parameters<typeof adoptSession>[0]) {
     await adoptSession(session);
+    forgetSignUp();
     setSignedIn(true);
     toast.success("Signed in");
     props.onSuccess?.();
@@ -373,6 +387,8 @@ export function SignIn(props: SignInProps) {
           turnstileSiteKey={props.turnstileSiteKey}
           productName={props.productName}
           onSuccess={() => {
+            // The recovery form calls this once its session is published.
+            forgetSignUp();
             setSignedIn(true);
             props.onSuccess?.();
           }}

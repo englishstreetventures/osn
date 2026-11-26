@@ -569,6 +569,39 @@ describe("the passkey step", () => {
     });
   });
 
+  it.each([
+    ["a server error", Object.assign(new Error("server error"), { status: 500 })],
+    ["no answer", new TypeError("Failed to fetch")],
+  ])(
+    "publishes the account's session when complete's answer is %s after the passkey went in",
+    async (_, lost) => {
+      await toPasskeyStep();
+      const dialog = screen.getByRole("dialog", { name: REGISTER });
+      // The server added the passkey and lifted the session, but the tab never
+      // learnt it.
+      hoisted.registration.passkeyRegisterComplete.mockRejectedValueOnce(lost);
+      await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
+      await within(dialog).findByRole("alert");
+      expect(adoptSession).not.toHaveBeenCalled();
+
+      // The token the tab holds is restricted and its row is not, so begin
+      // answers 401, and the cookie renews into the account's ordinary session.
+      hoisted.registration.passkeyRegisterBegin.mockRejectedValueOnce(
+        Object.assign(new Error("unauthorized"), { status: 401 }),
+      );
+      refreshHeldSession.mockResolvedValue({ held: true, session: sessionWith(ORDINARY) });
+      await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
+
+      await waitFor(() => expect(adoptSession).toHaveBeenCalledWith(sessionWith(ORDINARY)));
+      expect(hoisted.toastSuccess).toHaveBeenCalledWith("Welcome, @ada");
+      // No second passkey: the second press stopped at the refused begin.
+      expect(hoisted.startRegistration).toHaveBeenCalledTimes(1);
+      expect(hoisted.registration.passkeyRegisterComplete).toHaveBeenCalledTimes(1);
+      expect(within(dialog).queryByText(RAN_OUT)).toBeNull();
+      expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
+    },
+  );
+
   it("ends the sign-up when a second 401 follows the renewal", async () => {
     await toPasskeyStep();
     const dialog = screen.getByRole("dialog", { name: REGISTER });

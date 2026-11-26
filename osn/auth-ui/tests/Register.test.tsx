@@ -45,7 +45,7 @@ import { toast } from "@shared/toast";
 // Import after mocks so the component picks them up.
 import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 
-import { hasPendingSignUp } from "../src/pending-sign-up";
+import { hasPendingSignUp, keepEnrolling } from "../src/pending-sign-up";
 import { Register } from "../src/Register";
 import {
   CONNECTION,
@@ -1512,6 +1512,64 @@ describe("Register component", () => {
       // one for as long as this component was written for a single consumer,
       // so the assertion is on the name and not just on the sentence.
       expect(screen.getByText(/You.re all set\. Loading Musubi/)).toBeTruthy();
+    });
+
+    // The passkey-step marker is one slot for the whole browser. Another tab's
+    // sign-up may have written its own account over this tab's since, and this
+    // tab must not remove it: that tab would reopen at the details for an
+    // address that already has an account.
+    describe("another account's marker", () => {
+      const other = { profileId: "usr_other", handle: "bob", expiresAt: Date.now() + 600_000 };
+      const markerOwner = () =>
+        (
+          JSON.parse(localStorage.getItem("osn.signup.enrolling") ?? "null") as {
+            profileId?: string;
+          } | null
+        )?.profileId;
+
+      it("survives this tab's enrolment", async () => {
+        await reachPasskey();
+        expect(markerOwner()).toBe("usr_abc");
+        keepEnrolling(other);
+        stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
+        hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
+        stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
+
+        fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
+
+        await waitFor(() => expect(hoisted.adoptSession).toHaveBeenCalledWith(renewedSession));
+        expect(markerOwner()).toBe("usr_other");
+      });
+
+      it("survives this tab's sign-up ending on a renewal for that account", async () => {
+        await reachPasskey();
+        keepEnrolling(other);
+        // The cookie is the other sign-up's now, so the held token's renewal
+        // answers for that account.
+        stub.passkeyRegisterBegin.mockRejectedValue(apiError("unauthorized", 401));
+        hoisted.refreshHeldSession.mockResolvedValue({
+          held: true,
+          session: { ...renewedSession, accessToken: jwtFor("usr_other", "osn-recovery") },
+        });
+
+        fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
+
+        await screen.findByText(/ran out of time before a passkey was added/);
+        expect(hoisted.adoptSession).not.toHaveBeenCalled();
+        expect(markerOwner()).toBe("usr_other");
+      });
+
+      it("is removed when it names this tab's account", async () => {
+        await reachPasskey();
+        stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
+        hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
+        stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
+
+        fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
+
+        await waitFor(() => expect(hoisted.adoptSession).toHaveBeenCalledWith(renewedSession));
+        expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
+      });
     });
   });
 
