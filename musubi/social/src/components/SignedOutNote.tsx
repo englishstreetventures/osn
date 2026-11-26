@@ -15,8 +15,8 @@ import { useShellDialogs } from "./ShellDialogs";
  * Until the shell's dialogs have loaded the button is drawn invisible —
  * not painted, not focusable, out of the accessibility tree — so it never
  * offers a dialog that cannot open, and the note does not grow when they
- * land. If they never load, the space stays empty and the shell's frame says
- * to reload.
+ * land. The shell's own Sign in waits the same way. If they never load, the
+ * space stays empty and the shell's notice above the page says to reload.
  */
 export function SignedOutNote(props: { children: JSX.Element }) {
   const dialogs = useShellDialogs();

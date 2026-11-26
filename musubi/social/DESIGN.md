@@ -356,13 +356,26 @@ reader sees (the display name, else the handle; an organisation's name),
 upper-cased, a character being what a reader counts as one, so a joined emoji
 or a letter with a combining mark stays whole (`tests/lib/initials.test.ts`).
 An avatar beside the name it stands for is hidden from a screen reader
-(`decorative`), which hears the name once. The call site sets the size alone:
+(`decorative`), which hears the name once: the rows that name a profile, the
+rail's account trigger and Settings' profile card. The top bar's avatar is a
+trigger with no words beside it, so the trigger carries its own name
+("Account menu, @handle") and its avatar is hidden too. The call site sets
+the size alone, never a margin (a gap beside the avatar is its wrapper's):
 36px in a list row, 32px in the roster and the rail's search, 40px on an
 organisation's or a suggestion's card and the top bar, 56px heading an
 organisation's page, 64px heading Settings' profile card (initials at
-`lg`), 20px in the account menu. `tools/e2e` reads an organisation's 8px
-corners on the list, its page and a search result, and a person's circle in
-the roster (`musubi-surfaces.ts`).
+`lg`), 20px in the account menu. The account menu's 20px circle takes the
+first character alone (`letters={1}`): two at the smallest type step, 12px,
+overflow it ("MW" is 22.4px wide and "WW" 23.6px, and "山田" and two joined
+emoji wrap onto two lines), and `tests/components/AccountMenu.browser.test.tsx`
+holds one line inside the circle for "MW", "WW", "山田" and a joined emoji.
+`tools/e2e` reads an organisation's 8px corners on the list, its page and a
+search result, and a person's circle in the roster (`musubi-surfaces.ts`).
+
+*Measured 2026-11-26 — a `Range` over the initials in the account menu's
+20px circle, Chromium (Vitest browser tier, `AccountMenu` at 390px, Musubi's
+`App.css`), with two characters: "MW" one line 22.4px, "WW" 23.6px, "山田"
+two lines of 11.4px, two joined emoji two lines of 14.9px.*
 
 ## Theme (light / dark)
 
@@ -636,12 +649,20 @@ its three motions that are not a colour or opacity change.
   the account banners above a signed-in page still push it down when they
   arrive. The phone's tab bar needs no frame; it is fixed to the bottom edge,
   out of the flow, and the scroll column carries `pb-nav` from the first paint.
-- **A shell whose chunk, or the shell dialogs' chunk, fails to load**
-  (offline, or a chunk renamed by a deploy since the page loaded) leaves its
-  frame in place with the failed-load line
-  (§Empty states and failed loads): "Musubi could not finish loading. Reload
-  and try again." The page beside it keeps working. A later load that succeeds
-  (the other shell's, after a crossing) draws the shell with its dialogs.
+- **A shell whose chunk fails to load** (offline, or a chunk renamed by a
+  deploy since the page loaded) leaves its frame in place with the
+  failed-load line (§Empty states and failed loads): "Musubi could not finish
+  loading. Reload and try again." The page beside it keeps working.
+- **The shell dialogs' chunk** (sign in and create account) loads beside the
+  shell, never in front of it: a shell draws on its own chunk, and its Sign
+  in and Create account are `invisible` until the dialogs they open have
+  loaded, holding their place, as a page's `SignedOutNote` does. The chunk is
+  fetched once the session has settled with none, so a signed-in reader never
+  downloads it. If it fails, the shell notice above the page says the same
+  failed-load line, as an inline danger `Notice` with `alert`; a later load
+  that succeeds (the other shell's, after a crossing) shows the buttons and
+  takes the line away. `tests/App.dialogs-load-failure.browser.test.tsx`
+  holds it.
 - Content column centered at `max-w-2xl`, `px-4 py-6 md:px-8 md:py-8` — every
   page's `main`, and the account banners above it at the same width and side
   padding. The legal pages use `max-w-2xl px-6 py-12`.
@@ -664,21 +685,29 @@ its three motions that are not a colour or opacity change.
   its actions. The notice slot is an inline `Notice` with `alert`, directly
   above the actions and 16px from them (on the sign-in screen, above the
   panel): `info` for guidance ("Please sign in again to continue.", "You
-  signed in as a different account — check this before continuing."),
-  `danger` for a failure, the copy map's sentence. The actions are one
+  signed in as a different account — check this before continuing.", and on
+  the way to another account "Sign in with the account you want to use."),
+  `danger` for a failure, the copy map's sentence, which takes the slot over
+  any guidance. No guidance is drawn outside the slot. The actions are one
   column as wide as the page's, 24px under what they act on and 8px apart,
   each `size="lg"` with `max-md:h-11`: the screen's one next step first
   (Continue, Allow), then any other way on ("Use another account",
   `secondary`), and Cancel last, `secondary`, one per screen. The sign-in
   screen has no Cancel until it gains a Decline (#2048). The account screen
   and the picker choose a profile with `ProfileChoice` (§Choices), and leave
-  only on Continue: an arrow key moves a radio as it chooses it. An account
+  only on Continue: an arrow key moves a radio as it chooses it. The picker
+  starts on the profile already in force (the one chosen before Change, or
+  the one the app knows); with neither, no radio is checked and Continue is
+  disabled until the person picks. An account
   of one profile shows it in the same bordered row with no radio, since one
   is not a choice. On consent, the chosen profile's row carries Change
   (`secondary`, `sm`, `max-md:h-10`) when there are several, and Allow is
   offered only while that row is on screen.
   `tests/pages/AuthorizeScreens.browser.test.tsx` holds each screen's slot,
-  its one Cancel and its `h1` at 390 and 1440px in both schemes.
+  its one Cancel and its `h1` at 390 and 1440px in both schemes, and, read
+  off the rendered page at both widths, the slot's 16px, the actions' 24px
+  and 8px, their width and height, and the `ProfileChoice` rows' padding,
+  gap and height.
 - **The account menu** (`AccountMenu.tsx`, from the rail's account trigger
   and the top bar's avatar) is also the profile switcher (the owner's choice
   on #2046, 2026-11-26: "Menu of menuitemradio"): under the identity label,
@@ -1289,7 +1318,9 @@ named by `aria-label` ("Profiles"), each profile a radio in a bordered row
 whose edge turns ink when it is the one chosen (the owner's D3 A, [#2034's
 first comment](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893),
 2026-11-06). The row is a hairline `border` on the 8px corner, padded 12px by
-10px, 8px apart, with the hover and press wash; the chosen row's edge is
+10px, 8px apart, 58px tall (the 36px avatar, or the name's 20px line over the
+handle's 16px, inside the padding and the hairline), with the hover and press
+wash; the chosen row's edge is
 `--foreground`. Its words are the profile's avatar (36px, hidden from a
 screen reader), its name at `text-title` and 500, and its handle under it at
 `text-meta` in the secondary ink when it has a display name. The circle keeps

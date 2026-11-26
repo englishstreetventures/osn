@@ -75,7 +75,7 @@ vi.mock("../../src/lib/authClients", () => ({
   stepUpClient: {},
 }));
 vi.mock("../../src/components/ShellDialogs", () => ({
-  useShellDialogs: () => ({ ready: () => true, open: () => {} }),
+  useShellDialogs: () => ({ ready: () => true, failed: () => false, open: () => {} }),
 }));
 
 import { ConnectedAppsSection } from "../../src/components/ConnectedAppsSection";

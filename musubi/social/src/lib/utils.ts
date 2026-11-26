@@ -18,14 +18,15 @@ const graphemes: (text: string) => string[] =
     : (text) => Array.from(text);
 
 /**
- * The two characters every avatar shows behind its picture, people and
+ * The characters every avatar shows behind its picture, people and
  * organisations alike: the first two of the name a reader sees (the display
- * name, or the handle when there is none), upper-cased.
+ * name, or the handle when there is none), upper-cased. `letters` is 1 only
+ * for a circle too small for two at the smallest type step.
  */
-export function profileInitials(subject: AvatarSubject | null): string {
+export function profileInitials(subject: AvatarSubject | null, letters: 1 | 2 = 2): string {
   if (!subject) return "?";
   const name = subject.displayName?.trim() || subject.handle;
-  return graphemes(name).slice(0, 2).join("").toUpperCase();
+  return graphemes(name).slice(0, letters).join("").toUpperCase();
 }
 
 /**

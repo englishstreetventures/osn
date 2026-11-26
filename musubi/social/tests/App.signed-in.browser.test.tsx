@@ -56,8 +56,10 @@ vi.mock("@osn/client/solid", async () => {
       };
     });
   };
+  // Only its claims are read, for display: alice's handle.
+  const claims = btoa(JSON.stringify({ sub: "usr_alice", handle: "alice" }));
   const signedIn = {
-    session: resource({ accessToken: "not-a-jwt", expiresAt: Date.now() + 300_000 }),
+    session: resource({ accessToken: `e30.${claims}.sig`, expiresAt: Date.now() + 300_000 }),
     profiles: resource(profiles),
     activeProfileId: active,
     pendingDeletion: () => false,
@@ -145,6 +147,30 @@ afterEach(() => {
   document.documentElement.classList.remove("dark");
 });
 
+/** Beside this file, for the account menu's look with two profiles. */
+const MENU_SHOTS = "__screenshots__/App.signed-in.browser.test.tsx";
+
+describe("the account menu's triggers", () => {
+  it("are named by what they say: the rail's by the name and handle alone, the top bar's by what it opens and whose", async () => {
+    await page.viewport(1440, 900);
+    renderApp();
+    await railChunks();
+    await waitFor(() => expect(accountTrigger("aside")).not.toBeNull());
+    // The avatar beside the name is hidden, so its initials ("AL") are not
+    // read before the name.
+    expect(screen.getByRole("button", { name: /^Alice\s*@alice$/ })).toBe(accountTrigger("aside"));
+
+    // The top bar's avatar says nothing a screen reader can use; the trigger
+    // carries its own name.
+    await page.viewport(390, 844);
+    await topBarChunks();
+    await waitFor(() => expect(accountTrigger("header")).not.toBeNull());
+    expect(screen.getByRole("button", { name: "Account menu, @alice" })).toBe(
+      accountTrigger("header"),
+    );
+  }, 30_000);
+});
+
 describe("the account menu's profiles", () => {
   it("are radio rows, the active one checked, at both widths", async () => {
     await page.viewport(1440, 900);
@@ -161,6 +187,11 @@ describe("the account menu's profiles", () => {
     // The rows are the switcher: no item opens another.
     expect(screen.queryByRole("menuitem", { name: "Switch profile" })).toBeNull();
     await page.screenshot({ path: `${SHOTS}/account-menu-1440.png` });
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.screenshot({ path: `${MENU_SHOTS}/account-menu-1440-${theme}.png` });
+    }
+    document.documentElement.classList.remove("dark");
     await userEvent.keyboard("{Escape}");
     await closed();
 
@@ -170,6 +201,10 @@ describe("the account menu's profiles", () => {
     await openMenu("header");
     expect(checkedRows()).toEqual(["true", "false"]);
     await page.screenshot({ path: `${SHOTS}/account-menu-390-dark.png` });
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.screenshot({ path: `${MENU_SHOTS}/account-menu-390-${theme}.png` });
+    }
   }, 30_000);
 
   it("switch on a choice, hold every row while the switch runs, and let go however it ends", async () => {

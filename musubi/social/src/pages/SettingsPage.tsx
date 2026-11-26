@@ -109,7 +109,7 @@ export function SettingsPage() {
         <Show when={section() === "profile"}>
           <Card padding="md" class="flex flex-col gap-5">
             <div class="flex items-center gap-4">
-              <ProfileAvatar profile={activeProfile()} class="size-16" size="lg" />
+              <ProfileAvatar profile={activeProfile()} class="size-16" size="lg" decorative />
               <div>
                 <p class="text-foreground text-title font-medium">
                   {activeProfile()?.displayName || `@${claims().handle ?? "…"}`}

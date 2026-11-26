@@ -71,7 +71,9 @@ export function Sidebar() {
         <Show
           when={session()}
           fallback={
-            <div class="flex flex-col gap-1.5">
+            // Invisible until the dialogs they open have loaded: they hold
+            // their place, and never offer a dialog that cannot open.
+            <div class={clsx("flex flex-col gap-1.5", !dialogs.ready() && "invisible")}>
               <Button
                 size="sm"
                 class="w-full"
@@ -93,7 +95,7 @@ export function Sidebar() {
           }
         >
           <AccountMenu triggerClass="hover:bg-muted flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-ui-colors">
-            <ProfileAvatar profile={activeProfile()} class="size-8" />
+            <ProfileAvatar profile={activeProfile()} class="size-8" decorative />
             <div class="flex min-w-0 flex-1 flex-col">
               <span class="text-foreground text-body truncate font-medium">
                 {activeProfile()?.displayName || `@${claims().handle ?? "…"}`}

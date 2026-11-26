@@ -108,12 +108,14 @@ Apple HIG floor is 44 pt (Material: 48 dp). Today:
 
 ### F5 (H) — Dialogs are desktop-centered modals
 
-All six `Dialog` call sites (register, sign-in, profile switcher, remove-friend
-confirm, org create, org edit) use the Kobalte fixed-centered content
+All five `Dialog` call sites (register, sign-in, remove-friend confirm, org
+create, org edit) use the Kobalte fixed-centered content
 (`w-full max-w-*`, `top-50%/left-50%`) with **no side gutter, no max-height,
 no internal scroll**. On phones: edge-to-edge cards with clipped corners, and
 the soft keyboard covers the lower half of centered forms with no way to
-scroll. Mobile needs the bottom-sheet pattern.
+scroll. Mobile needs the bottom-sheet pattern. Switching profiles is no
+dialog: the account menu lists each profile as a radio row
+(`menuitemradio`), the active one checked ([[social]]).
 
 ### F6 (M) — Hover-only affordances
 
@@ -178,7 +180,7 @@ mobile shell; at and above it, today's rail is unchanged.
 - New `MobileTopBar.tsx`: slim sticky header (`md:hidden`) with the
   Musubi wordmark (no "Social" tag — at 320 px the signed-out bar has no
   room for it), `ThemeToggle`, and the account control — avatar
-  opening the existing dropdown (switch profile / log out) when signed in,
+  opening the existing dropdown (the account's profiles / log out) when signed in,
   a pill "Sign in" button (opening the existing dialogs) when signed out.
 - `Sidebar.tsx` gets `hidden md:flex`; `Layout` renders both shells and gives
   the content column bottom padding of nav height + safe area on mobile.

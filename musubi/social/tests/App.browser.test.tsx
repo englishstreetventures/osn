@@ -89,7 +89,7 @@ vi.mock("../src/lib/authClients", () => ({
 }));
 
 import { Layout } from "../src/App";
-import { railChunks, topBarChunks } from "./test-support/shell-chunks";
+import { dialogChunk, railChunks, topBarChunks } from "./test-support/shell-chunks";
 
 /** Relative to this file: the repository's `e2e-artifacts/`. */
 const SHOTS = "../../../e2e-artifacts/musubi-shell";
@@ -117,26 +117,28 @@ const wordmark = () =>
 const dialogs = () => screen.queryAllByRole("dialog", { hidden: true });
 /** Layout width, the box's own size, not a painted size any transform could change. */
 const dialogWidth = () => dialogs()[0]!.offsetWidth;
-const railSignIn = () =>
-  screen
-    .queryAllByRole("button", { name: "Sign in", hidden: true })
-    .find((b) => b.closest("aside"));
-const topBarSignIn = () =>
-  screen
-    .queryAllByRole("button", { name: "Sign in", hidden: true })
-    .find((b) => b.closest("header"));
+/** A shell's Sign in, shown or held back: by its words, since held back it has no accessible name. */
+const shellSignIn = (shell: "aside" | "header") =>
+  [...document.querySelectorAll<HTMLElement>(`${shell} button`)].find(
+    (b) => b.textContent === "Sign in",
+  );
+const railSignIn = () => shellSignIn("aside");
+const topBarSignIn = () => shellSignIn("header");
 
 /**
- * The rail, or the top bar, has drawn its Sign in. A shell draws once its
- * chunks are in, so this awaits them first and gives `waitFor` only the render.
+ * The rail, or the top bar, has drawn its Sign in and shows it. A shell draws
+ * once its chunk is in, and shows its Sign in once the shell dialogs' chunk is
+ * in, so this awaits both first and gives `waitFor` only the render.
  */
+const shown = (element: Element | undefined) =>
+  element !== undefined && getComputedStyle(element).visibility === "visible";
 async function railArrives() {
-  await railChunks();
-  await waitFor(() => expect(railSignIn()).toBeDefined());
+  await Promise.all([railChunks(), dialogChunk()]);
+  await waitFor(() => expect(shown(railSignIn())).toBe(true));
 }
 async function topBarArrives() {
-  await topBarChunks();
-  await waitFor(() => expect(topBarSignIn()).toBeDefined());
+  await Promise.all([topBarChunks(), dialogChunk()]);
+  await waitFor(() => expect(shown(topBarSignIn())).toBe(true));
 }
 
 beforeAll(() => {

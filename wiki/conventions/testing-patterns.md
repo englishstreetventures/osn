@@ -871,8 +871,9 @@ run passed.
 A test that watches the chunk arrive cannot warm it: the warm-up loads the
 module before the first frame the test measures. Import every chunk the
 component waits for inside the test instead, after that measurement and before
-the `waitFor`. Musubi's rail draws once its own chunk and the shell dialogs'
-have both loaded, so in the plain form its test imports the pair:
+the `waitFor`. Musubi's rail draws once its own chunk has loaded, and shows
+its Sign in once the shell dialogs' chunk has too, so in the plain form a test
+that waits for that Sign in imports the pair:
 
 ```ts
 const before = main(); // the first frame, the chunks still loading
@@ -880,7 +881,7 @@ await Promise.all([
   import("../src/components/Sidebar"),
   import("../src/components/ShellDialogSet"),
 ]);
-await waitFor(() => expect(railSignIn()).toBeDefined());
+await waitFor(() => expect(shown(railSignIn())).toBe(true));
 ```
 
 The specifiers resolve to the URLs the app imports, so the imports join the
@@ -891,9 +892,11 @@ own budget, 15 seconds in the browser tier, covers the transform, and
 read. In musubi, `src/App.tsx` exports `shells`, whose `load` for each shell
 is what `Reserved` awaits before that shell draws, and
 [`musubi/social/tests/test-support/shell-chunks.ts`](../../musubi/social/tests/test-support/shell-chunks.ts)
-awaits the same `load` in `railChunks()` and `topBarChunks()`. Every wait for
-a shell in that package's browser tests awaits one of them first, so a load
-added to a shell's `load` reaches those waits with no second edit.
+awaits the same `load` in `railChunks()` and `topBarChunks()`, and the
+dialogs' chunk in `dialogChunk()`. Every wait for a shell in that package's
+browser tests awaits one of the first two first, and every wait for a
+signed-out shell's Sign in `dialogChunk()` as well, so a load added to a
+shell's `load` reaches those waits with no second edit.
 
 *Measured 2026-11-10 — in `musubi/social`, a throwaway Vitest config adding a Vite plugin that delays `Sidebar.tsx`'s transform by 2.5 s and logs each request for a shell module, then `bunx --bun vitest run --config <it> --no-fsModuleCache tests/App.browser.test.tsx`: waiting with `waitFor` alone, the first rail test failed at 1110–1131 ms in 3 of 3 runs; awaiting the chunks, it passed in 2645–2702 ms in 10 of 10, with one request per shell module in each run*
 

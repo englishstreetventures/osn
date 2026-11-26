@@ -18,6 +18,11 @@ interface AvatarProps {
   class: string;
   /** The initials' step: `lg` for the one avatar that heads a page (Settings' profile card). */
   size?: "sm" | "lg";
+  /**
+   * How many characters the initials take: two, or one in a circle too small
+   * for two at the smallest type step (the account menu's 20px).
+   */
+  letters?: 1 | 2;
   /** Off where the avatar is in the first viewport (`/authorize`, an organisation's own page). */
   lazy?: boolean;
   /**
@@ -70,7 +75,7 @@ export function ProfileAvatar(
       <Face
         url={props.profile?.avatarUrl}
         alt={props.profile?.handle ?? ""}
-        initials={profileInitials(props.profile ?? null)}
+        initials={profileInitials(props.profile ?? null, props.letters)}
         size={props.size}
         lazy={props.lazy}
         decorative={props.decorative}
@@ -96,7 +101,10 @@ export function OrgAvatar(
       <Face
         url={props.org.avatarUrl}
         alt={props.org.name}
-        initials={profileInitials({ displayName: props.org.name, handle: props.org.handle })}
+        initials={profileInitials(
+          { displayName: props.org.name, handle: props.org.handle },
+          props.letters,
+        )}
         size={props.size}
         lazy={props.lazy}
         decorative={props.decorative}
