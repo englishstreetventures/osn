@@ -14,7 +14,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
   - "[[social-graph]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Cire auth model
@@ -392,8 +392,8 @@ and its signature checks against the key osn-api published at
 organiser tokens; anything else is **401** before the body is read. With
 `OSN_ARC_KID_SECRET` set, cire-api also refuses, before it fetches osn-api's
 keys, a token whose key id carries no MAC that verifies under that secret, and
-looks a key up only by the part of the key id that MAC covers; without it, no
-key id is checked. It never holds `INTERNAL_SERVICE_SECRET`, the bearer of
+looks a key up only by the part of the key id that MAC covers; without it,
+cire-api checks no key id, and osn-api checks the one cire-api asks it for. It never holds `INTERNAL_SERVICE_SECRET`, the bearer of
 service-key registration, which keys osn-api's other key-id MAC
 ([[arc-tokens#osn-api as issuer — published outbound keys]]).
 All three sit before the CSRF origin guard and carry no rate limit, as on

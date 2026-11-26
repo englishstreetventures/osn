@@ -2,19 +2,22 @@
  * Verifies an ARC (service-to-service) token osn-api sent an app.
  *
  * osn-api signs each call with a key pair its isolate minted, and publishes
- * the public half at `<osn issuer>/.well-known/arc-jwks.json` before it signs
- * anything. The app resolves the token's `kid` against that set through the
- * same bounded kid cache it resolves access-token keys with, so a key
- * published by any osn-api isolate verifies at any app isolate. The issuer
- * origin is the one the app already pins for access tokens: no new address,
- * and the same trust.
+ * the public half before it signs anything. The app asks osn-api for the one
+ * key a token names, `<osn issuer>/.well-known/arc-jwks.json?kid=<ask>`, and
+ * keeps it four minutes in the same bounded kid cache it resolves
+ * access-token keys with, so a key published by any osn-api isolate verifies
+ * at any app isolate. osn-api checks the kid's MACs itself and answers from
+ * memory, and an osn-api on the code before that answers the whole list,
+ * which the app reads the same way. The issuer origin is the one the app
+ * already pins for access tokens: no new address, and the same trust.
  *
  * Before any fetch the token must claim `iss: "osn-api"`, ask for a scope the
  * app lets osn-api use, and, when the app holds a kid secret of at least 32
  * characters, carry a kid with a MAC that verifies under it and an expiry
  * that has not passed (`@shared/crypto/arc-kid`). A token failing any of
  * these costs no fetch, and the key is then looked up by the part of the
- * kid the check verified alone (`checkArcKid`'s lookup).
+ * kid the check verified alone, and asked for in a form osn-api reads
+ * whatever the unverified parts held (`checkArcKid`'s lookup).
  * Then jose checks the signature (ES256 only), `iss`, `aud`, `exp` and `iat`,
  * and the token's scope must hold the route's.
  *
@@ -33,6 +36,13 @@ export const OSN_ARC_ISSUER = "osn-api";
 
 /** Where osn-api publishes its outbound ARC public keys, below its issuer origin. */
 export const OSN_ARC_JWKS_PATH = "/.well-known/arc-jwks.json";
+
+/**
+ * How long an app keeps an osn-api ARC key before asking again. osn-api holds
+ * a key it has read for a minute, so a key whose row is deleted stops being
+ * accepted within five minutes.
+ */
+export const OSN_ARC_KEY_TTL_MS = 4 * 60 * 1000;
 
 /**
  * Where to find osn-api's keys, and the secrets that gate fetching them: the
@@ -128,14 +138,22 @@ export async function verifyOsnArcToken(
   const lookup = await checkArcKid(kid, verification, Math.floor(Date.now() / 1000));
   if (!lookup) return refuse("unknown_issuer", OSN_ARC_ISSUER);
 
-  // Looked up and cached by the part of the kid the check verified, never by
-  // the rest: a copy of a published kid with an unchecked part replaced finds
-  // the real kid's entry and costs no fetch of its own.
-  const key = await resolvePublicKeyForKid(
-    lookup.id,
-    `${verification.osnIssuer}${OSN_ARC_JWKS_PATH}`,
-    lookup.names,
-  );
+  // Looked up, cached and fetched once by the part of the kid the check
+  // verified, never by the rest: a copy of a published kid with an unchecked
+  // part replaced finds the real kid's entry and costs no fetch of its own.
+  const jwksUrl = `${verification.osnIssuer}${OSN_ARC_JWKS_PATH}`;
+  let from: string;
+  try {
+    from = `${jwksUrl}?kid=${encodeURIComponent(lookup.ask)}`;
+  } catch {
+    // A kid no URL can carry (a lone surrogate) names no key osn-api minted.
+    return refuse("unknown_issuer", OSN_ARC_ISSUER);
+  }
+  const key = await resolvePublicKeyForKid(lookup.id, jwksUrl, {
+    names: lookup.names,
+    from,
+    ttlMs: OSN_ARC_KEY_TTL_MS,
+  });
   if (!key) return refuse("unknown_issuer", OSN_ARC_ISSUER);
 
   let granted: unknown;

@@ -35,7 +35,7 @@ import { Db, type DbService } from "@osn/db/service";
 import { exportKeyToJwk, generateArcKeyPair, getOrCreateArcToken } from "@shared/crypto";
 import { arcKidMacSecret, mintArcKid, type ArcKidSecrets } from "@shared/crypto/arc-kid";
 import { commitBatch } from "@shared/db-utils";
-import { count, desc, gt, gte, lt, sql } from "drizzle-orm";
+import { and, count, desc, gt, gte, lt, sql } from "drizzle-orm";
 import { Cause, Data, Effect } from "effect";
 
 /** osn-api's issuer id on every ARC token it signs; apps pin it. */
@@ -49,6 +49,9 @@ const OSN_ARC_ISSUER = "osn-api";
  */
 const KEY_TTL_SECONDS = 4 * 3_600;
 const KEY_ROTATION_BUFFER_SECONDS = 2 * 3_600;
+
+/** A key's life: no kid osn-api mints expires further ahead than this. */
+export const OUTBOUND_KEY_LIFE_SECONDS = KEY_TTL_SECONDS;
 
 /** How long after expiry a row stays before a publish deletes it. */
 const EXPIRED_KEY_GRACE_SECONDS = 86_400;
@@ -598,6 +601,43 @@ export const publishedOutboundKeys: Effect.Effect<
       : [];
   });
 }).pipe(Effect.withSpan("osn.arc.published_outbound_keys"));
+
+/**
+ * The published key whose kid is `id` or starts `<id>.`, where `id` is a
+ * kid's `<uuid>.<expiry>`: one read down the primary key's index, the range
+ * alone in its WHERE so no other index can serve it. A row whose expiry has
+ * passed, or that holds no EC public key, is not answered.
+ */
+export const publishedOutboundKeyById = (
+  id: string,
+): Effect.Effect<PublishedArcKey | null, OutboundKeyReadError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const rows = yield* Effect.tryPromise({
+      try: () =>
+        db
+          .select({
+            keyId: arcOutboundKeys.keyId,
+            publicKeyJwk: arcOutboundKeys.publicKeyJwk,
+            expiresAt: arcOutboundKeys.expiresAt,
+          })
+          .from(arcOutboundKeys)
+          // Every kid with this uuid and expiry sorts between `<id>` and
+          // `<id>/`: "." is the character just before "/".
+          .where(and(gte(arcOutboundKeys.keyId, id), lt(arcOutboundKeys.keyId, `${id}/`)))
+          .limit(2),
+      catch: (cause) => new OutboundKeyReadError({ cause }),
+    });
+    const now = nowSeconds();
+    for (const row of rows) {
+      if (row.expiresAt <= now) continue;
+      if (row.keyId !== id && !row.keyId.startsWith(`${id}.`)) continue;
+      const members = publicMembers(row.publicKeyJwk);
+      if (members)
+        return { ...members, kid: row.keyId, alg: "ES256" as const, use: "sig" as const };
+    }
+    return null;
+  }).pipe(Effect.withSpan("osn.arc.published_outbound_key_by_id"));
 
 /** Clears the isolate's key and the pauses, so each test starts as a fresh isolate does. */
 export function _resetOutboundKeyForTests(): void {

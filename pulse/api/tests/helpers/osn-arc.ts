@@ -1,4 +1,4 @@
-import { mintArcKid, type ArcKidSecrets } from "@shared/crypto/arc-kid";
+import { mintArcKid, readArcKeyAsk, type ArcKidSecrets } from "@shared/crypto/arc-kid";
 import { exportKeyToJwk, generateArcKeyPair, signArcToken } from "@shared/crypto/jwk";
 import { clearJwksCache } from "@shared/osn-auth-client/jwks-cache";
 
@@ -31,8 +31,24 @@ export function appHolds(holds: ArcKidSecrets): void {
   }
 }
 
+/** How far ahead osn-api reads a kid's expiry: a key's life and five minutes. */
+const MAX_KEY_LIFE_SECONDS = 4 * 3_600 + 300;
+
 /**
- * An osn-api stand-in for ARC: one published key at
+ * osn-api's answer to the key route, as it gives it: with `?kid=`, the keys
+ * published under the ask's `<uuid>.<expiry>`, none for an ask osn-api cannot
+ * read; without, the whole list. It checks no MAC here: osn-api's own tests do.
+ */
+function answerFor(keys: { kid: string }[], ask: string | null): { kid: string }[] {
+  if (ask === null) return keys;
+  const id = readArcKeyAsk(ask, Math.floor(Date.now() / 1000), MAX_KEY_LIFE_SECONDS);
+  if (id === null) return [];
+  return keys.filter((key) => key.kid === id || key.kid.startsWith(`${id}.`));
+}
+
+/**
+ * An osn-api stand-in for ARC: one published key, served by kid
+ * ({@link answerFor}) at
  * `<issuer>/.well-known/arc-jwks.json` (every other fetch goes through,
  * and each fetch of the set is counted), its kid minted holding `osnHolds`,
  * the app holding `holds` ({@link appHolds}), and tokens signed with that
@@ -55,9 +71,11 @@ export async function osnArc(
   let fetches = 0;
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-    if (String(input) !== `${OSN_ISSUER}/.well-known/arc-jwks.json`) return original(input, init);
+    const url = new URL(String(input));
+    if (`${url.origin}${url.pathname}` !== `${OSN_ISSUER}/.well-known/arc-jwks.json`)
+      return original(input, init);
     fetches += 1;
-    return Response.json({ keys });
+    return Response.json({ keys: answerFor(keys, url.searchParams.get("kid")) });
   }) as typeof fetch;
   appHolds(holds);
   clearJwksCache();

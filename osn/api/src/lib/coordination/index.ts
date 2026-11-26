@@ -48,7 +48,7 @@ export interface CoordinationStores {
   readonly accountExportLimiter: RateLimiterBackend;
   /** Per-IP guard in front of the account export. */
   readonly accountExportIpLimiter: RateLimiterBackend;
-  /** Per-IP budgets on `GET /.well-known/arc-jwks.json`. */
+  /** The minute and hour budgets on `GET /.well-known/arc-jwks.json` (`routes/arc-jwks.ts`). */
   readonly arcJwksRateLimiters: ArcJwksRateLimiters;
   /** Per-account deletion, restore and status. */
   readonly accountErasureRateLimiters: AccountErasureRateLimiters;
