@@ -13,7 +13,7 @@ import { insertWedding } from "../test-helpers/wedding";
 import { type Role, type W, type WEv, array, model, seeded } from "./model";
 
 /**
- * One wedding's seats (tools/deletion-laws/weddings.bend) against cire-api's
+ * One wedding's seats (laws/account-deletion/weddings.bend) against cire-api's
  * services. Each trace starts from a wedding its creator owns and runs events
  * through the model and through hostsService (add, remove, a role change
  * made by the seat's own holder), accountErasureService.erase, and the

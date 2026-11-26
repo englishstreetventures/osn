@@ -1,5 +1,7 @@
-# The laws of account deletion. Each is a claim about the model in the
-# modules below, which follow the code in osn-api and cire-api;
+# The laws of account deletion in osn-api. Each is a claim about the model
+# in the modules below, which follow osn-api's code, and one,
+# sole_owner_blocks_deletion, about cire's weddings model as well (cire's own
+# laws are in cire/api/laws/account-deletion/LAWS.bend);
 # wiki/osn/account-deletion-laws.md names the code that keeps each one and the
 # agreement test that ties the model to it. PROOF.bend proves every law.
 # A law here changes only by the owner's decision.
@@ -9,7 +11,7 @@ import ./account.bend as Account
 import ./choices.bend as Choices
 import ./holds.bend as Holds
 import ./succession.bend as Succession
-import ./weddings.bend as Weddings
+import ../../../../cire/api/laws/account-deletion/weddings.bend as Weddings
 import ./SPEC.bend as Spec
 
 # Account
@@ -136,23 +138,8 @@ law passes_when_it_can:
   for ans: Succession.Answer
   {Spec.imp(Bool.not(Spec.is_remove(ans)) && Spec.any_other(gone, ms), Bool.not(Spec.is_none(Succession.heir(gone, ms, ans)))) == True{} : Bool}
 
-# Weddings
-# --------
-
-# LAW: no live wedding is ever left without an owner.
-law no_live_wedding_without_owner:
-  for q: Nat
-  for a: Nat
-  for es: List<Weddings.WEv>
-  {Spec.owner_if_live(Weddings.run(es, Weddings.created(q, a))) == True{} : Bool}
-
-# LAW: an erasure never makes anyone an owner: a wedding never passes to an
-# editor.
-law erasure_never_promotes:
-  for acct: Nat
-  for q: Nat
-  for ss: +List<Weddings.Seat>
-  {Spec.imp(Weddings.owns(q, Weddings.erase_seats(acct, ss)), Weddings.owns(q, ss)) == True{} : Bool}
+# Across services
+# ---------------
 
 # LAW: while the account holds every owner seat of a live wedding, the
 # deletion is accepted only with an answer for that wedding, unless the

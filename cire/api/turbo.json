@@ -8,37 +8,18 @@
     // CI_USER_AGENT the probe sends. Named here, a change to any of them
     // re-runs the suite rather than replaying a cached green. The Miniflare
     // suite is left out: the `test` script skips it (`--path-ignore-patterns`
-    // in package.json), and `test:d1` hashes and runs it.
+    // in package.json), and `test:d1` hashes and runs it. tests/laws/ reads
+    // only the compiled model.mjs in laws/, never a .bend file, so a
+    // proof-only edit leaves the suite cached.
     "test": {
-      "dependsOn": ["^build", "test:repo"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "!**/*.md",
         "!tests/db/d1-integration.test.ts",
+        "!laws/**/*.bend",
         "$TURBO_ROOT$/shared/infra/src/hosts.ts",
         "$TURBO_ROOT$/.github/workflows/cire-d1-latency-probe.yml",
         "$TURBO_ROOT$/scripts/smoke-check.ts"
-      ]
-    },
-    // tests/laws/ compares the deletion model that tools/deletion-laws
-    // compiles to model.mjs with this package's services: `test` leaves it
-    // out (package.json) and `test:repo` runs it, rerun when the model or its
-    // types change; through `test`'s dependency on it, so is the whole suite.
-    // The type check reads the types too, beside the root task's own input.
-    "test:repo": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md",
-        "!tests/db/d1-integration.test.ts",
-        "$TURBO_ROOT$/tools/deletion-laws/model.mjs",
-        "$TURBO_ROOT$/tools/deletion-laws/model.d.mts"
-      ]
-    },
-    "typecheck": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/astro-typecheck.ts",
-        "$TURBO_ROOT$/tools/deletion-laws/model.d.mts"
       ]
     }
   }

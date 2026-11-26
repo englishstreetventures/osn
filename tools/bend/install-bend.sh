@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Unpacks Bend release BEND_VERSION for BEND_TARGET into <dest dir>, from the
 # release tarball whose SHA-256 is BEND_SHA256: bin/bend, bend2/ (the base
-# library) and guide/. The pin lives in tools/deletion-laws/bend.env; its
-# callers (`bend.sh install`, and the `bend-proofs` job in
-# .github/workflows/ci.yml) read it and pass it here, which also lets the test
-# give a fixture tarball its own SHA-256.
+# library) and guide/. The pin lives in tools/bend/bend.env; its callers
+# (`bend.sh install`, and the `bend-proofs` job in .github/workflows/ci.yml)
+# read it and pass it here, which also lets the test give a fixture tarball
+# its own SHA-256.
 #
 # usage: BEND_VERSION=<n.n.n> BEND_TARGET=<os-arch> BEND_SHA256=<hex> install-bend.sh <cache dir> <dest dir>
 #

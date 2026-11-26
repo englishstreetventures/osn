@@ -2,30 +2,10 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
-    // tests/laws/ compares the deletion model that tools/deletion-laws
-    // compiles to model.mjs with this package's services. It runs as
-    // `test:repo`, which names that file and its types as inputs. `test`
-    // depends on `test:repo`, and turbo folds a dependency's hash into the
-    // task's, so a change to the model reruns this package's whole suite as
-    // well. The type check reads the types too, beside the root task's own
-    // input.
+    // tests/laws/ reads only the compiled model.mjs in laws/, never a .bend
+    // file, so a proof-only edit leaves the suite cached.
     "test": {
-      "dependsOn": ["^build", "test:repo"]
-    },
-    "test:repo": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md",
-        "$TURBO_ROOT$/tools/deletion-laws/model.mjs",
-        "$TURBO_ROOT$/tools/deletion-laws/model.d.mts"
-      ]
-    },
-    "typecheck": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/astro-typecheck.ts",
-        "$TURBO_ROOT$/tools/deletion-laws/model.d.mts"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!laws/**/*.bend"]
     },
     // tests/d1/worker-e2e.test.ts writes its results outside this package, to
     // the repository's e2e-artifacts/, which CI uploads. Declared here, a

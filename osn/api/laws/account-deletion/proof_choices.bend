@@ -1,7 +1,7 @@
 # Proofs about the route's verdict: what `Ok` guarantees.
 
 import Base
-import ./kit.bend as K
+import ../../../../tools/bend/kit.bend as K
 import ./choices.bend as C
 import ./SPEC.bend as Spec
 

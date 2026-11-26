@@ -1,7 +1,7 @@
 # Proofs about who an organisation passes to.
 
 import Base
-import ./kit.bend as K
+import ../../../../tools/bend/kit.bend as K
 import ./succession.bend as E
 import ./SPEC.bend as Spec
 

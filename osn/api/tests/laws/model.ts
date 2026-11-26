@@ -1,13 +1,13 @@
 /**
- * The deletion model, compiled from tools/deletion-laws/model.bend, and the
- * helpers that turn JavaScript values into Bend's and back. The laws proved
- * about it are in tools/deletion-laws/LAWS.bend; the tests beside this file
- * run the same events through it and through osn-api's services and fail
- * when the two disagree.
+ * The deletion model, compiled from laws/account-deletion/model.bend in this
+ * package, and the helpers that turn JavaScript values into Bend's and back.
+ * The laws proved about it are in laws/account-deletion/LAWS.bend; the tests
+ * beside this file run the same events through it and through osn-api's
+ * services and fail when the two disagree.
  */
-import model, { type List } from "../../../../tools/deletion-laws/model.mjs";
+import model, { type List } from "../../laws/account-deletion/model.mjs";
 
-export type * from "../../../../tools/deletion-laws/model.mjs";
+export type * from "../../laws/account-deletion/model.mjs";
 export { model };
 
 export const list = <T>(items: ReadonlyArray<T>): List<T> =>

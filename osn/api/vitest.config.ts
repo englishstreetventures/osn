@@ -13,11 +13,10 @@ import { configDefaults, defineConfig } from "vitest/config";
 const INCLUDE = "tests/**/*.test.ts";
 const EXCLUDE = [...configDefaults.exclude, "**/dist/**", "tests/d1/**", "tests/laws/**"];
 
-// `tests/laws/` reads a file outside this package: the deletion model that
-// tools/deletion-laws compiles to `model.mjs`. It runs as the `repo` project
-// (`test:repo`), whose turbo inputs name that file (`turbo.json` here); the
-// `shared` and `isolated` projects run as `test`.
-const READS_REPO = "tests/laws/**/*.test.ts";
+// `tests/laws/` runs the deletion model compiled in `laws/account-deletion/`
+// against the services, faking `Date` and resetting the outbound ARC key, so it
+// runs as a project of its own with default isolation, apart from `shared`.
+const LAWS = "tests/laws/**/*.test.ts";
 
 // Most files share a worker's module cache (`isolate: false`), so the app and
 // its dependencies load once per worker instead of once per file. A file that
@@ -53,7 +52,7 @@ export default defineConfig({
       ...(replacing.length > 0
         ? [{ extends: true, test: { name: "isolated", include: replacing, exclude: EXCLUDE } }]
         : []),
-      { extends: true, test: { name: "repo", include: [READS_REPO] } },
+      { extends: true, test: { name: "laws", include: [LAWS] } },
     ],
   },
 });
