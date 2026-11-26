@@ -18,7 +18,8 @@ import { type Role, type W, type WEv, array, model, seeded } from "./model";
  * through the model and through hostsService (add, remove, a role change
  * made by the seat's own holder), accountErasureService.erase, and the
  * wedding's delete and restore on bun:sqlite; after every event the wedding's
- * liveness, its seats, and each account's deletion preview must agree.
+ * liveness, its seats, and each account's deletion preview must agree, and a
+ * host change must reach the service exactly when the wedding is live.
  *
  * Profile `p` is `usr_<p>` and belongs to account `p % 3`. One wedding a
  * trace, so an erasure never meets the three-weddings-a-call cap. The wedding
@@ -55,27 +56,40 @@ function created(creator: number): { db: TestDb; w: W } {
 const ownerOf = (w: W): number | undefined =>
   array(w.seats).find((seat) => seat.role.$ === "Owner")?.profile;
 
-async function applyToCode(db: TestDb, w: W, e: WEv): Promise<void> {
+/**
+ * The organiser routes put every host change behind `hostsService.authorize`,
+ * which answers null for a deleted wedding; `hostsService` itself does not
+ * look. So a host change on a deleted wedding is the gate's answer, and a
+ * change goes to the service only when the gate lets the caller in.
+ */
+const gateOpen = async (db: TestDb, actor: string): Promise<boolean> => {
+  const seat = await run(db, hostsService.authorize(WEDDING, actor));
+  return seat._tag === "Success" && seat.success !== null;
+};
+
+/** Applies one event to the code; for a host change, answers whether the route's gate let it in. */
+async function applyToCode(db: TestDb, w: W, e: WEv): Promise<boolean | null> {
+  const owner = `usr_${ownerOf(w) ?? "none"}`;
   switch (e.$) {
     case "Add": {
-      if (!w.live) return;
+      if (!(await gateOpen(db, owner))) return false;
       await run(
         db,
         hostsService.add({
           weddingId: WEDDING,
           osnProfileId: `usr_${e.profile}`,
-          addedByOsnProfileId: `usr_${ownerOf(w)}`,
+          addedByOsnProfileId: owner,
           role: roleName(e.role) as never,
         }),
       );
-      return;
+      return true;
     }
     case "Remove":
-      if (!w.live) return;
+      if (!(await gateOpen(db, owner))) return false;
       await run(db, hostsService.remove({ weddingId: WEDDING, osnProfileId: `usr_${e.profile}` }));
-      return;
+      return true;
     case "SetRole":
-      if (!w.live) return;
+      if (!(await gateOpen(db, `usr_${e.profile}`))) return false;
       await run(
         db,
         hostsService.setRole({
@@ -85,7 +99,7 @@ async function applyToCode(db: TestDb, w: W, e: WEv): Promise<void> {
           actorOsnProfileId: `usr_${e.profile}`,
         }),
       );
-      return;
+      return true;
     case "EraseAcct": {
       const result = await run(
         db,
@@ -95,26 +109,24 @@ async function applyToCode(db: TestDb, w: W, e: WEv): Promise<void> {
         }),
       );
       expect(result).toMatchObject({ _tag: "Success", success: { status: "done" } });
-      return;
+      return null;
     }
     case "Discard":
-      if (!w.live) return;
       await run(
         db,
         weddingLifecycleService.softDelete({
           weddingId: WEDDING,
-          osnProfileId: `usr_${ownerOf(w)}`,
+          osnProfileId: owner,
           confirmSlug: "laws",
         }),
       );
-      return;
+      return null;
     case "Revive":
-      if (w.live) return;
       await run(
         db,
         weddingLifecycleService.restore({ weddingId: WEDDING, osnProfileId: `usr_${e.profile}` }),
       );
-      return;
+      return null;
   }
 }
 
@@ -169,13 +181,22 @@ async function expectModelAgrees(creator: number, trace: ReadonlyArray<WEv>): Pr
   const { db } = start;
   let { w } = start;
   for (const [i, e] of trace.entries()) {
-    await applyToCode(db, w, e);
+    const gate = await applyToCode(db, w, e);
+    // A host change reaches the service on a live wedding only.
+    const expectedGate = e.$ === "Add" || e.$ === "Remove" || e.$ === "SetRole" ? w.live : null;
     w = model["weddings:step"](w, e);
     const at = `event ${i} of ${JSON.stringify(trace)}`;
     const row = db.select().from(weddings).where(eq(weddings.id, WEDDING)).all()[0];
     const { code, model: expected } = await previews(db, w);
-    expect({ at, live: row?.deletedAt === null, seats: seatsInCode(db), previews: code }).toEqual({
+    expect({
       at,
+      gate,
+      live: row?.deletedAt === null,
+      seats: seatsInCode(db),
+      previews: code,
+    }).toEqual({
+      at,
+      gate: expectedGate,
       live: w.live,
       seats: seatsInModel(w),
       previews: expected,

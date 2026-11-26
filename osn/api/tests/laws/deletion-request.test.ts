@@ -13,6 +13,7 @@ import {
 import { createAuthService } from "../../src/services/auth";
 import { DISABLED_CIRE_ORGANISER_REVOKE } from "../../src/services/cire-organiser-revoke";
 import { createOrganisationService } from "../../src/services/organisation";
+import { createProfileService } from "../../src/services/profile";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 import { appStandIns, type AppCall, type AppAnswer } from "../helpers/deletion-apps";
@@ -111,6 +112,12 @@ async function throughRoute(req: Req): Promise<{ verdict: string; scheduled: boo
   const orgs = createOrganisationService({ heldHandleDigest: auth.heldHandleDigest });
   const bob = await runOn(layer, auth.registerProfile("bob@example.com", "bob"));
   const carol = await runOn(layer, auth.registerProfile("carol@example.com", "carol"));
+  // The account's own second profile, a member of every organisation: never a
+  // successor, since it goes with the account.
+  const own = await runOn(
+    layer,
+    createProfileService(auth).createProfile(profile.accountId, "erasertwo"),
+  );
 
   const orgIds = new Map<number, string>();
   for (const org of array(req.orgs)) {
@@ -123,6 +130,7 @@ async function throughRoute(req: Req): Promise<{ verdict: string; scheduled: boo
       const role = org.heir.$ === "Admin" ? "admin" : "member";
       await runOn(layer, orgs.addMember(created.id, profile.id, bob.id, role));
     }
+    await runOn(layer, orgs.addMember(created.id, profile.id, own.id, "admin"));
   }
 
   const actions = array(req.apps).map((act: AppAct) => ({
@@ -144,14 +152,22 @@ async function throughRoute(req: Req): Promise<{ verdict: string; scheduled: boo
     return undefined;
   };
 
-  const choices = array(req.picks).map((p: Pick) => {
+  // A successor who is not a member from another account: someone outside
+  // the organisation, or, every other time, the account's own profile.
+  const choices = array(req.picks).map((p: Pick, i) => {
     switch (p.$) {
       case "OrgPick":
         return {
           action: `osn:organisation:${orgIds.get(p.id) ?? "org_not_owned"}`,
           choice: ORG_CHOICE[p.choice.$],
           successor_profile_id:
-            p.choice.$ === "Successor" ? (p.member ? bob.id : carol.id) : undefined,
+            p.choice.$ === "Successor"
+              ? p.member
+                ? bob.id
+                : i % 2 === 0
+                  ? own.id
+                  : carol.id
+              : undefined,
         };
       case "AppPick":
         return { action: `pulse:event:${p.id}`, choice: CHOICES[p.choice]! };
@@ -261,9 +277,12 @@ describe("the route's verdict and the model's agree", () => {
     await expectModelAgrees(req([org(0, "Admin")], [act(0, [0, 1], 1), act(1, [], null)], []));
   });
 
-  it("refuses a choice not offered, a successor who is not a member, and an answer given twice", async () => {
+  it("refuses a choice not offered, a successor who is not a member or is the account's own profile, and an answer given twice", async () => {
     await expectModelAgrees(req([org(0, "Nobody")], [], [orgPick(0, "Transfer")]));
     await expectModelAgrees(req([org(0, "Member")], [], [orgPick(0, "Successor", false)]));
+    await expectModelAgrees(
+      req([org(0, "Admin")], [], [{ $: "OtherPick" }, orgPick(0, "Successor", false)]),
+    );
     await expectModelAgrees(req([], [act(0, [0], null)], [appPick(0, 2)]));
     await expectModelAgrees(req([], [act(0, [0, 1], null)], [appPick(0, 0), appPick(0, 1)]));
   });

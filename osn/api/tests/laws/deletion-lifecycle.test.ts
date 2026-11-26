@@ -464,43 +464,107 @@ describe("the deletion model and osn-api agree", () => {
     ]);
   });
 
-  // Seeded traces: times drawn around each window's edges, every reply mix.
-  const offsets = [0, 1, DAY, 7 * DAY - 1, 7 * DAY, 7 * DAY + 1, 30 * DAY - 1, 30 * DAY];
+  // Seeded traces. Each event's time is drawn around the edges the model is
+  // at: the pending job's window end, the hold's release, or a little after
+  // the last event; every reply mix. The model runs alongside the draw only
+  // to know where those edges are.
   const traceFrom = (seed: number): Event[] => {
     const rand = seeded(seed);
     const events: Event[] = [];
+    let acct = model["account:init"]();
+    let hold = model["holds:start"](ERASED);
     let now = START;
-    let anchor = START;
-    const length = 6 + rand.int(8);
+    const length = 8 + rand.int(12);
     for (let i = 0; i < length; i++) {
-      now = Math.max(now, anchor + rand.pick(offsets));
-      const kind = rand.pick(["ask", "ask", "keep", "fanout", "fanout", "sweep", "claim"] as const);
-      switch (kind) {
-        case "ask":
-          anchor = now;
-          events.push({ kind, now, everything: rand.chance(0.5) });
-          break;
-        case "fanout":
-          events.push({
-            kind,
-            now,
-            replies: {
-              pulse: rand.pick(["Answers", "Fails", "Absent"] as const),
-              zap: rand.pick(["Answers", "Fails", "Absent"] as const),
-              cire: rand.pick(["Answers", "Fails", "Absent"] as const),
-            },
-          });
-          break;
-        case "sweep":
-          anchor = now;
-          events.push({ kind, now });
-          break;
-        default:
-          events.push({ kind, now });
+      const edges = [now, now + 1, now + DAY];
+      if (acct.$ === "Scheduled") edges.push(acct.due - DAY, acct.due - 1, acct.due, acct.due + 1);
+      if (hold.hold.$ === "Until")
+        edges.push(hold.hold.release - 1, hold.hold.release, hold.hold.release + DAY);
+      now = Math.max(now, rand.pick(edges));
+      // Once the account is gone, only another account's claim can still
+      // change anything.
+      const kind =
+        acct.$ === "Erased"
+          ? rand.pick(["claim", "claim", "claim", "ask"] as const)
+          : rand.pick([
+              "ask",
+              "ask",
+              "keep",
+              "keep",
+              "fanout",
+              "fanout",
+              "sweep",
+              "claim",
+            ] as const);
+      const e: Event =
+        kind === "ask"
+          ? { kind, now, everything: rand.chance(0.5) }
+          : kind === "fanout"
+            ? {
+                kind,
+                now,
+                replies: {
+                  pulse: rand.pick(["Answers", "Fails", "Absent"] as const),
+                  zap: rand.pick(["Answers", "Fails", "Absent"] as const),
+                  cire: rand.pick(["Answers", "Fails", "Absent"] as const),
+                },
+              }
+            : { kind, now };
+      events.push(e);
+      const before = acct;
+      const step = toModel({ acct } as World, e);
+      if (step.$ === "Claim") {
+        hold = model["holds:step"](hold, step);
+      } else {
+        acct = model["account:step"](acct, step as AcctEv);
+        const held = holdEventOf(before, acct, now);
+        if (held) hold = model["holds:step"](hold, held);
       }
     }
     return events;
   };
+
+  // The draw must keep reaching every transition, or a trace that would have
+  // caught a change to it never runs.
+  it("the seeded traces reach every account transition, and a claim both refused and granted", () => {
+    const reached = new Set<string>();
+    for (let seed = 1; seed <= 40; seed++) {
+      let acct = model["account:init"]();
+      let hold = model["holds:start"](ERASED);
+      for (const e of traceFrom(seed)) {
+        const step = toModel({ acct } as World, e);
+        if (step.$ === "Claim") {
+          const after = model["holds:step"](hold, step);
+          reached.add(after.owner.$ === hold.owner.$ ? "claim refused" : "claim granted");
+          hold = after;
+        } else {
+          const before = acct;
+          acct = model["account:step"](acct, step as AcctEv);
+          if (before.$ !== acct.$) reached.add(`${before.$} to ${acct.$}`);
+          if (
+            before.$ === "Scheduled" &&
+            acct.$ === "Scheduled" &&
+            !before.claimed &&
+            acct.claimed
+          ) {
+            reached.add("claimed");
+          }
+          const held = holdEventOf(before, acct, e.now);
+          if (held) hold = model["holds:step"](hold, held);
+        }
+      }
+    }
+    expect([...reached].toSorted()).toEqual(
+      [
+        "Live to Scheduled",
+        "Scheduled to Live",
+        "Scheduled to Erased",
+        "claimed",
+        "claim refused",
+        "claim granted",
+      ].toSorted(),
+    );
+  });
 
   for (let seed = 1; seed <= 40; seed++) {
     it(`agrees on seeded trace ${seed}`, async () => {

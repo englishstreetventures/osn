@@ -62,7 +62,7 @@ Each event in the model is one whole service call. Times are unix seconds; a job
 | `named_heir_honoured` | The successor the person named takes it while still a member from another account | `successorOf` | same |
 | `delete_answer_deletes` | A delete answer deletes the organisation | The hard delete's `deletes` list | same |
 | `passes_when_it_can` | With no delete answer, an organisation passes whenever a member from another account remains | The transfer's `successorOf … IS NOT NULL` | same |
-| `no_live_wedding_without_owner` | No live cire wedding is ever left without an owner | [`cire/api/src/services/account-erasure.ts`](../../cire/api/src/services/account-erasure.ts) `eraseOwnedWedding` deletes it in the same batch when no other owner remains; [`hosts.ts`](../../cire/api/src/services/hosts.ts) `remove` and `setRole` refuse the last owner; [`wedding-lifecycle.ts`](../../cire/api/src/services/wedding-lifecycle.ts) `restore` needs an owner seat | `deletion-weddings.test.ts` |
+| `no_live_wedding_without_owner` | No live cire wedding is ever left without an owner | [`cire/api/src/services/account-erasure.ts`](../../cire/api/src/services/account-erasure.ts) `eraseOwnedWedding` deletes it in the same batch when no other owner remains; [`hosts.ts`](../../cire/api/src/services/hosts.ts) `remove` and `setRole` refuse the last owner, and `authorize`, the organiser routes' gate, refuses any host change on a deleted wedding; [`wedding-lifecycle.ts`](../../cire/api/src/services/wedding-lifecycle.ts) `restore` needs an owner seat | `deletion-weddings.test.ts` |
 | `erasure_never_promotes` | An erasure never makes anyone an owner: a wedding never passes to an editor | The erasure only deletes the account's seats | same |
 | `sole_owner_blocks_deletion` | While the account holds every owner seat of a live wedding, the deletion is accepted only with an answer for it, or "Delete everything" | cire's preview lists such a wedding with one choice, `delete`, and no default; `checkErasureChoices` leaves it open until answered | same (the preview) and `deletion-request.test.ts` (the verdict) |
 
@@ -95,6 +95,7 @@ bun run --cwd cire/api test:repo          # the cire-api agreement test
 Every run goes through `bend.sh`, which sets `BEND_NO_TELEMETRY=1`: without it, Bend asks bend-lang.com for the latest version once a day. It refuses any version but the one `bend.env` pins.
 
 - **On commit**, lefthook's `bend-proofs` step runs when a `.bend` file is staged: it proves the laws and rebuilds `model.mjs`, and fails, asking for it to be staged, when the rebuild changed it. With no Bend, or another version, it prints one line and passes.
+- **`bend.sh` itself** is tested by `scripts/tests/deletion-laws-bend-sh.cli.test.ts` (a stale `model.mjs`, a failed proof, another version, no Bend, the hook's two outcomes), and the pinned install by `scripts/tests/install-bend.cli.test.ts`.
 - **In CI**, the `bend-proofs` job installs the pinned release (SHA-256 checked, cached by version), and runs `bend.sh check`. The agreement tests run in Build & Test and in the cire-api job, as each package's `test:repo` task, which turbo reruns when `model.mjs` or its types change ([[testing-patterns#Tests that read files outside their package]]).
 
 ## Changing it
