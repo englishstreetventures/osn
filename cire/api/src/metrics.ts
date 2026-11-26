@@ -358,7 +358,8 @@ export type OwnerNoticeKind =
   | "delete_started"
   | "upgrade_refund"
   | "owner_left"
-  | "payout_retired";
+  | "payout_retired"
+  | "payout_holder_erased";
 /** How an owner notice ended: mailed, nobody to mail, held by the per-wedding
  *  throttle, or the lookup or send failed. */
 export type OwnerNoticeResult = "sent" | "no_recipients" | "throttled" | "failed";

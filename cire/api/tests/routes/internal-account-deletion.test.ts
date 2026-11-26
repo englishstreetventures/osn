@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 
-import { weddingHosts, weddings } from "@cire/db";
+import { registrySettings, weddingHosts, weddings } from "@cire/db";
 import { generateArcKeyPair } from "@shared/crypto/jwk";
 import { eq } from "drizzle-orm";
 
@@ -328,6 +328,64 @@ describe("the account-deletion calls", () => {
         },
       ],
     });
+  });
+
+  it("preview lists each wedding whose payout account the person holds as an action that does not block, with the Express line only for an account cire made", async () => {
+    const { db, app } = setup();
+    for (const [id, type] of [
+      ["w_null", null],
+      ["w_express", "express"],
+      ["w_standard", "standard"],
+    ] as const) {
+      insertWedding(db, { id, slug: `slug-${id}`, displayName: id, owners: [P, OTHER] });
+      db.insert(registrySettings)
+        .values({
+          weddingId: id,
+          stripeAccountId: `acct_${id}`,
+          stripeAccountType: type,
+          stripeConnectedByOsnProfileId: P,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .run();
+    }
+    const res = await post(app, PREVIEW, await arc.token("account:deletion-preview"), previewBody);
+    expect(res.status).toBe(200);
+    const { openActions } = (await jsonBody(res)) as {
+      openActions: {
+        id: string;
+        kind: string;
+        choices: { choice: string; description: string; erasedOn: null }[];
+        defaultChoice: string | null;
+        link: string | null;
+      }[];
+    };
+    expect(
+      openActions.map((a) => ({
+        id: a.id,
+        kind: a.kind,
+        choices: a.choices.map((c) => c.choice),
+        defaultChoice: a.defaultChoice,
+        link: a.link,
+        express: a.choices[0]?.description.includes("connect.stripe.com/express_login"),
+      })),
+    ).toEqual(
+      // Seats made in the same instant: by wedding id.
+      (
+        [
+          ["w_express", true],
+          ["w_null", true],
+          ["w_standard", false],
+        ] as const
+      ).map(([id, express]) => ({
+        id: `cire:payout:${id}`,
+        kind: "wedding_payout_account",
+        choices: ["close"],
+        defaultChoice: "close",
+        link: `${PORTAL}/#/w/${id}/registry/settings`,
+        express,
+      })),
+    );
   });
 
   it("erase removes the person's seat from a wedding another owner keeps, and keeps nothing", async () => {

@@ -1209,11 +1209,14 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
       )
       // osn-api's account-deletion preview and erasure. Mounted BEFORE the
       // origin guard for the same reason: server-to-server, no browser
-      // `Origin`. ARC authenticates each call (lib/osn-arc.ts).
+      // `Origin`. ARC authenticates each call (lib/osn-arc.ts). The owner
+      // notices tell a wedding's remaining owners when the erasure takes its
+      // payout account's holder.
       .use(
         createInternalAccountDeletionRoutes(db, {
           osnArc: { osnIssuer: osnIssuerUrl, kidSecret: osnArcKidSecret },
           organiserOrigin,
+          ownerNotices,
         }),
       )
       // osn-api's account export, cire's section of it: the same reasons.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddingHosts } from "@cire/db";
+import { ownerNoticeBudget, weddingHosts } from "@cire/db";
 import { EmailError, EmailService } from "@shared/email";
 import type { SendEmailInput } from "@shared/email";
 import { LEGAL_ENTITY } from "@shared/legal";
@@ -583,6 +583,50 @@ describe("createOwnerNotices — an owner who left", () => {
     await run(notices.ownerLeft({ weddingId: "wed_one", leaverOsnProfileId: "usr_a" }));
     await run(notices.ownerLeft({ weddingId: "wed_two", leaverOsnProfileId: "usr_a" }));
     expect(transport.batches).toHaveLength(2);
+  });
+});
+
+/**
+ * The owner who held the wedding's payout account deleted their OSN account.
+ * The erasure has no acting owner and keeps nothing naming the person, so the
+ * notice spends the wedding's budget only, and names no one.
+ */
+describe("createOwnerNotices — a payout account holder erased", () => {
+  it("tells every owner outside the erased account, naming no one", async () => {
+    const { notices, run, transport } = setup({}, ["usr_a", "usr_b", "usr_c"]);
+    await run(
+      notices.payoutHolderErased({ weddingId: "wed_one", erasedProfileIds: ["usr_a", "usr_c"] }),
+    );
+    expect(transport.batches).toEqual([
+      [
+        {
+          template: "registry-payout-holder-erased",
+          to: "b@example.test",
+          data: {
+            weddingName: "Wedding wed_one",
+            moneyGiftsUrl: "https://host.example.test/#/w/wed_one/registry/settings",
+          },
+        },
+      ],
+    ]);
+  });
+
+  it("spends the wedding's budget alone, and writes none keyed by a person", async () => {
+    const { notices, run, transport, db } = setup({ emailsPerDay: 1 }, ["usr_a", "usr_b"]);
+    const erased = () =>
+      notices.payoutHolderErased({ weddingId: "wed_one", erasedProfileIds: ["usr_a"] });
+    await run(erased());
+    expect(copiesOf(transport.batches[0])).toEqual(["b@example.test"]);
+    // The wedding's budget is now spent.
+    await run(erased());
+    expect(transport.batches).toHaveLength(1);
+    expect(
+      db
+        .select()
+        .from(ownerNoticeBudget)
+        .all()
+        .map((row) => row.key),
+    ).toEqual(["wedding:wed_one"]);
   });
 });
 

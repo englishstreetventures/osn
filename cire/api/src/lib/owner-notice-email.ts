@@ -28,9 +28,15 @@
  *    each one needs them to have connected an account again, so a loop of
  *    retires cannot keep it from them either. An owner the actor seated in the
  *    last {@link FRESH_SEAT_MS} is not mailed, as for an owner change, unless
- *    they are the holder: they connected the account themselves.
+ *    they are the holder: they connected the account themselves;
+ *  - the owner who held that account deleted their OSN account
+ *    (`registry-payout-holder-erased`): goes to every owner left, never to a
+ *    profile of the erased account, names no one, and spends the wedding's
+ *    budget only, since the erasure has no acting owner and cire keeps nothing
+ *    naming the person, a budget row included. The account erasure sends it as
+ *    each wedding's batch commits (`services/account-erasure.ts`).
  *
- * Each names who acted. The actor gets their own copy because a session
+ * Each but the last names who acted. The actor gets their own copy because a session
  * someone else is using is exactly the case where the real owner needs to
  * see what was done in their name.
  *
@@ -369,7 +375,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
             ? [`refund:${weddingId}`]
             : kind === "payout_retired"
               ? [`retire:${weddingId}`]
-              : kind === "owner_left"
+              : kind === "owner_left" || kind === "payout_holder_erased"
                 ? [`wedding:${weddingId}`]
                 : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
       const allowed = yield* spend(keys, inputs.length, now);
@@ -590,6 +596,34 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
             ],
             render,
           };
+        }),
+      );
+    },
+
+    /**
+     * The owner who held the wedding's payout account deleted their OSN
+     * account, and the erasure took their owner seat. Told to every owner
+     * left outside `erasedProfileIds`, the account's profiles; none is named.
+     */
+    payoutHolderErased(input: {
+      readonly weddingId: string;
+      readonly erasedProfileIds: ReadonlyArray<string>;
+    }): Effect.Effect<void, never, DbService> {
+      return deliverVoid("payout_holder_erased", input.weddingId, "", new Date(), () =>
+        Effect.gen(function* () {
+          const wedding = yield* weddingOwners(input.weddingId);
+          if (!wedding) return null;
+          const erased = new Set(input.erasedProfileIds);
+          const recipients: Recipient<"owner">[] = wedding.owners
+            .filter((id) => !erased.has(id))
+            .map((osnProfileId) => ({ osnProfileId, audience: "owner" as const }));
+          const moneyGiftsUrl = `${deps.portalUrl}/#/w/${encodeURIComponent(input.weddingId)}/registry/settings`;
+          const render: RenderFor<"owner"> = (_recipient, to) => ({
+            template: "registry-payout-holder-erased",
+            to,
+            data: { weddingName: wedding.name, moneyGiftsUrl },
+          });
+          return { recipients, named: [], render };
         }),
       );
     },

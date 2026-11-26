@@ -35,6 +35,20 @@
  * to the person alone names no profile of theirs, so it is not counted; nor
  * is one an earlier "Remove my Cire data" deleted.
  *
+ * **A payout account's holder, deleting their account.** Where a profile of
+ * the account holds the Stripe account a live wedding's money gifts are paid
+ * into, beside another owner ({@link payoutHeldSeat}), the account deletion's
+ * preview ({@link deletionPreview}) shows one action with a default, `close`,
+ * which never blocks. The erasure takes the seat, so the account's holder is
+ * gone and money gifts close; the remaining owners are told by email, through
+ * a hook only its caller passes (`onPayoutHolderLeft`), as each wedding's batch
+ * commits. The service never mails on its own: a repeated call removes no
+ * seat, and a replay of a recorded erasure after a database restore calls it
+ * with no hook. When both osn-api's and cire's databases are restored, osn-api's
+ * next deletion sweep calls the route again, hook and all, so cire's replay must
+ * run before that sweep, while the seats it would find are still there to remove
+ * quietly.
+ *
  * **A payout account's holder, removing their Cire data.** The `host` scope
  * keeps an owner seat whose profile holds the Stripe account the wedding's
  * money gifts are paid into, beside another owner ({@link payoutHeldSeat}):
@@ -74,6 +88,7 @@ import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, outerColumn } from "../db";
+import type { Db } from "../db";
 import { epochSeconds } from "../db/live-wedding";
 import { metricAccountDeletionWedding } from "../metrics";
 import { archivePageOf, linkOrigin } from "./account-export";
@@ -106,11 +121,21 @@ export const MAX_OWNED_WEDDINGS_PER_CALL = 3;
 /** Sole-owned weddings a preview lists one by one; past it, one action stands for all. */
 const MAX_PREVIEW_ACTIONS = 100;
 
+/**
+ * Weddings whose payout account a profile of the account holds, beside another
+ * owner, that a deletion preview lists one by one; past it, one action stands
+ * for the rest. With {@link MAX_PREVIEW_ACTIONS} sole-owner actions, an answer
+ * holds at most 100 + 21, inside osn-api's 200 from one app.
+ */
+const MAX_PAYOUT_ACTIONS = 20;
+
 /** Characters of a wedding's name a label quotes: the name's own write-time limit. */
 const MAX_NAME_IN_TEXT = 120;
 
 const ACTION_PREFIX = "cire:wedding:";
 const ACTION_ALL = "cire:weddings:all";
+const PAYOUT_PREFIX = "cire:payout:";
+const PAYOUT_REST = "cire:payouts:rest";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,6 +203,12 @@ export interface OwnedOutcome {
    * them two profiles are one person.
    */
   readonly leavers: ReadonlyArray<string>;
+  /**
+   * The batch took the owner seat of the profile holding the Stripe account
+   * the wedding's money gifts are paid into, and the wedding is still live
+   * after it, so another owner remains.
+   */
+  readonly payoutHolderLeft: boolean;
 }
 
 class AccountErasureError extends Data.TaggedError("AccountErasureError")<{
@@ -226,68 +257,203 @@ const DELETE_ONE =
 const DELETE_MANY =
   "Deleted with their guests, replies and invites when your account is deleted. Download their guest lists and other exports from Cire first if you want a copy. Any other wedding you are the only owner of by then is deleted too.";
 
-/**
- * What deleting the account of `profileIds` would leave open in cire: one
- * action per live wedding whose owner seats are all the account's, with one
- * choice, `delete`, and no default, so the deletion waits until the person
- * answers it, adds another owner, or deletes the wedding. The action's link
- * opens the wedding's download page in the portal, which offers the download
- * and, beside it, the way to add another owner (the action is then gone).
- * Past {@link MAX_PREVIEW_ACTIONS}, one action, `cire:weddings:all`, stands
- * for them all. A wedding with another owner, or one the person holds a lower
- * seat on, needs no answer: their seat goes and the wedding stays.
- */
-function preview(input: {
+/** What both previews take. */
+interface PreviewInput {
   readonly profileIds: ReadonlyArray<string>;
   readonly deletesAt: number;
   readonly organiserOrigin: string;
-}): Effect.Effect<ReadonlyArray<OpenAction>, AccountErasureError, DbService> {
+}
+
+/** A live wedding whose owner seats are all the account's: the sole-owner read. */
+const soleOwnedQuery = (db: Db, profileIds: ReadonlyArray<string>) =>
+  db
+    .select({ weddingId: weddings.id, name: weddings.displayName })
+    .from(weddingHosts)
+    .innerJoin(weddings, eq(weddings.id, weddingHosts.weddingId))
+    .where(
+      and(
+        inProfiles(weddingHosts.osnProfileId, profileIds),
+        eq(weddingHosts.role, "owner"),
+        isNull(weddings.deletedAt),
+        sql`NOT ${otherOwnerOn(outerColumn(weddings.id), profileIds)}`,
+      ),
+    )
+    .groupBy(weddings.id)
+    .orderBy(asc(sql`min(${weddingHosts.createdAt})`), asc(weddings.id))
+    .limit(MAX_PREVIEW_ACTIONS + 1);
+
+/**
+ * A live wedding where a profile of the account holds, from an owner seat, the
+ * Stripe account money gifts are paid into, and another owner remains: the
+ * rule a host's removal refuses on ({@link payoutHeldSeat}). With the account's
+ * type, for the Express line.
+ */
+const payoutHeldQuery = (db: Db, profileIds: ReadonlyArray<string>) =>
+  db
+    .select({
+      weddingId: weddings.id,
+      name: weddings.displayName,
+      accountType: registrySettings.stripeAccountType,
+    })
+    .from(weddingHosts)
+    .innerJoin(weddings, eq(weddings.id, weddingHosts.weddingId))
+    .innerJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+    .where(
+      and(
+        inProfiles(weddingHosts.osnProfileId, profileIds),
+        eq(weddingHosts.role, "owner"),
+        payoutHeldSeat(
+          outerColumn(weddings.id),
+          outerColumn(weddingHosts.osnProfileId),
+          profileIds,
+        ),
+      ),
+    )
+    .groupBy(weddings.id)
+    .orderBy(asc(sql`min(${weddingHosts.createdAt})`), asc(weddings.id))
+    .limit(MAX_PAYOUT_ACTIONS + 1);
+
+/** The sole-owner actions, or past {@link MAX_PREVIEW_ACTIONS} the one for them all. */
+function soleOwnerActions(
+  sole: ReadonlyArray<{ weddingId: string; name: string }>,
+  origin: string | null,
+): ReadonlyArray<OpenAction> {
+  if (sole.length > MAX_PREVIEW_ACTIONS) {
+    return [
+      {
+        id: ACTION_ALL,
+        kind: "weddings_sole_owner",
+        label: `You are the only owner of more than ${MAX_PREVIEW_ACTIONS} weddings. Add another owner to each you want to keep, or they are deleted when your account is.`,
+        choices: [{ choice: "delete", description: DELETE_MANY, erasedOn: null }],
+        defaultChoice: null,
+        link: origin ? `${origin}/` : null,
+      },
+    ];
+  }
+  return sole.map((row) => ({
+    id: `${ACTION_PREFIX}${row.weddingId}`,
+    kind: "wedding_sole_owner",
+    label: `You are the only owner of ${quoted(row.name)}. Add another owner in Cire to keep it, or it is deleted when your account is.`,
+    choices: [{ choice: "delete", description: DELETE_ONE, erasedOn: null }],
+    defaultChoice: null,
+    link: origin ? archivePageOf(origin, row.weddingId) : null,
+  }));
+}
+
+/** The wedding's Money gifts, in its registry's Settings tab. */
+const moneyGiftsPageOf = (origin: string, weddingId: string): string =>
+  `${origin}/#/w/${encodeURIComponent(weddingId)}/registry/settings`;
+
+const PAYOUT_ONE =
+  "Guests cannot give money on this wedding from when your account is deleted until another owner connects an account. The wedding and its other owners stay.";
+const PAYOUT_EXPRESS =
+  " The Stripe account Cire made for you stays at Stripe, in your name: sign in at connect.stripe.com/express_login to take care of it.";
+const PAYOUT_MANY =
+  "Guests cannot give money on those weddings from when your account is deleted until another owner connects an account. The weddings and their other owners stay. Any Stripe account Cire made for you stays at Stripe, in your name: sign in at connect.stripe.com/express_login to take care of it.";
+
+/**
+ * One action per held wedding ({@link payoutHeldQuery}), with one choice,
+ * `close`, as its default, so it never blocks the deletion: the erasure takes
+ * the holder's seat whatever was answered, and money gifts close until another
+ * owner connects an account. The Express line only for an account cire created
+ * (type `express`, or NULL, which reads as Express). The link opens the
+ * wedding's Money gifts, where the holder can hand over first. Past
+ * {@link MAX_PAYOUT_ACTIONS}, one action stands for the rest.
+ */
+function payoutActions(
+  held: ReadonlyArray<{
+    weddingId: string;
+    name: string;
+    accountType: "express" | "standard" | null;
+  }>,
+  origin: string | null,
+): ReadonlyArray<OpenAction> {
+  const actions: OpenAction[] = held.slice(0, MAX_PAYOUT_ACTIONS).map((row) => ({
+    id: `${PAYOUT_PREFIX}${row.weddingId}`,
+    kind: "wedding_payout_account",
+    label: `You connected the Stripe account for money gifts on ${quoted(row.name)}. Once your account is deleted, guests cannot give money there until another owner connects an account. To avoid that, hand money gifts to another owner in Cire first.`,
+    choices: [
+      {
+        choice: "close",
+        description: row.accountType === "standard" ? PAYOUT_ONE : PAYOUT_ONE + PAYOUT_EXPRESS,
+        erasedOn: null,
+      },
+    ],
+    defaultChoice: "close",
+    link: origin ? moneyGiftsPageOf(origin, row.weddingId) : null,
+  }));
+  if (held.length > MAX_PAYOUT_ACTIONS) {
+    actions.push({
+      id: PAYOUT_REST,
+      kind: "weddings_payout_account",
+      label: `You connected the Stripe account for money gifts on more than ${MAX_PAYOUT_ACTIONS} weddings that have another owner. Once your account is deleted, guests cannot give money there until another owner connects an account. To avoid that, hand money gifts to another owner on each in Cire first.`,
+      choices: [{ choice: "close", description: PAYOUT_MANY, erasedOn: null }],
+      defaultChoice: "close",
+      link: origin ? `${origin}/` : null,
+    });
+  }
+  return actions;
+}
+
+/**
+ * The live weddings whose owner seats are all `profileIds`', as "Remove my
+ * Cire data" refuses on them (`routes/organiser-account.ts`): one action per
+ * wedding, with one choice, `delete`, and no default, so the removal waits
+ * until the person answers it, adds another owner, or deletes the wedding. The
+ * action's link opens the wedding's download page in the portal, which offers
+ * the download and, beside it, the way to add another owner (the action is
+ * then gone). Past {@link MAX_PREVIEW_ACTIONS}, one action, `cire:weddings:all`,
+ * stands for them all. A wedding with another owner, or one the person holds a
+ * lower seat on, needs no answer: their seat goes and the wedding stays. No
+ * payout action: the removal refuses a holder on its own, and reads any action
+ * that is not a wedding's as the one standing for them all.
+ */
+function preview(
+  input: PreviewInput,
+): Effect.Effect<ReadonlyArray<OpenAction>, AccountErasureError, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const sole = yield* Effect.tryPromise({
-      try: () =>
-        Promise.resolve(
-          db
-            .select({ weddingId: weddings.id, name: weddings.displayName })
-            .from(weddingHosts)
-            .innerJoin(weddings, eq(weddings.id, weddingHosts.weddingId))
-            .where(
-              and(
-                inProfiles(weddingHosts.osnProfileId, input.profileIds),
-                eq(weddingHosts.role, "owner"),
-                isNull(weddings.deletedAt),
-                sql`NOT ${otherOwnerOn(outerColumn(weddings.id), input.profileIds)}`,
-              ),
-            )
-            .groupBy(weddings.id)
-            .orderBy(asc(sql`min(${weddingHosts.createdAt})`), asc(weddings.id))
-            .limit(MAX_PREVIEW_ACTIONS + 1)
-            .all(),
-        ),
+      try: () => Promise.resolve(soleOwnedQuery(db, input.profileIds).all()),
       catch: (e) => new AccountErasureError({ reason: String(e) }),
     });
+    return soleOwnerActions(sole, linkOrigin(input.organiserOrigin));
+  }).pipe(Effect.withSpan("cire.account_deletion.preview"));
+}
 
+/**
+ * What deleting the account of `profileIds` would leave open in cire, as
+ * osn-api's preview asks: the sole-owner actions of {@link preview}, which the
+ * deletion waits on, then the {@link payoutActions}, which it does not. Both
+ * lists in one batch, one round trip. The early answer for more than
+ * {@link MAX_PREVIEW_ACTIONS} sole-owner weddings keeps the payout actions.
+ */
+function deletionPreview(
+  input: PreviewInput,
+): Effect.Effect<ReadonlyArray<OpenAction>, AccountErasureError, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const [sole, held] = yield* Effect.tryPromise({
+      try: async () => {
+        const [soleRead, heldRead] = await commitBatchResults(db, [
+          soleOwnedQuery(db, input.profileIds),
+          payoutHeldQuery(db, input.profileIds),
+        ]);
+        return [
+          soleRead as ReadonlyArray<{ weddingId: string; name: string }>,
+          heldRead as ReadonlyArray<{
+            weddingId: string;
+            name: string;
+            accountType: "express" | "standard" | null;
+          }>,
+        ] as const;
+      },
+      catch: (e) => new AccountErasureError({ reason: String(e) }),
+    });
     const origin = linkOrigin(input.organiserOrigin);
-    if (sole.length > MAX_PREVIEW_ACTIONS) {
-      return [
-        {
-          id: ACTION_ALL,
-          kind: "weddings_sole_owner",
-          label: `You are the only owner of more than ${MAX_PREVIEW_ACTIONS} weddings. Add another owner to each you want to keep, or they are deleted when your account is.`,
-          choices: [{ choice: "delete", description: DELETE_MANY, erasedOn: null }],
-          defaultChoice: null,
-          link: origin ? `${origin}/` : null,
-        },
-      ];
-    }
-    return sole.map((row) => ({
-      id: `${ACTION_PREFIX}${row.weddingId}`,
-      kind: "wedding_sole_owner",
-      label: `You are the only owner of ${quoted(row.name)}. Add another owner in Cire to keep it, or it is deleted when your account is.`,
-      choices: [{ choice: "delete", description: DELETE_ONE, erasedOn: null }],
-      defaultChoice: null,
-      link: origin ? archivePageOf(origin, row.weddingId) : null,
-    }));
+    const payout = payoutActions(held, origin);
+    yield* Effect.annotateCurrentSpan({ payoutActions: payout.length });
+    return [...soleOwnerActions(sole, origin), ...payout];
   }).pipe(Effect.withSpan("cire.account_deletion.preview"));
 }
 
@@ -312,6 +478,14 @@ interface EraseInput {
    * account.
    */
   readonly scope?: "account" | "host";
+  /**
+   * Called as each wedding's batch commits, when it took the owner seat of the
+   * profile holding that wedding's payout account and another owner remains
+   * ({@link OwnedOutcome.payoutHolderLeft}): the internal route's notice to the
+   * remaining owners. Absent, nothing is sent. A replay of a recorded erasure
+   * after a database restore passes none.
+   */
+  readonly onPayoutHolderLeft?: (weddingId: string) => Effect.Effect<void>;
 }
 
 /**
@@ -380,7 +554,16 @@ function eraseOwnedWedding(
                   : undefined,
               ),
             )
-            .returning({ role: weddingHosts.role, osnProfileId: weddingHosts.osnProfileId }),
+            // Whether the seat's profile holds the wedding's payout account,
+            // and the wedding is live after the batch's delete above (so
+            // another owner remains). Reads `registry_settings` and `weddings`
+            // only: RETURNING is filled row by row as the delete runs, so a
+            // read of `wedding_hosts` here would see it half done.
+            .returning({
+              role: weddingHosts.role,
+              osnProfileId: weddingHosts.osnProfileId,
+              payoutHolder: sql<number>`(${holdsPayoutAccountSql(sql`${weddingId}`, outerColumn(weddingHosts.osnProfileId))} AND EXISTS (SELECT 1 FROM ${weddings} payout_wedding WHERE payout_wedding.id = ${weddingId} AND payout_wedding.deleted_at IS NULL))`,
+            }),
         ]),
       catch: (e) => new AccountErasureError({ reason: String(e) }),
     }).pipe(
@@ -391,15 +574,21 @@ function eraseOwnedWedding(
       ),
     );
     const deleted = (results[0] as ReadonlyArray<{ id: string }>).length > 0;
-    const seats = results[2] as ReadonlyArray<{ role: string; osnProfileId: string }>;
+    const seats = results[2] as ReadonlyArray<{
+      role: string;
+      osnProfileId: string;
+      payoutHolder: number;
+    }>;
     if (seats.length === 0) return null;
-    const leavers = seats.filter((seat) => seat.role === "owner").map((seat) => seat.osnProfileId);
+    const owners = seats.filter((seat) => seat.role === "owner");
+    const leavers = owners.map((seat) => seat.osnProfileId);
+    const payoutHolderLeft = owners.some((seat) => Number(seat.payoutHolder) === 1);
     const outcome = deleted ? "deleted" : "seat_removed";
     metricAccountDeletionWedding(outcome);
     yield* Effect.logInfo("account erasure: a wedding the person owned").pipe(
-      Effect.annotateLogs({ weddingId, outcome }),
+      Effect.annotateLogs({ weddingId, outcome, payoutHolderLeft }),
     );
-    return { weddingId, outcome, leavers } as const;
+    return { weddingId, outcome, leavers, payoutHolderLeft } as const;
   }).pipe(Effect.withSpan("cire.account_deletion.wedding", { attributes: { weddingId } }));
 }
 
@@ -712,6 +901,11 @@ function eraseWithOutcomes(input: EraseInput): Effect.Effect<
     for (const { weddingId, ownerSeats } of owned.slice(0, MAX_OWNED_WEDDINGS_PER_CALL)) {
       const outcome = yield* eraseOwnedWedding(weddingId, input.profileIds, now, keepHeldSeat);
       if (outcome) outcomes.push(outcome);
+      // Here, not after the loop: a later batch or the clean-up can fail the
+      // call, and the call that finishes removes no seat, so it would not send.
+      if (outcome?.payoutHolderLeft && input.onPayoutHolderLeft) {
+        yield* input.onPayoutHolderLeft(weddingId);
+      }
       // Fewer owner seats went than the first read counted: the holder rule
       // kept one. An owner seat another request took or demoted in between
       // reads the same, and costs only the portal's next call.
@@ -753,4 +947,4 @@ function erase(input: EraseInput): Effect.Effect<ErasureResult, AccountErasureEr
   return eraseWithOutcomes(input).pipe(Effect.map(({ result }) => result));
 }
 
-export const accountErasureService = { preview, erase, eraseWithOutcomes };
+export const accountErasureService = { preview, deletionPreview, erase, eraseWithOutcomes };
