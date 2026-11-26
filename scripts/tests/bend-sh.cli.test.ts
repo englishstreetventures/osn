@@ -166,6 +166,36 @@ describe("bend.sh", () => {
     expect(run.output.trim().split("\n")).toEqual([...SETS]);
   });
 
+  test("a set the index holds but the working tree has lost is neither listed nor proved", () => {
+    const w = world();
+    stubBend(w);
+    rmSync(join(w.repo, "osn/api/laws/one"), { recursive: true, force: true });
+    const sets = bendSh(w, "sets");
+    expect(sets.status, sets.output).toBe(0);
+    expect(sets.output.trim().split("\n")).toEqual(["cire/api/laws/two"]);
+    const run = bendSh(w, "check");
+    expect(run.status, run.output).toBe(0);
+    expect(proved(w, run.calls)).toEqual(["cire/api/laws/two"]);
+  });
+
+  test("a set with no model.bend is proved, and build, check and hook build no model in it", () => {
+    const w = world();
+    stubBend(w);
+    git(w.repo, "rm", "-q", "osn/api/laws/one/model.bend", "osn/api/laws/one/model.mjs");
+    for (const command of ["build", "check", "hook"]) {
+      const run = bendSh(w, command);
+      expect(run.status, `${command}: ${run.output}`).toBe(0);
+    }
+    const { calls } = bendSh(w, "sets");
+    expect(proved(w, calls)).toContain("osn/api/laws/one");
+    const builtIn = calls
+      .filter((call) => call.split(" ")[1] === "model.bend")
+      .map((call) => call.split(" ")[2]!.slice(w.repo.length + 1));
+    expect(builtIn).not.toContain("osn/api/laws/one");
+    expect(builtIn).toContain("cire/api/laws/two");
+    expect(existsSync(join(w.repo, "osn/api/laws/one/model.mjs"))).toBe(false);
+  });
+
   test("check proves every set and checks each model, with telemetry off", () => {
     const w = world();
     stubBend(w);

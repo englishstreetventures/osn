@@ -5,8 +5,9 @@
     // `no-literal-motion.test.ts` reads files outside this package: the
     // matcher the rule imports from scripts/lib, the root oxlintrc.json that
     // switches the rule on, and the three source trees its last test lints.
-    // It runs as `test:repo`, which names them, so the other suites stay
-    // cached when only those files change.
+    // `law-set-imports.test.ts` lints probes against the root oxlintrc.json.
+    // Both run as `test:repo`, which names those files, so the other suites
+    // stay cached when only they change.
     "test": {
       "dependsOn": ["^build", "test:repo"]
     },

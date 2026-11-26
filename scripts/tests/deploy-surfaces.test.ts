@@ -331,6 +331,9 @@ describe("a Bend law set redeploys nothing", () => {
     "cire/api/laws/account-deletion/model.d.mts",
     "zap/api/laws/messaging/PROOF.bend",
     "shared/ui/laws/focus/LAWS.bend",
+    // Beside a stack's own files, so the stack lookups' guard is tested too.
+    "cire/infra/laws/x/LAWS.bend",
+    "shared/infra/laws/x/LAWS.bend",
   ];
 
   test.each(laws)("%s, alone, redeploys no surface and no stack", (file) => {
@@ -353,6 +356,8 @@ describe("a Bend law set redeploys nothing", () => {
     "osn/api/tests/laws/deletion-lifecycle.test.ts",
     "osn/api/src/laws.ts",
     "cire/api/src/laws/x.ts",
+    // In `laws/` but in no topic folder.
+    "osn/api/laws/helper.ts",
   ])("%s is not a law set, and still redeploys its surface", (file) => {
     expect(redeployed([file], "production").length).toBeGreaterThan(0);
   });

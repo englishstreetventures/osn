@@ -303,10 +303,13 @@ const SHARED_CONTENT =
   /^(shared\/(?!infra\/)|patches\/|bun\.lock$|package\.json$|turbo\.json$|tsconfig\.json$|\.browserslistrc$)/;
 
 /**
- * A workspace's Bend law sets: the laws, their proofs and the model their
- * agreement tests import. No surface builds from them, wherever they sit.
+ * A workspace's Bend law sets, one topic folder each
+ * (`<workspace>/laws/<topic>/`): the laws, their proofs and the model their
+ * agreement tests import. No surface builds from them, wherever they sit. A
+ * file directly in `laws/` is not a set, the same line bend.sh, the changeset
+ * check and CI's `bend` filter draw.
  */
-const LAW_SETS = /^[^/]+\/[^/]+\/laws\//;
+const LAW_SETS = /^[^/]+\/[^/]+\/laws\/[^/]+\//;
 
 /** Whether a change to `file` can reach anything a surface deploys. */
 export function ships(file: string): boolean {
