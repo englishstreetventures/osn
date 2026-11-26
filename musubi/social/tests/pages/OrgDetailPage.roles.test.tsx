@@ -49,13 +49,18 @@ const ROSTER = {
   ],
 };
 
-/** An access token whose claims name `handle`, as the issuer's do. */
-function tokenFor(handle: string): string {
+/** An access token carrying `claims`, signed by nobody: the page only reads it. */
+function tokenWith(claims: object): string {
   const part = (value: object) => btoa(JSON.stringify(value));
-  return `${part({ alg: "none" })}.${part({ sub: `usr_${handle}`, handle })}.sig`;
+  return `${part({ alg: "none" })}.${part(claims)}.sig`;
 }
 
-function renderAs(handle: string) {
+/** An access token whose claims name `handle`, as the issuer's do. */
+function tokenFor(handle: string): string {
+  return tokenWith({ sub: `usr_${handle}`, handle });
+}
+
+function renderAs(handle: string, accessToken = tokenFor(handle)) {
   const resource = <T,>(value: T) =>
     Object.assign(() => value, {
       state: "ready",
@@ -68,7 +73,7 @@ function renderAs(handle: string) {
   // A fresh session object per render: the page cache clears on a new one.
   const auth = {
     session: resource({
-      accessToken: tokenFor(handle),
+      accessToken,
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: [],
@@ -146,17 +151,27 @@ describe("<OrgDetailPage /> actions by standing", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 
-  it("holds Remove unavailable while its request runs, and only that one", async () => {
+  // The owner's token names no handle, so the page cannot tell which row is
+  // the reader's own: it offers no Remove at all rather than one on that row.
+  it("offers the owner no Remove when the token names no handle, and still Edit and Delete", async () => {
+    mocks.getOrg.mockResolvedValue({ organisation: ORG, caller: { role: "admin", owner: true } });
+    renderAs("alice", tokenWith({ sub: "usr_alice" }));
+    await rosterShown();
+    expect(removable()).toEqual([]);
+    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+  });
+
+  // The held row itself is the musubi-org-detail flow's "remove busy" checks;
+  // a flow never has two Remove buttons at once.
+  it("keeps every other row's Remove available while one request runs", async () => {
     mocks.getOrg.mockResolvedValue({ organisation: ORG, caller: { role: "admin", owner: true } });
     mocks.removeMember.mockReturnValue(new Promise(() => {}));
     renderAs("alice");
     await rosterShown();
     fireEvent.click(screen.getByRole("button", { name: "Remove @bob" }));
-    const busy = await screen.findByRole("button", { name: "Removing @bob" });
+    await screen.findByRole("button", { name: "Removing @bob" });
     await waitFor(() => expect(mocks.removeMember).toHaveBeenCalledWith("acme", "bob"));
-    expect(busy.getAttribute("aria-disabled")).toBe("true");
-    fireEvent.click(busy);
-    expect(mocks.removeMember).toHaveBeenCalledTimes(1);
     const other = screen.getByRole("button", { name: "Remove @carol" });
     expect(other.getAttribute("aria-disabled")).toBeNull();
   });

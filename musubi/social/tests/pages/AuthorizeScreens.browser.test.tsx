@@ -13,8 +13,9 @@ import "../../src/App.css";
  * holds one Cancel (none on the sign-in screen until its Decline, #2048), and
  * leads with the app's name as an `h1` larger than every other heading (the
  * owner's D2). Each screen's notice is raised the way the page raises it: a
- * decision that fails, or one that asks for a fresh sign-in. Shots at 390 and
- * 1440px, light and dark, go to `__screenshots__/` beside this file.
+ * decision that fails, drawn in the danger ink, or one that asks for a fresh
+ * sign-in, drawn in the info tone's secondary ink. Shots at 390 and 1440px,
+ * light and dark, go to `__screenshots__/` beside this file.
  */
 
 const api = vi.hoisted(() => ({
@@ -126,6 +127,22 @@ async function settled() {
 
 const px = (element: Element) => parseFloat(getComputedStyle(element).fontSize);
 
+/** The colour `value` resolves to, read off a probe in the page. */
+function resolved(value: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  document.body.append(probe);
+  const colour = getComputedStyle(probe).color;
+  probe.remove();
+  return colour;
+}
+
+/** The ink each notice tone draws its words in. */
+const INK = {
+  danger: "var(--color-ui-danger)",
+  info: "var(--color-ui-ink-secondary)",
+} as const;
+
 type Screen = {
   name: string;
   search: string;
@@ -135,6 +152,8 @@ type Screen = {
   /** On screen once the notice is up. */
   ready: () => HTMLElement;
   cancels: number;
+  /** The notice's tone: a failure is `danger`, a request to sign in again `info`. */
+  tone: keyof typeof INK;
   /** What follows the notice: the last of the actions, or the panel's heading. */
   after: (next: HTMLElement) => string | null | undefined;
   expectedAfter: string;
@@ -153,6 +172,7 @@ const SCREENS: Screen[] = [
     },
     ready: () => screen.getByRole("heading", { name: "Signed in as" }),
     cancels: 1,
+    tone: "danger",
     after: lastButton,
     expectedAfter: "Cancel",
   },
@@ -166,6 +186,7 @@ const SCREENS: Screen[] = [
     },
     ready: () => screen.getByRole("heading", { name: "Choose a profile" }),
     cancels: 1,
+    tone: "danger",
     after: lastButton,
     expectedAfter: "Cancel",
   },
@@ -179,6 +200,7 @@ const SCREENS: Screen[] = [
     },
     ready: () => screen.getByRole("button", { name: "Allow" }),
     cancels: 1,
+    tone: "danger",
     after: lastButton,
     expectedAfter: "Cancel",
   },
@@ -195,6 +217,7 @@ const SCREENS: Screen[] = [
     },
     ready: () => screen.getByRole("heading", { name: "Sign in to Musubi" }),
     cancels: 0,
+    tone: "info",
     after: (next) => next.querySelector("h2")?.textContent,
     expectedAfter: "Sign in to Musubi",
   },
@@ -211,7 +234,7 @@ afterEach(() => {
 });
 
 describe.each(SCREENS)("/authorize's $name screen", (where) => {
-  it("draws its notice above its actions, one Cancel, and the app's name as the largest heading", async () => {
+  it("draws its notice in its tone above its actions, one Cancel, and the app's name as the largest heading", async () => {
     api.context = context(where.context);
     renderAt(where.search);
     await where.raise();
@@ -237,6 +260,9 @@ describe.each(SCREENS)("/authorize's $name screen", (where) => {
         document.documentElement.classList.toggle("dark", theme === "dark");
         await settled();
         expect(document.documentElement.scrollWidth).toBe(viewport.width);
+        // The two inks differ in each theme, so the tone is what decides.
+        expect(resolved(INK.danger)).not.toBe(resolved(INK.info));
+        expect(getComputedStyle(notice).color).toBe(resolved(INK[where.tone]));
         await page.screenshot({ path: `${SHOTS}/${where.name}-${viewport.width}-${theme}.png` });
       }
     }

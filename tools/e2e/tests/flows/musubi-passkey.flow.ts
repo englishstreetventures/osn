@@ -3,13 +3,16 @@
  * browser, picking the number the first shows (a wrong pick on a first link
  * before it) — then a passkey; sign out,
  * sign back in with the passkey (a rate-limited try first), keep the session
- * across a reload, keep the shell when the profile list or a page fails to
- * load, add and remove an authenticator app behind passkey step-ups, keep the
- * session past its access token's expiry, list the connected apps (then
- * authorise Pulse through the API and revoke it there), sign the
+ * across a reload, add a second profile through Settings and switch to it and
+ * back from the account menu, keep the shell when the profile list or a page
+ * fails to load, add and remove an authenticator app behind passkey step-ups,
+ * keep the session past its access token's expiry, list the connected apps
+ * (then authorise Pulse through the API and revoke it there), sign the
  * page out — and say so — when the issuer refuses to renew it, sign out a
- * reload that has no cookie, sign in to Pulse through Musubi's `/authorize`,
- * then open a third-party client's consent screen and leave it undecided.
+ * reload that has no cookie, sign in to Pulse through Musubi's `/authorize` —
+ * the profile picker, then consent, Change back to the picker for the other
+ * profile, and Allow as it — then open a third-party client's consent screen,
+ * past the picker, and leave it undecided.
  * Signed in, before the authenticator steps, it measures and shoots Musubi's
  * base styles and the notices the shell draws (`musubi-surfaces.ts`); signed
  * out by the refused renewal, the signed-out note's Sign in; on Pulse's
@@ -63,6 +66,8 @@ import { join } from "node:path";
 import type { Request, Response, Route } from "@playwright/test";
 
 import {
+  DB_FILES,
+  MUSUBI_SECOND_PROFILE,
   ORIGINS,
   PEOPLE,
   PULSE_OIDC,
@@ -81,6 +86,7 @@ import {
   mailFor,
   offeredNumbers,
   pickWrongNumberOnPage,
+  queryOne,
   test,
   totpCode,
   waitingScreenNumber,
@@ -106,6 +112,8 @@ import {
 } from "../support/musubi-surfaces";
 
 const ada = PEOPLE.musubi;
+/** The profile Settings adds to Ada's account part-way through. */
+const second = MUSUBI_SECOND_PROFILE;
 
 /** Where `@osn/client` keeps the stored account: never a token. */
 const ACCOUNT_KEY = "@osn/client:account_session";
@@ -178,6 +186,8 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   // The shell's Sign in, in the rail or the top bar: a signed-out page draws
   // its own in its note as well.
   const shellSignIn = () => page.locator("aside, header").getByRole("button", { name: "Sign in" });
+  /** A toast on screen, by its words. */
+  const toast = (text: string) => page.locator("[data-toast-id]").getByText(text, { exact: true });
   // The virtual authenticator answers a conditional-UI (autofill) request on
   // its own, which a person never does: it would sign in the moment the dialog
   // opens, racing the "@handle → Continue" path this flow drives. Report
@@ -634,7 +644,11 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     1,
     await dialogAlert.getByRole("button", { name: "Lost your passkey?" }).count(),
   );
-  flow.check("no toast repeats the error", 0, await page.locator("[data-sonner-toast]").count());
+  flow.check(
+    "no toast repeats the error",
+    0,
+    await page.locator('[data-toast-id][data-tone="error"]').count(),
+  );
 
   // Begin is held until the busy button has been read and shot, then goes on
   // to osn-api; the preflight is never held.
@@ -693,6 +707,90 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   // Signed in, after the check above has read the request log: the surfaces
   // reload the page for the legal routes, and each reload posts to /token.
   await musubiSurfaces(flow, page, ada.name);
+
+  // A second profile, made through Settings' "Create a new profile" sheet; no
+  // sign-in. The account menu then switches to it and back through the real
+  // provider, and `/authorize` below offers the two as a choice. Creating it
+  // lists the profiles once more, the list the surfaces' in-app visit to
+  // /terms leaves unspent.
+  const createSheet = page.getByRole("dialog", { name: "Create a new profile" });
+  await flow.step("create a second profile through Settings' sheet", async () => {
+    await page.getByRole("link", { name: "Settings" }).first().click();
+    await page.getByRole("button", { name: "Create profile" }).click();
+    await createSheet.getByLabel("Handle").fill(second.handle);
+    await createSheet.getByLabel("Display name (optional)").fill(second.name);
+    const create = createSheet.getByRole("button", { name: "Create profile" });
+    await expect(create).toBeEnabled();
+    await create.click();
+    await expect(toast(`Profile @${second.handle} created`)).toBeVisible();
+    await expect(createSheet).toHaveCount(0);
+  });
+  flow.check(
+    "the account holds both profiles",
+    `${ada.handle} ${second.handle}`,
+    queryOne<{ handles: string }>(
+      DB_FILES.osn,
+      `SELECT group_concat(handle, ' ') AS handles FROM (
+         SELECT handle FROM users
+         WHERE account_id = (SELECT account_id FROM users WHERE handle = ?)
+         ORDER BY handle
+       )`,
+      ada.handle,
+    )?.handles ?? "",
+  );
+
+  const accountMenu = page.locator("aside").getByRole("button", { name: /@/ });
+  // Kobalte hides `<body>` from the accessibility tree for a frame or two as a
+  // menu opens or unmounts, and the role engine skips a hidden tree, so the
+  // menu and its rows are found by their `role` attributes instead.
+  const menu = page.locator('[role="menu"]');
+  const profileRows = menu.locator('[role="menuitemradio"]');
+  const rowOf = (handle: string) => profileRows.filter({ hasText: `@${handle}` });
+  const rowsChecked = async () =>
+    (
+      await profileRows.evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-checked")))
+    ).join(" ");
+  const switches = () => flow.count("POST osn-api /profiles/switch ");
+  await flow.step("account menu: open it on two profiles", async () => {
+    await accountMenu.click();
+    await expect(profileRows).toHaveCount(2);
+  });
+  flow.check("account menu: a radio row per profile", 2, await profileRows.count());
+  flow.check(
+    "account menu: the profile in force is the checked row",
+    "true false",
+    await rowsChecked(),
+  );
+  await flow.step("account menu: choose the second profile", async () => {
+    await rowOf(second.handle).click();
+    await expect(toast(`Switched to @${second.handle}`)).toBeVisible();
+    await expect(menu).toHaveCount(0);
+  });
+  await flow.step("account menu: reopen it after the switch", async () => {
+    await accountMenu.click();
+    await expect(profileRows).toHaveCount(2);
+  });
+  flow.check("account menu: the switch moved the checked row", "false true", await rowsChecked());
+  flow.check("account menu: one switch sent", 1, switches());
+  // Back to the first profile, so the steps below run as the person signed
+  // in at the start.
+  await flow.step("account menu: switch back to the first profile", async () => {
+    await rowOf(ada.handle).click();
+    await expect(toast(`Switched to @${ada.handle}`)).toBeVisible();
+    await expect(menu).toHaveCount(0);
+    await accountMenu.click();
+    await expect(profileRows).toHaveCount(2);
+  });
+  flow.check(
+    "account menu: switched back, the first row checked",
+    "true false",
+    await rowsChecked(),
+  );
+  flow.check("account menu: two switches sent in all", 2, switches());
+  await flow.step("account menu: close it", async () => {
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+  });
 
   const nav = page.getByRole("link", { name: "Settings" }).first();
   const profilesList = `${ORIGINS.osnApi}/profiles/list`;
@@ -1460,18 +1558,96 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     ).toBeVisible();
     await expect(page.getByLabel("Email or @handle")).toBeVisible();
   });
+  // Signed in, the account has two profiles and Pulse knows neither since
+  // its revoke, so the picker leads. Its radios choose; only Continue leaves.
+  const picker = page.getByRole("heading", { name: "Choose a profile", exact: true });
+  const radios = page.getByRole("radio");
+  const radioOf = (handle: string) => page.getByRole("radio", { name: new RegExp(`@${handle}$`) });
+  const radiosChecked = async () =>
+    (
+      await radios.evaluateAll((all) =>
+        all.map((radio) => String((radio as HTMLInputElement).checked)),
+      )
+    ).join(" ");
+  const pickerContinue = page.getByRole("button", { name: "Continue", exact: true });
+  const allow = page.getByRole("button", { name: "Allow" });
+  const change = page.getByRole("button", { name: "Change", exact: true });
+  // The row consent shows the profile in, beside its Change.
+  const consentHandle = async () =>
+    (await change.locator("xpath=..").getByText(/^@/).textContent()) ?? "";
   await flow.step("sign in to Pulse through Musubi's /authorize", async () => {
     await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
     await page.getByRole("button", { name: "Continue" }).click();
-    // The sign-in screen draws the client card too, mark and all; Allow is
-    // what says the consent screen has replaced it, so nothing read below is
-    // swapped out mid-read.
-    await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
+    await expect(picker).toBeVisible();
+    await expect(radios).toHaveCount(2);
+  });
+  flow.check("authorize picker: a radio per profile", 2, await radios.count());
+  flow.check(
+    "authorize picker: the first profile chosen to start",
+    "true false",
+    await radiosChecked(),
+  );
+  await flow.step("authorize picker: ArrowDown chooses the other profile", async () => {
+    await radioOf(ada.handle).focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(radioOf(second.handle)).toBeChecked();
+  });
+  flow.check("authorize picker: ArrowDown leaves the picker on screen", 1, await picker.count());
+  flow.check("authorize picker: ArrowDown moved the choice", "false true", await radiosChecked());
+  await flow.step("authorize picker: ArrowUp back, then Continue to consent", async () => {
+    await page.keyboard.press("ArrowUp");
+    await expect(radioOf(ada.handle)).toBeChecked();
+    await pickerContinue.click();
+    await expect(allow).toBeVisible();
+  });
+  flow.check(
+    "authorize consent: the profile Continue kept",
+    `@${ada.handle}`,
+    await consentHandle(),
+  );
+  await flow.step("authorize consent: Change opens the picker again", async () => {
+    await change.click();
+    await expect(picker).toBeVisible();
+  });
+  flow.check(
+    "authorize picker from Change: the profile in force is checked",
+    "true false",
+    await radiosChecked(),
+  );
+  await flow.step("authorize picker from Change: choose the other profile's row", async () => {
+    await page
+      .locator("[data-profile-choice]")
+      .filter({ hasText: `@${second.handle}` })
+      .click();
+    await expect(radioOf(second.handle)).toBeChecked();
+    await pickerContinue.click();
+    // The picker draws the client card too, mark and all; Allow is what says
+    // the consent screen has replaced it, so nothing read below is swapped
+    // out mid-read.
+    await expect(allow).toBeVisible();
     await expect(page.getByText("Verified by Musubi")).toBeVisible();
-    await authorizeVerifiedSurfaces(flow, page, ada.name);
-    await page.getByRole("button", { name: "Allow" }).click();
+  });
+  flow.check(
+    "authorize consent: the profile chosen from Change",
+    `@${second.handle}`,
+    await consentHandle(),
+  );
+  await authorizeVerifiedSurfaces(flow, page, second.name);
+  const decision = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && request.url() === `${ORIGINS.osnApi}/authorize/decision`,
+  );
+  await flow.step("allow Pulse as the profile chosen", async () => {
+    await allow.click();
     await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
   });
+  const decidedId = ((await decision).postDataJSON() as { profileId?: string }).profileId ?? "";
+  flow.check(
+    "authorize: the decision names the profile chosen",
+    second.handle,
+    queryOne<{ handle: string }>(DB_FILES.osn, "SELECT handle FROM users WHERE id = ?", decidedId)
+      ?.handle ?? "",
+  );
   const turnstileAfter = flow.turnstileServed();
   flow.check("Musubi's /authorize page shown", true, authorizePages.length > 0);
   flow.check(
@@ -1486,9 +1662,10 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   );
 
   // A third-party client always asks for consent. Signed in to OSN by the step
-  // above, the browser goes from osn-api straight to the consent screen. The
-  // flow reads it and leaves without deciding, so the client's redirect URI is
-  // never loaded.
+  // above, the browser goes from osn-api straight to Musubi's `/authorize`,
+  // where the picker leads, as the client knows neither profile; its Continue
+  // keeps the first and brings the consent screen. The flow reads it and
+  // leaves without deciding, so the client's redirect URI is never loaded.
   await flow.step("open a third-party client's consent screen", async () => {
     const request = new URLSearchParams({
       client_id: THIRD_PARTY_OIDC.clientId,
@@ -1503,7 +1680,9 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     });
     await page.goto(`${ORIGINS.osnApi}/authorize?${request}`);
     await expect(page).toHaveURL(new RegExp(`^${ORIGINS.musubi}/authorize\\?`));
-    await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
+    await expect(picker).toBeVisible();
+    await pickerContinue.click();
+    await expect(allow).toBeVisible();
     await expect(page.getByText("Third-party app", { exact: true })).toBeVisible();
   });
   await authorizeThirdPartySurfaces(flow, page);

@@ -1,4 +1,5 @@
-import type { Db } from "@osn/db/service";
+import { organisationMembers } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -6,7 +7,7 @@ import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 import { createOrganisationRoutes } from "../../src/routes/organisation";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, makeLogEmailLive } from "../helpers/db";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -211,6 +212,95 @@ describe("organisation routes", () => {
       }),
     );
     expect(await callerOf(bob.token)).toEqual({ role: "admin", owner: false });
+  });
+
+  // A failed read of the standing costs the caller the actions, never the
+  // organisation: the page still loads, offering nothing.
+  it("GET /organisations/:handle answers a failed standing read with the organisation and no standing", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    await orgApp.handle(
+      new Request("http://localhost/organisations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${alice.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "acme", name: "Acme Corp" }),
+      }),
+    );
+
+    // The same database, except that every read of the members table throws;
+    // the organisation itself still resolves.
+    const live = await runWithLayer(
+      Effect.gen(function* () {
+        return (yield* Db).db;
+      }),
+    );
+    const refusingMembers = new Proxy(live, {
+      get(target, prop, receiver) {
+        if (prop !== "select") return Reflect.get(target, prop, receiver);
+        return (...fields: Parameters<typeof live.select>) => {
+          const builder = target.select(...fields);
+          return new Proxy(builder, {
+            get(inner, key, innerReceiver) {
+              if (key !== "from") return Reflect.get(inner, key, innerReceiver);
+              return (table: Parameters<typeof builder.from>[0]) => {
+                if (table === organisationMembers) throw new Error("members table unreachable");
+                return inner.from(table);
+              };
+            },
+          });
+        };
+      },
+    });
+    const failing = createOrganisationRoutes(
+      config,
+      Layer.merge(Layer.succeed(Db, { db: refusingMembers }), makeLogEmailLive().layer),
+    );
+
+    const res = await failing.handle(
+      new Request("http://localhost/organisations/acme", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      organisation: { handle: string; name: string };
+      caller: unknown;
+    };
+    expect(json.organisation).toMatchObject({ handle: "acme", name: "Acme Corp" });
+    expect(json.caller).toBeNull();
+  });
+
+  it("GET /organisations/:handle → 401 with no token, and says no standing", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    await orgApp.handle(
+      new Request("http://localhost/organisations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${alice.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "acme", name: "Acme Corp" }),
+      }),
+    );
+
+    const res = await orgApp.handle(new Request("http://localhost/organisations/acme"));
+    expect(res.status).toBe(401);
+    expect(await res.json()).not.toHaveProperty("caller");
+  });
+
+  it("GET /organisations/:handle → 401 with a token that does not verify, and says no standing", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    await orgApp.handle(
+      new Request("http://localhost/organisations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${alice.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "acme", name: "Acme Corp" }),
+      }),
+    );
+
+    const res = await orgApp.handle(
+      new Request("http://localhost/organisations/acme", {
+        headers: { Authorization: "Bearer not-a-valid-token" },
+      }),
+    );
+    expect(res.status).toBe(401);
+    expect(await res.json()).not.toHaveProperty("caller");
   });
 
   it("GET /organisations/:handle → 404 for unknown org", async () => {

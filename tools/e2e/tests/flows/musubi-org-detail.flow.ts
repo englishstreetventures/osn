@@ -238,6 +238,17 @@ test("musubi-org-detail", async ({ page, flow }) => {
     org.handle,
   );
   flow.check("organisation renamed in the database", org.renamed, saved?.name ?? "");
+  // The save keeps the owner's standing with the organisation it writes back,
+  // so the header's actions stay.
+  const savedMain = page.getByRole("main");
+  flow.check(
+    "owner: Edit and Delete still offered after the save",
+    "1 1",
+    [
+      await savedMain.getByRole("button", { name: "Edit", exact: true }).count(),
+      await savedMain.getByRole("button", { name: "Delete", exact: true }).count(),
+    ].join(" "),
+  );
   flow.check("tab follows the rename", `${org.renamed} · Musubi`, await page.title());
   flow.check("organisation row on the suite clock", true, onSuiteClock(saved?.created_at));
 

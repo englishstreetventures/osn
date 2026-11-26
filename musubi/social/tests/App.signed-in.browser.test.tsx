@@ -192,12 +192,27 @@ describe("the account menu's profiles", () => {
     expect(control.calls).toEqual(["usr_alice_work"]);
 
     // While it runs, the menu shows the wait: every row held, the old one
-    // still checked, and a second choice starts nothing.
+    // still checked.
     await openMenu("aside");
     expect(held()).toEqual([true, true]);
     expect(checkedRows()).toEqual(["true", "false"]);
     await userEvent.keyboard("{Escape}");
     await closed();
+
+    // The window crosses 768px while it runs: the top bar's menu, drawn
+    // after the switch began, holds its rows too, and a press on one starts
+    // nothing.
+    await page.viewport(390, 844);
+    await topBarChunks();
+    await openMenu("header");
+    expect(held()).toEqual([true, true]);
+    rows()[1]!.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(control.calls).toEqual(["usr_alice_work"]);
+    await userEvent.keyboard("{Escape}");
+    await closed();
+    await page.viewport(1440, 900);
+    await railChunks();
 
     // It fails: the copy map's sentence, and the rows let go.
     control.running!.fail(new AuthExpiredError({}));
@@ -207,10 +222,18 @@ describe("the account menu's profiles", () => {
     await openMenu("aside");
     expect(held()).toEqual([false, false]);
 
-    // A new choice switches, and lands.
+    // It fails with no message of its own: the fixed sentence.
     await userEvent.click(rows()[1]!);
     await closed();
     expect(control.calls).toEqual(["usr_alice_work", "usr_alice_work"]);
+    control.running!.fail(new Error(""));
+    await waitFor(() => expect(failed).toHaveBeenCalledWith("Failed to switch profile"));
+
+    // A new choice switches, and lands.
+    await openMenu("aside");
+    await userEvent.click(rows()[1]!);
+    await closed();
+    expect(control.calls).toEqual(["usr_alice_work", "usr_alice_work", "usr_alice_work"]);
     control.running!.land();
     await waitFor(() => expect(switched).toHaveBeenCalledWith("Switched to @alice_work"));
     await openMenu("aside");

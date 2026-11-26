@@ -448,8 +448,8 @@ async function shell(flow: Flow, page: Page): Promise<void> {
  * controls drawn by hand, the account menu's separator as a hairline, and the
  * fade with no scale each menu opens and closes on. The account menu is also
  * the profile switcher; an account of one profile has nothing to switch to,
- * so it shows no profile rows (the two-profile rows are held by
- * `musubi/social/tests/App.signed-in.browser.test.tsx`).
+ * so it shows no profile rows (`musubi-passkey` switches between two once
+ * Settings has added the second).
  */
 async function menus(flow: Flow, page: Page): Promise<void> {
   await at(page, DESKTOP, "light");
@@ -457,6 +457,10 @@ async function menus(flow: Flow, page: Page): Promise<void> {
   await page.mouse.move(0, 0);
   const theme = rail(page).getByRole("button", { name: /^Theme:/ });
   const rows = page.getByRole("menuitemradio");
+  // The rows again, by their `role` attribute, for reads that do not wait:
+  // Kobalte can hide `<body>` from the accessibility tree for a frame or two
+  // as a menu opens or unmounts, and the role engine then finds no row.
+  const rowsNow = page.locator('[role="menu"] [role="menuitemradio"]');
   await flow.step("surfaces: open the theme menu from the keyboard", async () => {
     await theme.focus();
     await page.keyboard.press("Enter");
@@ -473,7 +477,9 @@ async function menus(flow: Flow, page: Page): Promise<void> {
   flow.check(
     "theme menu: each row says whether it is checked",
     "true false false",
-    (await rows.evaluateAll((els) => els.map((el) => el.getAttribute("aria-checked")))).join(" "),
+    (await rowsNow.evaluateAll((els) => els.map((el) => el.getAttribute("aria-checked")))).join(
+      " ",
+    ),
   );
   flow.check(
     "theme menu: a focused row takes the sunk fill",
@@ -538,7 +544,7 @@ async function menus(flow: Flow, page: Page): Promise<void> {
   flow.check(
     "account menu: one profile, so no profile rows to switch between",
     0,
-    await page.getByRole("menu").getByRole("menuitemradio").count(),
+    await rowsNow.count(),
   );
   fadesOnly(flow, "top bar's account menu", "open", await barOpened());
   await menuSeparator(flow, "top bar's account menu separator (light)", rule);
@@ -872,7 +878,13 @@ export async function removalSheetSurfaces(flow: Flow, page: Page, sheet: Locato
   });
 }
 
-/** `/privacy` and `/terms`: the page head and the body, on Musubi's scale. */
+/**
+ * `/privacy` and `/terms`: the page head and the body, on Musubi's scale.
+ * `/privacy` is a page load; `/terms` is reached inside the app, as the
+ * router's own move to a new address, so the pair lists the profiles once.
+ * Each signed-in page load lists them, and `musubi-passkey` keeps its lists
+ * to eight of the run's ten a minute.
+ */
 async function legal(flow: Flow, page: Page): Promise<void> {
   for (const [view, title] of [
     ["privacy", "Privacy Notice"],
@@ -880,7 +892,14 @@ async function legal(flow: Flow, page: Page): Promise<void> {
   ] as const) {
     const heading = page.getByRole("heading", { level: 1, name: title });
     await flow.step(`surfaces: open /${view}`, async () => {
-      await page.goto(`${ORIGINS.musubi}/${view}`);
+      if (view === "privacy") {
+        await page.goto(`${ORIGINS.musubi}/${view}`);
+      } else {
+        await page.evaluate((path) => {
+          history.pushState(null, "", path);
+          dispatchEvent(new PopStateEvent("popstate"));
+        }, `/${view}`);
+      }
       await at(page, DESKTOP, "light");
       await expect(heading).toBeVisible();
     });
