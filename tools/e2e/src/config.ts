@@ -807,7 +807,8 @@ export const CIRE_REMOVAL_PERSON = {
  * heir who also holds a seeded session. Its token is readable on purpose:
  * it is a fixture of a local stack, like `DEV_LOGIN_SECRET`, and grants
  * nothing anywhere else. cire's `wed_e2e_leaver` (`seedE2eOrganiser` in
- * `cire/api/src/db/setup.ts`) has this profile as its only owner.
+ * `cire/api/src/db/setup.ts`) has this profile as its only owner, and
+ * `wed_e2e_leaver_payout` has it and `heir` as owners.
  */
 export const DELETION_PERSON = {
   accountId: "acc_e2e_leaver",
@@ -822,6 +823,12 @@ export const DELETION_PERSON = {
     familyId: "sfam_e2e_leaver",
   },
   wedding: { id: "wed_e2e_leaver", name: "Leaver Wedding", seatId: "whost_e2e_leaver_owner" },
+  /**
+   * cire's `wed_e2e_leaver_payout`: the person and `heir` own it, and the
+   * person connected its Stripe account, so the deletion preview shows its
+   * payout line, which asks for no answer, and the erasure mails `heir`.
+   */
+  payoutWedding: { id: "wed_e2e_leaver_payout", name: "Leaver Payout Wedding" },
   /**
    * An organisation the person owns. `heir`, an admin from another account,
    * receives it at the hard delete and declines it from the email's link,
