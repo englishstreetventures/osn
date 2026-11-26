@@ -10,9 +10,10 @@
  * (then authorise Pulse through the API and revoke it there), sign the
  * page out — and say so — when the issuer refuses to renew it, sign out a
  * reload that has no cookie, sign in to Pulse through Musubi's `/authorize` —
- * the profile picker, then consent, Change back to the picker for the other
- * profile, and Allow as it — then open a third-party client's consent screen,
- * past the picker, and leave it undecided.
+ * the profile picker, with none chosen until a pick, then consent, Change
+ * back to the picker for the other profile, and Allow as it — then open a
+ * third-party client's consent screen, past the picker, and leave it
+ * undecided.
  * Signed in, before the authenticator steps, it measures and shoots Musubi's
  * base styles and the notices the shell draws (`musubi-surfaces.ts`); signed
  * out by the refused renewal, the signed-out note's Sign in; on Pulse's
@@ -1559,7 +1560,8 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     await expect(page.getByLabel("Email or @handle")).toBeVisible();
   });
   // Signed in, the account has two profiles and Pulse knows neither since
-  // its revoke, so the picker leads. Its radios choose; only Continue leaves.
+  // its revoke, so the picker leads, with none chosen: Continue waits for a
+  // pick. Its radios choose; only Continue leaves.
   const picker = page.getByRole("heading", { name: "Choose a profile", exact: true });
   const radios = page.getByRole("radio");
   const radioOf = (handle: string) => page.getByRole("radio", { name: new RegExp(`@${handle}$`) });
@@ -1582,15 +1584,17 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     await expect(radios).toHaveCount(2);
   });
   flow.check("authorize picker: a radio per profile", 2, await radios.count());
+  flow.check("authorize picker: no profile chosen to start", "false false", await radiosChecked());
   flow.check(
-    "authorize picker: the first profile chosen to start",
-    "true false",
-    await radiosChecked(),
+    "authorize picker: Continue waits for a pick",
+    true,
+    await pickerContinue.isDisabled(),
   );
-  await flow.step("authorize picker: ArrowDown chooses the other profile", async () => {
+  await flow.step("authorize picker: ArrowDown chooses a profile", async () => {
     await radioOf(ada.handle).focus();
     await page.keyboard.press("ArrowDown");
     await expect(radioOf(second.handle)).toBeChecked();
+    await expect(pickerContinue).toBeEnabled();
   });
   flow.check("authorize picker: ArrowDown leaves the picker on screen", 1, await picker.count());
   flow.check("authorize picker: ArrowDown moved the choice", "false true", await radiosChecked());
@@ -1663,8 +1667,8 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
 
   // A third-party client always asks for consent. Signed in to OSN by the step
   // above, the browser goes from osn-api straight to Musubi's `/authorize`,
-  // where the picker leads, as the client knows neither profile; its Continue
-  // keeps the first and brings the consent screen. The flow reads it and
+  // where the picker leads, as the client knows neither profile; the first is
+  // picked, and Continue brings the consent screen. The flow reads it and
   // leaves without deciding, so the client's redirect URI is never loaded.
   await flow.step("open a third-party client's consent screen", async () => {
     const request = new URLSearchParams({
@@ -1681,6 +1685,11 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     await page.goto(`${ORIGINS.osnApi}/authorize?${request}`);
     await expect(page).toHaveURL(new RegExp(`^${ORIGINS.musubi}/authorize\\?`));
     await expect(picker).toBeVisible();
+    await page
+      .locator("[data-profile-choice]")
+      .filter({ hasText: `@${ada.handle}` })
+      .click();
+    await expect(radioOf(ada.handle)).toBeChecked();
     await pickerContinue.click();
     await expect(allow).toBeVisible();
     await expect(page.getByText("Third-party app", { exact: true })).toBeVisible();

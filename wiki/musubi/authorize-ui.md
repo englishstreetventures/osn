@@ -94,9 +94,10 @@ along. If the user opens the link in a *different* browser, every call
 Every screen that decides (3 to 6) is one layout (`musubi/social/DESIGN.md`
 §Layout): the client card, its name the `h1`; the screen's own heading, an
 `h2` through `@osn/auth-ui`'s `AuthHeader`; one notice slot directly above
-the actions (`info` for "Please sign in again to continue." and "You signed
-in as a different account…", `danger` for a failed decision, the copy map's
-sentence); and the actions in one full-width column, Cancel last and
+the actions (`info` for "Please sign in again to continue.", "You signed
+in as a different account…" and, on the way to another account, "Sign in with
+the account you want to use.", `danger` for a failed decision, the copy map's
+sentence, which takes the slot over any guidance); and the actions in one full-width column, Cancel last and
 `secondary`, one per screen.
 
 1. **Loading** — "Checking this request…" while the context loads. 404 ⇒
@@ -124,19 +125,25 @@ sentence); and the actions in one full-width column, Cancel last and
    first-party clients too. Continue fixes the profile and moves to consent
    (state 6) — never straight to a decision, because the page sees only
    `reason` and the app may have paired `select_account` with `consent`.
-   Use another account opens the sign-in panel with a **Back** button; a
+   Use another account opens the sign-in panel with a **Back** button, and
+   the notice slot above the panel says "Sign in with the account you want
+   to use."; a
    sign-in there is itself the choice of account, so the account screen
    does not return after it.
 5. **Profile picker** (multiple profiles and no `linkedProfileId`, or
    `reason=select_account` after a sign-in made on this page) — the client
    card, "Choose a profile", and one radio per profile (`ProfileChoice`:
-   avatar, display name, handle). Default selection: `linkedProfileId` if
-   present (this client already knows that profile — switching is allowed
-   but changes the pairwise `sub` the client sees; say so in a caption), else
-   the default profile. Choosing moves the radio only (an arrow key chooses
-   as it moves); **Continue** fixes it and goes to consent. A choice made for
-   one account never stands for another: a sign-in that lands as a different
-   account starts the picker from that account's own profile. A **Cancel**
+   avatar, display name, handle). Checked to start: the profile already in
+   force — the one chosen before, when consent's **Change** reopens the
+   picker — else `linkedProfileId` if present (this client already knows that
+   profile — switching is allowed but changes the pairwise `sub` the client
+   sees; say so in a caption). Otherwise no radio is checked and Continue is
+   disabled until the person picks one: a client that knows none of the
+   account's profiles learns one only by that choice. Choosing moves the
+   radio only (an arrow key chooses as it moves); **Continue** fixes it and
+   goes to consent. A choice made for one account never stands for another:
+   a sign-in that lands as a different account starts the picker afresh on
+   that account's own profiles, none checked. A **Cancel**
    under Continue posts `approved: false`, as Cancel on the consent screen
    does.
 6. **Consent** — the heart of the page:

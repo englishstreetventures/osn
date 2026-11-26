@@ -423,15 +423,23 @@ describe("<AuthorizePage />", () => {
     expect(screen.getByText(paragraph("Go back to Cire and start again."))).toBeDefined();
   });
 
-  it("leads with the profile picker when the app has seen none of several profiles", async () => {
+  it("leads with the profile picker, nothing chosen, when the app has seen none of several profiles", async () => {
     mocks.getContext.mockResolvedValue(context({ profiles: [alice, bob] }));
     mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb" });
 
     renderPage();
 
     expect(await screen.findByText("Choose a profile")).toBeDefined();
+    // The app knows none of them, so none is chosen for the person, and
+    // Continue waits for a pick.
+    const checkedNow = () =>
+      screen.getAllByRole("radio").filter((radio) => (radio as HTMLInputElement).checked);
+    const continueButton = () => screen.getByRole("button", { name: "Continue" });
+    expect(checkedNow()).toEqual([]);
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
     // Choosing moves the radio and nothing else; Continue leaves.
     fireEvent.click(screen.getByRole("radio", { name: /Bob/ }));
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByText("Choose a profile")).toBeDefined();
     expect((screen.getByRole("radio", { name: /Bob/ }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -612,11 +620,11 @@ describe("<AuthorizePage />", () => {
       fireEvent.click(await screen.findByText("finish sign-in"));
 
       expect(await screen.findByText("Choose a profile")).toBeDefined();
-      // The new account's first profile is checked.
+      // The app knows none of the new account's profiles: none is chosen.
       const checked = screen
         .getAllByRole("radio")
         .filter((radio) => (radio as HTMLInputElement).checked);
-      expect(checked.map((radio) => (radio as HTMLInputElement).value)).toEqual(["usr_3"]);
+      expect(checked).toEqual([]);
     });
 
     it("skips the account screen after a sign-in on this page", async () => {
@@ -633,7 +641,7 @@ describe("<AuthorizePage />", () => {
 
   // A choice made on the picker belongs to the account it was made for. When a
   // fresh sign-in lands as another account, the picker starts from that
-  // account's own profile, and nothing can post the old one.
+  // account's own profiles with none chosen, and nothing can post the old one.
   it("drops the picker's choice when the account changes under it", async () => {
     const dave = { ...carol, id: "usr_4", handle: "dave", displayName: "Dave" };
     mocks.getContext.mockResolvedValueOnce(context({ profiles: [alice, bob] }));
@@ -653,7 +661,7 @@ describe("<AuthorizePage />", () => {
       .getAllByRole("radio")
       .filter((radio) => (radio as HTMLInputElement).checked)
       .map((radio) => (radio as HTMLInputElement).value);
-    expect(checked).toEqual(["usr_3"]);
+    expect(checked).toEqual([]);
     expect(screen.queryByText("Bob")).toBeNull();
   });
 

@@ -1,7 +1,7 @@
 import type { PublicProfile } from "@osn/client";
 import { clsx } from "@shared/ui/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
-import { For, Show } from "solid-js";
+import { For, type JSX, Show, splitProps } from "solid-js";
 
 import { ProfileAvatar } from "./Avatars";
 
@@ -31,6 +31,18 @@ export function ProfileIdentity(props: { profile: ProfileFace }) {
 }
 
 /**
+ * The bordered row a profile sits in on `/authorize` (DESIGN.md §Choices): a
+ * hairline on the 8px corner, padded 12px by 10px. `ProfileChoice` draws each
+ * of its rows in it, and the account screen's one profile and consent's chosen
+ * profile sit in it too, so the three cannot drift apart. `class` adds the
+ * row's layout and its state; the frame itself is this part's.
+ */
+export function ProfileRow(props: JSX.HTMLAttributes<HTMLDivElement>) {
+  const [local, others] = splitProps(props, ["class"]);
+  return <div class={clsx("rounded-lg border px-3 py-2.5", local.class)} {...others} />;
+}
+
+/**
  * Choosing one profile of several (DESIGN.md §Choices): `@shared/ui`'s
  * `RadioGroup`, each choice a radio in a bordered row whose edge turns ink
  * when it is the one chosen. Arrow keys move and choose, so the screen that
@@ -44,7 +56,7 @@ export function ProfileIdentity(props: { profile: ProfileFace }) {
  */
 export function ProfileChoice(props: {
   profiles: readonly ProfileFace[];
-  /** The chosen profile's id. */
+  /** The chosen profile's id, or `""` while none is chosen. */
   value: string;
   onChange: (id: string) => void;
   /** What the group is: its name for a screen reader. */
@@ -63,9 +75,9 @@ export function ProfileChoice(props: {
     >
       <For each={props.profiles}>
         {(profile) => (
-          <div
+          <ProfileRow
             class={clsx(
-              "transition-ui-colors relative rounded-lg border px-3 py-2.5",
+              "transition-ui-colors relative",
               !props.disabled && "hover:bg-muted active:bg-muted",
               profile.id === props.value && "border-foreground",
             )}
@@ -76,7 +88,7 @@ export function ProfileChoice(props: {
               class="w-full after:absolute after:inset-0"
               label={<ProfileIdentity profile={profile} />}
             />
-          </div>
+          </ProfileRow>
         )}
       </For>
     </RadioGroup>

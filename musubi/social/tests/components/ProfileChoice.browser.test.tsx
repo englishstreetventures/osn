@@ -127,9 +127,11 @@ afterEach(() => {
 });
 
 describe.each([
-  ["the account screen", "&reason=select_account", "usr_ada", "Signed in as"],
-  ["the picker", "", null, "Choose a profile"],
-])("ProfileChoice on %s", (where, search, linked, heading) => {
+  // The app knows Ada's profile: it is chosen to start.
+  ["the account screen", "&reason=select_account", "usr_ada", "Signed in as", ["usr_ada"]],
+  // The app knows none: none is chosen until the person picks.
+  ["the picker", "", null, "Choose a profile", []],
+])("ProfileChoice on %s", (where, search, linked, heading, start) => {
   it("is a radio per profile, checked by the choice, moved by a press anywhere in its row or an arrow key", async () => {
     contexts.current = context(linked);
     renderAt(search);
@@ -137,8 +139,7 @@ describe.each([
     const group = screen.getByRole("radiogroup", { name: "Profiles" });
     expect(group).toBeTruthy();
     expect(radios().map((radio) => radio.value)).toEqual(["usr_ada", "usr_ada_work"]);
-    // Ada's is chosen first: the profile the app knows, or the first.
-    expect(checked()).toEqual(["usr_ada"]);
+    expect(checked()).toEqual(start);
 
     // A press in the second row's padding, well clear of its circle and words.
     const second = frameOf(radios()[1]!);
@@ -170,5 +171,45 @@ describe.each([
         });
       }
     }
+  });
+});
+
+describe("a profile's row with a 64-character name and no space", () => {
+  const long = { ...work, id: "usr_long", handle: "long_handle", displayName: "W".repeat(64) };
+
+  /** The row's name ends in an ellipsis inside the row, and nothing scrolls sideways. */
+  function endsInEllipsis(row: HTMLElement) {
+    const name = [...row.querySelectorAll<HTMLElement>("span")].find(
+      (span) => span.textContent === long.displayName,
+    )!;
+    expect(getComputedStyle(name).textOverflow).toBe("ellipsis");
+    expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+    expect(name.getBoundingClientRect().right).toBeLessThanOrEqual(
+      row.getBoundingClientRect().right,
+    );
+    expect(document.documentElement.scrollWidth).toBe(PHONE.width);
+  }
+
+  it("ends the name in an ellipsis on the picker's row and consent's, at 390px", async () => {
+    await page.viewport(PHONE.width, PHONE.height);
+    contexts.current = { ...context(null), profiles: [ada, long] };
+    renderAt("");
+    await screen.findByRole("heading", { name: "Choose a profile" });
+    await settled();
+    endsInEllipsis(frameOf(radios()[1]!));
+    await page.screenshot({ path: `${SHOTS}/long-name-picker-390.png` });
+
+    await userEvent.click(frameOf(radios()[1]!));
+    await waitFor(() => expect(checked()).toEqual(["usr_long"]));
+    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const change = await screen.findByRole("button", { name: "Change" });
+    await settled();
+    // Consent's row: the name beside Change, which stays whole.
+    const row = change.parentElement!;
+    endsInEllipsis(row);
+    expect(change.getBoundingClientRect().right).toBeLessThanOrEqual(
+      row.getBoundingClientRect().right,
+    );
+    await page.screenshot({ path: `${SHOTS}/long-name-consent-390.png` });
   });
 });

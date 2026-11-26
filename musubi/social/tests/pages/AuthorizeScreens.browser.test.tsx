@@ -14,8 +14,11 @@ import "../../src/App.css";
  * leads with the app's name as an `h1` larger than every other heading (the
  * owner's D2). Each screen's notice is raised the way the page raises it: a
  * decision that fails, drawn in the danger ink, or one that asks for a fresh
- * sign-in, drawn in the info tone's secondary ink. Shots at 390 and 1440px,
- * light and dark, go to `__screenshots__/` beside this file.
+ * sign-in, drawn in the info tone's secondary ink; on the way to another
+ * account the slot carries the guidance, in the info tone. Then the spacing
+ * DESIGN.md §Layout and §Choices fix, read off the rendered page at 390 and
+ * 1440px. Shots at 390 and 1440px, light and dark, go to `__screenshots__/`
+ * beside this file.
  */
 
 const api = vi.hoisted(() => ({
@@ -157,6 +160,8 @@ type Screen = {
   /** What follows the notice: the last of the actions, or the panel's heading. */
   after: (next: HTMLElement) => string | null | undefined;
   expectedAfter: string;
+  /** The notice's words, where the screen's own guidance is what it says. */
+  text?: string;
 };
 
 const lastButton = (next: HTMLElement) => [...next.querySelectorAll("button")].at(-1)?.textContent;
@@ -221,6 +226,21 @@ const SCREENS: Screen[] = [
     after: (next) => next.querySelector("h2")?.textContent,
     expectedAfter: "Sign in to Musubi",
   },
+  {
+    name: "another-account",
+    search: "&reason=select_account",
+    context: { linkedProfileId: "usr_ada" },
+    // "Use another account" brings the sign-in screen up with its guidance.
+    raise: async () => {
+      await userEvent.click(await screen.findByRole("button", { name: "Use another account" }));
+    },
+    ready: () => screen.getByRole("heading", { name: "Sign in to Musubi" }),
+    cancels: 0,
+    tone: "info",
+    after: (next) => next.querySelector("h2")?.textContent,
+    expectedAfter: "Sign in to Musubi",
+    text: "Sign in with the account you want to use.",
+  },
 ];
 
 beforeEach(async () => {
@@ -240,6 +260,9 @@ describe.each(SCREENS)("/authorize's $name screen", (where) => {
     await where.raise();
     await waitFor(() => expect(where.ready()).toBeTruthy());
     const notice = await screen.findByRole("alert");
+    expect(notice.textContent).toContain(where.text ?? "");
+    // One notice slot: the guidance is in it, and nowhere else on screen.
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
 
     // The slot sits directly above the screen's actions: on the sign-in
     // screen, the panel; elsewhere, the column of buttons, Cancel last.
@@ -267,4 +290,102 @@ describe.each(SCREENS)("/authorize's $name screen", (where) => {
       }
     }
   });
+});
+
+/** The page column's width inside its side padding. */
+function columnWidth(): number {
+  const main = document.querySelector("main")!;
+  const style = getComputedStyle(main);
+  return main.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+}
+
+/** The column of buttons that ends with Cancel. */
+const actionButtons = () =>
+  [
+    ...screen.getAllByRole("button", { name: "Cancel" }).at(-1)!.parentElement!.children,
+  ] as HTMLElement[];
+
+const box = (element: Element) => element.getBoundingClientRect();
+
+type Spaced = {
+  name: string;
+  search: string;
+  context: Record<string, unknown>;
+  /** The decision that fails, so the screen's slot fills. */
+  raise: string;
+  /** How many `ProfileChoice` rows it draws. */
+  rows: number;
+};
+
+const SPACED: Spaced[] = [
+  {
+    name: "account",
+    search: "&reason=select_account",
+    context: { profiles: [ada, work], linkedProfileId: "usr_ada" },
+    raise: "Cancel",
+    rows: 2,
+  },
+  { name: "picker", search: "", context: { profiles: [ada, work] }, raise: "Cancel", rows: 2 },
+  { name: "consent", search: "", context: {}, raise: "Allow", rows: 0 },
+];
+
+// DESIGN.md §Layout: the actions are one column as wide as the page's, 24px
+// under what they act on and 8px apart, 44px tall below 768px and 40px from
+// it, with the notice slot 16px above them. §Choices: a profile's row is
+// padded 12px by 10px, 8px from the next, and 58px tall: the 36px avatar (or
+// the name over the handle, 20px and 16px), the padding and the hairline.
+describe.each(SPACED)("/authorize's $name screen, measured", (where) => {
+  it.each([PHONE, DESKTOP])("holds DESIGN.md's spacing at $width px", async (viewport) => {
+    await page.viewport(viewport.width, viewport.height);
+    api.context = context(where.context);
+    api.submitDecision = failing;
+    renderAt(where.search);
+    await screen.findByRole("button", { name: "Cancel" });
+    await settled();
+
+    const buttons = actionButtons();
+    const actions = buttons[0]!.parentElement!.parentElement!;
+    expect(box(actions).top - box(actions.previousElementSibling!).bottom).toBe(24);
+    expect(box(buttons[0]!).top).toBe(box(actions).top);
+    /** The space between each element and the one before it. */
+    const gaps = (elements: HTMLElement[]) =>
+      elements.slice(1).map((element, i) => box(element).top - box(elements[i]!).bottom);
+    expect(buttons.length).toBeGreaterThan(1);
+    expect(buttons.map((button) => box(button).width)).toEqual(buttons.map(() => columnWidth()));
+    expect(buttons.map((button) => box(button).height)).toEqual(
+      buttons.map(() => (viewport.width < 768 ? 44 : 40)),
+    );
+    expect(gaps(buttons)).toEqual(gaps(buttons).map(() => 8));
+
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-profile-choice]")];
+    expect(rows).toHaveLength(where.rows);
+    expect(
+      rows.map((row) => {
+        const style = getComputedStyle(row);
+        return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft];
+      }),
+    ).toEqual(rows.map(() => ["10px", "12px", "10px", "12px"]));
+    expect(rows.map((row) => box(row).height)).toEqual(rows.map(() => 58));
+    expect(gaps(rows)).toEqual(gaps(rows).map(() => 8));
+
+    await userEvent.click(screen.getByRole("button", { name: where.raise }));
+    const notice = await screen.findByRole("alert");
+    await settled();
+    expect(box(actionButtons()[0]!).top - box(notice).bottom).toBe(16);
+  });
+});
+
+describe("/authorize's sign-in screen, measured", () => {
+  it.each([PHONE, DESKTOP])(
+    "holds its notice 16px above the panel at $width px",
+    async (viewport) => {
+      await page.viewport(viewport.width, viewport.height);
+      api.context = context({ linkedProfileId: "usr_ada" });
+      renderAt("&reason=select_account");
+      await userEvent.click(await screen.findByRole("button", { name: "Use another account" }));
+      const notice = await screen.findByRole("alert");
+      await settled();
+      expect(box(notice.nextElementSibling!).top - box(notice).bottom).toBe(16);
+    },
+  );
 });

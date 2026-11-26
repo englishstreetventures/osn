@@ -24,7 +24,7 @@ import {
 
 import { BackError, BackLabel } from "../components/DeletionWindowBack";
 import { WindowLoading } from "../components/DeletionWindowFrame";
-import { ProfileChoice, ProfileIdentity } from "../components/ProfileChoice";
+import { ProfileChoice, ProfileIdentity, ProfileRow } from "../components/ProfileChoice";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { PRODUCT_NAME } from "../lib/auth";
 import { authorizeClient } from "../lib/authorize";
@@ -140,6 +140,12 @@ const SCREEN_ANNOUNCEMENT = {
  */
 type PageNotice = { tone: Extract<NoticeTone, "info" | "danger">; text: string };
 
+/** The sign-in screen's guidance on the way to another account. */
+const ANOTHER_ACCOUNT: PageNotice = {
+  tone: "info",
+  text: "Sign in with the account you want to use.",
+};
+
 const sameProfileSet = (before: ReadonlySet<string>, after: readonly PublicProfile[]) =>
   after.length === before.size && after.every((p) => before.has(p.id));
 
@@ -220,14 +226,15 @@ export function AuthorizePage() {
   const ctx = (): AuthorizeContext | undefined => (context.error ? undefined : context());
   const profiles = () => ctx()?.profiles ?? [];
 
-  // The first of the chosen, the linked and the first profile that is one of
-  // the profiles on screen: a choice made before the account changed (a
-  // sign-in as someone else) is not one of them, and never stands.
-  const selectedId = createMemo(() => {
-    const listed = (id: string | null | undefined) =>
-      id && profiles().some((p) => p.id === id) ? id : null;
-    return listed(chosenId()) ?? listed(ctx()?.linkedProfileId) ?? profiles()[0]?.id ?? null;
-  });
+  // An id that is one of the profiles on screen, else null: a choice made
+  // before the account changed (a sign-in as someone else) is not one of
+  // them, and never stands.
+  const listed = (id: string | null | undefined) =>
+    id && profiles().some((p) => p.id === id) ? id : null;
+  // The first of the chosen, the linked and the first profile.
+  const selectedId = createMemo(
+    () => listed(chosenId()) ?? listed(ctx()?.linkedProfileId) ?? profiles()[0]?.id ?? null,
+  );
   const selected = createMemo(() => profiles().find((p) => p.id === selectedId()) ?? null);
 
   /**
@@ -473,11 +480,15 @@ export function AuthorizePage() {
     setAccountConfirmed(true);
   }
 
-  /** The picker's radio: its own choice until Continue, else the profile in force. */
-  const pickerValue = () => {
-    const draft = pickerChoice();
-    return draft && profiles().some((p) => p.id === draft) ? draft : (selectedId() ?? "");
-  };
+  /**
+   * The picker's radio: its own choice until Continue, else a profile already
+   * settled, by the person (consent's Change) or by the app (the one it
+   * knows). With neither, no radio is checked and Continue waits: an app
+   * that knows none of the account's profiles learns one only when the
+   * person picks it.
+   */
+  const pickerValue = () =>
+    listed(pickerChoice()) ?? listed(chosenId()) ?? listed(ctx()?.linkedProfileId) ?? "";
 
   /** Continue on the picker: its choice becomes the profile, and consent follows. */
   function confirmPick() {
@@ -549,15 +560,12 @@ export function AuthorizePage() {
 
         <Match when={screen() === "signedOut"}>
           <ClientCard context={ctx()} />
-          <Show when={switching()}>
-            <p class="text-muted-foreground text-body mt-4 text-center">
-              Sign in with the account you want to use.
-            </p>
-          </Show>
           {/* Unframed: the panel's own header leads it, 24px under the
-              client card, with the screen's notice above it. */}
+              client card, with the screen's notice above it. On the way to
+              another account the notice says what to do, unless a failure
+              holds the slot. */}
           <div class="mt-6 flex flex-col gap-4">
-            <NoticeSlot notice={notice()} />
+            <NoticeSlot notice={notice() ?? (switching() ? ANOTHER_ACCOUNT : null)} />
             <div>
               <Suspense fallback={<SignInLoading mode={panelMode()} />}>
                 {/* `reason` is advisory — it only picks which half of the panel
@@ -627,9 +635,9 @@ export function AuthorizePage() {
               fallback={
                 <Show when={selected()}>
                   {(profile) => (
-                    <div class="rounded-lg border px-3 py-2.5">
+                    <ProfileRow>
                       <ProfileIdentity profile={profile()} />
-                    </div>
+                    </ProfileRow>
                   )}
                 </Show>
               }
@@ -745,7 +753,7 @@ export function AuthorizePage() {
           {/* The profile the app will see, on screen whenever Allow is. */}
           <Show when={selected()}>
             {(profile) => (
-              <div class="mt-6 flex items-center gap-3 rounded-lg border px-3 py-2.5">
+              <ProfileRow class="mt-6 flex items-center gap-3">
                 <span class="min-w-0 flex-1">
                   <ProfileIdentity profile={profile()} />
                 </span>
@@ -760,7 +768,7 @@ export function AuthorizePage() {
                     Change
                   </Button>
                 </Show>
-              </div>
+              </ProfileRow>
             )}
           </Show>
 
