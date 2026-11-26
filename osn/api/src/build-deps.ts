@@ -27,6 +27,7 @@ import {
   createIssuerNetwork,
   emulatedIssuerFetch,
 } from "./services/auth/email-verification-network";
+import changeNotices from "./services/change-notices.json";
 import { cireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
 import { deletionAppsConfig } from "./services/deletion-apps";
 
@@ -87,6 +88,9 @@ export type EnvVars = {
   // Keys the MAC on osn-api's ARC key ids, held for that alone. Optional in
   // every tier; read by `deletionAppsConfig` (services/deletion-apps.ts).
   readonly OSN_ARC_KID_SECRET?: string;
+  // The bearer of the operator's change-notice run. Unset, or under 32
+  // characters, the route answers 501: no notice can be sent.
+  readonly OSN_CHANGE_NOTICE_SECRET?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
   // Read by the dev sign-in gate below. Unset ⇒ the routes are never mounted.
   readonly DEV_LOGIN_SECRET?: string;
@@ -623,6 +627,10 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     // Gates the S2S service-registration endpoints. On workerd this is a
     // wrangler secret, surfaced via the `env` binding; on Bun it's process.env.
     internalServiceSecret: env.INTERNAL_SERVICE_SECRET,
+    // The operator's change-notice run: its own secret, held by this Worker and
+    // the production Environment alone, and the registry of notices it may send.
+    changeNoticeSecret: env.OSN_CHANGE_NOTICE_SECRET,
+    changeNotices,
     // Turnstile bot protection (KEY-OPTIONAL). `TURNSTILE_SECRET_KEY` is a
     // wrangler secret (`env` on workerd, process.env on Bun). Unset ⇒ `null` ⇒
     // the register / passkey-login gates are skipped (flow unchanged). Set ⇒ a

@@ -153,6 +153,8 @@ export interface Env {
   // Keys the MAC on osn-api's ARC key ids, held for that alone (KEY-OPTIONAL;
   // apps check it once they hold it too). `deletionAppsConfig` reads it.
   OSN_ARC_KID_SECRET?: string;
+  // The operator's change-notice run (routes/change-notices.ts). Optional.
+  OSN_CHANGE_NOTICE_SECRET?: string;
   // Turnstile bot-protection secret (KEY-OPTIONAL). When set, `/register/begin`
   // and `/login/passkey/begin` require a valid Turnstile token (fail-closed).
   // Unset ⇒ those gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.

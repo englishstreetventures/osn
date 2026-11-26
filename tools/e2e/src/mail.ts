@@ -19,23 +19,43 @@
  * so a flow reading codes never reads one nobody received.
  * `GET /__e2e/mail/refused?to=<address>` answers how many sends to it were
  * refused.
+ *
+ * A batch sent with `x-batch-validation: permissive` answers an armed address
+ * in `errors` (its index and a message), as Resend refuses one invalid address
+ * in that mode, and keeps the rest; a batch in the default strict mode
+ * ignores arming, as it always has. Each message a batch keeps records the
+ * call's `Idempotency-Key` and validation mode. `GET /__e2e/mail/all` answers
+ * every message kept, its HTML included.
  */
 
 export interface CapturedMail {
   readonly to: readonly string[];
   readonly subject: string;
   readonly text: string;
+  readonly html: string;
+  /** The batch call's `Idempotency-Key`, or "" when it had none or came alone. */
+  readonly idempotencyKey: string;
+  /** The batch call's `x-batch-validation`, or "" when it had none or came alone. */
+  readonly batchValidation: string;
 }
 
 interface ResendPayload {
   readonly to?: string | readonly string[];
   readonly subject?: string;
   readonly text?: string;
+  readonly html?: string;
 }
 
-function capture(payload: ResendPayload): CapturedMail {
+function capture(payload: ResendPayload, headers?: Headers): CapturedMail {
   const to = typeof payload.to === "string" ? [payload.to] : [...(payload.to ?? [])];
-  return { to, subject: payload.subject ?? "", text: payload.text ?? "" };
+  return {
+    to,
+    subject: payload.subject ?? "",
+    text: payload.text ?? "",
+    html: payload.html ?? "",
+    idempotencyKey: headers?.get("idempotency-key") ?? "",
+    batchValidation: headers?.get("x-batch-validation") ?? "",
+  };
 }
 
 export interface MailServer {
@@ -90,15 +110,29 @@ export function startMailServer(port: number): MailServer {
       }
       if (request.method === "POST" && url.pathname === "/emails/batch") {
         const batch = (await request.json()) as ResendPayload[];
-        const data = batch.map((payload) => {
-          messages.push(capture(payload));
-          return { id: nextId() };
+        const permissive = request.headers.get("x-batch-validation") === "permissive";
+        const data: { id: string }[] = [];
+        const errors: { index: number; message: string }[] = [];
+        batch.forEach((payload, index) => {
+          const mail = capture(payload, request.headers);
+          const target = permissive ? mail.to.find((to) => armed.has(to)) : undefined;
+          if (target !== undefined) {
+            armed.delete(target);
+            refused.set(target, (refused.get(target) ?? 0) + 1);
+            errors.push({ index, message: `Invalid \`to\` field: ${target}` });
+            return;
+          }
+          messages.push(mail);
+          data.push({ id: nextId() });
         });
-        return Response.json({ data });
+        return Response.json(permissive ? { data, errors } : { data });
       }
       if (request.method === "GET" && url.pathname === "/__e2e/mail") {
         const to = url.searchParams.get("to") ?? "";
         return Response.json(messages.filter((m) => m.to.includes(to)));
+      }
+      if (request.method === "GET" && url.pathname === "/__e2e/mail/all") {
+        return Response.json(messages);
       }
       return new Response("not found", { status: 404 });
     },

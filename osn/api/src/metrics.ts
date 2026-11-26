@@ -86,6 +86,8 @@ export const OSN_METRICS = {
   coordinationStoreOps: "osn.coordination.store.operations",
   retentionRowsDeleted: "osn.retention.rows_deleted",
   retentionCycleDuration: "osn.retention.cycle.duration",
+  changeNoticeBatches: "osn.change_notice.batches",
+  changeNoticeEmails: "osn.change_notice.emails",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   authSessionStaleRefused: "osn.auth.session.stale_refused",
   authCireSessionRevocations: "osn.auth.cire_session.revocations",
@@ -1595,3 +1597,36 @@ export const withAccountDeletion =
         Effect.logError("account.deletion failed", { phase, ...safeErrorSummary(e) }),
       ),
     );
+
+// ---------------------------------------------------------------------------
+// Change notices
+// ---------------------------------------------------------------------------
+
+/** What one call of a change-notice run did with its batch. */
+export type ChangeNoticeBatchResult =
+  | "sent"
+  | "rate_limited"
+  | "refused"
+  | "unknown"
+  | "busy"
+  | "unconfirmed";
+
+const changeNoticeBatches = createCounter<{ result: ChangeNoticeBatchResult }>({
+  name: OSN_METRICS.changeNoticeBatches,
+  description: "Change-notice batches, by what the mail provider answered",
+  unit: "{batch}",
+});
+
+const changeNoticeEmails = createCounter<{ outcome: "accepted" | "refused" }>({
+  name: OSN_METRICS.changeNoticeEmails,
+  description: "Change-notice addresses the mail provider accepted, or refused on their own",
+  unit: "{email}",
+});
+
+export const metricChangeNoticeBatch = (result: ChangeNoticeBatchResult): void =>
+  changeNoticeBatches.inc({ result });
+
+export const metricChangeNoticeEmails = (accepted: number, refused: number): void => {
+  if (accepted > 0) changeNoticeEmails.add(accepted, { outcome: "accepted" });
+  if (refused > 0) changeNoticeEmails.add(refused, { outcome: "refused" });
+};

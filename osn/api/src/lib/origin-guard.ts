@@ -22,14 +22,16 @@ const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 /**
  * URL path prefixes of the internal route factories mounted in `app.ts`:
  * `/graph/internal` (graph-internal), `/organisations/internal`
- * (organisation-internal), `/internal` (internal-account). Matched on a
- * segment boundary (prefix must be followed by `/`, `?` or end-of-path) so a
- * route like `/graph/internal-x` is NOT exempted.
+ * (organisation-internal), `/internal` (internal-account and change-notices).
+ * Matched on a segment boundary (prefix must be followed by `/`, `?` or
+ * end-of-path) so a route like `/graph/internal-x` is NOT exempted.
  *
  * A path here is exempt only with `Authorization: Bearer …` — the
  * `INTERNAL_SERVICE_SECRET` that `/graph/internal/register-service`,
  * `/graph/internal/service-keys/:keyId` and
- * `/graph/internal/service-scopes/:serviceId` compare. Without a credential
+ * `/graph/internal/service-scopes/:serviceId` compare, or the
+ * `OSN_CHANGE_NOTICE_SECRET` that `/internal/change-notices/:noticeId/send`
+ * compares. Without a credential
  * header a request here is Origin-checked like any other, so a cookie-bearing
  * browser request cannot reach these paths unchecked.
  * `/organisations/internal…` also matches the user organisation routes for a

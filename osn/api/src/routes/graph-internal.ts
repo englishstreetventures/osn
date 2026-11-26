@@ -12,7 +12,6 @@ import {
   importKeyFromJwk,
   PUBLIC_KEY_CACHE_TTL_SECONDS,
 } from "@shared/crypto";
-import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { jsonEachIn } from "@shared/db-utils";
 import { handlePrefixRange, likeContains, normaliseHandleQuery } from "@shared/db-utils/search";
 import { and, asc, exists, gt, gte, inArray, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
@@ -21,6 +20,7 @@ import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
+import { refuseWithoutBearerSecret } from "../lib/bearer-secret";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { makeSafeError } from "../lib/safe-error";
 import { createGraphService } from "../services/graph";
@@ -125,27 +125,18 @@ function normaliseHandle(raw: string): string | null {
   return stripped.length > 0 ? stripped : null;
 }
 
-/**
- * The gate of the three service-registry routes: answers 501 when this
- * instance holds no `INTERNAL_SERVICE_SECRET`, and 401 unless `authorization`
- * is exactly `Bearer <secret>`, compared in constant time. Returns the refusal
- * to send, or null when the caller may go on.
- */
-function refuseWithoutServiceSecret(
+/** The gate of the three service-registry routes ({@link refuseWithoutBearerSecret}). */
+const refuseWithoutServiceSecret = (
   secret: string | undefined,
   authorization: string | undefined,
   set: { status?: number | string },
-): { error: string } | null {
-  if (!secret) {
-    set.status = 501;
-    return { error: "Service registration is disabled on this instance" };
-  }
-  if (!timingSafeEqualString(authorization ?? "", `Bearer ${secret}`)) {
-    set.status = 401;
-    return { error: "Unauthorized" };
-  }
-  return null;
-}
+): { error: string } | null =>
+  refuseWithoutBearerSecret(
+    secret,
+    authorization,
+    set,
+    "Service registration is disabled on this instance",
+  );
 
 /** What a scope renewal did: stored the scopes, or found no service, or found no live key. */
 type ScopeRenewal = "renewed" | "unknown_service" | "no_live_key";

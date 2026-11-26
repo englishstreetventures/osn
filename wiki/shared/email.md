@@ -14,6 +14,7 @@ tags:
   - observability
 status: current
 related:
+  - "[[change-notices]]"
   - "[[cire-rsvp-changes]]"
   - "[[identity-model]]"
   - "[[step-up]]"
@@ -24,7 +25,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Email Transport
@@ -32,9 +33,9 @@ last-reviewed: 2026-11-25
 OSN's transactional-email surface. Dispatches OTP codes (registration,
 step-up, email-change) and security-event notifications (recovery codes,
 passkeys, TOTP, cross-device sign-in, account recovery, email change) to
-users. No
-marketing mail, no product updates — only auth-critical transactional
-email.
+users, and the change notice that tells every account holder a privacy
+notice or the terms are changing ([[change-notices]]). No marketing mail, no
+product updates.
 
 ## Architecture
 
@@ -109,6 +110,7 @@ it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
 | `account-deleted` | `{ instanceName, handles, handlesHeldUntil, kept: [{ app, what, erasedOn, requestUrl }], organisations: [{ handle, newOwnerHandle }] }` — names each organisation by handle only | the hard-delete sweep, once its batch removed the account, to the address it had |
 | `organisation-ownership-received` | `{ instanceName, organisationHandle, declineUrl, declineUntil, cause }` — names the organisation by handle only | the hard-delete sweep for each organisation passed on, and `POST /organisations/:handle/decline-ownership` for the next owner |
 | `account-data-link` | `{ instanceName, url }` — a link to the download page, never the data | `POST /account/data-link` |
+| `change-notice` | `{ instanceName, document, changes, takesEffect, url }` — the page that changes, what changes, the UTC day it takes effect, the page's link; the same message for every recipient; no unsubscribe link or header | the operator's change-notice run, `POST /internal/change-notices/:noticeId/send`, through `sendKeyedBatch` — see [[change-notices]] |
 
 cire-api sends from the same catalogue:
 
@@ -224,6 +226,18 @@ Content-Type: application/json
   nothing; the other transports leave it out and callers loop over `send`.
   cire's RSVP digest uses it so a cron run mails up to 100 organisers for one
   outbound request ([[cire-rsvp-changes]]).
+- `EmailService.sendKeyedBatch` (optional) — one batch of at most 100 in one
+  call, under an idempotency key, in permissive validation. Resend implements
+  it as `POST /emails/batch` with `Idempotency-Key` and `x-batch-validation:
+  permissive`: it sends nothing twice under one key for 24 hours, queues the
+  valid emails and lists the ones it refused by index in `errors`. It answers
+  `{ accepted, refused }`; more than 100 fails before any request. The other
+  transports leave it out. The change-notice run uses it
+  ([[change-notices]]).
+- **Refusals.** When Resend answered, `EmailError` carries `status` and, when
+  the body named one in lower case, Resend's error name as `providerError`
+  (`invalid_idempotent_request`, `daily_quota_exceeded`, …). Neither ever holds
+  an address, message text or key.
 - **Headers.** A renderer may return `headers` beside the subject and bodies;
   the Resend transport sends them on `send` and `sendBatch`, and the
   Cloudflare and log transports drop them. The RSVP digest uses this for

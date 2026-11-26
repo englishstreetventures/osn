@@ -76,7 +76,9 @@ test("musubi-recovery", async ({ page, context, browser, flow }) => {
   flow.check("the reloaded wait shows the same number", true, again === first);
 
   const link = await linkFor(person.email);
-  const [mail] = await mailFor(person.email);
+  // The message that carries the link: the account's inbox already holds
+  // others, such as the change notice `musubi-change-notice` sends.
+  const mail = (await mailFor(person.email)).find((m) => m.text.includes(link.url));
   flow.check("recovery email subject", "Recover your Musubi account", mail?.subject ?? "");
   flow.check(
     "the link opens Musubi",

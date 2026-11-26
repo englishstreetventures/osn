@@ -26,6 +26,7 @@ import {
   renderAccountDeletionScheduled,
   renderOrganisationOwnershipReceived,
 } from "./account-deletion";
+import { type ChangeNoticeData, renderChangeNotice } from "./change-notice";
 import {
   renderEnquiryNew,
   renderEnquiryReply,
@@ -97,6 +98,7 @@ export type EmailTemplate =
   | "account-deleted"
   | "account-deletion-cancelled"
   | "account-deletion-scheduled"
+  | "change-notice"
   | "enquiry-new"
   | "enquiry-reply"
   | "enquiry-quote"
@@ -133,6 +135,7 @@ export type AccountEmailTemplate =
   | "account-deleted"
   | "account-deletion-cancelled"
   | "account-deletion-scheduled"
+  | "change-notice"
   | "link-email-change"
   | "link-recovery"
   | "link-registration"
@@ -154,6 +157,7 @@ export interface EmailTemplateDataMap {
   "account-deleted": AccountDeletedData;
   "account-deletion-cancelled": AccountDeletionCancelledData;
   "account-deletion-scheduled": AccountDeletionScheduledData;
+  "change-notice": ChangeNoticeData;
   "enquiry-new": EnquiryNewData;
   "enquiry-reply": EnquiryReplyData;
   "enquiry-quote": EnquiryQuoteData;
@@ -219,6 +223,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderAccountDeletionScheduled(
         data as EmailTemplateData<"account-deletion-scheduled">,
       );
+    case "change-notice":
+      return renderChangeNotice(data as EmailTemplateData<"change-notice">);
     case "organisation-ownership-received":
       return renderOrganisationOwnershipReceived(
         data as EmailTemplateData<"organisation-ownership-received">,
@@ -286,6 +292,7 @@ export {
   renderAccountDeleted,
   renderAccountDeletionCancelled,
   renderAccountDeletionScheduled,
+  renderChangeNotice,
   renderOrganisationOwnershipReceived,
   renderEnquiryNew,
   renderEnquiryReply,
@@ -319,6 +326,7 @@ export type {
   AccountDeletedData,
   AccountDeletionCancelledData,
   AccountDeletionScheduledData,
+  ChangeNoticeData,
   DeletionPlanLine,
   KeptAfterDeletion,
   OrganisationAfterDeletion,
