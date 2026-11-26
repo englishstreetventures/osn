@@ -65,7 +65,7 @@ Musubi's own dialogs take their header and footer from it (`AuthHeader`,
 | `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue`, `showLockoutRule` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
 | `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `warning`, `purpose` | — |
 | `AuthHeader` | `title`, `host`: `"dialog"`, or `"page"` with optional `onCancel`, `cancelLabel`, `cancelDisabled` | the `Dialog`'s context, with `host="dialog"` |
-| `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
+| `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel`, `onBusyChange` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
 | `TurnstileWidget` | `siteKey`, `onToken`; `onReady`, `alternative`, `theme`, `class` | — |
 
@@ -378,6 +378,10 @@ As built:
   centred, then a dialog `ViewStep`: the body and a footer with Cancel
   first, then the commit ("Generate new set", "Create profile").
   `CreateProfileForm`, whose one host is that dialog, draws its own step.
+  While its create request runs, "Create a new profile" refuses Escape, a
+  press outside and a drag down, as its Cancel is disabled then: the form
+  tells `ProfileOnboarding` through `onBusyChange`, and the sheet passes
+  `dismissible={!creating()}`. Success closes it all the same.
   Every dismiss button in a dialog is `secondary`, so it reads as a way out
   beside the commit and not as a second commit ([the owner's
   call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06).
@@ -1235,7 +1239,10 @@ As built:
   item. `RecoveryCodesView.test.tsx` fails a status read under a host's
   `Suspense`: the panel's own line with Try again, no fallback, the generate
   button kept, and Try again reading the count. `ProfileOnboarding.test.tsx`
-  finds its create dialog by name.
+  finds its create dialog by name, and holds its closing: Escape and a press
+  outside close it before a request, are refused while "Creating…" runs, and
+  close it again once the request ends: Escape after a failure, a press
+  outside once a created profile's sheet is opened again.
 - **Layout in Musubi's browser tests.**
   `musubi/social/tests/components/SecurityStepUp.browser.test.tsx` opens the
   step-up sheet from "Add a passkey" in Settings → Security: at 390px a bottom
@@ -1326,8 +1333,8 @@ three sheets slide up from the bottom edge and back down, as every
 "B: slide up" on #2045), and follow a finger dragged down their title row,
 closing on a spring once let go far or fast enough (`musubi/social/DESIGN.md`
 §Motion, "A sheet drags down to close", the owner's choices on #2288); the
-step-up gives on a rubber band and comes back while a call it started runs
-(§8). From `md` they are cards, which never drag, and the cards and the
+step-up and "Create a new profile" give on a rubber band and come back while
+a call they started runs (§8, §4). From `md` they are cards, which never drag, and the cards and the
 popover fade with no scale in Musubi, which maps both scale tokens to 1
 (`musubi/social/DESIGN.md` §Motion); the press does not read those tokens and
 scales in Musubi too. Under reduced motion no button scales, the `Orb` and

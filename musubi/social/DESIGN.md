@@ -545,8 +545,8 @@ the same path as Cancel; otherwise it goes back. Either way it leaves the
 finger on a critically damped spring with a 0.3s response, started at the
 sheet's speed, with no bounce. The spring is the release's alone: Cancel,
 Escape and the scrim keep the 200ms close on `--ui-ease-sheet` above. A sheet
-that cannot close — the step-up and the delete-organisation confirmation
-while their call runs — gives on the band
+that cannot close — the step-up, "Create a new profile" and the
+delete-organisation confirmation while their call runs — gives on the band
 both ways and comes back; a press on it while it springs back stops it under
 the finger once the finger moves, and a tap goes through. A sheet already on
 its way out is not caught: a close is final once let go, the owner's default
