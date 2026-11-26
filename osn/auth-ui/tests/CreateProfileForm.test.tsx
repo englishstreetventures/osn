@@ -47,7 +47,7 @@ describe("CreateProfileForm", () => {
     render(() => <CreateProfileForm />);
     const input = screen.getByLabelText(/Handle/) as HTMLInputElement;
     fireEvent.input(input, { target: { value: "a".repeat(31) } });
-    expect(screen.getByText(/1-30 chars/)).toBeTruthy();
+    expect(screen.getByText("Use 30 characters or fewer.")).toBeTruthy();
   });
 
   describe("without checkHandle prop", () => {

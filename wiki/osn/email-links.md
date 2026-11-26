@@ -11,7 +11,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[step-up]]"
   - "[[email-verification-api]]"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-26
 ---
 
 # Emailed links
@@ -329,8 +329,8 @@ before it mails, reads, replaces or spends anything
   secret goes through even once whoever began the request has spent its five
   guesses, so the reader can always free the address.
 - **The wait survives a reload.** `Register` keeps the request, claim secret,
-  retire secret, address and handle (no birthdate) in this tab's
-  `sessionStorage`, and the
+  retire secret, address and handle (no birthdate; that is the draft's) in
+  this tab's `sessionStorage`, and the
   auth dialogs and `/authorize` reopen it. The pairing number is never stored:
   `Register` holds it in memory, and a reloaded tab polls at once and shows the
   number the `pending` answer carries, which the server recovers from the
@@ -345,12 +345,40 @@ before it mails, reads, replaces or spends anything
   taken or held address's request, and every token that fails a check,
   goes on as above. The flag, the checks and what they cost are in
   [[email-verification-api]].
-- **A completing answer is never dropped.** `Register` holds the session for
-  the passkey step and publishes it once a passkey is enrolled. When the answer
-  lands after the dialog closed, there is no passkey step: `Register` publishes
-  the session at once, as the cookie the answer set would on the next load, and
-  clears `osn.signup.pending`, `osn.signup.previous` and the request's
-  `osn.signup.live`.
+- **The completing answer's session is restricted** until the account has a
+  passkey: it reaches only `/passkey/register/*`, and its cookie signs the
+  browser in to nothing else ([[sessions#A sign-up's session before its first passkey]]).
+  `Register` holds it for the passkey step, never publishing it; once the
+  passkey is in it renews the cookie and publishes the renewal only when it is
+  the account's ordinary session ([[passkey-primary#Account-level invariant]]).
+- **A completing answer is never dropped.** Whether it lands on the passkey
+  step or after the dialog closed, `Register` keeps the account in
+  `localStorage`, `osn.signup.enrolling`: its profile id, the handle the server
+  made it under, and when the 15-minute session ends. No token, since the
+  session is the browser's cookie. It clears `osn.signup.pending`,
+  `osn.signup.previous`, the draft and the request's `osn.signup.live`. The
+  next `Register`, after a closed dialog, a reload or a closed tab, opens on
+  the passkey step, and `hasPendingSignUp()` reopens the auth dialogs and
+  `/authorize` on it. Pressing "Add a passkey" there asks the cookie for a
+  token and checks it: a refusal, or a token for any other profile, ends on a
+  screen whose one action is Sign in, saying the account is saved and the
+  emailed recovery link adds its passkey; an ordinary token for this profile
+  (the passkey went in from another tab) is published at once. A press that
+  follows a lost answer to complete gets 401 at begin, since the session is
+  ordinary by then, and ends the same way: renewed and published. `Register`
+  removes the entry only while it names that view's own account (another
+  tab's sign-up may have written its own over it), once the passkey is in or
+  when its session has ended. A sign-in through `SignIn`, on any host, removes
+  it once its session is published, and so does Musubi's `AuthDialogs` when a
+  session appears ([[eprivacy]]).
+- **What was typed survives too.** `Register` keeps the details step's fields
+  in this tab's `sessionStorage`, `osn.signup.draft`, as they are typed: the
+  address, handle and display name, and the date of birth only once it is in
+  range and clears the 13+ gate. Closing the dialog, or reloading, loses none
+  of it; it goes when the account is made, when a sign-in through `SignIn`
+  publishes its session (the `/authorize` page included), or when a session
+  appears under Musubi's `AuthDialogs`. A draft alone
+  reopens nothing: it shows the next time the form opens.
 
 ## Recovery
 

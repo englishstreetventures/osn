@@ -58,8 +58,9 @@ interface AuthContextValue {
   renewSession: (options?: { readonly pending?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
   /**
-   * Persists a Session obtained from the registration flow (or any other
-   * out-of-band source) and refetches the session resource so the UI updates.
+   * Persists a Session obtained out of band — a sign-in, or the ordinary
+   * session a new account's cookie renews into once its first passkey is in —
+   * and refetches the session resource so the UI updates.
    */
   adoptSession: (session: Session) => Promise<void>;
   /**
@@ -69,8 +70,9 @@ interface AuthContextValue {
    * The counterpart to {@link AuthContextValue.adoptSession} for a flow that
    * holds a session rather than publishing one, and the only refresh path such
    * a flow has: holding the token keeps it outside `authFetch`, so the silent
-   * refresh every other screen relies on never runs. Post-recovery passkey
-   * enrolment is the caller. Rejects when the issuer refuses the grant, which
+   * refresh every other screen relies on never runs. Passkey enrolment on a
+   * restricted session — after a recovery, or a sign-up before its first
+   * passkey — is the caller. Rejects when the issuer refuses the grant, which
    * for a restricted session means its absolute deadline has passed.
    *
    * Resolves to a `HeldSession`, not a `Session` — `adoptSession` doesn't

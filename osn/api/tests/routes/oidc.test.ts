@@ -32,8 +32,9 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
-import { registeredResponse } from "../helpers/registration";
+import { registeredResponse, registerThroughRoutes } from "../helpers/registration";
 import { createAuthRoutes, type AuthRateLimiters } from "../helpers/routes";
+import { noneAttestation, type CreationOptions } from "../helpers/soft-authenticator";
 
 const REDIRECT_URI = "https://rp.example.com/callback";
 const VERIFIER = "test-code-verifier-0123456789abcdefghijklmnopqrstuvwxyz";
@@ -130,18 +131,19 @@ function setup(
   };
 }
 
-/** Registers an account; returns its session cookie + a bearer access token. */
+/**
+ * Registers an account and adds its first passkey; returns its session cookie
+ * + a bearer access token, both of the ordinary session the passkey earns.
+ */
 async function register(
   h: Harness,
   email: string,
   handle: string,
 ): Promise<{ cookie: string; accessToken: string }> {
-  const res = await registeredResponse(h.app, h.recorded, email, handle);
-  const body = (await res.json()) as { session: { access_token: string } };
-  const setCookie = res.headers.get("set-cookie") ?? "";
-  const token = setCookie.split(";")[0];
+  const done = await registerThroughRoutes(h.app, h.recorded, email, handle);
+  const token = done.cookies.map((c) => c.split(";")[0]!).find((c) => c.startsWith("osn_session="));
   expect(token).toContain("osn_session=");
-  return { cookie: token, accessToken: body.session.access_token };
+  return { cookie: token!, accessToken: done.accessToken };
 }
 
 /** Registers an account and returns its session cookie header value. */
@@ -2523,6 +2525,100 @@ describe("GET /authorize with a restricted recovery session", () => {
     const res = await h.app.handle(
       new Request(authorizeUrl({ ...goodParams, prompt: "none" }), {
         headers: { cookie: `osn_session=${restricted.refreshToken}` },
+      }),
+    );
+
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.searchParams.get("error")).toBe("login_required");
+    expect(loc.searchParams.get("code")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A sign-up's session before its first passkey must not be a signed-in
+// session here either.
+//
+// The completing status poll sets the session cookie, because enrolling the
+// first passkey resolves the caller from it, but the account has no
+// credential yet. Read as signed in, it would complete an authorization for an
+// account nobody can sign back into, `prompt=create` included. Once the
+// passkey is enrolled the same cookie is an ordinary session.
+// ---------------------------------------------------------------------------
+describe("GET /authorize with a sign-up's session before its passkey", () => {
+  async function signedUpBeforePasskey(h: Harness, email: string, handle: string) {
+    const res = await registeredResponse(h.app, h.recorded, email, handle);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { profileId: string; session: { access_token: string } };
+    const cookie = res.headers
+      .getSetCookie()
+      .map((c) => c.split(";")[0])
+      .join("; ");
+    return { profileId: body.profileId, accessToken: body.session.access_token, cookie };
+  }
+
+  it("treats the cookie exactly like no cookie, until the passkey is in", async () => {
+    const h = setup();
+    h.seedClient();
+    const s = await signedUpBeforePasskey(h, "su-oidc@example.com", "su_oidc_user");
+
+    const withSignUp = await h.app.handle(
+      new Request(authorizeUrl(goodParams), { headers: { cookie: s.cookie } }),
+    );
+    const withNothing = await h.app.handle(new Request(authorizeUrl(goodParams)));
+    expect(new URL(withSignUp.headers.get("location")!).searchParams.get("reason")).toBe("login");
+    expect(new URL(withNothing.headers.get("location")!).searchParams.get("reason")).toBe("login");
+
+    // `prompt=create` is the relying party's way to send a new person to sign
+    // up; it must not end in a code for a passkeyless account either.
+    const created = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "create" }), {
+        headers: { cookie: s.cookie },
+      }),
+    );
+    expect(new URL(created.headers.get("location")!).searchParams.get("code")).toBeNull();
+
+    // The control: the same cookie, once the first passkey is enrolled, gets
+    // as far as consent, so `reason=login` above is the restriction talking.
+    const headers = {
+      Authorization: `Bearer ${s.accessToken}`,
+      "Content-Type": "application/json",
+      cookie: s.cookie,
+    };
+    const begun = await h.app.handle(
+      new Request("http://localhost/passkey/register/begin", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ profileId: s.profileId }),
+      }),
+    );
+    expect(begun.status).toBe(200);
+    const attestation = await noneAttestation(
+      (await begun.json()) as CreationOptions,
+      config.origin,
+      config.rpId,
+    );
+    const completed = await h.app.handle(
+      new Request("http://localhost/passkey/register/complete", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ profileId: s.profileId, attestation }),
+      }),
+    );
+    expect(completed.status).toBe(200);
+    const enrolled = await h.app.handle(
+      new Request(authorizeUrl(goodParams), { headers: { cookie: s.cookie } }),
+    );
+    expect(new URL(enrolled.headers.get("location")!).searchParams.get("reason")).toBe("consent");
+  });
+
+  it("prompt=none with the cookie answers login_required, never a code", async () => {
+    const h = setup();
+    h.seedClient();
+    const s = await signedUpBeforePasskey(h, "su-oidc2@example.com", "su_oidc_user2");
+
+    const res = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "none" }), {
+        headers: { cookie: s.cookie },
       }),
     );
 

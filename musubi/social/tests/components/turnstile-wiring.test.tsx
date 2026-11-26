@@ -59,6 +59,8 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
 }));
 vi.mock("@osn/auth-ui/pending-sign-up", () => ({
   hasPendingSignUp: () => false,
+  forgetDraft: () => {},
+  forgetEnrolling: () => {},
 }));
 vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { turnstileSiteKey?: string; productName: string }) => {

@@ -12,6 +12,7 @@ import { Effect } from "effect";
 import type { createAuthService } from "../../src/services/auth";
 import type { SessionMeta } from "../../src/services/auth/types";
 import { settle, settledHandle } from "./background";
+import { noneAttestation, type CreationOptions } from "./soft-authenticator";
 
 /** `/verify/<request id>#<link secret>`, as any emailed link carries it. */
 const LINK_RE = /\/verify\/((?:signup|recovery|stepup|emailchange)_[a-f0-9]{12})#([a-f0-9]{64})/;
@@ -163,20 +164,92 @@ export async function registeredResponse(
   return statusThroughRoutes(app, begun.requestId, begun.claimSecret, headers);
 }
 
+/** The `Cookie` header the `Set-Cookie` lines `lines` would leave in a browser. */
+export function cookieHeader(lines: readonly string[]): string {
+  return lines.map((line) => line.split(";")[0]!).join("; ");
+}
+
+/** The test config's origin and RP ID, which the soft authenticator answers for. */
+const TEST_ORIGIN = "http://localhost:5173";
+
 /**
- * The whole sign-up over the routes. Returns the completing status answer's
- * body, its access token, and the `Set-Cookie` lines it carried.
+ * Enrols a first passkey for the session a sign-up handed over, through
+ * `/passkey/register/*` with a software authenticator, which lifts the
+ * session's restriction, then renews it at `/token` as the browser does.
+ * Answers the ordinary session: its access token and the `Set-Cookie` lines
+ * of the renewal (or the ones it was given, when the renewal set none).
+ */
+export async function enrolFirstPasskeyThroughRoutes(
+  app: App,
+  held: { profileId: string; accessToken: string; cookies: readonly string[] },
+  options: { origin?: string | readonly string[]; headers?: Record<string, string> } = {},
+): Promise<{ accessToken: string; cookies: string[] }> {
+  // The held session's own cookie, whatever else the caller's headers carry.
+  const headers = {
+    ...options.headers,
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${held.accessToken}`,
+    cookie: cookieHeader(held.cookies),
+  };
+  const begun = await app.handle(
+    new Request("http://localhost/passkey/register/begin", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ profileId: held.profileId }),
+    }),
+  );
+  if (begun.status !== 200) throw new Error(`passkey begin answered ${begun.status}`);
+  const attestation = await noneAttestation(
+    (await begun.json()) as CreationOptions,
+    options.origin ?? TEST_ORIGIN,
+  );
+  const completed = await settledHandle(
+    app,
+    new Request("http://localhost/passkey/register/complete", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ profileId: held.profileId, attestation }),
+    }),
+  );
+  if (completed.status !== 200) throw new Error(`passkey complete answered ${completed.status}`);
+  const granted = await app.handle(
+    new Request("http://localhost/token", {
+      method: "POST",
+      headers: { ...options.headers, "Content-Type": "application/json", cookie: headers.cookie },
+      body: JSON.stringify({ grant_type: "refresh_token" }),
+    }),
+  );
+  if (granted.status !== 200) throw new Error(`token answered ${granted.status}`);
+  const renewed = granted.headers.getSetCookie();
+  return {
+    accessToken: ((await granted.json()) as { access_token: string }).access_token,
+    cookies: renewed.length > 0 ? renewed : [...held.cookies],
+  };
+}
+
+/**
+ * The whole sign-up over the routes, then its first passkey, as a person who
+ * finishes it does. Returns the completing status answer's body, and the
+ * ordinary session the passkey earns: its access token, and the `Set-Cookie`
+ * lines that hold it (`cookie`, the `Cookie` header they make). The status
+ * answer's own session is restricted until the passkey is in; a test about
+ * that session reads it through `registeredResponse`.
  */
 export async function registerThroughRoutes(
   app: App,
   recorded: () => readonly RecordedEmail[],
   email: string,
   handle: string,
-  options: { displayName?: string; headers?: Record<string, string> } = {},
+  options: {
+    displayName?: string;
+    headers?: Record<string, string>;
+    origin?: string | readonly string[];
+  } = {},
 ): Promise<{
   accessToken: string;
   profileId: string;
   cookies: string[];
+  cookie: string;
   body: { profileId: string; handle: string; email: string; session: { access_token: string } };
 }> {
   const done = await registeredResponse(app, recorded, email, handle, options);
@@ -187,10 +260,20 @@ export async function registerThroughRoutes(
     email: string;
     session: { access_token: string };
   };
+  const enrolled = await enrolFirstPasskeyThroughRoutes(
+    app,
+    {
+      profileId: body.profileId,
+      accessToken: body.session.access_token,
+      cookies: done.headers.getSetCookie(),
+    },
+    { origin: options.origin, headers: options.headers },
+  );
   return {
-    accessToken: body.session.access_token,
+    accessToken: enrolled.accessToken,
     profileId: body.profileId,
-    cookies: done.headers.getSetCookie(),
+    cookies: enrolled.cookies,
+    cookie: cookieHeader(enrolled.cookies),
     body,
   };
 }
@@ -199,15 +282,23 @@ type AuthService = ReturnType<typeof createAuthService>;
 
 /**
  * The whole sign-up through the service: begin (waiting for its send), the
- * newest link mailed to the address, confirm, claim. Fails the effect when any
- * step does not land where a person's would.
+ * newest link mailed to the address, confirm, claim, then the first passkey
+ * through a software authenticator and a renewal, so the session it answers
+ * is an ordinary one (`restricted: true` stops at the claim). Fails the
+ * effect when any step does not land where a person's would.
  */
 export const registerThroughService = (
   auth: AuthService,
   recorded: () => readonly RecordedEmail[],
   email: string,
   handle: string,
-  options: { displayName?: string; sessionMeta?: SessionMeta } = {},
+  options: {
+    displayName?: string;
+    sessionMeta?: SessionMeta;
+    origin?: string | readonly string[];
+    /** The status answer as it is, its session still restricted, with no passkey added. */
+    restricted?: boolean;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const begun = yield* settle(
@@ -224,5 +315,25 @@ export const registerThroughService = (
       auth.registrationStatus(begun.requestId, begun.claimSecret, options.sessionMeta),
     );
     if (done.status !== "complete") return yield* Effect.die(new Error(`status: ${done.status}`));
-    return done;
+    if (options.restricted) return done;
+    // The first passkey, as the person adds it, so the session is ordinary.
+    const accountId = (yield* auth.findProfileById(done.profileId))?.accountId;
+    if (!accountId) return yield* Effect.die(new Error("no account for the new profile"));
+    const sessionHash = auth.hashSessionToken(done.refreshToken);
+    const { options: creation } = yield* auth.beginPasskeyRegistration(accountId, undefined, {
+      recoverySessionHash: sessionHash,
+    });
+    const attestation = yield* Effect.promise(() =>
+      noneAttestation(creation as CreationOptions, options.origin ?? TEST_ORIGIN),
+    );
+    yield* settle(
+      auth.completePasskeyRegistration(
+        accountId,
+        attestation as never,
+        sessionHash,
+        options.sessionMeta,
+      ),
+    );
+    const renewed = yield* auth.refreshTokens(done.refreshToken);
+    return { ...done, ...renewed };
   });

@@ -54,10 +54,16 @@ import { holdQueries } from "../helpers/held-query";
  * `metricRecoveryDisown` and for the same reason.
  */
 const reclaimOutcomes = vi.hoisted(() => [] as string[]);
+/** Every `metricAuthRegisterStep` call: a recovery's first passkey is no sign-up's. */
+const registerSteps = vi.hoisted(() => [] as string[]);
 vi.mock("../../src/metrics", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/metrics")>();
   return {
     ...actual,
+    metricAuthRegisterStep: (step: string) => {
+      registerSteps.push(step);
+      actual.metricAuthRegisterStep(step as Parameters<typeof actual.metricAuthRegisterStep>[0]);
+    },
     metricRecoveryPasskeyReclaim: (result: string) => {
       reclaimOutcomes.push(result);
       actual.metricRecoveryPasskeyReclaim(
@@ -1130,7 +1136,7 @@ describe("restricted recovery session — the factor the bypass rests on", () =>
   it.effect("a restricted session past its deadline does not open the gate", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {
-      // `liveSessionIds` has no expiry term, so a row an instant past its
+      // `liveSessionRows` has no expiry term, so a row an instant past its
       // deadline is still nameable as the caller's session. The gate checks the
       // deadline itself rather than trusting that.
       const user = yield* auth.registerProfile("rs-amrexp@example.com", "rsamrexp");
@@ -1174,7 +1180,7 @@ describe("restricted recovery session — what the lift refuses to do", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {
       // The deadline is absolute, and the enrolment path is the one place that
-      // could undo it: `liveSessionIds` still names an expired restricted row,
+      // could undo it: `liveSessionRows` still names an expired restricted row,
       // so without a liveness term the lift would turn a dead 15-minute session
       // into a live 30-day one. Expiry is otherwise enforced in
       // `verifyRefreshToken`, which enrolment never calls.
@@ -1398,11 +1404,14 @@ describe("restricted recovery session — the passkey ceiling", () => {
       // No recovery stamped on the account, as after a disown lands between a
       // recovery's stamp and its session: the restricted session alone decides.
       const sessionHash = yield* recoverySessionFor(user);
+      const stepsBefore = registerSteps.length;
 
       yield* enrol(user.accountId, sessionHash);
 
       const rows = yield* passkeyRows(db, user.accountId);
       expect(rows.map((r) => r.provenanceAmr)).toEqual(["recovery"]);
+      // Not a sign-up's first passkey, so the funnel does not count it.
+      expect(registerSteps.slice(stepsBefore)).toEqual([]);
     }).pipe(Effect.provide(layer));
   });
 

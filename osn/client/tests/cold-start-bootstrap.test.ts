@@ -2,8 +2,8 @@ import { it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { afterEach, vi } from "vitest";
 
-import { OsnAuth, createOsnAuthLive } from "../src/service";
-import { createEphemeralStorage } from "../src/storage";
+import { ACCOUNT_SESSION_KEY, OsnAuth, createOsnAuthLive } from "../src/service";
+import { Storage, createEphemeralStorage } from "../src/storage";
 import { fakeSleeps, untilSettled } from "./helpers/fake-sleeps";
 
 const config = { issuerUrl: "https://osn.example.com" };
@@ -390,5 +390,116 @@ it.effect("a CORS/network TypeError is attempted twice, not three times", () =>
 
     expect(session).toBeNull();
     expect(tokenCalls).toBe(2);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// A cookie whose session may only enrol a passkey: a sign-up before its first
+// passkey, or an account recovery. `/token` renews it onto `osn-recovery`,
+// which every ordinary route refuses, so publishing it would show a signed-in
+// page that cannot load anything. The page stays signed out; the view that
+// enrols the passkey holds that session itself (`refreshHeldSession`).
+// ---------------------------------------------------------------------------
+
+/** A fake JWT on the given audience. */
+function fakeJwtFor(sub: string, aud: string): string {
+  const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+  const payload = btoa(JSON.stringify({ sub, aud, iat: Date.now() }));
+  return `${header}.${payload}.fake_signature`;
+}
+
+it.effect("loadSession publishes no session when the cookie's grant is a restricted one", () =>
+  Effect.gen(function* () {
+    let tokenCalls = 0;
+    const fetchMock = vi
+      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+        if (url.endsWith("/token")) {
+          tokenCalls += 1;
+          return Promise.resolve(
+            mockResponse(200, {
+              access_token: fakeJwtFor("usr_restricted01", "osn-recovery"),
+              token_type: "Bearer",
+              expires_in: 300,
+              scope: "openid profile",
+            }),
+          );
+        }
+        return Promise.resolve(mockResponse(404));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).toBeNull();
+    expect(tokenCalls).toBe(1);
+    // Nothing stored: the next load asks the cookie again rather than holding
+    // a token no route serves.
+    expect(yield* auth.getSession()).toBeNull();
+    expect(yield* auth.getActiveProfile()).toBeNull();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+/** The `/token` answer for a cookie whose session now renews as `access_token`. */
+function tokenAnswering(accessToken: string) {
+  return vi
+    .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+    .mockImplementation((input) => {
+      const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+      return Promise.resolve(
+        url.endsWith("/token")
+          ? mockResponse(200, {
+              access_token: accessToken,
+              token_type: "Bearer",
+              expires_in: 300,
+              scope: "openid profile",
+            })
+          : mockResponse(404),
+      );
+    });
+}
+
+/** The layer with its storage readable from the test. */
+function createStoredTestLayer() {
+  return createOsnAuthLive(config).pipe(Layer.provideMerge(createEphemeralStorage()));
+}
+
+it.effect("a reload whose cookie now renews restricted forgets the stored account", () =>
+  Effect.gen(function* () {
+    // A sign-up in another tab replaced the cookie: it renews as usr_b's
+    // restricted session while this page still stores usr_a.
+    vi.stubGlobal("fetch", tokenAnswering(fakeJwtFor("usr_b", "osn-recovery")));
+
+    const auth = yield* OsnAuth;
+    const storage = yield* Storage;
+    yield* auth.setSession({
+      accessToken: fakeJwt("usr_a"),
+      idToken: null,
+      expiresAt: Date.now() - 1_000,
+      scopes: ["openid", "profile"],
+    });
+    expect(yield* storage.get(ACCOUNT_SESSION_KEY)).not.toBeNull();
+
+    const session = yield* auth.loadSession();
+
+    expect(session).toBeNull();
+    expect(yield* auth.getSession()).toBeNull();
+    expect(yield* storage.get(ACCOUNT_SESSION_KEY)).toBeNull();
+  }).pipe(Effect.provide(createStoredTestLayer())),
+);
+
+it.effect("loadSession treats a restricted audience listed in an array as restricted", () =>
+  Effect.gen(function* () {
+    const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+    const payload = btoa(JSON.stringify({ sub: "usr_b", aud: ["osn-recovery"], iat: Date.now() }));
+    vi.stubGlobal("fetch", tokenAnswering(`${header}.${payload}.fake_signature`));
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).toBeNull();
+    expect(yield* auth.getSession()).toBeNull();
   }).pipe(Effect.provide(createTestLayer())),
 );

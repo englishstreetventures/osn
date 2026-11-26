@@ -23,10 +23,16 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
     </div>
   ),
 }));
-const pendingSignUp = vi.hoisted(() => ({ value: false }));
+const pendingSignUp = vi.hoisted(() => ({
+  value: false,
+  forgetDraft: vi.fn(),
+  forgetEnrolling: vi.fn(),
+}));
 
 vi.mock("@osn/auth-ui/pending-sign-up", () => ({
   hasPendingSignUp: () => pendingSignUp.value,
+  forgetDraft: pendingSignUp.forgetDraft,
+  forgetEnrolling: pendingSignUp.forgetEnrolling,
 }));
 vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { onSuccess?: () => void; productName: string }) => (

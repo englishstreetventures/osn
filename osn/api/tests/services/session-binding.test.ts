@@ -259,6 +259,7 @@ describe("classifyCallerSession (destructive-path resolution)", () => {
       expect(r).toEqual({
         _tag: "resolved",
         sessionHash: auth.hashSessionToken(tokens.refreshToken),
+        restricted: false,
       });
     }).pipe(Effect.provide(createTestLayer())),
   );

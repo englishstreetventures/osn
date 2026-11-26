@@ -1,5 +1,5 @@
 import { hasPendingRecovery } from "@osn/auth-ui/pending-recovery";
-import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
+import { forgetDraft, forgetEnrolling, hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import { Register } from "@osn/auth-ui/Register";
 import { SignIn } from "@osn/auth-ui/SignIn";
 import { useAuth } from "@osn/client/solid";
@@ -28,7 +28,10 @@ function focusDialog(event: Event) {
 /**
  * The Create-account and Sign-in dialogs, mounted once through
  * `ShellDialogSet`, above the desktop/phone shell switch; `ShellDialogs` owns
- * their open flags. Both close themselves the moment a session exists.
+ * their open flags. Both close themselves the moment a session exists. Each
+ * links to the other ("Already have an account? Sign in", "No account yet?
+ * Create one"), which closes the one and opens the other once the first has
+ * left the page, so two sheets never move at once.
  */
 export function AuthDialogs(props: {
   showRegister: boolean;
@@ -40,14 +43,34 @@ export function AuthDialogs(props: {
 }) {
   const { session } = useAuth();
 
+  // The dialog a cross-link is waiting to open. Kobalte runs a content's
+  // `onCloseAutoFocus` as it unmounts, after its exit motion, so that is
+  // where the second dialog opens.
+  let swapTo: "register" | "signIn" | null = null;
+  const openAfterClose = (next: "register" | "signIn") => (event: Event) => {
+    if (swapTo !== next) {
+      props.onCloseAutoFocus?.(event);
+      return;
+    }
+    swapTo = null;
+    event.preventDefault();
+    if (next === "signIn") props.onShowSignInChange(true);
+    else props.onShowRegisterChange(true);
+  };
+
   // A controlled Dialog never fires `onOpenChange` when the `open` prop flips
   // on its own, so the `!session()` guard below hides a dialog without ever
   // clearing its flag. Left set, that flag re-opened the sheet the
   // next time the session went away — sign out, and the create-account modal
   // was waiting. Reset on any arriving session, whatever its source: this
   // flow's own `onSuccess`, another tab, a cookie bootstrap.
+  //
+  // A session also ends any sign-up this browser kept: what was typed, and an
+  // account waiting for its first passkey, whose cookie the session replaced.
   createEffect(() => {
     if (!session()) return;
+    forgetDraft();
+    forgetEnrolling();
     if (props.showRegister) props.onShowRegisterChange(false);
     if (props.showSignIn) props.onShowSignInChange(false);
   });
@@ -69,7 +92,7 @@ export function AuthDialogs(props: {
         {/* The view's title is the dialog's `DialogTitle`, which names it. */}
         <ResponsiveDialogContent
           onOpenAutoFocus={focusDialog}
-          onCloseAutoFocus={props.onCloseAutoFocus}
+          onCloseAutoFocus={openAfterClose("signIn")}
         >
           <Register
             host="dialog"
@@ -79,13 +102,17 @@ export function AuthDialogs(props: {
             legal={{ termsHref: "/terms", privacyHref: "/privacy" }}
             onCancel={() => props.onShowRegisterChange(false)}
             onSuccess={() => props.onShowRegisterChange(false)}
+            onSignIn={() => {
+              swapTo = "signIn";
+              props.onShowRegisterChange(false);
+            }}
           />
         </ResponsiveDialogContent>
       </Dialog>
       <Dialog open={props.showSignIn && !session()} onOpenChange={props.onShowSignInChange}>
         <ResponsiveDialogContent
           onOpenAutoFocus={focusDialog}
-          onCloseAutoFocus={props.onCloseAutoFocus}
+          onCloseAutoFocus={openAfterClose("register")}
         >
           <SignIn
             host="dialog"
@@ -97,6 +124,10 @@ export function AuthDialogs(props: {
             productName={PRODUCT_NAME}
             onCancel={() => props.onShowSignInChange(false)}
             onSuccess={() => props.onShowSignInChange(false)}
+            onCreateAccount={() => {
+              swapTo = "register";
+              props.onShowSignInChange(false);
+            }}
           />
         </ResponsiveDialogContent>
       </Dialog>

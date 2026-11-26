@@ -1,4 +1,5 @@
 import { AuthHeader } from "@osn/auth-ui/AuthHeader";
+import { HANDLE_HINT } from "@osn/auth-ui/handle-copy";
 import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import type { AuthorizeContext, PublicProfile } from "@osn/client";
 import { AuthorizeError, describeAuthError } from "@osn/client";
@@ -961,8 +962,8 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
  * your passkey?", then the "Create one" line under the panel; or sign-up's
  * heading beside "Sign in instead", its four labelled fields, the agreement
  * line and the button. Words that wrap stay words, so they wrap where the
- * panel's do: the heading, in `AuthHeader`'s page classes, the date of birth's
- * hint and the agreement line. Labels, fields
+ * panel's do: the heading, in `AuthHeader`'s page classes, the handle's and
+ * the date of birth's hints and the agreement line. Labels, fields
  * and buttons, which never wrap, are blocks, each the height the panel draws
  * it (a 14px label; the email's is 16px, the height of the button beside it).
  * "Sign in instead" is 40px tall below `md` and 32px from it, so it gets a
@@ -974,12 +975,15 @@ function SignInLoading(props: { mode: "register" | "signIn" }) {
   const fields = () =>
     register()
       ? [
-          { label: 4, hint: false },
-          { label: 3.5, hint: false },
-          { label: 3.5, hint: true },
-          { label: 3.5, hint: false },
+          { label: 4, hint: undefined },
+          {
+            label: 3.5,
+            hint: HANDLE_HINT,
+          },
+          { label: 3.5, hint: "You must be 13 or older to create an account." },
+          { label: 3.5, hint: undefined },
         ]
-      : [{ label: 3.5, hint: false }];
+      : [{ label: 3.5, hint: undefined }];
   return (
     <div aria-busy="true">
       <div class="flex items-center justify-between gap-3">
@@ -1005,9 +1009,11 @@ function SignInLoading(props: { mode: "register" | "signIn" }) {
               <Skeleton standsFor="line" width={28} height={field.label} />
               <Skeleton standsFor="field" height={9} />
               <Show when={field.hint}>
-                <p class="font-ui-body text-ui-ink-secondary text-ui-xs leading-ui-snug">
-                  You must be 13 or older to create an account.
-                </p>
+                {(hint) => (
+                  <p class="font-ui-body text-ui-ink-secondary text-ui-xs leading-ui-snug">
+                    {hint()}
+                  </p>
+                )}
               </Show>
             </div>
           )}

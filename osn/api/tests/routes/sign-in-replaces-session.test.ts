@@ -67,7 +67,7 @@ const {
   beginThroughRoutes,
   confirmThroughRoutes,
   latestLinkTo,
-  registerThroughRoutes,
+  registeredResponse,
   statusThroughRoutes,
 } = await import("../helpers/registration");
 const { beginRecoveryThroughRoutes, latestRecoveryLinkTo, recoveryStatusThroughRoutes } =
@@ -754,10 +754,12 @@ describe("a sign-up held at its passkey step, and the page of the account before
   it("refuses the renewal and rotates nothing, so the page is signed out rather than acting as B", async () => {
     const h = makeHarness();
     const before = await h.signedIn("before");
-    const signedUp = await registerThroughRoutes(h.app, h.recorded, "after@example.com", "after", {
+    // The completing answer as it lands, its session still B's restricted one.
+    const signedUp = await registeredResponse(h.app, h.recorded, "after@example.com", "after", {
       headers: h.withCookie(before.token),
     });
-    const fresh = signedUp.cookies
+    const fresh = signedUp.headers
+      .getSetCookie()
       .map((line) => /^osn_session=([^;]+)/.exec(line)?.[1])
       .find((token) => token !== undefined)!;
     expect(fresh).toBeDefined();

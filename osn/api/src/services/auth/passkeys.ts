@@ -22,6 +22,7 @@ import { Effect } from "effect";
 import { forkBackground } from "../../lib/background";
 import {
   classifyError,
+  metricAuthRegisterStep,
   metricPasskeyLoginDiscoverable,
   metricRecoveryPasskeyReclaim,
   metricSecurityEventRecorded,
@@ -110,21 +111,25 @@ export function createPasskeysModule(
     );
 
   /**
-   * Whether a restricted recovery session may enrol past the step-up gate.
+   * What the caller's own restricted session lets this enrolment do, from one
+   * read of its row: the row must be this account's, restricted and inside its
+   * deadline (checked here because `liveSessionRows`, which is how the route
+   * names this session, has no expiry term of its own), or it lets nothing.
    *
-   * The bypass rests on the ceremony that minted the session — an email OTP or
-   * a TOTP code at a strength `passkeyRegisterAllowedAmr` admits — so it is
-   * decided by the factor recorded on the session row, never by the token's
-   * audience. Four ways to answer no, all of them fail-closed: the row is not
-   * this account's, is not restricted, records no factor, or records one
-   * outside the allow-list. The deadline is checked too, because
-   * `liveSessionIds` (which is how the route names this session) has no expiry
-   * term of its own.
+   * - `bypass`: a restricted **recovery** session may enrol past the step-up
+   *   gate. The bypass rests on the ceremony that minted the session — an
+   *   email OTP or a TOTP code at a strength `passkeyRegisterAllowedAmr`
+   *   admits — so it is decided by the factor recorded on the row, never by
+   *   the token's audience. A row with no factor, a factor outside the
+   *   allow-list, or a sign-up's `signup`, admits nothing.
+   * - `signUp`: the row is a sign-up's session before its first passkey, which
+   *   records `signup` and nothing else does. Read positively, so a row with
+   *   no factor never counts as one.
    */
-  const recoverySessionAdmitsEnrolment = (
+  const callerRestriction = (
     accountId: string,
     sessionHash: string,
-  ): Effect.Effect<boolean, DatabaseError, Db> =>
+  ): Effect.Effect<{ bypass: boolean; signUp: boolean }, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
@@ -140,9 +145,13 @@ export function createPasskeysModule(
         catch: (cause) => new DatabaseError({ cause }),
       });
       const row = rows[0];
-      if (!row || row.restrictedUntil === null || row.restrictedAmr === null) return false;
-      if (row.restrictedUntil <= Math.floor(Date.now() / 1000)) return false;
-      return passkeyRegisterAllowedAmr.has(row.restrictedAmr);
+      const none = { bypass: false, signUp: false };
+      if (!row || row.restrictedUntil === null || row.restrictedAmr === null) return none;
+      if (row.restrictedUntil <= Math.floor(Date.now() / 1000)) return none;
+      return {
+        bypass: passkeyRegisterAllowedAmr.has(row.restrictedAmr),
+        signUp: row.restrictedAmr === "signup",
+      };
     });
 
   const beginPasskeyRegistration = (
@@ -155,16 +164,18 @@ export function createPasskeysModule(
      */
     stepUpToken?: string,
     /**
-     * The hashed id of the caller's own **restricted recovery session**, set
-     * only when `resolvePasskeyEnrollPrincipal` accepted the `osn-recovery`
-     * audience and the route could name the session behind it (from the cookie
-     * or the token's `osn_sid`). It can take the caller past the step-up gate
-     * below, deliberately: losing a phone does not delete its passkey row, so
-     * the account almost always still has ≥1 credential and the gate would make
-     * recovery impossible in exactly the case recovery is for.
+     * The hashed id of the caller's own **restricted session** — a recovery's,
+     * or a sign-up's before its first passkey — set only when
+     * `resolvePasskeyEnrollPrincipal` accepted the `osn-recovery` audience and
+     * the route could name the session behind it (from the cookie or the
+     * token's `osn_sid`). A recovery session can take the caller past the
+     * step-up gate below, deliberately: losing a phone does not delete its
+     * passkey row, so the account almost always still has ≥1 credential and
+     * the gate would make recovery impossible in exactly the case recovery is
+     * for. A sign-up's session never can; its first passkey needs no gate.
      *
-     * A hash is a request, not a grant. `recoverySessionAdmitsEnrolment`
-     * decides, on the factor the session row records — so the bypass is worth
+     * A hash is a request, not a grant. `callerRestriction` decides, on what
+     * the session row records — so the bypass is worth
      * exactly what the ceremony behind the session was worth, and an
      * unresolvable or inadmissible session simply falls back to needing a
      * step-up token.
@@ -217,10 +228,13 @@ export function createPasskeysModule(
       // never a single-use token, so hoisting it above the cap preserves the
       // property the ordering exists for: a capped user must not burn a step-up
       // for nothing.
-      const recoveryEnrolment =
-        caller && existingPasskeys.length > 0
-          ? yield* recoverySessionAdmitsEnrolment(accountId, caller.recoverySessionHash)
-          : false;
+      const restriction = caller
+        ? yield* callerRestriction(accountId, caller.recoverySessionHash)
+        : { bypass: false, signUp: false };
+      const recoveryEnrolment = existingPasskeys.length > 0 && restriction.bypass;
+      // A sign-up's session enrolling the new account's first passkey: the
+      // account's own root credential, with no recovery behind it.
+      const signUpEnrolment = existingPasskeys.length === 0 && restriction.signUp;
 
       // Refuse to mint options past the per-account cap. Checked
       // BEFORE the step-up gate so a user who's already at the cap
@@ -260,11 +274,14 @@ export function createPasskeysModule(
       // session a recovery code signs in with does, inside the 72 hours the
       // recovery stamped on the account. The hold on removing an app's data,
       // changing the email and removing an older passkey must not start from
-      // it at full strength. Sign-up's bootstrap has no recovery behind it.
+      // it at full strength. Sign-up's bootstrap has no recovery behind it:
+      // its restricted session is the one restricted caller whose first
+      // passkey is `webauthn`, and only when its row says `signup`.
       const recentlyRecovered =
         account.lastRecoveredAt !== null &&
         Date.now() - account.lastRecoveredAt * 1000 < RECOVERY_COOLDOWN_MS;
-      let provenanceAmr: PasskeyProvenance = caller || recentlyRecovered ? "recovery" : "webauthn";
+      let provenanceAmr: PasskeyProvenance =
+        (caller && !signUpEnrolment) || recentlyRecovered ? "recovery" : "webauthn";
       if (existingPasskeys.length > 0) {
         if (recoveryEnrolment) {
           // The restricted-recovery-session bypass: no step-up ran at all, so
@@ -331,6 +348,7 @@ export function createPasskeysModule(
             // already bracket this ceremony: the challenge's own CHALLENGE_TTL_MS
             // and the restricted session's 15-minute absolute expiry.
             recoveryEnrolment,
+            signUpEnrolment,
           },
           CHALLENGE_TTL_MS,
         ),
@@ -583,11 +601,26 @@ export function createPasskeysModule(
               updatedAt: nowSec,
             }),
             db.insert(securityEvents).values(securityEventRow),
+            // Enrolling a passkey is the one thing a restricted session can
+            // do, and the user has just done it, so the caller's session
+            // becomes an ordinary one here; from its next `/token` grant the
+            // access token carries the ordinary audience. In this batch, after
+            // the insert, so on D1 the passkey and the lift commit together:
+            // no account is left with a passkey beside a session still
+            // restricted. Matches nothing for an ordinary caller; with no
+            // caller session there is nothing to keep, and the branch below
+            // ends every session instead.
+            ...(callerSessionHash
+              ? [liftSessionRestriction(db, accountId, callerSessionHash, nowSec)]
+              : []),
           ]),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
       metricSecurityEventRecorded("passkey_register");
+      // The sign-up funnel's last step: a new account's first passkey, so
+      // `complete` minus this counts the sign-ups that never got one.
+      if (entry.signUpEnrolment === true) metricAuthRegisterStep("passkey_enroll");
       if (reclaimIds.length > 0) {
         metricSecurityEventRecorded("passkey_reclaimed");
       }
@@ -600,14 +633,6 @@ export function createPasskeysModule(
       // row, and otherwise from the access token's `osn_sid` binding — a
       // cross-origin Bearer call, a cookie-stripping proxy or a native client
       // all land on the second path and must NOT be treated as sessionless.
-      // Enrolling a passkey is the one thing a restricted recovery session can
-      // do, and the user has just done it — so the restriction is lifted here
-      // and the caller's session becomes an ordinary one. A no-op on every
-      // other session, and on the branch below where there is no caller session
-      // to keep. From the next `/token` grant onward the access token carries
-      // the ordinary audience again.
-      yield* liftSessionRestriction(accountId, callerSessionHash);
-
       if (callerSessionHash) {
         yield* invalidateOtherAccountSessions(accountId, callerSessionHash);
       } else {

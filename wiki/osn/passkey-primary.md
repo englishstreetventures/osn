@@ -14,7 +14,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Passkey-Primary Login
@@ -28,22 +28,47 @@ as the step-up and email-change verification factor.
 
 ## Account-level invariant
 
-**Every live account has ≥1 WebAuthn credential at all times.** The invariant
-holds from registration to deletion:
+**Every live account has ≥1 WebAuthn credential, or holds no session that can
+do anything but add one.** A sign-up makes the account before its first
+passkey, so the second half covers that window and a sign-up abandoned inside
+it. The one exception is an account whose deletion job predates the restore
+record: that deletion took its passkeys and kept one session as its way to
+cancel ([[identity-model]], `replaced_at`). Accounts made before the sign-up
+session was restricted, and never given a passkey, are outside it. Migration
+`20261126014432_end_passkeyless_sessions` runs once: it deletes the ordinary
+sessions such accounts hold when it runs, and spares restricted sessions and
+every session of an account with a deletion job
+([[sessions#A sign-up's session before its first passkey]]).
+For an account a sign-up makes, the invariant holds from registration to
+deletion:
 
 - **Registration.** The completing sign-up status poll
   (`POST /register/:requestId/status`, from the tab holding the claim secret)
-  returns a session, but the UI refuses to dismiss the registration flow until
-  `/passkey/register/complete` succeeds. There is no "skip for now" button. **`Register.tsx` holds that
+  makes the account and returns a **restricted** session
+  (`issueSignUpSession`, [[sessions#The restricted recovery session]]): its
+  access token carries `aud: "osn-recovery"`, which only the two
+  `/passkey/register/*` routes accept; its cookie is no signed-in session to
+  `/authorize`, to `/token` for anything but its own rotation, or to any other
+  route; it lives 15 minutes, absolute; and its row records `signup`, which
+  takes nobody past the step-up gate and stamps the first passkey `webauthn`,
+  the account's own root credential. Enrolling that passkey lifts the
+  restriction, in the batch that inserts it. There is no "skip for now" button. **`Register.tsx` holds that
   session without adopting it** — enrolment authenticates with the returned
-  access token, passed explicitly as a bearer token, so nothing before the
-  ceremony needs a published session. It adopts only once the credential
-  exists. Adopting earlier announces a signed-in user whose account has zero
-  passkeys, and consumers act on that announcement: `@musubi/social`'s
-  `AuthDialogs` hides its auth dialogs the moment `session()` is truthy,
-  which unmounted the flow mid-registration and skipped enrolment entirely
-  (fixed 2026-08-15). Anything that publishes a session before the first
-  credential breaks this invariant, whatever the UI claims.
+  access token, passed explicitly as a bearer token — and once the credential
+  exists it renews the cookie and adopts the renewal only when it is this
+  account's ordinary session. Adopting earlier announces a signed-in user
+  whose account has zero passkeys, and consumers act on that announcement:
+  `@musubi/social`'s `AuthDialogs` hides its auth dialogs the moment
+  `session()` is truthy, which would unmount the flow and skip enrolment.
+  `@osn/client`'s cold start publishes no `osn-recovery` token either. A
+  person who closes the dialog, reloads or closes the tab on the passkey step
+  comes back to it while the session lasts: `Register` keeps the account
+  (`osn.signup.enrolling`, in `localStorage`, no token) and asks the cookie for
+  a token when "Add a passkey" is pressed ([[email-links#Sign-up]]). Once the
+  15 minutes pass, the account has no session and no passkey, and the way in
+  is the emailed recovery link.
+  Tests: `osn/api/tests/routes/sign-up-session.test.ts`, and the `/authorize`
+  cases in `osn/api/tests/routes/oidc.test.ts`.
 - **Deletion.** `deletePasskey` refuses unconditionally if the delete would
   drop the account below 1 passkey (`osn/api/src/services/auth/passkey-management.ts`). Recovery
   codes are NOT a substitute credential — they are the "my device is gone"
@@ -218,7 +243,8 @@ An ordinary caller of `/passkey/register/begin` must also hold a live session
 of the account, named by its session cookie or its token's `osn_sid`, or the
 answer is `409 session_stale` before the account's one parked registration
 challenge is touched ([[sessions#Access-token session binding (`osn_sid`)]]).
-A restricted recovery session is checked by `classifyCallerSession` instead,
+A restricted session (a recovery's, or a sign-up's before its first passkey)
+is checked by `classifyCallerSession` instead,
 on both routes, since the live-session check refuses restricted sessions; on
 begin, one that lookup does not resolve is refused `409 session_stale` before
 its step-up token is read.

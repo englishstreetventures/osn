@@ -343,9 +343,10 @@ export const sessions = sqliteTable(
     /** Unix seconds. Updated on every successful refresh/verify hit. */
     lastUsedAt: integer("last_used_at"),
     /**
-     * Unix seconds, non-null only on a **restricted recovery session** — the
-     * session account recovery hands out, which may enrol a passkey and do
-     * nothing else.
+     * Unix seconds, non-null only on a **restricted session** — one that may
+     * enrol a passkey and do nothing else: the session account recovery hands
+     * out, and the one a sign-up hands the tab that began it before the new
+     * account has a passkey.
      *
      * It is the source of truth for **rotation**, not for request-time
      * authorisation. Request-time restriction is carried by the access token's
@@ -364,16 +365,21 @@ export const sessions = sqliteTable(
      */
     restrictedUntil: integer("restricted_until"),
     /**
-     * The RFC 8176 `amr` value of the factor that proved the user's identity
-     * before this restricted recovery session was minted — `otp`, `totp` or
-     * `webauthn`. NULL on every ordinary session, and cleared alongside
-     * `restrictedUntil` when the restriction lifts.
+     * What a restricted session records: on a recovery session, the RFC 8176
+     * `amr` value of the factor that proved the user's identity before it was
+     * minted — `otp`, `totp` or `webauthn`; on a sign-up's session before its
+     * first passkey, `signup`, which names no ceremony. NULL on every ordinary
+     * session, and cleared alongside `restrictedUntil` when the restriction
+     * lifts.
      *
-     * A restricted session enrols a passkey **past the step-up gate**, and this
+     * A recovery session enrols a passkey **past the step-up gate**, and this
      * column is what that bypass rests on: the enrolment path admits it only
      * when the recorded factor is one `passkeyRegisterAllowedAmr` accepts, so
      * the strength of the ceremony behind the session is checked rather than
-     * assumed. A restricted row with no recorded factor admits nothing.
+     * assumed. `signup` is never on that list, and a restricted row with no
+     * recorded value admits nothing. `signup` also stamps the new account's
+     * first passkey `webauthn`, its own root credential; every other restricted
+     * caller's first passkey is `recovery`.
      */
     restrictedAmr: text("restricted_amr"),
     /**

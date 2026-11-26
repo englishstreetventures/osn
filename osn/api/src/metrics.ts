@@ -390,6 +390,15 @@ const measureSeconds =
       );
     });
 
+/**
+ * Counts one sign-up funnel step that is not a call of its own: the new
+ * account's first passkey (`passkey_enroll`), enrolled through
+ * `/passkey/register/complete`.
+ */
+export const metricAuthRegisterStep = (step: RegisterStep): void => {
+  authRegisterAttempts.inc({ step, result: "ok" });
+};
+
 export const withAuthRegister =
   (step: RegisterStep) =>
   <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
