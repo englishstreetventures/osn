@@ -31,7 +31,12 @@ as the step-up and email-change verification factor.
 **Every live account has ≥1 WebAuthn credential, or holds no session that can
 do anything but add one.** A sign-up makes the account before its first
 passkey, so the second half covers that window and a sign-up abandoned inside
-it. The invariant holds from registration to deletion:
+it. The one exception is an account whose deletion job predates the restore
+record: that deletion took its passkeys and kept one session as its way to
+cancel ([[identity-model]], `replaced_at`). Accounts from before the sign-up
+session was restricted lost their ordinary sessions to migration
+`20261126014432_end_passkeyless_sessions` ([[sessions#A sign-up's session before its first passkey]]).
+The invariant holds from registration to deletion:
 
 - **Registration.** The completing sign-up status poll
   (`POST /register/:requestId/status`, from the tab holding the claim secret)
