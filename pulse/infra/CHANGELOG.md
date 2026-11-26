@@ -1,5 +1,12 @@
 # @pulse/infra
 
+## 0.1.34
+
+### Patch Changes
+
+- Updated dependencies [c05552d]
+  - @shared/infra@0.12.1
+
 ## 0.1.33
 
 ### Patch Changes
