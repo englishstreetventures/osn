@@ -218,6 +218,10 @@
      pill field reads as a search box, and without this mapping `Input`,
      `Textarea` and `Select` fall back to the control radius above. */
   --ui-radius-field: var(--radius-md);
+  /* Menu rows take the 8px corner list rows and nav items have (DESIGN.md §Radii).
+     A role of their own, not `--ui-radius-sm` raised to 8px: the drawn
+     Checkbox's 16px box reads `sm`, and would turn round. */
+  --ui-radius-menu-row: var(--radius-md);
 
   --ui-font-body: var(--font-sans);
   --ui-font-display: var(--font-sans);

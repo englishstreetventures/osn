@@ -3,9 +3,9 @@
  * the hairline a bare `border` draws and the ink edge a bare field keeps, the
  * colour fade that leaves the focus ring out, the house focus outline (inset
  * where a box would clip it), the 8px corner a text field's edge sits on, the
- * theme menu's radio rows, the bar that marks the current bottom-bar tab, and
- * the legal pages' head and prose, and (`musubiNotice`) the notices the shell
- * draws. Each rule lives in
+ * theme menu's radio rows and their 8px corner, the bar that marks the
+ * current bottom-bar tab, and the legal pages' head and prose, and
+ * (`musubiNotice`) the notices the shell draws. Each rule lives in
  * `musubi/social/src/App.css` or one shared shell part and reaches many
  * screens at once, so a lost rule shows here before it shows on any one of
  * them.
@@ -485,6 +485,13 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     "theme menu: a focused row takes the sunk fill",
     await painted(rows.nth(1), "var(--ui-surface-sunk)"),
     await computed(rows.nth(1), "background-color"),
+  );
+  // Musubi maps the contract's menu-row corner to its 8px `--radius-md`; its
+  // small corner, 6px, is a checkbox's (`musubi-account-deletion`).
+  flow.check(
+    "theme menu: a row takes the 8px menu-row corner",
+    "8px",
+    await computed(rows.nth(1), "border-top-left-radius"),
   );
   await flow.step("surfaces: shoot the theme menu", async () => {
     await shoot(page, "theme-menu", () => expect(rows.nth(1)).toBeFocused(), {

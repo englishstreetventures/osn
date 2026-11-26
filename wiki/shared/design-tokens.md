@@ -154,13 +154,16 @@ alike.
 | `control`  | pill                      | `--radius`, the same as its `md` | pill                                     |
 | `field`    | `--radius-md`, 8px        | not mapped: `--radius`           | 14px                                     |
 | `sheet`    | not mapped: its `lg`      | not mapped: its `lg`             | 1.75rem on the guest and marketing sites |
-| `menu-row` | not mapped: its `sm`, 6px | not mapped: its `sm`, 6px        | not mapped: its `sm`, 6px                |
+| `menu-row` | `--radius-md`, 8px        | not mapped: its `sm`, 6px        | not mapped: its `sm`, 6px                |
 
 `shared/ui/tests/dropdown-menu-default.browser.test.tsx` holds a default row at
 `--ui-radius-sm`'s corner while no menu-row corner is mapped, and at the role's
 once one is; `dropdown-menu.browser.test.tsx` holds the accent and touch rows
 the same way. The E2E suite reads a row of each of pulse's avatar menus at 6px
-under pulse's own stylesheet (`tools/e2e/tests/support/pulse-menus.ts`).
+under pulse's own stylesheet (`tools/e2e/tests/support/pulse-menus.ts`), a row
+of Musubi's theme menu at 8px (`musubi-surfaces.ts`), and Musubi's drawn
+"Delete everything" box at 6px (`musubi-account-deletion`), so Musubi's menu
+rows take its 8px row corner while its checkboxes keep the small one.
 
 cire's sized steps are 2px `hair`, 6px `sm`, 10px `md`, 16px `lg` and 999px
 `pill`, and its `--toast-radius` is `md`. All four cire stylesheets carry the
