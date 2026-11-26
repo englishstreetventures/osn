@@ -159,7 +159,14 @@ owners, each with an `owner` seat. Two consequences:
     answers it, chooses "delete everything", adds another owner (the action's
     link opens the wedding's download page in the host portal, which also
     offers to add another owner, and the action is then gone) or deletes the
-    wedding. A wedding with another owner is not an action.
+    wedding. Each live wedding where a profile of the account holds, from an
+    owner seat, the Stripe account its money gifts are paid into, beside
+    another owner, is an action too, `cire:payout:<id>` (past 20, one
+    `cire:payouts:rest`), whose one choice, `close`, is its default, so it
+    never blocks: it tells the person that guests cannot give money there
+    until another owner connects an account, and links the wedding's Money
+    gifts so they can hand over first. Any other wedding with another owner
+    is not an action.
   - *Soft delete.* Only the person's organiser sessions end. The weddings and
     seats are untouched, so a cancel loses nothing.
   - *Erasure,* per wedding the account has an owner seat in, one D1 batch:
@@ -168,7 +175,11 @@ owners, each with an `owner` seat. Two consequences:
     since the rules run on the rows as they stand, naming as its deleter the
     profile whose owner seat went. The purge takes a deleted wedding with no
     owner at once, money holds still applying ([[retention]]); its log names
-    a wedding's deleter only while they hold a seat on it. Then, once per
+    a wedding's deleter only while they hold a seat on it. A batch that took
+    the seat of the profile holding a live wedding's payout account mails
+    each remaining owner once, as it commits, that money gifts there need a
+    new Stripe account (`registry-payout-holder-erased`): the wedding's name
+    and a portal link, naming no one. Then, once per
     account:
     seats below owner and the notice rows left; organiser sessions; guest
     account links (by the account or a
