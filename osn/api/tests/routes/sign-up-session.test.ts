@@ -19,7 +19,7 @@
 
 import { passkeys, sessions } from "@osn/db/schema";
 import { eq } from "drizzle-orm";
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 
 import { createGraphRoutes } from "../../src/routes/graph";
 import { ACCESS_TOKEN_AUDIENCE, RECOVERY_TOKEN_AUDIENCE } from "../../src/services/auth/constants";
@@ -29,6 +29,22 @@ import { registeredResponse } from "../helpers/registration";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes } from "../helpers/routes";
 import { noneAttestation, type CreationOptions } from "../helpers/soft-authenticator";
+
+/**
+ * Every `metricAuthRegisterStep` call, in order. It calls through, so the
+ * counter still moves.
+ */
+const registerSteps = vi.hoisted(() => [] as string[]);
+vi.mock("../../src/metrics", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/metrics")>();
+  return {
+    ...actual,
+    metricAuthRegisterStep: (step: string) => {
+      registerSteps.push(step);
+      actual.metricAuthRegisterStep(step as Parameters<typeof actual.metricAuthRegisterStep>[0]);
+    },
+  };
+});
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -187,6 +203,7 @@ describe("the session a sign-up hands over before its first passkey", () => {
 
   it("enrols the first passkey, stamped as the account's own, and enrolling lifts it", async () => {
     const s = await signedUp("su-enrol@example.com", "suenrol");
+    registerSteps.length = 0;
 
     const { begun, completed } = await enrol(s);
     expect(begun.status).toBe(200);
@@ -207,6 +224,8 @@ describe("the session a sign-up hands over before its first passkey", () => {
 
     const { access_token } = (await (await grant(s.cookie)).json()) as { access_token: string };
     expect(audienceOf(access_token)).toBe(ACCESS_TOKEN_AUDIENCE);
+    // The funnel counts it once, on the sign-up's own enrolment.
+    expect(registerSteps).toEqual(["passkey_enroll"]);
   });
 
   it("stamps the first passkey `recovery` when the restricted row says nothing, never `webauthn`", async () => {
@@ -217,9 +236,12 @@ describe("the session a sign-up hands over before its first passkey", () => {
     harness.sqlite.run("UPDATE sessions SET restricted_amr = NULL WHERE account_id = ?", [
       accountId,
     ]);
+    registerSteps.length = 0;
 
     const { completed } = await enrol(s);
     expect(completed?.status).toBe(200);
+    // Not a sign-up's enrolment, so the funnel does not count it.
+    expect(registerSteps).toEqual([]);
     const credential = await harness.db
       .select({ provenanceAmr: passkeys.provenanceAmr })
       .from(passkeys)

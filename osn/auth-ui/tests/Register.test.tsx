@@ -1311,6 +1311,29 @@ describe("Register component", () => {
     );
   });
 
+  describe("the ended steps on the /authorize page", () => {
+    // The page host has no sign-in of its own to pass: its Cancel is "Sign in
+    // instead", and the ended steps send the person there.
+    it("a ran-out sign-up sends the person to the host's Cancel when no sign-in is given", async () => {
+      localStorage.setItem(
+        "osn.signup.enrolling",
+        JSON.stringify({ profileId: "usr_abc", handle: "alice", expiresAt: Date.now() + 60_000 }),
+      );
+      hoisted.refreshHeldSession.mockRejectedValue(
+        Object.assign(new Error("refused"), { refused: true }),
+      );
+      const onCancel = vi.fn();
+      renderRegister({ onCancel });
+
+      fireEvent.click(await screen.findByRole("button", { name: /^Add a passkey$/ }));
+      const signIn = await screen.findByRole("button", { name: /^Sign in$/ });
+      expect(onCancel).not.toHaveBeenCalled();
+      fireEvent.click(signIn);
+
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("passkey step (mandatory)", () => {
     async function reachPasskey(extra?: { onSuccess?: () => void }) {
       stub.beginRegistration.mockResolvedValue(begun());

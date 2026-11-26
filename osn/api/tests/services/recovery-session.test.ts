@@ -54,10 +54,16 @@ import { holdQueries } from "../helpers/held-query";
  * `metricRecoveryDisown` and for the same reason.
  */
 const reclaimOutcomes = vi.hoisted(() => [] as string[]);
+/** Every `metricAuthRegisterStep` call: a recovery's first passkey is no sign-up's. */
+const registerSteps = vi.hoisted(() => [] as string[]);
 vi.mock("../../src/metrics", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/metrics")>();
   return {
     ...actual,
+    metricAuthRegisterStep: (step: string) => {
+      registerSteps.push(step);
+      actual.metricAuthRegisterStep(step as Parameters<typeof actual.metricAuthRegisterStep>[0]);
+    },
     metricRecoveryPasskeyReclaim: (result: string) => {
       reclaimOutcomes.push(result);
       actual.metricRecoveryPasskeyReclaim(
@@ -1398,11 +1404,14 @@ describe("restricted recovery session — the passkey ceiling", () => {
       // No recovery stamped on the account, as after a disown lands between a
       // recovery's stamp and its session: the restricted session alone decides.
       const sessionHash = yield* recoverySessionFor(user);
+      const stepsBefore = registerSteps.length;
 
       yield* enrol(user.accountId, sessionHash);
 
       const rows = yield* passkeyRows(db, user.accountId);
       expect(rows.map((r) => r.provenanceAmr)).toEqual(["recovery"]);
+      // Not a sign-up's first passkey, so the funnel does not count it.
+      expect(registerSteps.slice(stepsBefore)).toEqual([]);
     }).pipe(Effect.provide(layer));
   });
 

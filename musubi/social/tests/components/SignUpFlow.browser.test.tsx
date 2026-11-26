@@ -67,13 +67,15 @@ const SHOTS = "../../../../e2e-artifacts/musubi-signup";
 const PAIRING_CODE = "47";
 
 /** A JWT on `aud`, as osn-api writes one; the signature is never read here. */
-function jwt(aud: string): string {
+function jwt(aud: string, jti?: string): string {
   const part = (value: unknown) =>
     btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
-  return `${part({ alg: "ES256" })}.${part({ sub: "usr_000000000001", aud })}.sig`;
+  return `${part({ alg: "ES256" })}.${part({ sub: "usr_000000000001", aud, jti })}.sig`;
 }
 
 const RESTRICTED = jwt("osn-recovery");
+// A second restricted token for the same account, as a renewal hands out.
+const RESTRICTED2 = jwt("osn-recovery", "renewed");
 const ORDINARY = jwt("osn-access");
 const EXPIRES_AT = Date.now() + 3_600_000;
 
@@ -113,20 +115,20 @@ function completed(handle: string) {
 const adoptSession = vi.fn(async () => {});
 const refreshHeldSession = vi.fn();
 
-/** Signed out, as anyone who opens these dialogs is. */
-function signedOut() {
-  const resource = <T,>(value: T) =>
-    Object.assign(() => value, {
+/** Signed out, as anyone who opens these dialogs is, unless `session` says otherwise. */
+function signedOut(session: () => unknown = () => null) {
+  const resource = <T,>(read: () => T) =>
+    Object.assign(read, {
       state: "ready",
       loading: false,
       error: undefined,
-      latest: value,
+      latest: null,
       refetch: () => {},
       mutate: () => {},
     });
   return {
-    session: resource(null),
-    profiles: resource(null),
+    session: resource(session),
+    profiles: resource(() => null),
     activeProfileId: () => null,
     adoptSession,
     refreshHeldSession,
@@ -134,11 +136,11 @@ function signedOut() {
 }
 
 /** The shell's one-dialog-at-a-time state, as `ShellDialogs` keeps it. */
-function mount(initial: "register" | "signIn" | null) {
+function mount(initial: "register" | "signIn" | null, session?: () => unknown) {
   const [open, setOpen] = createSignal(initial);
   render(() => (
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mocked AuthContext
-    <AuthContext.Provider value={signedOut() as any}>
+    <AuthContext.Provider value={signedOut(session) as any}>
       <AuthDialogs
         showRegister={open() === "register"}
         onShowRegisterChange={(o) =>
@@ -389,6 +391,10 @@ describe("Send after a rate limit", () => {
     expect(send(dialog).disabled).toBe(true);
     expect(send(dialog).textContent).toBe("Try again in 60s");
     expect(within(dialog).getByRole("alert").textContent).toContain("Too many attempts");
+    // Send went disabled under the press: focus moved to the line saying why,
+    // not to the page.
+    expect(document.activeElement?.contains(within(dialog).getByRole("alert"))).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
     await page.screenshot({ path: `${SHOTS}/details-rate-limited-414.png` });
 
     vi.advanceTimersByTime(30_000);
@@ -497,6 +503,134 @@ describe("the passkey step", () => {
     await page.screenshot({ path: `${SHOTS}/added-414.png` });
     await userEvent.click(within(dialog).getByRole("button", { name: "Sign in" }));
     await sheet(SIGN_IN);
+  });
+
+  it("publishes the session an ordinary renewal brings, when the passkey went in from another tab", async () => {
+    await toPasskeyStep();
+    reload();
+    // The cookie now answers with this account's full session.
+    refreshHeldSession.mockResolvedValue({ held: true, session: sessionWith(ORDINARY) });
+    mount(null);
+    const dialog = await sheet(REGISTER);
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Add a passkey" }));
+
+    await waitFor(() => expect(adoptSession).toHaveBeenCalledWith(sessionWith(ORDINARY)));
+    expect(hoisted.registration.passkeyRegisterBegin).not.toHaveBeenCalled();
+    expect(hoisted.startRegistration).not.toHaveBeenCalled();
+    expect(hoisted.toastSuccess).toHaveBeenCalledWith("Welcome, @ada");
+    expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
+  });
+
+  it("says to sign in when that session cannot be published", async () => {
+    await toPasskeyStep();
+    reload();
+    refreshHeldSession.mockResolvedValue({ held: true, session: sessionWith(ORDINARY) });
+    adoptSession.mockRejectedValueOnce(new Error("quota"));
+    mount(null);
+    const dialog = await sheet(REGISTER);
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Add a passkey" }));
+
+    await within(dialog).findByText("Your passkey is added. Sign in with it to finish.");
+    expect(hoisted.registration.passkeyRegisterBegin).not.toHaveBeenCalled();
+    expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
+  });
+
+  it("publishes nothing when the renewal after enrolment is still restricted", async () => {
+    await toPasskeyStep();
+    const dialog = screen.getByRole("dialog", { name: REGISTER });
+    refreshHeldSession.mockResolvedValue({ held: true, session: sessionWith(RESTRICTED) });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
+
+    await within(dialog).findByText("Your passkey is added. Sign in with it to finish.");
+    expect(hoisted.registration.passkeyRegisterComplete).toHaveBeenCalledTimes(1);
+    expect(adoptSession).not.toHaveBeenCalled();
+  });
+
+  it("renews the held token once when enrolment answers 401", async () => {
+    await toPasskeyStep();
+    const dialog = screen.getByRole("dialog", { name: REGISTER });
+    hoisted.registration.passkeyRegisterBegin.mockRejectedValueOnce(
+      Object.assign(new Error("unauthorized"), { status: 401 }),
+    );
+    refreshHeldSession
+      .mockResolvedValueOnce({ held: true, session: sessionWith(RESTRICTED2) })
+      .mockResolvedValue({ held: true, session: sessionWith(ORDINARY) });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
+
+    await waitFor(() => expect(adoptSession).toHaveBeenCalledWith(sessionWith(ORDINARY)));
+    expect(hoisted.registration.passkeyRegisterBegin).toHaveBeenCalledTimes(2);
+    expect(hoisted.registration.passkeyRegisterBegin).toHaveBeenNthCalledWith(1, {
+      profileId: "usr_000000000001",
+      accessToken: RESTRICTED,
+    });
+    expect(hoisted.registration.passkeyRegisterBegin).toHaveBeenNthCalledWith(2, {
+      profileId: "usr_000000000001",
+      accessToken: RESTRICTED2,
+    });
+  });
+
+  it("ends the sign-up when a second 401 follows the renewal", async () => {
+    await toPasskeyStep();
+    const dialog = screen.getByRole("dialog", { name: REGISTER });
+    hoisted.registration.passkeyRegisterBegin.mockRejectedValue(
+      Object.assign(new Error("unauthorized"), { status: 401 }),
+    );
+    refreshHeldSession.mockResolvedValue({ held: true, session: sessionWith(RESTRICTED2) });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
+
+    await within(dialog).findByText(RAN_OUT);
+    expect(hoisted.registration.passkeyRegisterBegin).toHaveBeenCalledTimes(2);
+    expect(adoptSession).not.toHaveBeenCalled();
+    expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
+  });
+
+  it("ends the sign-up when the session behind the token is stale (409)", async () => {
+    await toPasskeyStep();
+    const dialog = screen.getByRole("dialog", { name: REGISTER });
+    hoisted.registration.passkeyRegisterComplete.mockRejectedValueOnce({ status: 409 });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
+
+    await within(dialog).findByText(RAN_OUT);
+    expect(adoptSession).not.toHaveBeenCalled();
+    expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
+  });
+
+  it("keeps the step, and its marker, when the renewal gets no answer", async () => {
+    await toPasskeyStep();
+    reload();
+    refreshHeldSession.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    mount(null);
+    const dialog = await sheet(REGISTER);
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Add a passkey" }));
+
+    await within(dialog).findByRole("alert");
+    expect(within(dialog).getByRole("button", { name: "Add a passkey" })).toBeTruthy();
+    expect(within(dialog).queryByText(RAN_OUT)).toBeNull();
+    expect(localStorage.getItem("osn.signup.enrolling")).not.toBeNull();
+  });
+});
+
+describe("a session appearing under a kept sign-up", () => {
+  it("clears the typed details and the passkey-step marker from storage", async () => {
+    const [session, setSession] = createSignal<unknown>(null);
+    mount("register", session);
+    const dialog = await sheet(REGISTER);
+    await fillDetails(dialog, { email: "ada@example.com", handle: "ada", birthdate: "1990-01-01" });
+    localStorage.setItem(
+      "osn.signup.enrolling",
+      JSON.stringify({
+        profileId: "usr_000000000001",
+        handle: "ada",
+        expiresAt: Date.now() + 60_000,
+      }),
+    );
+    expect(sessionStorage.getItem("osn.signup.draft")).not.toBeNull();
+    expect(localStorage.getItem("osn.signup.enrolling")).not.toBeNull();
+
+    setSession(sessionWith(ORDINARY));
+
+    await waitFor(() => expect(sessionStorage.getItem("osn.signup.draft")).toBeNull());
+    expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
   });
 });
 

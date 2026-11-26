@@ -169,23 +169,6 @@ describe("<AuthDialogs /> — close-on-session invariant", () => {
     expect(onShowSignInChange).toHaveBeenCalledWith(false);
   });
 
-  it("forgets a kept sign-up once a session appears, and not before", async () => {
-    const [session, setSession] = createSignal<unknown>(null);
-    pendingSignUp.forgetDraft.mockClear();
-    pendingSignUp.forgetEnrolling.mockClear();
-    renderDialogs(makeAuth(session), { register: true, signIn: false });
-    expect(pendingSignUp.forgetDraft).not.toHaveBeenCalled();
-    expect(pendingSignUp.forgetEnrolling).not.toHaveBeenCalled();
-
-    // The session's cookie replaced the sign-up's, and what was typed is not
-    // for the next person to open Create account.
-    setSession(SAMPLE_SESSION);
-    await Promise.resolve();
-
-    expect(pendingSignUp.forgetDraft).toHaveBeenCalled();
-    expect(pendingSignUp.forgetEnrolling).toHaveBeenCalled();
-  });
-
   // Only the flag that was actually set gets cleared. Without the per-flag
   // guards the effect would fire both setters on every session, in every shell
   // — including the two that mount signed-in and never opened a dialog.
