@@ -1216,7 +1216,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@shared/ui/ui/
 
 Key behaviours you get by default:
 
-- **Dialog** — portaled to `<body>`, overlay click dismisses, Escape key dismisses, focus trapped
+- **Dialog** — portaled to `<body>`, overlay click dismisses, Escape key dismisses, focus trapped. Under happy-dom a closed panel stays mounted, in `data-closed`, unless the test file turns animations off, as `osn/auth-ui/tests/helpers/motion.ts`'s `withoutAnimations()` does ([[testing-patterns#Kobalte overlays and the tests after them]])
 - **Popover** — portaled, auto-positioned, outside click/Escape dismisses
 - **DropdownMenu** — portaled, roving focus by arrow keys, typeahead; §`DropdownMenu` above for its looks and rows
 - **Tabs** — `role="tablist"` / `role="tab"` / `role="tabpanel"`, keyboard arrow navigation
