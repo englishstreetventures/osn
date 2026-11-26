@@ -9,15 +9,15 @@ import ./account.bend as Account
 import ./choices.bend as Choices
 import ./holds.bend as Holds
 import ./succession.bend as Succession
-import ./weddings.bend as Weddings
+import ../../../../cire/api/laws/account-deletion/weddings.bend as Weddings
 import ./SPEC.bend as Spec
 import ./LAWS.bend as Laws
-import ./kit.bend as K
+import ../../../../tools/bend/kit.bend as K
 import ./proof_account.bend as PA
 import ./proof_choices.bend as PC
 import ./proof_holds.bend as PH
 import ./proof_succession.bend as PE
-import ./proof_weddings.bend as PD
+import ./proof_sole_owner.bend as PD
 
 def Laws.never_before_window(es):
   PA.reach(es, Account.init(), Unit{}, x => {Spec.on_time(x) == True{} : Bool},
@@ -73,12 +73,6 @@ def Laws.delete_answer_deletes(gone, ms):
 
 def Laws.passes_when_it_can(gone, ms, ans):
   PE.passes_eq(gone, ms, ans)
-
-def Laws.no_live_wedding_without_owner(q, a, es):
-  PD.run_inv(es, Weddings.created(q, a), Unit{})
-
-def Laws.erasure_never_promotes(acct, q, ss):
-  PD.promotes_eq(acct, q, ss)
 
 def Laws.sole_owner_blocks_deletion(acct, wid, w, os, ps):
   PD.sole_blocks(acct, wid, w, os, ps)

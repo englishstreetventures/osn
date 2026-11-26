@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Contributing
@@ -87,7 +87,7 @@ The Changeset Check workflow runs `bunx changeset status` to catch typos before 
 
 Never mix version-less packages (`@cire/*`) and versioned ones in one changeset — split them. `scripts/validate-changesets.sh` enforces both rules.
 
-**When none is needed.** A pull request that touches nothing a versioned package ships — `shared/swift/`, `pulse/ios/`, `osn/ios/`, `.github/`, `.claude/`, `scripts/`, `wiki/`, `docs/`, top-level prose — needs no changeset, because there is no honest package to name. The test is an allowlist, `scripts/changeset-required.sh` (fixtures in `scripts/tests/changeset-required.test.sh`); anything not on it, `bun.lock` and root `turbo.json`/`tsconfig.json` included, still requires one. Always pipe the diff in:
+**When none is needed.** A pull request that touches nothing a versioned package ships — `shared/swift/`, `pulse/ios/`, `osn/ios/`, `.github/`, `.claude/`, `scripts/`, `wiki/`, `docs/`, `tools/bend/`, a workspace's Bend law sets (`<workspace>/laws/<topic>/`), top-level prose — needs no changeset, because there is no honest package to name. The test is an allowlist, `scripts/changeset-required.sh` (fixtures in `scripts/tests/changeset-required.test.sh`); anything not on it, `bun.lock` and root `turbo.json`/`tsconfig.json` included, still requires one. Always pipe the diff in:
 
 ```bash
 git diff --name-only origin/main...HEAD | bash scripts/changeset-required.sh

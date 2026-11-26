@@ -1,15 +1,15 @@
-# Proofs about one cire wedding.
+# Proofs about one cire wedding. The law that ties its preview to osn-api's
+# verdict, sole_owner_blocks_deletion, is proved with osn-api's laws
+# (osn/api/laws/account-deletion/proof_sole_owner.bend).
 #
 # `Spec.owner_if_live` holds in every reachable state: each host change goes
 # through only while an owner remains, an erasure deletes a wedding it leaves
 # without an owner, and a restore needs an owner seat.
 
 import Base
-import ./kit.bend as K
-import ./choices.bend as C
+import ../../../../tools/bend/kit.bend as K
 import ./weddings.bend as D
 import ./SPEC.bend as Spec
-import ./proof_choices.bend as PC
 
 # D1
 # --
@@ -100,24 +100,3 @@ def promotes_eq(+acct: Nat, +q: Nat, +ss: +List<D.Seat>)
   -> {Spec.imp(D.owns(q, D.erase_seats(acct, ss)), D.owns(q, ss)) == True{} : Bool}:
   K.to_eq(Spec.imp(D.owns(q, D.erase_seats(acct, ss)), D.owns(q, ss)),
     K.imp_intro(D.owns(q, D.erase_seats(acct, ss)), D.owns(q, ss), w => erase_owns(acct, q, ss, w)))
-
-# D3
-# --
-
-# With the wedding's action in the preview, Ok means it was answered.
-def wedding_answered(+os: +List<C.OrgAct>, +wid: Nat, +ps: +List<C.Pick>)
-  -> K.T(Spec.imp(C.is_ok(C.check(os, [D.wedding_action(wid)], ps)), C.names_app(wid, ps))):
-  K.imp_intro(C.is_ok(C.check(os, [D.wedding_action(wid)], ps)), C.names_app(wid, ps),
-    ok => K.not_not(C.names_app(wid, ps),
-      K.nor_l(Bool.not(C.names_app(wid, ps)), False{},
-        K.nor_r(C.open_orgs(os, ps), C.open_apps([D.wedding_action(wid)], ps),
-          K.imp_elim(C.is_ok(C.check(os, [D.wedding_action(wid)], ps)), Bool.not(C.is_open(os, [D.wedding_action(wid)], ps)),
-            PC.check_answered(os, [D.wedding_action(wid)], ps), ok)))))
-
-def sole_blocks(+acct: Nat, +wid: Nat, +w: D.W, +os: +List<C.OrgAct>, +ps: +List<C.Pick>)
-  -> {Spec.imp(D.sole(acct, w) && C.is_ok(C.verdict(C.Req{os, D.preview(acct, wid, w), ps, False{}, False{}})), C.names_app(wid, ps)) == True{} : Bool}:
-  K.bool_case(D.sole(acct, w),
-    y => {Spec.imp(y && C.is_ok(C.check(os, Bool.pick(+List<C.AppAct>, y, [D.wedding_action(wid)], []), ps)), C.names_app(wid, ps)) == True{} : Bool},
-    e => K.to_eq(Spec.imp(C.is_ok(C.check(os, [D.wedding_action(wid)], ps)), C.names_app(wid, ps)),
-      wedding_answered(os, wid, ps)),
-    e => {==})

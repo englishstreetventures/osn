@@ -12,7 +12,7 @@ last-reviewed: 2026-11-26
 
 # Account deletion laws
 
-The rules of [[account-deletion]] written as a small model in [Bend](https://bend-lang.org/) 2, a language whose type checker checks proofs, with eighteen laws proved about the model, and tests that run the same events through the model and through osn-api's and cire-api's code and fail when the two disagree. It all lives in [`tools/deletion-laws/`](../../tools/deletion-laws/).
+The rules of [[account-deletion]] written as a small model in [Bend](https://bend-lang.org/) 2, a language whose type checker checks proofs, with eighteen laws proved about the model, and tests that run the same events through the model and through osn-api's and cire-api's code and fail when the two disagree. Each service keeps its laws beside its code: osn-api's in [`osn/api/laws/account-deletion/`](../../osn/api/laws/account-deletion/), cire-api's in [`cire/api/laws/account-deletion/`](../../cire/api/laws/account-deletion/); the Bend toolchain they share is in [`tools/bend/`](../../tools/bend/).
 
 > [!important] What a proof shows here
 > A proof shows a law holds in **the model**, over every sequence of events, of any length. It says nothing about the TypeScript by itself. The agreement tests are what tie the model to the code, and they check only the cases they run. A law is as true of the code as the model is faithful to it.
@@ -21,25 +21,34 @@ The rules of [[account-deletion]] written as a small model in [Bend](https://ben
 
 ```mermaid
 flowchart LR
-  M["account, choices, holds,<br/>succession, weddings .bend<br/>(the model)"] ==> L["LAWS.bend<br/>(the laws, SPEC.bend<br/>says what they mean)"]
-  L ==> P["PROOF.bend + proof_*.bend<br/>bend PROOF.bend:<br/>ALL PROOFS CHECK"]
-  M ==> J["model.mjs<br/>(bend model.bend -o)"]
-  J ==> T["osn/api/tests/laws<br/>cire/api/tests/laws"]
-  C["osn-api and cire-api<br/>services on bun:sqlite"] ==> T
+  O["osn/api/laws/account-deletion<br/>account, choices, holds,<br/>succession .bend"] ==> OL["its LAWS.bend + PROOF.bend<br/>(16 laws)"]
+  W["cire/api/laws/account-deletion<br/>weddings.bend"] ==> WL["its LAWS.bend + PROOF.bend<br/>(2 laws)"]
+  W ==> OL
+  O ==> W
+  O ==> OM["osn model.mjs"] ==> OT["osn/api/tests/laws"]
+  W ==> WM["cire model.mjs"] ==> WT["cire/api/tests/laws"]
+  K["tools/bend<br/>pin, bend.sh, kit.bend"] ==> OL
+  K ==> WL
 ```
 
-| File | Holds |
-|---|---|
-| `account.bend` | One account's deletion: request, cancel, fan-out pass, hard-delete pass |
-| `choices.bend` | `DELETE /account`'s verdict on the open actions and the answers |
-| `holds.bend` | One handle's hold through the soft delete, a cancel and the hard delete |
-| `succession.bend` | Who an organisation passes to at its owner's hard delete |
-| `weddings.bend` | One cire wedding's seats, its deletion preview, and an account's erasure |
-| `model.bend` | Imports the five; what `model.mjs` is built from |
-| `SPEC.bend`, `LAWS.bend` | What each law means, and the laws. A law changes only by the owner's decision |
-| `kit.bend`, `proof_*.bend`, `PROOF.bend` | The proofs |
-| `model.mjs`, `model.d.mts` | The compiled model, committed, and its types |
-| `bend.env`, `bend.sh` | The pinned Bend release, and the script every run goes through |
+Each topic folder is a Bend project root of its own:
+
+| Where | File | Holds |
+|---|---|---|
+| `osn/api/laws/account-deletion/` | `account.bend` | One account's deletion: request, cancel, fan-out pass, hard-delete pass |
+| | `choices.bend` | `DELETE /account`'s verdict on the open actions and the answers |
+| | `holds.bend` | One handle's hold through the soft delete, a cancel and the hard delete |
+| | `succession.bend` | Who an organisation passes to at its owner's hard delete |
+| | `SPEC.bend`, `LAWS.bend` | What each law means, and 16 laws: the account's, the verdict's, the holds', succession's, and `sole_owner_blocks_deletion`, which spans both services and imports cire's `weddings.bend` |
+| | `proof_*.bend`, `PROOF.bend` | The proofs; `proof_sole_owner.bend` proves the law that spans both services |
+| | `model.bend`, `model.mjs`, `model.d.mts` | The four modules compiled for osn-api's agreement tests, committed, and their types |
+| `cire/api/laws/account-deletion/` | `weddings.bend` | One cire wedding's seats, its deletion preview, and an account's erasure; it imports osn-api's `choices.bend` for the preview's action, the app contract cire answers |
+| | `SPEC.bend`, `LAWS.bend` | What each law means, and 2 laws: a live wedding's owner, and an erasure that promotes no one |
+| | `proof_weddings.bend`, `PROOF.bend` | The proofs |
+| | `model.bend`, `model.mjs`, `model.d.mts` | `weddings.bend` compiled for cire-api's agreement test (with the `choices.bend` defs it uses, exported under their path), committed, and their types |
+| `tools/bend/` | `bend.env`, `install-bend.sh`, `bend.sh`, `kit.bend` | The pinned Bend release, its installer, the script every run goes through, and the proof kit every set imports |
+
+**A new law set** goes in `<workspace>/laws/<topic>/` beside the code it is about, with its own `LAWS.bend`, and a `PROOF.bend` that imports it; add `model.bend` (and commit the `model.mjs` it builds) when agreement tests need the model. A law that spans services lives with the service that runs the flow and imports the other's model by relative path (`import ../../../../cire/api/laws/…`). `bend.sh` finds a set by that path once it is in the index (`git add` it), so nothing lists the sets by hand, and the deploy map, the changeset rule and the `Bend proofs` CI job all read the same two-level path, `<top>/<package>/laws/<topic>/`. Name its folders with letters, digits, `.`, `_` and `-` only; `bend.sh` refuses any other name. Nothing a build reads may name a set: oxlint refuses an import of one from any `src/`, and `scripts/tests/law-set-references.test.ts` refuses one anywhere else a product build reads, `.astro` files, globs and config outside `src/` included. A set ships in nothing.
 
 Each event in the model is one whole service call. Times are unix seconds; a job's id is the account's count of requests, standing for the random `job_id` the code gives each job.
 
@@ -84,22 +93,25 @@ The model makes one assumption the code does not state: one clock that never goe
 Install the pinned Bend once (it checks the release's SHA-256 against `bend.env`, and installs into `~/.bend`; leave `~/.bend/bin` off the PATH, so nothing runs it bare):
 
 ```bash
-bash tools/deletion-laws/bend.sh install
-bun run --cwd tools/deletion-laws prove   # bend PROOF.bend: ALL PROOFS CHECK
-bun run --cwd tools/deletion-laws build   # rebuild model.mjs after a .bend change
-bun run --cwd tools/deletion-laws check   # prove, and fail unless model.mjs is what model.bend builds
-bun run --cwd osn/api test:repo           # the osn-api agreement tests
-bun run --cwd cire/api test:repo          # the cire-api agreement test
+bash tools/bend/bend.sh install
+bun run --cwd tools/bend sets      # every law set
+bun run --cwd tools/bend prove     # bend PROOF.bend in every set: ALL PROOFS CHECK each
+bun run --cwd tools/bend build     # rebuild every set's model.mjs after a .bend change
+bun run --cwd tools/bend check     # prove every set, and fail unless each model.mjs is what its model.bend builds
+bash tools/bend/bend.sh prove osn/api/laws/account-deletion   # one set
+bunx --bun vitest run --project laws   # in osn/api: the osn-api agreement tests
+bun test --preload ./tests/test-helpers/metrics-harness.ts tests/laws/   # in cire/api: the cire-api agreement test
 ```
 
-Run Bend only through `bend.sh` (`bash tools/deletion-laws/bend.sh guide` for the guide), never bare and never `bend update`. It sets `BEND_NO_TELEMETRY=1`, without which Bend asks bend-lang.com for its latest version once a day, and it runs a `bend` only when the binary's SHA-256 is the one `bend.env` pins for the platform.
+Run Bend only through `bend.sh` (`bash tools/bend/bend.sh guide` for the guide), never bare and never `bend update`. It sets `BEND_NO_TELEMETRY=1`, without which Bend asks bend-lang.com for its latest version once a day, and it runs a `bend` only when the binary's SHA-256 is the one `bend.env` pins for the platform. It reads `bend.env` as data, `KEY=value` lines, and never runs it, as the CI job does. A proof passes only when `bend PROOF.bend` exits 0 and prints `ALL PROOFS CHECK`.
 
-- **On commit**, lefthook's `bend-proofs` step runs when a `.bend` file is staged: it proves the laws and rebuilds `model.mjs`, and fails, asking for it to be staged, when the rebuild changed it. With no Bend, or another version, it prints one line and passes.
-- **`bend.sh` itself** is tested by `scripts/tests/deletion-laws-bend-sh.cli.test.ts` (a stale `model.mjs`, a failed proof, another version, no Bend, the hook's two outcomes), and the pinned install by `scripts/tests/install-bend.cli.test.ts`.
-- **In CI**, the `bend-proofs` job installs the pinned release (SHA-256 checked, cached by version), and runs `bend.sh check`. The agreement tests run in Build & Test and in the cire-api job, as each package's `test:repo` task, which turbo reruns when `model.mjs` or its types change ([[testing-patterns#Tests that read files outside their package]]).
+- **On commit**, lefthook's `bend-proofs` step runs when a `.bend` file is staged: it proves every set and rebuilds each `model.mjs`, and fails, asking for it to be staged, when a rebuild changed one. With no pinned Bend here, it prints one line and passes.
+- **`bend.sh` itself** is tested by `scripts/tests/bend-sh.cli.test.ts` (which sets it finds, none found, a set name it refuses, a set whose proof imports no laws, a stale `model.mjs`, a failed proof, a failure printed with exit 0, a `bend.env` line that would run, another version or build, no Bend, the hook's outcomes), and the pinned install by `scripts/tests/install-bend.cli.test.ts`.
+- **In CI**, the `Bend proofs` job runs when a change touches a law set, `tools/bend/` or the workflow: it installs the pinned release (SHA-256 checked, cached by version), lists the sets and runs `bend.sh check`. The agreement tests run in each package's ordinary `test` (Build & Test and the cire-api job); they read only their own package's `model.mjs`, never a `.bend` file, so a proof-only change leaves them cached.
+- **Deploys.** A change only inside law sets redeploys nothing, on dev or in a production release, and needs no changeset (`scripts/deploy-surfaces.ts` `ships`, which `scripts/release-plan.ts` also reads, and `scripts/changeset-required.sh`).
 
 ## Changing it
 
 - **The code changes.** If an agreement test fails, the model and the code have parted: change the model and re-prove, or the code was wrong. If a law then fails to prove, the change broke a deletion rule.
-- **A rule changes.** Change the model, rebuild `model.mjs`, re-prove; a law changes only by the owner's decision.
-- **Writing Bend.** `AGENTS.md` §Standing rules has the owner's four rules. Read the guide first (`bash tools/deletion-laws/bend.sh guide`): Bend 2 is not Bend 1, and what you know of Bend 1 is wrong here.
+- **A rule changes.** Change the model, rebuild every `model.mjs` (`bun run --cwd tools/bend build`: cire's compiles osn-api's `choices.bend` too), re-prove; a law changes only by the owner's decision.
+- **Writing Bend.** `AGENTS.md` §Standing rules has the owner's four rules. Read the guide first (`bash tools/bend/bend.sh guide`): Bend 2 is not Bend 1, and what you know of Bend 1 is wrong here.

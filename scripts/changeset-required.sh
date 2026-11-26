@@ -73,7 +73,19 @@ is_allowed() {
     # of the `webgpu-threejs-tsl` install — drop them together, with the
     # `.github/CODEOWNERS` rules for both paths, if the tree ever goes.
     .agents/*) return 0 ;;
+    # The Bend toolchain (its pin, installer, proof kit and script): not a
+    # workspace, and built into nothing.
+    tools/bend/*) return 0 ;;
   esac
+
+  # A workspace's Bend law sets, `<top>/<package>/laws/<topic>/…`: proofs and
+  # the model their agreement tests import, which no build ships (nothing a
+  # build reads may name them, and scripts/deploy-surfaces.ts redeploys
+  # nothing for them). Exactly two levels before `laws/`, by regex, since a case `*`
+  # crosses `/`.
+  if [[ $f =~ ^[^/]+/[^/]+/laws/[^/]+/ ]]; then
+    return 0
+  fi
 
   return 1
 }

@@ -101,6 +101,7 @@ import {
   SURFACES,
   type Surface,
   type SurfaceKey,
+  ships,
   type Tier,
   WORKFLOW_FILE,
 } from "./deploy-surfaces";
@@ -803,7 +804,7 @@ export function changedStacks(input: {
         `cannot compare production's ${short(production)} with this commit`,
       );
     }
-    const own = files.filter((file) => s.paths.test(file));
+    const own = files.filter((file) => ships(file) && s.paths.test(file));
     if (own.length === 0) {
       return change(
         false,
@@ -821,7 +822,7 @@ export function changedStacks(input: {
 
 /** Whether a commit whose files differ from the release commit's by `files` has the same stack paths. */
 export function sameStackContent(key: StackKey, files: readonly string[] | undefined): boolean {
-  return files !== undefined && !files.some((file) => stack(key).paths.test(file));
+  return files !== undefined && !files.some((file) => ships(file) && stack(key).paths.test(file));
 }
 
 /** The stacks whose dev deployments the gate has to read. */
@@ -952,12 +953,12 @@ export function stackPlans(
  * `any_stack` also says a site build is needed: only a stack deploys a site.
  */
 export function outputLines(release: ReleaseDecisions): string {
-  const ships = new Set(release.decisions.filter((d) => d.ship).map((d) => d.key));
+  const shipping = new Set(release.decisions.filter((d) => d.ship).map((d) => d.key));
   const stacks = release.stacks.filter((s) => s.ship).map((s) => s.key);
   return [
-    ...PRODUCTION_SURFACES.map((s) => `${s.key}=${ships.has(s.key)}`),
+    ...PRODUCTION_SURFACES.map((s) => `${s.key}=${shipping.has(s.key)}`),
     ...PRODUCTION_STACKS.map((s) => `stack_${s.key}=${stacks.includes(s.key)}`),
-    `any=${ships.size > 0 || stacks.length > 0}`,
+    `any=${shipping.size > 0 || stacks.length > 0}`,
     `any_stack=${stacks.length > 0}`,
     "",
   ].join("\n");

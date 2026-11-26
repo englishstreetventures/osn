@@ -2,35 +2,29 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
-    // tests/laws/ compares the deletion model that tools/deletion-laws
-    // compiles to model.mjs with this package's services. It runs as
-    // `test:repo`, which names that file and its types as inputs. `test`
-    // depends on `test:repo`, and turbo folds a dependency's hash into the
-    // task's, so a change to the model reruns this package's whole suite as
-    // well. The type check reads the types too, beside the root task's own
-    // input.
-    "test": {
-      "dependsOn": ["^build", "test:repo"]
+    // Only tests/laws/ reads laws/, and only the compiled model.mjs and its
+    // types there, never a .bend file. So `test` and the type check (which
+    // reads the tests) leave the .bend files out, and the build and the D1
+    // tier leave the whole folder out: a proof-only edit reruns none of them.
+    // `transit`, which the type check depends on, hashes the package's files
+    // too, so it leaves the .bend files out as well.
+    "transit": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!laws/**/*.bend"]
     },
-    "test:repo": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md",
-        "$TURBO_ROOT$/tools/deletion-laws/model.mjs",
-        "$TURBO_ROOT$/tools/deletion-laws/model.d.mts"
-      ]
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", "!laws/**"]
     },
     "typecheck": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/astro-typecheck.ts",
-        "$TURBO_ROOT$/tools/deletion-laws/model.d.mts"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/astro-typecheck.ts", "!laws/**/*.bend"]
+    },
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!laws/**/*.bend"]
     },
     // tests/d1/worker-e2e.test.ts writes its results outside this package, to
     // the repository's e2e-artifacts/, which CI uploads. Declared here, a
     // cached run restores that file instead of leaving the upload empty.
     "test:d1": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!laws/**"],
       "outputs": ["$TURBO_ROOT$/e2e-artifacts/osn-api-workerd/**"]
     }
   }

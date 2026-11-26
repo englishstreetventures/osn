@@ -1,4 +1,4 @@
-// Types for model.mjs, which `bend model.bend -o model.mjs` writes. A Bend
+// Types for osn-api's model.mjs, which `bend model.bend -o model.mjs` writes. A Bend
 // value crosses as `{ $: "<constructor>", ...fields }`, a Nat as a number, a
 // Bool as a boolean, and a List as `Con`/`Nil` cells. Only the defs the
 // agreement tests call are declared.
@@ -68,18 +68,6 @@ export type Answer =
   | { $: "Remove" }
   | { $: "Unanswered" };
 
-// weddings.bend
-export type Role = { $: "Owner" } | { $: "Editor" } | { $: "Viewer" } | { $: "Helper" };
-export type Seat = { $: "Seat"; profile: number; account: number; role: Role };
-export type W = { $: "W"; live: boolean; seats: List<Seat> };
-export type WEv =
-  | { $: "Add"; profile: number; account: number; role: Role }
-  | { $: "Remove"; profile: number }
-  | { $: "SetRole"; profile: number; role: Role }
-  | { $: "EraseAcct"; account: number }
-  | { $: "Discard" }
-  | { $: "Revive"; profile: number };
-
 declare const model: {
   readonly "choices:delete_choice": () => number;
   readonly "choices:verdict": (r: Req) => Verdict;
@@ -91,8 +79,5 @@ declare const model: {
   readonly "holds:step": (s: H, e: HoldEv) => H;
   readonly "holds:live": (h: Hold, t: number) => boolean;
   readonly "succession:heir": (gone: number, members: List<Mem>, answer: Answer) => Maybe<number>;
-  readonly "weddings:created": (profile: number, account: number) => W;
-  readonly "weddings:step": (w: W, e: WEv) => W;
-  readonly "weddings:preview": (account: number, wedding: number, w: W) => List<AppAct>;
 };
 export default model;

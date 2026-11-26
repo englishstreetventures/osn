@@ -9,36 +9,34 @@
     // re-runs the suite rather than replaying a cached green. The Miniflare
     // suite is left out: the `test` script skips it (`--path-ignore-patterns`
     // in package.json), and `test:d1` hashes and runs it.
+    //
+    // Only tests/laws/ reads laws/, and only the compiled model.mjs and its
+    // types there, never a .bend file. So `test` and the type check (which
+    // reads the tests) leave the .bend files out, and the build and the D1
+    // tier leave the whole folder out: a proof-only edit reruns none of them.
+    // `transit`, which the type check depends on, hashes the package's files
+    // too, so it leaves the .bend files out as well.
+    "transit": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!laws/**/*.bend"]
+    },
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", "!laws/**"]
+    },
+    "typecheck": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/astro-typecheck.ts", "!laws/**/*.bend"]
+    },
+    "test:d1": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!laws/**"]
+    },
     "test": {
-      "dependsOn": ["^build", "test:repo"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "!**/*.md",
         "!tests/db/d1-integration.test.ts",
+        "!laws/**/*.bend",
         "$TURBO_ROOT$/shared/infra/src/hosts.ts",
         "$TURBO_ROOT$/.github/workflows/cire-d1-latency-probe.yml",
         "$TURBO_ROOT$/scripts/smoke-check.ts"
-      ]
-    },
-    // tests/laws/ compares the deletion model that tools/deletion-laws
-    // compiles to model.mjs with this package's services: `test` leaves it
-    // out (package.json) and `test:repo` runs it, rerun when the model or its
-    // types change; through `test`'s dependency on it, so is the whole suite.
-    // The type check reads the types too, beside the root task's own input.
-    "test:repo": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md",
-        "!tests/db/d1-integration.test.ts",
-        "$TURBO_ROOT$/tools/deletion-laws/model.mjs",
-        "$TURBO_ROOT$/tools/deletion-laws/model.d.mts"
-      ]
-    },
-    "typecheck": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/astro-typecheck.ts",
-        "$TURBO_ROOT$/tools/deletion-laws/model.d.mts"
       ]
     }
   }

@@ -37,7 +37,11 @@
  * dev surface, so a change to the check runs there before a release runs it
  * against production; a change to scripts/guest-route-parity.ts or its Node
  * child, scripts/guest-route-parity-reference.js, which check the guest
- * site's, redeploys that surface.
+ * site's, redeploys that surface. A workspace's Bend law sets,
+ * `<workspace>/laws/<topic>/`, redeploy nothing: nothing a Worker or site
+ * builds from names them (oxlint refuses an import of one from any `src/`;
+ * scripts/tests/law-set-references.test.ts covers the rest), so a change to
+ * them alone ships nothing.
  *
  * The job ids and names are load-bearing. A GitHub Deployment record does not
  * say which surface it deployed; the name of the job that made it does, and
@@ -299,6 +303,20 @@ export const SMOKE_CHECKED_ON_DEV: ReadonlySet<SurfaceKey> = new Set(SURFACES.ma
 const SHARED_CONTENT =
   /^(shared\/(?!infra\/)|patches\/|bun\.lock$|package\.json$|turbo\.json$|tsconfig\.json$|\.browserslistrc$)/;
 
+/**
+ * A workspace's Bend law sets, one topic folder each
+ * (`<workspace>/laws/<topic>/`): the laws, their proofs and the model their
+ * agreement tests import. No surface builds from them, wherever they sit. A
+ * file directly in `laws/` is not a set, the same line bend.sh, the changeset
+ * check and CI's `bend` filter draw.
+ */
+const LAW_SETS = /^[^/]+\/[^/]+\/laws\/[^/]+\//;
+
+/** Whether a change to `file` can reach anything a surface deploys. */
+export function ships(file: string): boolean {
+  return !LAW_SETS.test(file);
+}
+
 export function isSurfaceKey(value: string): value is SurfaceKey {
   return SURFACES.some((s) => s.key === value);
 }
@@ -345,6 +363,7 @@ export function sharedPath(file: string, tier: Tier): boolean {
  * commits that differ only there deploy the same thing.
  */
 export function changesContent(target: Surface, file: string): boolean {
+  if (!ships(file)) return false;
   return (
     SHARED_CONTENT.test(file) ||
     target.paths.test(file) ||
@@ -358,23 +377,24 @@ export function deployReason(
   files: readonly string[],
   tier: Tier,
 ): string | undefined {
-  const shared = files.find((file) => sharedPath(file, tier));
+  const shipping = files.filter(ships);
+  const shared = shipping.find((file) => sharedPath(file, tier));
   if (shared !== undefined) return `${shared} changed, which every surface builds from`;
-  const own = files.filter((file) => target.paths.test(file));
+  const own = shipping.filter((file) => target.paths.test(file));
   if (own.length > 0) {
     return own.length === 1
       ? `${own[0]} changed`
       : `${own[0]} changed, and ${own.length - 1} more of its files`;
   }
   const deploys = tier === "dev" || stackDeployed(target);
-  const infra = deploys ? files.find((file) => stack(target.stack).paths.test(file)) : undefined;
+  const infra = deploys ? shipping.find((file) => stack(target.stack).paths.test(file)) : undefined;
   if (infra !== undefined) return `${infra} changed, which the ${target.stack} stack deploys`;
   if (tier === "production") return undefined;
   const check = SMOKE_CHECKED_ON_DEV.has(target.key)
-    ? files.find((file) => DEV_CHECK_FILES.has(file))
+    ? shipping.find((file) => DEV_CHECK_FILES.has(file))
     : undefined;
   if (check !== undefined) return `${check} changed, which checks every dev deploy`;
-  const surfaceCheck = files.find((file) => SURFACE_CHECK_FILES.get(file) === target.key);
+  const surfaceCheck = shipping.find((file) => SURFACE_CHECK_FILES.get(file) === target.key);
   return surfaceCheck === undefined
     ? undefined
     : `${surfaceCheck} changed, which checks this surface's dev deploy`;
@@ -501,7 +521,7 @@ export function devStackDecisions(
       event !== "push" ||
       files === undefined ||
       decisions.some((d) => d.deploy && surface(d.key).stack === s.key) ||
-      files.some((file) => s.paths.test(file)),
+      files.some((file) => ships(file) && s.paths.test(file)),
   }));
 }
 

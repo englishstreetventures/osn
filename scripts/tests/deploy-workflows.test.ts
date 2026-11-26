@@ -1548,11 +1548,15 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
     });
   });
 
-  // The Bend proofs read tools/deletion-laws, their installer and this
-  // workflow, and nothing else; a change to none of them skips the job.
+  // The Bend proofs read the law sets (`<workspace>/laws/<topic>/`), the
+  // toolchain in tools/bend/ and this workflow, and nothing else; a change to
+  // none of them skips the job.
   test.each([
-    ["a change to the model", "true", [["tools/deletion-laws/account.bend"]]],
-    ["a change to the installer", "true", [["scripts/install-bend.sh"]]],
+    ["a change to osn-api's laws", "true", [["osn/api/laws/account-deletion/account.bend"]]],
+    ["a change to cire-api's model", "true", [["cire/api/laws/account-deletion/model.mjs"]]],
+    ["a change to a new set elsewhere", "true", [["zap/api/laws/messaging/LAWS.bend"]]],
+    ["a change to the toolchain", "true", [["tools/bend/install-bend.sh"]]],
+    ["a change to the agreement tests", "false", [["osn/api/tests/laws/model.ts"]]],
     ["a change to this workflow", "true", [[".github/workflows/ci.yml"]]],
     ["a change to a service the model describes", "false", [["osn/api/src/a.ts"]]],
     ["a change of prose", "false", [["wiki/a.md"]]],

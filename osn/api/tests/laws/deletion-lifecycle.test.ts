@@ -31,7 +31,7 @@ import {
 } from "./model";
 
 /**
- * The account-deletion model (tools/deletion-laws/account.bend, holds.bend)
+ * The account-deletion model (laws/account-deletion/account.bend, holds.bend)
  * against osn-api's services. Each trace is a list of events: a request, a
  * cancel, a fan-out pass with each app's reply, a hard-delete pass, and
  * another account trying the deleted account's handle. Every event goes

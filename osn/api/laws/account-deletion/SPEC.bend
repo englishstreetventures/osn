@@ -6,7 +6,6 @@ import ./account.bend as Account
 import ./choices.bend as Choices
 import ./holds.bend as Holds
 import ./succession.bend as Succession
-import ./weddings.bend as Weddings
 
 def imp(a: Bool, b: Bool) -> Bool:
   Bool.not(a) || b
@@ -249,12 +248,3 @@ def any_other(+gone: Nat, ms: +List<Succession.Mem>) -> Bool:
       False{}
     case Succession.Mem{p, a, r} <> rest:
       Bool.not(Nat.is_eq(a, gone)) || any_other(gone, rest)
-
-# Weddings
-# --------
-
-# A live wedding has an owner.
-def owner_if_live(w: Weddings.W) -> Bool:
-  match w:
-    case Weddings.W{live, ss}:
-      Bool.not(live) || Weddings.has_owner(ss)

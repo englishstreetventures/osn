@@ -7,7 +7,7 @@
 # final state to a lemma about it.
 
 import Base
-import ./kit.bend as K
+import ../../../../tools/bend/kit.bend as K
 import ./account.bend as A
 import ./choices.bend as C
 import ./SPEC.bend as Spec

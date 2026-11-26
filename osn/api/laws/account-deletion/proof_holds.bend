@@ -6,7 +6,7 @@
 # keeps it.
 
 import Base
-import ./kit.bend as K
+import ../../../../tools/bend/kit.bend as K
 import ./holds.bend as B
 import ./SPEC.bend as Spec
 

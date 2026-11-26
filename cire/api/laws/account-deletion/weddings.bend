@@ -15,7 +15,7 @@
 # 214-262).
 
 import Base
-import ./choices.bend as Choices
+import ../../../../osn/api/laws/account-deletion/choices.bend as Choices
 
 type Role is Data:
   Owner{}

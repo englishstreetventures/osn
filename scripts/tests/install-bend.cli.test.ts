@@ -1,4 +1,4 @@
-// scripts/install-bend.sh, one test per way it can fail. The `bend-proofs` CI
+// tools/bend/install-bend.sh, one test per way it can fail. The `bend-proofs` CI
 // job runs the bend binary it unpacks, from a tarball the workflow restores
 // from GitHub's cache or downloads, so a tarball that is not the pinned
 // release must stop the job before anything is unpacked, whichever way it
@@ -20,7 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const INSTALL = join(import.meta.dir, "..", "install-bend.sh");
+const INSTALL = join(import.meta.dir, "..", "..", "tools", "bend", "install-bend.sh");
 const VERSION = "2.0.40";
 const TARGET = "linux-x64";
 const FILE = `bend-${VERSION}-${TARGET}.tar.gz`;

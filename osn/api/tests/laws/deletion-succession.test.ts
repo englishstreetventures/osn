@@ -10,7 +10,7 @@ import { type Answer, type Mem, list, model, seeded } from "./model";
 
 /**
  * Who an organisation passes to at its owner's hard delete
- * (tools/deletion-laws/succession.bend) against hardDeleteAccount on
+ * (laws/account-deletion/succession.bend) against hardDeleteAccount on
  * bun:sqlite. Each case seeds one organisation owned by a profile of the
  * account being erased, its members in order of joining (the owner's own
  * membership first, the account's other profiles among them), and the answer

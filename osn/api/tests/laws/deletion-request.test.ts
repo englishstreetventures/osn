@@ -33,7 +33,7 @@ import {
 } from "./model";
 
 /**
- * The route's verdict on a deletion request (tools/deletion-laws/choices.bend)
+ * The route's verdict on a deletion request (laws/account-deletion/choices.bend)
  * against `DELETE /account` itself. Each case seeds the person's owned
  * organisations, with or without a member or an admin from another account,
  * has Pulse's stand-in answer the preview with its actions (and Zap fail it
