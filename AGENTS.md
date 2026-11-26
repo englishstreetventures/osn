@@ -60,15 +60,15 @@ Work is tracked in GitHub Issues, never the wiki.
 - **Guard hook.** In Claude Code, a `PreToolUse` hook runs main's copy of `scripts/agent-guard.ts` and refuses the commonest slips against this file's rules — a bare `bun install`, a heredoc in `$(…)`, a commit or push on `main`, a tracker finding ID in public text, a test under `src/`, a `wrangler d1 execute` or `migrations apply` that is not local or dev, an `Agent` call with no `subagent_type` — naming the fix. It catches slips; it is not enforcement, and every rule here still holds without it. A refusal means change the command, never work around the guard. See `wiki/conventions/agent-tooling.md` §The guard hook.
 - **Deferrals** get an issue, and the code carries only the link: `// Bounded until englishstreetventures/osn#412 lands.` A settled choice with its reason can stay inline.
 - **Instruction files state the present.** This file, a `SKILL.md` or a wiki page says what to do now, never how it came to be; `git log` holds that. A reason that stops a mistake stays.
-- **Bend.** The account-deletion rules are a Bend model in `tools/deletion-laws/`, with laws proved about it (`wiki/osn/account-deletion-laws.md`). When writing or changing a `.bend` file:
-  - run `bend guide` to learn Bend 2 first (`bash tools/deletion-laws/bend.sh guide`); what you know of Bend 1 is wrong here;
+- **Bend.** Rules proved in Bend live beside the code they are about, one law set to a topic folder: `<workspace>/laws/<topic>/`, with its own `LAWS.bend` and `PROOF.bend` (today `osn/api/laws/account-deletion/` and `cire/api/laws/account-deletion/`; `wiki/osn/account-deletion-laws.md`). A law that spans two services lives with the one that runs the flow and imports the other's model; the toolchain every set shares is `tools/bend/`. When writing or changing a `.bend` file:
+  - run `bend guide` to learn Bend 2 first (`bash tools/bend/bend.sh guide`); what you know of Bend 1 is wrong here;
   - keep the important rules in `LAWS.bend`, and change a law there only by the owner's decision;
-  - run `bend PROOF.bend` before committing (`bun run --cwd tools/deletion-laws prove`; `check` also checks `model.mjs`);
+  - run `bend PROOF.bend` before committing (`bun run --cwd tools/bend prove` for every set; `check` also checks each `model.mjs`);
   - parallelize the code wherever a parallel call fits: independent calls of about the same size.
 
-  Never run `bend` bare, and never `bend update`: run it through `tools/deletion-laws/bend.sh`, which runs only the build `bend.env` pins and sets `BEND_NO_TELEMETRY=1`. Without that variable, Bend asks bend-lang.com for its latest version once a day.
+  Never run `bend` bare, and never `bend update`: run it through `tools/bend/bend.sh`, which runs only the build `bend.env` pins and sets `BEND_NO_TELEMETRY=1`. Without that variable, Bend asks bend-lang.com for its latest version once a day. No `src/` may import a law set: it ships in nothing.
 - **House lint rules** (`house/*` in `tools/oxlint/house`) and why they exist: `wiki/conventions/house-lint-rules.md`. Agent skills, evals and vendored trees: `wiki/conventions/agent-tooling.md`.
-- Lefthook formats and lints staged files on commit, runs the advisory secret scan on staged content, proves the deletion laws when a `.bend` file is staged, and type-checks on push. CI's `Secret scan` job is the gate.
+- Lefthook formats and lints staged files on commit, runs the advisory secret scan on staged content, proves every Bend law set when a `.bend` file is staged, and type-checks on push. CI's `Secret scan` job is the gate.
 
 ## Commands
 
@@ -87,7 +87,7 @@ bun run test:e2e:repro       # it, twice, failing unless results.json matches by
 bun run test:e2e:stripe      # one gift flow against a Stripe sandbox (a nightly CI job;
                              # needs STRIPE_TEST_SECRET_KEY and STRIPE_TEST_CONNECTED_ACCOUNT)
 bun run test:scripts         # bun tests under scripts/
-bun run --cwd tools/deletion-laws check  # Bend: prove the deletion laws, check model.mjs
+bun run --cwd tools/bend check   # Bend: prove every law set, check each model.mjs
 bun run --cwd cire/<pkg> test:mutation --changed  # Stryker on changed lines, cire only
 bun run --cwd <pkg> test:run # one package, once
 bun run --cwd <pkg> test     # instead, where its test script is `bun test` or it has no test:run
