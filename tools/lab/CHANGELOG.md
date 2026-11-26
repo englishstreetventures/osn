@@ -1,5 +1,16 @@
 # @tools/lab
 
+## 0.3.94
+
+### Patch Changes
+
+- b378067: The lab lists the new menu-row radius role, `--ui-radius-menu-row`, in the radius gallery, gives cire's subtree the role's fallback, and adds `shared/ui/overlays/MenuRowCorner`: an open default menu above a drawn `Checkbox`, its control lending the role 8px or nothing, with both corners read back from the page.
+- 065e215: The lab's `MenuItems` story says its rows take Musubi's 8px menu-row corner, since the lab loads Musubi's stylesheet, where pulse's rows keep its 6px small corner.
+- Updated dependencies [b378067]
+  - @shared/design-tokens@0.12.0
+  - @shared/ui@0.20.2
+  - @osn/auth-ui@6.6.1
+
 ## 0.3.93
 
 ### Patch Changes
