@@ -2,7 +2,7 @@ import { AuthContext } from "@osn/client/solid";
 import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 
 import "../../src/App.css";
 
@@ -191,6 +191,10 @@ const send = (dialog: HTMLElement) =>
     name: /^(Send verification link|Sending…|Try again in)/,
   }) as HTMLButtonElement;
 
+/** The countdown's words, without the unseen label that sizes the button. */
+const countdown = (button: HTMLElement) =>
+  button.querySelector("span > span:not([aria-hidden])")?.textContent ?? button.textContent;
+
 /** A field's value. */
 const valueOf = (field: HTMLElement) => (field as HTMLInputElement).value;
 
@@ -240,6 +244,7 @@ afterEach(async () => {
   vi.useRealTimers();
   cleanup();
   document.documentElement.classList.remove("dark");
+  await commands.emulateMedia({ reducedMotion: "no-preference" });
   await page.viewport(414, 896);
 });
 
@@ -386,10 +391,10 @@ describe("Send after a rate limit", () => {
 
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     await userEvent.click(send(dialog));
-    await vi.waitUntil(() => /Try again in/.test(send(dialog).textContent ?? ""));
+    await vi.waitUntil(() => /Try again in/.test(countdown(send(dialog)) ?? ""));
 
     expect(send(dialog).disabled).toBe(true);
-    expect(send(dialog).textContent).toBe("Try again in 60s");
+    expect(countdown(send(dialog))).toBe("Try again in 60s");
     expect(within(dialog).getByRole("alert").textContent).toContain("Too many attempts");
     // Send went disabled under the press: focus moved to the line saying why,
     // not to the page.
@@ -398,14 +403,58 @@ describe("Send after a rate limit", () => {
     await page.screenshot({ path: `${SHOTS}/details-rate-limited-414.png` });
 
     vi.advanceTimersByTime(30_000);
-    expect(send(dialog).textContent).toBe("Try again in 30s");
+    expect(countdown(send(dialog))).toBe("Try again in 30s");
     expect(send(dialog).disabled).toBe(true);
 
     vi.advanceTimersByTime(29_000);
-    expect(send(dialog).textContent).toBe("Try again in 1s");
+    expect(countdown(send(dialog))).toBe("Try again in 1s");
     vi.advanceTimersByTime(1_000);
     expect(send(dialog).textContent).toBe("Send verification link");
     expect(send(dialog).disabled).toBe(false);
+  });
+});
+
+describe("Send's countdown", () => {
+  it("holds Send's width and Cancel's place as the label loses a digit", async () => {
+    hoisted.registration.beginRegistration.mockRejectedValue(
+      Object.assign(new Error("rate limited"), { status: 429, code: "rate_limited" }),
+    );
+    await page.viewport(320, 844);
+    mount("register");
+    const dialog = await sheet(REGISTER);
+    await fillDetails(dialog, {
+      email: "ada@example.com",
+      handle: "ada",
+      birthdate: "1990-01-01",
+    });
+    await waitFor(() => expect(send(dialog).disabled).toBe(false));
+    await settle();
+
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    await userEvent.click(send(dialog));
+    await vi.waitUntil(() => /Try again in/.test(countdown(send(dialog)) ?? ""));
+    const cancel = () => within(dialog).getByRole("button", { name: "Cancel" });
+    const read = () => ({
+      label: countdown(send(dialog)),
+      sendWidth: send(dialog).getBoundingClientRect().width,
+      sendLeft: send(dialog).getBoundingClientRect().left,
+      cancelX: cancel().getBoundingClientRect().left,
+    });
+
+    vi.advanceTimersByTime(50_000);
+    const ten = read();
+    vi.advanceTimersByTime(1_000);
+    const nine = read();
+    expect(ten.label).toBe("Try again in 10s");
+    expect(nine.label).toBe("Try again in 9s");
+    expect(nine.sendWidth).toBe(ten.sendWidth);
+    expect(nine.cancelX).toBe(ten.cancelX);
+    // Down to the last second, with one digit left, the button holds too.
+    vi.advanceTimersByTime(8_000);
+    const one = read();
+    expect(one.label).toBe("Try again in 1s");
+    expect(one.sendWidth).toBe(ten.sendWidth);
+    expect(one.cancelX).toBe(ten.cancelX);
   });
 });
 
@@ -447,8 +496,9 @@ describe("the passkey step", () => {
     expect(stored()).toEqual({});
   });
 
-  const RAN_OUT =
-    "This sign-up ran out of time before a passkey was added. Your account is saved: sign in, choose “Lost your passkey?”, and confirm your email to add one.";
+  const RAN_OUT = "This sign-up ran out of time";
+  const RAN_OUT_LINE =
+    "Your account is saved, but it has no passkey yet. Sign in, choose “Lost your passkey?”, and confirm your email to add one.";
 
   it("says how to finish once the session behind it has ended, and offers only sign-in", async () => {
     await toPasskeyStep();
@@ -458,7 +508,10 @@ describe("the passkey step", () => {
     let dialog = await sheet(REGISTER);
     await userEvent.click(await within(dialog).findByRole("button", { name: "Add a passkey" }));
 
-    await within(dialog).findByText(RAN_OUT);
+    const ended = await within(dialog).findByRole("heading", { name: RAN_OUT });
+    expect(within(dialog).getByText(RAN_OUT_LINE)).toBeTruthy();
+    // The heading takes focus, so the change is announced and focus never falls to the page.
+    await waitFor(() => expect(document.activeElement).toBe(ended));
     // Never the details again: their address has an account now.
     expect(within(dialog).queryByLabelText("Email")).toBeNull();
     expect(hoisted.registration.passkeyRegisterBegin).not.toHaveBeenCalled();
@@ -483,7 +536,7 @@ describe("the passkey step", () => {
     const dialog = await sheet(REGISTER);
     await userEvent.click(await within(dialog).findByRole("button", { name: "Add a passkey" }));
 
-    await within(dialog).findByText(RAN_OUT);
+    await within(dialog).findByRole("heading", { name: RAN_OUT });
     expect(adoptSession).not.toHaveBeenCalled();
     expect(hoisted.registration.passkeyRegisterBegin).not.toHaveBeenCalled();
     expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
@@ -496,12 +549,15 @@ describe("the passkey step", () => {
     refreshHeldSession.mockRejectedValue(Object.assign(new Error("refused"), { refused: true }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
 
-    await within(dialog).findByText("Your passkey is added. Sign in with it to finish.");
+    await within(dialog).findByRole("heading", { name: "Your passkey is added" });
+    expect(within(dialog).getByText("Sign in with it to finish.")).toBeTruthy();
     expect(hoisted.registration.passkeyRegisterComplete).toHaveBeenCalledTimes(1);
     expect(adoptSession).not.toHaveBeenCalled();
     expect(within(dialog).queryByRole("button", { name: "Try again" })).toBeNull();
     await page.screenshot({ path: `${SHOTS}/added-414.png` });
-    await userEvent.click(within(dialog).getByRole("button", { name: "Sign in" }));
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Sign in with your new passkey" }),
+    );
     await sheet(SIGN_IN);
   });
 
@@ -530,7 +586,8 @@ describe("the passkey step", () => {
     const dialog = await sheet(REGISTER);
     await userEvent.click(await within(dialog).findByRole("button", { name: "Add a passkey" }));
 
-    await within(dialog).findByText("Your passkey is added. Sign in with it to finish.");
+    await within(dialog).findByRole("heading", { name: "Your passkey is added" });
+    expect(within(dialog).getByText("Sign in with it to finish.")).toBeTruthy();
     expect(hoisted.registration.passkeyRegisterBegin).not.toHaveBeenCalled();
     expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
   });
@@ -541,7 +598,8 @@ describe("the passkey step", () => {
     refreshHeldSession.mockResolvedValue({ held: true, session: sessionWith(RESTRICTED) });
     await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
 
-    await within(dialog).findByText("Your passkey is added. Sign in with it to finish.");
+    await within(dialog).findByRole("heading", { name: "Your passkey is added" });
+    expect(within(dialog).getByText("Sign in with it to finish.")).toBeTruthy();
     expect(hoisted.registration.passkeyRegisterComplete).toHaveBeenCalledTimes(1);
     expect(adoptSession).not.toHaveBeenCalled();
   });
@@ -597,7 +655,7 @@ describe("the passkey step", () => {
       // No second passkey: the second press stopped at the refused begin.
       expect(hoisted.startRegistration).toHaveBeenCalledTimes(1);
       expect(hoisted.registration.passkeyRegisterComplete).toHaveBeenCalledTimes(1);
-      expect(within(dialog).queryByText(RAN_OUT)).toBeNull();
+      expect(within(dialog).queryByRole("heading", { name: RAN_OUT })).toBeNull();
       expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
     },
   );
@@ -611,7 +669,7 @@ describe("the passkey step", () => {
     refreshHeldSession.mockResolvedValue({ held: true, session: sessionWith(RESTRICTED2) });
     await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
 
-    await within(dialog).findByText(RAN_OUT);
+    await within(dialog).findByRole("heading", { name: RAN_OUT });
     expect(hoisted.registration.passkeyRegisterBegin).toHaveBeenCalledTimes(2);
     expect(adoptSession).not.toHaveBeenCalled();
     expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
@@ -623,7 +681,7 @@ describe("the passkey step", () => {
     hoisted.registration.passkeyRegisterComplete.mockRejectedValueOnce({ status: 409 });
     await userEvent.click(within(dialog).getByRole("button", { name: "Add a passkey" }));
 
-    await within(dialog).findByText(RAN_OUT);
+    await within(dialog).findByRole("heading", { name: RAN_OUT });
     expect(adoptSession).not.toHaveBeenCalled();
     expect(localStorage.getItem("osn.signup.enrolling")).toBeNull();
   });
@@ -638,7 +696,7 @@ describe("the passkey step", () => {
 
     await within(dialog).findByRole("alert");
     expect(within(dialog).getByRole("button", { name: "Add a passkey" })).toBeTruthy();
-    expect(within(dialog).queryByText(RAN_OUT)).toBeNull();
+    expect(within(dialog).queryByRole("heading", { name: RAN_OUT })).toBeNull();
     expect(localStorage.getItem("osn.signup.enrolling")).not.toBeNull();
   });
 });
@@ -667,19 +725,117 @@ describe("a session appearing under a kept sign-up", () => {
   });
 });
 
+/**
+ * Whether two dialogs were ever in the page together, watched on every change
+ * to it, so a frame between two samples cannot hide one.
+ */
+function watchForTwoDialogs() {
+  const seen = { both: false, dialogs: 0 };
+  const look = () => {
+    const n = document.querySelectorAll('[role="dialog"]').length;
+    seen.dialogs = Math.max(seen.dialogs, n);
+    if (n > 1) seen.both = true;
+  };
+  const observer = new MutationObserver(look);
+  observer.observe(document.body, { childList: true, subtree: true });
+  return { seen, stop: () => observer.disconnect() };
+}
+
+/** Each sheet's transform and each scrim's opacity, as a frame holds them. */
+function frame() {
+  return {
+    sheets: [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].map((d) => ({
+      name: d.getAttribute("aria-label") ?? d.getAttribute("aria-labelledby"),
+      transform: getComputedStyle(d).transform,
+    })),
+    scrims: [...document.querySelectorAll<HTMLElement>("[class*=bg-ui-scrim]")].map(
+      (o) => getComputedStyle(o).opacity,
+    ),
+  };
+}
+
 describe("sign-in and create-account", () => {
   it("link to each other", async () => {
     mount("signIn");
+    const watch = watchForTwoDialogs();
     let dialog = await sheet(SIGN_IN);
+    const first = dialog;
     await userEvent.click(within(dialog).getByRole("button", { name: "Create one" }));
     dialog = await sheet(REGISTER);
+    // The first dialog's content is gone before the second one appears.
+    expect(first.isConnected).toBe(false);
     expect(within(dialog).getByText(/Already have an account\?/)).toBeTruthy();
+    const second = dialog;
     await userEvent.click(within(dialog).getByRole("button", { name: "Sign in" }));
     dialog = await sheet(SIGN_IN);
+    expect(second.isConnected).toBe(false);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: REGISTER })).toBeNull());
     // Focus is in the dialog that opened, never left on the page under it.
     await settle();
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    watch.stop();
+    expect(watch.seen.both).toBe(false);
+  });
+
+  it.each(["no-preference", "reduce"] as const)(
+    "swaps one sheet for the other with no frame showing both (motion: %s)",
+    async (motion) => {
+      await commands.emulateMedia({ reducedMotion: motion });
+      await page.viewport(390, 844);
+      mount("signIn");
+      const watch = watchForTwoDialogs();
+      const dialog = await sheet(SIGN_IN);
+      await settle();
+      await userEvent.click(within(dialog).getByRole("button", { name: "Create one" }));
+      const frames: ReturnType<typeof frame>[] = [];
+      for (let t = 0; t <= 600; t += 40) {
+        frames.push(frame());
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      watch.stop();
+      expect(frames.some((f) => f.sheets.length > 1 || f.scrims.length > 1)).toBe(false);
+      expect(watch.seen.both).toBe(false);
+      expect(frames.at(-1)?.sheets.length).toBe(1);
+    },
+  );
+});
+
+describe("worst-case content at 320px", () => {
+  it("lets a 30-character handle in the passkey line and a 254-character email in the draft break inside the sheet", async () => {
+    await page.viewport(320, 844);
+    const handle = "a".repeat(30);
+    const email = `${"x".repeat(64)}@${"y".repeat(63)}.${"z".repeat(63)}.${"w".repeat(61)}`;
+    expect(email.length).toBe(254);
+    sessionStorage.setItem(
+      "osn.signup.draft",
+      JSON.stringify({ email, handle, birthdate: "1990-01-01", displayName: "" }),
+    );
+    mount("register");
+    let dialog = await sheet(REGISTER);
+    await settle();
+    expect(valueOf(within(dialog).getByLabelText("Email"))).toBe(email);
+    const fits = () => {
+      expect(dialog.scrollWidth).toBeLessThanOrEqual(dialog.clientWidth);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+    };
+    fits();
+    await page.screenshot({ path: `${SHOTS}/details-long-email-320.png` });
+
+    hoisted.registration.beginRegistration.mockResolvedValueOnce(begun(1));
+    await waitFor(() => expect(send(dialog).disabled).toBe(false));
+    await userEvent.click(send(dialog));
+    await within(dialog).findByRole("heading", { name: "Check your email" });
+    hoisted.registration.registrationStatus.mockResolvedValue(completed(handle));
+    window.dispatchEvent(new Event("focus"));
+    await within(dialog).findByRole("button", { name: "Add a passkey" });
+    await settle();
+    dialog = screen.getByRole("dialog", { name: REGISTER });
+    const named = within(dialog).getByText(`@${handle}`);
+    expect(named.getBoundingClientRect().right).toBeLessThanOrEqual(
+      dialog.getBoundingClientRect().right,
+    );
+    fits();
+    await page.screenshot({ path: `${SHOTS}/passkey-long-handle-320.png` });
   });
 });
 

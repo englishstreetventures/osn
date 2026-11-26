@@ -30,7 +30,8 @@ function focusDialog(event: Event) {
  * `ShellDialogSet`, above the desktop/phone shell switch; `ShellDialogs` owns
  * their open flags. Both close themselves the moment a session exists. Each
  * links to the other ("Already have an account? Sign in", "No account yet?
- * Create one"), which closes the one and opens the other.
+ * Create one"), which closes the one and opens the other once the first has
+ * left the page, so two sheets never move at once.
  */
 export function AuthDialogs(props: {
   showRegister: boolean;
@@ -41,6 +42,21 @@ export function AuthDialogs(props: {
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   const { session } = useAuth();
+
+  // The dialog a cross-link is waiting to open. Kobalte runs a content's
+  // `onCloseAutoFocus` as it unmounts, after its exit motion, so that is
+  // where the second dialog opens.
+  let swapTo: "register" | "signIn" | null = null;
+  const openAfterClose = (next: "register" | "signIn") => (event: Event) => {
+    if (swapTo !== next) {
+      props.onCloseAutoFocus?.(event);
+      return;
+    }
+    swapTo = null;
+    event.preventDefault();
+    if (next === "signIn") props.onShowSignInChange(true);
+    else props.onShowRegisterChange(true);
+  };
 
   // A controlled Dialog never fires `onOpenChange` when the `open` prop flips
   // on its own, so the `!session()` guard below hides a dialog without ever
@@ -76,7 +92,7 @@ export function AuthDialogs(props: {
         {/* The view's title is the dialog's `DialogTitle`, which names it. */}
         <ResponsiveDialogContent
           onOpenAutoFocus={focusDialog}
-          onCloseAutoFocus={props.onCloseAutoFocus}
+          onCloseAutoFocus={openAfterClose("signIn")}
         >
           <Register
             host="dialog"
@@ -87,8 +103,8 @@ export function AuthDialogs(props: {
             onCancel={() => props.onShowRegisterChange(false)}
             onSuccess={() => props.onShowRegisterChange(false)}
             onSignIn={() => {
+              swapTo = "signIn";
               props.onShowRegisterChange(false);
-              props.onShowSignInChange(true);
             }}
           />
         </ResponsiveDialogContent>
@@ -96,7 +112,7 @@ export function AuthDialogs(props: {
       <Dialog open={props.showSignIn && !session()} onOpenChange={props.onShowSignInChange}>
         <ResponsiveDialogContent
           onOpenAutoFocus={focusDialog}
-          onCloseAutoFocus={props.onCloseAutoFocus}
+          onCloseAutoFocus={openAfterClose("register")}
         >
           <SignIn
             host="dialog"
@@ -109,8 +125,8 @@ export function AuthDialogs(props: {
             onCancel={() => props.onShowSignInChange(false)}
             onSuccess={() => props.onShowSignInChange(false)}
             onCreateAccount={() => {
+              swapTo = "register";
               props.onShowSignInChange(false);
-              props.onShowRegisterChange(true);
             }}
           />
         </ResponsiveDialogContent>
