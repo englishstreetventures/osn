@@ -1289,7 +1289,7 @@ describe("accountErasureService.deletionPreview — a payout account's holder", 
     const db = makeDb();
     wedding(db, "w_sole", [P]);
     wedding(db, "w_held", [P, OTHER]);
-    holdsAccount(db, "w_held", P);
+    holdsAccount(db, "w_held", P, "standard");
     const actions = await deletionPreview(db);
     expect(actions.map((a) => [a.id, a.defaultChoice, a.choices.map((c) => c.choice)])).toEqual([
       ["cire:wedding:w_sole", null, ["delete"]],

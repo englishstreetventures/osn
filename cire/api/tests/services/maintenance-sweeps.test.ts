@@ -461,7 +461,10 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
       retrieve: (id) =>
         id === "acct_gone" ? refused(403, "account_invalid") : Effect.succeed({ id }),
     });
+    const counted = () => counterValue(CIRE_METRICS.registryStripeHandBack, { result: "released" });
+    const before = await counted();
     expect(await sweep(layer, s.client)).toMatchObject({ released: 1, failed: 0 });
+    expect(await counted()).toBe(before + 1);
     expect(s.calls).toEqual(["deauthorize acct_gone", "retrieve acct_gone", "retrieve acct_live"]);
     expect(rows(db).map((row) => [row.released !== null, row.tried])).toEqual([[true, null]]);
   });
@@ -570,7 +573,7 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
       { wedding: "w1", account: null },
       { wedding: "w2", account: "acct_a" },
     ]);
-    expect(logs).toContain("stripe account handed back while a wedding connected it");
+    expect(logs).toMatch(/stripe account handed back while a wedding connected it[\s\S]*acct_a/);
   });
 
   it("a D1 failure on one account is logged and counted, the next account goes on, and the next run releases it", async () => {
