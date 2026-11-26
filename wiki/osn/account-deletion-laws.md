@@ -21,11 +21,11 @@ The rules of [[account-deletion]] written as a small model in [Bend](https://ben
 
 ```mermaid
 flowchart LR
-  M["account, choices, holds,<br/>succession, weddings .bend<br/>(the model)"] --> L["LAWS.bend<br/>(the laws, SPEC.bend<br/>says what they mean)"]
-  L --> P["PROOF.bend + proof_*.bend<br/>bend PROOF.bend:<br/>ALL PROOFS CHECK"]
-  M --> J["model.mjs<br/>(bend model.bend -o)"]
-  J --> T["osn/api/tests/laws<br/>cire/api/tests/laws"]
-  C["osn-api and cire-api<br/>services on bun:sqlite"] --> T
+  M["account, choices, holds,<br/>succession, weddings .bend<br/>(the model)"] ==> L["LAWS.bend<br/>(the laws, SPEC.bend<br/>says what they mean)"]
+  L ==> P["PROOF.bend + proof_*.bend<br/>bend PROOF.bend:<br/>ALL PROOFS CHECK"]
+  M ==> J["model.mjs<br/>(bend model.bend -o)"]
+  J ==> T["osn/api/tests/laws<br/>cire/api/tests/laws"]
+  C["osn-api and cire-api<br/>services on bun:sqlite"] ==> T
 ```
 
 | File | Holds |
@@ -100,6 +100,6 @@ Run Bend only through `bend.sh` (`bash tools/deletion-laws/bend.sh guide` for th
 
 ## Changing it
 
-- **The code changes.** If an agreement test fails, the model no longer describes the code: change the model and re-prove, or the code was wrong. If a law then fails to prove, the change broke a deletion rule.
+- **The code changes.** If an agreement test fails, the model and the code have parted: change the model and re-prove, or the code was wrong. If a law then fails to prove, the change broke a deletion rule.
 - **A rule changes.** Change the model, rebuild `model.mjs`, re-prove; a law changes only by the owner's decision.
 - **Writing Bend.** `AGENTS.md` §Standing rules has the owner's four rules. Read the guide first (`bash tools/deletion-laws/bend.sh guide`): Bend 2 is not Bend 1, and what you know of Bend 1 is wrong here.
