@@ -13,7 +13,7 @@
  * `cire/host/tests/components/RsvpView.badges.browser.test.tsx`.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cdp, commands, userEvent } from "vitest/browser";
 
@@ -84,10 +84,9 @@ function mount() {
 }
 
 afterEach(async () => {
-  await emulateMedia({ reducedMotion: "no-preference" });
-  // Close an open panel and wait out the skip window before unmounting, so the
-  // next test's hover starts cold: Kobalte keeps tooltip timing in module
-  // scope, shared by every test in this file.
+  // Close an open panel and wait out the skip window before the tier's setup
+  // unmounts it, so the next test's hover starts cold: Kobalte keeps tooltip
+  // timing in module scope, shared by every test in this file.
   if (document.querySelector('[role="tooltip"]')) {
     await userEvent.hover(screen.getByRole("button", { name: "Away" }));
     await vi.waitFor(() => {
@@ -95,7 +94,6 @@ afterEach(async () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 450));
   }
-  cleanup();
 });
 
 describe("Tooltip", () => {

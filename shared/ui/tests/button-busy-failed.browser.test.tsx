@@ -16,8 +16,8 @@
  * checked on the first run only.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { afterAll, beforeAll, expect, it } from "vitest";
 import { commands } from "vitest/browser";
 
 import { Button } from "../src/ui/button";
@@ -37,10 +37,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await requests.allowRequests(ORB);
-});
-
-afterEach(() => {
-  cleanup();
 });
 
 /** Every attempt this frame made to fetch the orb's module, failed or not. */

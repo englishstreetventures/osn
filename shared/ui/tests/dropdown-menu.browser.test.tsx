@@ -10,7 +10,7 @@
  * this one's exports existed.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal, type JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
@@ -43,11 +43,7 @@ const emulateMedia = (options: MediaPreference) =>
     options,
   );
 
-afterEach(async () => {
-  await emulateMedia({ reducedMotion: "no-preference", forcedColors: "none" });
-  for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
-  for (const p of document.querySelectorAll("[data-kb-top-layer]")) p.remove();
-  cleanup();
+afterEach(() => {
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
 });
 

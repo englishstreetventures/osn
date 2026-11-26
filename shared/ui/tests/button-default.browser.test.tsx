@@ -22,9 +22,9 @@
  * The buttons carry no text, so no width or height comes from a platform font.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { commands, userEvent } from "vitest/browser";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import { Button, type ButtonProps } from "../src/ui/button";
 
@@ -69,21 +69,6 @@ const CASES: Pair[] = [
   ...VARIANTS.map((variant): Pair => ({ variant, size: "default" })),
   ...SIZES.filter((size) => size !== "default").map(atSize),
 ];
-
-const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
-  (
-    commands as unknown as {
-      emulateMedia: (o: { forcedColors: "active" | "none" }) => Promise<void>;
-    }
-  ).emulateMedia(options);
-
-beforeAll(async () => {
-  await emulateMedia({ forcedColors: "none" });
-});
-
-afterEach(() => {
-  cleanup();
-});
 
 /** Jump every running transition to its end, so no value is read part-way. */
 function settle() {

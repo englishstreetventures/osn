@@ -21,9 +21,9 @@
  * invisible.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { Modal } from "../src/ui/modal";
@@ -49,15 +49,6 @@ function mount(props: { frame?: boolean } = {}) {
   if (!dialog) throw new Error("no dialog rendered");
   return { ...result, setOpen, dialog };
 }
-
-afterEach(() => {
-  // A `showModal()` dialog is in the top layer, so it survives an `afterEach`
-  // that only empties the render container — and the next test then mounts
-  // behind a survivor and fails describing a fault in the component.
-  for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
-  for (const p of document.querySelectorAll("[data-kb-top-layer]")) p.remove();
-  cleanup();
-});
 
 /**
  * Open the panel and wait for its entrance transition to settle.

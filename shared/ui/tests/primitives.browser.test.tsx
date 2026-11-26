@@ -13,9 +13,9 @@
  * painted" is not a claim available anywhere else.
  */
 
-import { cleanup, render } from "@solidjs/testing-library";
+import { render } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { Chip, type ChipTone, type ChipTreatment, type ChipVariant } from "../src/ui/chip";
 import { EmptyState } from "../src/ui/empty-state";
@@ -24,8 +24,6 @@ import { Stat } from "../src/ui/stat";
 import { Table, Td } from "../src/ui/table";
 
 import "./test-support/tailwind.css";
-
-afterEach(cleanup);
 
 /** A colour the browser actually resolved, rather than the token behind it. */
 function painted(el: Element, prop: "color" | "backgroundColor" | "borderTopColor"): string {

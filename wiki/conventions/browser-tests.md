@@ -13,7 +13,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Browser Tests
@@ -142,6 +142,42 @@ Both cost real time to rediscover:
 - **`headless` must sit at `browser` level**, not inside `instances`
   ([vitest-dev/vitest#7661](https://github.com/vitest-dev/vitest/issues/7661)).
 
+### Putting the page back
+
+Each test file runs in its own frame, so the DOM does not pass from one file to
+the next, but it does pass from test to test within a file. The page around
+the frame is shared wider still: media emulation, the pointer, held keys and
+request routes pass to every file that runs after it on the same page.
+
+`@shared/ui`'s `browser` project names
+[`tests/test-support/browser-setup.ts`](../../shared/ui/tests/test-support/browser-setup.ts)
+in `setupFiles`, and its one `afterEach` puts the page back after every test:
+
+1. `cleanup()` unmounts every render, which closes every Kobalte menu, popover
+   and dialog drawn from it.
+2. It closes any `dialog[open]` and `:popover-open` left in the top layer, and
+   removes any `[data-kb-top-layer]` node.
+3. It waits a task and then a frame, twice, so the `aria-hidden` writes
+   Kobalte queued as its overlays unmounted land in this test and not the next
+   ([[#A slow runner's frames]]). It turns media emulation off
+   (`reducedMotion: "no-preference"`, `forcedColors: "none"`) in the same wait.
+4. It puts back the attributes `<html>` and `<body>` had when the file loaded,
+   which clears `aria-hidden`, `inert`, a scroll lock's inline style and any
+   token a test set on `document.documentElement.style`, and scrolls the window
+   to the top.
+
+Vitest runs `afterEach` hooks in reverse order of registration, so a file's own
+hooks run first and the setup's last. A file there adds an `afterEach` only for
+what is its own: a viewport, a held pointer or key, a request route, a stubbed
+global. A file whose every test wants an emulated preference sets it in a
+`beforeEach`, since the setup turns it off after each test
+(`button.browser.test.tsx`). The other packages' browser tiers have no such
+file, and each of their files restores what it changes.
+
+*Measured 2026-11-26 — `bunx --bun vitest run --project browser` in `shared/ui`, macOS on Apple silicon, `chromium_headless_shell-1248`, with a throwaway setup file whose `beforeEach` watched `<html>` and `<body>` for `aria-hidden` and `inert` writes across a task, a frame, a task and a frame: on `main`, 20 tests opened on a write the test before them had queued (5 in `dropdown-menu-default`, 15 in `dropdown-menu`); with the setup, none did, and all 619 tests passed.*
+
+*Measured 2026-11-26 — `bun run --cwd shared/ui test:browser` 50 times in a row on the same machine: every run passed all 619 tests, `dropdown-menu-default` included, in 42.3s to 44.7s (mean 42.5s; one plain run on `main` took 42.1s).*
+
 ### Rendering
 
 `@solidjs/testing-library` works unchanged in browser mode — same `render`,
@@ -192,10 +228,13 @@ command that runs in the node process with the Playwright `page` handle:
 await emulate({ reducedMotion: "reduce" });
 ```
 
-Always restore it — the context is shared across tests in a file, so a leaked
-preference silently rewrites every later assertion about motion. Restore it in
-an `afterEach` when one test sets it, or set it in a `beforeAll` and restore it
-in an `afterAll` when every test in the file wants it. A second
+Always restore it — the page is shared by every test in a file and by the
+files after it, so a leaked preference silently rewrites every later assertion
+about motion. Restore it in an `afterEach` when one test sets it, or set it in a
+`beforeAll` and restore it in an `afterAll` when every test in the file wants
+it. In `@shared/ui` the tier's setup restores both preferences after every test
+([[#Putting the page back]]), so a file there that wants one throughout
+sets it in a `beforeEach`. A second
 `browser.instances` entry with `contextOptions.reducedMotion` would also work,
 but runs the _entire_ suite twice to serve the few tests that care.
 
@@ -404,9 +443,13 @@ hold on a Mac fail there:
   `setTimeout`-then-`requestAnimationFrame` callback. When the two land on
   different frames, a test that follows one that left a menu open renders into
   a hidden `<body>`, and a `getByRole` straight after `render` finds nothing.
-  Find the first element after `render` with `findByRole`, as `openMenu` in
+  The unmount runs it because `cleanup()` clears the menu's content first: the
+  menu's hide effect, still live, runs again with nothing to keep visible and
+  hides `<body>` itself, then its own cleanup queues the clear. Find the first
+  element after `render` with `findByRole`, as `openMenu` in
   [`ProfileMenu.crossfade.browser.test.tsx`](../../cire/host/tests/components/ProfileMenu.crossfade.browser.test.tsx)
-  does.
+  does, or let both writes land before the next test starts, as
+  `@shared/ui`'s tier setup does ([[#Putting the page back]]).
 
 To slow a Mac's Chromium to the runner's pace, a throwaway browser command can
 send `Emulation.setCPUThrottlingRate` through
@@ -468,7 +511,8 @@ changed. Emulation and request routes follow [[#Media emulation]] and
 
 - **The DOM.** Call `cleanup()` in an `afterEach`. Without it each run's tables
   stay, the next renders below them, out of the window, and `elementFromPoint`
-  finds nothing there.
+  finds nothing there. In `@shared/ui` the tier's setup calls it, and scrolls
+  the window back to the top ([[#Putting the page back]]).
 - **A count.** A count of `performance` entries either starts from the run's
   own first reading, as `button-busy-failed` does, or is an absolute number
   chosen by run, as `button-busy-load` does; never an absolute number that only

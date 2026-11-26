@@ -20,8 +20,8 @@
  * to paint.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 
 import {
@@ -42,11 +42,6 @@ const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
       emulateMedia: (o: { forcedColors: "active" | "none" }) => Promise<void>;
     }
   ).emulateMedia(options);
-
-afterEach(async () => {
-  await emulateMedia({ forcedColors: "none" });
-  cleanup();
-});
 
 /** Long enough for the opening animation to settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 250));

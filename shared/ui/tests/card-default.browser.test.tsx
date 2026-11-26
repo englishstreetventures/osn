@@ -21,16 +21,12 @@
  * height comes from a platform font.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
 
 import { CardTitle } from "../src/ui/card";
 
 import "./test-support/tailwind.css";
-
-afterEach(() => {
-  cleanup();
-});
 
 /** Every computed property of `element`, plus any of `names` it does not enumerate. */
 function readStyle(element: Element, names: Iterable<string> = []): Map<string, string> {

@@ -9,8 +9,8 @@
  * is measured. `button-default.browser.test.tsx` holds the look outside it.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { beforeEach, describe, expect, it } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 
 import { Button, buttonVariants, type ButtonProps } from "../src/ui/button";
@@ -56,18 +56,10 @@ const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
     }
   ).emulateMedia(options);
 
-// Every test here wants the theme on, so it is set once for the file and
-// restored once after it, before any other file's tests run.
-beforeAll(async () => {
+// Every test here wants the theme on. It is set before each one, because the
+// tier's setup turns emulation off after every test.
+beforeEach(async () => {
   await emulateMedia({ forcedColors: "active" });
-});
-
-afterAll(async () => {
-  await emulateMedia({ forcedColors: "none" });
-});
-
-afterEach(() => {
-  cleanup();
 });
 
 const shot = (name: string) => `__screenshots__/button.browser.test.tsx/${name}.png`;

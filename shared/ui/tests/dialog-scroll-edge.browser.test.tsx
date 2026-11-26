@@ -21,7 +21,7 @@
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { createSignal, For } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../src/ui/dialog";
@@ -30,12 +30,6 @@ import { Label } from "../src/ui/label";
 import { emulateMedia, frames } from "./test-support/motion";
 
 import "./test-support/tailwind.css";
-
-afterEach(async () => {
-  await emulateMedia({ reducedMotion: "no-preference" });
-  cleanup();
-  document.documentElement.style.removeProperty("--ui-surface");
-});
 
 const shot = (name: string) => `__screenshots__/dialog-scroll-edge.browser.test.tsx/${name}.png`;
 
