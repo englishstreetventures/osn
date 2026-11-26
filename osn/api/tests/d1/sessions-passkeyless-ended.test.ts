@@ -8,7 +8,7 @@ import { Miniflare } from "miniflare";
 import { listMigrations, migrationStatements } from "../../../../scripts/migration-files";
 
 /**
- * Migration 20261126014432_end_passkeyless_sessions, on real D1: it ends the
+ * Migration 20261126014432_end_passkeyless_sessions, on a real D1 database. It ends the
  * ordinary sessions of every account that holds no passkey, and nothing else —
  * not a session of an account with a passkey, not a restricted session (a
  * recovery's or a sign-up's), and no session of an account with a deletion

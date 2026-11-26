@@ -564,11 +564,11 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     await expect(registerDialog.getByText(`@${ada.handle}`)).toBeVisible();
   });
   flow.check(
-    "the reload renewed the cookie but published no session",
+    "the reload renewed the cookie",
     true,
-    flow.count("POST osn-api /token 200") > grantsBeforePasskeyReload &&
-      (await shellSignIn().isVisible()),
+    flow.count("POST osn-api /token 200") > grantsBeforePasskeyReload,
   );
+  flow.check("the reload published no session", "", await storedAccount());
 
   const passkeyRegisterBegin = `${ORIGINS.osnApi}/passkey/register/begin`;
   const enrollHeld = holdMethod("POST");

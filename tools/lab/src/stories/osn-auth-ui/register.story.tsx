@@ -2,7 +2,7 @@ import { ENROLLING_KEY, forgetEnrolling } from "@osn/auth-ui/pending-sign-up";
 import { Register } from "@osn/auth-ui/Register";
 import type { PublicProfile, RegistrationClient, Session } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
-import { createResource, type ComponentProps } from "solid-js";
+import { createResource, onMount, type ComponentProps } from "solid-js";
 
 import type { Story } from "../../lab/types.ts";
 import { Gallery } from "../design-system/chrome.tsx";
@@ -95,6 +95,12 @@ export const OnAuthorize: Story = {
   ),
 };
 
+/** Drops the kept entry once the view beside it has read it. */
+function ForgetOnMount() {
+  onMount(forgetEnrolling);
+  return null;
+}
+
 /**
  * The passkey step as a reload, a closed dialog or a closed tab brings it
  * back: the account the browser kept, named by the handle the server made it
@@ -107,25 +113,24 @@ export const PasskeyStep: Story = {
       ENROLLING_KEY,
       JSON.stringify({ profileId: "usr_lab", handle: "ada", expiresAt: Date.now() + 60_000 }),
     );
-    const view = (
-      <AuthContext.Provider value={signedOut()}>
-        <Register
-          host="dialog"
-          client={client}
-          productName="Musubi"
-          legal={legal}
-          onCancel={() => {}}
-          onSignIn={() => {}}
-        />
-      </AuthContext.Provider>
-    );
-    forgetEnrolling();
     return (
       <Gallery
         title="osn/auth-ui Register — the passkey step, come back to"
         intro="Add a passkey, naming the handle the account was made under."
       >
-        <DialogBench>{view}</DialogBench>
+        <DialogBench>
+          <AuthContext.Provider value={signedOut()}>
+            <Register
+              host="dialog"
+              client={client}
+              productName="Musubi"
+              legal={legal}
+              onCancel={() => {}}
+              onSignIn={() => {}}
+            />
+            <ForgetOnMount />
+          </AuthContext.Provider>
+        </DialogBench>
       </Gallery>
     );
   },
