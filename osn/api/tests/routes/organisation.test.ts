@@ -1,7 +1,7 @@
 import { organisationMembers } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createOrganisationRoutes } from "../../src/routes/organisation";
@@ -215,8 +215,9 @@ describe("organisation routes", () => {
   });
 
   // A failed read of the standing costs the caller the actions, never the
-  // organisation: the page still loads, offering nothing.
-  it("GET /organisations/:handle answers a failed standing read with the organisation and no standing", async () => {
+  // organisation: the page still loads, offering nothing, and the failure is
+  // logged, a defect as well as a typed failure.
+  async function readWithFailingStanding(members: "throw" | "malformed") {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     await orgApp.handle(
       new Request("http://localhost/organisations", {
@@ -226,14 +227,17 @@ describe("organisation routes", () => {
       }),
     );
 
-    // The same database, except that every read of the members table throws;
-    // the organisation itself still resolves.
+    // The same database, except for reads of the members table: they throw
+    // inside the query, which the service types as a database error, or
+    // answer a row that is not a row, which fails the service as a defect.
+    // The organisation itself still resolves.
     const live = await runWithLayer(
       Effect.gen(function* () {
         return (yield* Db).db;
       }),
     );
-    const refusingMembers = new Proxy(live, {
+    const malformedRows = { where: () => ({ limit: () => Promise.resolve([null]) }) };
+    const failingMembers = new Proxy(live, {
       get(target, prop, receiver) {
         if (prop !== "select") return Reflect.get(target, prop, receiver);
         return (...fields: Parameters<typeof live.select>) => {
@@ -242,17 +246,24 @@ describe("organisation routes", () => {
             get(inner, key, innerReceiver) {
               if (key !== "from") return Reflect.get(inner, key, innerReceiver);
               return (table: Parameters<typeof builder.from>[0]) => {
-                if (table === organisationMembers) throw new Error("members table unreachable");
-                return inner.from(table);
+                if (table !== organisationMembers) return inner.from(table);
+                if (members === "throw") throw new Error("members table unreachable");
+                return malformedRows;
               };
             },
           });
         };
       },
     });
+    const logs: { level: string; message: unknown }[] = [];
     const failing = createOrganisationRoutes(
       config,
-      Layer.merge(Layer.succeed(Db, { db: refusingMembers }), makeLogEmailLive().layer),
+      Layer.merge(Layer.succeed(Db, { db: failingMembers }), makeLogEmailLive().layer),
+      Logger.layer([
+        Logger.map(Logger.formatStructured, (line) => {
+          logs.push(line);
+        }),
+      ]),
     );
 
     const res = await failing.handle(
@@ -260,13 +271,33 @@ describe("organisation routes", () => {
         headers: { Authorization: `Bearer ${alice.token}` },
       }),
     );
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as {
-      organisation: { handle: string; name: string };
-      caller: unknown;
+    return {
+      status: res.status,
+      json: (await res.json()) as {
+        organisation: { handle: string; name: string };
+        caller: unknown;
+      },
+      errors: logs.filter((line) => /^error$/i.test(line.level)).map((line) => line.message),
     };
+  }
+
+  /** One error line: the message, then the failure's tag and message alone. */
+  const standingNotRead = [["organisation caller standing not read", expect.any(Object)]];
+
+  it("GET /organisations/:handle answers a failed standing read with the organisation and no standing", async () => {
+    const { status, json, errors } = await readWithFailingStanding("throw");
+    expect(status).toBe(200);
     expect(json.organisation).toMatchObject({ handle: "acme", name: "Acme Corp" });
     expect(json.caller).toBeNull();
+    expect(errors).toEqual(standingNotRead);
+  });
+
+  it("GET /organisations/:handle answers a standing read that dies with the organisation and no standing", async () => {
+    const { status, json, errors } = await readWithFailingStanding("malformed");
+    expect(status).toBe(200);
+    expect(json.organisation).toMatchObject({ handle: "acme", name: "Acme Corp" });
+    expect(json.caller).toBeNull();
+    expect(errors).toEqual(standingNotRead);
   });
 
   it("GET /organisations/:handle → 401 with no token, and says no standing", async () => {

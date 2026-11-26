@@ -2,12 +2,13 @@ import type { Organisation, Profile } from "@osn/db/schema";
 import { DbLive, type Db } from "@osn/db/service";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { forkBackground } from "../lib/background";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { makeSafeError } from "../lib/safe-error";
+import { safeErrorSummary } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { frontendOrigin } from "../services/auth/helpers";
 import { createOrganisationService } from "../services/organisation";
@@ -258,18 +259,23 @@ export function createOrganisationRoutes(
           if (!organisation) return { error: "Organisation not found" };
 
           // The caller's own standing, so a client offers only what the write
-          // routes would allow. A failed read of it costs the caller those
-          // actions, never the organisation: it answers `null`, as for a
-          // non-member, and is logged.
+          // routes would allow. A failed read of it, a defect included, costs
+          // the caller those actions, never the organisation: it answers
+          // `null`, as for a non-member, and is logged. The effect cannot
+          // fail, and the runtime is already built, since `resolveOrg` ran
+          // through it.
           const role = await run(
             org
               .getMemberRole(organisation.id, caller.profileId)
               .pipe(
-                Effect.catch(() =>
-                  Effect.logError("organisation caller standing not read").pipe(Effect.as(null)),
+                Effect.catchCause((cause) =>
+                  Effect.logError(
+                    "organisation caller standing not read",
+                    safeErrorSummary(Cause.squash(cause)),
+                  ).pipe(Effect.as(null)),
                 ),
               ),
-          ).catch(() => null);
+          );
           return {
             organisation: orgProjection(organisation),
             caller: role ? { role, owner: organisation.ownerId === caller.profileId } : null,
