@@ -18,8 +18,10 @@ interface LeaveWeddingProps {
    *  parent drops the wedding from the organiser's list, which unmounts this
    *  control and releases the wedding's cached rows. */
   onLeft?: () => void;
-  /** The caller holds the wedding's payout account, so the API refuses their
-   *  leave until it is handed over: the button is `aria-disabled` and says why. */
+  /** The list's read says the caller holds the wedding's payout account, so
+   *  the API will refuse their leave until it is handed over: a note under the
+   *  button says why. The button still asks and sends, since the read can be
+   *  stale; the API's refusal decides. */
   payoutHolder?: boolean;
   /** Money gifts, where the account is handed over, when the reader can open it. */
   moneyGifts?: InAppLink;
@@ -67,8 +69,8 @@ export default function LeaveWedding(props: LeaveWeddingProps) {
             ? ((await res.json().catch(() => null)) as { error?: unknown } | null)?.error
             : null;
         if (error === "holds_payout_account") {
-          // A page read before the caller connected the account: the leave
-          // cannot happen here, so the dialog goes and the seat says why.
+          // The caller holds the account: the leave cannot happen here, so the
+          // dialog goes and the seat says why.
           setConfirming(false);
           toast.error(payoutHolderSentence(null));
           props.onHoldsPayoutAccount?.();
@@ -107,18 +109,13 @@ export default function LeaveWedding(props: LeaveWeddingProps) {
           Give up your seat. The wedding leaves your list and any emails about it stop. An owner can
           add you back.
         </p>
-        {/* `aria-disabled`, never `disabled`, for the payout account's holder:
-            it stays focusable, so the note it names can be found. */}
         <Button
           class="self-start"
           variant="danger"
           size="sm"
           type="button"
-          aria-disabled={props.payoutHolder ? "true" : undefined}
           aria-describedby={props.payoutHolder ? HOLDER_NOTE_ID : undefined}
-          onClick={() => {
-            if (!props.payoutHolder) setConfirming(true);
-          }}
+          onClick={() => setConfirming(true)}
         >
           Leave this wedding
         </Button>

@@ -71,6 +71,7 @@ const settingsOf = (over: Partial<RegistrySettings>): RegistrySettings => ({
   stripeChargesEnabled: true,
   moneyGiftsBlockedBy: null,
   payoutHolderAbsent: false,
+  stripeAccountGeneration: 0,
   updatedAt: null,
   ...over,
 });
@@ -222,9 +223,10 @@ describe("whose account money gifts are paid into, painted", () => {
           },
         );
         expect(outside.map((part) => part.textContent ?? "")).toEqual([]);
-        // The role select offers owner alone, and names the note.
+        // The role select names the note, and is not disabled: the API decides.
         const select = screen.getByRole("combobox", { name: `Role for @${LONG}` });
         expect(select.getAttribute("aria-describedby")).toBe(note.id);
+        expect(select.getAttribute("aria-disabled")).toBeNull();
         await shot("03-holder-seat", viewport, theme);
       });
     }

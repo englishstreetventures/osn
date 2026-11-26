@@ -1398,6 +1398,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                     weddingId={props.weddingId}
                     mode={payoutMode()}
                     holderId={settings()?.stripeConnectedByOsnProfileId ?? null}
+                    generation={settings()?.stripeAccountGeneration ?? null}
                     busy={checking() || connecting()}
                     onSettings={patchCache}
                     onRetired={() => {

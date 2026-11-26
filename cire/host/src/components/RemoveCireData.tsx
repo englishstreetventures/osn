@@ -395,27 +395,19 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
 
   /**
    * Marks each listed wedding whose payout account the person holds and moves
-   * focus to the first one's way to Money gifts; false when there is none.
-   * Only on the confirmed list, which holds every profile of the account, as
-   * the removal's own refusal does.
+   * focus to the first one's way to Money gifts. Run once the removal's own
+   * refusal has read the list again, so the marks are the API's, not a read
+   * from before the press.
    */
-  function markHeld(): boolean {
+  function markHeld(): void {
     const held = heldRows();
-    if (held.length === 0) return false;
-    batch(() => {
-      setHeldMarks(new Set(held.map((w) => w.weddingId)));
-      setLine({
-        kind: "held",
-        tone: "danger",
-        text: "Hand money gifts over on each wedding marked above first.",
-      });
-    });
+    setHeldMarks(new Set(held.map((w) => w.weddingId)));
+    if (held.length === 0) return;
     // Its link to Money gifts, or the note itself where there is none.
     queueMicrotask(() => {
       const note = root?.querySelector<HTMLElement>("[data-removal-held] [data-held-note]");
       (note?.querySelector<HTMLElement>("a") ?? note)?.focus();
     });
-    return true;
   }
 
   /** Step two: remove, calling again for as long as the answer is "not finished". */
@@ -423,7 +415,8 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
     const current = code();
     if (phase().kind !== "ready" || current === null) return;
     if (markMissing("missing")) return haptic("reject");
-    if (markHeld()) return haptic("reject");
+    // A wedding the list marks as holding a payout account is still sent: the
+    // mark can be stale, and the API's `holds_payout_account` refusal decides.
     setLine(null);
     setHeldMarks(new Set<string>());
     let rounds = 0;
@@ -467,13 +460,15 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
         continue;
       }
       if (outcome.status === "holds_payout_account") {
-        // A payout account the list on screen did not show, or one connected
-        // since: the API's own words, as given, and the list read again, so
-        // the wedding says where to hand it over.
+        // The API's own words, as given, and the list read again, so each
+        // wedding whose account the person holds says where to hand it over,
+        // and is marked.
         haptic("reject");
         const partly = rounds > 0 ? `${PARTLY_DONE} ` : "";
         setLine({ kind: "held", tone: "danger", text: `${partly}${outcome.message}` });
-        return void load(null);
+        await load(null);
+        if (!disposed) markHeld();
+        return;
       }
       // Answers missing on the rows as they stand now: the fresh list.
       const fresh = outcome;

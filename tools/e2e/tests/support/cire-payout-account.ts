@@ -5,19 +5,21 @@
  *
  * 1. **The holder's seat** (`holderSeatSteps`). On Money Wedding Kit holds the
  *    Stripe account and the dev profile is the other owner. The hosts panel
- *    shows a note on Kit's seat, and its role select and Remove are
- *    `aria-disabled`, described by the note; the dev profile's own row has no
- *    note. `DELETE /hosts/usr_e2e_kit` from the browser's own session answers
- *    409 `holds_payout_account` and Kit is still an owner.
+ *    shows a note on Kit's seat, which its role select and Remove are
+ *    described by; the dev profile's own row has no note. The controls stay
+ *    usable, since the mark can be stale: pressing Remove sends
+ *    `DELETE /hosts/usr_e2e_kit`, which answers 409 `holds_payout_account`, and
+ *    Kit is still an owner.
  * 2. **Handing over** (`handOverSteps`). On Handover Wedding the dev profile
- *    holds the account and Kit is the other owner. The dev profile's own
- *    role select and "Leave this wedding" are `aria-disabled` with the holder's
- *    sentence, and `DELETE /hosts/me` answers 409 `holds_payout_account`. Its
- *    note's link opens Money gifts, where "Hand money gifts to another owner"
- *    opens a dialog naming
- *    Kit; "Hand over" retires the account: the panel shows none, the row has
- *    none at generation 1, and one retired row says `handed_over`. Back in the
- *    hosts panel the dev profile's step-down to editor then goes through.
+ *    holds the account and Kit is the other owner. The dev profile's own role
+ *    select and "Leave this wedding" are described by the holder's sentence.
+ *    "Leave this wedding" still asks, and its "Yes, leave" sends
+ *    `DELETE /hosts/me`, which answers 409 `holds_payout_account`. The note's
+ *    link opens Money gifts, where "Hand money gifts to another owner" opens a
+ *    dialog naming Kit; "Hand over" retires the account at the generation the
+ *    panel read: the panel shows none, the row has none at generation 1, and
+ *    one retired row says `handed_over`. Back in the hosts panel the dev
+ *    profile's step-down to editor then goes through.
  * 3. **Replacing an absent holder's account** (`replaceAbsentHolderSteps`). On
  *    Absent Holder Wedding Kit holds the account and is an editor, so money
  *    gifts are closed: the registry read names `payout_holder_absent` and
@@ -105,10 +107,11 @@ const rowWithSelect = (page: Page, name: string) =>
   page.getByRole("listitem").filter({ has: page.getByRole("combobox", { name }) });
 
 /**
- * A control's `aria-disabled`, and whether its `aria-describedby` names the
- * note beside it.
+ * A control as the holder's mark leaves it: whether it is marked disabled
+ * (`aria-disabled`, which would swallow the press), and whether its
+ * `aria-describedby` names the note beside it.
  */
-async function lockedBy(
+async function markedBy(
   control: ReturnType<Page["getByRole"]>,
   note: ReturnType<Page["getByTestId"]>,
 ): Promise<{ disabled: string; describedByNote: boolean }> {
@@ -120,18 +123,19 @@ async function lockedBy(
   };
 }
 
-/** `DELETE` a seat from the browser's own session, as a stale page would. */
-async function deleteSeat(
-  flow: Flow,
+/** The status and error code of a seat's `DELETE`, as the browser received it. */
+async function seatDeleted(
   page: Page,
   weddingId: string,
   who: string,
+  press: () => Promise<void>,
 ): Promise<{ status: number; error: string }> {
   const url = weddingApi(weddingId, `/hosts/${who}`);
-  const response = await page.context().request.delete(url, {
-    headers: { origin: ORIGINS.cireHost },
-  });
-  flow.recordRequest("DELETE", url, response.status());
+  const answered = page.waitForResponse(
+    (r) => r.url() === url && r.request().method() === "DELETE",
+  );
+  await press();
+  const response = await answered;
   const body = (await response.json().catch(() => ({}))) as { error?: string };
   return { status: response.status(), error: body.error ?? "absent" };
 }
@@ -150,9 +154,9 @@ export async function holderSeatSteps(flow: Flow, page: Page): Promise<void> {
     await shoot(page, SHOTS, "holder-seat.png");
     return {
       note: (await note.textContent()) ?? "",
-      select: await lockedBy(kit.getByRole("combobox", { name: `Role for ${KIT}` }), note),
+      select: await markedBy(kit.getByRole("combobox", { name: `Role for ${KIT}` }), note),
       // A seat whose handle OSN cannot resolve is "Remove host" (the stack resolves none).
-      remove: await lockedBy(kit.getByRole("button", { name: "Remove host" }), note),
+      remove: await markedBy(kit.getByRole("button", { name: "Remove host" }), note),
       ownNotes: await own.getByTestId("payout-holder-note").count(),
     };
   });
@@ -162,14 +166,18 @@ export async function holderSeatSteps(flow: Flow, page: Page): Promise<void> {
     /connected the Stripe account money gifts are paid into/.test(seat.note) &&
       /replace it with your own account/.test(seat.note),
   );
-  flow.check("Kit's role select is marked disabled", "true", seat.select.disabled);
+  flow.check("Kit's role select is not marked disabled", "absent", seat.select.disabled);
   flow.check("Kit's role select is described by the note", true, seat.select.describedByNote);
-  flow.check("Kit's Remove is marked disabled", "true", seat.remove.disabled);
+  flow.check("Kit's Remove is not marked disabled", "absent", seat.remove.disabled);
   flow.check("Kit's Remove is described by the note", true, seat.remove.describedByNote);
   flow.check("the dev profile's own row carries no note", 0, seat.ownNotes);
 
-  const removed = await flow.step("cire-api: removing Kit is refused", () =>
-    deleteSeat(flow, page, weddingId, KIT),
+  const removed = await flow.step(
+    "Money Wedding: Remove on Kit's seat reaches cire-api, which refuses it",
+    () =>
+      seatDeleted(page, weddingId, KIT, () =>
+        rowWithSelect(page, `Role for ${KIT}`).getByRole("button", { name: "Remove host" }).click(),
+      ),
   );
   flow.check("cire-api removal of the holder", 409, removed.status);
   flow.check("cire-api says the holder holds the account", "holds_payout_account", removed.error);
@@ -195,11 +203,11 @@ export async function handOverSteps(flow: Flow, page: Page): Promise<void> {
       await shoot(page, SHOTS, "own-seat.png");
       return {
         note: (await note.textContent()) ?? "",
-        select: await lockedBy(
+        select: await markedBy(
           row.getByRole("combobox", { name: "Your role on this wedding" }),
           note,
         ),
-        leave: await lockedBy(leave, leaveNote),
+        leave: await markedBy(leave, leaveNote),
         kitNotes: await rowWithSelect(page, `Role for ${KIT}`)
           .getByTestId("payout-holder-note")
           .count(),
@@ -213,20 +221,33 @@ export async function handOverSteps(flow: Flow, page: Page): Promise<void> {
       own.note.trim(),
     ),
   );
-  flow.check("its own role select is marked disabled", "true", own.select.disabled);
+  flow.check("its own role select is not marked disabled", "absent", own.select.disabled);
   flow.check("its own role select is described by the note", true, own.select.describedByNote);
-  flow.check("Leave this wedding is marked disabled", "true", own.leave.disabled);
+  flow.check("Leave this wedding is not marked disabled", "absent", own.leave.disabled);
   flow.check("Leave this wedding is described by its note", true, own.leave.describedByNote);
   flow.check("Kit's row carries no note", 0, own.kitNotes);
 
-  const left = await flow.step("cire-api: the holder's leave is refused", () =>
-    deleteSeat(flow, page, weddingId, "me"),
+  const left = await flow.step(
+    "Handover Wedding: Leave this wedding asks, then cire-api refuses the holder's leave",
+    async () => {
+      await page.getByRole("button", { name: "Leave this wedding" }).click();
+      const confirm = page.getByRole("dialog", { name: "Leave this wedding" });
+      await expect(confirm).toBeVisible();
+      const answer = await seatDeleted(page, weddingId, "me", () =>
+        confirm.getByRole("button", { name: "Yes, leave" }).click(),
+      );
+      // The dialog goes, and the page stays on the wedding.
+      await expect(confirm).toBeHidden();
+      return answer;
+    },
   );
   flow.check("cire-api leave as the holder", 409, left.status);
   flow.check("cire-api says the leaver holds the account", "holds_payout_account", left.error);
   flow.check("the dev profile is still an owner there", "owner", roleOf(weddingId, DEV));
 
   const retireUrl = weddingApi(weddingId, "/registry/stripe/retire");
+  // The generation the panel will read: the retire must send it back.
+  const shown = accountOf(weddingId)?.generation ?? -1;
   const handed = await flow.step(
     "Handover Wedding: hand money gifts to Kit from the Money gifts panel",
     async () => {
@@ -261,8 +282,8 @@ export async function handOverSteps(flow: Flow, page: Page): Promise<void> {
   );
   flow.check("cire-api retires the account", 200, handed.status);
   flow.check(
-    "the portal names Kit as the one money gifts go to",
-    JSON.stringify({ handTo: KIT }),
+    "the portal names Kit as the one money gifts go to, at the generation it read",
+    JSON.stringify({ handTo: KIT, generation: shown }),
     handed.body,
   );
   flow.check(
@@ -398,6 +419,8 @@ export async function replaceAbsentHolderSteps(
   flow.check("cire-api says the holder is absent", "payout_holder_absent", turnedOn.error);
 
   const before = await standInCalls();
+  // The generation the panel's check before the retire reads.
+  const shown = accountOf(weddingId)?.generation ?? -1;
   const replaced = await flow.step(
     "Absent Holder Wedding: use the owner's own account, a new one at Stripe",
     async () => {
@@ -442,8 +465,8 @@ export async function replaceAbsentHolderSteps(
   const after = await standInCalls();
   flow.check("cire-api retires the absent holder's account", 200, replaced.retire);
   flow.check(
-    "the portal names no one to hand to",
-    JSON.stringify({ handTo: null }),
+    "the portal names no one to hand to, at the generation it read",
+    JSON.stringify({ handTo: null, generation: shown }),
     replaced.retireBody,
   );
   flow.check("cire-api lists the owner's accounts", 200, replaced.accounts);

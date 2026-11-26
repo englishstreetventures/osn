@@ -1915,15 +1915,14 @@ two steps and a trip to Musubi between them; the decisions:
   over, sign in to Cire with the profile that holds this seat.", as the
   download and owner links of a wedding they alone own do. Step 1
   refuses nothing for it: its list holds the signed-in profile alone, and
-  another profile of the account may be the other owner. On step 2, whose list
-  covers every profile as the API's refusal does, a press with such a wedding
-  listed is refused before any call: a `danger` line ("Hand money gifts over
-  on each wedding marked above first."), an inline `danger` `Notice` on each
-  such row ("Hand this over before you remove your data.") and focus on the
-  first one's link. A 409 that still comes (an account connected since)
-  shows the refusal's own words as the line, after "Part of your data is
-  removed already." past a round, and reads the list again. Nothing here
-  promises a step beyond Money gifts and Musubi's own confirmation.
+  another profile of the account may be the other owner. Step 2 refuses
+  nothing on the screen either: the list was read before the press and can
+  be stale, so the removal is sent and the API's 409 `holds_payout_account`
+  decides. That 409 shows the refusal's own words as a `danger` line, after
+  "Part of your data is removed already." past a round, reads the list again,
+  then puts an inline `danger` `Notice` on each such row ("Hand this over
+  before you remove your data.") and focus on the first one's link. Nothing
+  here promises a step beyond Money gifts and Musubi's own confirmation.
 - **One line about the whole screen**, a `Notice` at `sm`, under the list and
   over the buttons the person pressed: an answer missing (`danger`), the list
   changed under them (`warn`), the confirmation run out (`warn`), a failure
@@ -2018,15 +2017,15 @@ held rows (above). The decisions:
   page inert until it has closed, and hands focus back to the button that
   opened it, which the retire removed.
 - **The holder's seat** in the hosts panel (an owner reading only): its role
-  select offers owner alone, and it and Remove are `aria-disabled`, never
-  `disabled`, and described by a note on a line of its own under the row,
-  muted at the `sm` step, with "Money gifts" a prose link where the tier
-  includes the registry. `Select` owns its look and marks only `disabled`, so
-  an `aria-disabled` select still looks live: the note beside it, and the
-  options below owner greyed in its list, carry the reason. A look of its own
-  for an `aria-disabled` select is a change to `@shared/ui`. The holder's own step-down and
-  "Leave this wedding" take the same treatment, the leave's note under its
-  button. A handle in a row breaks anywhere rather than run past it.
+  select and Remove are described by a note on a line of its own under the
+  row, muted at the `sm` step, with "Money gifts" a prose link where the tier
+  includes the registry. Neither is disabled: the mark comes from the list's
+  read and can be stale, so a press is sent and the API's 409
+  `holds_payout_account` decides; that refusal toasts the note's sentence and
+  puts the select back on owner. The holder's own step-down and "Leave this
+  wedding" take the same treatment, the leave's note under its button, and
+  the leave still asks first. A handle in a row breaks anywhere rather than
+  run past it.
 - **The gift log** says under a gift paid into an earlier account, in the
   muted ink at the `sm` step, as the refunded line beside it: "Paid into an
   earlier Stripe account. Any refund comes from that account."

@@ -2162,6 +2162,8 @@ describe("a Stripe account the couple already have", () => {
  */
 describe("whose account money gifts are paid into", () => {
   const KIT = "usr_kit";
+  /** The account generation the page's settings were read at. */
+  const SHOWN = 3;
 
   /** An account that can charge, held by `holder`, who is an owner here. */
   const seated = (holder: string, over: Record<string, unknown> = {}) => ({
@@ -2172,6 +2174,7 @@ describe("whose account money gifts are paid into", () => {
         stripeChargesEnabled: true,
         stripeConnectedByOsnProfileId: holder,
         payoutHolderAbsent: false,
+        stripeAccountGeneration: SHOWN,
         cashGiftsEnabled: true,
         moneyGiftsBlockedBy: null,
         ...over,
@@ -2189,6 +2192,7 @@ describe("whose account money gifts are paid into", () => {
         stripeChargesEnabled: true,
         stripeConnectedByOsnProfileId: KIT,
         payoutHolderAbsent: true,
+        stripeAccountGeneration: SHOWN,
         moneyGiftsBlockedBy: "payout_holder_absent",
         ...over,
       } as never,
@@ -2284,8 +2288,37 @@ describe("whose account money gifts are paid into", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Replace it" }));
     await screen.findByTestId("stripe-account-choice");
-    expect(retireBodies()).toEqual([{ handTo: null }]);
+    expect(retireBodies()).toEqual([{ handTo: null, generation: SHOWN }]);
     expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(false);
+  });
+
+  it("retires the account the dialog asked about, not one the page caught up to while it was open", async () => {
+    setCachedRegistry("wed_1", seated(KIT));
+    serve({
+      "/hosts": () => json({ hosts: seats }),
+      "/registry/stripe/retire": () => json({ error: "stripe_account_changed" }, 409),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Replace with my own account" }));
+    await screen.findByRole("dialog", { name: "Replace the Stripe account with your own?" });
+    // A live update while the dialog is open: Kit connected another account.
+    setCachedRegistry("wed_1", seated(KIT, { stripeAccountGeneration: SHOWN + 2 }));
+    fireEvent.click(screen.getByRole("button", { name: "Replace it" }));
+    await waitFor(() => expect(retireBodies()).toHaveLength(1));
+    expect(retireBodies()).toEqual([{ handTo: null, generation: SHOWN }]);
+  });
+
+  it("uses its own account at the generation the check before it read", async () => {
+    setCachedRegistry("wed_1", { ...absent(), connectsExistingStripe: true });
+    serve({
+      "/registry": () => json(absent({ stripeAccountGeneration: SHOWN + 1 })),
+      "/registry/stripe/retire": () => json({ settings: retired() }),
+      "/registry/stripe/accounts": () => json({ accounts: [] }),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Use your own account" }));
+    await screen.findByTestId("stripe-account-choice");
+    expect(retireBodies()).toEqual([{ handTo: null, generation: SHOWN + 1 }]);
   });
 
   it("never reads a refused onboarding link as an absent holder", async () => {
@@ -2342,7 +2375,7 @@ describe("whose account money gifts are paid into", () => {
     expect(within(dialog).queryByText("Choose an owner first.")).toBeNull();
     fireEvent.click(handOver);
     const connect = await screen.findByRole("button", { name: "Connect an account" });
-    expect(retireBodies()).toEqual([{ handTo: "usr_sam" }]);
+    expect(retireBodies()).toEqual([{ handTo: "usr_sam", generation: SHOWN }]);
     // The holder's seat is free now: the co-host lists read again.
     expect(hasCachedHosts("wed_1")).toBe(false);
     await waitFor(() => expect(document.activeElement).toBe(connect));
@@ -2516,7 +2549,7 @@ describe("whose account money gifts are paid into", () => {
     // The dialog's own commit, after the row's button of the same name.
     fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" }).at(-1)!);
     const connect = await screen.findByRole("button", { name: "Connect an account" });
-    expect(retireBodies()).toEqual([{ handTo: null }]);
+    expect(retireBodies()).toEqual([{ handTo: null, generation: SHOWN }]);
     expect(String(toastSuccess.mock.calls.at(-1)?.[0])).toMatch(
       /Your Stripe account is disconnected/,
     );

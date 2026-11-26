@@ -350,16 +350,66 @@ describe("HostsPanel", () => {
     const note = await screen.findByTestId("payout-holder-note");
     expect(note.textContent).toBe(String(toastError.mock.calls[0]![0]));
     const remove = screen.getByRole("button", { name: "Remove @ben" });
-    expect(remove.getAttribute("aria-disabled")).toBe("true");
     expect(remove.getAttribute("aria-describedby")).toBe(note.id);
+    expect(roleSelect("@ben").getAttribute("aria-describedby")).toBe(note.id);
     expect(screen.getByText("@ben")).toBeTruthy();
-    // Their seat now offers owner alone, and pressing Remove again sends nothing.
-    const select = roleSelect("@ben") as HTMLSelectElement;
-    expect(
-      [...select.options].filter((option) => !option.disabled).map((option) => option.value),
-    ).toEqual(["owner"]);
-    fireEvent.click(remove);
-    expect(authFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // The mark comes from the list's read and can be stale: each control still
+  // sends, and the API's refusal, not the mark, decides.
+  it("still removes a seat marked as the payout account's holder when the API agrees", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        hosts: [
+          {
+            osnProfileId: "usr_ben",
+            handle: "ben",
+            role: "owner",
+            createdAt: 1,
+            payoutHolder: true,
+          },
+        ],
+      }),
+    );
+    authFetchMock.mockResolvedValueOnce(json({ removed: true }));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await screen.findByTestId("payout-holder-note");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove @ben" }));
+    await waitFor(() => expect(screen.queryByText("@ben")).toBeNull());
+    const [url, init] = authFetchMock.mock.calls[1]!;
+    expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/usr_ben");
+    expect((init as RequestInit).method).toBe("DELETE");
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("still moves a seat marked as the payout account's holder below owner when the API agrees", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        hosts: [
+          {
+            osnProfileId: "usr_ben",
+            handle: "ben",
+            role: "owner",
+            createdAt: 1,
+            payoutHolder: true,
+          },
+        ],
+      }),
+    );
+    authFetchMock.mockResolvedValueOnce(
+      json({ host: { osnProfileId: "usr_ben", role: "viewer", createdAt: 1 } }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await screen.findByTestId("payout-holder-note");
+
+    // Owner to viewer asks nothing first, so the write goes straight out.
+    fireEvent.change(roleSelect("@ben"), { target: { value: "viewer" } });
+    await waitFor(() => expect((roleSelect("@ben") as HTMLSelectElement).value).toBe("viewer"));
+    const [url, init] = authFetchMock.mock.calls[1]!;
+    expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/usr_ben/role");
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ role: "viewer" });
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("says why moving the payout account's holder below owner was refused, and marks their seat", async () => {
@@ -373,10 +423,10 @@ describe("HostsPanel", () => {
     fireEvent.change(roleSelect("@ben"), { target: { value: "viewer" } });
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
     expect(String(toastError.mock.calls[0]![0])).toMatch(/^@ben connected the Stripe account/);
-    await screen.findByTestId("payout-holder-note");
+    const note = await screen.findByTestId("payout-holder-note");
     const select = roleSelect("@ben") as HTMLSelectElement;
     expect(select.value).toBe("owner");
-    expect(select.getAttribute("aria-disabled")).toBe("true");
+    expect(select.getAttribute("aria-describedby")).toBe(note.id);
   });
 
   it("explains every role, the owner's included, to an owner adding someone", async () => {
@@ -1471,18 +1521,39 @@ describe("HostsPanel", () => {
       expect(words).not.toMatch(/only owner/i);
       expect(onLeft).not.toHaveBeenCalled();
       // The seat is marked now, and the leave and step-down say why.
-      await screen.findByTestId("payout-holder-note");
+      const note = await screen.findByTestId("payout-holder-note");
       const own = screen.getByRole("combobox", { name: "Your role on this wedding" });
-      expect(own.getAttribute("aria-disabled")).toBe("true");
-      await waitFor(() =>
-        expect(
-          screen.getByRole("button", { name: /Leave this wedding/i }).getAttribute("aria-disabled"),
-        ).toBe("true"),
+      expect(own.getAttribute("aria-describedby")).toBe(note.id);
+      const leaveNote = await screen.findByTestId("leave-payout-holder-note");
+      expect(
+        screen
+          .getByRole("button", { name: /Leave this wedding/i })
+          .getAttribute("aria-describedby"),
+      ).toBe(leaveNote.id);
+    });
+
+    it("still asks and leaves for an owner marked as the payout account's holder when the API agrees", async () => {
+      activeProfileIdMock.mockImplementation(() => "usr_me");
+      authFetchMock.mockResolvedValueOnce(
+        json({
+          hosts: [
+            { osnProfileId: "usr_me", role: "owner", createdAt: 1, payoutHolder: true },
+            { osnProfileId: "usr_bob", role: "owner", createdAt: 2 },
+          ],
+        }),
       );
-      // Pressed again, it asks nothing and sends nothing.
+      authFetchMock.mockResolvedValueOnce(json({ left: true }));
+      const onLeft = vi.fn();
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" canLeave onLeft={onLeft} />);
+      await screen.findByTestId("leave-payout-holder-note");
+
       fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
-      expect(screen.queryByRole("button", { name: /Yes, leave/i })).toBeNull();
-      expect(authFetchMock).toHaveBeenCalledTimes(2);
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+      await waitFor(() => expect(onLeft).toHaveBeenCalledTimes(1));
+      const [url, init] = authFetchMock.mock.calls[1]!;
+      expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/me");
+      expect((init as RequestInit).method).toBe("DELETE");
+      expect(toastSuccess).toHaveBeenCalledWith("You've left this wedding.");
     });
   });
 

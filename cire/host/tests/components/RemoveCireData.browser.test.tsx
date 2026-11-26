@@ -329,6 +329,8 @@ describe("Remove my Cire data, painted", () => {
       });
 
       it(`refused for a payout account the person holds — ${at}`, async () => {
+        const message =
+          "You connected the Stripe account that money gifts are paid into on the weddings listed. Before you remove your Cire data, hand money gifts to another owner or disconnect the account in each wedding's Money gifts settings, then remove your data again.";
         serve({
           preview: (body) =>
             json(
@@ -336,7 +338,15 @@ describe("Remove my Cire data, painted", () => {
                 ? { ...CONFIRMED, weddings: [...CONFIRMED.weddings, HANA] }
                 : { ...SIGNED_IN, weddings: [...SIGNED_IN.weddings, HANA] },
             ),
-          remove: never,
+          remove: () =>
+            json(
+              {
+                error: "holds_payout_account",
+                message,
+                weddings: [{ weddingId: HANA.weddingId, name: HANA.name }],
+              },
+              409,
+            ),
         });
         await open({ code: "code_confirmed" });
         expect(await screen.findByText(HANA.name)).toBeTruthy();
@@ -344,10 +354,10 @@ describe("Remove my Cire data, painted", () => {
           screen.getByRole("checkbox", { name: /Delete every wedding only you own/ }),
         );
         fireEvent.click(button("Remove my Cire data"));
-        expect(
-          await screen.findByText("Hand money gifts over on each wedding marked above first."),
-        ).toBeTruthy();
-        expect(screen.getByRole("link", { name: "Money gifts" })).toBeTruthy();
+        expect(await screen.findByText(message)).toBeTruthy();
+        expect(await screen.findByText("Hand this over before you remove your data.")).toBeTruthy();
+        const link = screen.getByRole("link", { name: "Money gifts" });
+        await waitFor(() => expect(document.activeElement).toBe(link));
         await shot("10a-payout-account-held", viewport, theme);
       });
 

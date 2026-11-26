@@ -44,6 +44,11 @@ interface PayoutAccountActionsProps {
   mode: PayoutAccountMode | null;
   /** The account's holder, by profile id, to name them in the replace dialog. */
   holderId: string | null;
+  /**
+   * The account generation of the settings the panel shows. A retire sends it,
+   * so the API retires nothing once the account it names has been replaced.
+   */
+  generation: number | null;
   /** A Stripe read or a connect is out: no retire starts meanwhile. */
   busy: boolean;
   /** Put settings the API answered with into the panel's snapshot. */
@@ -113,6 +118,11 @@ export default function PayoutAccountActions(props: PayoutAccountActionsProps) {
 
   /** What runs once the open dialog has closed. `onClose` takes it and clears it. */
   let afterClose: (() => void) | null = null;
+  /**
+   * The account generation when the dialog opened: its commit retires the
+   * account the owner was asked about, not one that replaced it meanwhile.
+   */
+  let askedAt: number | null = null;
 
   /** Every other owner, the ones money gifts can be handed to. */
   const otherOwners = (): HostSeat[] => {
@@ -154,6 +164,7 @@ export default function PayoutAccountActions(props: PayoutAccountActionsProps) {
 
   function ask(which: Asking): void {
     if (working() || props.busy) return;
+    askedAt = props.generation;
     batch(() => {
       setChosen("");
       setAsking(which);
@@ -177,16 +188,21 @@ export default function PayoutAccountActions(props: PayoutAccountActionsProps) {
   }
 
   /**
-   * Retire the account. `handTo` names the owner a holder hands money gifts
-   * to. Answers whether it was retired; every refusal is said here.
+   * Retire the account the page showed at `generation`. `handTo` names the
+   * owner a holder hands money gifts to. Answers whether it was retired; every
+   * refusal is said here.
    */
-  async function retire(handToId: string | null, done: string): Promise<boolean> {
+  async function retire(
+    handToId: string | null,
+    generation: number | null,
+    done: string,
+  ): Promise<boolean> {
     setWorking(true);
     try {
       const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/registry/stripe/retire")), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handTo: handToId }),
+        body: JSON.stringify({ handTo: handToId, generation }),
       });
       if (res.status === 401) {
         redirectToLogin();
@@ -256,6 +272,7 @@ export default function PayoutAccountActions(props: PayoutAccountActionsProps) {
       if (
         await retire(
           to,
+          askedAt,
           `Money gifts are handed to ${name}. Guests can’t give money until they connect an account.`,
         )
       ) {
@@ -267,6 +284,7 @@ export default function PayoutAccountActions(props: PayoutAccountActionsProps) {
       if (
         await retire(
           null,
+          askedAt,
           "Your Stripe account is disconnected. Guests can’t give money until an owner connects an account.",
         )
       ) {
@@ -274,7 +292,9 @@ export default function PayoutAccountActions(props: PayoutAccountActionsProps) {
       }
       return;
     }
-    if (await retire(null, "This wedding no longer uses that Stripe account. Connect yours.")) {
+    if (
+      await retire(null, askedAt, "This wedding no longer uses that Stripe account. Connect yours.")
+    ) {
       whenClosed(() => props.onNext("connect"));
     }
   }
@@ -311,7 +331,14 @@ export default function PayoutAccountActions(props: PayoutAccountActionsProps) {
       );
       return;
     }
-    if (await retire(null, "This wedding no longer uses that Stripe account. Connect yours.")) {
+    // The generation the read just answered: the account this check judged.
+    if (
+      await retire(
+        null,
+        fresh.stripeAccountGeneration,
+        "This wedding no longer uses that Stripe account. Connect yours.",
+      )
+    ) {
       props.onNext("connect");
     }
   }

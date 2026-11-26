@@ -98,6 +98,7 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
     stripeConnectedByOsnProfileId: null,
     // What the server says for no Stripe account.
     moneyGiftsBlockedBy: "stripe_not_ready",
+    stripeAccountGeneration: null,
     updatedAt: null,
   },
   items: [],

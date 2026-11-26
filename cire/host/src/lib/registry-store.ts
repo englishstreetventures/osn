@@ -65,6 +65,12 @@ export interface RegistrySettings {
    * means absent, so the panel never reads a missing connector as absent.
    */
   payoutHolderAbsent?: boolean | null;
+  /**
+   * To owners only: the account generation these settings were read at. A
+   * retire sends it back, so it acts only on the account the page showed.
+   * `null` for anyone who is not an owner.
+   */
+  stripeAccountGeneration: number | null;
   updatedAt: number | null;
 }
 

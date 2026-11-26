@@ -736,8 +736,8 @@ export default function HostsPanel(props: HostsPanelProps) {
   const holderNoteId = (host: HostRow) => `payout-holder-note-${host.osnProfileId}`;
 
   async function remove(host: HostRow) {
-    // Its Remove is `aria-disabled`, which swallows the press; this holds too.
-    if (host.payoutHolder) return;
+    // A seat marked as the payout account's holder is still sent: the mark
+    // can be stale, and the API's `holds_payout_account` refusal decides.
     const label = host.handle ? `@${host.handle}` : host.osnProfileId;
     const done = beginWrite();
     try {
@@ -895,14 +895,6 @@ export default function HostsPanel(props: HostsPanelProps) {
    */
   function selectRole(host: HostRow, nextRole: AssignableRole) {
     if (nextRole === host.role) return;
-    // The holder's select offers owner alone; were another role ever picked,
-    // a fresh copy of the seat puts the select back on the role it holds.
-    if (host.payoutHolder && nextRole !== "owner") {
-      setLocalHosts((prev) =>
-        prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)),
-      );
-      return;
-    }
     const ownSeat = isMe(host);
     if (needsRoleChangeConfirmation(host.role, nextRole, ownSeat)) {
       setPending({ host, to: nextRole, ownSeat });
@@ -1276,15 +1268,15 @@ export default function HostsPanel(props: HostsPanelProps) {
                           was picked, and only a change to this expression can
                           undo it. */}
                         {/* The payout account's holder keeps the owner seat until
-                          the account is handed over: their select offers owner
-                          alone, `aria-disabled` and described by the note under
-                          the row. `Select` owns its look, which marks only
-                          `disabled`, so the note carries the reason. */}
+                          the account is handed over. Their select and Remove
+                          stay usable and are described by the note under the
+                          row: the mark comes from the list's read and can be
+                          stale, so the API's `holds_payout_account` refusal
+                          decides, and the row says why when it refuses. */}
                         <Select
                           size="form-compact"
                           value={pendingRoleFor(host) ?? host.role}
                           disabled={roleBusyId() === host.osnProfileId}
-                          aria-disabled={host.payoutHolder ? "true" : undefined}
                           aria-describedby={host.payoutHolder ? holderNoteId(host) : undefined}
                           aria-label={
                             isMe(host) ? "Your role on this wedding" : `Role for ${nameOf(host)}`
@@ -1294,14 +1286,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                           }
                         >
                           <For each={grantable()}>
-                            {(option) => (
-                              <option
-                                value={option}
-                                disabled={host.payoutHolder === true && option !== "owner"}
-                              >
-                                {roleLabel(option)}
-                              </option>
-                            )}
+                            {(option) => <option value={option}>{roleLabel(option)}</option>}
                           </For>
                         </Select>
                         {/* No remove on your own row: stepping down is the select
@@ -1312,7 +1297,6 @@ export default function HostsPanel(props: HostsPanelProps) {
                             size="sm"
                             type="button"
                             onClick={() => void remove(host)}
-                            aria-disabled={host.payoutHolder ? "true" : undefined}
                             aria-describedby={host.payoutHolder ? holderNoteId(host) : undefined}
                             aria-label={`Remove ${host.handle ? `@${host.handle}` : "host"}`}
                           >

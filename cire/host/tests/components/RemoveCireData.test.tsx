@@ -186,18 +186,17 @@ describe("RemoveCireData and a wedding's payout account", () => {
   });
   const note = /You connected the Stripe account money gifts are paid into/;
 
-  it("refuses to remove on a confirmed list naming a payout account the person holds, and says where to hand it over", async () => {
+  it("still removes on a confirmed list naming a payout account the person holds when the API agrees", async () => {
+    // The list's mark can be stale: the removal is sent, and the API decides.
+    const onDone = vi.fn();
     const calls = serve([heldPlan(true)], [json({ status: "done" })]);
-    show({ code: "code_ok" });
+    show({ code: "code_ok", onDone });
     expect(await screen.findByText(note)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove my Cire data" }));
-    expect(
-      await screen.findByText("Hand money gifts over on each wedding marked above first."),
-    ).toBeTruthy();
-    expect(screen.getByText("Hand this over before you remove your data.")).toBeTruthy();
-    expect(calls.remove).toBe(0);
-    expect(document.activeElement?.textContent).toBe("Money gifts");
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    expect(calls.remove).toBe(1);
+    expect(screen.queryByText("Hand this over before you remove your data.")).toBeNull();
   });
 
   it("lets the person go on to Musubi from the first step, whose list holds only one profile", async () => {
@@ -237,8 +236,11 @@ describe("RemoveCireData and a wedding's payout account", () => {
     expect(await screen.findByText(MIA.name)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove my Cire data" }));
     expect(await screen.findByText(message)).toBeTruthy();
-    // The list is read again, and the wedding says why.
+    // The list is read again, and the wedding says why, is marked, and its
+    // way to Money gifts takes focus.
     expect(await screen.findByText(note)).toBeTruthy();
+    expect(await screen.findByText("Hand this over before you remove your data.")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Money gifts"));
   });
 
   it("says part is done when the refusal comes after a round", async () => {
