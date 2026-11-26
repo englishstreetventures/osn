@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 6.5.9
+
+### Patch Changes
+
+- Updated dependencies [9aab460]
+  - @shared/ui@0.20.1
+
 ## 6.5.8
 
 ### Patch Changes
