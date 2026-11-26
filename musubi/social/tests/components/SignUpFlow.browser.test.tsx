@@ -243,6 +243,10 @@ beforeEach(() => {
 afterEach(async () => {
   vi.useRealTimers();
   cleanup();
+  // The page's storage outlives this file's frame: the files after it on the
+  // same page would find a sign-up pending and open on the passkey step.
+  sessionStorage.clear();
+  localStorage.clear();
   document.documentElement.classList.remove("dark");
   await commands.emulateMedia({ reducedMotion: "no-preference" });
   await page.viewport(414, 896);
