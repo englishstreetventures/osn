@@ -533,8 +533,8 @@ const retireRefused = (
   );
 
 /**
- * `POST …/registry/stripe/retire`, body `{ handTo: string | null }`. Mounted on
- * every deployment: see the header.
+ * `POST …/registry/stripe/retire`, body `{ handTo: string | null, generation:
+ * number }`. Mounted on every deployment: see the header.
  */
 export const createRegistryStripeRetireRoutes = (
   db: Db,
@@ -557,7 +557,9 @@ export const createRegistryStripeRetireRoutes = (
             return runCire(
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknownEffect(RetireStripeAccountBody)(raw);
-                // The account and its generation the write must still find.
+                // The account the write must still find, at the generation the
+                // caller's page showed: a page showing an account since
+                // replaced retires nothing, even when the row names another.
                 const read = yield* registryService.settingsOnly(weddingId);
                 const done = yield* registryService.retireStripeAccount(
                   {
@@ -565,7 +567,7 @@ export const createRegistryStripeRetireRoutes = (
                     osnProfileId,
                     handTo: body.handTo,
                     accountId: read.stripeAccountId,
-                    generation: read.stripeAccountGeneration,
+                    generation: body.generation,
                   },
                   deps,
                 );
