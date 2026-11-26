@@ -362,17 +362,26 @@ describe("an app verifying osn-api's calls by asking for one key", () => {
     for (const stop of stops) stop();
   });
 
-  /** osn-api's key route over HTTP, holding `routeHolds`, and the requests it served. */
-  function serve(api: ReturnType<typeof osnApi>, options: { ignoreKid?: boolean } = {}) {
+  /**
+   * osn-api's key route over HTTP, and the requests it served. Each request
+   * arrives as from `from` (a direct caller's address unless told otherwise).
+   */
+  function serve(
+    api: ReturnType<typeof osnApi>,
+    options: { ignoreKid?: boolean; from?: Record<string, string> } = {},
+  ) {
     let fetches = 0;
     const server = Bun.serve({
       port: 0,
       fetch: (request) => {
         fetches += 1;
         const url = new URL(request.url);
-        // An osn-api on the code before key-by-id: the kid is not read.
+        // No kid reaches the route: an app on the code before key-by-id asks
+        // for none, and an osn-api on that code reads none.
         if (options.ignoreKid) url.search = "";
-        return api.routes.handle(new Request(url.toString(), { headers: { ...ADDRESS } }));
+        return api.routes.handle(
+          new Request(url.toString(), { headers: { ...(options.from ?? ADDRESS) } }),
+        );
       },
     });
     stops.push(() => void server.stop(true));
@@ -495,6 +504,32 @@ describe("an app verifying osn-api's calls by asking for one key", () => {
         ok: true,
       });
     }
+  });
+
+  it("refuses no real call once strangers spend the whole list's shared hour budget", async () => {
+    // osn-api's real budgets. Only an app on the code before key-by-id reads
+    // the whole list, and it arrives in the app lane; an app on this code asks
+    // by kid, which no hour budget covers, from whichever lane it arrives in.
+    const api = osnApi(HOLDS["the service secret"]);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    for (const address of ["203.0.113.70", "203.0.113.71", "203.0.113.72"]) {
+      for (let i = 0; i < OSN_RATE_LIMITS.arcJwksIp.maxRequests; i++) {
+        // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+        await api.list({ "cf-connecting-ip": address });
+      }
+    }
+    expect(await api.list({ "cf-connecting-ip": "203.0.113.73" })).toBe(429);
+    const { header } = await signed(api, HOLDS["the service secret"]);
+    const verdict = async (from: Record<string, string>, ignoreKid: boolean) => {
+      clearJwksCache();
+      const { issuer } = serve(api, { from, ignoreKid });
+      return (await verify(header, issuer, HOLDS.nothing)).ok;
+    };
+    // An app on this code, in the app lane and in the address lane.
+    expect(await verdict(APP, false)).toBe(true);
+    expect(await verdict({ "cf-connecting-ip": "203.0.113.74" }, false)).toBe(true);
+    // An app on the code before key-by-id, in the app lane: its zone's own budget.
+    expect(await verdict(APP, true)).toBe(true);
   });
 
   it.each(["nothing", "the service secret", "the kid secret", "both secrets"] as const)(

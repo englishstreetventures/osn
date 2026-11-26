@@ -94,7 +94,7 @@ export interface AppDeps {
   /** Per-account account-export limiter, and the per-IP guard in front of it. */
   accountExportLimiter: CoordinationStores["accountExportLimiter"];
   accountExportIpLimiter: CoordinationStores["accountExportIpLimiter"];
-  /** Per-IP minute and hour budgets on `GET /.well-known/arc-jwks.json`. */
+  /** The minute and hour budgets on `GET /.well-known/arc-jwks.json` (`routes/arc-jwks.ts`). */
   arcJwksRateLimiters: CoordinationStores["arcJwksRateLimiters"];
   /** Per-account deletion, restore and status limiters. */
   accountErasureRateLimiters: CoordinationStores["accountErasureRateLimiters"];
