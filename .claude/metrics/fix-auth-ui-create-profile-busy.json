@@ -4,8 +4,8 @@
     "number": null,
     "branch": "fix/auth-ui-create-profile-busy",
     "base_sha": "cb6a3c9de047f05e5fc75f9ddef67eb90a976b66",
-    "head_sha": "4030c0bcb6c6f53231b20cbb070b8d906aad0374",
-    "generated_at": "2026-11-26T02:41:59.639Z",
+    "head_sha": "35c4191433011ff56bc9166dcb00abd8c626fbd3",
+    "generated_at": "2026-11-26T02:48:27.894Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -25,33 +25,33 @@
   "window": {
     "sessions": 1,
     "first_ts": "2026-11-26T02:22:57.782Z",
-    "last_ts": "2026-11-26T02:41:51.020Z",
-    "span_seconds": 1133,
-    "active_seconds": 1133,
+    "last_ts": "2026-11-26T02:48:21.664Z",
+    "span_seconds": 1524,
+    "active_seconds": 1524,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 14.880460399999993,
+    "usd_equivalent": 19.907678600000004,
     "tokens": {
-      "input": 388,
-      "output": 113220,
-      "thinking": 33853,
-      "cache_write_5m": 433700,
+      "input": 486,
+      "output": 151448,
+      "thinking": 46155,
+      "cache_write_5m": 544553,
       "cache_write_1h": 0,
-      "cache_read": 26115021
+      "cache_read": 35385024
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 388,
-          "output": 113220,
-          "thinking": 33853,
-          "cache_write_5m": 433700,
+          "input": 486,
+          "output": 151448,
+          "thinking": 46155,
+          "cache_write_5m": 544553,
           "cache_write_1h": 0,
-          "cache_read": 26115021
+          "cache_read": 35385024
         },
-        "usd_equivalent": 14.880460399999993,
-        "messages": 182
+        "usd_equivalent": 19.907678600000004,
+        "messages": 231
       }
     },
     "by_actor": {
@@ -69,20 +69,20 @@
       },
       "subagent": {
         "tokens": {
-          "input": 388,
-          "output": 113220,
-          "thinking": 33853,
-          "cache_write_5m": 433700,
+          "input": 486,
+          "output": 151448,
+          "thinking": 46155,
+          "cache_write_5m": 544553,
           "cache_write_1h": 0,
-          "cache_read": 26115021
+          "cache_read": 35385024
         },
-        "usd_equivalent": 14.880460399999993,
-        "messages": 182
+        "usd_equivalent": 19.907678600000004,
+        "messages": 231
       }
     },
     "effort": {
-      "xhigh": 120,
-      "high": 62
+      "xhigh": 147,
+      "high": 84
     },
     "unpriced_models": []
   },
@@ -91,7 +91,7 @@
       "generated": 1,
       "test": 1,
       "docs": 3,
-      "config": 0,
+      "config": 1,
       "source": 2
     },
     "loc": {
@@ -100,15 +100,15 @@
         "deleted": 0
       },
       "test": {
-        "added": 107,
+        "added": 100,
         "deleted": 1
       },
       "docs": {
-        "added": 17,
-        "deleted": 8
+        "added": 18,
+        "deleted": 9
       },
       "config": {
-        "added": 0,
+        "added": 180,
         "deleted": 0
       },
       "source": {
@@ -121,7 +121,7 @@
       "osn/auth-ui"
     ],
     "touches_migration": false,
-    "commits": 3
+    "commits": 6
   },
   "interaction": {
     "user_turns": 0,
@@ -129,18 +129,18 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 161,
-      "Edit": 31,
-      "Write": 30,
-      "Read": 13,
-      "Skill": 10,
+      "Bash": 207,
+      "Edit": 45,
+      "Write": 36,
+      "Read": 16,
+      "Skill": 11,
+      "Agent": 2,
       "ToolSearch": 2,
-      "Agent": 1,
-      "SubagentHandback": 1
+      "SubagentHandback": 2
     },
     "edit_churn": {
       "files_edited_3plus": 6,
-      "max_edits_one_file": 6
+      "max_edits_one_file": 12
     },
     "skills": {
       "new-feat": 1,
@@ -148,22 +148,22 @@
       "write-wiki": 1,
       "obsidian:obsidian-markdown": 1,
       "prep-pr": 1,
-      "review-tests": 1,
+      "review-tests": 2,
       "review-docs": 1,
       "review-security": 1,
       "review-design": 1,
       "retro": 1
     },
     "subagents": {
-      "reviewer": 1
+      "reviewer": 2
     },
     "requests": {
       "main": 0,
-      "subagent": 182,
-      "with_tools": 181,
-      "with_one_tool": 134,
-      "context_median": 137923,
-      "context_p90": 255396
+      "subagent": 231,
+      "with_tools": 230,
+      "with_one_tool": 168,
+      "context_median": 142599,
+      "context_p90": 282815
     }
   },
   "review": {
