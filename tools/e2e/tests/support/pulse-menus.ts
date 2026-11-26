@@ -1,15 +1,17 @@
 /**
  * Pulse's two avatar menus and its "More filters" dialog, as `@shared/ui`'s
  * defaults draw them: the menus' separator a 1px fill in `--ui-hairline` with
- * no border of its own, in light and dark, and every one of these overlays
- * still growing from the contract's 96% as it opens, since pulse maps no
- * scale token (`pulse/DESIGN.md`; `wiki/shared/design-tokens.md` §Motion).
- * Musubi maps the scale to 1 and fades alone, so a scale that reached pulse
- * from Musubi's mapping, or a pulse mapping of its own, fails here.
+ * no border of its own, in light and dark, their rows at pulse's 6px small
+ * corner, and every one of these overlays still growing from the contract's
+ * 96% as it opens, since pulse maps no scale token (`pulse/DESIGN.md`;
+ * `wiki/shared/design-tokens.md` §Motion). Musubi maps the scale to 1 and
+ * fades alone, and its menu rows to 8px, so a scale or a corner that reached
+ * pulse from Musubi's mapping, or a pulse mapping of its own, fails here.
  *
  * The 0.96 is the contract's default written out, the `@layer base` value in
- * `shared/design-tokens/src/tokens.css`, never a value read from the page: a
- * read would follow whatever pulse mapped.
+ * `shared/design-tokens/src/tokens.css`, and the 6px is pulse's
+ * `--ui-radius-sm` written out, never a value read from the page: a read
+ * would follow whatever pulse mapped.
  *
  * `pulse-event-rsvp` calls it once the host has signed in, so it spends no
  * sign-in, and it starts on the `/` sign-in leaves. The ExploreNav menu and
@@ -38,6 +40,12 @@ const SIZES = [
 const SCHEMES = ["light", "dark"] as const;
 /** The contract's `--ui-scale-enter` default, which an app that maps none draws. */
 const CONTRACT_SCALE_ENTER = 0.96;
+/**
+ * A menu row's corner in pulse: the contract's menu-row role, which pulse
+ * leaves unmapped, falls back to pulse's `--ui-radius-sm`,
+ * `calc(var(--radius) - 4px)` on its 0.625rem `--radius` (`pulse/web/src/app.css`).
+ */
+const PULSE_ROW_CORNER = "6px";
 
 /** The avatar trigger, the last menu trigger in the page's header. */
 export const trigger = (page: Page) => page.locator('header button[aria-haspopup="true"]').last();
@@ -69,6 +77,17 @@ async function avatarMenu(flow: Flow, page: Page, where: string, what: string): 
       });
       zooms(flow, at, await opened());
       await menuSeparator(flow, `${at} separator`, rule);
+      // The corner follows no width or scheme, so it is read once a menu.
+      if (size === SIZES[0] && scheme === "light") {
+        flow.check(
+          `${what}: a row keeps pulse's small corner`,
+          PULSE_ROW_CORNER,
+          await menu
+            .getByRole("menuitem")
+            .first()
+            .evaluate((el) => getComputedStyle(el).borderTopLeftRadius),
+        );
+      }
       await flow.step(`pulse menus: shoot and close the ${at}`, async () => {
         await menu.screenshot({
           path: resolve(SHOTS, `${where}-${size.width}-${scheme}.png`),

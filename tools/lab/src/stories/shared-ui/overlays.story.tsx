@@ -1,4 +1,5 @@
 import { Button } from "@shared/ui/ui/button";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -376,6 +377,67 @@ export const MenuItemsCireDark = () => <EveryRow variant="accent" theme="dark" /
 
 /** The same, on cire's light ramp. */
 export const MenuItemsCireLight = () => <EveryRow variant="accent" theme="light" />;
+
+/**
+ * A menu row's corner beside a checkbox's box. The row reads the contract's
+ * menu-row role, `--ui-radius-menu-row`; the box reads `--ui-radius-sm`, so
+ * the two move apart. `8px` lends Musubi's mapping, its `--radius-md`.
+ * `unmapped` lends `initial`, so the row falls back to the lab's small
+ * corner, Musubi's 6px, which is also the small corner pulse and cire map,
+ * and neither maps the role. The box stays at 6px either way. Both corners
+ * are read back from the page each time the control changes; point at a row
+ * to see its corner in the focus fill.
+ */
+export const MenuRowCorner: Story<{ corner: string } & StoryArgs> = {
+  args: { corner: "8px" },
+  controls: { corner: { kind: "select", options: ["8px", "unmapped"] } },
+  render: (args) => {
+    lend(() => ({
+      "--ui-radius-menu-row": args.corner === "unmapped" ? "initial" : "var(--radius-md)",
+    }));
+    const [ticked, setTicked] = createSignal(true);
+    let boxRow: HTMLDivElement | undefined;
+    const [read, setRead] = createSignal({ corner: "", row: "", box: "" });
+    createEffect(() => {
+      const corner = args.corner;
+      // One frame later: `lend` may set the token after this runs, and the
+      // panel mounts in a portal after the story's own tree.
+      const frame = requestAnimationFrame(() => {
+        const row = document.querySelector("[data-corner-row]");
+        const box = boxRow?.querySelector("input + span");
+        setRead({
+          corner,
+          row: row ? getComputedStyle(row).borderTopLeftRadius : "unmeasured",
+          box: box ? getComputedStyle(box).borderTopLeftRadius : "unmeasured",
+        });
+      });
+      onCleanup(() => cancelAnimationFrame(frame));
+    });
+    // The panel opens below its trigger, so the trigger comes last, with room
+    // under it. Point at a row, or arrow down to it, to see its corner in the
+    // focus fill.
+    return (
+      <div class="flex min-h-80 flex-col items-start gap-4">
+        <div ref={boxRow}>
+          <Checkbox checked={ticked()} onChange={setTicked} label="Delete everything" />
+        </div>
+        <p class="text-ui-sm text-ui-ink-secondary">
+          Role {read().corner}, read back: row {read().row} · box {read().box}
+        </p>
+        <DropdownMenu defaultOpen modal={false} placement="bottom-start">
+          <DropdownMenuTrigger as={Button} variant="outline">
+            Account
+          </DropdownMenuTrigger>
+          <DropdownMenuContent class="w-52">
+            <DropdownMenuItem data-corner-row="">Switch profile</DropdownMenuItem>
+            <DropdownMenuItem>Settings</DropdownMenuItem>
+            <DropdownMenuItem>Sign out</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  },
+};
 
 export const PopoverStory = () => (
   <Popover>

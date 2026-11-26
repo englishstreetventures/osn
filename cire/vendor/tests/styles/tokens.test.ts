@@ -249,9 +249,12 @@ describe("one shape and one pace across cire", () => {
   /**
    * The corner each contract role paints in cire, in px. `--ui-radius-sheet`
    * is left out by name: host and vendor never present a bottom sheet, and the
-   * guest site and landing hold theirs at 1.75rem.
+   * guest site and landing hold theirs at 1.75rem. `--ui-radius-menu-row` is
+   * held unmapped in all four, so every cire menu row takes `--ui-radius-sm`,
+   * the 6px held here: a surface that mapped it would move its menu rows
+   * apart from the others'.
    */
-  const ROLE_PX: Record<string, number> = {
+  const ROLE_PX: Record<string, number | "not declared"> = {
     "--ui-radius-hair": 2,
     "--ui-radius-sm": 6,
     "--ui-radius-md": 10,
@@ -259,6 +262,7 @@ describe("one shape and one pace across cire", () => {
     "--ui-radius-pill": 999,
     "--ui-radius-control": 999,
     "--ui-radius-field": 14,
+    "--ui-radius-menu-row": "not declared",
   };
 
   const ROLES = CONTRACT_SCALAR_TOKENS.radius.filter((name) => name !== "--ui-radius-sheet");

@@ -13,7 +13,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-23
+last-reviewed: 2026-11-26
 ---
 # Cire invite design selector
 
@@ -805,7 +805,7 @@ differs. On the guest site each corner paints:
 | 16px, `rounded-ui-lg` | the event card, gala's code-entry card, both packs' hero title panel, the gift money panel and the gift item card, whose `overflow-hidden` clips its picture to the corner |
 | 1.75rem, `rounded-t-ui-sheet` | the top corners of a bottom sheet (`Modal presentation="sheet"`) |
 | 10px, `rounded-md` | the link menu |
-| 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the link menu's rows; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
+| 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the link menu's rows, through `rounded-ui-menu-row`, which cire leaves to `sm`; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
 | 2px, `--radius-hair` | nothing on the guest site: a legal page's inline placeholder (`.placeholder`) draws no highlight, so no box to round |
 | round, `rounded-full` | the "RSVPs closed" badge (`Chip`); the sheet's close cross (`Button` `round`, the `pill` step), the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
 

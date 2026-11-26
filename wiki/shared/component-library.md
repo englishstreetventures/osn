@@ -771,6 +771,7 @@ row, label and separator inside it, so one menu cannot mix two looks:
   `shared/ui/tests/dropdown-menu-default.browser.test.tsx` reads them back as
   literal strings and checks what they paint, and imports only what the menu
   exported before the accent variant, so it runs on either side of a change.
+  Its docblock lists each deliberate change to those strings.
   The panel grows from its trigger and shrinks a little as it closes, on the
   shared motion tokens (§Motion in [[design-tokens]]).
   A focused row is marked by its sunk fill and a `pill` trigger by its ring,
@@ -779,7 +780,7 @@ row, label and separator inside it, so one menu cannot mix two looks:
   at rest would ring every row in that theme.
 - **`accent`** — cire's portal menus: the raised surface at the `md` corner
   with `--elev-2` (an app's own, else `--ui-elev-2`), 6px of padding; rows at
-  the small type step in full ink, `px-3 py-2` at the `sm` corner; a
+  the small type step in full ink, `px-3 py-2` at the menu-row corner; a
   highlighted row a 10% accent wash with the readable accent ink; a 2px focus
   ring inset by 2px for the keyboard, because Kobalte scrolls a row flush to
   the edge of a scrolling panel and the panel would clip a ring drawn outside
@@ -828,6 +829,12 @@ The rows:
 
 The trailing check and the switch take the readable accent ink and the accent.
 
+**A row's corner** in both looks, and in `MENU_TOUCH` below, is the contract's
+menu-row role, `rounded-ui-menu-row`, which falls back to the app's
+`--ui-radius-sm` ([[design-tokens#The tokens]]). It is a role of its own so an
+app can round its menu rows like its list rows without raising `sm`, which the
+drawn `Checkbox`'s 16px box reads too.
+
 **Where cire draws it.** Every portal menu is the accent look: host's account
 menu, wedding switcher, a guest's seat menu (radio rows, each table's count in
 the secondary ink), the narrow household list's one menu (§One popup for a
@@ -850,9 +857,9 @@ clipped by the dialog's own scroll box and by a `frame` modal, as a popover is
 holds `MENU_TOUCH`, the rows of a menu drawn without Kobalte: the guest site's
 link menu, which paints in the top layer inside the guest sheet and cannot
 afford Kobalte's menu. Its panel is `min-w-56`, `p-2` with a 4px gap, on
-`shadow-lg`; its rows are 44px, a guest's touch floor, in the secondary ink,
-filled with the accent under the pointer, for the keyboard (`focus-visible`)
-and while pressed — never on focus alone, since a tap focuses the link it
+`shadow-lg`; its rows are 44px, a guest's touch floor, at the menu-row
+corner, in the secondary ink, filled with the accent under the pointer, for
+the keyboard (`focus-visible`) and while pressed — never on focus alone, since a tap focuses the link it
 lands on and a filled row then reads as chosen. Its outline is hidden, not
 removed, so a contrast theme, which drops the fill, paints the outline
 instead. Neither file imports
@@ -865,7 +872,8 @@ unstyled.
 `shared/ui/tests/dropdown-menu.browser.test.tsx` holds the rows' keys and
 pointer, the link rules, the modal mount, the accent look's focus ring,
 motion and its contrast on cire's two ramps, its separator with and without a
-contrast theme, the touch row and the handle.
+contrast theme, the touch row, the accent and touch rows' corner, and the
+handle.
 
 ### Table and its pinned cells
 

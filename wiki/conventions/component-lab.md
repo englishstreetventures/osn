@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-23
+last-reviewed: 2026-11-26
 ---
 
 # Component Lab
@@ -45,7 +45,7 @@ carry the variants and states, and all eight story files live together in
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat, Skeleton (`Skeletons`, each `standsFor` value at its sizes; `SkeletonGrounds`, each one on the page and inside a `Card`, to judge in both themes; `SkeletonInPlace`, Musubi's placeholders inside `aria-busy` regions; `SkeletonPlayground`) |
 | `shared/ui/data` | `data.story.tsx` | Table, Meter |
 | `shared/ui/Orb` | `orb.story.tsx` | `States` (the nine states at 64 and 20px on the page's ground, ink in the text colour, so it follows the light · dark toggle), `InButtons` (the 20px orb inside a `Button` of each variant at full strength, to judge its ink, and the nine states in the default one; a busy `Button` draws it dimmed, in `shared/ui/Button` → `Busy`), `Playground` (state, size) |
-| `shared/ui/overlays` | `overlays.story.tsx` | Dialog (`DialogStory` lends `initial` for the title's size and weight and both scale tokens, so it draws the contract default whatever the lab's stylesheet maps; `DialogTitleWeight` sets `--ui-weight-title` from a control, `unmapped` lending `initial`; `DialogFadeOnly` sets both scale tokens to 1, as card or, at `md` and up, sheet; `DialogSheetSlide` opens the sheet, which slides up and down below `md`, or fades in place under reduced motion; `DialogSheetDrag` opens a sheet to drag down by its title row below `md` — short, tall and scrolling, or with a field — with `dismissible` to untick for a sheet that gives and comes back; `DialogScrollEdge` opens a dialog taller than its 85% cap, as sheet or centred card, whose title row stays put with a 16px fade under it once the fields scroll under it; each lends its tokens to `<body>`, where the panel portals), Modal, DropdownMenu (the default look; `MenuItems` and `MenuItemsCireDark`/`MenuItemsCireLight` open on load with every row kind — radio, check, switch, link, disabled — in the default and the accent variant under cire's mapping), Popover, InfoPopover, Tooltip, Tabs |
+| `shared/ui/overlays` | `overlays.story.tsx` | Dialog (`DialogStory` lends `initial` for the title's size and weight and both scale tokens, so it draws the contract default whatever the lab's stylesheet maps; `DialogTitleWeight` sets `--ui-weight-title` from a control, `unmapped` lending `initial`; `DialogFadeOnly` sets both scale tokens to 1, as card or, at `md` and up, sheet; `DialogSheetSlide` opens the sheet, which slides up and down below `md`, or fades in place under reduced motion; `DialogSheetDrag` opens a sheet to drag down by its title row below `md` — short, tall and scrolling, or with a field — with `dismissible` to untick for a sheet that gives and comes back; `DialogScrollEdge` opens a dialog taller than its 85% cap, as sheet or centred card, whose title row stays put with a 16px fade under it once the fields scroll under it; each lends its tokens to `<body>`, where the panel portals), Modal, DropdownMenu (the default look; `MenuItems` and `MenuItemsCireDark`/`MenuItemsCireLight` open on load with every row kind — radio, check, switch, link, disabled — in the default and the accent variant under cire's mapping; `MenuRowCorner` opens a default menu above a drawn `Checkbox`, its `corner` control lending the menu-row role 8px, Musubi's mapping, or `initial`, the app's small corner, with both corners read back from the page), Popover, InfoPopover, Tooltip, Tabs |
 
 A second group, `design-system/*`, is the token contract ([[design-tokens]]) as
 something to look at. Five files in `tools/lab/src/stories/design-system/`, plus
@@ -57,7 +57,7 @@ three helpers beside them that the registry ignores because they are not
 | `design-system/colour` | `colour.story.tsx` | Every colour role in use, with the rule from `tokens.css` beside it; the same tokens by contrast obligation |
 | `design-system/contrast` | `contrast.story.tsx` | Every pair `contrastPairs()` hands the conformance harness, measured from the painted cell |
 | `design-system/type` | `type.story.tsx` | The type, tracking, leading and measure scales, stacked; contract value beside painted value |
-| `design-system/shape-motion` | `shape.story.tsx` | Radius and its three roles (`control`, `field`, `sheet`), elevation, the focus ring, durations × easings |
+| `design-system/shape-motion` | `shape.story.tsx` | Radius and its four roles (`control`, `field`, `sheet`, `menu-row`), elevation, the focus ring, durations × easings |
 | `design-system/theming` | `theming.story.tsx` | The same `@shared/ui` components under three mappings — musubi's, cire's, none |
 
 Three decisions carry the group. **The lists are derived, not typed**: every

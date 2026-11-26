@@ -440,8 +440,9 @@ with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
 rules: what its tab and search box fade, and its two loops stopping under
 reduced motion.
 `tools/e2e/tests/support/pulse-menus.ts` holds both avatar menus' separators
-at 390 and 1440px in both schemes, and holds those menus and "More filters"
-opening from 0.96.
+at 390 and 1440px in both schemes, a row of each at 6px (pulse maps no
+menu-row corner, so its rows keep its `--ui-radius-sm`), and those menus and
+"More filters" opening from 0.96.
 `pulse/web/tests/styles/share-sheet-edge.browser.test.tsx` holds the share
 sheet's title row and fade at 390px, fitting and scrolled on a short window.
 `pulse/web/tests/styles/share-sheet-motion.browser.test.tsx` holds the share sheet at

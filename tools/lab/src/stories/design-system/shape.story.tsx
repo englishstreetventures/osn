@@ -38,11 +38,12 @@ interface RadiusArgs extends StoryArgs {
 }
 
 /**
- * Five sized steps and three roles. `control`, `field` and `sheet` are not
- * sizes: how round a button is turns out to be an app-level decision
+ * Five sized steps and four roles. `control`, `field`, `sheet` and `menu-row`
+ * are not sizes: how round a button is turns out to be an app-level decision
  * independent of how round a card is — musubi's house style is pill CTAs — and
  * a text field's corner is independent again, because an app can want pill
- * buttons without pill fields.
+ * buttons without pill fields. A menu row's corner is apart from `sm`, which
+ * a checkbox's box also reads.
  */
 export const Radius: Story<RadiusArgs> = {
   args: { step: 2 },
@@ -55,9 +56,10 @@ export const Radius: Story<RadiusArgs> = {
         intro={
           <>
             <Mono>hair</Mono> is a 2px softening that reads as "not a raw rectangle";{" "}
-            <Mono>pill</Mono> is fully round. Everything between is the app's house style. The three
-            roles — <Mono>control</Mono>, <Mono>field</Mono> and <Mono>sheet</Mono> — each fall back
-            to a sized step, so an app with no opinion gets its own.
+            <Mono>pill</Mono> is fully round. Everything between is the app's house style. The four
+            roles — <Mono>control</Mono>, <Mono>field</Mono>, <Mono>sheet</Mono> and{" "}
+            <Mono>menu-row</Mono> — each fall back to a sized step, so an app with no opinion gets
+            its own.
           </>
         }
       >

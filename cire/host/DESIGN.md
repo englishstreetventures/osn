@@ -331,7 +331,8 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   task, a registry item, a seat, a vendor, an FAQ entry — and the run sheet's
   bands and rows, whose coming-up wash is a table highlight;
 - a menu row's or a nav row's highlight — the command palette, every portal
-  menu's rows (the shared menu's accent look, `@shared/ui` `menu-classes.ts`),
+  menu's rows (the shared menu's accent look, `@shared/ui` `menu-classes.ts`,
+  through `rounded-ui-menu-row`, which cire leaves to `sm`),
   the holders list, the module rail's rows, its sliding pill and its collapse
   toggle, the top bar's wordmark wash (`Wordmark`, whose box pulls 4px left
   and none right, so its focus ring clears the divider beside it by 4px), a
