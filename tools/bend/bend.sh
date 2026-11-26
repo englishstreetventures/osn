@@ -8,47 +8,78 @@
 # every set the index holds at that path (`git add` a new one).
 #
 #   bend.sh sets                 the law sets, one directory a line
-#   bend.sh prove [set]          bend PROOF.bend: every law of the set proved
+#   bend.sh prove [set]          bend PROOF.bend: every law of the set proved;
+#                                then the verdict, where this machine can run it
 #   bend.sh build                bend model.bend -o model.mjs in every set that
 #                                has one (all of them, since one set's model may
 #                                compile another's module)
 #   bend.sh check [set]          prove, then build each model to a scratch file
 #                                and fail unless it is byte for byte the
 #                                committed model.mjs (CI's gate)
+#   bend.sh verdict [set]        bend PROOF.bend --verdict: every set rechecked
+#                                by the BendTT kernel; fails with no kernel here
+#                                (CI's gate, after check)
+#   bend.sh kernel <dir>         CI's kernel: <dir>/bendtt, or one bend builds
+#                                with the pinned Lean and copies there; either
+#                                way only with the SHA-256 lean.env pins. Prints
+#                                its path
 #   bend.sh guide [topic]        bend guide: how to write Bend 2
 #   bend.sh install              install the pinned Bend into ${BEND_HOME:-~/.bend}
 #   bend.sh hook                 the pre-commit step: with no pinned Bend here,
 #                                one line and exit 0 (CI is the gate); else check
 #                                every set, rebuilding each model.mjs, and fail
-#                                when one differs from the staged copy
+#                                when one differs from the staged copy. It never
+#                                runs the verdict
 #
-# With no set named, prove and check run every set; a set is named by its
-# directory, relative to the repository root.
+# With no set named, prove, check and verdict run every set; a set is named by
+# its directory, relative to the repository root.
+#
+# The verdict. `bend PROOF.bend` is Bend's own checker, which has no proof of
+# its own; `--verdict` rechecks the set with BendTT, a small kernel with a
+# proof in Lean, which bend builds from its release's bend2/bendtt.lean with
+# Lean LEAN_VERSION (lean.env) the first time, taking minutes, and keeps under
+# ~/.bend/bendtt/. A machine can run it with $BENDTT naming a built kernel, or
+# with that Lean where bend looks for it: elan's toolchain for the version,
+# else `lean` on the PATH. `prove` and `check` run it after each plain run on
+# such a machine, and say once that they skipped it on any other, or when the
+# kernel does not build or run here; a kernel built here is not checked
+# against a pin. `verdict` fails on all of these: CI is where it must run.
 #
 # Run Bend only through this script. It sets BEND_NO_TELEMETRY=1, without
 # which bend asks bend-lang.com for the latest version once a day, and it runs
 # a bend only when the binary's SHA-256 is the one bend.env pins for this
 # platform, so a bend another installer or `bend update` replaced is refused.
 # bend is looked for in ${BEND_HOME:-$HOME/.bend}/bin, then on the PATH.
+#
+# Tests: scripts/tests/bend-sh.cli.test.ts.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(cd "$here/../.." && pwd)
 export BEND_NO_TELEMETRY=1
 
-# A value from bend.env, which is read as data and never run, so no line in it
-# can change this script's environment.
-pin() {
+# A value from a pin file here (bend.env, lean.env), which is read as data and
+# never run, so no line in it can change this script's environment.
+pin_in() {
   local line value=""
   while IFS= read -r line || [ -n "$line" ]; do
-    case $line in "$1="*) value=${line#"$1="} ;; esac
-  done <"$here/bend.env"
+    case $line in "$2="*) value=${line#"$2="} ;; esac
+  done <"$here/$1"
   echo "$value"
+}
+
+pin() {
+  pin_in bend.env "$1"
 }
 
 BEND_VERSION=$(pin BEND_VERSION)
 if [[ ! $BEND_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "tools/bend/bend.env pins no BEND_VERSION=<major>.<minor>.<patch>" >&2
+  exit 1
+fi
+LEAN_VERSION=$(pin_in lean.env LEAN_VERSION)
+if [[ ! $LEAN_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "tools/bend/lean.env pins no LEAN_VERSION=<major>.<minor>.<patch>" >&2
   exit 1
 fi
 
@@ -70,6 +101,12 @@ target() {
 # The value of bend.env's `<prefix>_<TARGET>` for this machine.
 pinned() {
   pin "$1_$(target | tr 'a-z-' 'A-Z_')"
+}
+
+# The SHA-256 lean.env pins for the BendTT kernel built on this platform, or
+# nothing where it pins none.
+kernel_pin() {
+  pin_in lean.env "BENDTT_SHA256_$(target | tr 'a-z-' 'A-Z_')"
 }
 
 sha256() {
@@ -177,6 +214,97 @@ build_to() {
   (cd "$root/$set" && "$bend" model.bend -o "$out" >/dev/null)
 }
 
+# Why `lean` on the PATH cannot build the kernel, or nothing when it can: it
+# must report LEAN_VERSION, as bend checks before it builds.
+path_lean_gap() {
+  local got
+  if ! command -v lean >/dev/null 2>&1; then
+    echo "no lean on the PATH"
+    return
+  fi
+  got=$(lean --version 2>/dev/null | sed -n 's/^Lean (version \([^,) ]*\).*/\1/p' | head -n 1 || true)
+  if [ "$got" != "$LEAN_VERSION" ]; then
+    echo "the lean on the PATH is ${got:-of no version it reports}, not $LEAN_VERSION"
+  fi
+}
+
+# Why this machine cannot run the verdict, or nothing when it can: $BENDTT,
+# or Lean LEAN_VERSION where bend looks for it.
+kernel_gap() {
+  local gap
+  if [ -n "${BENDTT:-}" ]; then return; fi
+  if [ -x "$HOME/.elan/toolchains/leanprover--lean4---v$LEAN_VERSION/bin/lean" ]; then return; fi
+  gap=$(path_lean_gap)
+  if [ -n "$gap" ]; then
+    echo "$gap, no elan toolchain for Lean $LEAN_VERSION, and no \$BENDTT"
+  fi
+}
+
+# What is wrong with $BENDTT, or nothing. Unset is no kernel named; set, it
+# must name a file that runs and, where lean.env pins a kernel for this
+# platform, has that SHA-256. Set but empty is a step that failed to provide
+# the kernel, never "no kernel".
+bendtt_gap() {
+  local want got
+  if [ -z "${BENDTT+set}" ]; then return; fi
+  if [ -z "$BENDTT" ] || [ ! -f "$BENDTT" ] || [ ! -x "$BENDTT" ]; then
+    echo "\$BENDTT is '$BENDTT', which names no kernel that can run"
+    return
+  fi
+  want=$(kernel_pin)
+  if [ -n "$want" ]; then
+    got=$(sha256 "$BENDTT")
+    if [ "$got" != "$want" ]; then
+      echo "\$BENDTT ($BENDTT) has SHA-256 $got, not the $want tools/bend/lean.env pins"
+    fi
+  fi
+}
+
+# bend PROOF.bend --verdict in one set, printing what bend said. Only
+# `ALL PROOFS CHECK` alone passes: a pass from Bend's own checker adds a hint
+# to use --verdict, so a run that printed it never reached the kernel.
+# Returns 0 on a pass, 2 when the kernel did not build or run (`BendTT
+# infrastructure`), 1 on anything else.
+verdict_of() {
+  local bend=$1 set=$2 out status=0
+  echo "== $set --verdict"
+  out=$(cd "$root/$set" && "$bend" PROOF.bend --verdict 2>&1) || status=$?
+  echo "$out"
+  if [ "$status" -eq 0 ] && [ "$out" = "ALL PROOFS CHECK" ]; then return 0; fi
+  if [[ $out == *"BendTT infrastructure"* && $out != *"SOME PROOFS FAIL"* ]]; then return 2; fi
+  return 1
+}
+
+# `prove` and `check` run the verdict after each plain run where this machine
+# can (`auto=run`), and say once when they do not.
+auto=""
+auto_start() {
+  local gap
+  gap=$(kernel_gap)
+  if [ -z "$gap" ]; then
+    auto=run
+  else
+    echo "bend.sh: --verdict skipped: $gap (CI runs it: bash tools/bend/bend.sh verdict)"
+  fi
+}
+
+auto_verdict() {
+  local status=0
+  if [ "$auto" != run ]; then return 0; fi
+  verdict_of "$1" "$2" || status=$?
+  case $status in
+    0) ;;
+    2)
+      auto=""
+      echo "bend.sh: --verdict skipped: the BendTT kernel did not build or run here, as bend says above (CI runs it: bash tools/bend/bend.sh verdict)"
+      ;;
+    *)
+      echo "$2: bend PROOF.bend --verdict did not print ALL PROOFS CHECK alone" >&2
+      return 1
+      ;;
+  esac
+}
+
 case ${1:-} in
   sets)
     all_sets
@@ -184,7 +312,11 @@ case ${1:-} in
   prove)
     bend=$(pinned_bend)
     list=$(sets_for "${2:-}")
-    for set in $list; do prove "$bend" "$set"; done
+    auto_start
+    for set in $list; do
+      prove "$bend" "$set"
+      auto_verdict "$bend" "$set"
+    done
     ;;
   build)
     bend=$(pinned_bend)
@@ -201,8 +333,10 @@ case ${1:-} in
     trap 'rm -rf "$scratch"' EXIT
     failed=0
     list=$(sets_for "${2:-}")
+    auto_start
     for set in $list; do
       prove "$bend" "$set"
+      auto_verdict "$bend" "$set"
       [ -f "$root/$set/model.bend" ] || continue
       build_to "$bend" "$set" "$scratch/model.mjs"
       if ! cmp -s "$scratch/model.mjs" "$root/$set/model.mjs"; then
@@ -214,6 +348,86 @@ case ${1:-} in
       echo "$set/model.mjs matches model.bend"
     done
     exit "$failed"
+    ;;
+  verdict)
+    # Every check that needs no bend comes first, so a machine that cannot
+    # run the verdict runs nothing.
+    gap=$(bendtt_gap)
+    if [ -n "$gap" ]; then
+      echo "::error::bend.sh verdict: $gap" >&2
+      exit 1
+    fi
+    gap=$(kernel_gap)
+    if [ -n "$gap" ]; then
+      echo "::error::bend.sh verdict: no BendTT kernel here: $gap" >&2
+      exit 1
+    fi
+    bend=$(pinned_bend)
+    list=$(sets_for "${2:-}")
+    failed=""
+    for set in $list; do
+      if ! verdict_of "$bend" "$set"; then
+        echo "::error::$set: bend PROOF.bend --verdict did not print ALL PROOFS CHECK alone" >&2
+        failed="$failed $set"
+      fi
+    done
+    if [ -n "$failed" ]; then
+      echo "bend.sh verdict: the BendTT kernel did not accept:$failed" >&2
+      exit 1
+    fi
+    ;;
+  kernel)
+    if [ $# -ne 2 ] || [ -z "$2" ]; then
+      echo "usage: bend.sh kernel <dir>" >&2
+      exit 2
+    fi
+    dir=${2%/}
+    kernel="$dir/bendtt"
+    want=$(kernel_pin)
+    pin_name="BENDTT_SHA256_$(target | tr 'a-z-' 'A-Z_')"
+    if [ -f "$kernel" ]; then
+      got=$(sha256 "$kernel")
+      if [ -z "$want" ] || [ "$got" != "$want" ]; then
+        rm -f "$kernel"
+        echo "::error::bend.sh kernel: $kernel has SHA-256 $got, not the ${want:-(none)} tools/bend/lean.env pins as $pin_name, so it was deleted" >&2
+        exit 1
+      fi
+      echo "$kernel"
+      exit 0
+    fi
+    gap=$(path_lean_gap)
+    if [ -n "$gap" ]; then
+      echo "::error::bend.sh kernel: no kernel in $dir, and none can be built here: $gap (it needs Lean $LEAN_VERSION's own lean on the PATH)" >&2
+      exit 1
+    fi
+    bend=$(pinned_bend)
+    build=$(mktemp -d)
+    trap 'rm -rf "$build"' EXIT
+    mkdir "$build/home"
+    printf 'import Base\n' >"$build/kernel.bend"
+    # bend builds the kernel the first time a --verdict needs one. A scratch
+    # HOME makes the one it builds the only kernel there, and hides elan's
+    # toolchains from it, so it builds with the lean on the PATH; with BENDTT
+    # unset it builds rather than run another. What bend then says about a
+    # book with no defs of its own is not the result: the kernel file is.
+    (cd "$build" && env -u BENDTT HOME="$build/home" "$bend" kernel.bend --verdict) >&2 || true
+    shopt -s nullglob
+    built=("$build/home/.bend/bendtt/"*/bendtt)
+    shopt -u nullglob
+    if [ "${#built[@]}" -ne 1 ] || [ ! -f "${built[0]}" ]; then
+      echo "::error::bend.sh kernel: bend built no BendTT kernel; what it said is above" >&2
+      exit 1
+    fi
+    got=$(sha256 "${built[0]}")
+    if [ -z "$want" ] || [ "$got" != "$want" ]; then
+      echo "::error::bend.sh kernel: the kernel bend built has SHA-256 $got, not the ${want:-(none)} tools/bend/lean.env pins as $pin_name. Pin $pin_name=$got only when this run built it from the Bend and Lean the two pin files name." >&2
+      exit 1
+    fi
+    mkdir -p "$dir"
+    cp "${built[0]}" "$kernel.part"
+    chmod 755 "$kernel.part"
+    mv "$kernel.part" "$kernel"
+    echo "$kernel"
     ;;
   guide)
     bend=$(pinned_bend)
@@ -245,7 +459,7 @@ case ${1:-} in
     fi
     ;;
   *)
-    echo "usage: bend.sh sets | prove [set] | build | check [set] | guide [topic] | install | hook" >&2
+    echo "usage: bend.sh sets | prove [set] | build | check [set] | verdict [set] | kernel <dir> | guide [topic] | install | hook" >&2
     exit 2
     ;;
 esac

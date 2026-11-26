@@ -78,7 +78,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-26
+last-reviewed: 2026-11-27
 ---
 
 # Monorepo Structure
@@ -172,7 +172,7 @@ tools/                 # local-only developer tooling, never shipped
   pr-metrics/          # @tools/pr-metrics — the session-performance cards themselves
   oxlint/house/        # @tools/oxlint-house — this repo's own lint rules (oxlint/anti-slop beside it is a vendored upstream copy)
   stryker/             # @tools/stryker — runs Stryker mutation testing for a cire package (`test:mutation`)
-  bend/                # not a workspace — the Bend toolchain every law set shares: the pin (bend.env), its installer, the proof kit and bend.sh; the law sets live in <workspace>/laws/<topic>/ (osn/api/laws/account-deletion/, cire/api/laws/account-deletion/)
+  bend/                # not a workspace — the Bend toolchain every law set shares: the pins (bend.env for Bend, lean.env for the Lean that builds its BendTT kernel), their installers, the proof kit and bend.sh; the law sets live in <workspace>/laws/<topic>/ (osn/api/laws/account-deletion/, cire/api/laws/account-deletion/)
 ```
 
 ## Where to find things

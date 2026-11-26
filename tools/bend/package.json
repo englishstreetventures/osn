@@ -14,6 +14,7 @@
     "prove": "bash bend.sh prove",
     "build": "bash bend.sh build",
     "check": "bash bend.sh check",
+    "verdict": "bash bend.sh verdict",
     "guide": "bash bend.sh guide",
     "install-bend": "bash bend.sh install"
   }

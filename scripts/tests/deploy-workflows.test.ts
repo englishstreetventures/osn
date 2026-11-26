@@ -1364,6 +1364,52 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
       });
     }
   });
+
+  // The Bend proofs' second check, by the BendTT kernel, is a gate only while
+  // its step runs on every run, after the plain check, with a kernel that
+  // `bend.sh kernel` checked. A Lean on $GITHUB_PATH would let `verdict`
+  // build a kernel nobody checked; a path read inside `echo "…$(…)"` turns a
+  // failed check into an empty BENDTT and a green step.
+  test("the Bend proofs job rechecks every set with the checked kernel, after the plain check, on every run", () => {
+    const steps = stepsOf(ci.jobs["bend-proofs"]);
+    const at = (found: (step: Step) => boolean) => steps.findIndex(found);
+    const runs = (command: string) => (step: Step) => (step.run ?? "").includes(command);
+    const check = at(runs("bash tools/bend/bend.sh check"));
+    const restore = at((step) => step.id === "kernel-cache");
+    const lean = at(runs("bash tools/bend/install-lean.sh"));
+    const kernel = at(runs("bash tools/bend/bend.sh kernel"));
+    const save = at(
+      (step) => step.uses === "actions/cache/save@v4" && step.with?.path === "~/.cache/bendtt",
+    );
+    const verdict = at(runs("bash tools/bend/bend.sh verdict"));
+    expect([check, restore, lean, kernel, save, verdict].every((i) => i >= 0)).toBe(true);
+    expect([check < restore, restore < lean, lean < kernel, kernel < save, save < verdict]).toEqual(
+      [true, true, true, true, true],
+    );
+    const miss = "steps.kernel-cache.outputs.cache-hit != 'true'";
+    expect(steps[restore]?.with).toEqual({
+      path: "~/.cache/bendtt",
+      key: "bendtt-${{ env.BEND_SHA256 }}-${{ env.LEAN_SHA256 }}-${{ env.BENDTT_SHA256 }}",
+    });
+    expect(steps[lean]?.if).toBe(miss);
+    expect(steps[save]?.if).toBe(`github.event_name != 'merge_group' && ${miss}`);
+    expect(steps[save]?.with?.key).toBe("${{ steps.kernel-cache.outputs.cache-primary-key }}");
+    expect(steps[kernel]?.if).toBeUndefined();
+    expect(steps[kernel]?.run).toMatch(/^kernel=\$\(bash tools\/bend\/bend\.sh kernel /m);
+    expect(steps[kernel]?.run).toContain('echo "BENDTT=$kernel" >> "$GITHUB_ENV"');
+    expect(steps[verdict]?.if).toBeUndefined();
+    expect(steps[verdict]?.run?.trim()).toBe("bash tools/bend/bend.sh verdict");
+    expect(steps[verdict]?.env?.BENDTT).toBe("${{ env.BENDTT }}");
+    for (const step of steps) {
+      expect({
+        name: step.name,
+        path: /GITHUB_PATH/.test(step.run ?? "") && /lean/i.test(step.run ?? ""),
+      }).toEqual({
+        name: step.name,
+        path: false,
+      });
+    }
+  });
 });
 
 describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and only those", () => {

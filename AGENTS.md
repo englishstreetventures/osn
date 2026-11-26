@@ -63,7 +63,7 @@ Work is tracked in GitHub Issues, never the wiki.
 - **Bend.** Rules proved in Bend live beside the code they are about, one law set to a topic folder: `<workspace>/laws/<topic>/`, with its own `LAWS.bend` and `PROOF.bend` (`bun run --cwd tools/bend sets` lists them, each with a wiki page linked from `wiki/index.md`; `wiki/osn/account-deletion-laws.md` says how a set is laid out). A law that spans two services lives with the one that runs the flow and imports the other's model; the toolchain every set shares is `tools/bend/`. When writing or changing a `.bend` file:
   - run `bend guide` to learn Bend 2 first (`bash tools/bend/bend.sh guide`); what you know of Bend 1 is wrong here;
   - keep the important rules in `LAWS.bend`, and change a law there only by the owner's decision;
-  - run `bend PROOF.bend` before committing (`bun run --cwd tools/bend prove` for every set; `check` also checks each `model.mjs`);
+  - run `bend PROOF.bend` before committing (`bun run --cwd tools/bend prove` for every set; `check` also checks each `model.mjs`; with Lean 4.34.0 installed both also run `--verdict`, the Lean-proved kernel's recheck, which CI always runs);
   - parallelize the code wherever a parallel call fits: independent calls of about the same size.
 
   Never run `bend` bare, and never `bend update`: run it through `tools/bend/bend.sh`, which runs only the build `bend.env` pins and sets `BEND_NO_TELEMETRY=1`. Without that variable, Bend asks bend-lang.com for its latest version once a day. Nothing a build reads may name a law set (oxlint, and `scripts/tests/law-set-references.test.ts` for `.astro`, globs and config): it ships in nothing.

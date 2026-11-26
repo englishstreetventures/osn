@@ -79,7 +79,8 @@ wrangler.jsonc       @chav-aniket
 # machine, so a change here is reviewed like a change to an agent's permissions.
 /tools/claude-ts-lsp/** @chav-aniket
 # The Bend toolchain: the pinned release and the SHA-256s of its tarballs and
-# binary (bend.env), the installer that checks them before CI unpacks and runs
-# the binary, and the script that refuses any other build. A change here
-# decides what code CI runs, so it is reviewed like `scripts/`.
+# binary (bend.env), the pinned Lean tarball and BendTT kernel (lean.env), the
+# installers that check them before CI unpacks and runs anything, and the
+# script that refuses any other build. A change here decides what code CI
+# runs, so it is reviewed like `scripts/`.
 /tools/bend/**        @chav-aniket
