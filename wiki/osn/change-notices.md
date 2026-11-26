@@ -9,7 +9,8 @@ related:
   - "[[subprocessors]]"
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
-last-reviewed: 2026-11-26
+  - "[[dsar]]"
+last-reviewed: 2026-11-27
 ---
 
 # Change notices
@@ -62,6 +63,37 @@ addresses organisers import, and the contacts of unclaimed directory listings.
 A notice is sent from osn-api's address (`Musubi <hello@musubi.social>`) to
 every osn account, so a notice about Cire alone would also reach people who
 only use Musubi.
+
+A notice is also written for Musubi. Its subject reads "Changes to the Musubi
+`<document>`", it says it goes to everyone with a Musubi account, its way out is
+deleting the Musubi account, and its link is the notice's `path` on Musubi's
+app origin ([`routes/change-notices.ts`](../../osn/api/src/routes/change-notices.ts),
+[`change-notice.ts`](../../shared/email/src/templates/change-notice.ts)). So a
+notice about Cire's terms cannot link to cireweddings.com, name Cire as the
+service, or point to "Remove my Cire data".
+
+## What the pages promise
+
+Three pages say that a change that matters is emailed to the reader's Musubi
+account before it takes effect, saying what changes and from what day, and that
+the page's date changes:
+
+| Page | Section |
+|---|---|
+| Musubi's privacy notice ([`PrivacyPage.tsx`](../../musubi/social/src/pages/PrivacyPage.tsx)) | "Changes" |
+| Musubi's terms ([`TermsPage.tsx`](../../musubi/social/src/pages/TermsPage.tsx)) | "Changes to these terms" |
+| Cire's terms ([`terms.astro`](../../cire/landing/src/pages/terms.astro)) | "Changes to these terms", for those who use Cire with a Musubi account |
+
+Cire's guest notice ([`guest-privacy-notice.astro`](../../cire/ui/src/guest-privacy-notice.astro))
+promises no email: guests hold no account. It says only that the page and its
+date change. Cire's hosts' and vendors' notices have no section on changes.
+`musubi/social/tests/legal-pages.test.ts`, `cire/landing/tests/legal-pages.test.ts`
+and `cire/ui/tests/guest-privacy-notice.test.ts` pin these sentences.
+
+The promise is kept by the operator, not by the code: nothing sends on its own,
+and only the check job reads the day, when the action is dispatched. A change
+that matters is sent, and the run finished, before the day it takes effect
+([[#Sending a change notice]]).
 
 ## Resuming without skipping or repeating
 
@@ -128,11 +160,13 @@ it counts the skipped ones over the whole audience.
    }
    ```
 
-   `document` is what the page is called, lower case; `path` is the page on the
-   app's origin; `takesEffect` is the day, in UTC; `changes` holds 1 to 8 lines
-   of plain words. The owner reads the words in the pull request. A new purpose
-   needs the notice before the processing starts (Art. 13(3)), so leave time
-   between the send and `takesEffect`; the check job warns under 30 days.
+   `document` is what the page is called, lower case; `path` is the page on
+   Musubi's app origin; `takesEffect` is the day, in UTC; `changes` holds 1 to
+   8 lines of plain words. The owner reads the words in the pull request. A new
+   purpose needs the notice before the processing starts (Art. 13(3)), so leave
+   time between the send and `takesEffect`; the check job warns under 30 days.
+   The page's own date shows only when it changed, so the changed page also
+   says the day its changes take effect.
 2. **Release osn-api** with the page and the notice. The check job reads the
    notice at the commit production osn-api runs, so a notice only on `main`
    is refused.
@@ -155,6 +189,14 @@ it counts the skipped ones over the whole audience.
    check job's notice, and approve. Each batch prints its counts. The run stops
    when the notice has reached everyone, at `max_sends`, or on a refusal it
    cannot wait out; dispatch again to go on from where it stopped.
+
+   Finish before the day the notice takes effect, which the pages promise
+   ([[#What the pages promise]]). Only the check job reads the day: it refuses
+   a notice whose day has passed, so a run still unfinished then cannot go on,
+   and the accounts it has not reached are never mailed. The send job and the
+   route do not read it, so approve each dispatch before that day too, or the
+   email announces a change already made. Plan `max_sends` and the days of
+   quota left ([[#Limits]]) against `takesEffect`.
 
 | The run stops with | What to do |
 |---|---|

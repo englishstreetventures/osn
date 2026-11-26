@@ -10,7 +10,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-11-26
+last-reviewed: 2026-11-27
 ---
 
 # Data Map (Article 30 Records of Processing)
@@ -36,7 +36,7 @@ the compliance checklist.
 
 | Field | Purpose | Lawful basis | Retention | Recipients | System page |
 |---|---|---|---|---|---|
-| `accounts.email` | Login identifier; destination of the emailed link for step-up; security notices, the account-deletion notices among them. An address an email change replaces gets one more mail, the change notice, which names the new address masked (first character and domain). The hard delete mails the address once more, `account-deleted`, after its batch removes the row (Cross-cutting below) | Art. 6(1)(b) — contract; the notice to a replaced address, Art. 6(1)(f) — legitimate interest in preventing account takeover, balanced by one notice per change, the new address cut to its first character and domain, no address in the subject, and no link or code | While account active; through the 7-day deletion window, deleted at the hard delete (later only while an app has not confirmed its purge, [[retention]]); the hard delete holds it in memory until it has sent `account-deleted`, then keeps nothing. The address stays in `email_changes` rows for their 90 days | `@osn/api` only; **Resend** for outbound mail (processor; Cloudflare Email Service is a legacy fallback) | [[identity-model]], [[email]] |
+| `accounts.email` | Login identifier; destination of the emailed link for step-up; security notices, the account-deletion notices among them. An address an email change replaces gets one more mail, the change notice, which names the new address masked (first character and domain). The hard delete mails the address once more, `account-deleted`, after its batch removes the row (Cross-cutting below). The operator's run mails it a notice when the privacy notice or the terms change in a way that matters (`change-notice`, its basis in Cross-cutting below, [[change-notices]]) | Art. 6(1)(b) — contract; the notice to a replaced address, Art. 6(1)(f) — legitimate interest in preventing account takeover, balanced by one notice per change, the new address cut to its first character and domain, no address in the subject, and no link or code | While account active; through the 7-day deletion window, deleted at the hard delete (later only while an app has not confirmed its purge, [[retention]]); the hard delete holds it in memory until it has sent `account-deleted`, then keeps nothing. The address stays in `email_changes` rows for their 90 days | `@osn/api` only; **Resend** for outbound mail (processor; Cloudflare Email Service is a legacy fallback) | [[identity-model]], [[email]] |
 | `accounts.passkeyUserId` | WebAuthn `user.id` opaque to prevent cross-profile correlation | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
 | `accounts.maxProfiles` | Per-account profile cap | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
 | `accounts.last_recovered_at` | Security — timestamp of the most recent account recovery, opening a 72-hour window in which an emailed-link step-up cannot change the account email and a second factor-recovery is refused | Art. 6(1)(f) — legitimate interest in preventing account takeover | While account active; cleared by an accepted `POST /recovery/disown` of the recovery that wrote it | `@osn/api` only | [[recovery-codes]], [[step-up]] |

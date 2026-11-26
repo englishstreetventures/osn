@@ -22,7 +22,7 @@ export function TermsPage(): JSX.Element {
   return (
     <LegalDocument
       title="Terms of Service"
-      updated="2026-11-19"
+      updated="2026-11-27"
       draft={draftPending(LEGAL_ENTITY.governingLaw)}
     >
       <p>
@@ -104,7 +104,8 @@ export function TermsPage(): JSX.Element {
       <h2>Changes to these terms</h2>
       <p>
         We may update these terms. The date at the top changes when we do, and changes are not
-        retroactive.
+        retroactive. If a change matters, we also email the address on your account before it takes
+        effect, saying what changes and from what day.
       </p>
 
       <h2>Governing law</h2>

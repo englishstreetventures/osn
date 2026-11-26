@@ -9,7 +9,8 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-20
+  - "[[account-deletion]]"
+last-reviewed: 2026-11-27
 ---
 
 # DSAR Runbook
@@ -25,8 +26,8 @@ runbook, two regimes, because the operational steps overlap.
 | `GET /account/export` | The account holder, self-service: Musubi's Settings → Account → "Download my data", and the screen shown while a deletion is pending | `@osn/api` — streams NDJSON | Immediate |
 | `POST /account/data-link` | The account holder: Musubi's "Send me a link" | `@osn/api` — mails the account's own address a link to the download page, never the data ([[account-deletion#Emails]]) | Immediate |
 | `DELETE /account` | The account holder, self-service: Musubi's Settings → Account → Danger zone ([[account-deletion#The person's side]]) | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
-| `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window | 7 d (account) / 14 d (events) |
-| `DELETE /api/organiser/account` (cire-api, Flow B) | A host removes their Cire data without losing OSN: "Remove my Cire data" in the portal's account menu | `@cire/api` — the account erasure's `host` scope, after a step-up confirmed on Musubi ([[cire-auth#A host removes their Cire data]]) | Immediate |
+| `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window, after a passkey step-up (`pulse_app_delete`; a passkey added by an emailed link, an authenticator code or recovery counts once it is 72 hours old, [[account-deletion#Leaving one app takes a passkey]]) | 7 d (account) / 14 d (events) |
+| `DELETE /api/organiser/account` (cire-api, Flow B) | A host removes their Cire data without losing OSN: "Remove my Cire data" in the portal's account menu | `@cire/api` — the account erasure's `host` scope, after a passkey step-up confirmed on Musubi, with the same 72-hour hold ([[cire-auth#A host removes their Cire data]]). Then refused, 409 `holds_payout_account`, while a profile of the account holds the Stripe account a live wedding's money gifts are paid into, as an owner beside another owner ([[#Art. 17 — Right of erasure]]) | Immediate once confirmed, unless refused for a payout account; the person clears that refusal themselves |
 | `privacy@englishstventures.com`, named on every privacy notice (`LEGAL_ENTITY.privacyEmail`) | Anyone via email | The operator's privacy inbox, hosted by Hostinger ([[subprocessors]]) | 30 d (GDPR) / 45 d (CCPA) |
 | Postal address (planned, on landing) | Anyone via mail | Identity team inbox | Same |
 | Authorised agent | Third party with notarised authority | Same email + verification | Same; verification adds days, log it |
@@ -100,7 +101,7 @@ Most fields are user-editable in `@musubi/social` (handle change, displayName, a
 Status: **shipped**. Two flows:
 
 - **Flow A — full OSN account delete.** `DELETE /account` on osn-api, from Musubi's Settings. Soft-deletes the account at once; once the 7-day window has passed, the six-hourly cron calls every app over ARC with the person's answers, then hard-deletes the account ([[account-deletion]]).
-- **Flow B — per-app delete.** The OSN account stays. A host removes their Cire data with `DELETE /api/organiser/account` on cire-api, at once ([[#Cire (wedding-invite) data]]); to leave Pulse, `DELETE /account` on pulse-api, whose hosted events are kept 14 days for their guests ([[account-deletion#Leaving one app]]).
+- **Flow B — per-app delete.** The OSN account stays, and each app's removal takes a passkey step-up ([[account-deletion#Leaving one app takes a passkey]]). A host removes their Cire data with `DELETE /api/organiser/account` on cire-api, at once, unless they hold a wedding's payout account (below, and [[#Cire (wedding-invite) data]]); to leave Pulse, `DELETE /account` on pulse-api, whose hosted events are kept 14 days for their guests ([[account-deletion#Leaving one app]]).
 
 How the flows work — the screens, the soft delete, the seven-day window and its limited session, the fan-out to every app, the hard delete, organisations, handle holds and emails — is in [[account-deletion]]. What a request needs from it:
 
@@ -198,8 +199,17 @@ owners, each with an `owner` seat. Two consequences:
     then.
   - *A host removing their Cire data* and keeping the account
     ([[cire-auth#A host removes their Cire data]]): the same erasure, at once,
-    for every profile of the account, after a step-up the person confirms on
-    Musubi, and only once each wedding they alone own is answered `delete`.
+    for every profile of the account, after a passkey step-up the person
+    confirms on Musubi (a passkey added by an emailed link, an authenticator
+    code or recovery counts once it is 72 hours old,
+    [[account-deletion#Leaving one app takes a passkey]]). After that
+    confirmation it is refused, 409 `holds_payout_account`, while a profile of
+    the account holds the Stripe account a live wedding's money gifts are paid
+    into, as an owner beside another owner
+    ([`organiser-account.ts`](../../cire/api/src/routes/organiser-account.ts));
+    the screen marks such weddings from its first step, and the hosts'
+    privacy notice says so. Then it runs only once each wedding they alone own
+    is answered `delete`.
     It runs with the `host` scope, which leaves their vendor listing claims and
     their guest account links as they are; everything else above goes, their
     organiser sessions included, and the other owners of each wedding they
@@ -210,7 +220,7 @@ owners, each with an `owner` seat. Two consequences:
     to cire again later and start with no weddings.
   - A host who cannot sign in to the organiser portal can still ask by email.
     An operator handles that request by hand, as an erasure request from an
-    organiser, by the same rules as the removal above, which the hosts'
+    organiser, by the sole-owner rules of the removal above, which the hosts'
     privacy notice
     ([`hosts.astro`](../../cire/landing/src/pages/privacy/hosts.astro), "How
     long we keep it") promises: tell the person which live weddings they
@@ -218,7 +228,10 @@ owners, each with an `owner` seat. Two consequences:
     until they have added another owner or agreed to its deletion in writing;
     then remove their seats and notice rows, soft-delete each wedding left
     with no owner, and clear every column that names one of their profiles as
-    a host.
+    a host. The payout-account refusal is the portal's: the notice states it
+    for Remove my Cire data alone, and a request by email from a person who
+    holds a wedding's payout account goes to the owner
+    ([[#Art. 17 — Right of erasure]], the payout account).
 - **Co-owners in an owner's export (Art. 15(4)).** An owner's own data
   includes the seats on their weddings, and those name other people: every
   other owner's and co-host's profile id, who added each seat
@@ -463,6 +476,23 @@ organiser attested ([[dpia/cire-guest-data]]).
 
 Document refusals in the response with the specific exemption.
 
+**Not an Art. 17(3) refusal: a payout account the person holds.** "Remove my
+Cire data" is refused, 409 `holds_payout_account`, while a profile of the
+account holds the Stripe account a live wedding's money gifts are paid into, as
+an owner beside another owner ([[account-deletion#Leaving one app]]). The owner
+chose it, weighing that it holds up a request to erase, so that no couple's
+money gifts are paid into the account of someone who has left. It is none of
+the exemptions above, and the person can clear it: they hand money gifts to
+another owner or disconnect the account in that wedding's Money gifts, or
+another owner replaces the account ([[cire-registry#Retiring an account]]);
+then the removal runs. It holds back the whole removal, not only the seat the
+account is tied to. Deleting the Musubi account is never refused on it: that
+erasure takes the seat, which closes the wedding's money gifts. A person who
+asks by email to erase their Cire data alone while they hold such an account is
+told these ways on. If the month to answer (Art. 12(3)) would end before the
+account is handed on, the operator takes the request to the owner before
+answering, since no Art. 17(3) ground covers the hold.
+
 ### Art. 18 — Restriction of processing
 
 Sets `accounts.processing_restricted_at`. The column exists and `findAccountById` reads it, but **nothing writes it and no route enforces it yet** — an operator sets it by hand in the DB, and the intended effect (account cannot post events, send messages, accept connections, while data is preserved) is not enforced in code. Used pending dispute.
@@ -511,6 +541,7 @@ Default position: do the work. Refusals are exceptional and have to survive a DP
 | Request invokes "right to be forgotten" against indexed search engines | Out of scope (we are not the search engine); inform requester. |
 | Request claims breach has occurred | Treat as breach notification; trigger [[breach-response]]. |
 | Authority subpoena vs DSAR | Different flow; route to legal counsel. |
+| A request by email to erase Cire data from a person who holds a wedding's payout account, not handed on as the month ends | Take it to the owner before answering: no Art. 17(3) ground covers the hold ([[#Art. 17 — Right of erasure]]). |
 
 ## Project changes required
 

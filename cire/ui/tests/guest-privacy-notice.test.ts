@@ -285,4 +285,20 @@ describe("guest privacy notice", () => {
     expect(body).not.toContain("Note for the site owner");
     expect(body).not.toContain("owner-note");
   });
+
+  /**
+   * Guests hold no account, and the change-notice run emails only account
+   * holders (`wiki/osn/change-notices.md`), so a change to this notice reaches
+   * a guest only through the page and its date. The notice says that much and
+   * promises no email.
+   */
+  it("says a change shows on the page and its date, and promises no email", () => {
+    const start = body.indexOf("Changes to this notice");
+    expect(start).toBeGreaterThan(-1);
+    const changes = body.slice(start);
+    expect(changes).toMatch(
+      phrase("this page is updated and the “last updated” date above revised."),
+    );
+    expect(changes).not.toMatch(/e-?mail/i);
+  });
 });
