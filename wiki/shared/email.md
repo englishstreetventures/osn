@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Email Transport
@@ -241,9 +241,12 @@ Content-Type: application/json
   **DISCARDS** every send — no ring buffer, no network call. Emits one
   redacted `Effect.logWarning` line `email suppressed (degraded mode):
   <template>` containing **only** the bounded `template` literal — never
-  the recipient address or OTP code. Selected only via the explicit
-  `OSN_EMAIL_OPTIONAL` opt-in (below) so a non-local deploy can run
-  WITHOUT a real email provider instead of failing closed. **With Resend
+  the recipient address or OTP code. osn-api selects it only through the
+  explicit `OSN_EMAIL_OPTIONAL` opt-in (below), so a non-local deploy can
+  run WITHOUT a real email provider instead of failing closed. cire-api's
+  Worker selects it on any tier but a local run when it has no Resend
+  transport, since cire's mail is fail-soft (`workerEmailLayer` in
+  [`cire/api/src/lib/resend-email.ts`](../../cire/api/src/lib/resend-email.ts)). **With Resend
   configured this opt-in is no longer needed** — a future Resend outage
   then fails closed like any normal misconfig.
 
