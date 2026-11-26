@@ -1241,8 +1241,8 @@ As built:
   button kept, and Try again reading the count. `ProfileOnboarding.test.tsx`
   finds its create dialog by name, and holds its closing: Escape and a press
   outside close it before a request, are refused while "Creating…" runs, and
-  close it again once the request fails or, on success, once it is opened
-  again.
+  close it again once the request ends: Escape after a failure, a press
+  outside once a created profile's sheet is opened again.
 - **Layout in Musubi's browser tests.**
   `musubi/social/tests/components/SecurityStepUp.browser.test.tsx` opens the
   step-up sheet from "Add a passkey" in Settings → Security: at 390px a bottom
@@ -1333,8 +1333,8 @@ three sheets slide up from the bottom edge and back down, as every
 "B: slide up" on #2045), and follow a finger dragged down their title row,
 closing on a spring once let go far or fast enough (`musubi/social/DESIGN.md`
 §Motion, "A sheet drags down to close", the owner's choices on #2288); the
-step-up gives on a rubber band and comes back while a call it started runs
-(§8). From `md` they are cards, which never drag, and the cards and the
+step-up and "Create a new profile" give on a rubber band and come back while
+a call they started runs (§8, §4). From `md` they are cards, which never drag, and the cards and the
 popover fade with no scale in Musubi, which maps both scale tokens to 1
 (`musubi/social/DESIGN.md` §Motion); the press does not read those tokens and
 scales in Musubi too. Under reduced motion no button scales, the `Orb` and
