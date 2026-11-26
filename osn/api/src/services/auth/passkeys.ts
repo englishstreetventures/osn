@@ -113,7 +113,7 @@ export function createPasskeysModule(
   /**
    * What the caller's own restricted session lets this enrolment do, from one
    * read of its row: the row must be this account's, restricted and inside its
-   * deadline (checked here because `liveSessionIds`, which is how the route
+   * deadline (checked here because `liveSessionRows`, which is how the route
    * names this session, has no expiry term of its own), or it lets nothing.
    *
    * - `bypass`: a restricted **recovery** session may enrol past the step-up
@@ -601,6 +601,18 @@ export function createPasskeysModule(
               updatedAt: nowSec,
             }),
             db.insert(securityEvents).values(securityEventRow),
+            // Enrolling a passkey is the one thing a restricted session can
+            // do, and the user has just done it, so the caller's session
+            // becomes an ordinary one here; from its next `/token` grant the
+            // access token carries the ordinary audience. In this batch, after
+            // the insert, so on D1 the passkey and the lift commit together:
+            // no account is left with a passkey beside a session still
+            // restricted. Matches nothing for an ordinary caller; with no
+            // caller session there is nothing to keep, and the branch below
+            // ends every session instead.
+            ...(callerSessionHash
+              ? [liftSessionRestriction(db, accountId, callerSessionHash, nowSec)]
+              : []),
           ]),
         catch: (cause) => new DatabaseError({ cause }),
       });
@@ -621,14 +633,6 @@ export function createPasskeysModule(
       // row, and otherwise from the access token's `osn_sid` binding — a
       // cross-origin Bearer call, a cookie-stripping proxy or a native client
       // all land on the second path and must NOT be treated as sessionless.
-      // Enrolling a passkey is the one thing a restricted recovery session can
-      // do, and the user has just done it — so the restriction is lifted here
-      // and the caller's session becomes an ordinary one. A no-op on every
-      // other session, and on the branch below where there is no caller session
-      // to keep. From the next `/token` grant onward the access token carries
-      // the ordinary audience again.
-      yield* liftSessionRestriction(accountId, callerSessionHash);
-
       if (callerSessionHash) {
         yield* invalidateOtherAccountSessions(accountId, callerSessionHash);
       } else {

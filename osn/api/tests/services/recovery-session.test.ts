@@ -1136,7 +1136,7 @@ describe("restricted recovery session — the factor the bypass rests on", () =>
   it.effect("a restricted session past its deadline does not open the gate", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {
-      // `liveSessionIds` has no expiry term, so a row an instant past its
+      // `liveSessionRows` has no expiry term, so a row an instant past its
       // deadline is still nameable as the caller's session. The gate checks the
       // deadline itself rather than trusting that.
       const user = yield* auth.registerProfile("rs-amrexp@example.com", "rsamrexp");
@@ -1180,7 +1180,7 @@ describe("restricted recovery session — what the lift refuses to do", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {
       // The deadline is absolute, and the enrolment path is the one place that
-      // could undo it: `liveSessionIds` still names an expired restricted row,
+      // could undo it: `liveSessionRows` still names an expired restricted row,
       // so without a liveness term the lift would turn a dead 15-minute session
       // into a live 30-day one. Expiry is otherwise enforced in
       // `verifyRefreshToken`, which enrolment never calls.

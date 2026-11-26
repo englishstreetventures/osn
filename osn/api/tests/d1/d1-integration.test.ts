@@ -1217,6 +1217,119 @@ describe("recovery passkey reclaim over real D1 (Miniflare)", () => {
   });
 });
 
+describe("a sign-up's first passkey and its session's lift over real D1 (Miniflare)", () => {
+  // The first passkey and the lift of the restricted session that enrolled it
+  // commit in ONE `commitBatch`, so no account ever holds a passkey beside a
+  // session still restricted as a sign-up's. On bun:sqlite `commitBatch` runs
+  // its statements one at a time, so only this tier can see the batch hold.
+
+  let auth: ReturnType<typeof createAuthService>;
+  beforeAll(async () => {
+    auth = createAuthService(await makeTestAuthConfig());
+    stubAttestation = true;
+  });
+  afterAll(() => {
+    stubAttestation = false;
+  });
+
+  /** A new account with a restricted session that records `signup`, as a sign-up leaves it. */
+  const signedUp = async (handle: string) => {
+    const user = await run(auth.registerProfile(`${handle}@example.com`, handle));
+    const restricted = await run(
+      auth.issueRecoverySession(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+        "otp",
+      ),
+    );
+    const sessionHash = auth.hashSessionToken(restricted.refreshToken);
+    await rawDb
+      .update(sessions)
+      .set({ restrictedAmr: "signup" })
+      .where(eq(sessions.id, sessionHash));
+    return { accountId: user.accountId, sessionHash };
+  };
+
+  /** One whole enrolment ceremony, through the service, on D1. */
+  const enrol = (accountId: string, sessionHash: string) =>
+    Effect.runPromise(
+      Effect.result(
+        Effect.gen(function* () {
+          yield* auth.beginPasskeyRegistration(accountId, undefined, {
+            recoverySessionHash: sessionHash,
+          });
+          yield* auth.completePasskeyRegistration(
+            accountId,
+            {
+              id: "x",
+              rawId: "x",
+              response: {},
+              type: "public-key",
+              clientExtensionResults: {},
+            } as never,
+            sessionHash,
+          );
+        }).pipe(Effect.provide(Layer.merge(layer, makeLogEmailLive().layer))),
+      ),
+    );
+
+  const sessionRow = async (sessionHash: string) =>
+    (
+      await rawDb
+        .select({
+          restrictedUntil: sessions.restrictedUntil,
+          restrictedAmr: sessions.restrictedAmr,
+          expiresAt: sessions.expiresAt,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionHash))
+    )[0];
+
+  const passkeyCount = async (accountId: string) =>
+    (await rawDb.select().from(passkeys).where(eq(passkeys.accountId, accountId))).length;
+
+  it("lifts the session in the batch that adds the first passkey", async () => {
+    const { accountId, sessionHash } = await signedUp("d1signuplift");
+
+    expect((await enrol(accountId, sessionHash))._tag).toBe("Success");
+
+    expect(await passkeyCount(accountId)).toBe(1);
+    const row = await sessionRow(sessionHash);
+    expect(row?.restrictedUntil).toBeNull();
+    expect(row?.restrictedAmr).toBeNull();
+    // An ordinary session's sliding lifetime, past the 15-minute deadline.
+    expect(row!.expiresAt - Math.floor(Date.now() / 1000)).toBeGreaterThan(15 * 60);
+  });
+
+  it("adds no passkey when the lift cannot commit, so no session stays restricted beside one", async () => {
+    const { accountId, sessionHash } = await signedUp("d1signupatomic");
+
+    // Every update of a session aborts, so the lift fails inside the batch
+    // that inserts the passkey. D1 batches are atomic, so the passkey must not
+    // survive it.
+    await d1
+      .prepare(
+        "CREATE TRIGGER d1_refuse_session_updates BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'refused by the test'); END",
+      )
+      .run();
+    const outcome = await enrol(accountId, sessionHash).finally(() =>
+      d1.prepare("DROP TRIGGER IF EXISTS d1_refuse_session_updates").run(),
+    );
+    expect(outcome._tag).toBe("Failure");
+    const failure = outcome._tag === "Failure" ? outcome.failure : null;
+    expect(failure?._tag).toBe("DatabaseError");
+    expect(driverErrorText(failure)).toContain("refused by the test");
+
+    expect(await passkeyCount(accountId)).toBe(0);
+    const row = await sessionRow(sessionHash);
+    expect(row?.restrictedAmr).toBe("signup");
+    expect(row?.restrictedUntil).not.toBeNull();
+  });
+});
+
 /** `total` profiles on the seeded account, handles `<prefix>000`…, written in one request. */
 const seedProfiles = async (prefix: string, total: number): Promise<string[]> => {
   const ts = new Date();

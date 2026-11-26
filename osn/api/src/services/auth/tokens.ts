@@ -4,7 +4,7 @@
  */
 
 import { accounts, rotatedSessions, sessions, users } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
+import { Db, type DbService } from "@osn/db/service";
 import { commitBatch, rowsChanged } from "@shared/db-utils";
 import {
   and,
@@ -208,7 +208,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * This bounds the token, not the session: `verifyJwt` allows 30 s of clock
    * skew, so a capped token still verifies for a little after its row is gone.
    * Nothing is granted in that window — the enrolment bypass tests the row's own
-   * deadline (`recoverySessionAdmitsEnrolment`), never the token's.
+   * deadline (`callerRestriction` in `passkeys.ts`), never the token's.
    */
   const sessionBoundTtl = (restrictedUntil: number | null, nowSec: number): number =>
     restrictedUntil === null
@@ -720,7 +720,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // its whole 15-minute life is far inside half of a 30-day TTL, so the
       // comparison alone is ALWAYS true and would extend the one session that
       // must expire on schedule. `last_used_at` is still touched — it is what
-      // `liveSessionIds` orders by, and the enrolment sweep resolves the
+      // `liveSessionRows` orders by, and the enrolment sweep resolves the
       // caller's own session through that list.
       const halfTtl = Math.floor(refreshTokenTtl / 2);
       const shouldExtend = session.restrictedUntil === null && session.expiresAt - nowSec < halfTtl;
@@ -1291,11 +1291,15 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     verifyTokenWithAudience(token, PENDING_DELETION_TOKEN_AUDIENCE);
 
   /**
-   * Lifts the restriction from a recovery session, turning it into an ordinary
-   * one: `restrictedUntil` is cleared and the absolute 15-minute deadline is
-   * replaced by a normal sliding TTL. Called by `completePasskeyRegistration`,
-   * because enrolling a passkey is the one thing a restricted session exists to
-   * do and the user has just done it.
+   * The statement that lifts the restriction from a restricted session (a
+   * recovery's, or a sign-up's before its first passkey), turning it into an
+   * ordinary one: `restrictedUntil` and `restrictedAmr` are cleared and the
+   * absolute 15-minute deadline is replaced by a normal sliding TTL.
+   * `completePasskeyRegistration` runs it in the batch that inserts the
+   * passkey, after the insert, because enrolling a passkey is the one thing a
+   * restricted session exists to do. The passkey and the lift therefore commit
+   * together or not at all on D1, and no account holds a passkey beside a
+   * session still restricted as a sign-up's.
    *
    * Four predicates, and each closes a different way this write could grant
    * more than it means to:
@@ -1318,44 +1322,37 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    *  - `restricted_until IS NOT NULL` keeps this off the ordinary path: an
    *    everyday passkey add must not have its session's expiry quietly reset.
    *  - `expires_at > now` — the 15-minute deadline is absolute, and nothing
-   *    revives a row that has passed it. `liveSessionIds` has no expiry term,
+   *    revives a row that has passed it. `liveSessionRows` has no expiry term,
    *    so a restricted row an instant past its deadline still classifies as the
    *    caller's session, and without this the enrolment would convert it into
    *    an ordinary 30-day one. Expiry is otherwise enforced in
    *    `verifyRefreshToken`, which this path never calls.
    *
-   * A `null` hash is a no-op — that caller had no identifiable session, and
+   * A caller with no identifiable session gets no lift statement at all:
    * `completePasskeyRegistration` then revokes every session on the account,
    * restricted one included.
    */
   const liftSessionRestriction = (
+    db: DbService["db"],
     accountId: string,
-    sessionHash: string | null,
-  ): Effect.Effect<void, DatabaseError, Db> =>
-    Effect.gen(function* () {
-      if (!sessionHash) return;
-      const { db } = yield* Db;
-      const nowSec = Math.floor(Date.now() / 1000);
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(sessions)
-            .set({
-              restrictedUntil: null,
-              restrictedAmr: null,
-              expiresAt: nowSec + refreshTokenTtl,
-            })
-            .where(
-              and(
-                inLiveFamilyOf(db, sessionHash),
-                eq(sessions.accountId, accountId),
-                isNotNull(sessions.restrictedUntil),
-                gt(sessions.expiresAt, nowSec),
-              ),
-            ),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-    }).pipe(Effect.withSpan("auth.session.lift_restriction"));
+    sessionHash: string,
+    nowSec: number,
+  ) =>
+    db
+      .update(sessions)
+      .set({
+        restrictedUntil: null,
+        restrictedAmr: null,
+        expiresAt: nowSec + refreshTokenTtl,
+      })
+      .where(
+        and(
+          inLiveFamilyOf(db, sessionHash),
+          eq(sessions.accountId, accountId),
+          isNotNull(sessions.restrictedUntil),
+          gt(sessions.expiresAt, nowSec),
+        ),
+      );
 
   return {
     issueAccessToken,

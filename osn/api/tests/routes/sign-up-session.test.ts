@@ -228,6 +228,48 @@ describe("the session a sign-up hands over before its first passkey", () => {
     expect(registerSteps).toEqual(["passkey_enroll"]);
   });
 
+  it("answers 401 to the token it held once its passkey is in, so the tab renews into the ordinary session", async () => {
+    const s = await signedUp("su-lifted@example.com", "sulifted");
+    const { completed } = await enrol(s);
+    expect(completed?.status).toBe(200);
+
+    // The answer to complete never reached the tab, so it presses again with
+    // the restricted token it still holds. Its session is ordinary now: the
+    // token claims a restriction the row no longer holds.
+    const again = await enrol(s);
+    expect(again.begun.status).toBe(401);
+    // The same from the token's `osn_sid` alone, with no cookie beside it.
+    const bearerOnly = {
+      Authorization: `Bearer ${s.accessToken}`,
+      "Content-Type": "application/json",
+    };
+    const begunByBinding = await authApp.handle(
+      new Request("http://localhost/passkey/register/begin", {
+        method: "POST",
+        headers: bearerOnly,
+        body: JSON.stringify({ profileId: s.profileId }),
+      }),
+    );
+    expect(begunByBinding.status).toBe(401);
+    const completedAgain = await authApp.handle(
+      new Request("http://localhost/passkey/register/complete", {
+        method: "POST",
+        headers: { ...bearerOnly, cookie: s.cookie },
+        body: JSON.stringify({ profileId: s.profileId, attestation: {} }),
+      }),
+    );
+    expect(completedAgain.status).toBe(401);
+
+    // The renewal a 401 sends the tab to is the account's ordinary session.
+    const { access_token } = (await (await grant(s.cookie)).json()) as { access_token: string };
+    expect(audienceOf(access_token)).toBe(ACCESS_TOKEN_AUDIENCE);
+    const count = await harness.db
+      .select({ id: passkeys.id })
+      .from(passkeys)
+      .where(eq(passkeys.accountId, accountOf(s.profileId)));
+    expect(count).toHaveLength(1);
+  });
+
   it("stamps the first passkey `recovery` when the restricted row says nothing, never `webauthn`", async () => {
     const s = await signedUp("su-nofactor@example.com", "sunofactor");
     const accountId = accountOf(s.profileId);
