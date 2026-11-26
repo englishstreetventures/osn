@@ -119,6 +119,17 @@ export const organisationMemberSummary = t.Object({
 });
 
 /**
+ * The caller's own standing in an organisation, which a client reads to offer
+ * only the actions the routes would allow: editing is an admin's, deleting and
+ * removing an admin the owner's. It says nothing about anyone else, so it
+ * tells a caller only what their own writes would already show.
+ */
+export const organisationCaller = t.Object({
+  role: t.Union([t.Literal("admin"), t.Literal("member")]),
+  owner: t.Boolean(),
+});
+
+/**
  * `Suggestion` from `services/recommendations.ts` — one card in "people you may
  * know". Addressed by handle, not id, like the organisation surface.
  *

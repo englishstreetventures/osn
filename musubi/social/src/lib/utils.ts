@@ -1,9 +1,31 @@
-import type { PublicProfile } from "@osn/client";
+/** Who an avatar stands for: a person's profile, or an organisation's name and handle. */
+export interface AvatarSubject {
+  displayName?: string | null;
+  handle: string;
+}
 
-export function profileInitials(profile: PublicProfile | null): string {
-  if (!profile) return "?";
-  const name = profile.displayName || profile.handle;
-  return name.slice(0, 2).toUpperCase();
+/**
+ * Splits text into what a reader counts as characters, so a joined emoji or a
+ * letter with a combining mark stays whole. Firefox before 125 has no
+ * `Intl.Segmenter`; there it splits by code point.
+ */
+const graphemes: (text: string) => string[] =
+  typeof Intl.Segmenter === "function"
+    ? (() => {
+        const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+        return (text) => Array.from(segmenter.segment(text), (part) => part.segment);
+      })()
+    : (text) => Array.from(text);
+
+/**
+ * The two characters every avatar shows behind its picture, people and
+ * organisations alike: the first two of the name a reader sees (the display
+ * name, or the handle when there is none), upper-cased.
+ */
+export function profileInitials(subject: AvatarSubject | null): string {
+  if (!subject) return "?";
+  const name = subject.displayName?.trim() || subject.handle;
+  return graphemes(name).slice(0, 2).join("").toUpperCase();
 }
 
 /**

@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-23
+last-reviewed: 2026-11-26
 ---
 
 # Component Library (Zaidan)
@@ -1304,8 +1304,8 @@ library would be a new dependency, so the drag is `DialogContent`'s
 (`sheetDrag` in `dialog.tsx`, its numbers in `sheet-drag.ts`).
 
 `DialogContent` takes `dismissible`: `false` while the host refuses to close,
-as `StepUpDialog` does while a call it started runs, and as Musubi's profile
-switcher and delete-organisation confirmation do while theirs run. The drag
+as `StepUpDialog` does while a call it started runs, and as Musubi's
+delete-organisation confirmation does while its own runs. The drag
 then gives on the rubber band both ways and comes back, and Escape and a
 press outside do nothing; a close button inside the dialog is the host's to
 disable, as it disables Cancel. A host that refuses only in `onOpenChange` is

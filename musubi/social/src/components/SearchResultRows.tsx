@@ -5,7 +5,6 @@ import type {
 } from "@osn/client";
 import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Chip } from "@shared/ui/ui/chip";
 import { A } from "@solidjs/router";
@@ -16,7 +15,7 @@ import { graphClient } from "../lib/api";
 import { invalidatePages } from "../lib/page-cache";
 import { PAGE_DATA } from "../lib/page-names";
 import type { SearchController } from "../lib/search";
-import { safeAvatarUrl } from "../lib/utils";
+import { OrgAvatar, ProfileAvatar } from "./Avatars";
 
 /**
  * Connect / accept actions shared by every search surface. Kept here rather
@@ -77,19 +76,6 @@ export function useSearchActions(controller: SearchController) {
 }
 
 type SearchActions = ReturnType<typeof useSearchActions>;
-
-function ResultAvatar(props: { url: string | null; label: string; size: string }) {
-  return (
-    <Avatar class={props.size}>
-      <Show when={safeAvatarUrl(props.url)}>
-        {(url) => (
-          <AvatarImage src={url()} alt={props.label} referrerpolicy="no-referrer" loading="lazy" />
-        )}
-      </Show>
-      <AvatarFallback>{props.label.slice(0, 2).toUpperCase()}</AvatarFallback>
-    </Avatar>
-  );
-}
 
 /**
  * The label for a person row's affordance, given the caller's state with them.
@@ -167,7 +153,7 @@ export function PersonRow(props: {
 
   return (
     <>
-      <ResultAvatar url={props.person.avatarUrl} label={props.person.handle} size="h-8 w-8" />
+      <ProfileAvatar profile={props.person} class="size-8" decorative />
       <div class="min-w-0 flex-1">
         <p class="text-foreground text-title truncate font-medium">
           {props.person.displayName || `@${props.person.handle}`}
@@ -190,11 +176,7 @@ export function PersonRow(props: {
 export function OrganisationRow(props: { organisation: OrganisationSearchResult }) {
   return (
     <>
-      <ResultAvatar
-        url={props.organisation.avatarUrl}
-        label={props.organisation.handle}
-        size="h-8 w-8 rounded-md"
-      />
+      <OrgAvatar org={props.organisation} class="size-8" decorative />
       <div class="min-w-0 flex-1">
         <p class="text-foreground text-title truncate font-medium">{props.organisation.name}</p>
         <p class="text-muted-foreground text-meta truncate">@{props.organisation.handle}</p>

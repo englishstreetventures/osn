@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-23
+last-reviewed: 2026-11-26
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -315,7 +315,7 @@ motion, below).
 `Modal`, on the same rule, has the same gap. `overlay-motion.browser.test.tsx` holds the slide, its
 pace and curve, the scrim, the turn-rounds, the `md` crossing and the
 reduced-motion fade ([[browser-tests]]); `musubi-surfaces.ts` holds Musubi's
-profile switcher sliding on a real page, and pulse's
+create-profile sheet sliding on a real page, and pulse's
 `share-sheet-motion.browser.test.tsx` holds its share sheet's first frame,
 sliding and fading.
 

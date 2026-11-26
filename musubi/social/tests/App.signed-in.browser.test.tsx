@@ -1,23 +1,30 @@
+import { AuthExpiredError } from "@osn/client";
+import { toast } from "@shared/toast";
 import { MemoryRouter, Route } from "@solidjs/router";
-import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
 import "../src/App.css";
 
 /**
- * The profile switcher, signed in, in a real browser: `Layout` with a session
- * and two profiles.
- *
- * The switcher is one of the shell dialogs mounted once above the 768px
- * switch, opened from the account menu in either shell. Whether it stays open
- * across a crossing, and where focus lands when it closes, take a real
- * viewport and Kobalte's focus scope.
+ * The account menu, signed in, in a real browser: `Layout` with a session and
+ * two profiles. The menu is the profile switcher (DESIGN.md §Layout): each
+ * profile a `menuitemradio`, the active one `aria-checked`, and choosing
+ * another switches to it. A switch holds every row until it ends, however it
+ * ends. Kobalte chooses a row on a real pointer's release or a key, which only
+ * a real browser gives.
  *
  * The factories below are written literally: a `vi.mock` factory that imports
  * from `test-support/` does not resolve in the browser project. A plain import
  * from there, such as `shell-chunks`, does.
  */
+
+// The switches asked for, and the one still running.
+const control = vi.hoisted(() => ({
+  calls: [] as string[],
+  running: null as null | { land: () => void; fail: (err: unknown) => void },
+}));
 
 vi.mock("@osn/client/solid", async () => {
   const actual = await vi.importActual<typeof import("@osn/client/solid")>("@osn/client/solid");
@@ -34,16 +41,31 @@ vi.mock("@osn/client/solid", async () => {
     { id: "usr_alice", handle: "alice", displayName: "Alice", avatarUrl: null },
     { id: "usr_alice_work", handle: "alice_work", displayName: null, avatarUrl: null },
   ];
+  const { createRoot, createSignal } = await import("solid-js");
+  const [active, setActive] = createRoot(() => createSignal("usr_alice"));
+  // As the real context does: the active profile changes once the switch lands.
+  const switchProfile = (id: string) => {
+    control.calls.push(id);
+    return new Promise((resolve, reject) => {
+      control.running = {
+        land: () => {
+          setActive(id);
+          resolve({ session: {}, profile: profiles.find((p) => p.id === id) });
+        },
+        fail: reject,
+      };
+    });
+  };
   const signedIn = {
     session: resource({ accessToken: "not-a-jwt", expiresAt: Date.now() + 300_000 }),
     profiles: resource(profiles),
-    activeProfileId: () => "usr_alice",
+    activeProfileId: active,
     pendingDeletion: () => false,
     login: () => undefined,
     logout: () => Promise.resolve(),
     handleCallback: () => Promise.resolve(),
     adoptSession: () => Promise.resolve(),
-    switchProfile: () => new Promise(() => {}),
+    switchProfile,
     createProfile: () => Promise.reject(new Error("not in this test")),
     deleteProfile: () => Promise.resolve(),
     profilesError: () => undefined,
@@ -60,7 +82,7 @@ vi.mock("@osn/client/solid", async () => {
     ),
   };
 });
-// The banners fetch account state; this file tests the shell's dialogs.
+// The banners fetch account state; this file tests the account menu.
 vi.mock("../src/components/AccountBanners", () => ({ AccountBanners: () => null }));
 vi.mock("../src/lib/authClients", () => ({
   loginClient: {},
@@ -93,60 +115,105 @@ function renderApp() {
 
 /** The account-menu trigger in the rail (`aside`) or the top bar (`header`). */
 const accountTrigger = (shell: "aside" | "header") =>
-  document.querySelector<HTMLElement>(`${shell} [data-dialog-return="switcher"]`);
-const dialogs = () => screen.queryAllByRole("dialog", { hidden: true });
+  document.querySelector<HTMLElement>(`${shell} [data-account-menu]`);
+const rows = () => screen.queryAllByRole("menuitemradio");
+const checkedRows = () => rows().map((row) => row.getAttribute("aria-checked"));
+const held = () => rows().map((row) => row.getAttribute("aria-disabled") === "true");
+
+async function openMenu(shell: "aside" | "header") {
+  await waitFor(() => expect(accountTrigger(shell)).not.toBeNull());
+  await userEvent.click(accountTrigger(shell)!);
+  await waitFor(() => expect(rows()).toHaveLength(2));
+}
+
+async function closed() {
+  await waitFor(() => expect(screen.queryAllByRole("menu")).toHaveLength(0));
+}
 
 beforeAll(() => {
   document.documentElement.classList.remove("dark");
 });
 
+beforeEach(() => {
+  control.calls.length = 0;
+  control.running = null;
+});
+
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   document.documentElement.classList.remove("dark");
 });
 
-describe("the profile switcher", () => {
-  it("opens from the account menu, stays open across 768px, and gives focus back to the shell's trigger", async () => {
+describe("the account menu's profiles", () => {
+  it("are radio rows, the active one checked, at both widths", async () => {
     await page.viewport(1440, 900);
     renderApp();
     // Signed in, the rail's chunk reaches the search and its result rows too,
     // all transformed on first request: wait for the chunks, then the render.
     await railChunks();
-    await waitFor(() => expect(accountTrigger("aside")).not.toBeNull());
-
-    await userEvent.click(accountTrigger("aside")!);
-    await userEvent.click(
-      await waitFor(() => screen.getByRole("menuitem", { name: "Switch profile" })),
-    );
-
-    const switcher = await waitFor(() => screen.getByRole("dialog", { name: "Switch profile" }));
-    expect(dialogs()).toHaveLength(1);
-    // The rows, then the footer's Cancel.
-    const buttons = within(switcher).getAllByRole("button");
-    expect(buttons.map((button) => button.textContent)).toEqual([
-      expect.stringContaining("@alice(Alice)"),
+    await openMenu("aside");
+    expect(rows().map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Alice@alice"),
       expect.stringContaining("@alice_work"),
-      "Cancel",
     ]);
-    const rows = buttons.slice(0, 2);
-    // The active profile says so in words, not only in its fill and tick.
-    expect(rows.map((row) => row.getAttribute("aria-current"))).toEqual(["true", null]);
-    expect(switcher.offsetWidth).toBe(320);
-    await page.screenshot({ path: `${SHOTS}/switcher-1440.png` });
+    expect(checkedRows()).toEqual(["true", "false"]);
+    // The rows are the switcher: no item opens another.
+    expect(screen.queryByRole("menuitem", { name: "Switch profile" })).toBeNull();
+    await page.screenshot({ path: `${SHOTS}/account-menu-1440.png` });
+    await userEvent.keyboard("{Escape}");
+    await closed();
 
     await page.viewport(390, 844);
     await topBarChunks();
-    await waitFor(() => expect(accountTrigger("header")).not.toBeNull());
-    expect(dialogs()).toHaveLength(1);
-    const sheet = screen.getByRole("dialog", { name: "Switch profile" });
-    expect(within(sheet).getAllByRole("button")).toHaveLength(3);
-    expect(sheet.offsetWidth).toBe(390);
     document.documentElement.classList.add("dark");
-    await page.screenshot({ path: `${SHOTS}/switcher-390-dark.png` });
+    await openMenu("header");
+    expect(checkedRows()).toEqual(["true", "false"]);
+    await page.screenshot({ path: `${SHOTS}/account-menu-390-dark.png` });
+  }, 30_000);
 
-    // Opened from the rail's trigger, which has gone: the top bar's takes focus.
+  it("switch on a choice, hold every row while the switch runs, and let go however it ends", async () => {
+    const failed = vi.spyOn(toast, "error");
+    const switched = vi.spyOn(toast, "success");
+    await page.viewport(1440, 900);
+    renderApp();
+    await railChunks();
+
+    // The active row: nothing to switch to.
+    await openMenu("aside");
+    await userEvent.click(rows()[0]!);
+    await closed();
+    expect(control.calls).toEqual([]);
+
+    // Another row: the switch starts and the menu closes.
+    await openMenu("aside");
+    await userEvent.click(rows()[1]!);
+    await closed();
+    expect(control.calls).toEqual(["usr_alice_work"]);
+
+    // While it runs, the menu shows the wait: every row held, the old one
+    // still checked, and a second choice starts nothing.
+    await openMenu("aside");
+    expect(held()).toEqual([true, true]);
+    expect(checkedRows()).toEqual(["true", "false"]);
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(dialogs()).toHaveLength(0));
-    await waitFor(() => expect(document.activeElement).toBe(accountTrigger("header")));
+    await closed();
+
+    // It fails: the copy map's sentence, and the rows let go.
+    control.running!.fail(new AuthExpiredError({}));
+    await waitFor(() =>
+      expect(failed).toHaveBeenCalledWith("Your session has ended. Sign in again."),
+    );
+    await openMenu("aside");
+    expect(held()).toEqual([false, false]);
+
+    // A new choice switches, and lands.
+    await userEvent.click(rows()[1]!);
+    await closed();
+    expect(control.calls).toEqual(["usr_alice_work", "usr_alice_work"]);
+    control.running!.land();
+    await waitFor(() => expect(switched).toHaveBeenCalledWith("Switched to @alice_work"));
+    await openMenu("aside");
+    expect(checkedRows()).toEqual(["false", "true"]);
   }, 30_000);
 });

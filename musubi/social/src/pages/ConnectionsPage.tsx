@@ -8,11 +8,11 @@ import type {
 } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
-import { Avatar, AvatarFallback } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Dialog, DialogDescription } from "@shared/ui/ui/dialog";
 import { createSignal, For, Show } from "solid-js";
 
+import { ProfileAvatar } from "../components/Avatars";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
@@ -204,9 +204,7 @@ export function ConnectionsPage() {
                   <For each={all()?.connections}>
                     {(conn: ConnectionEntry) => (
                       <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                        <Avatar class="h-9 w-9">
-                          <AvatarFallback>{conn.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
-                        </Avatar>
+                        <ProfileAvatar profile={conn} class="size-9" decorative />
                         <div class="min-w-0 flex-1">
                           <p class="text-foreground text-title truncate font-medium">
                             {conn.displayName || `@${conn.handle}`}
@@ -247,9 +245,7 @@ export function ConnectionsPage() {
                   <For each={pending()?.pending}>
                     {(req: PendingRequestEntry) => (
                       <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                        <Avatar class="h-9 w-9">
-                          <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
-                        </Avatar>
+                        <ProfileAvatar profile={req} class="size-9" decorative />
                         <div class="min-w-0 flex-1">
                           <p class="text-foreground text-title truncate font-medium">
                             {req.displayName || `@${req.handle}`}
@@ -306,9 +302,7 @@ export function ConnectionsPage() {
                   <For each={sent()?.sent}>
                     {(req: SentRequestEntry) => (
                       <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                        <Avatar class="h-9 w-9">
-                          <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
-                        </Avatar>
+                        <ProfileAvatar profile={req} class="size-9" decorative />
                         <div class="min-w-0 flex-1">
                           <p class="text-foreground text-title truncate font-medium">
                             {req.displayName || `@${req.handle}`}
@@ -382,11 +376,7 @@ export function ConnectionsPage() {
                   <For each={blocked()?.blocks}>
                     {(profile: ProfileEntry) => (
                       <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                        <Avatar class="h-9 w-9">
-                          <AvatarFallback>
-                            {profile.handle.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                        <ProfileAvatar profile={profile} class="size-9" decorative />
                         <div class="min-w-0 flex-1">
                           <p class="text-foreground text-title truncate font-medium">
                             @{profile.handle}

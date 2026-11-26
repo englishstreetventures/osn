@@ -27,9 +27,11 @@ package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
 the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
 Two views mount in no app: `SessionsView` (#2055) and `ChangeEmailForm`
 (#2056). Only their tests and lab stories render them. Musubi's profile
-switcher is its own (`ProfileSwitcherDialog`); the package draws none, but
+switcher is its own, the account menu's radio rows; the package draws none.
 Musubi's own dialogs take their header and footer from it (`AuthHeader`,
-`DialogActions`), so every dialog in the product has one shape.
+`DialogActions`), so every dialog in the product has one shape, and
+`/authorize`'s account and picker screens take their heading from
+`AuthHeader`'s page host.
 
 **What a host supplies.**
 

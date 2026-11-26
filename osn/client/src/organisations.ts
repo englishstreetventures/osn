@@ -39,6 +39,16 @@ export interface OrgMember {
   joinedAt: string;
 }
 
+/**
+ * The caller's own standing in an organisation, as `getOrg` answers it, or
+ * `null` for someone not in it. An admin may edit it and remove a member; the
+ * owner, always an admin, may also delete it and remove an admin.
+ */
+export interface OrgCaller {
+  role: "admin" | "member";
+  owner: boolean;
+}
+
 export class OrgClientError extends OsnApiError {
   constructor(message: string, status: number, code?: string) {
     super(message, status, code);
@@ -59,7 +69,7 @@ export interface OrgClient {
     limit?: number;
     offset?: number;
   }): Promise<{ organisations: OrgSummary[] }>;
-  getOrg(handle: string): Promise<{ organisation: OrgSummary }>;
+  getOrg(handle: string): Promise<{ organisation: OrgSummary; caller: OrgCaller | null }>;
   createOrg(data: {
     handle: string;
     name: string;
@@ -118,7 +128,8 @@ export function createOrgClient(config: OrgClientConfig): OrgClient {
   return {
     listMyOrgs: (options) => authGet<{ organisations: OrgSummary[] }>(`${base}${qs(options)}`),
 
-    getOrg: (handle) => authGet<{ organisation: OrgSummary }>(org(handle)),
+    getOrg: (handle) =>
+      authGet<{ organisation: OrgSummary; caller: OrgCaller | null }>(org(handle)),
 
     createOrg: (data) => authPost<{ ok: boolean; organisation: OrgSummary }>(base, data),
 

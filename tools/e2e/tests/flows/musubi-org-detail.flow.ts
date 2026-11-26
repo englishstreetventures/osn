@@ -1,9 +1,11 @@
 /**
  * Musubi: create an organisation, have a member added, open the organisation's
  * page, rename it, ask the member to connect from Discover and again from
- * `/search`, remove the member, open an organisation the owner does not
- * belong to from the search box, delete the first organisation, follow the
- * stale link back to it, and follow a link whose handle the API refuses.
+ * `/search`, make the member an admin, remove them as the owner may (Remove
+ * held busy while its DELETE is held), open an organisation the owner does not
+ * belong to from the search box and find none of its actions offered, delete
+ * the first organisation, follow the stale link back to it, and follow a link
+ * whose handle the API refuses.
  *
  * The organisation routes address both the organisation and the member by
  * handle and answer flat member rows with no profile id, so this is the flow
@@ -17,7 +19,8 @@
  * On the way it measures and shoots the surfaces these pages draw from shared
  * parts (`musubi-surfaces.ts`): the create dialog's fade with no scale, the
  * create and edit dialogs' titles, padded bodies and footers, the list's rows on `Card`, the roster's names and role `Chip`, a
- * search result's name. It holds the create's POST, the rename's PATCH and
+ * search result's name, and each organisation's avatar as a square with 8px
+ * corners beside a person's circle. It holds the create's POST, the rename's PATCH and
  * each connection request long enough to read the busy button ("Creating…",
  * "Saving…", "Sending…"), and reads Discover's and `/search`'s Connect 40px
  * tall at the phone width. Last, it
@@ -400,16 +403,58 @@ test("musubi-org-detail", async ({ page, flow }) => {
   flow.check("organisations: no placeholder on the return", false, await listWatch.seen());
   flow.check("organisations: the list read again behind it", 1, listReads() - readsBefore);
 
+  // The owner makes the member an admin: only the owner may remove an admin,
+  // and the page offers it only to the owner.
+  await flow.step("make the member an admin through the API", async () => {
+    const url = `${ORIGINS.osnApi}/organisations/${org.handle}/members/${member.handle}`;
+    const response = await page.context().request.patch(url, {
+      headers: { Authorization: `Bearer ${token}`, Origin: ORIGINS.musubi },
+      data: { role: "admin" },
+    });
+    flow.recordRequest("PATCH", url, response.status());
+    expect(response.status(), "make admin").toBe(200);
+  });
+
+  const orgMain = page.getByRole("main");
   const orgWatch = await watchPlaceholders(page);
   await flow.step("back to the organisation", async () => {
     await orgLink.click();
     await expect(page.getByRole("heading", { level: 1, name: org.renamed })).toBeVisible();
     await expect(page.getByText(`@${member.handle}`, { exact: true })).toBeVisible();
+    // The roster read again behind the rows on screen names the new admin.
+    await expect(orgMain.getByText("Admin", { exact: true })).toHaveCount(2);
   });
   flow.check("organisation: no placeholder on the return", false, await orgWatch.seen());
+  const remove = page.getByRole("button", { name: `Remove @${member.handle}`, exact: true });
+  flow.check(
+    "owner: Remove offered on an admin's row, and not on the owner's own",
+    `1 0`,
+    `${await remove.count()} ${await page.getByRole("button", { name: `Remove @${MUSUBI_ORG.owner.handle}` }).count()}`,
+  );
+
+  // The DELETE is held until the busy button has been read: one press, one
+  // request, and the button takes no second press meanwhile.
+  const memberUrl = `${ORIGINS.osnApi}/organisations/${org.handle}/members/${member.handle}`;
+  const removeHeld = holdMethod("DELETE");
+  await page.route(memberUrl, removeHeld.handler);
+  const removing = page.getByRole("button", { name: `Removing @${member.handle}`, exact: true });
+  try {
+    await flow.step("remove the admin: Remove waits on the DELETE", async () => {
+      await remove.click();
+      await expect(removing).toBeVisible();
+    });
+    flow.check(
+      "remove busy: unavailable while its request runs",
+      "true",
+      (await removing.getAttribute("aria-disabled")) ?? "",
+    );
+    await removing.click({ force: true });
+  } finally {
+    removeHeld.release();
+    await page.unroute(memberUrl, removeHeld.handler);
+  }
 
   await flow.step("remove the member", async () => {
-    await page.getByRole("button", { name: `Remove @${member.handle}`, exact: true }).click();
     await expect(page.getByText(`Removed @${member.handle}`)).toBeVisible();
     await expect(page.getByText(`@${member.handle}`, { exact: true })).toHaveCount(0);
   });
@@ -417,6 +462,11 @@ test("musubi-org-detail", async ({ page, flow }) => {
     "member removed by handle",
     true,
     flow.saw(`DELETE osn-api /organisations/${org.handle}/members/${member.handle} 200`),
+  );
+  flow.check(
+    "remove busy: a press while it ran sent nothing more",
+    1,
+    flow.count(`DELETE osn-api /organisations/${org.handle}/members/${member.handle} `),
   );
   flow.check("one member row left (the owner)", 1, memberRows());
 
@@ -436,6 +486,16 @@ test("musubi-org-detail", async ({ page, flow }) => {
     await expect(page.getByRole("heading", { level: 1, name: otherOrg.name })).toBeVisible();
     await expect(page.getByText(MEMBERS_ONLY)).toBeVisible();
   });
+  // Not a member: the organisation's read says so, and the page offers none
+  // of its actions.
+  flow.check(
+    "not a member: no Edit, Delete or Remove",
+    0,
+    await page
+      .getByRole("main")
+      .getByRole("button", { name: /^(Edit|Delete|Remove\b)/ })
+      .count(),
+  );
   flow.check(
     "roster refused to a non-member",
     true,

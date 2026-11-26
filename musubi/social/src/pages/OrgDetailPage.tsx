@@ -1,8 +1,8 @@
 import { AuthHeader } from "@osn/auth-ui/AuthHeader";
 import { DialogActions } from "@osn/auth-ui/DialogActions";
-import { describeAuthError, OrgClientError, type OrgMember } from "@osn/client";
+import { describeAuthError, OrgClientError, type OrgCaller, type OrgMember } from "@osn/client";
+import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
-import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Chip } from "@shared/ui/ui/chip";
@@ -13,8 +13,9 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate, useSearchParams } from "@solidjs/router";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
+import { OrgAvatar, ProfileAvatar } from "../components/Avatars";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
@@ -29,13 +30,29 @@ import {
 } from "../lib/page-data";
 import { usePageTitle } from "../lib/page-title";
 import { createRowActions } from "../lib/row-actions";
-import { safeAvatarUrl } from "../lib/utils";
+import { getTokenClaims } from "../lib/utils";
 
 /** A member's role as the roster shows it: a label set as written, so in sentence case. */
 const ROLE_LABEL = {
   admin: "Admin",
   member: "Member",
 } satisfies Record<OrgMember["role"], string>;
+
+/**
+ * Whether the reader may remove `member`, by the rules the routes apply: an
+ * admin removes a plain member, the owner an admin too, and nobody their own
+ * row (the owner cannot be removed; an admin may not remove an admin). An
+ * unknown standing or reader offers nothing.
+ */
+function mayRemove(
+  caller: OrgCaller | null | undefined,
+  reader: string | null,
+  member: OrgMember,
+): boolean {
+  if (!caller || caller.role !== "admin" || !reader) return false;
+  if (member.handle === reader) return false;
+  return member.role === "member" || caller.owner;
+}
 
 /** The HTTP status a failed request carried, when it got as far as a response. */
 function statusOf(error: unknown): number | undefined {
@@ -73,7 +90,13 @@ export function OrgDetailPage() {
   // are read only once one has landed. A roster read by a non-member answers
   // 403: the organisation is public, its member list is not.
   const landed = (state: string) => state === "ready" || state === "refreshing";
-  const orgReady = () => (landed(org.state) ? org() : undefined);
+  const detail = () => (landed(org.state) ? org() : undefined);
+  const orgReady = () => detail()?.organisation;
+  // The reader's own standing decides which actions show. Unknown (the read
+  // has not landed, or failed) shows none; the server refuses the rest.
+  const caller = () => detail()?.caller ?? null;
+  const { session } = useAuth();
+  const reader = createMemo(() => getTokenClaims(session()?.accessToken ?? null).handle);
   const memberRows = () => (landed(members.state) ? members()?.members : undefined);
   // The page's `h1`: the organisation's name, or the section's while it loads
   // or when it could not be loaded.
@@ -106,7 +129,7 @@ export function OrgDetailPage() {
       });
       toast.success("Organisation updated");
       setShowEdit(false);
-      organisationDetail.update([handle], () => organisation, mark);
+      organisationDetail.update([handle], (value) => ({ ...value, organisation }), mark);
       // The list shows the new name at once and reads itself again when next shown.
       myOrganisations.update(
         [],
@@ -280,19 +303,7 @@ export function OrgDetailPage() {
               {/* Header */}
               <div class="mb-8 flex flex-wrap items-start justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-4">
-                  <Avatar class="h-14 w-14">
-                    <Show when={safeAvatarUrl(orgData().avatarUrl)}>
-                      {(url) => (
-                        <AvatarImage
-                          src={url()}
-                          alt={orgData().name}
-                          referrerpolicy="no-referrer"
-                          loading="lazy"
-                        />
-                      )}
-                    </Show>
-                    <AvatarFallback>{orgData().name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                  </Avatar>
+                  <OrgAvatar org={orgData()} class="size-14" lazy={false} decorative />
                   {/* Its admins wrote the name, so it breaks anywhere. */}
                   <div class="min-w-0">
                     <h1 class="text-foreground text-display font-medium wrap-anywhere">
@@ -304,19 +315,26 @@ export function OrgDetailPage() {
                     </Show>
                   </div>
                 </div>
-                <div class="flex gap-1.5">
-                  <Button variant="secondary" size="sm" class="max-md:h-10" onClick={openEdit}>
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghostDanger"
-                    size="sm"
-                    class="max-md:h-10"
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    Delete
-                  </Button>
-                </div>
+                {/* Edit is an admin's, Delete the owner's. They come with the
+                    organisation's own read, so nothing moves when the roster
+                    lands. */}
+                <Show when={caller()?.role === "admin"}>
+                  <div class="flex gap-1.5">
+                    <Button variant="secondary" size="sm" class="max-md:h-10" onClick={openEdit}>
+                      Edit
+                    </Button>
+                    <Show when={caller()?.owner}>
+                      <Button
+                        variant="ghostDanger"
+                        size="sm"
+                        class="max-md:h-10"
+                        onClick={() => setConfirmDelete(true)}
+                      >
+                        Delete
+                      </Button>
+                    </Show>
+                  </div>
+                </Show>
               </div>
 
               <Show when={declineClosed()}>
@@ -373,13 +391,17 @@ export function OrgDetailPage() {
                       when={memberRows()}
                       fallback={
                         // As many rows as the last roster landed, one when
-                        // nothing is known. A member row with Remove: 56px,
-                        // and 60px below `md`, where the button takes the
-                        // touch height. An admin's row has no Remove, and is
-                        // 56px at both widths.
+                        // nothing is known. A row with Remove is 56px, and
+                        // 60px below `md`, where the button takes the touch
+                        // height; one without is 56px at both widths. Only an
+                        // admin or the owner sees Remove, so their rows are
+                        // drawn with it, and a member's without.
                         <div class="flex flex-col gap-1">
                           {Array.from({ length: members.rows }, () => (
-                            <ResponsiveSkeleton height={14} phoneHeight={15} />
+                            <ResponsiveSkeleton
+                              height={14}
+                              phoneHeight={caller()?.role === "admin" ? 15 : 14}
+                            />
                           ))}
                         </div>
                       }
@@ -388,12 +410,8 @@ export function OrgDetailPage() {
                         <For each={memberRows()}>
                           {(member) => (
                             <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                              {/* Initials only: a roster row carries no avatar. */}
-                              <Avatar class="h-8 w-8">
-                                <AvatarFallback>
-                                  {member.handle.slice(0, 2).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
+                              {/* Initials only: a roster row carries no picture. */}
+                              <ProfileAvatar profile={member} class="size-8" decorative />
                               <div class="min-w-0 flex-1">
                                 <p class="text-foreground text-title truncate font-medium">
                                   {member.displayName || `@${member.handle}`}
@@ -407,7 +425,7 @@ export function OrgDetailPage() {
                               <Chip variant="outline" treatment="tag">
                                 {ROLE_LABEL[member.role]}
                               </Chip>
-                              <Show when={member.role !== "admin"}>
+                              <Show when={mayRemove(caller(), reader(), member)}>
                                 <Button
                                   variant="ghostDanger"
                                   size="sm"

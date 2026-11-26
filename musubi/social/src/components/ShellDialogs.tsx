@@ -1,13 +1,13 @@
 import { createContext, createSignal, lazy, Show, useContext, type JSX } from "solid-js";
 
 /**
- * The shell's dialogs — sign in, create account, switch profile — mounted once,
- * above the desktop/phone shell switch, so crossing 768px with one open keeps
- * it open, and what was typed in it.
+ * The shell's dialogs — sign in and create account — mounted once, above the
+ * desktop/phone shell switch, so crossing 768px with one open keeps it open,
+ * and what was typed in it.
  *
  * This module is in the entry chunk, which `/authorize` downloads before it can
  * paint; the dialogs reach `@osn/auth-ui`'s `SignIn` and `Register`, so they are
- * named only in a dynamic import, of one chunk that holds all three.
+ * named only in a dynamic import, of one chunk that holds both.
  */
 const ShellDialogSet = lazy(() =>
   import("./ShellDialogSet").then((m) => ({ default: m.ShellDialogSet })),
@@ -17,7 +17,7 @@ const ShellDialogSet = lazy(() =>
  * A dialog the shell opens. Each shell marks the control focus returns to when
  * that dialog closes with `data-dialog-return="<dialog>"`.
  */
-export type ShellDialog = "sign-in" | "register" | "switcher";
+export type ShellDialog = "sign-in" | "register";
 
 type ShellDialogs = {
   /** Opens a dialog, closing any other. */

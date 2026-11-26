@@ -86,7 +86,10 @@ function renderOrg(path: string) {
 }
 
 beforeEach(() => {
-  mocks.getOrg.mockReset().mockResolvedValue({ organisation: ORG });
+  // The owner: Delete is the owner's alone.
+  mocks.getOrg
+    .mockReset()
+    .mockResolvedValue({ organisation: ORG, caller: { role: "admin", owner: true } });
   mocks.listMembers.mockReset().mockResolvedValue({ members: [] });
   mocks.declineOwnership.mockReset();
   mocks.deleteOrg.mockReset();

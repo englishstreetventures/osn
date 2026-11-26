@@ -1,11 +1,11 @@
+import { AuthHeader } from "@osn/auth-ui/AuthHeader";
 import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import type { AuthorizeContext, PublicProfile } from "@osn/client";
 import { AuthorizeError, describeAuthError } from "@osn/client";
-import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Chip } from "@shared/ui/ui/chip";
-import { Notice } from "@shared/ui/ui/notice";
+import { Notice, type NoticeTone } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
 import { useSearchParams } from "@solidjs/router";
 import {
@@ -13,6 +13,7 @@ import {
   createResource,
   createSignal,
   For,
+  type JSX,
   lazy,
   Match,
   onCleanup,
@@ -23,10 +24,11 @@ import {
 
 import { BackError, BackLabel } from "../components/DeletionWindowBack";
 import { WindowLoading } from "../components/DeletionWindowFrame";
+import { ProfileChoice, ProfileIdentity } from "../components/ProfileChoice";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { PRODUCT_NAME } from "../lib/auth";
 import { authorizeClient } from "../lib/authorize";
-import { profileInitials, safeAvatarUrl } from "../lib/utils";
+import { safeAvatarUrl } from "../lib/utils";
 
 /**
  * The OIDC consent screen.
@@ -132,6 +134,12 @@ const SCREEN_ANNOUNCEMENT = {
   error: null,
 } satisfies Record<Screen, string | null>;
 
+/**
+ * What the screen's one notice slot says: guidance in the secondary ink
+ * (`info`), or a failure in the danger ink.
+ */
+type PageNotice = { tone: Extract<NoticeTone, "info" | "danger">; text: string };
+
 const sameProfileSet = (before: ReadonlySet<string>, after: readonly PublicProfile[]) =>
   after.length === before.size && after.every((p) => before.has(p.id));
 
@@ -204,14 +212,22 @@ export function AuthorizePage() {
   // is back all the same.
   const [keptHere, setKeptHere] = createSignal(false);
   const [fatal, setFatal] = createSignal<string | null>(null);
-  const [notice, setNotice] = createSignal<string | null>(null);
+  const [notice, setNotice] = createSignal<PageNotice | null>(null);
+  // The picker's choice before Continue fixes it. Arrow keys move a radio as
+  // they choose it, so the picker must not leave on a change.
+  const [pickerChoice, setPickerChoice] = createSignal<string | null>(null);
 
   const ctx = (): AuthorizeContext | undefined => (context.error ? undefined : context());
   const profiles = () => ctx()?.profiles ?? [];
 
-  const selectedId = createMemo(
-    () => chosenId() ?? ctx()?.linkedProfileId ?? profiles()[0]?.id ?? null,
-  );
+  // The first of the chosen, the linked and the first profile that is one of
+  // the profiles on screen: a choice made before the account changed (a
+  // sign-in as someone else) is not one of them, and never stands.
+  const selectedId = createMemo(() => {
+    const listed = (id: string | null | undefined) =>
+      id && profiles().some((p) => p.id === id) ? id : null;
+    return listed(chosenId()) ?? listed(ctx()?.linkedProfileId) ?? profiles()[0]?.id ?? null;
+  });
   const selected = createMemo(() => profiles().find((p) => p.id === selectedId()) ?? null);
 
   /**
@@ -303,7 +319,7 @@ export function AuthorizePage() {
 
   /** A retryable failure — the request survives, the page does not restart. */
   function softFail(message: string) {
-    setNotice(message);
+    setNotice({ tone: "danger", text: message });
     setSubmitting(false);
   }
 
@@ -355,7 +371,7 @@ export function AuthorizePage() {
           setPending(approved);
           setReauth(true);
           setSubmitting(false);
-          setNotice("Please sign in again to continue.");
+          setNotice({ tone: "info", text: "Please sign in again to continue." });
           return;
         }
       }
@@ -382,8 +398,12 @@ export function AuthorizePage() {
     await refetch();
     if (!sameProfileSet(before, profiles())) {
       setChosenId(null);
+      setPickerChoice(null);
       if (answer !== null) {
-        setNotice("You signed in as a different account — check this before continuing.");
+        setNotice({
+          tone: "info",
+          text: "You signed in as a different account — check this before continuing.",
+        });
       }
       return;
     }
@@ -437,6 +457,7 @@ export function AuthorizePage() {
   function afterDeletionSignOut() {
     setNotice(null);
     setChosenId(null);
+    setPickerChoice(null);
     void refetch();
   }
 
@@ -450,6 +471,28 @@ export function AuthorizePage() {
     setChosenId(selectedId());
     setNotice(null);
     setAccountConfirmed(true);
+  }
+
+  /** The picker's radio: its own choice until Continue, else the profile in force. */
+  const pickerValue = () => {
+    const draft = pickerChoice();
+    return draft && profiles().some((p) => p.id === draft) ? draft : (selectedId() ?? "");
+  };
+
+  /** Continue on the picker: its choice becomes the profile, and consent follows. */
+  function confirmPick() {
+    const id = pickerValue();
+    if (!id) return;
+    setChosenId(id);
+    setPickerChoice(null);
+    setPickerOpen(false);
+    setNotice(null);
+  }
+
+  /** Change on the consent screen: the picker again, starting from the profile in force. */
+  function openPicker() {
+    setPickerChoice(null);
+    setPickerOpen(true);
   }
 
   return (
@@ -506,34 +549,32 @@ export function AuthorizePage() {
 
         <Match when={screen() === "signedOut"}>
           <ClientCard context={ctx()} />
-          <Show when={notice()}>
-            {(message) => (
-              <p class="text-muted-foreground text-body mt-4 text-center">{message()}</p>
-            )}
-          </Show>
           <Show when={switching()}>
             <p class="text-muted-foreground text-body mt-4 text-center">
               Sign in with the account you want to use.
             </p>
           </Show>
           {/* Unframed: the panel's own header leads it, 24px under the
-              client card. */}
-          <div class="mt-6">
-            <Suspense fallback={<SignInLoading mode={panelMode()} />}>
-              {/* `reason` is advisory — it only picks which half of the panel
-                  leads. The server re-derives every requirement at decision
-                  time, so a tampered value widens nothing.
+              client card, with the screen's notice above it. */}
+          <div class="mt-6 flex flex-col gap-4">
+            <NoticeSlot notice={notice()} />
+            <div>
+              <Suspense fallback={<SignInLoading mode={panelMode()} />}>
+                {/* `reason` is advisory — it only picks which half of the panel
+                    leads. The server re-derives every requirement at decision
+                    time, so a tampered value widens nothing.
 
-                  `signedInHere()` is what keeps `reason=create` from leading
-                  with sign-up a second time. The URL still says `create` after
-                  the account exists, so a later bounce back to this screen — a
-                  `login_required` replay, or a decision the server refused —
-                  would otherwise reopen "Create your Musubi account" at
-                  someone who has just made one, which reads as the flow having thrown
-                  the new account away. Once a ceremony has happened on this
-                  page, the way forward is signing in. */}
-              <AuthorizeSignIn initialMode={panelMode()} onSuccess={() => void afterSignIn()} />
-            </Suspense>
+                    `signedInHere()` is what keeps `reason=create` from leading
+                    with sign-up a second time. The URL still says `create` after
+                    the account exists, so a later bounce back to this screen — a
+                    `login_required` replay, or a decision the server refused —
+                    would otherwise reopen "Create your Musubi account" at
+                    someone who has just made one, which reads as the flow having thrown
+                    the new account away. Once a ceremony has happened on this
+                    page, the way forward is signing in. */}
+                <AuthorizeSignIn initialMode={panelMode()} onSuccess={() => void afterSignIn()} />
+              </Suspense>
+            </div>
           </div>
           <Show when={switching()}>
             {/* A sign-in can set the new session cookie before it reports
@@ -541,10 +582,12 @@ export function AuthorizePage() {
                 rather than trusting what it showed before. */}
             <Button
               variant="secondary"
-              class="mt-4 w-full"
+              size="lg"
+              class="mt-6 w-full max-md:h-11"
               onClick={() => {
                 setSwitching(false);
                 setChosenId(null);
+                setPickerChoice(null);
                 void refetch();
               }}
             >
@@ -568,51 +611,51 @@ export function AuthorizePage() {
 
         <Match when={screen() === "account"}>
           <ClientCard context={ctx()} />
-          <h2 class="text-foreground text-title mt-6 mb-2 font-medium">Signed in as</h2>
-          <Show when={profiles().length > 1}>
-            <p class="text-muted-foreground text-meta mb-2">
-              {clientName()} will see the profile you pick, and only that one.
-            </p>
-          </Show>
-          <Show
-            when={profiles().length > 1}
-            fallback={
-              <Show when={selected()}>
-                {(profile) => (
-                  <div class="border-border flex items-center gap-3 rounded-lg border px-3 py-2.5">
-                    <ProfileRow profile={profile()} />
-                  </div>
-                )}
-              </Show>
-            }
-          >
-            <div class="flex flex-col gap-2">
-              <For each={profiles()}>
-                {(profile) => (
-                  <button
-                    type="button"
-                    aria-pressed={profile.id === selectedId()}
-                    class="border-border hover:bg-muted aria-pressed:border-foreground focus-visible:ring-ui-focus transition-ui-colors flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left focus-visible:ring-2 focus-visible:outline-hidden"
-                    onClick={() => setChosenId(profile.id)}
-                  >
-                    <ProfileRow profile={profile} />
-                    <Show when={profile.id === selectedId()}>
-                      <span class="text-foreground text-meta ml-auto shrink-0 font-medium">
-                        Selected
-                      </span>
-                    </Show>
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
           <div class="mt-6 flex flex-col gap-2">
-            <Button class="w-full" disabled={!selectedId()} onClick={confirmAccount}>
+            <AuthHeader host="page" title="Signed in as" />
+            <Show when={profiles().length > 1}>
+              <p class="text-muted-foreground text-meta">
+                <AppName name={clientName()} /> will see the profile you pick, and only that one.
+              </p>
+            </Show>
+          </div>
+          <div class="mt-3">
+            {/* One profile is not a choice: it is named, in the row a choice
+                would take. Several are a choice. */}
+            <Show
+              when={profiles().length > 1}
+              fallback={
+                <Show when={selected()}>
+                  {(profile) => (
+                    <div class="rounded-lg border px-3 py-2.5">
+                      <ProfileIdentity profile={profile()} />
+                    </div>
+                  )}
+                </Show>
+              }
+            >
+              <ProfileChoice
+                profiles={profiles()}
+                value={selectedId() ?? ""}
+                onChange={(id) => setChosenId(id)}
+                label="Profiles"
+                disabled={submitting()}
+              />
+            </Show>
+          </div>
+          <Actions notice={notice()}>
+            <Button
+              size="lg"
+              class="w-full max-md:h-11"
+              disabled={!selected()}
+              onClick={confirmAccount}
+            >
               Continue
             </Button>
             <Button
               variant="secondary"
-              class="w-full"
+              size="lg"
+              class="w-full max-md:h-11"
               disabled={submitting()}
               onClick={() => {
                 setNotice(null);
@@ -623,69 +666,62 @@ export function AuthorizePage() {
             </Button>
             {/* A denial is a decision, here as on every other screen. */}
             <Button
-              variant="ghost"
-              class="w-full"
+              variant="secondary"
+              size="lg"
+              class="w-full max-md:h-11"
               disabled={submitting()}
               onClick={() => void decide(false)}
             >
               Cancel
             </Button>
-          </div>
-          <Show when={notice()}>
-            {(message) => (
-              <Notice tone="danger" size="inline" alert class="mt-4">
-                {message()}
-              </Notice>
-            )}
-          </Show>
+          </Actions>
         </Match>
 
         <Match when={screen() === "picker"}>
-          <h1 class="text-foreground text-title mb-1 font-medium">Choose a profile</h1>
-          <p class="text-muted-foreground text-body mb-4">
-            {clientName()} will see the profile you pick, and only that one.
-          </p>
-          <div class="flex flex-col gap-2">
-            <For each={profiles()}>
-              {(profile) => (
-                <button
-                  type="button"
-                  class="border-border hover:bg-muted transition-ui-colors flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left"
-                  onClick={() => {
-                    setChosenId(profile.id);
-                    setPickerOpen(false);
-                  }}
-                >
-                  <ProfileAvatar profile={profile} />
-                  <div class="flex min-w-0 flex-col">
-                    <span class="text-foreground text-title truncate font-medium">
-                      {profile.displayName || `@${profile.handle}`}
-                    </span>
-                    <span class="text-muted-foreground text-meta truncate">@{profile.handle}</span>
-                  </div>
-                </button>
-              )}
-            </For>
+          <ClientCard context={ctx()} />
+          <div class="mt-6 flex flex-col gap-2">
+            <AuthHeader host="page" title="Choose a profile" />
+            <p class="text-muted-foreground text-meta">
+              <AppName name={clientName()} /> will see the profile you pick, and only that one.
+            </p>
+          </div>
+          <div class="mt-3">
+            <ProfileChoice
+              profiles={profiles()}
+              value={pickerValue()}
+              onChange={(id) => setPickerChoice(id)}
+              label="Profiles"
+              disabled={submitting()}
+            />
           </div>
           <Show when={ctx()?.linkedProfileId}>
-            <p class="text-muted-foreground text-meta mt-4">
-              {clientName()} already knows one of these profiles. Picking a different one looks like
-              a different person to it.
+            <p class="text-muted-foreground text-meta mt-3">
+              <AppName name={clientName()} /> already knows one of these profiles. Picking a
+              different one looks like a different person to it.
             </p>
           </Show>
           {/* A decline path from the picker too: without it, refusing means
               abandoning the tab, which leaves the request alive for its TTL.
-              Deny grants nothing, so the fallback profile id is harmless. */}
-          <div class="mt-6">
+              Deny grants nothing, so the profile it posts is harmless. */}
+          <Actions notice={notice()}>
+            <Button
+              size="lg"
+              class="w-full max-md:h-11"
+              disabled={submitting() || !pickerValue()}
+              onClick={confirmPick}
+            >
+              Continue
+            </Button>
             <Button
               variant="secondary"
-              class="w-full"
+              size="lg"
+              class="w-full max-md:h-11"
               disabled={submitting()}
               onClick={() => void decide(false)}
             >
               Cancel
             </Button>
-          </div>
+          </Actions>
         </Match>
 
         <Match when={screen() === "consent"}>
@@ -706,18 +742,21 @@ export function AuthorizePage() {
             </For>
           </ul>
 
+          {/* The profile the app will see, on screen whenever Allow is. */}
           <Show when={selected()}>
             {(profile) => (
-              <div class="border-border mt-6 flex items-center gap-3 rounded-lg border px-3 py-2.5">
-                <ProfileAvatar profile={profile()} />
-                <div class="flex min-w-0 flex-1 flex-col">
-                  <span class="text-foreground text-title truncate font-medium">
-                    {profile().displayName || `@${profile().handle}`}
-                  </span>
-                  <span class="text-muted-foreground text-meta truncate">@{profile().handle}</span>
-                </div>
+              <div class="mt-6 flex items-center gap-3 rounded-lg border px-3 py-2.5">
+                <span class="min-w-0 flex-1">
+                  <ProfileIdentity profile={profile()} />
+                </span>
                 <Show when={profiles().length > 1}>
-                  <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    class="shrink-0 max-md:h-10"
+                    disabled={submitting()}
+                    onClick={openPicker}
+                  >
                     Change
                   </Button>
                 </Show>
@@ -725,31 +764,25 @@ export function AuthorizePage() {
             )}
           </Show>
 
-          <Show when={notice()}>
-            {(message) => (
-              <Notice tone="danger" size="inline" alert class="mt-4">
-                {message()}
-              </Notice>
-            )}
-          </Show>
-
-          <div class="mt-6 flex gap-2">
+          <Actions notice={notice()}>
             <Button
-              class="flex-1"
-              disabled={submitting() || !selectedId()}
+              size="lg"
+              class="w-full max-md:h-11"
+              disabled={submitting() || !selected()}
               onClick={() => void decide(true)}
             >
               Allow
             </Button>
             <Button
               variant="secondary"
-              class="flex-1"
+              size="lg"
+              class="w-full max-md:h-11"
               disabled={submitting()}
               onClick={() => void decide(false)}
             >
               Cancel
             </Button>
-          </div>
+          </Actions>
           <p class="text-muted-foreground text-meta mt-3 text-center">
             You can undo this later in your {PRODUCT_NAME} settings.
           </p>
@@ -818,33 +851,47 @@ function DeletionScreen(props: {
   );
 }
 
-function ProfileRow(props: { profile: PublicProfile }) {
+/**
+ * The screen's one notice: guidance or a failure the screen's own action
+ * caused, announced as it appears. Every screen that decides draws it in the
+ * same place, directly above its actions (on the sign-in screen, above the
+ * panel), so a reader finds it where they acted.
+ */
+function NoticeSlot(props: { notice: PageNotice | null }) {
   return (
-    <>
-      <ProfileAvatar profile={props.profile} />
-      <div class="flex min-w-0 flex-col">
-        <span class="text-foreground text-title truncate font-medium">
-          {props.profile.displayName || `@${props.profile.handle}`}
-        </span>
-        <span class="text-muted-foreground text-meta truncate">@{props.profile.handle}</span>
-      </div>
-    </>
+    <Show when={props.notice}>
+      {(notice) => (
+        <Notice tone={notice().tone} size="inline" alert>
+          {notice().text}
+        </Notice>
+      )}
+    </Show>
   );
 }
 
-function ProfileAvatar(props: { profile: PublicProfile }) {
+/**
+ * A screen's notice and its actions: one column of buttons as wide as the
+ * page's column, the screen's one next step first and Cancel last, 24px under
+ * what they act on.
+ */
+function Actions(props: { notice: PageNotice | null; children: JSX.Element }) {
   return (
-    <Avatar class="h-9 w-9">
-      {/* No `loading="lazy"`: the avatar is inside the first viewport on both
-          the picker and the consent screen, so deferring it only costs a round
-          trip. */}
-      <Show when={safeAvatarUrl(props.profile.avatarUrl)}>
-        {(url) => (
-          <AvatarImage src={url()} alt={props.profile.handle} referrerpolicy="no-referrer" />
-        )}
-      </Show>
-      <AvatarFallback>{profileInitials(props.profile)}</AvatarFallback>
-    </Avatar>
+    <div class="mt-6 flex flex-col gap-4">
+      <NoticeSlot notice={props.notice} />
+      <div class="flex flex-col gap-2">{props.children}</div>
+    </div>
+  );
+}
+
+/**
+ * An app's name inside a sentence: its own words, so it breaks anywhere and
+ * is never translated.
+ */
+function AppName(props: { name: string | null }) {
+  return (
+    <span class="wrap-anywhere" translate="no">
+      {props.name}
+    </span>
   );
 }
 
@@ -867,7 +914,9 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
       {/* The app's name leads the screen, over the panel's 14px heading. It
           is the app's own words, so it breaks anywhere rather than widen the
           column, and the checks under it stay in view. */}
-      <h1 class="text-foreground text-display font-medium wrap-anywhere">{client()?.name}</h1>
+      <h1 class="text-foreground text-display font-medium wrap-anywhere" translate="no">
+        {client()?.name}
+      </h1>
       <p class="text-muted-foreground text-body mt-1">wants to use your {PRODUCT_NAME} account</p>
       {/* Verifiable identity signal. The name above is self-asserted and can
           impersonate a first-party app; the redirect host is what the client

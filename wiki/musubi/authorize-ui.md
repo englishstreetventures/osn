@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-26
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -91,6 +91,14 @@ along. If the user opens the link in a *different* browser, every call
 
 ## Screen states
 
+Every screen that decides (3 to 6) is one layout (`musubi/social/DESIGN.md`
+§Layout): the client card, its name the `h1`; the screen's own heading, an
+`h2` through `@osn/auth-ui`'s `AuthHeader`; one notice slot directly above
+the actions (`info` for "Please sign in again to continue." and "You signed
+in as a different account…", `danger` for a failed decision, the copy map's
+sentence); and the actions in one full-width column, Cancel last and
+`secondary`, one per screen.
+
 1. **Loading** — "Checking this request…" while the context loads. 404 ⇒
    *Ended* state.
 2. **Load error** — a context read that fails without ending the request (a
@@ -110,9 +118,9 @@ along. If the user opens the link in a *different* browser, every call
    `requireAuthAfter` — the retry loop needs no special casing.
 4. **Account** (`reason=select_account`, signed in, and no sign-in made on
    this page yet) — the client card, then "Signed in as" with the account's
-   profile (avatar, display name, handle), or every profile as a toggle when
-   there are two or more. Buttons: **Continue**, **Use another account**,
-   **Cancel**. Shown for every account, one profile or many, and for
+   profile (avatar, display name, handle) in a bordered row, or, with two or
+   more, every profile as a radio (`ProfileChoice`, the linked profile
+   checked). Buttons: **Continue**, **Use another account**, **Cancel**. Shown for every account, one profile or many, and for
    first-party clients too. Continue fixes the profile and moves to consent
    (state 6) — never straight to a decision, because the page sees only
    `reason` and the app may have paired `select_account` with `consent`.
@@ -120,12 +128,17 @@ along. If the user opens the link in a *different* browser, every call
    sign-in there is itself the choice of account, so the account screen
    does not return after it.
 5. **Profile picker** (multiple profiles and no `linkedProfileId`, or
-   `reason=select_account` after a sign-in made on this page) — one card per profile (avatar, display name,
-   handle). Default selection: `linkedProfileId` if present (this client
-   already knows that profile — switching is allowed but changes the
-   pairwise `sub` the client sees; say so in a caption), else the default
-   profile. A **Cancel** under the cards posts `approved: false`, as Cancel
-   on the consent screen does.
+   `reason=select_account` after a sign-in made on this page) — the client
+   card, "Choose a profile", and one radio per profile (`ProfileChoice`:
+   avatar, display name, handle). Default selection: `linkedProfileId` if
+   present (this client already knows that profile — switching is allowed
+   but changes the pairwise `sub` the client sees; say so in a caption), else
+   the default profile. Choosing moves the radio only (an arrow key chooses
+   as it moves); **Continue** fixes it and goes to consent. A choice made for
+   one account never stands for another: a sign-in that lands as a different
+   account starts the picker from that account's own profile. A **Cancel**
+   under Continue posts `approved: false`, as Cancel on the consent screen
+   does.
 6. **Consent** — the heart of the page:
    - Client identity: `name`, `logoUrl` (render as `<img src>` ONLY —
      never interpolate into markup; treat the URL as untrusted even
@@ -139,8 +152,11 @@ along. If the user opens the link in a *different* browser, every call
      "See your email address" with the explicit warning that email is
      account-level and shared across apps (the one claim pairwise
      subjects cannot protect).
-   - The chosen profile (from state 4 or 5, collapsed to a switcher row).
-   - Buttons: **Allow** (primary) / **Cancel** (secondary), and under them
+   - The chosen profile (from state 4 or 5) in a bordered row, with
+     **Change** back to the picker when there are several. Allow is offered
+     only while that row is on screen, so the profile it posts is the one the
+     person sees.
+   - Buttons: **Allow** (primary) over **Cancel** (secondary), and under them
      "You can undo this later in your Musubi settings." Cancel
      POSTs `approved: false` — the relying party gets `access_denied`;
      it must NOT just close the tab, or the request lingers for its TTL.

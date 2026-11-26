@@ -167,6 +167,52 @@ describe("organisation routes", () => {
     expect(json.organisation.name).toBe("Acme Corp");
   });
 
+  // The page shows Edit, Delete and Remove by the reader's standing, so the
+  // read says what that standing is — the reader's own, never anyone else's.
+  it("GET /organisations/:handle says the caller's own standing", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    const bob = await registerAndGetToken("bob@example.com", "bob");
+    const mallory = await registerAndGetToken("mallory@example.com", "mallory");
+    await orgApp.handle(
+      new Request("http://localhost/organisations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${alice.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "acme", name: "Acme Corp" }),
+      }),
+    );
+    await orgApp.handle(
+      new Request("http://localhost/organisations/acme/members/bob", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${alice.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "member" }),
+      }),
+    );
+
+    const callerOf = async (token: string) => {
+      const res = await orgApp.handle(
+        new Request("http://localhost/organisations/acme", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { caller: unknown }).caller;
+    };
+    expect(await callerOf(alice.token)).toEqual({ role: "admin", owner: true });
+    expect(await callerOf(bob.token)).toEqual({ role: "member", owner: false });
+    // Not a member: the organisation is public, the standing is none.
+    expect(await callerOf(mallory.token)).toBeNull();
+
+    // Made an admin by the owner: an admin, still not the owner.
+    await orgApp.handle(
+      new Request("http://localhost/organisations/acme/members/bob", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${alice.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "admin" }),
+      }),
+    );
+    expect(await callerOf(bob.token)).toEqual({ role: "admin", owner: false });
+  });
+
   it("GET /organisations/:handle → 404 for unknown org", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
 

@@ -443,12 +443,13 @@ async function shell(flow: Flow, page: Page): Promise<void> {
 }
 
 /**
- * The rail's theme menu and account menu, then the phone's account menu and
- * the profile switcher it opens: the shared radio rows, the house outline on
- * two controls drawn by hand, the account menu's separator as a hairline, the
- * switcher's title on Musubi's title step, the fade with no scale each menu
- * opens and closes on, and the switcher's slide, a sheet at the phone width,
- * and a finger dragging it closed (`dragsClosed`).
+ * The rail's theme menu and account menu, then the phone's account menu: the
+ * shared radio rows and their `aria-checked`, the house outline on two
+ * controls drawn by hand, the account menu's separator as a hairline, and the
+ * fade with no scale each menu opens and closes on. The account menu is also
+ * the profile switcher; an account of one profile has nothing to switch to,
+ * so it shows no profile rows (the two-profile rows are held by
+ * `musubi/social/tests/App.signed-in.browser.test.tsx`).
  */
 async function menus(flow: Flow, page: Page): Promise<void> {
   await at(page, DESKTOP, "light");
@@ -468,6 +469,11 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     "theme menu: the theme in force is the checked radio row",
     "System",
     (await page.getByRole("menuitemradio", { checked: true }).textContent()) ?? "",
+  );
+  flow.check(
+    "theme menu: each row says whether it is checked",
+    "true false false",
+    (await rows.evaluateAll((els) => els.map((el) => el.getAttribute("aria-checked")))).join(" "),
   );
   flow.check(
     "theme menu: a focused row takes the sunk fill",
@@ -523,105 +529,94 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     "solid 2px 2px",
     await outline(avatar),
   );
-  const switchProfile = page.getByRole("menuitem", { name: "Switch profile" });
+  const logOut = page.getByRole("menuitem", { name: "Log out" });
   const barOpened = await holdOverlay(page, '[role="menu"]', "ui-enter", 0);
   await flow.step("surfaces: open the top bar's account menu", async () => {
     await page.keyboard.press("Enter");
-    await expect(switchProfile).toBeFocused();
+    await expect(logOut).toBeFocused();
   });
+  flow.check(
+    "account menu: one profile, so no profile rows to switch between",
+    0,
+    await page.getByRole("menu").getByRole("menuitemradio").count(),
+  );
   fadesOnly(flow, "top bar's account menu", "open", await barOpened());
   await menuSeparator(flow, "top bar's account menu separator (light)", rule);
   await flow.step("surfaces: shoot the top bar's account menu", () =>
-    shoot(page, "account-menu", () => expect(switchProfile).toBeFocused(), { widths: [PHONE] }),
+    shoot(page, "account-menu", () => expect(logOut).toBeFocused(), { widths: [PHONE] }),
   );
   await menuSeparator(flow, "top bar's account menu separator (dark)", rule);
-
   await at(page, PHONE, "light");
-  const switcher = page.getByRole("dialog", { name: "Switch profile" });
-  const title = switcher.getByRole("heading", { name: "Switch profile" });
-  const profile = switcher.getByRole("button").first();
-  const switcherOpened = await holdOverlay(page, '[role="dialog"]', "ui-sheet-enter", 0);
-  const switcherCancel = switcher.getByRole("button", { name: "Cancel", exact: true });
-  await flow.step("surfaces: open the profile switcher from the keyboard", async () => {
-    await expect(switchProfile).toBeFocused();
-    await page.keyboard.press("Enter");
-    await expect(profile).toBeVisible();
-    // The dialog opens on its row; Tab reaches the footer's Cancel, after the
-    // rows, and Shift+Tab comes back to the row as a keyboard user's would.
-    await expect(profile).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(switcherCancel).toBeFocused();
-    await page.keyboard.press("Shift+Tab");
-    await expect(profile).toBeFocused();
-    expect(await profile.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
+  await flow.step("surfaces: close the top bar's account menu", async () => {
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
   });
-  slides(flow, "profile switcher (sheet)", "open", await switcherOpened());
+}
+
+/**
+ * A sheet: "Create a new profile", which Settings' add-a-profile card opens, at
+ * the phone width. It slides up from its own height below the edge as it opens
+ * and is part-way down half-way out, at full opacity and unscaled (DESIGN.md
+ * §Motion); its title sits alone in the header, centred, at Musubi's title
+ * step; its footer holds Cancel, then the commit. Then a finger drags it down
+ * by its title row and lets go past a quarter of its height: it follows the
+ * finger to the pixel, and closes. The finger goes through Chromium's own
+ * input pipeline (CDP `Input.dispatchTouchEvent`), each event stamped with its
+ * own time, so `touch-action` and the drag's speed are as on a phone. Shoots
+ * the sheet at rest and half way down. Every check runs while the sheet is
+ * idle: nothing is typed, so closing it changes nothing a later step reads.
+ */
+async function profileSheet(flow: Flow, page: Page): Promise<void> {
+  await at(page, PHONE, "light");
+  // The card's button, pressed only while the sheet is shut: the form's submit
+  // inside the sheet has the same name.
+  const open = page.getByRole("button", { name: "Create profile" });
+  const dialog = page.getByRole("dialog", { name: "Create a new profile" });
+  const title = dialog.getByRole("heading", { name: "Create a new profile" });
+  const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
+
+  const opened = await holdOverlay(page, '[role="dialog"]', "ui-sheet-enter", 0);
+  await flow.step("surfaces: open the create-profile sheet", async () => {
+    await open.click();
+    await expect(title).toBeVisible();
+  });
+  slides(flow, "create-profile sheet", "open", await opened());
+  await animationsSettled(page);
   flow.check(
-    "profile switcher: the title is at title size and 500",
+    "create-profile sheet: the title is at title size and 500",
     await probedType(title, "text-title font-medium"),
     await type(title),
   );
   flow.check(
-    "profile switcher: the title sits alone in the header, centred",
+    "create-profile sheet: the title sits alone in the header, centred",
     true,
-    await titleCentred(switcher, title),
+    await titleCentred(dialog, title),
   );
   flow.check(
-    "profile switcher: the footer holds Cancel alone",
-    "Cancel",
-    await footerRow(switcherCancel),
+    "create-profile sheet: the footer holds Cancel, then the commit",
+    "Cancel | Create profile",
+    await footerRow(cancel),
   );
-  flow.check(
-    "profile switcher: a focused row draws its outline inside the row",
-    "solid 2px -2px",
-    await outline(profile),
-  );
-  await flow.step("surfaces: shoot a focused profile row", () =>
-    shoot(page, "profile-switcher-focus", () => expect(profile).toBeFocused(), {
-      widths: [PHONE],
-    }),
-  );
-  // The dialog stays open across the 768px switch: a sheet below, a card above.
-  await flow.step("surfaces: shoot the profile switcher", () =>
-    shoot(page, "profile-switcher", () => expect(title).toBeVisible()),
+  await flow.step("surfaces: shoot the create-profile sheet", () =>
+    shoot(page, "profile-sheet", () => expect(title).toBeVisible(), { widths: [PHONE] }),
   );
   await at(page, PHONE, "light");
-  const switcherClosed = await holdOverlay(page, '[role="dialog"]', "ui-sheet-exit", 0.5);
-  await flow.step("surfaces: close the profile switcher", async () => {
+  const closed = await holdOverlay(page, '[role="dialog"]', "ui-sheet-exit", 0.5);
+  await flow.step("surfaces: close the create-profile sheet", async () => {
     await page.keyboard.press("Escape");
-    await expect(switcher).toHaveCount(0);
+    await expect(dialog).toHaveCount(0);
   });
-  slides(flow, "profile switcher (sheet)", "close", await switcherClosed());
-  await dragsClosed(flow, page, avatar, switchProfile, switcher);
-}
+  slides(flow, "create-profile sheet", "close", await closed());
 
-/**
- * The profile switcher, a sheet at the phone width, dragged down by its title
- * row with a finger and let go past a quarter of its height: it follows the
- * finger to the pixel, and closes. The finger goes through Chromium's own
- * input pipeline (CDP `Input.dispatchTouchEvent`), each event stamped with its
- * own time, so `touch-action` and the drag's speed are as on a phone. Shoots
- * the sheet half way down.
- */
-async function dragsClosed(
-  flow: Flow,
-  page: Page,
-  avatar: Locator,
-  switchProfile: Locator,
-  switcher: Locator,
-): Promise<void> {
-  await at(page, PHONE, "light");
-  await flow.step("surfaces: reopen the profile switcher", async () => {
-    await avatar.click();
-    await switchProfile.click();
-    await expect(switcher).toBeVisible();
+  await flow.step("surfaces: reopen the create-profile sheet", async () => {
+    await open.click();
+    await expect(title).toBeVisible();
     await animationsSettled(page);
   });
-  const title = switcher.getByRole("heading", { name: "Switch profile" });
   const box = (await title.boundingBox())!;
-  const height = await switcher.evaluate((el) => (el as HTMLElement).offsetHeight);
+  const height = await dialog.evaluate((el) => (el as HTMLElement).offsetHeight);
   const offset = () =>
-    switcher.evaluate((el) => {
+    dialog.evaluate((el) => {
       const t = getComputedStyle(el).transform;
       return t === "none" ? 0 : new DOMMatrixReadOnly(t).m42;
     });
@@ -641,7 +636,7 @@ async function dragsClosed(
   };
   const travel = Math.round(height * 0.5);
   let worst = 0;
-  await flow.step("surfaces: drag the profile switcher down by its title row", async () => {
+  await flow.step("surfaces: drag the create-profile sheet down by its title row", async () => {
     await touch("touchStart", y0);
     for (let i = 1; i <= 12; i++) {
       t += 0.016;
@@ -650,20 +645,20 @@ async function dragsClosed(
       worst = Math.max(worst, Math.abs((await offset()) - moved));
     }
     mkdirSync(SHOTS, { recursive: true });
-    await page.screenshot({ path: resolve(SHOTS, "profile-switcher-drag-390-light.png") });
+    await page.screenshot({ path: resolve(SHOTS, "profile-sheet-drag-390-light.png") });
     t += 0.15;
     await touch("touchEnd");
-    await expect(switcher).toHaveCount(0);
+    await expect(dialog).toHaveCount(0);
   });
   flow.check(
-    "profile switcher: a drag down its title row follows the finger to the pixel",
+    "create-profile sheet: a drag down its title row follows the finger to the pixel",
     true,
     worst <= 1,
   );
   flow.check(
-    "profile switcher: let go past a quarter of its height, it closes",
+    "create-profile sheet: let go past a quarter of its height, it closes",
     0,
-    await switcher.count(),
+    await dialog.count(),
   );
   // The session stays attached until the page closes: detached here, it left
   // the passkey ceremonies later in `musubi-passkey` unanswered by the page's
@@ -706,6 +701,7 @@ async function security(flow: Flow, page: Page, profileName: string): Promise<vo
   await flow.step("surfaces: shoot the add-a-profile card", () =>
     shoot(page, "profile-onboarding", () => expect(onboarding).toBeVisible()),
   );
+  await profileSheet(flow, page);
   await at(page, DESKTOP, "light");
   flow.check(
     "settings: a field's hint is secondary ink",
@@ -1216,6 +1212,12 @@ export async function orgListSurfaces(flow: Flow, page: Page, link: Locator): Pr
       "16px",
       await computed(card, "border-top-left-radius"),
     );
+    // An organisation's avatar is a square with 8px corners (the owner's D5).
+    flow.check(
+      "organisations: an organisation's avatar has 8px corners",
+      "8px",
+      await computed(card.locator("[data-org-avatar]"), "border-top-left-radius"),
+    );
     // The card keeps its fill under the pointer; the chevron marks the hover.
     const chevron = card.locator("svg");
     await link.hover();
@@ -1239,13 +1241,29 @@ export async function orgListSurfaces(flow: Flow, page: Page, link: Locator): Pr
 }
 
 /**
- * An organisation's roster: a member's name at title size and 500, and the
- * role as an outlined `Chip` tag — pill corner, hairline edge, secondary ink,
- * 12px, set as written — reading "Admin" for the owner and "Member" for the
- * member, never the API's raw value.
+ * An organisation's page: its avatar a square with 8px corners and a member's
+ * a circle; a member's name at title size and 500, and the role as an
+ * outlined `Chip` tag — pill corner, hairline edge, secondary ink, 12px, set
+ * as written — reading "Admin" for the owner and "Member" for the member,
+ * never the API's raw value. Shot at 390 and 1440px in both schemes.
  */
 export async function orgRosterSurfaces(flow: Flow, page: Page, memberName: string): Promise<void> {
   const main = page.getByRole("main");
+  // The organisation's avatar is a square with 8px corners; a person's stays
+  // a circle (the owner's D5).
+  flow.check(
+    "organisation: its avatar has 8px corners",
+    "8px",
+    await computed(main.locator("[data-org-avatar]"), "border-top-left-radius"),
+  );
+  const personAvatar = main
+    .getByText(memberName, { exact: true })
+    .locator("xpath=ancestor::div[1]/preceding-sibling::span[1]");
+  flow.check(
+    "roster: a person's avatar stays a circle",
+    await probed(personAvatar, "rounded-pill", "border-top-left-radius"),
+    await computed(personAvatar, "border-top-left-radius"),
+  );
   const name = main.getByText(memberName, { exact: true });
   flow.check(
     "roster: a member's name is at title size and 500",
@@ -1307,6 +1325,11 @@ export async function searchSurfaces(
   resultName: string,
 ): Promise<void> {
   const name = option.getByText(resultName, { exact: true });
+  flow.check(
+    "search: an organisation's avatar has 8px corners",
+    "8px",
+    await computed(option.locator("[data-org-avatar]"), "border-top-left-radius"),
+  );
   flow.check(
     "search: a result's name is at title size and 500",
     await probedType(name, "text-title font-medium"),

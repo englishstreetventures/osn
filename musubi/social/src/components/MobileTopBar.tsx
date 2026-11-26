@@ -1,10 +1,9 @@
 import { useAuth } from "@osn/client/solid";
-import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { createMemo, Show } from "solid-js";
 
-import { profileInitials, safeAvatarUrl } from "../lib/utils";
 import { AccountMenu } from "./AccountMenu";
+import { ProfileAvatar } from "./Avatars";
 import { useShellDialogs } from "./ShellDialogs";
 import { TopBarHeader } from "./ShellFrame";
 import { ThemeToggle } from "./ThemeToggle";
@@ -53,23 +52,8 @@ export function MobileTopBar() {
               </div>
             }
           >
-            <AccountMenu
-              triggerClass="cursor-pointer rounded-pill"
-              onSwitchProfile={() => dialogs.open("switcher")}
-            >
-              <Avatar class="h-10 w-10">
-                <Show when={safeAvatarUrl(activeProfile()?.avatarUrl)}>
-                  {(url) => (
-                    <AvatarImage
-                      src={url()}
-                      alt={activeProfile()!.handle}
-                      referrerpolicy="no-referrer"
-                      loading="lazy"
-                    />
-                  )}
-                </Show>
-                <AvatarFallback>{profileInitials(activeProfile())}</AvatarFallback>
-              </Avatar>
+            <AccountMenu triggerClass="cursor-pointer rounded-pill">
+              <ProfileAvatar profile={activeProfile()} class="size-10" />
             </AccountMenu>
           </Show>
         </div>

@@ -53,9 +53,9 @@ export type AuthHeaderProps = DialogHostHeader | PageHostHeader;
 
 /**
  * The title row of a sign-in or create-account view, and of every dialog the
- * package draws and its host's own (Musubi's switcher, remove-friend and
- * organisation dialogs). Cancel, on a page, calls `onCancel` and closes
- * nothing itself.
+ * package draws and its host's own (Musubi's remove-friend and organisation
+ * dialogs, and its `/authorize` screens' headings). Cancel, on a page, calls
+ * `onCancel` and closes nothing itself.
  */
 export function AuthHeader(props: AuthHeaderProps) {
   return (

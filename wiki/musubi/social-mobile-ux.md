@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-26
 ---
 
 # Social — Mobile UX analysis & plan
@@ -40,11 +40,11 @@ pulse consume them too).
 > section now doubles as the implementation map. Key artefacts:
 > `src/components/nav.tsx` (shared nav source), `MobileNav.tsx` (bottom tab
 > bar), `MobileTopBar.tsx` (mobile header), `ResponsiveDialogContent.tsx`
-> (bottom-sheet dialog face), `AccountMenu` / `AuthDialogs` /
-> `ProfileSwitcherDialog` (account UI shared by the shells — only the
-> active shell mounts, gated on an `md` matchMedia signal in `Layout`, and
-> the three dialogs mount once above that switch, in `ShellDialogs.tsx`, so
-> one open across a switch stays open), safe-area +
+> (bottom-sheet dialog face), `AccountMenu` (the account menu, which is
+> also the profile switcher) / `AuthDialogs` (account UI shared by the
+> shells — only the active shell mounts, gated on an `md` matchMedia signal
+> in `Layout`, and the two dialogs mount once above that switch, in
+> `ShellDialogs.tsx`, so one open across a switch stays open), safe-area +
 > `pb-nav` utilities and the 16 px mobile-input rule in `App.css`, and a
 > **Responsive layout** section in `DESIGN.md` that locks the system
 > (single `md` breakpoint, `max-md:` touch-target mechanism, sheet dialogs,

@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Testing Patterns
@@ -211,7 +211,7 @@ Every app is served from `localhost`. Cookies ignore the port, so the suite prov
 
 The Musubi flow reports conditional mediation as unavailable. The virtual authenticator answers an autofill passkey request on its own, which a person never does, so leaving it on would race the "@handle → Continue" path the flow drives.
 
-A flow step that opens a DevTools session of its own on a page with a virtual authenticator, to send `Input.dispatchTouchEvent` for instance, leaves it attached until the page closes. `musubi-surfaces.ts`'s drag of the profile switcher detached its session once, and every passkey ceremony later in `musubi-passkey` then waited on "Waiting for your passkey…" until the step timed out; with the session left attached, the flow passed.
+A flow step that opens a DevTools session of its own on a page with a virtual authenticator, to send `Input.dispatchTouchEvent` for instance, leaves it attached until the page closes. A detached session leaves every passkey ceremony later in the flow waiting on "Waiting for your passkey…" until the step times out, so `musubi-surfaces.ts`'s drag of the create-profile sheet leaves its session attached.
 
 *Measured 2026-11-23 — `bun run --cwd tools/e2e e2e musubi-passkey`, twice with the `detach()` (both failed at "add an authenticator app: the setup key"), once without the drag step and once with the session left attached (both passed).*
 

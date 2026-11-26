@@ -9201,6 +9201,28 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "caller": {
+                      "properties": {
+                        "owner": {
+                          "type": "boolean"
+                        },
+                        "role": {
+                          "enum": [
+                            "admin",
+                            "member"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "role",
+                        "owner"
+                      ],
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
                     "organisation": {
                       "properties": {
                         "avatarUrl": {
@@ -9242,7 +9264,8 @@
                     }
                   },
                   "required": [
-                    "organisation"
+                    "organisation",
+                    "caller"
                   ],
                   "type": "object"
                 }

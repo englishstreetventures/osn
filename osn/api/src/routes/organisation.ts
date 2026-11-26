@@ -15,6 +15,7 @@ import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
   errorResponse,
   okResponse,
+  organisationCaller,
   organisationMemberSummary,
   organisationSummary,
 } from "./response-schemas";
@@ -256,14 +257,33 @@ export function createOrganisationRoutes(
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
 
-          return { organisation: orgProjection(organisation) };
+          // The caller's own standing, so a client offers only what the write
+          // routes would allow. A failed read of it costs the caller those
+          // actions, never the organisation: it answers `null`, as for a
+          // non-member, and is logged.
+          const role = await run(
+            org
+              .getMemberRole(organisation.id, caller.profileId)
+              .pipe(
+                Effect.catch(() =>
+                  Effect.logError("organisation caller standing not read").pipe(Effect.as(null)),
+                ),
+              ),
+          ).catch(() => null);
+          return {
+            organisation: orgProjection(organisation),
+            caller: role ? { role, owner: organisation.ownerId === caller.profileId } : null,
+          };
         },
         {
           params: HandleParam,
           response: {
             // Readable by any authenticated caller, member or not. Only the
-            // roster below is member-only.
-            200: t.Object({ organisation: organisationSummary }),
+            // roster below is member-only. `caller` is null for a non-member.
+            200: t.Object({
+              organisation: organisationSummary,
+              caller: t.Union([organisationCaller, t.Null()]),
+            }),
             401: errorResponse,
             // `resolveOrg` owns both: 404 on a miss, 500 when the lookup
             // itself throws. It returns null either way, so the body is the
