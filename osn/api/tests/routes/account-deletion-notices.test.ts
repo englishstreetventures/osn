@@ -137,6 +137,20 @@ function appsWithActions() {
               defaultChoice: null,
               link: null,
             },
+            {
+              id: "cire:payout:wed_2",
+              kind: "wedding_payout_account",
+              label: 'You connected the Stripe account for money gifts on "Kofi & Esi".',
+              choices: [
+                {
+                  choice: "close",
+                  description: "Guests cannot give money on this wedding.",
+                  erasedOn: null,
+                },
+              ],
+              defaultChoice: "close",
+              link: null,
+            },
           ],
         },
       };
@@ -258,6 +272,11 @@ describe("DELETE /account sends the scheduled notice", () => {
         "You host Launch, on 1 December.\n  You chose to delete everything, so Pulse deletes this as soon as it can.",
       );
       expect(mail!.text).not.toContain("Cancelled and kept for its guests.");
+      // An action whose one choice is its default happens whatever was
+      // answered, so its own words stand.
+      expect(mail!.text).toContain(
+        'You connected the Stripe account for money gifts on "Kofi & Esi".\n  Guests cannot give money on this wedding.',
+      );
       // Each organisation by the succession rule: to its other admin, or gone.
       expect(mail!.text).toContain("It passes to @carol.");
       expect(mail!.text).toContain("It is deleted.");

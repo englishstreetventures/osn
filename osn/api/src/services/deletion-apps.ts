@@ -8,7 +8,10 @@
  *   with `{ profileIds, deletesAt }`, answering
  *   `{ openActions: [{ id, kind, label, choices: [{ choice, description,
  *   erasedOn }], defaultChoice, link }] }`: what the app holds that needs an
- *   answer. Every id starts with `<app>:`.
+ *   answer, or is shown beside the answers. Every id starts with `<app>:`. An
+ *   action with a default never blocks the deletion; one whose only choice is
+ *   its default states what happens whatever was answered, so the scheduled
+ *   email shows its words even under "delete everything".
  * - `POST /internal/account-deleted`, scope `account:erase`, with
  *   `{ accountId, profileIds, choices, deleteEverything }` once the window has
  *   passed, answering `{ kept: [{ what, erasedOn, requestUrl }] }`: what the
