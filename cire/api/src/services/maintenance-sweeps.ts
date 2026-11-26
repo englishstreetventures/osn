@@ -608,10 +608,11 @@ export const maintenanceSweeps = {
    * way: the account is read, and released only when Stripe answers 403
    * `account_invalid` and a control read of an account a settings row still
    * names succeeds, once a run, proving the key reaches this platform. Any
-   * other answer, or a failure of the run's own writes, sets
-   * `last_hand_back_at`, logs the id for a hand fix and goes on. A
-   * deauthorize that succeeded and whose release failed is released on the
-   * next run, by the refusal path.
+   * other answer sets `last_hand_back_at`, logs the id for a hand fix and goes
+   * on. A failure of the run's own writes is logged with the id and the run
+   * goes on, with no mark, since the write that would make it may be what
+   * failed; a deauthorize that succeeded and whose release failed is released
+   * on the next run, by the refusal path.
    */
   handBackRetiredAccounts(
     now: Date,

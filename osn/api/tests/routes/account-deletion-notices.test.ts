@@ -145,7 +145,8 @@ function appsWithActions() {
                 {
                   choice: "close",
                   description: "Guests cannot give money on this wedding.",
-                  erasedOn: null,
+                  // A date the contract allows, so the line's date is read too.
+                  erasedOn: KEPT_UNTIL,
                 },
               ],
               defaultChoice: "close",
@@ -275,7 +276,7 @@ describe("DELETE /account sends the scheduled notice", () => {
       // An action whose one choice is its default happens whatever was
       // answered, so its own words stand.
       expect(mail!.text).toContain(
-        'You connected the Stripe account for money gifts on "Kofi & Esi".\n  Guests cannot give money on this wedding.',
+        'You connected the Stripe account for money gifts on "Kofi & Esi".\n  Guests cannot give money on this wedding. Kept until 7 December 2026 (UTC).',
       );
       // Each organisation by the succession rule: to its other admin, or gone.
       expect(mail!.text).toContain("It passes to @carol.");

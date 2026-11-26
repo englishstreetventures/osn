@@ -16,11 +16,13 @@ import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import { maintenanceSweeps, PREVIEW_STALE_AFTER_MS } from "../../src/services/maintenance-sweeps";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
 import { StripeError } from "../../src/services/stripe";
 import { failStatements } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { insertWedding } from "../test-helpers/wedding";
 
 const NOW = new Date("2026-07-30T04:00:00.000Z");
@@ -159,6 +161,22 @@ describe("maintenanceSweeps — error channel", () => {
     expect(err._tag).toBe("MaintenanceSweepError");
     expect(err.op).toBe("vendor_claims");
     expect(err.reason).toContain("boom: delete");
+  });
+
+  it("handBackRetiredAccounts fails with MaintenanceSweepError op=hand_back_retired_accounts", async () => {
+    const err = await Effect.runPromise(
+      Effect.flip(
+        maintenanceSweeps
+          .handBackRetiredAccounts(NOW, {
+            deauthorize: () => Effect.void,
+            retrieveAccount: () => Effect.void,
+          })
+          .pipe(Effect.provide(throwingLayer)),
+      ),
+    );
+    expect(err._tag).toBe("MaintenanceSweepError");
+    expect(err.op).toBe("hand_back_retired_accounts");
+    expect(err.reason).toContain("boom: select");
   });
 
   it("sweepStalePreviews fails with MaintenanceSweepError op=stale_previews", async () => {
@@ -383,16 +401,46 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
     retire(db, "acct_a");
     retire(db, "acct_a", { wedding: "w2" });
     const s = stripe();
+    const counted = () =>
+      counterValue(CIRE_METRICS.registryStripeHandBack, { result: "handed_back" });
+    const before = await counted();
     expect(await sweep(layer, s.client)).toEqual({
       handedBack: 1,
       released: 0,
       failed: 0,
       more: false,
     });
+    expect(await counted()).toBe(before + 1);
     expect(s.calls).toEqual(["deauthorize acct_a"]);
     const after = rows(db);
     expect(after[0]?.released).toEqual(earlier);
     expect(after.slice(1).every((row) => row.released !== null && row.tried === null)).toBe(true);
+  });
+
+  it("says nothing more is due when exactly three are", async () => {
+    const { db, layer } = setup();
+    for (const account of ["acct_1", "acct_2", "acct_3"]) retire(db, account);
+    expect(await sweep(layer, stripe().client)).toMatchObject({ handedBack: 3, more: false });
+  });
+
+  it("counts a retire exactly 120 days old as due, and one a second younger as not", async () => {
+    const { db, layer } = setup();
+    retire(db, "acct_due", { retiredAt: new Date(NOW.getTime() - 120 * DAY_MS) });
+    retire(db, "acct_young", { retiredAt: new Date(NOW.getTime() - 120 * DAY_MS + 1000) });
+    const s = stripe();
+    await sweep(layer, s.client);
+    expect(s.calls).toEqual(["deauthorize acct_due"]);
+  });
+
+  it("holds for a pending gift a second under 14 days old, and not for one exactly 14 days old", async () => {
+    const { db, layer } = setup();
+    retire(db, "acct_held");
+    gift(db, "g_held", "acct_held", "pending", new Date(NOW.getTime() - 14 * DAY_MS + 1000));
+    retire(db, "acct_free");
+    gift(db, "g_free", "acct_free", "pending", new Date(NOW.getTime() - 14 * DAY_MS));
+    const s = stripe();
+    await sweep(layer, s.client);
+    expect(s.calls).toEqual(["deauthorize acct_free"]);
   });
 
   it("hands back at most three accounts a run, and says more are due", async () => {
@@ -452,8 +500,18 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
     retire(db, "acct_a");
     names(db, "w2", "acct_live");
     const failing = stripe({ deauthorize: () => refused(400, "invalid_client") });
-    expect(await sweep(layer, failing.client)).toMatchObject({ released: 0, failed: 1 });
+    const before = await counterValue(CIRE_METRICS.registryStripeHandBack, { result: "failed" });
+    let result: unknown;
+    const logs = await captureLogs(async () => {
+      result = await sweep(layer, failing.client);
+    });
+    expect(result).toMatchObject({ released: 0, failed: 1 });
     expect(rows(db)).toEqual([{ account: "acct_a", released: null, tried: NOW }]);
+    // The account's id, for a hand fix.
+    expect(logs).toMatch(/stripe account not handed back[\s\S]*acct_a/);
+    expect(await counterValue(CIRE_METRICS.registryStripeHandBack, { result: "failed" })).toBe(
+      before + 1,
+    );
 
     // A newer retire, never tried, goes before the account that failed.
     retire(db, "acct_b", { retiredAt: new Date(OLD.getTime() + DAY_MS) });
@@ -465,17 +523,29 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
     ]);
   });
 
-  it("releases nothing when the account read fails any other way (a bad secret key)", async () => {
-    const { db, layer } = setup();
-    retire(db, "acct_a");
-    names(db, "w2", "acct_live");
-    const s = stripe({
-      deauthorize: () => refused(401),
-      retrieve: () => refused(401),
-    });
-    expect(await sweep(layer, s.client)).toMatchObject({ released: 0, failed: 1 });
-    expect(rows(db)[0]?.released).toBeNull();
-  });
+  it.each([
+    ["a bad secret key", { status: 401 }],
+    ["Stripe failing", { status: 500 }],
+    ["a permission refusal", { status: 403, code: "permission_denied" }],
+    ["account_invalid without a 403", { status: 400, code: "account_invalid" }],
+    ["no answer at all", {}],
+  ] as const)(
+    "releases nothing when the account read fails any other way (%s), even with the control account reading",
+    async (_label, failure) => {
+      const { db, layer } = setup();
+      retire(db, "acct_a");
+      names(db, "w2", "acct_live");
+      const s = stripe({
+        deauthorize: () => refused(400, "invalid_client"),
+        retrieve: (id) =>
+          id === "acct_live"
+            ? Effect.succeed({ id })
+            : Effect.fail(new StripeError({ reason: "refused", ...failure })),
+      });
+      expect(await sweep(layer, s.client)).toMatchObject({ released: 0, failed: 1 });
+      expect(rows(db)).toEqual([{ account: "acct_a", released: null, tried: NOW }]);
+    },
+  );
 
   it("clears a wedding that connected the account before Stripe answered, and leaves one connected after", async () => {
     const { db, layer } = setup();
@@ -514,11 +584,18 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
       return true;
     });
     const s = stripe();
-    expect(await sweep(layer, s.client)).toMatchObject({ handedBack: 1, failed: 1 });
+    let result: unknown;
+    const logs = await captureLogs(async () => {
+      result = await sweep(layer, s.client);
+    });
+    expect(result).toMatchObject({ handedBack: 1, failed: 1 });
     failing.restore();
-    expect(rows(db).map((row) => [row.account, row.released !== null])).toEqual([
-      ["acct_a", false],
-      ["acct_b", true],
+    expect(logs).toMatch(/stripe account hand-back failed[\s\S]*acct_a/);
+    // The write that would mark the attempt may be what failed, so none is
+    // made: the account stays first in line.
+    expect(rows(db).map((row) => [row.account, row.released !== null, row.tried])).toEqual([
+      ["acct_a", false, null],
+      ["acct_b", true, null],
     ]);
 
     // Stripe let acct_a go on that first call; now it refuses it, and the

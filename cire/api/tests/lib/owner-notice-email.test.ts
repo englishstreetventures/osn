@@ -593,7 +593,18 @@ describe("createOwnerNotices — an owner who left", () => {
  */
 describe("createOwnerNotices — a payout account holder erased", () => {
   it("tells every owner outside the erased account, naming no one", async () => {
-    const { notices, run, transport } = setup({}, ["usr_a", "usr_b", "usr_c"]);
+    // Names nobody, so it asks osn-api for no display name: one call fewer
+    // in the erasure's invocation.
+    const asked: string[][] = [];
+    const { notices, run, transport } = setup(
+      {
+        resolveDisplays: async (ids) => {
+          asked.push([...ids]);
+          return new Map();
+        },
+      },
+      ["usr_a", "usr_b", "usr_c"],
+    );
     await run(
       notices.payoutHolderErased({ weddingId: "wed_one", erasedProfileIds: ["usr_a", "usr_c"] }),
     );
@@ -609,6 +620,16 @@ describe("createOwnerNotices — a payout account holder erased", () => {
         },
       ],
     ]);
+    expect(asked.flat()).toEqual([]);
+  });
+
+  it("counts a wedding that is gone as nobody to tell", async () => {
+    const { notices, run, transport } = setup();
+    const attrs = { kind: "payout_holder_erased", result: "no_recipients" } as const;
+    const before = await counterValue(CIRE_METRICS.ownerNotice, attrs);
+    await run(notices.payoutHolderErased({ weddingId: "wed_gone", erasedProfileIds: ["usr_a"] }));
+    expect(transport.batches).toEqual([]);
+    expect(await counterValue(CIRE_METRICS.ownerNotice, attrs)).toBe(before + 1);
   });
 
   it("spends the wedding's budget alone, and writes none keyed by a person", async () => {
