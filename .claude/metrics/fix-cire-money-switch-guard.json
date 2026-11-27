@@ -1,0 +1,168 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/cire-money-switch-guard",
+    "base_sha": "4b6fa55c134e15a42d1f3e10fedc8923c5ce2d53",
+    "head_sha": "e5d065ba69e2c311c0e432675b5fe9b0cd6c4fab",
+    "generated_at": "2026-11-27T05:51:54.863Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2581,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-27T05:21:11.677Z",
+    "last_ts": "2026-11-27T05:50:24.359Z",
+    "span_seconds": 1753,
+    "active_seconds": 1510,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 10.075163399999997,
+    "tokens": {
+      "input": 318,
+      "output": 113878,
+      "thinking": 52194,
+      "cache_write_5m": 521197,
+      "cache_write_1h": 0,
+      "cache_read": 12975866
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 318,
+          "output": 113878,
+          "thinking": 52194,
+          "cache_write_5m": 521197,
+          "cache_write_1h": 0,
+          "cache_read": 12975866
+        },
+        "usd_equivalent": 10.075163399999997,
+        "messages": 152
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 318,
+          "output": 113878,
+          "thinking": 52194,
+          "cache_write_5m": 521197,
+          "cache_write_1h": 0,
+          "cache_read": 12975866
+        },
+        "usd_equivalent": 10.075163399999997,
+        "messages": 152
+      }
+    },
+    "effort": {
+      "high": 152
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 2,
+      "docs": 2,
+      "config": 0,
+      "source": 1
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 189,
+        "deleted": 7
+      },
+      "docs": {
+        "added": 7,
+        "deleted": 7
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 44,
+        "deleted": 28
+      }
+    },
+    "packages": [
+      "cire/api"
+    ],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 125,
+      "Read": 24,
+      "Skill": 9,
+      "Write": 8,
+      "SubagentHandback": 4
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {
+      "review-security": 2,
+      "review-tests": 2,
+      "review-state": 2,
+      "review-docs": 2,
+      "review-performance": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 152,
+      "with_tools": 152,
+      "with_one_tool": 139,
+      "context_median": 88501,
+      "context_p90": 126639
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 2,
+    "located": 2,
+    "acted_on": 2,
+    "paired": 2,
+    "acted_on_paired": 2,
+    "control_changed": 0,
+    "acted_on_by_test": 1,
+    "acted_on_paired_by_test": 1
+  }
+}
