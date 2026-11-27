@@ -128,12 +128,8 @@ export function takesEffectSeconds(notice: ChangeNotice): number {
  * hashes the same, so what is sent is what was approved.
  */
 export async function noticeDigest(notice: ChangeNotice): Promise<string> {
-  const canonical = JSON.stringify([
-    notice.document,
-    notice.path,
-    notice.takesEffect,
-    notice.changes,
-  ]);
+  const { document, path, takesEffect, changes } = notice;
+  const canonical = JSON.stringify([document, path, takesEffect, changes]);
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

@@ -163,12 +163,13 @@ export function createChangeNoticeRoutes(
           const counts = await run(changeNoticeCounts(params.noticeId, now()));
           return { ok: true, dryRun: true, ...counts };
         }
+        const { document, path, changes } = notice;
         const data: ChangeNoticeData = {
           instanceName: config.instanceName,
-          document: notice.document,
-          changes: notice.changes,
+          document,
+          changes,
           takesEffect: takesEffectSeconds(notice),
-          url: `${config.appUrl}${notice.path}`,
+          url: `${config.appUrl}${path}`,
         };
         const outcome = await run(
           sendChangeNoticeBatch({

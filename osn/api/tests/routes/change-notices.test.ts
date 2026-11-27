@@ -292,6 +292,16 @@ describe("who is mailed", () => {
     expect(rest.at(-1)?.body.finished).toBe(true);
     expect(recipients(h)).toEqual(["ada@example.test", "bea@example.test"]);
     expect(h.resend.delivered.every((d) => d.subject === "change-notice")).toBe(true);
+    // The email carries the notice's own words, day and page.
+    for (const { data } of h.resend.delivered) {
+      expect(data).toEqual({
+        instanceName: "Acme",
+        document: "privacy notice",
+        changes: ["We now keep sign-in records for 12 months, not 6."],
+        takesEffect: Date.UTC(2027, 0, 1) / 1_000,
+        url: "https://app.example.test/privacy",
+      });
+    }
 
     const again = await h.send({ dryRun: false });
     expect(again.body).toMatchObject({ ok: true, finished: true, sent: 0 });

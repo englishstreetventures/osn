@@ -102,4 +102,14 @@ describe("noticeDigest", () => {
       expect(await noticeDigest(changed)).not.toBe(digest);
     }
   });
+
+  // The operator's check job prints a digest and the send route compares it
+  // with its own, possibly at another commit, so the bytes hashed must not
+  // move: a reordered or reshaped canonical form refuses every approved send.
+  it("hashes the same bytes from commit to commit", async () => {
+    const notice = parseChangeNotices(good).get("privacy-2027-01")!;
+    expect(await noticeDigest(notice)).toBe(
+      "009fd4e8e59540528ef481823619d66f8704ff081099112a7401a4875c789c18",
+    );
+  });
 });
