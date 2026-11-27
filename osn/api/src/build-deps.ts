@@ -1,5 +1,9 @@
 import type { Db } from "@osn/db/service";
 import { generateArcKeyPair, importKeyFromJwk, thumbprintKid } from "@shared/crypto";
+import {
+  type DeletionRecordStore,
+  missingDeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import type { EmailService } from "@shared/email";
 import { parseDeploymentEnvironment } from "@shared/observability/config";
 import { createTurnstileVerifier } from "@shared/turnstile";
@@ -364,6 +368,13 @@ export interface BuildParts {
    * coordination bundle's. Absent ⇒ every limiter stays on the bundle.
    */
   rateLimitBindings?: Partial<OsnRateLimitBindings>;
+  /**
+   * Where each accepted account deletion, cancel and profile deletion is
+   * recorded outside the database: the `DELETION_RECORDS` bucket on Workers,
+   * memory on the Bun entry. Absent ⇒ every such request is refused (503), so
+   * a composition that forgets it records nothing it accepted.
+   */
+  deletionRecords?: DeletionRecordStore;
 }
 
 /**
@@ -386,6 +397,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     includeObservabilityPlugin,
     trustCloudflare = false,
     rateLimitBindings,
+    deletionRecords = missingDeletionRecordStore(),
   } = parts;
 
   // Build the application layer graph ONCE into a long-lived runtime and thread
@@ -658,6 +670,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     // Throws on a deployed tier without INTERNAL_SERVICE_SECRET, or a name in
     // OSN_DELETION_ABSENT_APPS that is no app: the Worker answers 503.
     deletionApps: deletionAppsConfig(env),
+    deletionRecords,
     // AOT and the observability plugin co-vary by runtime: both ON for Bun,
     // both OFF for workerd (AOT's `new Function` is forbidden there). The
     // `includeObservabilityPlugin` flag is the single Bun-vs-Workers

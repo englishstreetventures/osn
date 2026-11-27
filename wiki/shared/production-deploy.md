@@ -376,6 +376,46 @@ osn-api secrets are set with `wrangler secret put … --env <env>` (§3.1), surf
 **only on `env`** on workerd — never `process.env`, which is why `src/index.ts` threads
 `env` through `buildAppDeps`.
 
+### 2.4 Deletion-record buckets — OWNER STEP before the first release that declares them 🔑
+
+Each product's API Worker records every erasure request it accepts in a private R2
+bucket of its own ([[backup-dr#Deletion records outside the databases]]). The stacks
+declare and bind them, but production adopts its storage and never creates it: the
+plan guard refuses a bucket `create` on production, and the live read refuses an
+adopted bucket that does not exist ([[infrastructure-as-code#Production API Workers and storage]]).
+So each must exist, with exactly the declared settings, before the release that
+first ships them, or that release stops at its guard. Dev needs nothing: the dev
+stacks create `osn-deletion-records-dev`, `cire-deletion-records-dev` and
+`zap-deletion-records-dev`.
+
+| Bucket | Stack | Worker binding |
+|---|---|---|
+| `osn-deletion-records` | musubi | osn-api `DELETION_RECORDS` |
+| `cire-deletion-records` | cire | cire-api `DELETION_RECORDS` |
+| `zap-deletion-records` | zap | zap-api `DELETION_RECORDS` |
+
+From any checkout, with your own Cloudflare login on the production account, for
+each of the three:
+
+```bash
+bunx wrangler r2 bucket create osn-deletion-records --location enam
+bunx wrangler r2 bucket lifecycle add osn-deletion-records "Expire deletion records" "" --expire-days 31 --force
+bunx wrangler r2 bucket lifecycle list osn-deletion-records
+```
+
+The list shows exactly two rules, both on every prefix: `Default Multipart Abort Rule`
+(incomplete multipart uploads aborted after 7 days) and `Expire deletion records`
+(objects deleted after 31 days). If the first is missing, add it with
+`bunx wrangler r2 bucket lifecycle add <bucket> "Default Multipart Abort Rule" "" --abort-multipart-days 7 --force`.
+`--location enam` puts it where cire's buckets and every dev bucket are
+([[subprocessors]]). Turn on no public access, CORS or custom domain: the stacks declare none, and the
+release's live read refuses a bucket whose lifecycle rules, CORS, `r2.dev` access or
+custom domains differ from the declaration (`shared/infra/src/storage.ts`,
+`deletionRecordsBucket`).
+
+No secret and no token scope is needed: one `CLOUDFLARE_API_TOKEN` serves every
+production stack job, and it already manages cire's buckets.
+
 ---
 
 ## 3. Secret / variable checklist

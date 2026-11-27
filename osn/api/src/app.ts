@@ -1,6 +1,7 @@
 import { cors } from "@elysiajs/cors";
 import { openapi } from "@elysiajs/openapi";
 import { DbLive } from "@osn/db/service";
+import type { DeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { healthRoutes, observabilityPlugin } from "@shared/observability";
 import type { ClientIpOptions } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
@@ -183,6 +184,12 @@ export interface AppDeps {
    */
   deletionApps: DeletionAppsConfig;
   /**
+   * Where each accepted account deletion, cancel and profile deletion is
+   * recorded outside the database, so a database restore cannot lose it
+   * (`lib/deletion-records.ts`).
+   */
+  deletionRecords: DeletionRecordStore;
+  /**
    * Elysia ahead-of-time handler compilation. AOT uses `new Function(...)`,
    * which workerd forbids ("Code generation from strings disallowed"). The Bun
    * path leaves this `true` (default, faster); the Workers entry passes `false`.
@@ -245,6 +252,7 @@ export function createApp(deps: AppDeps) {
     devLogin,
     cireOrganiserRevoke,
     deletionApps,
+    deletionRecords,
     aot,
   } = deps;
 
@@ -386,6 +394,7 @@ export function createApp(deps: AppDeps) {
         profileRateLimiters,
         clientIpConfig,
         appRuntime,
+        deletionRecords,
       ),
     )
     .use(
@@ -408,6 +417,7 @@ export function createApp(deps: AppDeps) {
         appRuntime,
         deletionApps,
         cireOrganiserRevoke,
+        deletionRecords,
       ),
     )
     .use(

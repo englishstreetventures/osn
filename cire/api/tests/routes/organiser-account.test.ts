@@ -10,20 +10,38 @@ import {
   weddingHosts,
   weddings,
 } from "@cire/db";
+import {
+  type DeletionRecord,
+  type DeletionRecordStore,
+  DeletionRecordWriteError,
+  memoryDeletionRecordStore,
+  missingDeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { HubNamespace } from "@shared/realtime/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { Effect } from "effect";
 
 import type { AppOptions } from "../../src/app";
 import { createApp } from "../../src/app";
 import { createDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
-import { MAX_OWNED_WEDDINGS_PER_CALL } from "../../src/services/account-erasure";
+import {
+  MAX_LOWER_SEATS_PER_CALL,
+  MAX_OWNED_WEDDINGS_PER_CALL,
+} from "../../src/services/account-erasure";
 import type { OsnRemovalBridge } from "../../src/services/osn-bridge";
-import { appRequest, beforeStatement, jsonBody, recordStatements } from "../test-helpers";
+import {
+  appRequest,
+  beforeStatement,
+  failStatements,
+  jsonBody,
+  recordStatements,
+} from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
+import { captureSpans } from "../test-helpers/capture-spans";
 import { fullWeddingStatements } from "../test-helpers/full-wedding";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
@@ -169,6 +187,7 @@ async function setup(
   const mail = makeLogEmailLive();
   const { bridgeOverrides, ...appOverrides } = overrides;
   const app = createApp(db, {
+    deletionRecords: memoryDeletionRecordStore(),
     osnTestKey: auth.key,
     organiserOrigin: PORTAL,
     accountRemovalLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
@@ -239,6 +258,27 @@ const seatsOf = (db: TestDb, weddingId: string) =>
 
 const deletedAt = (db: TestDb, weddingId: string) =>
   db.select({ at: weddings.deletedAt }).from(weddings).where(eq(weddings.id, weddingId)).get()?.at;
+
+type Removal = Extract<DeletionRecord, { kind: "organiser_data_removed" }>;
+
+const bySeat = (a: { weddingId: string; profileId: string }, b: typeof a) =>
+  `${a.weddingId} ${a.profileId}`.localeCompare(`${b.weddingId} ${b.profileId}`);
+
+/** A removal record's outcome, its lists in a fixed order. */
+const outcomeOf = (record: DeletionRecord | undefined) => {
+  const outcome = (record as Removal | undefined)?.outcome;
+  return (
+    outcome && {
+      ...outcome,
+      deletedWeddings: outcome.deletedWeddings.toSorted(),
+      removedSeats: outcome.removedSeats.toSorted(bySeat),
+    }
+  );
+};
+
+/** Seats as an outcome lists them, in the order {@link outcomeOf} puts them. */
+const seatsList = (...seats: [weddingId: string, profileId: string][]) =>
+  seats.map(([weddingId, profileId]) => ({ weddingId, profileId })).toSorted(bySeat);
 
 const sessionsOf = (db: TestDb, profileId: string) =>
   db
@@ -521,7 +561,8 @@ describe("a host's removal of their Cire data: the holder of a payout account", 
   });
 
   it("H1d: an account connected after the route's read keeps the holder's seat; the portal's next call is refused", async () => {
-    const h = await setup();
+    const store = memoryDeletionRecordStore();
+    const h = await setup({ deletionRecords: store });
     // The account's other profile has a lower seat on the shared wedding,
     // which goes in that wedding's batch.
     seat(h.db, "w_shared", P2, "viewer");
@@ -544,6 +585,16 @@ describe("a host's removal of their Cire data: the holder of a payout account", 
     expect(h.signalled.map((sig) => sig.topic).toSorted()).toEqual(
       ["w_alone", "w_shared", "w_sibling"].map((id) => `cire:wedding:${id}`),
     );
+    // Its record lists the second profile's seat on the shared wedding and
+    // not the holder's: a replay takes the one and keeps the other.
+    expect(store.records()).toHaveLength(1);
+    expect(outcomeOf(store.records()[0])).toEqual({
+      deletedWeddings: ["w_alone", "w_sibling"],
+      removedSeats: seatsList(["w_alone", P], ["w_sibling", P2], ["w_shared", P2]),
+      unsettledWeddings: [],
+      cleanUp: "not_run",
+      finished: false,
+    });
     // The account's clean-up never ran: the person is still signed in.
     expect(sessionsOf(h.db, P)).toBe(1);
     expect(sessionsOf(h.db, O)).toBe(1);
@@ -554,6 +605,172 @@ describe("a host's removal of their Cire data: the holder of a payout account", 
     expect(((await jsonBody(next)) as { weddings: unknown }).weddings).toEqual([
       { weddingId: "w_shared", name: "Shared" },
     ]);
+  });
+
+  it("H1e: a removal the payout race stops keeps its record when it removed a seat, and drops it when it removed none", async () => {
+    // Part way: the other weddings' seats went before the shared one's batch.
+    const partStore = memoryDeletionRecordStore();
+    const part = await setup({ deletionRecords: partStore });
+    const partCookie = await confirmation(part);
+    beforeStatement(part.db, /^update "weddings" set "deleted_at"/i, () =>
+      holds(part.db, "w_shared", P),
+    );
+    expect((await remove(part, partCookie, ANSWERS)).status).toBe(202);
+    expect(seatsOf(part.db, "w_alone")).toEqual([]);
+    // It says what the call did: a replay deletes the two it deleted, takes
+    // no seat on the shared one, and runs no clean-up.
+    expect(partStore.records().map(({ kind }) => kind)).toEqual(["organiser_data_removed"]);
+    expect(outcomeOf(partStore.records()[0])).toEqual({
+      deletedWeddings: ["w_alone", "w_sibling"],
+      removedSeats: seatsList(["w_alone", P], ["w_sibling", P2]),
+      unsettledWeddings: [],
+      cleanUp: "not_run",
+      finished: false,
+    });
+
+    // Nothing: the shared wedding is the only one the account owns, and the
+    // guard keeps its seat.
+    const noneStore = memoryDeletionRecordStore();
+    const none = await setup({ deletionRecords: noneStore });
+    none.db
+      .delete(weddingHosts)
+      .where(inArray(weddingHosts.weddingId, ["w_alone", "w_sibling"]))
+      .run();
+    const noneCookie = await confirmation(none);
+    beforeStatement(none.db, /^update "weddings" set "deleted_at"/i, () =>
+      holds(none.db, "w_shared", P),
+    );
+    expect((await remove(none, noneCookie, {})).status).toBe(202);
+    expect(seatsOf(none.db, "w_shared")).toEqual([
+      { profile: O, role: "owner" },
+      { profile: P, role: "owner" },
+    ]);
+    expect(noneStore.records()).toEqual([]);
+  });
+
+  it("H1g: a record the store fails to drop still answers 202, and is logged by its key alone", async () => {
+    const memory = memoryDeletionRecordStore();
+    const keys: string[] = [];
+    const store: DeletionRecordStore = {
+      ...memory,
+      write: (record) =>
+        memory.write(record).pipe(Effect.tap(({ key }) => Effect.sync(() => keys.push(key)))),
+      discard: ({ kind, key }) =>
+        Effect.fail(new DeletionRecordWriteError({ kind, reason: "failed", key })),
+    };
+    const h = await setup({ deletionRecords: store });
+    h.db
+      .delete(weddingHosts)
+      .where(inArray(weddingHosts.weddingId, ["w_alone", "w_sibling"]))
+      .run();
+    const cookie = await confirmation(h);
+    beforeStatement(h.db, /^update "weddings" set "deleted_at"/i, () => holds(h.db, "w_shared", P));
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await remove(h, cookie, {});
+    });
+
+    expect(res!.status).toBe(202);
+    const [record] = memory.records();
+    expect(record?.kind).toBe("organiser_data_removed");
+    expect(keys).toHaveLength(1);
+    expect(logs).toContain("deletion record settle failed");
+    expect(logs).toContain("kind: organiser_data_removed");
+    expect(logs).toContain("reason: failed");
+    expect(logs).toContain(`key: ${keys[0]}`);
+    for (const named of [P, P2, O, ACCOUNT, "w_shared"]) {
+      expect(logs).not.toContain(named);
+    }
+  });
+
+  it("H1i: a seat below owner promoted before the batch does not hide the holder's kept seat", async () => {
+    const h = await setup();
+    seat(h.db, "w_shared", P2, "viewer");
+    const cookie = await confirmation(h);
+    // After the call's first read, the second profile is made an owner and
+    // the person connects the shared wedding's payout account.
+    beforeStatement(h.db, /^update "weddings" set "deleted_at"/i, () => {
+      holds(h.db, "w_shared", P);
+      h.db
+        .update(weddingHosts)
+        .set({ role: "owner" })
+        .where(and(eq(weddingHosts.weddingId, "w_shared"), eq(weddingHosts.osnProfileId, P2)))
+        .run();
+    });
+    expect((await remove(h, cookie, ANSWERS)).status).toBe(202);
+    // The holder keeps their seat, and the call stops before the account's
+    // clean-up: the holder keeps listening on the wedding, and the person's
+    // seat below owner elsewhere is still there.
+    expect(seatsOf(h.db, "w_shared")).toEqual([
+      { profile: O, role: "owner" },
+      { profile: P, role: "owner" },
+    ]);
+    expect(h.signalled.find((sig) => sig.topic === "cire:wedding:w_shared")?.revoked).toEqual([]);
+    expect(seatsOf(h.db, "w_theirs_edit")).toEqual([
+      { profile: O, role: "owner" },
+      { profile: P, role: "editor" },
+    ]);
+  });
+
+  it("H1j: a seat below owner another request took before the batch does not read as kept", async () => {
+    const h = await setup();
+    seat(h.db, "w_shared", P2, "viewer");
+    const cookie = await confirmation(h);
+    beforeStatement(h.db, /^update "weddings" set "deleted_at"/i, () =>
+      h.db
+        .delete(weddingHosts)
+        .where(and(eq(weddingHosts.weddingId, "w_shared"), eq(weddingHosts.osnProfileId, P2)))
+        .run(),
+    );
+    expect((await remove(h, cookie, ANSWERS)).status).toBe(200);
+    expect(seatsOf(h.db, "w_shared")).toEqual([{ profile: O, role: "owner" }]);
+  });
+
+  it("H1h: an owner seat another request demoted before the batch is listed as removed, not as kept", async () => {
+    const store = memoryDeletionRecordStore();
+    const h = await setup({ deletionRecords: store });
+    seat(h.db, "w_shared", P2, "owner");
+    const cookie = await confirmation(h);
+    // Another request demotes the second profile's owner seat between the
+    // call's first read and the shared wedding's batch.
+    beforeStatement(h.db, /^update "weddings" set "deleted_at"/i, () =>
+      h.db
+        .update(weddingHosts)
+        .set({ role: "viewer" })
+        .where(and(eq(weddingHosts.weddingId, "w_shared"), eq(weddingHosts.osnProfileId, P2)))
+        .run(),
+    );
+    // Both seats the first read found went, so nothing reads as kept and the
+    // removal finishes.
+    expect((await remove(h, cookie, ANSWERS)).status).toBe(200);
+    expect(seatsOf(h.db, "w_shared")).toEqual([{ profile: O, role: "owner" }]);
+    // Both of the account's seats there went, and the record lists both.
+    expect(outcomeOf(store.records()[0])).toEqual({
+      deletedWeddings: ["w_alone", "w_sibling"],
+      removedSeats: seatsList(
+        ["w_alone", P],
+        ["w_sibling", P2],
+        ["w_shared", P],
+        ["w_shared", P2],
+        ["w_theirs_edit", P],
+      ),
+      unsettledWeddings: [],
+      cleanUp: "done",
+      finished: true,
+    });
+  });
+
+  it("H1f: a removal for an account that owns no wedding keeps its record", async () => {
+    // Only the lower seat on someone else's wedding is left to remove.
+    const store = memoryDeletionRecordStore();
+    const h = await setup({ deletionRecords: store });
+    h.db
+      .delete(weddingHosts)
+      .where(inArray(weddingHosts.weddingId, ["w_alone", "w_sibling", "w_shared"]))
+      .run();
+    expect((await remove(h, await confirmation(h), {})).status).toBe(200);
+    expect(seatsOf(h.db, "w_theirs_edit")).toEqual([{ profile: O, role: "owner" }]);
+    expect(store.records().map(({ kind }) => kind)).toEqual(["organiser_data_removed"]);
   });
 
   it("H2: asks for the confirmation first, and names the holder ahead of unanswered weddings", async () => {
@@ -943,5 +1160,202 @@ describe("a host's removal of their Cire data: the preview and the confirmation"
       { profileId: P, binding: sha256(secret!), returnTo: `${PORTAL}/#/remove-data` },
     ]);
     expect(JSON.stringify(h.log.begun)).not.toContain(secret!);
+  });
+});
+
+/**
+ * A removal is recorded outside the database once it is accepted and before
+ * anything is erased (`lib/deletion-records.ts`), with the weddings the person
+ * answered `delete` for, so a D1 restore cannot lose it. The other account's
+ * weddings, seats and sessions are checked untouched each time.
+ */
+describe("a host's removal of their Cire data: the deletion record", () => {
+  it("records the removal it accepts: the account, its profiles, and the weddings answered delete", async () => {
+    const store = memoryDeletionRecordStore();
+    const h = await setup({ deletionRecords: store });
+    const res = await remove(h, await confirmation(h), ANSWERS);
+    expect(res.status).toBe(200);
+    const [record, ...rest] = store.records();
+    expect(rest).toEqual([]);
+    const removed = record as Removal;
+    expect({
+      ...removed,
+      profileIds: removed.profileIds.toSorted(),
+      deleteActions: removed.deleteActions.toSorted(),
+      outcome: outcomeOf(removed),
+    }).toEqual({
+      v: 1,
+      kind: "organiser_data_removed",
+      at: expect.any(Number),
+      accountId: ACCOUNT,
+      profileIds: [P, P2].toSorted(),
+      deleteEverything: false,
+      deleteActions: ["cire:wedding:w_alone", "cire:wedding:w_sibling"],
+      outcome: {
+        deletedWeddings: ["w_alone", "w_sibling"],
+        // The clean-up's seat below owner is listed beside the weddings'.
+        removedSeats: seatsList(
+          ["w_alone", P],
+          ["w_sibling", P2],
+          ["w_shared", P],
+          ["w_theirs_edit", P],
+        ),
+        unsettledWeddings: [],
+        cleanUp: "done",
+        finished: true,
+      },
+    });
+    expect(JSON.stringify(store.records())).not.toContain(O);
+    expect(deletedAt(h.db, "w_theirs")).toBeNull();
+    expect(sessionsOf(h.db, O)).toBe(1);
+  });
+
+  it("records delete everything as the person answered it", async () => {
+    const store = memoryDeletionRecordStore();
+    const h = await setup({ deletionRecords: store });
+    expect((await remove(h, await confirmation(h), { deleteEverything: true })).status).toBe(200);
+    expect(store.records()).toEqual([expect.objectContaining({ deleteEverything: true })]);
+  });
+
+  it("records what a removal that fails part way did before it failed", async () => {
+    const store = memoryDeletionRecordStore();
+    const h = await setup({ deletionRecords: store });
+    const cookie = await confirmation(h);
+    // Every wedding's batch commits; the account's clean-up then fails.
+    const failing = failStatements(h.db, (statement) =>
+      /^delete from "registry_stripe_oauth_states"/i.test(statement),
+    );
+    const res = await remove(h, cookie, ANSWERS);
+    failing.restore();
+    expect(res.status).toBe(500);
+    expect(failing.failed()).toBeGreaterThan(0);
+    expect(deletedAt(h.db, "w_alone")).not.toBeNull();
+    const [record, ...rest] = store.records();
+    expect(rest).toEqual([]);
+    expect(outcomeOf(record)).toEqual({
+      deletedWeddings: ["w_alone", "w_sibling"],
+      removedSeats: seatsList(["w_alone", P], ["w_sibling", P2], ["w_shared", P]),
+      unsettledWeddings: [],
+      // The clean-up's batch was sent when the call failed.
+      cleanUp: "unsettled",
+      finished: false,
+    });
+  });
+
+  it("records a clean-up that ran on a call an owner seat made since its first read leaves unfinished", async () => {
+    const store = memoryDeletionRecordStore();
+    const h = await setup({ deletionRecords: store });
+    seat(h.db, "w_theirs", P2, "viewer");
+    const cookie = await confirmation(h);
+    // Just before the account's clean-up, another request makes the person
+    // an owner of the wedding they sat on as an editor.
+    beforeStatement(
+      h.db,
+      /^delete from "host_rsvp_notices" where \(\("host_rsvp_notices"."osn_profile_id" in/i,
+      () =>
+        h.db
+          .update(weddingHosts)
+          .set({ role: "owner" })
+          .where(and(eq(weddingHosts.weddingId, "w_theirs_edit"), eq(weddingHosts.osnProfileId, P)))
+          .run(),
+    );
+    expect((await remove(h, cookie, ANSWERS)).status).toBe(202);
+    // The clean-up committed: the second profile's seat below owner is gone.
+    expect(seatsOf(h.db, "w_theirs")).toEqual([{ profile: O, role: "owner" }]);
+    expect(outcomeOf(store.records()[0])).toEqual({
+      deletedWeddings: ["w_alone", "w_sibling"],
+      // The seat below owner the clean-up took is listed; the seat made owner
+      // before it, which the call kept, is not.
+      removedSeats: seatsList(["w_alone", P], ["w_sibling", P2], ["w_shared", P], ["w_theirs", P2]),
+      unsettledWeddings: [],
+      // A replay runs this call's clean-up, though the erasure did not finish.
+      cleanUp: "done",
+      finished: false,
+    });
+  });
+
+  it("takes seats below owner a bounded share at a time, keeping the session for the next call", async () => {
+    const store = memoryDeletionRecordStore();
+    const h = await setup({ deletionRecords: store });
+    for (let i = 0; i <= MAX_LOWER_SEATS_PER_CALL; i += 1) {
+      const id = `wv${i}`;
+      insertWedding(h.db, { id, slug: `slug-${id}`, displayName: id, owners: [O] });
+      seat(h.db, id, P2, "viewer");
+    }
+    const cookie = await confirmation(h);
+    expect((await remove(h, cookie, ANSWERS)).status).toBe(202);
+    // Seats are left, so the person keeps their session to call again with.
+    expect(sessionsOf(h.db, P)).toBe(1);
+    expect(outcomeOf(store.records()[0])).toEqual(
+      expect.objectContaining({ cleanUp: "done", finished: false }),
+    );
+    expect((await remove(h, cookie, ANSWERS)).status).toBe(200);
+    expect(sessionsOf(h.db, P)).toBe(0);
+    expect(outcomeOf(store.records()[1])).toEqual(
+      expect.objectContaining({ cleanUp: "done", finished: true }),
+    );
+  });
+
+  it("a removal that fails part way names no one in its logs or its spans", async () => {
+    const h = await setup();
+    const cookie = await confirmation(h);
+    const failing = failStatements(h.db, (statement) =>
+      /^delete from "registry_stripe_oauth_states"/i.test(statement),
+    );
+    let res: Response | undefined;
+    let spans: Awaited<ReturnType<typeof captureSpans>> = [];
+    const logs = await captureLogs(async () => {
+      spans = await captureSpans(async () => {
+        res = await remove(h, cookie, ANSWERS);
+      });
+    });
+    failing.restore();
+    expect(res!.status).toBe(500);
+    // Seats went before the failure: the weddings' own batches committed.
+    expect(deletedAt(h.db, "w_alone")).not.toBeNull();
+
+    const people = [P, P2, O, ACCOUNT];
+    const weddingIds = ["w_alone", "w_sibling", "w_shared", "w_theirs", "w_theirs_edit"];
+    for (const named of people) expect(logs).not.toContain(named);
+    // The failure's own lines name no wedding either. (Each wedding the
+    // erasure reached is logged by its id as it goes, by design.)
+    const entries = logs.split(/\n(?=\[\d{2}:\d{2}:\d{2}\.\d{3}\])/);
+    const failures = entries.filter((entry) => /failed/.test(entry));
+    expect(failures.length).toBeGreaterThan(0);
+    for (const entry of failures) {
+      for (const named of weddingIds) expect(entry).not.toContain(named);
+    }
+
+    const values = (span: (typeof spans)[number]) => JSON.stringify(span.attributes);
+    for (const span of spans) {
+      for (const named of people) expect(values(span)).not.toContain(named);
+    }
+    const failed = spans.filter((span) => "error.type" in span.attributes);
+    expect(failed.map((span) => span.attributes["error.type"])).toContain("AccountErasureError");
+    for (const span of failed) {
+      for (const named of weddingIds) expect(values(span)).not.toContain(named);
+    }
+  });
+
+  it("records nothing for a removal refused for an unanswered wedding", async () => {
+    const store = memoryDeletionRecordStore();
+    const h = await setup({ deletionRecords: store });
+    const res = await remove(h, await confirmation(h), {});
+    expect(res.status).toBe(409);
+    expect(store.records()).toEqual([]);
+  });
+
+  it("refuses the removal with 503, erasing nothing, when the record cannot be written", async () => {
+    const h = await setup({ deletionRecords: missingDeletionRecordStore() });
+    const before = await counterValue(CIRE_METRICS.accountRemovalRequests, { result: "error" });
+    const res = await remove(h, await confirmation(h), ANSWERS);
+    expect(await counterValue(CIRE_METRICS.accountRemovalRequests, { result: "error" })).toBe(
+      before + 1,
+    );
+    expect({ status: res.status, body: await jsonBody(res) }).toEqual({
+      status: 503,
+      body: { error: "deletion_not_recorded" },
+    });
+    untouched(h.db);
   });
 });

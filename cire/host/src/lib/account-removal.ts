@@ -87,7 +87,9 @@ export class RemovalError extends Error {
 function failureOf(status: number, error: string | null): RemovalFailure {
   if (status === 403) return "confirmation_required";
   if (status === 409 && error === "account_unavailable") return "account_unavailable";
-  if (status === 503) return "unavailable";
+  // A removal cire-api could not record erased nothing: the generic retry,
+  // not Musubi out of reach.
+  if (status === 503 && error !== "deletion_not_recorded") return "unavailable";
   if (status === 429) return "limit";
   return "server";
 }

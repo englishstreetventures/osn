@@ -8,6 +8,7 @@ import {
   hostsFor,
   refuseDotEnvFiles,
   requireSecrets,
+  retainedBucket,
   retainedD1,
   stackOptions,
   tierOf,
@@ -32,24 +33,27 @@ class UnresolvedBindingError extends Data.TaggedError("UnresolvedBindingError")<
 }> {}
 
 /**
- * Each described binding as the value Alchemy binds: a database this stack
- * declares, resolved by the binding's name, so it can only reach this
- * stack's database.
+ * Each described binding as the value Alchemy binds: a database or bucket
+ * this stack declares, resolved by the binding's name, so it can only reach
+ * this stack's storage.
  */
 function toBindings(
   described: Readonly<Record<string, BindingDescription>>,
-  databases: Readonly<Record<string, Cloudflare.D1.Database>>,
+  storage: {
+    readonly databases: Readonly<Record<string, Cloudflare.D1.Database>>;
+    readonly buckets: Readonly<Record<string, Cloudflare.R2.Bucket>>;
+  },
 ): Cloudflare.WorkerBindingProps {
   return Object.fromEntries(
-    Object.keys(described).map((name) => {
-      const database = databases[name];
-      if (database === undefined) {
+    Object.entries(described).map(([name, binding]) => {
+      const resource = binding.kind === "d1" ? storage.databases[name] : storage.buckets[name];
+      if (resource === undefined) {
         throw new UnresolvedBindingError({
           binding: name,
-          message: `No database is declared for the D1 binding ${name}.`,
+          message: `No ${binding.kind === "d1" ? "database" : "bucket"} is declared for the ${binding.kind} binding ${name}.`,
         });
       }
-      return [name, database];
+      return [name, resource];
     }),
   );
 }
@@ -77,15 +81,19 @@ const zapProductionStack = (input: {
     // Binding `db` makes zap-api wait for the database's reconcile, which
     // applies its migrations.
     const db = yield* retainedD1("ZapDb", apis.zapDb);
+    const deletionRecords = yield* retainedBucket("ZapDeletionRecords", apis.zapDeletionRecords);
     const zapApi = yield* apiWorker(API_LOGICAL_IDS.zap_api, {
       ...apis.zapApi,
-      bindings: toBindings(apis.zapApi.bindings, { DB: db }),
+      bindings: toBindings(apis.zapApi.bindings, {
+        databases: { DB: db },
+        buckets: { DELETION_RECORDS: deletionRecords },
+      }),
       secrets,
     });
-    assertStackRetained({ stage, storage: [db], workers: [zapApi] });
+    assertStackRetained({ stage, storage: [db, deletionRecords], workers: [zapApi] });
     assertProductionScope({
       stage,
-      resources: [db, zapApi],
+      resources: [db, deletionRecords, zapApi],
       allowed: Object.keys(PRODUCTION_RESOURCE_KINDS),
     });
     return { zapApi: apis.zapApi.domain };
@@ -118,12 +126,19 @@ export const zapStack = (input: {
 
     // Logical ids key the state rows, so they never change: a renamed id is a new resource.
     const db = yield* retainedD1("ZapDb", declared.zapDb);
+    const deletionRecords = yield* retainedBucket(
+      "ZapDeletionRecords",
+      declared.zapDeletionRecords,
+    );
     const zapApi = yield* apiWorker("ZapApi", {
       ...declared.zapApi,
-      bindings: toBindings(declared.zapApi.bindings, { DB: db }),
+      bindings: toBindings(declared.zapApi.bindings, {
+        databases: { DB: db },
+        buckets: { DELETION_RECORDS: deletionRecords },
+      }),
       secrets,
     });
-    assertStackRetained({ stage, storage: [db], workers: [zapApi] });
+    assertStackRetained({ stage, storage: [db, deletionRecords], workers: [zapApi] });
     return { zapApi: hosts.zapApi };
   });
 

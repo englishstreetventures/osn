@@ -219,8 +219,13 @@ describe("PA: cire on production against Wrangler's production config", () => {
     const [database] = production_.d1_databases;
     expect(env.DB).toBe(resources.CireDb);
     expect(resources.CireDb?.Props.name).toBe(database?.database_name);
+    const BUCKET_IDS: Readonly<Record<string, string>> = {
+      ASSETS: "CireAssets",
+      SHEETS: "CireSheets",
+      DELETION_RECORDS: "CireDeletionRecords",
+    };
     for (const bucket of production_.r2_buckets) {
-      const id = bucket.binding === "ASSETS" ? "CireAssets" : "CireSheets";
+      const id = BUCKET_IDS[bucket.binding] ?? `an unknown binding ${bucket.binding}`;
       expect(env[bucket.binding]).toBe(resources[id]);
       expect(resources[id]?.Props.name).toBe(bucket.bucket_name);
     }

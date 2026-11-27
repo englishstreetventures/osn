@@ -14,6 +14,7 @@
 
 import { passkeys, accounts } from "@osn/db/schema";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -154,6 +155,10 @@ function harness() {
     undefined,
     COOKIE_CONFIG,
     { trustedProxyCount: 1 },
+    undefined,
+    undefined,
+    undefined,
+    memoryDeletionRecordStore(),
   );
   const svc = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);

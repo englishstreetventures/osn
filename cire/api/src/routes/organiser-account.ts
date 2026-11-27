@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 
+import {
+  type DeletionRecord,
+  type DeletionRecordStore,
+  missingDeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
@@ -12,6 +17,11 @@ import {
   clearRemovalCookie,
   parseRemovalCookie,
 } from "../lib/cookie";
+import {
+  erasureOutcome,
+  instrumentDeletionRecords,
+  settleDeletionRecord,
+} from "../lib/deletion-records";
 import { dispatchNotice } from "../lib/owner-notice-email";
 import type { OwnerNotices } from "../lib/owner-notice-email";
 import { metricAccountRemoval } from "../metrics";
@@ -20,7 +30,7 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { runCire } from "../observability";
-import { accountErasureService } from "../services/account-erasure";
+import { accountErasureService, erasureProgress } from "../services/account-erasure";
 import type { OpenAction } from "../services/account-erasure";
 import { accountRemovalService } from "../services/account-removal";
 import type { HeldPayoutWedding } from "../services/account-removal";
@@ -152,6 +162,8 @@ export interface OrganiserAccountRouteOptions {
   readonly organiserOrigin: string;
   /** Cookie `Secure` flag — set for every https tier. */
   readonly secureCookies: boolean;
+  /** Where each removal is recorded before it runs; absent, every removal answers 503. */
+  readonly deletionRecords?: DeletionRecordStore;
 }
 
 export const createOrganiserAccountRoutes = (
@@ -162,6 +174,9 @@ export const createOrganiserAccountRoutes = (
   const { bridge, organiserOrigin, secureCookies } = options;
   const origin = organiserOrigin.replace(/\/+$/, "");
   const returnTo = `${origin}/#/remove-data`;
+  const records = instrumentDeletionRecords(
+    options.deletionRecords ?? missingDeletionRecordStore(),
+  );
 
   const unavailable = (set: SetStatus) => {
     set.status = 503;
@@ -379,16 +394,54 @@ export const createOrganiserAccountRoutes = (
                 more: current.more,
               });
             }
+            // Accepted: recorded outside the database before anything is
+            // erased, or refused with nothing erased (lib/deletion-records.ts).
+            const removal = {
+              v: 1,
+              kind: "organiser_data_removed",
+              at: Date.now(),
+              accountId,
+              profileIds,
+              deleteEverything: body.deleteEverything === true,
+              deleteActions: actions.map((action) => action.id),
+            } as const satisfies DeletionRecord;
+            const recorded = yield* records
+              .write(removal)
+              .pipe(Effect.catchTag("DeletionRecordWriteError", () => Effect.succeed(null)));
+            if (!recorded) {
+              set.status = 503;
+              return counted("error", { error: "deletion_not_recorded" });
+            }
 
             // A holder's owner seat the erasure's own writes kept (an account
             // connected since the read above) answers `not_finished`: the
             // portal calls again, and that call is refused by the read.
-            const { result, owned, lowerSeatWeddings, payoutHeld } =
-              yield* accountErasureService.eraseWithOutcomes({
-                accountId,
-                profileIds,
-                scope: "host",
-              });
+            // The record then says what this call did, which is all a replay
+            // applies, a failure part way included: a call the payout guard
+            // stopped before it removed a seat did nothing, and the portal's
+            // next call is refused, so its record goes; any other carries its
+            // outcome.
+            const progress = erasureProgress();
+            const erased = yield* accountErasureService
+              .eraseWithOutcomes({ accountId, profileIds, scope: "host" }, progress)
+              .pipe(
+                // A failure, a defect or an interruption: what the call did
+                // before it stopped, and the batch it had sent.
+                Effect.onError(() =>
+                  settleDeletionRecord(records, recorded, {
+                    ...removal,
+                    outcome: erasureOutcome(progress, false),
+                  }),
+                ),
+              );
+            const { result, owned, lowerSeatWeddings, payoutHeld } = erased;
+            yield* settleDeletionRecord(
+              records,
+              recorded,
+              payoutHeld.length > 0 && owned.length === 0
+                ? null
+                : { ...removal, outcome: erasureOutcome(progress, result.status === "done") },
+            );
 
             // The owners who remain on each wedding the person left are told,
             // naming the profile that held the seat there and no other, so no

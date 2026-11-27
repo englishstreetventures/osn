@@ -98,10 +98,11 @@ describe("the musubi stack, evaluated offline", () => {
     expect(dev.fetches).toEqual([]);
     // Logical ids key the state rows, so they never change once deployed.
     expect(Object.keys(resources).toSorted()).toEqual(
-      ["MusubiLanding", "MusubiSocial", "OsnApi", "OsnDb"].toSorted(),
+      ["MusubiLanding", "MusubiSocial", "OsnApi", "OsnDb", "OsnDeletionRecords"].toSorted(),
     );
     expect(resources.OsnApi?.Props.name).toBe("osn-api-dev");
     expect(resources.OsnDb?.Props.name).toBe("osn-db-dev");
+    expect(resources.OsnDeletionRecords?.Props.name).toBe("osn-deletion-records-dev");
     expect(resources.MusubiSocial?.Props.name).toBe("osn-social-dev");
     expect(resources.MusubiLanding?.Props.name).toBe("musubi-landing-dev");
 
@@ -338,12 +339,14 @@ describe("the musubi stack on production", () => {
     ).toEqual({
       OsnApi: ["Cloudflare.Worker", "osn-api-production", "retain", true],
       OsnDb: ["Cloudflare.D1Database", "osn-db-prod", "retain", undefined],
+      OsnDeletionRecords: ["Cloudflare.R2.Bucket", "osn-deletion-records", "retain", undefined],
       MusubiSocial: ["Cloudflare.Worker", "osn-social", "retain", undefined],
       MusubiLanding: ["Cloudflare.Worker", "musubi-landing", "retain", undefined],
     });
     expect(PRODUCTION_RESOURCE_KINDS).toEqual({
       OsnApi: "api-worker",
       OsnDb: "d1",
+      OsnDeletionRecords: "r2",
       MusubiSocial: "custom-domain",
       MusubiLanding: "custom-domain",
     });
@@ -564,5 +567,35 @@ describe("the musubi stack on production", () => {
     ).toBe(
       "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes --force --include OsnDb",
     );
+    expect(Object.keys(PRODUCTION_ADOPTED.buckets)).toEqual(["OsnDeletionRecords"]);
+    expect(PRODUCTION_ADOPTED.buckets.OsnDeletionRecords?.name).toBe(
+      resourcesOf(production).OsnDeletionRecords?.Props.name,
+    );
+  });
+
+  // Where osn-api records each erasure request it accepts, outside osn-db.
+  // It holds the ids of people who asked to be erased: private, bound to
+  // osn-api alone, and each record deleted 31 days after it is written.
+  test("KD1: the deletion-record bucket is private, expires its records at 31 days, and is bound to osn-api alone as DELETION_RECORDS, on dev and production", () => {
+    for (const [evaluation, name] of [
+      [dev, "osn-deletion-records-dev"],
+      [production, "osn-deletion-records"],
+    ] as const) {
+      const resources = resourcesOf(evaluation);
+      const bucket = resources.OsnDeletionRecords;
+      expect(bucket?.Props).toMatchObject({ name, publicAccess: false, cors: [], domains: [] });
+      expect(bucket?.Props.lifecycleRules).toContainEqual({
+        id: "Expire deletion records",
+        enabled: true,
+        prefix: "",
+        deleteObjectsTransition: { condition: { type: "Age", maxAge: 31 * 24 * 60 * 60 } },
+      });
+      const boundTo = Object.entries(resources).flatMap(([id, resource]) =>
+        Object.entries(resource.Props.env ?? {}).flatMap(([binding, value]) =>
+          value === bucket ? [`${id}.${binding}`] : [],
+        ),
+      );
+      expect(boundTo).toEqual(["OsnApi.DELETION_RECORDS"]);
+    }
   });
 });

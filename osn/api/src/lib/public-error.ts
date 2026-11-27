@@ -9,7 +9,8 @@ export interface PublicErrorResponse {
 /**
  * Maps a thrown Effect-tagged error (or anything else) to a stable, public,
  * non-leaky error payload. The full cause is logged server-side for diagnosis,
- * but only opaque codes / sanitised messages cross the wire (S-H5 / S-M6).
+ * but only opaque codes and sanitised messages cross the wire, so no internal
+ * detail of a failure reaches a caller.
  *
  * Nothing here ever forwards `e.message`: every arm returns a fixed code and,
  * at most, a fixed public string. So unlike `makeSafeError` this function is
@@ -29,7 +30,7 @@ export function publicError(
   const tag = (() => {
     const seen = new Set<unknown>();
     const queue: object[] = e && typeof e === "object" ? [e] : [];
-    // P-I1: bound the traversal. A tagged error's `_tag` sits within a few hops
+    // The traversal is bounded. A tagged error's `_tag` sits within a few hops
     // of the root, so a small budget never truncates a real lookup. Under the
     // v4 runner (`makeAppRunner`) there are exactly two shapes to reach:
     //   - a TYPED failure, which arrives as the tagged error itself — a hit on
@@ -84,8 +85,8 @@ export function publicError(
   );
 
   switch (tag) {
-    // C-H8 (COPPA): fixed-shape 422 with the generic public message. Never
-    // reveals whether the email/handle was otherwise valid or taken.
+    // COPPA: a fixed-shape 422 with the generic public message. Never reveals
+    // whether the email or handle was otherwise valid or taken.
     case "AgeRestrictionError":
       return {
         status: 422,
@@ -101,6 +102,14 @@ export function publicError(
     // wrong, so not a 400; a retry once the store answers again can succeed.
     case "CoordinationError":
       return { status: 503, body: { error: "temporarily_unavailable" } };
+    // The erasure request could not be recorded outside the database, so it
+    // was refused before anything was written (lib/deletion-records.ts). The
+    // same request can succeed once the bucket answers again.
+    case "DeletionRecordWriteError":
+      return { status: 503, body: { error: "temporarily_unavailable" } };
+    // The record held a value that is not an id: a bug, so not the caller's 400.
+    case "DeletionRecordRefused":
+      return { status: 500, body: { error: "internal_error" } };
     default:
       return { status: 400, body: { error: "invalid_request" } };
   }

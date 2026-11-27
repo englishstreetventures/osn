@@ -525,6 +525,17 @@ bucket_name = "cire-sheets"
 binding = "ASSETS"
 bucket_name = "cire-assets"
 
+# R2 bucket of deletion records: each erasure request or withdrawal cire-api
+# accepts is recorded here, as ids and its kind only, before it is written, so
+# a D1 restore cannot lose it (src/lib/deletion-records.ts). Private; a
+# lifecycle rule deletes each record 31 days after it is written. Declared by
+# the cire stack, which adopts it. Production's only, so no other tier's run
+# can write into it: the top-level block binds none, and a deletion under
+# `wrangler dev` answers 503 (the Bun dev server keeps its records in memory).
+[[env.production.r2_buckets]]
+binding = "DELETION_RECORDS"
+bucket_name = "cire-deletion-records"
+
 # Mirror of the top-level [images] binding — named environments do NOT inherit
 # top-level bindings (see the binding-inheritance note above), so the Images
 # binding must be redeclared here; a production Worker without it falls back

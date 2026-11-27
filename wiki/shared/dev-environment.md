@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Dev environment (cire + OSN identity)
@@ -74,6 +74,7 @@ Backing resources, all in the dev account:
 | D1 | `osn-db-dev` | `osn-db-prod` |
 | D1 | `zap-db-dev` | `zap-db-prod` |
 | R2 | `cire-sheets-dev`, `cire-assets-dev` | `cire-sheets`, `cire-assets` |
+| R2, deletion records ([[backup-dr#Deletion records outside the databases]]) | `osn-deletion-records-dev`, `cire-deletion-records-dev`, `zap-deletion-records-dev` | `osn-deletion-records`, `cire-deletion-records`, `zap-deletion-records` |
 | Rate-limit namespaces | cire `1101`–`1106`, osn `2101`–`2107` | cire `1001`–`1006`, osn `2001`–`2007` |
 | Durable Object namespace | cire-api-dev's own `TopicHub` namespace, which the cire stack declares | the production Worker's |
 | Durable Object namespace | osn-api-dev's own `CoordinationStore` namespace, which the musubi stack declares ([[coordination-store]]) | the production Worker's |

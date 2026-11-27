@@ -4,6 +4,7 @@ import type * as Cloudflare from "@alchemy.run/cloudflare";
 import {
   declaredDomains,
   adoptedBucketOf,
+  deletionRecordsBucket,
   adoptedWorkerOf,
   origin,
   physicalName,
@@ -59,6 +60,8 @@ interface CireDeclaration {
   readonly cireDb: RetainedD1Input;
   readonly cireAssets: RetainedBucketInput;
   readonly cireSheets: RetainedBucketInput;
+  /** Where cire-api records each erasure request it accepts, outside `cire-db`. */
+  readonly cireDeletionRecords: RetainedBucketInput;
   readonly cireInvites: CireInvitesDeclaration;
   readonly cireHost: SiteWorkerInput;
   readonly cireVendor: SiteWorkerInput;
@@ -316,6 +319,7 @@ const ADOPTED_KINDS = {
   CireDb: "d1",
   CireAssets: "r2",
   CireSheets: "r2",
+  CireDeletionRecords: "r2",
 } as const satisfies Readonly<Record<string, ResourceKind>>;
 
 /** Every resource the cire stack declares on production at `modes`, by logical id, with its kind for the plan guard. */
@@ -365,6 +369,7 @@ interface CireProductionApis {
   readonly cireDb: RetainedD1Input;
   readonly cireAssets: RetainedBucketInput;
   readonly cireSheets: RetainedBucketInput;
+  readonly cireDeletionRecords: RetainedBucketInput;
   readonly cireInvites: CireInvitesDeclaration;
   readonly invitesServer: CireDeclaration["invitesServer"];
   readonly prebuilt: readonly PrebuiltSite[];
@@ -431,6 +436,7 @@ export function cireProductionApis(input: {
         DB: { kind: "d1" },
         SHEETS: { kind: "r2" },
         ASSETS: { kind: "r2" },
+        DELETION_RECORDS: { kind: "r2" },
         IMAGES: { kind: "images" },
         // The class Wrangler made under migration tag v1; the first Alchemy
         // upload reuses it because the binding keeps its name.
@@ -455,6 +461,7 @@ export function cireProductionApis(input: {
     },
     cireAssets: productionBucket("cire-assets"),
     cireSheets: productionBucket("cire-sheets"),
+    cireDeletionRecords: deletionRecordsBucket("cire-deletion-records", stage),
     cireInvites: {
       worker: "cire-invites",
       name: "cire-invites",
@@ -601,6 +608,7 @@ export function cireDeclaration(input: {
         DB: { kind: "d1" },
         SHEETS: { kind: "r2" },
         ASSETS: { kind: "r2" },
+        DELETION_RECORDS: { kind: "r2" },
         IMAGES: { kind: "images" },
         // `@shared/realtime`'s hub, one object per wedding topic. Alchemy
         // declares a class this Worker hosts SQLite-backed, the one storage
@@ -634,6 +642,7 @@ export function cireDeclaration(input: {
       { base: "cire-sheets", dev: "cire-sheets-dev", production: "cire-sheets" },
       stage,
     ),
+    cireDeletionRecords: deletionRecordsBucket("cire-deletion-records", stage),
     cireInvites: {
       worker: "cire-invites",
       name: physicalName(
@@ -711,6 +720,7 @@ export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
     buckets: {
       CireAssets: adoptedBucketOf(apis.cireAssets),
       CireSheets: adoptedBucketOf(apis.cireSheets),
+      CireDeletionRecords: adoptedBucketOf(apis.cireDeletionRecords),
     },
   };
 })();

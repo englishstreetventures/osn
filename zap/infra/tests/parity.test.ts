@@ -16,6 +16,7 @@ import {
 interface WranglerTier {
   readonly vars: Readonly<Record<string, string>>;
   readonly d1_databases: readonly { readonly binding: string }[];
+  readonly r2_buckets: readonly { readonly binding: string; readonly bucket_name: string }[];
   readonly triggers?: { readonly crons: readonly string[] };
 }
 
@@ -47,6 +48,7 @@ describe("zap-api on dev against Wrangler's production config", () => {
     const productionNames = [
       ...Object.keys(production.vars),
       ...production.d1_databases.map((database) => database.binding),
+      ...production.r2_buckets.map((bucket) => bucket.binding),
       ...secrets.secrets,
       ...secrets.optional,
     ].toSorted();
@@ -58,6 +60,7 @@ describe("zap-api on dev against Wrangler's production config", () => {
     expect(devNames).toEqual(
       [
         "DB",
+        "DELETION_RECORDS",
         "INTERNAL_SERVICE_SECRET",
         "OSN_API_URL",
         "OSN_ARC_KID_SECRET",
@@ -90,7 +93,7 @@ describe("PA: zap-api on production against Wrangler's production config", () =>
     production = await evaluateZap({ stage: "production", env: productionEnv() });
   });
 
-  test("PA1: zap-api's vars equal [env.production]'s exactly, it binds its database by name, and it uploads no secret", () => {
+  test("PA1: zap-api's vars equal [env.production]'s exactly, it binds its database and its deletion-record bucket by name, and it uploads no secret", () => {
     const resources = resourcesOf(production);
     const env = resources.ZapApi?.Props.env ?? {};
     const vars = Object.fromEntries(
@@ -99,8 +102,16 @@ describe("PA: zap-api on production against Wrangler's production config", () =>
     expect(vars).toEqual(wrangler.env.production.vars);
     expect(env.DB).toBe(resources.ZapDb);
     expect(resources.ZapDb?.Props.name).toBe(productionDatabase.database_name);
+    const buckets = wrangler.env.production.r2_buckets;
+    expect(buckets.map((bucket) => bucket.binding)).toEqual(["DELETION_RECORDS"]);
+    expect(env.DELETION_RECORDS).toBe(resources.ZapDeletionRecords);
+    expect(resources.ZapDeletionRecords?.Props.name).toBe(buckets[0]?.bucket_name);
     expect(Object.keys(env).toSorted()).toEqual(
-      [...Object.keys(wrangler.env.production.vars), productionDatabase.binding].toSorted(),
+      [
+        ...Object.keys(wrangler.env.production.vars),
+        productionDatabase.binding,
+        ...buckets.map((bucket) => bucket.binding),
+      ].toSorted(),
     );
   });
 

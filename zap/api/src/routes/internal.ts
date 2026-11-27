@@ -1,4 +1,8 @@
 import { jsonEachIn } from "@shared/db-utils";
+import {
+  type DeletionRecordStore,
+  missingDeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import type { OsnArcVerification } from "@shared/osn-auth-client/arc";
 import { chatMembers, chats, messages } from "@zap/db/schema";
 import { DbLive, Db, type Db as DbType } from "@zap/db/service";
@@ -14,6 +18,7 @@ import {
   requireArc,
   revokeServiceKey,
 } from "../lib/arc-middleware";
+import { instrumentDeletionRecords } from "../lib/deletion-records";
 import { DEFAULT_VERIFICATION, type OsnTokenVerification } from "../lib/jwks";
 import { MAX_CHAT_MEMBERS, MAX_EXPORT_PROFILE_IDS } from "../lib/limits";
 import { purgeAccount } from "../services/accountErasure";
@@ -154,10 +159,17 @@ const loadC2bMessages = (
 export const createInternalRoutes = (
   dbLayer: Layer.Layer<DbType> = DbLive,
   verification: OsnTokenVerification = DEFAULT_VERIFICATION,
+  /**
+   * Where each account erasure is recorded before Zap erases anything, so a
+   * restore of Zap's database cannot lose it once osn-api has marked Zap done
+   * (`lib/deletion-records.ts`). None given refuses every erasure (503).
+   */
+  deletionRecords: DeletionRecordStore = missingDeletionRecordStore(),
 ) => {
   // Layer graph built once per factory (convention: build the runtime once,
   // never per request) — mirrors pulse/api's internal router.
   const runtime = ManagedRuntime.make(dbLayer);
+  const records = instrumentDeletionRecords(deletionRecords);
   // osn-api's tokens verify against the keys it publishes under the issuer
   // Zap pins. OSN_ARC_KID_SECRET and INTERNAL_SERVICE_SECRET gate fetching
   // them: a kid with no MAC that verifies under either is refused first. One
@@ -350,7 +362,31 @@ export const createInternalRoutes = (
           );
           if (!caller) return { error: "Unauthorized" };
           try {
-            const result = await runtime.runPromise(purgeAccount(body.accountId, body.profileIds));
+            // Recorded before anything is erased; a record that cannot be
+            // written erases nothing and answers 503, and osn-api calls again
+            // on its next pass. An erasure that fails part way keeps its
+            // record: it was accepted, and the next call finishes it.
+            const result = await runtime.runPromise(
+              records
+                .write({
+                  v: 1,
+                  kind: "account_erased",
+                  at: Date.now(),
+                  accountId: body.accountId,
+                  profileIds: body.profileIds,
+                })
+                .pipe(
+                  Effect.andThen(purgeAccount(body.accountId, body.profileIds)),
+                  Effect.map((erased) => ({ recorded: true as const, kept: erased.kept })),
+                  Effect.catchTag("DeletionRecordWriteError", () =>
+                    Effect.succeed({ recorded: false as const }),
+                  ),
+                ),
+            );
+            if (!result.recorded) {
+              set.status = 503;
+              return { error: "not_recorded" };
+            }
             return { kept: result.kept };
           } catch {
             set.status = 500;

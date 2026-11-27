@@ -212,17 +212,25 @@ export function createProfileService(authService: AuthService) {
    * orphaned rows are inert. A `profile.deleted` domain event will handle
    * cross-service cleanup in a later phase.
    */
-  const deleteProfile = (
+  const deleteProfile = <E = never>(
     accountId: string,
     targetProfileId: string,
-  ): Effect.Effect<{ defaultProfileId: string }, AuthError | DatabaseError, Db> =>
+    /**
+     * Runs once the delete is accepted — every refusal below has passed — and
+     * before anything is written; its failure fails the delete with nothing
+     * written. The route records the deletion here; a caller re-applying a
+     * recorded one passes none.
+     */
+    beforeWrite: (deletion: { readonly at: number }) => Effect.Effect<void, E> = () => Effect.void,
+  ): Effect.Effect<{ defaultProfileId: string }, AuthError | DatabaseError | E, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
 
-      // Parallel pre-checks: the target, and the organisations it owns. Both
-      // are keyed on what the caller sent, so they run together and the
-      // refusals below apply in order afterwards.
-      const [profile, ownedOrgs] = yield* Effect.all(
+      // Parallel pre-checks: the target, the organisations it owns, and
+      // whether the account has another profile. All are keyed on what the
+      // caller sent, so they run together and the refusals below apply in
+      // order afterwards.
+      const [profile, ownedOrgs, another] = yield* Effect.all(
         [
           authService.findProfileById(targetProfileId),
           Effect.tryPromise({
@@ -231,6 +239,15 @@ export function createProfileService(authService: AuthService) {
                 .select({ id: organisations.id })
                 .from(organisations)
                 .where(eq(organisations.ownerId, targetProfileId))
+                .limit(1),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+          Effect.tryPromise({
+            try: () =>
+              db
+                .select({ id: users.id })
+                .from(users)
+                .where(and(eq(users.accountId, accountId), ne(users.id, targetProfileId)))
                 .limit(1),
             catch: (cause) => new DatabaseError({ cause }),
           }),
@@ -253,6 +270,11 @@ export function createProfileService(authService: AuthService) {
           }),
         );
       }
+      if (another.length === 0) {
+        return yield* Effect.fail(new AuthError({ message: "Cannot delete the last profile" }));
+      }
+
+      yield* beforeWrite({ at: Date.now() });
 
       // D1 has no interactive transaction, so another delete or default
       // change can land between the reads above and this batch. Each

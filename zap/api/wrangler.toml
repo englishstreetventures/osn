@@ -42,6 +42,12 @@ database_name = "zap-db"
 database_id = "placeholder-replace-after-d1-create"
 migrations_dir = "../db/drizzle"
 
+# The deletion-record bucket (src/lib/deletion-records.ts); miniflare keeps a
+# local one for `wrangler dev --env dev`.
+[[env.dev.r2_buckets]]
+binding = "DELETION_RECORDS"
+bucket_name = "zap-deletion-records-dev"
+
 # ── staging ──────────────────────────────────────────────────────────────────
 # Mirrors osn-api's own staging value (`osn/api/wrangler.toml`), which is itself
 # a placeholder until the staging tier is real. Both move together — a
@@ -85,6 +91,15 @@ custom_domain = true
 binding = "DB"
 database_name = "zap-db-prod"
 database_id = "9b75f81a-7439-412a-9aad-cf47836bca07"
+
+# R2 bucket of deletion records: each account erasure zap-api accepts is
+# recorded here, as ids and its kind only, before it is written, so a D1
+# restore cannot lose it (src/lib/deletion-records.ts). Private; a lifecycle
+# rule deletes each record 31 days after it is written. Declared by the zap
+# stack, which adopts it on production.
+[[env.production.r2_buckets]]
+binding = "DELETION_RECORDS"
+bucket_name = "zap-deletion-records"
 
 # Production vars: OSN identity issuer for access-token verification.
 # Two vars, both read in src/index.ts (and defaulted in src/lib/jwks.ts):

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { DbLive } from "@osn/db/service";
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { initObservability, PrettyLoggerLive } from "@shared/observability";
 import { Effect, Layer, ManagedRuntime } from "effect";
 
@@ -73,6 +74,9 @@ export async function buildAppDeps_Bun(): Promise<
     // Bun path keeps the full per-request observability plugin (server span +
     // RED metrics). The Workers entry passes `false` — see AppDeps.
     includeObservabilityPlugin: true,
+    // No bucket in a local run: the records of erasure requests are kept in
+    // this process and go with it.
+    deletionRecords: memoryDeletionRecordStore(),
   });
   // A local stack may send its own change notices: the E2E stack names a
   // registry file of its own, since the one osn-api ships holds only notices

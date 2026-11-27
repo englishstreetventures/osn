@@ -125,7 +125,7 @@ const SURFACE_WORKERS = [
 const DEV_SEED = "../db/seed/dev-seed.sql";
 
 const WORKERS = ["CireApi", "CireInvites", "CireHost", "CireVendor", "CireLanding"];
-const STORAGE = ["CireDb", "CireAssets", "CireSheets"];
+const STORAGE = ["CireDb", "CireAssets", "CireSheets", "CireDeletionRecords"];
 
 /**
  * The origins each cire site's dev build bakes in, under `cire/`: found by
@@ -203,6 +203,7 @@ describe("the cire stack, evaluated offline", () => {
       CireDb: "cire-db-dev",
       CireAssets: "cire-assets-dev",
       CireSheets: "cire-sheets-dev",
+      CireDeletionRecords: "cire-deletion-records-dev",
     });
     expect(
       Object.fromEntries(
@@ -279,6 +280,7 @@ describe("the cire stack, evaluated offline", () => {
       CireDb: "cire-db-probe",
       CireAssets: "cire-assets-probe",
       CireSheets: "cire-sheets-probe",
+      CireDeletionRecords: "cire-deletion-records-probe",
     });
     expect(investigation.CireApi?.Props.domain).toBe(`api.cire.probe.${DEV_DOMAIN}`);
     expect(investigation.CireApi?.Props.env?.OSN_ENV).toBe("dev");
@@ -584,7 +586,7 @@ describe("the cire stack, evaluated offline", () => {
 
 const PRODUCTION_SITES = ["CireHost", "CireVendor", "CireLanding"];
 const PRODUCTION_APIS = ["CireApi", "CireInvites"];
-const PRODUCTION_STORAGE = ["CireDb", "CireAssets", "CireSheets"];
+const PRODUCTION_STORAGE = ["CireDb", "CireAssets", "CireSheets", "CireDeletionRecords"];
 
 /** Each declared Worker's custom domain, by logical id. */
 const domainsOf = (evaluation: Evaluation): Record<string, unknown> =>
@@ -620,6 +622,7 @@ describe("the cire stack on production", () => {
       CireDb: ["Cloudflare.D1Database", "cire-db", "retain"],
       CireAssets: ["Cloudflare.R2.Bucket", "cire-assets", "retain"],
       CireSheets: ["Cloudflare.R2.Bucket", "cire-sheets", "retain"],
+      CireDeletionRecords: ["Cloudflare.R2.Bucket", "cire-deletion-records", "retain"],
       CireHost: ["Cloudflare.Worker", "cire-host", "retain"],
       CireVendor: ["Cloudflare.Worker", "cire-vendor", "retain"],
       CireLanding: ["Cloudflare.Worker", "cire-landing", "retain"],
@@ -631,6 +634,7 @@ describe("the cire stack on production", () => {
       CireDb: "d1",
       CireAssets: "r2",
       CireSheets: "r2",
+      CireDeletionRecords: "r2",
       CireHost: "custom-domain",
       CireVendor: "custom-domain",
       CireLanding: "custom-domain",
@@ -1011,10 +1015,39 @@ describe("the cire stack on production", () => {
     );
     expect(Object.keys(PRODUCTION_ADOPTED.buckets).toSorted()).toEqual([
       "CireAssets",
+      "CireDeletionRecords",
       "CireSheets",
     ]);
     for (const [id, bucket] of Object.entries(PRODUCTION_ADOPTED.buckets)) {
       expect({ id, name: resources[id]?.Props.name }).toEqual({ id, name: bucket.name });
+    }
+  });
+});
+
+describe("the cire stack's deletion-record bucket", () => {
+  // Where cire-api records each erasure request it accepts, outside cire-db.
+  // It holds the ids of people who asked to be erased: private, bound to
+  // cire-api alone, and each record deleted 31 days after it is written.
+  test("KD1: on dev and production it is private, expires its records at 31 days, and is bound to cire-api alone as DELETION_RECORDS", async () => {
+    for (const [evaluation, name] of [
+      [await evaluateCire({ stage: "dev", env: stackEnv() }), "cire-deletion-records-dev"],
+      [await evaluateCire({ stage: "production", env: productionEnv() }), "cire-deletion-records"],
+    ] as const) {
+      const resources = resourcesOf(evaluation);
+      const bucket = resources.CireDeletionRecords;
+      expect(bucket?.Props).toMatchObject({ name, publicAccess: false, cors: [], domains: [] });
+      expect(bucket?.Props.lifecycleRules).toContainEqual({
+        id: "Expire deletion records",
+        enabled: true,
+        prefix: "",
+        deleteObjectsTransition: { condition: { type: "Age", maxAge: 31 * 24 * 60 * 60 } },
+      });
+      const boundTo = Object.entries(resources).flatMap(([id, resource]) =>
+        Object.entries(resource.Props.env ?? {}).flatMap(([binding, value]) =>
+          value === bucket ? [`${id}.${binding}`] : [],
+        ),
+      );
+      expect(boundTo).toEqual(["CireApi.DELETION_RECORDS"]);
     }
   });
 });

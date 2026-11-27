@@ -9,6 +9,7 @@ import {
   vendorEnquiries,
   weddings,
 } from "@cire/db";
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -191,6 +192,7 @@ async function fixture(deleted: boolean): Promise<Fixture> {
   }
 
   const app = createApp(db, {
+    deletionRecords: memoryDeletionRecordStore(),
     ...freshLimiters(),
     osnTestKey: auth.key,
     stripe,

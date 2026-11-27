@@ -370,6 +370,18 @@ binding = "DB"
 database_name = "osn-db-prod"
 database_id = "767a9ac1-129b-4efa-9fcf-f68ed7a48c38"
 
+# R2 bucket of deletion records: each account deletion, its cancel and each
+# profile deletion osn-api accepts is recorded here, as ids and its kind only,
+# before it is written, so a D1 restore cannot lose it
+# (src/lib/deletion-records.ts). Private; a lifecycle rule deletes each record
+# 31 days after it is written. Declared by the musubi stack, which adopts it.
+# Production's only, so no other tier's run can write into it: the top-level
+# block binds none, and a deletion under `wrangler dev` answers 503 (the Bun
+# dev server keeps its records in memory).
+[[env.production.r2_buckets]]
+binding = "DELETION_RECORDS"
+bucket_name = "osn-deletion-records"
+
 # Native rate-limit bindings mirrored into production (named envs don't inherit).
 # A change to one takes effect with the musubi stack's next production release.
 [[env.production.ratelimits]]

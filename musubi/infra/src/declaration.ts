@@ -1,8 +1,10 @@
 import { join } from "node:path";
 
 import {
+  adoptedBucketOf,
   adoptedWorkerOf,
   declaredDomains,
+  deletionRecordsBucket,
   origin,
   physicalName,
   PRODUCTION_HOST_HOLDS,
@@ -19,6 +21,7 @@ import {
   type MigrationSources,
   type PrebuiltSite,
   type ResourceKinds,
+  type RetainedBucketInput,
   type RetainedD1Input,
   type SiteMode,
   type SiteSurface,
@@ -29,6 +32,7 @@ import {
 /** A Worker binding described as data; the stack turns each into an Alchemy value. */
 export type BindingDescription =
   | { readonly kind: "d1" }
+  | { readonly kind: "r2" }
   /** A Durable Object namespace whose class the Worker itself exports. */
   | { readonly kind: "durable-object"; readonly className: string }
   | {
@@ -55,6 +59,8 @@ export const OSN_DB_PRODUCTION_MIGRATIONS: MigrationSources = {
 interface MusubiDeclaration {
   readonly osnApi: OsnApiDeclaration;
   readonly osnDb: RetainedD1Input;
+  /** Where osn-api records each erasure request it accepts, outside `osn-db`. */
+  readonly osnDeletionRecords: RetainedBucketInput;
   readonly musubiSocial: SiteWorkerInput;
   readonly musubiLanding: SiteWorkerInput;
   /** Where the stack writes each generated seed file. */
@@ -229,6 +235,7 @@ export const productionResourceKinds = (
 ): ResourceKinds => ({
   OsnApi: "api-worker",
   OsnDb: "d1",
+  OsnDeletionRecords: "r2",
   ...productionSiteKinds(SITE_LOGICAL_IDS, modes),
 });
 
@@ -246,6 +253,7 @@ const PRODUCTION_RATE_LIMITS: typeof RATE_LIMITS = RATE_LIMITS.map((limit) => ({
 interface MusubiProductionApis {
   readonly osnApi: OsnApiDeclaration;
   readonly osnDb: RetainedD1Input;
+  readonly osnDeletionRecords: RetainedBucketInput;
 }
 
 /**
@@ -298,6 +306,9 @@ export function musubiProductionApis(input: {
       },
       bindings: {
         DB: { kind: "d1" },
+        // Each accepted erasure request, recorded outside the database
+        // before it is written (osn/api/src/lib/deletion-records.ts).
+        DELETION_RECORDS: { kind: "r2" },
         // The class Wrangler made under migration tag v1; the first Alchemy
         // upload reuses it because the binding keeps its name.
         COORDINATION: { kind: "durable-object", className: "CoordinationStore" },
@@ -329,6 +340,7 @@ export function musubiProductionApis(input: {
       migrations: join(input.generatedDir, "migrations", "osn-db"),
       importFiles: [],
     },
+    osnDeletionRecords: deletionRecordsBucket("osn-deletion-records", "production"),
   };
 }
 
@@ -390,7 +402,7 @@ export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
         migrations: OSN_DB_PRODUCTION_MIGRATIONS,
       },
     },
-    buckets: {},
+    buckets: { OsnDeletionRecords: adoptedBucketOf(apis.osnDeletionRecords) },
   };
 })();
 
@@ -487,6 +499,9 @@ export function musubiDeclaration(input: {
       },
       bindings: {
         DB: { kind: "d1" },
+        // Each accepted erasure request, recorded outside the database
+        // before it is written (osn/api/src/lib/deletion-records.ts).
+        DELETION_RECORDS: { kind: "r2" },
         // The coordination store, one object per key: limiters longer than a
         // minute, ceremonies, single-use claims and lockout counters. Alchemy
         // declares a class this Worker hosts SQLite-backed, the one storage
@@ -519,6 +534,7 @@ export function musubiDeclaration(input: {
       migrations: join(generatedDir, "migrations", "osn-db"),
       importFiles: [osnSeed],
     },
+    osnDeletionRecords: deletionRecordsBucket("osn-deletion-records", stage),
     musubiSocial: socialSite(stage, hosts.musubiSocial),
     musubiLanding: landingSite(stage, hosts.musubiLanding),
     seeds: { osn: osnSeed },

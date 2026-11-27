@@ -1,5 +1,11 @@
 import { families, guests } from "@cire/db";
 import { GUEST_EMAIL_CONSENT, parseGuestEmail } from "@cire/guest-email";
+import {
+  type DeletionRecord,
+  type DeletionRecordStore,
+  missingDeletionRecordStore,
+  withDeletionRecord,
+} from "@shared/db-utils/deletion-records";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { and, eq } from "drizzle-orm";
@@ -15,6 +21,7 @@ import {
   parseOrganiserSessionToken,
   parseSessionToken,
 } from "../lib/cookie";
+import { instrumentDeletionRecords } from "../lib/deletion-records";
 import { getWaitUntil } from "../lib/execution-ctx";
 import {
   metricGuestEmailBlocked,
@@ -373,6 +380,11 @@ export interface ClaimMemberRouteOptions {
   limiter: RateLimiterBackend;
   /** Decides whether the answer carries the household's account-link state. */
   accountLinking: AccountLinking;
+  /**
+   * Where a guest's removal of their own email address is recorded, before
+   * it is written; absent, every removal answers 503 (`lib/deletion-records.ts`).
+   */
+  deletionRecords?: DeletionRecordStore;
 }
 
 const LINKING_OFF: AccountLinkState = { enabled: false };
@@ -500,7 +512,11 @@ class SessionGone extends Data.TaggedError("SessionGone") {}
  */
 export const createClaimMemberRoutes = (
   db: Db,
-  { limiter, accountLinking }: ClaimMemberRouteOptions,
+  {
+    limiter,
+    accountLinking,
+    deletionRecords = missingDeletionRecordStore(),
+  }: ClaimMemberRouteOptions,
 ) =>
   new Elysia({ prefix: "/api/claim" })
     .use(rateLimitMiddleware(limiter))
@@ -756,7 +772,25 @@ export const createClaimMemberRoutes = (
               bodyMember: body.memberGuestId,
               memberStepOff,
             });
-            yield* guestEmailService.removeOwn(seat);
+            // Recorded outside the database before the address goes, so a
+            // database restore cannot bring it back; a record it cannot write
+            // refuses the removal (503). A seat with no address removes
+            // nothing to record.
+            yield* withDeletionRecord(instrumentDeletionRecords(deletionRecords), {
+              build: (at: number): DeletionRecord => ({
+                v: 1,
+                kind: "guest_email_removed",
+                at,
+                weddingId: seat.weddingId,
+                guestId: seat.guestId,
+              }),
+              perform: (write) =>
+                (seat.email === null ? Effect.void : write(Date.now())).pipe(
+                  Effect.andThen(guestEmailService.removeOwn(seat)),
+                ),
+              accepted: () => true,
+              refused: () => false,
+            });
             return { email: null };
           }).pipe(
             Effect.provideService(DbService, db),
@@ -768,6 +802,12 @@ export const createClaimMemberRoutes = (
                 }),
               GuestEmailSeatRefused: (e: GuestEmailSeatRefused) => seatRefusal(e.reason, set),
               GuestEmailWriteError: () => writeFailed("Could not remove your email", set),
+              DeletionRecordWriteError: () =>
+                Effect.sync(() => {
+                  set.status = 503;
+                  return { error: "Could not remove your email, try again" };
+                }),
+              DeletionRecordRefused: () => writeFailed("Could not remove your email", set),
             }),
           ),
         );

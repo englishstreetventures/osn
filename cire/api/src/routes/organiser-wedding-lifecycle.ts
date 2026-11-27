@@ -1,3 +1,9 @@
+import {
+  type DeletionRecord,
+  type DeletionRecordStore,
+  missingDeletionRecordStore,
+  withDeletionRecord,
+} from "@shared/db-utils/deletion-records";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
@@ -5,6 +11,7 @@ import { Elysia } from "elysia";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { RESTORE_WINDOW_S } from "../db/live-wedding";
+import { instrumentDeletionRecords, neverBlocking } from "../lib/deletion-records";
 import { dispatchNotice } from "../lib/owner-notice-email";
 import type { OwnerNotices } from "../lib/owner-notice-email";
 import { osnAuth } from "../middleware/osn-auth";
@@ -49,6 +56,17 @@ const failed = (set: SetStatus, error: string) =>
     return { error };
   });
 
+/** The delete could not be recorded outside the database, so nothing was written: try again. */
+const notRecorded = (set: SetStatus) =>
+  Effect.sync(() => {
+    set.status = 503;
+    return { error: "Could not delete wedding, try again" };
+  });
+
+/** A delete or restore the guarded write refused: its record is discarded. */
+const lifecycleRefusal = (error: { readonly _tag: string }): boolean =>
+  error._tag === "WeddingLifecycleRefused";
+
 /**
  * DELETE /api/organiser/weddings/:weddingId — an owner soft-deletes the wedding.
  *
@@ -78,6 +96,13 @@ export const createOrganiserWeddingDeleteRoute = (
   limiter: RateLimiterBackend,
   ownerNotices?: OwnerNotices,
   signals?: WeddingSignals,
+  /**
+   * Where the delete is recorded outside the database, once every guard
+   * holds and before it is written (`lib/deletion-records.ts`): a record it
+   * cannot write refuses the delete with 503, and one the guarded write then
+   * refuses is discarded. None given refuses every delete.
+   */
+  deletionRecords: DeletionRecordStore = missingDeletionRecordStore(),
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -95,10 +120,23 @@ export const createOrganiserWeddingDeleteRoute = (
         return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknownEffect(DeleteWeddingBody)(raw);
-            const deleted = yield* weddingLifecycleService.softDelete({
-              weddingId,
-              osnProfileId,
-              confirmSlug: body.confirmSlug,
+            const deleted = yield* withDeletionRecord(instrumentDeletionRecords(deletionRecords), {
+              build: ({ at }: { readonly at: number }): DeletionRecord => ({
+                v: 1,
+                kind: "wedding_deleted",
+                at,
+                weddingId,
+                profileId: osnProfileId,
+              }),
+              perform: (beforeWrite) =>
+                weddingLifecycleService.softDelete({
+                  weddingId,
+                  osnProfileId,
+                  confirmSlug: body.confirmSlug,
+                  beforeWrite,
+                }),
+              accepted: () => true,
+              refused: lifecycleRefusal,
             });
             // Every other owner hears who deleted it and until when it can
             // be restored.
@@ -139,6 +177,8 @@ export const createOrganiserWeddingDeleteRoute = (
             Effect.catchTag("WeddingLifecycleWriteError", () =>
               failed(set, "Could not delete wedding"),
             ),
+            Effect.catchTag("DeletionRecordWriteError", () => notRecorded(set)),
+            Effect.catchTag("DeletionRecordRefused", () => failed(set, "Could not delete wedding")),
             Effect.catchDefect(() => failed(set, "Internal error")),
           ),
         );
@@ -162,6 +202,12 @@ export const createOrganiserWeddingRestoreRoute = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
+  /**
+   * Where the restore is recorded outside the database, so a delete it
+   * withdrew is not applied again after a database restore. A record it
+   * cannot write is logged and does not block it (`neverBlocking`).
+   */
+  deletionRecords: DeletionRecordStore = missingDeletionRecordStore(),
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -173,7 +219,23 @@ export const createOrganiserWeddingRestoreRoute = (
         return { error: "Internal error" };
       }
       return runCire(
-        weddingLifecycleService.restore({ weddingId, osnProfileId }).pipe(
+        withDeletionRecord(instrumentDeletionRecords(deletionRecords), {
+          build: ({ at }: { readonly at: number }): DeletionRecord => ({
+            v: 1,
+            kind: "wedding_restored",
+            at,
+            weddingId,
+            profileId: osnProfileId,
+          }),
+          perform: (write) =>
+            weddingLifecycleService.restore({
+              weddingId,
+              osnProfileId,
+              beforeWrite: neverBlocking(write),
+            }),
+          accepted: () => true,
+          refused: lifecycleRefusal,
+        }).pipe(
           Effect.map((r) => ({ restored: true, weddingId: r.weddingId })),
           Effect.provideService(DbService, db),
           Effect.catchTag("WeddingLifecycleRefused", (err) => refused(set, err.reason)),

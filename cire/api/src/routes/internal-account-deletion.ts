@@ -19,16 +19,26 @@
  * no one, which is how a replay of recorded erasures after a database restore
  * must call it (englishstreetventures/osn#2541, `services/account-erasure.ts`).
  */
+import {
+  type DeletionRecord,
+  type DeletionRecordStore,
+  missingDeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import { Effect, Option, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import {
+  erasureOutcome,
+  instrumentDeletionRecords,
+  settleDeletionRecord,
+} from "../lib/deletion-records";
 import { osnArcAdmits, OSN_ARC_SCOPES, type CireOsnArc } from "../lib/osn-arc";
 import { dispatchNotice, type OwnerNotices } from "../lib/owner-notice-email";
 import { metricAccountDeletionErasure, metricAccountDeletionPreview } from "../metrics";
 import { runCire } from "../observability";
-import { accountErasureService } from "../services/account-erasure";
+import { accountErasureService, erasureProgress } from "../services/account-erasure";
 
 /** Most profile ids one call may name, as on Zap's receiver. */
 const MAX_PROFILE_IDS = 100;
@@ -69,6 +79,12 @@ export interface InternalAccountDeletionOptions {
   readonly organiserOrigin: string;
   /** Owner mail; absent where the deployment cannot send it, and then none is sent. */
   readonly ownerNotices?: OwnerNotices;
+  /**
+   * Where each erasure is recorded before it runs, so a restore of this
+   * database cannot lose it once osn-api has marked cire done
+   * (`lib/deletion-records.ts`). Absent, every erasure answers 503.
+   */
+  readonly deletionRecords?: DeletionRecordStore;
 }
 
 const refused = (set: { status?: number | string }) => {
@@ -83,8 +99,14 @@ const badRequest = (set: { status?: number | string }) => {
 
 export const createInternalAccountDeletionRoutes = (
   db: Db,
-  { osnArc, organiserOrigin, ownerNotices }: InternalAccountDeletionOptions,
+  {
+    osnArc,
+    organiserOrigin,
+    ownerNotices,
+    deletionRecords = missingDeletionRecordStore(),
+  }: InternalAccountDeletionOptions,
 ) => {
+  const records = instrumentDeletionRecords(deletionRecords);
   return new Elysia({ prefix: "/internal" })
     .post(
       "/account-deletion-preview",
@@ -148,7 +170,8 @@ export const createInternalAccountDeletionRoutes = (
         if (Object.keys(body.choices ?? {}).length > MAX_CHOICES) return badRequest(set);
 
         // The remaining owners of a wedding whose payout account holder this
-        // call takes are told as that wedding's batch commits.
+        // call takes are told as that wedding's batch commits. The email
+        // never fails the call and never touches its record.
         const onPayoutHolderLeft = ownerNotices
           ? (weddingId: string) =>
               dispatchNotice(
@@ -158,16 +181,59 @@ export const createInternalAccountDeletionRoutes = (
                   .pipe(Effect.provideService(DbService, db)),
               )
           : undefined;
+        // Recorded before anything is erased; a record that cannot be written
+        // erases nothing and answers 503, and osn-api calls again on its next
+        // pass. Once the call returns, the record says what it did, which is
+        // all a replay applies, a failure part way included.
+        const erasure = {
+          v: 1,
+          kind: "account_erased",
+          at: Date.now(),
+          accountId: body.accountId,
+          profileIds: body.profileIds,
+        } as const satisfies DeletionRecord;
         const result = await runCire(
-          accountErasureService
-            .erase({ accountId: body.accountId, profileIds: body.profileIds, onPayoutHolderLeft })
-            .pipe(
-              Effect.catchTag("AccountErasureError", () =>
-                Effect.succeed({ status: "error" } as const),
-              ),
-              Effect.provideService(DbService, db),
+          Effect.gen(function* () {
+            const written = yield* records.write(erasure);
+            const progress = erasureProgress();
+            const erased = yield* accountErasureService
+              .eraseWithOutcomes(
+                { accountId: body.accountId, profileIds: body.profileIds, onPayoutHolderLeft },
+                progress,
+              )
+              .pipe(
+                // A failure, a defect or an interruption: what the call did
+                // before it stopped, and the batch it had sent.
+                Effect.onError(() =>
+                  settleDeletionRecord(records, written, {
+                    ...erasure,
+                    outcome: erasureOutcome(progress, false),
+                  }),
+                ),
+              );
+            yield* settleDeletionRecord(records, written, {
+              ...erasure,
+              outcome: erasureOutcome(progress, erased.result.status === "done"),
+            });
+            return erased.result;
+          }).pipe(
+            Effect.catchTag("AccountErasureError", () =>
+              Effect.succeed({ status: "error" } as const),
             ),
+            Effect.catchTag("DeletionRecordRefused", () =>
+              Effect.succeed({ status: "error" } as const),
+            ),
+            Effect.catchTag("DeletionRecordWriteError", () =>
+              Effect.succeed({ status: "not_recorded" } as const),
+            ),
+            Effect.provideService(DbService, db),
+          ),
         );
+        if (result.status === "not_recorded") {
+          metricAccountDeletionErasure("error");
+          set.status = 503;
+          return { error: "not_recorded" };
+        }
         if (result.status === "error") {
           metricAccountDeletionErasure("error");
           set.status = 500;

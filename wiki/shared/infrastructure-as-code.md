@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-26
 ---
 
 # Infrastructure as code (Alchemy)
@@ -116,7 +116,7 @@ Each refusal is a `Data.TaggedError`. Every one names secret names, never values
 | `InvalidDevDomainError` | `parseDevDomain()`, `stageHosts()` | `DEV_DOMAIN` is not a bare lower-case domain, is or is under a production zone or `workers.dev`/`pages.dev`, or a derived host passes 253 characters ([[#Dev hosts]]) |
 | `InvalidStageError` | `parseStage()` and everything that calls it | The stage breaks the rules in [[#Stages]] |
 
-Storage on production is adopted, and an adopted resource is changed to match its declaration, so a production declaration states each setting exactly as it is live. A stage that creates storage — `dev` or an investigation stage — passes a location hint to place it where production's is, and declares production's settings: every D1 database in `oc` with its production database's read replication, and the R2 buckets `Standard`, `enam`, private, with no CORS or custom domain and production's one lifecycle rule ([[database-environments]]).
+Storage on production is adopted, and an adopted resource is changed to match its declaration, so a production declaration states each setting exactly as it is live. A stage that creates storage — `dev` or an investigation stage — passes a location hint to place it where production's is, and declares production's settings: every D1 database in `oc` with its production database's read replication, and the R2 buckets `Standard`, `enam`, private, with no CORS or custom domain and production's one lifecycle rule ([[database-environments]]). Each product's deletion-record bucket (`deletionRecordsBucket()` in [`shared/infra/src/storage.ts`](../../shared/infra/src/storage.ts)) has the same settings and a second rule, `Expire deletion records`, which deletes each object 31 days after it is written ([[backup-dr#Deletion records outside the databases]]).
 
 ## Stages
 
@@ -138,9 +138,9 @@ Each product has one stack, `<product>/infra/alchemy.run.ts`, in a workspace nam
 
 | Directory | Stack name | Declares (dev names) |
 |---|---|---|
-| `musubi/infra` (`@musubi/infra`) | `musubi` | Our identity instance: osn-api (`osn-api-dev`) with its D1 database (`osn-db-dev`) and seed, musubi social (`osn-social-dev`), musubi landing (`musubi-landing-dev`) |
-| `cire/infra` (`@cire/infra`, version-less like every `@cire/*`) | `cire` | cire-api (`cire-api-dev`) with its D1 database (`cire-db-dev`), seeds and R2 buckets (`cire-assets-dev`, `cire-sheets-dev`), cire-invites (`cire-invites-dev`), cire host, cire vendor, cire landing (`cire-host-dev`, `cire-vendor-dev`, `cire-landing-dev`) |
-| `zap/infra` (`@zap/infra`) | `zap` | zap-api (`zap-api-dev`) and its D1 database (`zap-db-dev`) |
+| `musubi/infra` (`@musubi/infra`) | `musubi` | Our identity instance: osn-api (`osn-api-dev`) with its D1 database (`osn-db-dev`), seed and deletion-record bucket (`osn-deletion-records-dev`), musubi social (`osn-social-dev`), musubi landing (`musubi-landing-dev`) |
+| `cire/infra` (`@cire/infra`, version-less like every `@cire/*`) | `cire` | cire-api (`cire-api-dev`) with its D1 database (`cire-db-dev`), seeds and R2 buckets (`cire-assets-dev`, `cire-sheets-dev`, `cire-deletion-records-dev`), cire-invites (`cire-invites-dev`), cire host, cire vendor, cire landing (`cire-host-dev`, `cire-vendor-dev`, `cire-landing-dev`) |
+| `zap/infra` (`@zap/infra`) | `zap` | zap-api (`zap-api-dev`), its D1 database (`zap-db-dev`) and its deletion-record bucket (`zap-deletion-records-dev`) |
 | `pulse/infra` (`@pulse/infra`) | `pulse` | Pulse landing (`pulse-landing-dev`), a Worker serving `/api/geo` beside its assets |
 
 The stack name equals the directory name. It keys Alchemy's state rows and becomes the `ALCHEMY_STACK_NAME` binding on every Worker, so it never changes after a stack's first deploy; the logical ids in `alchemy.run.ts` (`OsnApi`, `CireDb`, …) key the rows too. `osn/` stays headless: the hosted instance's configuration is Musubi's ([[osn-and-musubi]]), and a stack template for independent OSN instances, `osn/infra`, is englishstreetventures/osn#1539. `pulse/api` has no deploy job and no stack.
@@ -598,11 +598,11 @@ Each production stack declares its API Workers, databases and buckets under the 
 
 | Stack | Function in `<product>/infra/src/declaration.ts` | API Workers | Databases and buckets |
 |---|---|---|---|
-| musubi | `musubiProductionApis()` | `osn-api-production` (`OsnApi`) | `osn-db-prod` (`OsnDb`) |
-| cire | `cireProductionApis()` | `cire-api-production` (`CireApi`), `cire-invites` (`CireInvites`) | `cire-db` (`CireDb`), `cire-assets` (`CireAssets`), `cire-sheets` (`CireSheets`) |
-| zap | `zapProductionApis()` | `zap-api-production` (`ZapApi`) | `zap-db-prod` (`ZapDb`) |
+| musubi | `musubiProductionApis()` | `osn-api-production` (`OsnApi`) | `osn-db-prod` (`OsnDb`), `osn-deletion-records` (`OsnDeletionRecords`) |
+| cire | `cireProductionApis()` | `cire-api-production` (`CireApi`), `cire-invites` (`CireInvites`) | `cire-db` (`CireDb`), `cire-assets` (`CireAssets`), `cire-sheets` (`CireSheets`), `cire-deletion-records` (`CireDeletionRecords`) |
+| zap | `zapProductionApis()` | `zap-api-production` (`ZapApi`) | `zap-db-prod` (`ZapDb`), `zap-deletion-records` (`ZapDeletionRecords`) |
 
-`PRODUCTION_ADOPTIONS` in [`shared/infra/src/production-sites.ts`](../../shared/infra/src/production-sites.ts) lists those nine names, and the builders refuse any other production name (`ProductionNotAdoptedError`). Every var, binding, custom domain, cron and setting is what the Worker's `[env.production]` block in its Wrangler config holds, plus `legacy_module_registry` on a bundled Worker; each stack's parity test holds the two equal ([[#The stacks]]). `PREBUILT_WORKER_BUILDS` names the guest Worker's build, which the release's `sites` job makes beside the sites.
+`PRODUCTION_ADOPTIONS` in [`shared/infra/src/production-sites.ts`](../../shared/infra/src/production-sites.ts) lists those twelve names, and the builders refuse any other production name (`ProductionNotAdoptedError`). Every var, binding, custom domain, cron and setting is what the Worker's `[env.production]` block in its Wrangler config holds, plus `legacy_module_registry` on a bundled Worker; each stack's parity test holds the two equal ([[#The stacks]]). `PREBUILT_WORKER_BUILDS` names the guest Worker's build, which the release's `sites` job makes beside the sites.
 
 **Adoption.** On production `apiWorker()` pipes `AdoptPolicy.adopt(true)`, so the adoption is scoped to each API Worker and no run passes `--adopt`. An API Worker whose bindings wait on storage with no state row yet plans `create`, and the deploy adopts it when it reaches it; the plan adopts the rest (`adopted`). A database or bucket reads as Alchemy's own, and a site Worker is in state already. Once a resource is in state, a declared change plans as `update`.
 

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { ProductionNotAdoptedError } from "../src/production";
 import {
   AdoptedLocationHintError,
+  deletionRecordsBucket,
   ProductionSeedError,
   retainedBucketProps,
   retainedD1Props,
@@ -158,5 +159,43 @@ describe("production storage", () => {
       ProductionNotAdoptedError,
     );
     expect(retainedBucketProps(cireAssets, ["cire-assets"]).name).toBe("cire-assets");
+  });
+});
+
+describe("deletionRecordsBucket", () => {
+  // The record of each erasure request must outlive D1 Time Travel's 30-day
+  // window, and no longer: it holds the ids of people who asked to be erased.
+  test("deletes each record 31 days after it is written, and keeps the bucket private", () => {
+    const props = retainedBucketProps(deletionRecordsBucket("osn-deletion-records", "production"));
+    expect(props).toMatchObject({
+      name: "osn-deletion-records",
+      publicAccess: false,
+      cors: [],
+      domains: [],
+      forceDestroy: false,
+    });
+    expect(props.lifecycleRules?.filter((rule) => rule.deleteObjectsTransition)).toEqual([
+      {
+        id: "Expire deletion records",
+        enabled: true,
+        prefix: "",
+        deleteObjectsTransition: { condition: { type: "Age", maxAge: 31 * 24 * 60 * 60 } },
+      },
+    ]);
+  });
+
+  test("is adopted on production with no location hint, and placed in ENAM on dev", () => {
+    expect(
+      retainedBucketProps(deletionRecordsBucket("cire-deletion-records", "production")),
+    ).not.toHaveProperty("locationHint");
+    expect(
+      retainedBucketProps(deletionRecordsBucket("cire-deletion-records", "dev")),
+    ).toMatchObject({
+      name: "cire-deletion-records-dev",
+      locationHint: "enam",
+    });
+    expect(() =>
+      retainedBucketProps(deletionRecordsBucket("other-deletion-records", "production")),
+    ).toThrow(ProductionNotAdoptedError);
   });
 });

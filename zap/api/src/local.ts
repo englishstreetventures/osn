@@ -1,3 +1,4 @@
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { initObservability, PrettyLoggerLive } from "@shared/observability";
 import { Effect } from "effect";
 
@@ -24,7 +25,12 @@ if (nonLocal && DEFAULT_JWKS_URL.startsWith("http://")) {
 const corsOrigins = resolveCorsOrigins(process.env);
 assertCorsOriginsConfigured(corsOrigins, nonLocal);
 
-const app = createApp({ verification: DEFAULT_VERIFICATION, corsOrigins });
+// No bucket in a local run: the records of erasures are kept in this process.
+const app = createApp({
+  verification: DEFAULT_VERIFICATION,
+  corsOrigins,
+  deletionRecords: memoryDeletionRecordStore(),
+});
 
 const port = process.env.PORT || 3002;
 

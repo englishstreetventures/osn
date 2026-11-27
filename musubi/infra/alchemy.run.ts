@@ -16,6 +16,7 @@ import {
   refuseDotEnvFiles,
   requireSecrets,
   requireSeedValue,
+  retainedBucket,
   retainedD1,
   siteWorker,
   stackOptions,
@@ -47,12 +48,17 @@ class UnresolvedBindingError extends Data.TaggedError("UnresolvedBindingError")<
 }> {}
 
 /**
- * Each described binding as the value Alchemy binds: a database this stack
- * declares, a rate limiter, or a Durable Object namespace the Worker hosts.
+ * Each described binding as the value Alchemy binds: a database or bucket
+ * this stack declares, a rate limiter, or a Durable Object namespace the
+ * Worker hosts. A storage binding resolves by its name, so it can only reach
+ * this stack's resources.
  */
 function toBindings(
   described: Readonly<Record<string, BindingDescription>>,
-  databases: Readonly<Record<string, Cloudflare.D1.Database>>,
+  storage: {
+    readonly databases: Readonly<Record<string, Cloudflare.D1.Database>>;
+    readonly buckets: Readonly<Record<string, Cloudflare.R2.Bucket>>;
+  },
 ): Cloudflare.WorkerBindingProps {
   return Object.fromEntries(
     Object.entries(described).map(([name, binding]) => {
@@ -68,15 +74,16 @@ function toBindings(
         case "durable-object":
           // No script name: the class lives on this Worker, which exports it.
           return [name, Cloudflare.DurableObject(binding.className)];
-        case "d1": {
-          const database = databases[name];
-          if (database === undefined) {
+        case "d1":
+        case "r2": {
+          const resource = binding.kind === "d1" ? storage.databases[name] : storage.buckets[name];
+          if (resource === undefined) {
             throw new UnresolvedBindingError({
               binding: name,
-              message: `No database is declared for the D1 binding ${name}.`,
+              message: `No ${binding.kind === "d1" ? "database" : "bucket"} is declared for the ${binding.kind} binding ${name}.`,
             });
           }
-          return [name, database];
+          return [name, resource];
         }
       }
     }),
@@ -120,19 +127,23 @@ const musubiProductionStack = (input: {
     // Binding `db` makes osn-api wait for the database's reconcile, which
     // applies its migrations.
     const db = yield* retainedD1("OsnDb", apis.osnDb);
+    const deletionRecords = yield* retainedBucket("OsnDeletionRecords", apis.osnDeletionRecords);
     const osnApi = yield* apiWorker(API_LOGICAL_IDS.osn_api, {
       ...apis.osnApi,
-      bindings: toBindings(apis.osnApi.bindings, { DB: db }),
+      bindings: toBindings(apis.osnApi.bindings, {
+        databases: { DB: db },
+        buckets: { DELETION_RECORDS: deletionRecords },
+      }),
       secrets,
     });
     const workers = [osnApi];
     for (const [logicalId, site] of Object.entries(declared.sites)) {
       workers.push(yield* siteWorker(logicalId, site));
     }
-    assertStackRetained({ stage, storage: [db], workers });
+    assertStackRetained({ stage, storage: [db, deletionRecords], workers });
     assertProductionScope({
       stage,
-      resources: [db, ...workers],
+      resources: [db, deletionRecords, ...workers],
       allowed: Object.keys(productionResourceKinds(input.modes)),
     });
     return {
@@ -196,17 +207,28 @@ export const musubiStack = (input: {
 
     // Logical ids key the state rows, so they never change: a renamed id is a new resource.
     const db = yield* retainedD1("OsnDb", declared.osnDb);
+    const deletionRecords = yield* retainedBucket(
+      "OsnDeletionRecords",
+      declared.osnDeletionRecords,
+    );
     // Binding `db` makes osn-api wait for the database's reconcile, which
     // applies osn/db's migrations, so the Worker never serves before a table
     // it reads exists.
     const osnApi = yield* apiWorker("OsnApi", {
       ...declared.osnApi,
-      bindings: toBindings(declared.osnApi.bindings, { DB: db }),
+      bindings: toBindings(declared.osnApi.bindings, {
+        databases: { DB: db },
+        buckets: { DELETION_RECORDS: deletionRecords },
+      }),
       secrets,
     });
     const social = yield* siteWorker(SITE_LOGICAL_IDS.osn_social, declared.musubiSocial);
     const landing = yield* siteWorker(SITE_LOGICAL_IDS.musubi_landing, declared.musubiLanding);
-    assertStackRetained({ stage, storage: [db], workers: [osnApi, social, landing] });
+    assertStackRetained({
+      stage,
+      storage: [db, deletionRecords],
+      workers: [osnApi, social, landing],
+    });
     return {
       osnApi: hosts.osnApi,
       musubiSocial: hosts.musubiSocial,

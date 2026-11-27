@@ -7,10 +7,7 @@ import { Effect, Layer } from "effect";
 import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
 
 import * as metrics from "../../src/metrics";
-import {
-  createAccountErasureRoutes,
-  type AccountErasureRateLimiters,
-} from "../../src/routes/account-erasure";
+import { type AccountErasureRateLimiters } from "../../src/routes/account-erasure";
 import { runHardDeleteSweep } from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
 import {
@@ -25,6 +22,7 @@ import { settledHandle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { appStandIns, everyAppDone, type AppAnswer, type AppCall } from "../helpers/deletion-apps";
 import { holdQueries } from "../helpers/held-query";
+import { createAccountErasureRoutes } from "../helpers/routes";
 import { mintStepUpToken } from "../helpers/step-up-session";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;

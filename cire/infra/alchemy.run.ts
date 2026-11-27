@@ -139,11 +139,12 @@ const cireProductionStack = (input: {
     const db = yield* retainedD1("CireDb", apis.cireDb);
     const assets = yield* retainedBucket("CireAssets", apis.cireAssets);
     const sheets = yield* retainedBucket("CireSheets", apis.cireSheets);
+    const deletionRecords = yield* retainedBucket("CireDeletionRecords", apis.cireDeletionRecords);
     const cireApi = yield* apiWorker(API_LOGICAL_IDS.cire_api, {
       ...apis.cireApi,
       bindings: toBindings(apis.cireApi.bindings, {
         databases: { DB: db },
-        buckets: { ASSETS: assets, SHEETS: sheets },
+        buckets: { ASSETS: assets, SHEETS: sheets, DELETION_RECORDS: deletionRecords },
       }),
       secrets: apiSecrets,
     });
@@ -155,7 +156,7 @@ const cireProductionStack = (input: {
     for (const [logicalId, site] of Object.entries(sites.sites)) {
       workers.push(yield* siteWorker(logicalId, site));
     }
-    const storage = [db, assets, sheets];
+    const storage = [db, assets, sheets, deletionRecords];
     assertStackRetained({ stage, storage, workers });
     assertProductionScope({
       stage,
@@ -233,11 +234,15 @@ export const cireStack = (input: {
     const db = yield* retainedD1("CireDb", declared.cireDb);
     const assets = yield* retainedBucket("CireAssets", declared.cireAssets);
     const sheets = yield* retainedBucket("CireSheets", declared.cireSheets);
+    const deletionRecords = yield* retainedBucket(
+      "CireDeletionRecords",
+      declared.cireDeletionRecords,
+    );
     const cireApi = yield* apiWorker("CireApi", {
       ...declared.cireApi,
       bindings: toBindings(declared.cireApi.bindings, {
         databases: { DB: db },
-        buckets: { ASSETS: assets, SHEETS: sheets },
+        buckets: { ASSETS: assets, SHEETS: sheets, DELETION_RECORDS: deletionRecords },
       }),
       secrets: apiSecrets,
     });
@@ -250,7 +255,7 @@ export const cireStack = (input: {
     const landing = yield* siteWorker(SITE_LOGICAL_IDS.cire_landing, declared.cireLanding);
     assertStackRetained({
       stage,
-      storage: [db, assets, sheets],
+      storage: [db, assets, sheets, deletionRecords],
       workers: [cireApi, cireInvites, host, vendor, landing],
     });
     return {
