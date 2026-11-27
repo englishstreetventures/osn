@@ -16,7 +16,9 @@ import { describe, expect, it } from "vitest";
  * CI runs tests on bun:sqlite, so it can NEVER reproduce the D1 mismatch — a new
  * direct `.changes` / `.rowsAffected` read would pass every test and only fail
  * in production. This scan is driver-independent: it fails the build the moment
- * such a read reappears in a Worker's `src/` outside this package.
+ * such a read reappears in a Worker's `src/` outside this package. It runs as
+ * this package's `test:repo` task, which turbo reruns when a scanned tree
+ * changes (`turbo.json` here).
  */
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -76,5 +78,18 @@ describe("no raw rows-affected reads outside @shared/db-utils", () => {
       offenders,
       `Use rowsChanged() from @shared/db-utils instead:\n${offenders.join("\n")}`,
     ).toEqual([]);
+  });
+
+  // turbo caches this package's tests on its own files. The scan reruns when a
+  // scanned tree changes only because each tree is an input of `test:repo`;
+  // a tree missing there replays a cached green over a new offender.
+  it("every scanned tree is an input of this package's test:repo task", () => {
+    const turbo = Bun.JSONC.parse(
+      readFileSync(join(REPO_ROOT, "shared/db-utils/turbo.json"), "utf8"),
+    ) as { tasks: Record<string, { inputs?: string[]; dependsOn?: string[] }> };
+    expect(turbo.tasks["test:repo"]?.inputs).toEqual(
+      expect.arrayContaining(SCANNED.map((tree) => `$TURBO_ROOT$/${tree}/**`)),
+    );
+    expect(turbo.tasks.test?.dependsOn).toContain("test:repo");
   });
 });
